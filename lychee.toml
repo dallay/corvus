@@ -1,0 +1,49 @@
+# Lychee configuration file
+# See https://github.com/lycheeverse/lychee#configuration
+
+# Note: root_dir is not set because it requires absolute paths.
+# Internal docs links are handled via exclude patterns below.
+
+# Exclude these URLs from link checking
+exclude = [
+    # Maven central snapshots not yet deployed
+    'https://central\.sonatype\.com/repository/maven-snapshots/.*',
+    # Mend.io returns 403 Forbidden to bots
+    'https://www\.mend\.io/.*',
+    # Avoid local development URLs
+    '^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)',
+    # Common placeholders
+    'mailto:.*@example\.com',
+    # Internal docs links resolved by Astro/Starlight at build time
+    # These are links to other pages within the documentation that Astro resolves at build time
+    # Root-relative links: /en/guides/pagename or /es/guides/pagename
+    '^/(en|es)/guides/[a-z0-9-]+$',
+    '^/(en|es)/guides/[a-z0-9-]+/$',
+    # Relative links in frontmatter: guides/pagename/
+    '^guides/[a-z0-9-]+/?$',
+    # Any link ending with guide page names (without extension)
+    '/guides/(gpg-setup|architecture|development|features|structure|getting-started|release|configuration)$',
+    '/guides/(gpg-setup|architecture|development|features|structure|getting-started|release|configuration)/$',
+]
+
+# Exclude entire files or directories
+exclude_path = [
+    # Checkstyle header file contains regex patterns that look like URLs
+    'gradle/configs/checkstyle/checkstyle-header-file.txt',
+    # Build directories
+    '.*/build/.*',
+    '.*\.gradle/.*',
+]
+
+# Custom User-Agent to avoid being blocked by some sites
+user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+# Max retries and wait time
+max_retries = 3
+retry_wait_time = 5
+
+# Maximum number of concurrent requests
+max_concurrency = 10
+
+# Show inclusive summary
+verbose = "info"

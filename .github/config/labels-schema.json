@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "GitHub Labels",
+  "description": "JSON schema for GitHub labels, compatible with most kind of labels manager.",
+  "type": "array",
+  "uniqueItems": true,
+  "items": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "type": "string",
+        "description": "Name of the label.",
+        "minLength": 1,
+        "pattern": "^\\S(?:.*\\S)?$"
+      },
+      "color": {
+        "type": "string",
+        "description": "Colour of the label.",
+        "pattern": "^#?[\\dA-Fa-f]{6}$"
+      },
+      "description": {
+        "type": "string",
+        "description": "Description of the label.",
+        "minLength": 1,
+        "pattern": "^\\S(?:.*\\S)?$"
+      }
+    },
+    "required": ["name", "color", "description"]
+  }
+}

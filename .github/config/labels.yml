@@ -1,0 +1,167 @@
+# yaml-language-server: $schema=labels-schema.json
+# Issue Type (type|)
+- name: type|bug
+  description: A general bug
+  color: "#6F42C1"
+- name: type|question
+  description: A question
+  color: "#6F42C1"
+- name: type|regression
+  description: A regression from a previous release
+  color: "#6F42C1"
+- name: type|task
+  description: A general task
+  color: "#6F42C1"
+- name: type|enhancement
+  description: A general enhancement
+  color: "#6F42C1"
+- name: type|docs
+  description: A documentation update
+  color: "#6F42C1"
+- name: type|epic
+  description: An issue tracking a large piece of work that will be split into smaller issues
+  color: "#6F42C1"
+- name: type|dependency-upgrade
+  description: A dependency upgrade
+  color: "#6F42C1"
+
+# Module (module|)
+- name: module|code
+  description: Issues related to the code
+  color: "#0366D6"
+- name: module|testing
+  description: Issues related to testing
+  color: "#0366D6"
+- name: module|performance
+  description: Issues related to general performance
+  color: "#0366D6"
+- name: module|config
+  description: Issues related to the configuration system
+  color: "#0366D6"
+- name: module|plugins
+  description: Issues related to plugins
+  color: "#0366D6"
+- name: module|observability
+  description: Issues related to observability
+  color: "#0366D6"
+- name: module|containers
+  description: Testcontainers, Docker Compose and Buildpack features
+  color: "#0366D6"
+
+# Status (status|)
+## Triage
+- name: status|waiting-for-triage
+  description: An issue we've not yet triaged
+  color: "#22863A"
+- name: status|waiting-reproduction
+  description: We need a minimal reproducible example to continue
+  color: "#22863A"
+- name: status|waiting-feedback
+  description: We need additional information before we can continue
+  color: "#22863A"
+
+## Blocked
+- name: status|blocked-external
+  description: An issue that's blocked on an external project change
+  color: "#22863A"
+- name: status|blocked-internal
+  description: An issue we'd like to discuss as a team to make progress
+  color: "#22863A"
+- name: status|blocked-on-hold
+  description: We can't start working on this issue yet
+  color: "#22863A"
+- name: status|blocked-help-wanted
+  description: An issue that can only be worked on by brand new contributors
+  color: "#22863A"
+
+## In Progress
+- name: status|progress-planning
+  description: An issue we're planning to work on
+  color: "#22863A"
+- name: status|progress-fixing
+  description: An issue we're actively working on
+  color: "#22863A"
+- name: status|progress-waiting-for-pr
+  description: An issue that a contributor can help us with
+  color: "#22863A"
+- name: status|progress-needs-review
+  description: An issue that needs a PR review
+  color: "#22863A"
+- name: status|progress-ready-to-merge
+  description: An issue that's ready to be merged into the main branch
+  color: "#22863A"
+
+## Pre-release
+- name: status|prerelease-port-back
+  description: An issue tracking the back-port of a change made in a later branch
+  color: "#22863A"
+- name: status|prerelease-port-forward
+  description: An issue tracking the forward-port of a change made in an earlier branch
+  color: "#22863A"
+
+# Close (close|)
+- name: close|stackoverflow
+  description: A question that's better suited to stackoverflow.com
+  color: "#6A737D"
+- name: close|discussion
+  description: A question that's better suited to a discussion
+  color: "#6A737D"
+- name: close|external
+  description: An issue that's not relevant to the project
+  color: "#6A737D"
+- name: close|invalid
+  description: An issue that we don't feel is valid
+  color: "#6A737D"
+- name: close|duplicate
+  description: An issue that's a duplicate of another issue
+  color: "#6A737D"
+- name: close|declined
+  description: A suggestion or change that we don't feel we should currently apply
+  color: "#6A737D"
+- name: close|superseded
+  description: An issue that has been superseded by another
+  color: "#6A737D"
+- name: close|resolved
+  description: An issue that has been resolved
+  color: "#6A737D"
+- name: close|wontfix
+  description: An issue that we don't plan to fix
+  color: "#6A737D"
+
+# PR Type (pr|)
+- name: pr|revert
+  description: Reverts a previous commit
+  color: "#E36209"
+- name: pr|changelog-ignore
+  description: A change that should not be included in the changelog
+  color: "#E36209"
+- name: pr|breaking-change
+  description: Introduces backward-incompatible changes
+  color: "#E36209"
+- name: pr|feat
+  description: Introduces a new feature
+  color: "#E36209"
+- name: pr|fix
+  description: Fixes a reported issue or regression
+  color: "#E36209"
+- name: pr|refactor
+  description: Code changes that neither fix a bug nor add a feature
+  color: "#E36209"
+- name: pr|perf
+  description: Improves an existing feature
+  color: "#E36209"
+- name: pr|test
+  description: Adds or updates tests
+  color: "#E36209"
+- name: pr|infra
+  description: Changes to build system, tooling, or CI/CD infrastructure
+  color: "#E36209"
+- name: pr|deps
+  description: Updates or modifies project dependencies
+  color: "#E36209"
+- name: pr|docs
+  description: Documentation-only changes
+  color: "#E36209"
+- name: pr|chore
+  description: Routine maintenance tasks like formatting or cleanup
+  color: "#E36209"

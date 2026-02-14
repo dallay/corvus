@@ -1,0 +1,142 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+# add this workflow to a repo to fix lock files for Renovate PRs
+name: Fix Renovate
+
+on:
+  issue_comment:
+    types: [created, edited]
+
+jobs:
+  lock-update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    if: >-
+      startsWith(github.event.comment.body, '/fix-lock') &&
+      github.event.issue.pull_request != null &&
+      (
+        github.event.comment.author_association == 'OWNER' ||
+        github.event.comment.author_association == 'MEMBER' ||
+        github.event.comment.author_association == 'COLLABORATOR'
+      )
+
+    env:
+      PR: ${{ github.event.issue.pull_request.html_url }}
+
+    steps:
+      - name: 📡 Get PR Data
+        if: github.event_name == 'issue_comment' && github.event.issue.pull_request != null
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        id: get-pr-data
+        with:
+          # language=javascript
+          script: |
+            console.log(`Get PR info: ${context.repo.owner}/${context.repo.repo}#${context.issue.number}`)
+            const {data: pr} = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number
+            })
+            console.log(`PR info: ${JSON.stringify(pr)}`)
+            const prInfo = {
+              num: context.issue.number,
+              branchName: pr.head.ref,
+              commit: pr.head.sha,
+              committer: pr.head.user.login,
+              repo: pr.head.repo.full_name
+            }
+            const baseRepo = `${context.repo.owner}/${context.repo.repo}`
+            if (prInfo.repo !== baseRepo) {
+              core.setFailed(`PR must come from ${baseRepo}, got ${prInfo.repo}`)
+              return
+            }
+            if (prInfo.committer === 'github-actions[bot]' || prInfo.committer === 'dependabot[bot]' || prInfo.committer === 'renovate[bot]') {
+              console.log(`PR is from ${prInfo.committer}`)
+            } else {
+              console.log(`PR is not from ${prInfo.committer}`)
+              core.setFailed(`PR is from ${prInfo.committer} is not allowed`)
+            }
+            core.setOutput('head_repo', prInfo.repo)
+            core.setOutput('head_branch', prInfo.branchName)
+            core.setOutput('head_sha', prInfo.commit)
+            core.setOutput('committer', prInfo.committer)
+
+      - name: 📡 Use PR Branch
+        run: |
+          echo "The PR branch is ${{ steps.get-pr-data.outputs.head_branch }}"
+          echo "The PR commit is ${{ steps.get-pr-data.outputs.head_sha }}"
+          echo "The repository is ${{ steps.get-pr-data.outputs.head_repo }}"
+
+      - name: ✈ Checkout PR commit
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
+          repository: ${{ steps.get-pr-data.outputs.head_repo }}
+          ref: ${{ steps.get-pr-data.outputs.head_sha }}
+
+      - name: 🔍 Verify checked-out commit
+        run: |
+          EXPECTED_SHA="${{ steps.get-pr-data.outputs.head_sha }}"
+          ACTUAL_SHA="$(git rev-parse HEAD)"
+          echo "Expected SHA: ${EXPECTED_SHA}"
+          echo "Actual SHA:   ${ACTUAL_SHA}"
+          if [[ "${ACTUAL_SHA}" != "${EXPECTED_SHA}" ]]; then
+            echo "Checked-out commit does not match expected PR SHA."
+            exit 1
+          fi
+
+      - name: 📦 Setup Node
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: "24"
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          java-version: "25"
+          distribution: "corretto"
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
+        with:
+          gradle-version: wrapper
+          cache-read-only: false
+
+      - name: 🔧 Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: 🔧 Show Gradle version
+        run: ./gradlew --version
+
+      - name: 🔧 Check build-logic if exist
+        id: check_build_logic
+        continue-on-error: true
+        run: ./gradlew :build-logic:help
+
+      - name: 🔏 Write build-logic locks (conditional)
+        if: steps.check_build_logic.outcome == 'success'
+        run: ./gradlew :build-logic:writeLocks --no-parallel --no-configuration-cache
+
+      - name: 🔒 Write global locks
+        run: ./gradlew writeLocks --no-parallel --no-configuration-cache
+
+      - name: 📝 Get Commit Message
+        run: |
+          COMMIT_MSG=$(git log --format=%s -n 1)
+          echo "COMMIT_MSG=${COMMIT_MSG}" >> $GITHUB_ENV
+
+      - name: 💾 Commit file changes (only for bots)
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+
+          git diff --cached --quiet || git commit -m "${COMMIT_MSG}"
+          git push origin ${{ steps.get-pr-data.outputs.head_branch }}
+
+      - name: 💬 Add reaction to trigger comment
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          comment-id: ${{ github.event.comment.id }}
+          reactions: hooray

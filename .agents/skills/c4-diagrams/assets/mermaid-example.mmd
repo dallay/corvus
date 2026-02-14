@@ -1,0 +1,30 @@
+%% Enhanced Mermaid C4-style Context Diagram
+flowchart TB
+
+%% Title (Mermaid workaround using a node)
+TITLE["System Context Diagram – Application"]:::title
+
+%% Actors
+User["User\nEnd user interacting with the platform"]:::person
+Admin["Administrator\nManages configuration and operations"]:::person
+
+%% System Boundary
+subgraph BOUNDARY [Application System]
+    App["Application Platform\nCore system handling business capabilities"]:::system
+end
+
+%% External Systems
+Payment["Payment Gateway\nProcesses payments"]:::external
+Email["Email Service\nDelivers transactional emails"]:::external
+
+%% Relationships
+User -->|Uses\nHTTPS / Web UI| App
+Admin -->|Administers\nHTTPS / Admin Panel| App
+App -->|Processes payments via\nAPI| Payment
+App -->|Sends notifications via\nSMTP / API| Email
+
+%% Styling
+classDef title fill:none,stroke:none,font-size:18px,font-weight:bold;
+classDef person fill:#E3F2FD,stroke:#1E88E5,stroke-width:1px;
+classDef system fill:#E8F5E9,stroke:#43A047,stroke-width:1px;
+classDef external fill:#FFF3E0,stroke:#FB8C00,stroke-width:1px;

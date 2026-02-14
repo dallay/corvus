@@ -1,0 +1,14 @@
+## GitHub docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+##
+## CODEOWNERS style rules:
+## 1. Prefer team ownership over individual user ownership.
+## 2. General team should be listed first.
+## 3. Try to keep paths alphabetically sorted within visual groups.
+## 4. List individual owners last.
+##
+
+# Project owners
+# *    @dallay/astrum
+
+# Project core
+/.github/workflows      @dallay/astrum

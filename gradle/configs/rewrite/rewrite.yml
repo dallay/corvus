@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/openrewrite/rewrite/main/rewrite-core/openrewrite.json
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: com.profiletailors.openrewrite.SanityCheck
+displayName: Apply all Java & Gradle best practices
+description: Comprehensive code quality recipe combining modernization, security, and best practices. see https://github.com/diffplug/spotless/blob/main/rewrite.yml
+tags:
+  - java
+  - gradle
+  - static-analysis
+  - cleanup
+recipeList:
+  - org.openrewrite.java.migrate.UpgradeToJava25
+  - org.openrewrite.java.migrate.lang.UseVar
+  - org.openrewrite.java.migrate.lang.FindVirtualThreadOpportunities
+  - org.openrewrite.java.migrate.util.JavaUtilAPIs
+  - org.openrewrite.java.migrate.lombok.LombokBestPractices
+  - org.openrewrite.java.migrate.guava.NoGuava
+  - org.openrewrite.java.migrate.jakarta.JakartaEE11
+  - org.openrewrite.java.jspecify.JSpecifyBestPractices
+  - org.openrewrite.java.recipes.JavaRecipeBestPractices
+  - org.openrewrite.java.recipes.RecipeNullabilityBestPractices
+  - org.openrewrite.java.recipes.RecipeTestingBestPractices
+  - org.openrewrite.java.security.JavaSecurityBestPractices
+  - org.openrewrite.java.testing.junit.JUnit6BestPractices
+  - org.openrewrite.staticanalysis.CommonStaticAnalysis
+  #  - org.openrewrite.staticanalysis.CodeCleanup
+  - org.openrewrite.staticanalysis.ReplaceThreadRunWithThreadStart
+  - org.openrewrite.staticanalysis.CommonDeclarationSiteTypeVariances
+  - org.openrewrite.staticanalysis.JavaApiBestPractices
+  - org.openrewrite.staticanalysis.UseMapContainsKey
+  - org.openrewrite.staticanalysis.ReplaceApacheCommonsLang3ValidateNotNullWithObjectsRequireNonNull
+  - org.openrewrite.staticanalysis.BufferedWriterCreationRecipes
+  - org.openrewrite.staticanalysis.LowercasePackage
+  - org.openrewrite.staticanalysis.MissingOverrideAnnotation
+  - org.openrewrite.staticanalysis.SimplifyTernaryRecipes
+  - org.openrewrite.staticanalysis.URLEqualsHashCodeRecipes
+  - tech.picnic.errorprone.refasterrules.BigDecimalRulesRecipes
+  - tech.picnic.errorprone.refasterrules.CharSequenceRulesRecipes
+  - tech.picnic.errorprone.refasterrules.ClassRulesRecipes
+  - tech.picnic.errorprone.refasterrules.CollectionRulesRecipes
+  - tech.picnic.errorprone.refasterrules.ComparatorRulesRecipes
+  - tech.picnic.errorprone.refasterrules.EqualityRulesRecipes
+  - tech.picnic.errorprone.refasterrules.FileRulesRecipes
+  - tech.picnic.errorprone.refasterrules.MapRulesRecipes
+  - tech.picnic.errorprone.refasterrules.MicrometerRulesRecipes
+  - tech.picnic.errorprone.refasterrules.MockitoRulesRecipes
+  - tech.picnic.errorprone.refasterrules.NullRulesRecipes
+  - tech.picnic.errorprone.refasterrules.OptionalRulesRecipes
+  - tech.picnic.errorprone.refasterrules.PatternRulesRecipes
+  - tech.picnic.errorprone.refasterrules.PreconditionsRulesRecipes
+  - tech.picnic.errorprone.refasterrules.PrimitiveRulesRecipes
+  - tech.picnic.errorprone.refasterrules.StreamRulesRecipes
+  - tech.picnic.errorprone.refasterrules.StringRulesRecipes
+  - tech.picnic.errorprone.refasterrules.TimeRulesRecipes
+  - org.openrewrite.java.spring.boot4.UpgradeSpringBoot_4_0
+  - org.openrewrite.java.spring.data.UpgradeSpringData_3_4
+---
+type: specs.openrewrite.org/v1beta/style
+name: com.profiletailors.openrewrite.SpotlessFormat
+displayName: Apply all formatting styles
+description: Comprehensive formatting style recipe combining all styles.
+styleConfigs:
+  - org.openrewrite.java.style.ImportLayoutStyle:
+      classCountToUseStarImport: 999
+      nameCountToUseStarImport: 999
+      # bug https://github.com/openrewrite/rewrite/issues/6107
+      layout:
+        #        - import java.*
+        #        - <blank line>
+        #        - import javax.*
+        #        - <blank line>
+        #        - import org.*
+        #        - <blank line>
+        #        - import com.*
+        #        - <blank line>
+        - import all other imports
+        - import static all other imports
+        - <blank line>
+  - org.openrewrite.java.style.TabsAndIndentsStyle:
+      useTabCharacter: false
+      tabSize: 2
+      indentSize: 2
+      continuationIndent: 4
+      indentsRelativeToExpressionStart: true

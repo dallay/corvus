@@ -1,0 +1,16 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Publish Snapshot
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "12 2 * * *"
+
+jobs:
+  publish-snapshot:
+    if: github.repository == 'dallay/starter-gradle'
+    uses: ./.github/workflows/_publish.yml
+    with:
+      release: false
+      changelog: false
+    secrets: inherit

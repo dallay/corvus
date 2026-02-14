@@ -1,0 +1,43 @@
+---
+title: Starter Gradle
+description: Una plantilla base de Gradle centralizada, mantenible y robusta para proyectos JVM.
+template: splash
+hero:
+  tagline: La base definitiva para tu próximo proyecto JVM. Lógica de build centralizada, soporte multilenguaje y herramientas listas para producción — todo en una sola plantilla.
+  actions:
+    - text: Primeros Pasos
+      link: guides/getting-started/
+      icon: right-arrow
+    - text: Ver en GitHub
+      link: https://github.com/dallay/starter-gradle
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## ¿Por qué Starter Gradle?
+
+<CardGrid stagger>
+  <Card title="Lógica de Build Centralizada" icon="setting">
+    Gestiona todos tus plugins de convención en un solo lugar con `build-logic`. Sin copiar y pegar configuraciones entre módulos.
+  </Card>
+  <Card title="Soporte Multilenguaje" icon="open-book">
+    Soporte de primera clase para **Kotlin**, **Java** y **Spring Boot** con módulos preconfigurados y plugins de convención.
+  </Card>
+  <Card title="Altos Estándares de Calidad" icon="approve-check">
+    Análisis estático integrado con **Detekt**, **SpotBugs** y **PMD**. Formateo automático con **Spotless** para mantener tu código consistente.
+  </Card>
+  <Card title="Herramientas Modernas" icon="rocket">
+    Utiliza **Catálogos de Versiones de Gradle**, **Caché de Configuración** y mantiene las dependencias actualizadas con buenas prácticas.
+  </Card>
+</CardGrid>
+
+## Explora la Documentación
+
+<CardGrid>
+  <LinkCard title="Estructura del Proyecto" description="Entiende cómo está organizado el proyecto y dónde encontrar los archivos clave." href="guides/structure/" />
+  <LinkCard title="Lista de Funcionalidades" description="Una lista completa de todas las características, plugins e integraciones incluidas." href="guides/features/" />
+  <LinkCard title="Arquitectura" description="Profundiza en las decisiones y patrones de arquitectura utilizados." href="guides/architecture/" />
+  <LinkCard title="Flujo de Desarrollo" description="Flujo de trabajo estándar: compilar, testear, analizar y desplegar." href="guides/development/" />
+</CardGrid>

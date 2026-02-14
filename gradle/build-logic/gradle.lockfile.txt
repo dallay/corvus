@@ -1,0 +1,863 @@
+runtimeClasspath - Runtime classpath of 'main'.
++--- org.jetbrains.kotlin:kotlin-reflect:2.3.0
+|    \--- org.jetbrains.kotlin:kotlin-stdlib:2.3.0
+|         +--- org.jetbrains:annotations:13.0 -> 23.0.0
+|         +--- org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.0 -> 2.0.21 (c)
+|         \--- org.jetbrains.kotlin:kotlin-stdlib-jdk7:1.8.0 -> 2.0.21 (c)
++--- org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.0
+|    +--- org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.3.0
+|    |    +--- org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.3.0 (c)
+|    |    +--- org.jetbrains.kotlin:fus-statistics-gradle-plugin:2.3.0 (c)
+|    |    +--- org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.0 (c)
+|    |    +--- org.jetbrains.kotlin:kotlin-allopen:2.3.0 (c)
+|    |    +--- org.jetbrains.kotlin:kotlin-lombok:2.3.0 (c)
+|    |    +--- org.jetbrains.kotlin:kotlin-noarg:2.3.0 (c)
+|    |    +--- org.jetbrains.kotlin:kotlin-sam-with-receiver:2.3.0 (c)
+|    |    +--- org.jetbrains.kotlin:kotlin-gradle-plugin-annotations:2.3.0 (c)
+|    |    +--- org.jetbrains.kotlin:kotlin-native-utils:2.3.0 (c)
+|    |    \--- org.jetbrains.kotlin:kotlin-tooling-core:2.3.0 (c)
+|    +--- org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.3.0
+|    |    +--- org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.3.0 (*)
+|    |    +--- org.jetbrains.kotlin:kotlin-gradle-plugin-annotations:2.3.0
+|    |    +--- org.jetbrains.kotlin:kotlin-native-utils:2.3.0
+|    |    |    +--- org.jetbrains.kotlin:kotlin-util-io:2.3.0
+|    |    |    \--- org.jetbrains.kotlin:kotlin-util-klib:2.3.0
+|    |    |         \--- org.jetbrains.kotlin:kotlin-util-io:2.3.0
+|    |    +--- org.jetbrains.kotlin:kotlin-tooling-core:2.3.0
+|    |    \--- org.jetbrains.kotlin:kotlin-build-tools-api:2.3.0
+|    +--- org.jetbrains.kotlin:fus-statistics-gradle-plugin:2.3.0
+|    |    \--- org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.3.0 (*)
+|    +--- org.jetbrains.kotlin:kotlin-gradle-plugin-idea:2.3.0
+|    |    +--- org.jetbrains.kotlin:kotlin-tooling-core:2.3.0
+|    |    \--- org.jetbrains.kotlin:kotlin-gradle-plugin-annotations:2.3.0
+|    +--- org.jetbrains.kotlin:kotlin-gradle-plugin-idea-proto:2.3.0
+|    |    \--- org.jetbrains.kotlin:kotlin-gradle-plugin-idea:2.3.0 (*)
+|    +--- org.jetbrains.kotlin:kotlin-klib-commonizer-api:2.3.0
+|    |    \--- org.jetbrains.kotlin:kotlin-native-utils:2.3.0 (*)
+|    +--- org.jetbrains.kotlin:kotlin-build-statistics:2.3.0
+|    |    +--- org.jetbrains.kotlin:kotlin-build-tools-api:2.3.0
+|    |    \--- com.google.code.gson:gson:2.11.0
+|    |         \--- com.google.errorprone:error_prone_annotations:2.27.0 -> 2.43.0
+|    +--- org.jetbrains.kotlin:kotlin-util-klib-metadata:2.3.0
+|    |    +--- org.jetbrains.kotlin:kotlin-util-io:2.3.0
+|    |    \--- org.jetbrains.kotlin:kotlin-util-klib:2.3.0 (*)
+|    +--- org.jetbrains.kotlin:abi-tools-api:2.3.0
+|    \--- org.jetbrains.kotlin:kotlin-compiler-runner:2.3.0
+|         +--- org.jetbrains.kotlin:kotlin-daemon-client:2.3.0
+|         \--- org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0
+|              +--- org.jetbrains:annotations:23.0.0
+|              \--- org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.8.0
+|                   +--- org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0 (c)
+|                   \--- org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0 (c)
++--- net.swiftzer.semver:semver:2.1.0
+|    \--- net.swiftzer.semver:semver-jvm:2.1.0
+|         +--- org.jetbrains.kotlin:kotlin-stdlib:2.1.10 -> 2.3.0 (*)
+|         \--- org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.0
+|              \--- org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.8.0
+|                   +--- org.jetbrains.kotlinx:kotlinx-serialization-bom:1.8.0
+|                   |    +--- org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:1.8.0 (c)
+|                   |    +--- org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.0 (c)
+|                   |    +--- org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.0 (c)
+|                   |    \--- org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.8.0 (c)
+|                   \--- org.jetbrains.kotlin:kotlin-stdlib:2.1.0 -> 2.3.0 (*)
++--- org.jetbrains.kotlin.kapt:org.jetbrains.kotlin.kapt.gradle.plugin:2.3.0
+|    \--- org.jetbrains.kotlin:kotlin-gradle-plugin:2.3.0 (*)
++--- org.jetbrains.kotlin.plugin.lombok:org.jetbrains.kotlin.plugin.lombok.gradle.plugin:2.3.0
+|    \--- org.jetbrains.kotlin:kotlin-lombok:2.3.0
+|         +--- org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.3.0 (*)
+|         \--- org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.3.0 (*)
++--- org.jetbrains.kotlin.plugin.sam.with.receiver:org.jetbrains.kotlin.plugin.sam.with.receiver.gradle.plugin:2.3.0
+|    \--- org.jetbrains.kotlin:kotlin-sam-with-receiver:2.3.0
+|         +--- org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.3.0 (*)
+|         \--- org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.3.0 (*)
++--- org.jetbrains.kotlin.plugin.spring:org.jetbrains.kotlin.plugin.spring.gradle.plugin:2.3.0
+|    \--- org.jetbrains.kotlin:kotlin-allopen:2.3.0
+|         +--- org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.3.0 (*)
+|         \--- org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.3.0 (*)
++--- org.jetbrains.kotlin.plugin.jpa:org.jetbrains.kotlin.plugin.jpa.gradle.plugin:2.3.0
+|    \--- org.jetbrains.kotlin:kotlin-noarg:2.3.0
+|         +--- org.jetbrains.kotlin:kotlin-gradle-plugin-api:2.3.0 (*)
+|         \--- org.jetbrains.kotlin:kotlin-gradle-plugins-bom:2.3.0 (*)
++--- net.ltgt.errorprone:net.ltgt.errorprone.gradle.plugin:5.0.0
+|    \--- net.ltgt.gradle:gradle-errorprone-plugin:5.0.0
++--- net.ltgt.nullaway:net.ltgt.nullaway.gradle.plugin:3.0.0
+|    \--- net.ltgt.gradle:gradle-nullaway-plugin:3.0.0
++--- com.gradle.develocity:com.gradle.develocity.gradle.plugin:4.3.2
+|    \--- com.gradle:develocity-gradle-plugin:4.3.2
++--- com.diffplug.spotless:com.diffplug.spotless.gradle.plugin:8.2.1
+|    \--- com.diffplug.spotless:spotless-plugin-gradle:8.2.1
+|         +--- com.diffplug.durian:durian-core:1.2.0
+|         +--- com.diffplug.durian:durian-io:1.2.0
+|         |    +--- com.diffplug.durian:durian-core:1.2.0
+|         |    \--- com.diffplug.durian:durian-collect:1.2.0
+|         |         \--- com.diffplug.durian:durian-core:1.2.0
+|         +--- com.diffplug.durian:durian-collect:1.2.0 (*)
+|         +--- org.eclipse.jgit:org.eclipse.jgit:7.5.0.202512021534-r
+|         |    +--- com.googlecode.javaewah:JavaEWAH:1.2.3
+|         |    +--- org.slf4j:slf4j-api:2.0.17
+|         |    |    \--- org.slf4j:slf4j-bom:2.0.17
+|         |    |         +--- org.slf4j:slf4j-api:2.0.17 (c)
+|         |    |         +--- org.slf4j:slf4j-simple:2.0.17 (c)
+|         |    |         +--- org.slf4j:slf4j-ext:2.0.17 (c)
+|         |    |         \--- org.slf4j:jcl-over-slf4j:2.0.17 (c)
+|         |    \--- commons-codec:commons-codec:1.20.0
+|         +--- com.diffplug.spotless:spotless-lib:4.3.0
+|         \--- com.diffplug.spotless:spotless-lib-extra:4.3.0
+|              +--- com.diffplug.durian:durian-core:1.2.0
+|              +--- com.diffplug.durian:durian-collect:1.2.0 (*)
+|              +--- org.eclipse.jgit:org.eclipse.jgit:7.5.0.202512021534-r (*)
+|              +--- com.googlecode.concurrent-trees:concurrent-trees:2.6.1
+|              +--- dev.equo.ide:solstice:1.8.1
+|              |    +--- org.tukaani:xz:1.9
+|              |    +--- com.squareup.okhttp3:okhttp:4.12.0 -> 5.1.0
+|              |    |    \--- com.squareup.okhttp3:okhttp-jvm:5.1.0
+|              |    |         +--- com.squareup.okio:okio:3.15.0 -> 3.16.4
+|              |    |         |    \--- com.squareup.okio:okio-jvm:3.16.4
+|              |    |         |         \--- org.jetbrains.kotlin:kotlin-stdlib:2.2.20 -> 2.3.0 (*)
+|              |    |         \--- org.jetbrains.kotlin:kotlin-stdlib:2.2.0 -> 2.3.0 (*)
+|              |    +--- org.slf4j:slf4j-api:1.7.36 -> 2.0.17 (*)
+|              |    +--- com.diffplug.durian:durian-swt.os:4.3.0
+|              |    \--- org.eclipse.platform:org.eclipse.osgi:3.18.300 -> 3.24.0
+|              +--- org.eclipse.platform:org.eclipse.osgi:3.24.0
+|              \--- com.diffplug.spotless:spotless-lib:4.3.0
++--- dev.detekt:dev.detekt.gradle.plugin:2.0.0-alpha.2
+|    \--- dev.detekt:detekt-gradle-plugin:2.0.0-alpha.2
+|         \--- io.github.detekt.sarif4k:sarif4k:0.6.0
+|              \--- io.github.detekt.sarif4k:sarif4k-jvm:0.6.0
+|                   +--- org.jetbrains.kotlinx:kotlinx-serialization-json:1.4.1 -> 1.8.0
+|                   |    \--- org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:1.8.0
+|                   |         +--- org.jetbrains.kotlinx:kotlinx-serialization-bom:1.8.0 (*)
+|                   |         +--- org.jetbrains.kotlin:kotlin-stdlib:2.1.0 -> 2.3.0 (*)
+|                   |         \--- org.jetbrains.kotlinx:kotlinx-serialization-core:1.8.0 (*)
+|                   \--- org.jetbrains.kotlin:kotlin-stdlib:1.9.23 -> 2.3.0 (*)
++--- org.jetbrains.dokka:org.jetbrains.dokka.gradle.plugin:2.2.0-Beta
+|    \--- org.jetbrains.dokka:dokka-gradle-plugin:2.2.0-Beta
+|         +--- org.jetbrains.kotlinx:kotlinx-serialization-bom:1.6.0 -> 1.8.0 (*)
+|         +--- org.jetbrains.kotlinx:kotlinx-serialization-json -> 1.8.0 (*)
+|         \--- org.jetbrains.dokka:dokka-core:2.2.0-Beta
+|              +--- org.jetbrains.kotlinx:kotlinx-coroutines-core:1.7.3 -> 1.8.0
+|              |    \--- org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0 (*)
+|              +--- com.fasterxml.jackson.module:jackson-module-kotlin:2.15.3 -> 2.20.1
+|              |    +--- com.fasterxml.jackson.core:jackson-databind:2.20.1
+|              |    |    +--- com.fasterxml.jackson.core:jackson-annotations:2.20
+|              |    |    +--- com.fasterxml.jackson.core:jackson-core:2.20.1
+|              |    |    |    \--- com.fasterxml.jackson:jackson-bom:2.20.1
+|              |    |    |         +--- com.fasterxml.jackson.core:jackson-annotations:2.20 (c)
+|              |    |    |         +--- com.fasterxml.jackson.core:jackson-core:2.20.1 (c)
+|              |    |    |         +--- com.fasterxml.jackson.core:jackson-databind:2.20.1 (c)
+|              |    |    |         +--- com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.20.1 (c)
+|              |    |    |         +--- com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.20.1 (c)
+|              |    |    |         +--- com.fasterxml.jackson.datatype:jackson-datatype-guava:2.20.1 (c)
+|              |    |    |         +--- com.fasterxml.jackson.datatype:jackson-datatype-joda:2.20.1 (c)
+|              |    |    |         +--- com.fasterxml.jackson.module:jackson-module-kotlin:2.20.1 (c)
+|              |    |    |         \--- com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.20.1 (c)
+|              |    |    \--- com.fasterxml.jackson:jackson-bom:2.20.1 (*)
+|              |    +--- com.fasterxml.jackson.core:jackson-annotations:2.20
+|              |    \--- com.fasterxml.jackson:jackson-bom:2.20.1 (*)
+|              +--- com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.15.3 -> 2.20.1
+|              |    +--- com.fasterxml.jackson.core:jackson-core:2.20.1 (*)
+|              |    +--- com.fasterxml.jackson.core:jackson-annotations:2.20
+|              |    +--- com.fasterxml.jackson.core:jackson-databind:2.20.1 (*)
+|              |    +--- org.codehaus.woodstox:stax2-api:4.2.2
+|              |    +--- com.fasterxml.woodstox:woodstox-core:7.1.1
+|              |    |    \--- org.codehaus.woodstox:stax2-api:4.2.2
+|              |    \--- com.fasterxml.jackson:jackson-bom:2.20.1 (*)
+|              \--- com.fasterxml.jackson.core:jackson-databind:2.15.3 -> 2.20.1 (c)
++--- me.champeau.jmh:me.champeau.jmh.gradle.plugin:0.7.3
+|    \--- me.champeau.jmh:jmh-gradle-plugin:0.7.3
+|         \--- org.openjdk.jmh:jmh-core:1.37
+|              +--- net.sf.jopt-simple:jopt-simple:5.0.4
+|              \--- org.apache.commons:commons-math3:3.6.1
++--- org.gradlex.jvm-dependency-conflict-resolution:org.gradlex.jvm-dependency-conflict-resolution.gradle.plugin:2.5
+|    \--- org.gradlex:jvm-dependency-conflict-resolution:2.5
++--- org.gradlex.java-module-dependencies:org.gradlex.java-module-dependencies.gradle.plugin:1.12
+|    \--- org.gradlex:java-module-dependencies:1.12
+|         +--- org.ow2.asm:asm:9.9 -> 9.9.1
+|         |    \--- org.ow2.asm:asm-bom:9.9.1
+|         |         \--- org.ow2.asm:asm:9.9.1 (c)
+|         \--- com.github.javaparser:javaparser-core:3.28.0
++--- org.gradlex.java-module-testing:org.gradlex.java-module-testing.gradle.plugin:1.8
+|    \--- org.gradlex:java-module-testing:1.8
++--- org.gradlex.extra-java-module-info:org.gradlex.extra-java-module-info.gradle.plugin:1.14
+|    \--- org.gradlex:extra-java-module-info:1.14
+|         \--- org.ow2.asm:asm:9.9.1 (*)
++--- com.gradleup.shadow:com.gradleup.shadow.gradle.plugin:9.3.1
+|    \--- com.gradleup.shadow:shadow-gradle-plugin:9.3.1
+|         +--- commons-codec:commons-codec:1.20.0
+|         +--- commons-io:commons-io:2.21.0
+|         +--- org.apache.logging.log4j:log4j-core:2.25.3
+|         |    +--- org.apache.logging.log4j:log4j-api:2.25.3
+|         |    |    \--- org.apache.logging.log4j:log4j-bom:2.25.3
+|         |    |         +--- org.apache.logging.log4j:log4j-api:2.25.3 (c)
+|         |    |         +--- org.apache.logging.log4j:log4j-core:2.25.3 (c)
+|         |    |         \--- org.apache.logging.log4j:log4j-jcl:2.25.3 -> org.slf4j:jcl-over-slf4j:2.0.17 (c)
+|         |    \--- org.apache.logging.log4j:log4j-bom:2.25.3 (*)
+|         +--- org.vafer:jdependency:2.14
+|         +--- org.jdom:jdom2:2.0.6.1
+|         +--- org.jetbrains.kotlin:kotlin-metadata-jvm:2.3.0
+|         |    \--- org.jetbrains.kotlin:kotlin-stdlib:2.3.0 (*)
+|         +--- org.codehaus.plexus:plexus-utils:4.0.2
+|         +--- org.codehaus.plexus:plexus-xml:4.1.0
+|         |    \--- org.apache.maven:maven-xml:4.0.0-rc-3
+|         |         +--- org.apache.maven:maven-api-xml:4.0.0-rc-3
+|         |         |    \--- org.apache.maven:maven-api-annotations:4.0.0-rc-3
+|         |         +--- com.fasterxml.woodstox:woodstox-core:7.1.0 -> 7.1.1 (*)
+|         |         \--- org.codehaus.woodstox:stax2-api:4.2.2
+|         \--- org.apache.ant:ant:1.10.15
+|              \--- org.apache.ant:ant-launcher:1.10.15
++--- com.vanniktech.maven.publish:com.vanniktech.maven.publish.gradle.plugin:0.36.0
+|    \--- com.vanniktech:gradle-maven-publish-plugin:0.36.0
+|         \--- com.vanniktech:central-portal:0.36.0
+|              +--- com.squareup.okhttp3:okhttp:5.1.0 (*)
+|              +--- com.squareup.retrofit2:retrofit:3.0.0
+|              |    +--- com.squareup.okhttp3:okhttp:4.12.0 -> 5.1.0 (*)
+|              |    \--- org.jetbrains.kotlin:kotlin-stdlib:2.1.21 -> 2.3.0 (*)
+|              +--- com.squareup.retrofit2:converter-scalars:3.0.0
+|              |    \--- com.squareup.retrofit2:retrofit:3.0.0 (*)
+|              +--- com.squareup.retrofit2:converter-moshi:3.0.0
+|              |    +--- com.squareup.retrofit2:retrofit:3.0.0 (*)
+|              |    \--- com.squareup.moshi:moshi:1.15.2
+|              |         +--- com.squareup.okio:okio:3.7.0 -> 3.16.4 (*)
+|              |         \--- org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.21 -> 2.0.21
+|              |              +--- org.jetbrains.kotlin:kotlin-stdlib:2.0.21 -> 2.3.0 (*)
+|              |              \--- org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.21
+|              |                   \--- org.jetbrains.kotlin:kotlin-stdlib:2.0.21 -> 2.3.0 (*)
+|              +--- org.slf4j:slf4j-api:1.7.36 -> 2.0.17 (*)
+|              +--- com.squareup.moshi:moshi:1.15.2 (*)
+|              \--- com.squareup.moshi:moshi-kotlin:1.15.2
+|                   +--- com.squareup.moshi:moshi:1.15.2 (*)
+|                   +--- org.jetbrains.kotlin:kotlin-reflect:1.8.21 -> 2.3.0 (*)
+|                   \--- org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.21 -> 2.0.21 (*)
++--- com.autonomousapps.dependency-analysis:com.autonomousapps.dependency-analysis.gradle.plugin:3.5.1
+|    \--- com.autonomousapps:dependency-analysis-gradle-plugin:3.5.1
+|         +--- org.jetbrains.kotlin:kotlin-bom:2.0.21
+|         |    +--- org.jetbrains.kotlin:kotlin-stdlib:2.0.21 -> 2.3.0 (c)
+|         |    +--- org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21 (c)
+|         |    +--- org.jetbrains.kotlin:kotlin-reflect:2.0.21 -> 2.3.0 (c)
+|         |    +--- org.jetbrains.kotlin:kotlin-daemon-client:2.0.21 -> 2.3.0 (c)
+|         |    \--- org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.0.21 (c)
+|         +--- com.squareup.okio:okio-bom:3.16.4
+|         |    +--- com.squareup.okio:okio:3.16.4 (c)
+|         |    \--- com.squareup.okio:okio-jvm:3.16.4 (c)
+|         +--- com.autonomousapps:graph-support:0.9.0
+|         |    +--- org.jetbrains.kotlin:kotlin-bom:2.0.21 (*)
+|         |    +--- org.jetbrains.kotlin:kotlin-stdlib:2.0.21 -> 2.3.0 (*)
+|         |    \--- com.google.guava:guava:33.4.8-jre -> 33.5.0-jre
+|         |         +--- com.google.guava:failureaccess:1.0.3
+|         |         +--- org.jspecify:jspecify:1.0.0
+|         |         +--- com.google.errorprone:error_prone_annotations:2.41.0 -> 2.43.0
+|         |         \--- com.google.j2objc:j2objc-annotations:3.1
+|         +--- com.autonomousapps:variant-artifacts:0.3.3
+|         |    +--- org.jetbrains.kotlin:kotlin-bom:2.0.21 (*)
+|         |    \--- org.jetbrains.kotlin:kotlin-stdlib:2.0.21 -> 2.3.0 (*)
+|         +--- com.google.guava:guava:33.5.0-jre (*)
+|         +--- org.jetbrains.kotlin:kotlin-stdlib-jdk8:2.0.21 (*)
+|         +--- com.autonomousapps:kotlin-editor-relocated:0.18.0
+|         +--- com.squareup.moshi:moshi-kotlin:1.15.2 (*)
+|         +--- dev.zacsweers.moshix:moshi-sealed-reflect:0.30.0
+|         |    +--- dev.zacsweers.moshix:moshi-sealed-runtime:0.30.0
+|         |    |    +--- com.squareup.moshi:moshi-adapters:1.15.2
+|         |    |    |    +--- com.squareup.moshi:moshi:1.15.2 (*)
+|         |    |    |    \--- org.jetbrains.kotlin:kotlin-stdlib-jdk8:1.8.21 -> 2.0.21 (*)
+|         |    |    +--- com.squareup.moshi:moshi:1.15.2 (*)
+|         |    |    \--- org.jetbrains.kotlin:kotlin-stdlib:2.1.20 -> 2.3.0 (*)
+|         |    +--- com.squareup:kotlinpoet:2.1.0
+|         |    |    \--- com.squareup:kotlinpoet-jvm:2.1.0
+|         |    |         +--- org.jetbrains.kotlin:kotlin-stdlib:2.1.10 -> 2.3.0 (*)
+|         |    |         \--- org.jetbrains.kotlin:kotlin-reflect:2.1.10 -> 2.3.0 (*)
+|         |    +--- org.jetbrains.kotlin:kotlin-reflect:2.1.20 -> 2.3.0 (*)
+|         |    +--- com.squareup.moshi:moshi:1.15.2 (*)
+|         |    +--- com.squareup.moshi:moshi-adapters:1.15.2 (*)
+|         |    \--- org.jetbrains.kotlin:kotlin-stdlib:2.1.20 -> 2.3.0 (*)
+|         +--- com.squareup.okio:okio:3.16.4 (*)
+|         +--- org.jetbrains.kotlin:kotlin-metadata-jvm:2.2.20 -> 2.3.0 (*)
+|         +--- com.github.ben-manes.caffeine:caffeine:3.2.3
+|         |    +--- org.jspecify:jspecify:1.0.0
+|         |    \--- com.google.errorprone:error_prone_annotations:2.43.0
+|         +--- com.autonomousapps:antlr:4.13.2.0
+|         +--- com.autonomousapps:asm-relocated:9.9.0
+|         +--- javax.inject:javax.inject:1
+|         +--- com.squareup.moshi:moshi:1.15.2 (*)
+|         +--- dev.zacsweers.moshix:moshi-sealed-runtime:0.30.0 (*)
+|         \--- org.jetbrains.kotlin:kotlin-reflect:2.0.21 -> 2.3.0 (*)
++--- io.fuchs.gradle.classpath-collision-detector:io.fuchs.gradle.classpath-collision-detector.gradle.plugin:1.0.0
+|    \--- io.fuchs.gradle.classpath-collision-detector:classpath-collision-detector:1.0.0
++--- org.cyclonedx.bom:org.cyclonedx.bom.gradle.plugin:3.1.0
+|    \--- org.cyclonedx:cyclonedx-gradle-plugin:3.1.0
+|         +--- org.apache.maven:maven-core:3.9.11
+|         |    +--- org.apache.maven:maven-model:3.9.11
+|         |    |    \--- org.codehaus.plexus:plexus-utils:3.6.0 -> 4.0.2
+|         |    +--- org.apache.maven:maven-settings:3.9.11
+|         |    |    \--- org.codehaus.plexus:plexus-utils:3.6.0 -> 4.0.2
+|         |    +--- org.apache.maven:maven-settings-builder:3.9.11
+|         |    |    +--- org.apache.maven:maven-builder-support:3.9.11
+|         |    |    +--- javax.inject:javax.inject:1
+|         |    |    +--- org.codehaus.plexus:plexus-interpolation:1.28
+|         |    |    +--- org.codehaus.plexus:plexus-utils:3.6.0 -> 4.0.2
+|         |    |    +--- org.apache.maven:maven-settings:3.9.11 (*)
+|         |    |    \--- org.codehaus.plexus:plexus-sec-dispatcher:2.0
+|         |    |         +--- org.codehaus.plexus:plexus-utils:3.4.1 -> 4.0.2
+|         |    |         +--- org.codehaus.plexus:plexus-cipher:2.0
+|         |    |         |    \--- javax.inject:javax.inject:1
+|         |    |         \--- javax.inject:javax.inject:1
+|         |    +--- org.apache.maven:maven-builder-support:3.9.11
+|         |    +--- org.apache.maven:maven-repository-metadata:3.9.11
+|         |    |    \--- org.codehaus.plexus:plexus-utils:3.6.0 -> 4.0.2
+|         |    +--- org.apache.maven:maven-artifact:3.9.11
+|         |    |    \--- org.codehaus.plexus:plexus-utils:3.6.0 -> 4.0.2
+|         |    +--- org.apache.maven:maven-plugin-api:3.9.11
+|         |    |    +--- org.apache.maven:maven-model:3.9.11 (*)
+|         |    |    +--- org.apache.maven:maven-artifact:3.9.11 (*)
+|         |    |    +--- org.eclipse.sisu:org.eclipse.sisu.plexus:0.9.0.M4
+|         |    |    |    +--- org.codehaus.plexus:plexus-component-annotations:2.1.0 -> 2.2.0
+|         |    |    |    +--- org.codehaus.plexus:plexus-classworlds:2.6.0 -> 2.9.0
+|         |    |    |    \--- org.codehaus.plexus:plexus-utils:3.5.1 -> 4.0.2
+|         |    |    +--- org.codehaus.plexus:plexus-utils:3.6.0 -> 4.0.2
+|         |    |    \--- org.codehaus.plexus:plexus-classworlds:2.9.0
+|         |    +--- org.apache.maven:maven-model-builder:3.9.11
+|         |    |    +--- org.codehaus.plexus:plexus-interpolation:1.28
+|         |    |    +--- javax.inject:javax.inject:1
+|         |    |    +--- org.apache.maven:maven-model:3.9.11 (*)
+|         |    |    +--- org.apache.maven:maven-artifact:3.9.11 (*)
+|         |    |    +--- org.apache.maven:maven-builder-support:3.9.11
+|         |    |    +--- org.eclipse.sisu:org.eclipse.sisu.inject:0.9.0.M4
+|         |    |    |    \--- org.ow2.asm:asm:9.8 -> 9.9.1 (*)
+|         |    |    \--- org.ow2.asm:asm:9.8 -> 9.9.1 (*)
+|         |    +--- org.apache.maven:maven-resolver-provider:3.9.11
+|         |    |    +--- org.apache.maven:maven-model:3.9.11 (*)
+|         |    |    +--- org.apache.maven:maven-model-builder:3.9.11 (*)
+|         |    |    +--- org.apache.maven:maven-repository-metadata:3.9.11 (*)
+|         |    |    +--- org.apache.maven.resolver:maven-resolver-api:1.9.24
+|         |    |    +--- org.apache.maven.resolver:maven-resolver-spi:1.9.24
+|         |    |    |    \--- org.apache.maven.resolver:maven-resolver-api:1.9.24
+|         |    |    +--- org.apache.maven.resolver:maven-resolver-util:1.9.24
+|         |    |    |    \--- org.apache.maven.resolver:maven-resolver-api:1.9.24
+|         |    |    +--- org.apache.maven.resolver:maven-resolver-impl:1.9.24
+|         |    |    |    +--- org.apache.maven.resolver:maven-resolver-api:1.9.24
+|         |    |    |    +--- org.apache.maven.resolver:maven-resolver-spi:1.9.24 (*)
+|         |    |    |    +--- org.apache.maven.resolver:maven-resolver-named-locks:1.9.24
+|         |    |    |    |    \--- org.slf4j:slf4j-api:1.7.36 -> 2.0.17 (*)
+|         |    |    |    +--- org.apache.maven.resolver:maven-resolver-util:1.9.24 (*)
+|         |    |    |    \--- org.slf4j:slf4j-api:1.7.36 -> 2.0.17 (*)
+|         |    |    +--- org.codehaus.plexus:plexus-utils:3.6.0 -> 4.0.2
+|         |    |    \--- javax.inject:javax.inject:1
+|         |    +--- org.apache.maven.resolver:maven-resolver-impl:1.9.24 (*)
+|         |    +--- org.apache.maven.resolver:maven-resolver-api:1.9.24
+|         |    +--- org.apache.maven.resolver:maven-resolver-spi:1.9.24 (*)
+|         |    +--- org.apache.maven.resolver:maven-resolver-util:1.9.24 (*)
+|         |    +--- org.apache.maven.shared:maven-shared-utils:3.4.2
+|         |    |    \--- org.slf4j:slf4j-api:1.7.36 -> 2.0.17 (*)
+|         |    +--- org.eclipse.sisu:org.eclipse.sisu.plexus:0.9.0.M4 (*)
+|         |    +--- org.eclipse.sisu:org.eclipse.sisu.inject:0.9.0.M4 (*)
+|         |    +--- org.ow2.asm:asm:9.8 -> 9.9.1 (*)
+|         |    +--- com.google.inject:guice:5.1.0
+|         |    |    +--- javax.inject:javax.inject:1
+|         |    |    \--- aopalliance:aopalliance:1.0
+|         |    +--- com.google.guava:guava:33.4.8-jre -> 33.5.0-jre (*)
+|         |    +--- com.google.guava:failureaccess:1.0.3
+|         |    +--- javax.inject:javax.inject:1
+|         |    +--- org.codehaus.plexus:plexus-utils:3.6.0 -> 4.0.2
+|         |    +--- org.codehaus.plexus:plexus-classworlds:2.9.0
+|         |    +--- org.codehaus.plexus:plexus-interpolation:1.28
+|         |    +--- org.codehaus.plexus:plexus-component-annotations:2.2.0
+|         |    \--- org.slf4j:slf4j-api:1.7.36 -> 2.0.17 (*)
+|         +--- org.cyclonedx:cyclonedx-core-java:11.0.1
+|         |    +--- commons-codec:commons-codec:1.20.0
+|         |    +--- commons-io:commons-io:2.21.0
+|         |    +--- org.apache.commons:commons-lang3:3.19.0
+|         |    +--- org.apache.commons:commons-collections4:4.5.0
+|         |    +--- com.github.package-url:packageurl-java:1.5.0
+|         |    +--- com.fasterxml.jackson.dataformat:jackson-dataformat-xml:2.20.1 (*)
+|         |    \--- com.networknt:json-schema-validator:1.5.9
+|         |         +--- com.ethlo.time:itu:1.14.0
+|         |         +--- com.fasterxml.jackson.core:jackson-databind:2.18.3 -> 2.20.1 (*)
+|         |         +--- com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.18.3 -> 2.20.1
+|         |         |    +--- com.fasterxml.jackson.core:jackson-databind:2.20.1 (*)
+|         |         |    +--- org.yaml:snakeyaml:2.4
+|         |         |    +--- com.fasterxml.jackson.core:jackson-core:2.20.1 (*)
+|         |         |    \--- com.fasterxml.jackson:jackson-bom:2.20.1 (*)
+|         |         \--- org.slf4j:slf4j-api:2.0.17 (*)
+|         \--- org.jspecify:jspecify:1.0.0
++--- com.github.spotbugs:com.github.spotbugs.gradle.plugin:6.4.8
+|    \--- com.github.spotbugs.snom:spotbugs-gradle-plugin:6.4.8
+|         \--- org.jetbrains.kotlin:kotlin-stdlib:2.0.21 -> 2.3.0 (*)
++--- org.jetbrains.kotlinx.kover:org.jetbrains.kotlinx.kover.gradle.plugin:0.9.6
+|    \--- org.jetbrains.kotlinx:kover-gradle-plugin:0.9.6
+|         +--- org.jetbrains.kotlinx:kover-features-jvm:0.9.6
+|         |    +--- org.jetbrains.intellij.deps:intellij-coverage-reporter:1.0.765
+|         |    |    +--- org.jetbrains.intellij.deps:coverage-report:1.0.25
+|         |    |    |    +--- org.freemarker:freemarker:2.3.32
+|         |    |    |    \--- org.jetbrains:annotations:16.0.2 -> 23.0.0
+|         |    |    \--- org.jetbrains.intellij.deps:intellij-coverage-agent:1.0.765
+|         |    \--- org.jetbrains.kotlin:kotlin-stdlib:2.2.0 -> 2.3.0 (*)
+|         \--- org.jetbrains.kotlinx:kover-jvm-agent:0.9.6
++--- com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:2.3.5
+|    \--- com.google.devtools.ksp:symbol-processing-gradle-plugin:2.3.5
+|         +--- com.google.devtools.ksp:symbol-processing-api:2.3.5
+|         |    \--- org.jetbrains.kotlin:kotlin-stdlib:2.2.10 -> 2.3.0 (*)
+|         \--- com.google.devtools.ksp:symbol-processing-common-deps:2.3.5
+|              \--- org.jetbrains.kotlin:kotlin-stdlib:2.2.10 -> 2.3.0 (*)
++--- io.freefair.lombok:io.freefair.lombok.gradle.plugin:9.2.0
+|    \--- io.freefair.gradle:lombok-plugin:9.2.0
++--- org.openrewrite.rewrite:org.openrewrite.rewrite.gradle.plugin:7.25.0
+|    \--- org.openrewrite:plugin:7.25.0
+|         +--- org.openrewrite:rewrite-bom:8.72.0
+|         \--- org.jetbrains.kotlin:kotlin-stdlib:2.2.0 -> 2.3.0 (*)
++--- org.springframework.boot:org.springframework.boot.gradle.plugin:4.1.0-M1
+|    \--- org.springframework.boot:spring-boot-gradle-plugin:4.1.0-M1
+|         +--- org.springframework.boot:spring-boot-buildpack-platform:4.1.0-M1
+|         |    +--- net.java.dev.jna:jna-platform:5.17.0
+|         |    |    \--- net.java.dev.jna:jna:5.17.0
+|         |    +--- org.apache.commons:commons-compress:1.27.1
+|         |    |    +--- commons-codec:commons-codec:1.17.1 -> 1.20.0
+|         |    |    +--- commons-io:commons-io:2.16.1 -> 2.21.0
+|         |    |    \--- org.apache.commons:commons-lang3:3.16.0 -> 3.19.0
+|         |    +--- org.apache.httpcomponents.client5:httpclient5:5.6
+|         |    |    +--- org.apache.httpcomponents.core5:httpcore5:5.4
+|         |    |    +--- org.apache.httpcomponents.core5:httpcore5-h2:5.4
+|         |    |    |    \--- org.apache.httpcomponents.core5:httpcore5:5.4
+|         |    |    \--- org.slf4j:slf4j-api:1.7.36 -> 2.0.17 (*)
+|         |    +--- org.springframework:spring-core:7.0.3
+|         |    |    +--- commons-logging:commons-logging:1.3.5 -> org.slf4j:jcl-over-slf4j:2.0.17
+|         |    |    |    +--- org.slf4j:slf4j-api:2.0.17 (*)
+|         |    |    |    \--- org.slf4j:slf4j-bom:2.0.17 (*)
+|         |    |    \--- org.jspecify:jspecify:1.0.0
+|         |    +--- org.tomlj:tomlj:1.0.0
+|         |    |    +--- org.antlr:antlr4-runtime:4.7.2
+|         |    |    \--- com.google.code.findbugs:jsr305:3.0.2
+|         |    \--- tools.jackson.core:jackson-databind:3.0.4
+|         |         +--- com.fasterxml.jackson.core:jackson-annotations:2.20
+|         |         +--- tools.jackson.core:jackson-core:3.0.4
+|         |         |    \--- tools.jackson:jackson-bom:3.0.4
+|         |         |         +--- com.fasterxml.jackson.core:jackson-annotations:2.20 (c)
+|         |         |         +--- tools.jackson.core:jackson-core:3.0.4 (c)
+|         |         |         \--- tools.jackson.core:jackson-databind:3.0.4 (c)
+|         |         \--- tools.jackson:jackson-bom:3.0.4 (*)
+|         +--- org.springframework.boot:spring-boot-loader-tools:4.1.0-M1
+|         |    +--- org.apache.commons:commons-compress:1.27.1 (*)
+|         |    \--- org.springframework:spring-core:7.0.3 (*)
+|         +--- io.spring.gradle:dependency-management-plugin:1.1.7
+|         +--- org.apache.commons:commons-compress:1.27.1 (*)
+|         \--- org.springframework:spring-core:7.0.3 (*)
++--- org.openapi.generator:org.openapi.generator.gradle.plugin:7.19.0
+|    \--- org.openapitools:openapi-generator-gradle-plugin:7.19.0
+|         \--- org.openapitools:openapi-generator:7.19.0
+|              +--- io.swagger.parser.v3:swagger-parser:2.1.37
+|              |    +--- io.swagger.parser.v3:swagger-parser-v2-converter:2.1.37
+|              |    |    +--- io.swagger:swagger-core:1.6.16
+|              |    |    |    +--- jakarta.xml.bind:jakarta.xml.bind-api:2.3.3
+|              |    |    |    |    \--- jakarta.activation:jakarta.activation-api:1.2.2
+|              |    |    |    +--- org.apache.commons:commons-lang3:3.17.0 -> 3.19.0
+|              |    |    |    +--- org.slf4j:slf4j-api:2.0.9 -> 2.0.17 (*)
+|              |    |    |    +--- com.fasterxml.jackson.core:jackson-annotations:2.19.0 -> 2.20
+|              |    |    |    +--- com.fasterxml.jackson.core:jackson-databind:2.19.0 -> 2.20.1 (*)
+|              |    |    |    +--- com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.19.0 -> 2.20.1 (*)
+|              |    |    |    +--- io.swagger:swagger-models:1.6.16
+|              |    |    |    |    +--- com.fasterxml.jackson.core:jackson-annotations:2.19.0 -> 2.20
+|              |    |    |    |    +--- org.slf4j:slf4j-api:2.0.9 -> 2.0.17 (*)
+|              |    |    |    |    \--- io.swagger:swagger-annotations:1.6.16
+|              |    |    |    +--- org.yaml:snakeyaml:2.4
+|              |    |    |    +--- com.google.guava:guava:32.1.3-android -> 33.5.0-jre (*)
+|              |    |    |    \--- javax.validation:validation-api:1.1.0.Final -> jakarta.validation:jakarta.validation-api:2.0.2
+|              |    |    +--- io.swagger:swagger-parser:1.0.75
+|              |    |    |    +--- io.swagger:swagger-core:1.6.16 (*)
+|              |    |    |    +--- org.yaml:snakeyaml:2.4
+|              |    |    |    +--- commons-io:commons-io:2.15.1 -> 2.21.0
+|              |    |    |    \--- io.swagger:swagger-parser-safe-url-resolver:1.0.75
+|              |    |    |         \--- commons-io:commons-io:2.15.1 -> 2.21.0
+|              |    |    +--- io.swagger:swagger-compat-spec-parser:1.0.75
+|              |    |    |    +--- io.swagger:swagger-core:1.6.16 (*)
+|              |    |    |    +--- io.swagger:swagger-parser:1.0.75 (*)
+|              |    |    |    +--- com.github.java-json-tools:json-schema-validator:2.2.14
+|              |    |    |    |    +--- com.google.guava:guava:28.2-android -> 33.5.0-jre (*)
+|              |    |    |    |    +--- com.github.java-json-tools:jackson-coreutils-equivalence:1.0
+|              |    |    |    |    |    +--- com.fasterxml.jackson.core:jackson-databind:2.11.0 -> 2.20.1 (*)
+|              |    |    |    |    |    +--- com.google.guava:guava:28.2-android -> 33.5.0-jre (*)
+|              |    |    |    |    |    \--- com.github.java-json-tools:jackson-coreutils:2.0
+|              |    |    |    |    |         +--- com.fasterxml.jackson.core:jackson-databind:2.11.0 -> 2.20.1 (*)
+|              |    |    |    |    |         +--- com.github.java-json-tools:msg-simple:1.2
+|              |    |    |    |    |         |    +--- com.github.java-json-tools:btf:1.3
+|              |    |    |    |    |         |    |    \--- com.google.code.findbugs:jsr305:2.0.1 -> 3.0.2
+|              |    |    |    |    |         |    \--- com.google.code.findbugs:jsr305:2.0.1 -> 3.0.2
+|              |    |    |    |    |         \--- com.google.code.findbugs:jsr305:3.0.2
+|              |    |    |    |    +--- com.github.java-json-tools:json-schema-core:1.2.14
+|              |    |    |    |    |    +--- com.fasterxml.jackson.core:jackson-databind:2.11.0 -> 2.20.1 (*)
+|              |    |    |    |    |    +--- com.google.guava:guava:28.2-android -> 33.5.0-jre (*)
+|              |    |    |    |    |    +--- com.github.java-json-tools:jackson-coreutils:2.0 (*)
+|              |    |    |    |    |    +--- com.github.java-json-tools:jackson-coreutils-equivalence:1.0 (*)
+|              |    |    |    |    |    +--- com.github.java-json-tools:uri-template:0.10
+|              |    |    |    |    |    |    +--- com.google.guava:guava:28.1-android -> 33.5.0-jre (*)
+|              |    |    |    |    |    |    +--- com.github.java-json-tools:msg-simple:1.2 (*)
+|              |    |    |    |    |    |    \--- com.google.code.findbugs:jsr305:2.0.1 -> 3.0.2
+|              |    |    |    |    |    +--- org.mozilla:rhino:1.7.7.2
+|              |    |    |    |    |    \--- com.google.code.findbugs:jsr305:3.0.2
+|              |    |    |    |    +--- joda-time:joda-time:2.10.5 -> 2.12.7
+|              |    |    |    |    +--- com.googlecode.libphonenumber:libphonenumber:8.11.1
+|              |    |    |    |    +--- com.google.code.findbugs:jsr305:3.0.2
+|              |    |    |    |    \--- net.sf.jopt-simple:jopt-simple:5.0.4
+|              |    |    |    +--- com.github.java-json-tools:json-patch:1.13
+|              |    |    |    |    +--- com.fasterxml.jackson.core:jackson-databind:2.11.0 -> 2.20.1 (*)
+|              |    |    |    |    +--- com.github.java-json-tools:msg-simple:1.2 (*)
+|              |    |    |    |    \--- com.github.java-json-tools:jackson-coreutils:2.0 (*)
+|              |    |    |    \--- org.apache.httpcomponents:httpclient:4.5.14
+|              |    |    |         +--- org.apache.httpcomponents:httpcore:4.4.16
+|              |    |    |         +--- commons-logging:commons-logging:1.2 -> org.slf4j:jcl-over-slf4j:2.0.17 (*)
+|              |    |    |         \--- commons-codec:commons-codec:1.11 -> 1.20.0
+|              |    |    +--- io.swagger.core.v3:swagger-models:2.2.37
+|              |    |    |    \--- com.fasterxml.jackson.core:jackson-annotations:2.19.2 -> 2.20
+|              |    |    +--- io.swagger.parser.v3:swagger-parser-core:2.1.37
+|              |    |    |    \--- io.swagger.core.v3:swagger-models:2.2.37 (*)
+|              |    |    \--- io.swagger.parser.v3:swagger-parser-v3:2.1.37
+|              |    |         +--- io.swagger.core.v3:swagger-models:2.2.37 (*)
+|              |    |         +--- io.swagger.core.v3:swagger-core:2.2.37
+|              |    |         |    +--- jakarta.xml.bind:jakarta.xml.bind-api:2.3.3 (*)
+|              |    |         |    +--- org.apache.commons:commons-lang3:3.18.0 -> 3.19.0
+|              |    |         |    +--- org.slf4j:slf4j-api:2.0.9 -> 2.0.17 (*)
+|              |    |         |    +--- com.fasterxml.jackson.core:jackson-annotations:2.19.2 -> 2.20
+|              |    |         |    +--- com.fasterxml.jackson.core:jackson-databind:2.19.2 -> 2.20.1 (*)
+|              |    |         |    +--- com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.19.2 -> 2.20.1 (*)
+|              |    |         |    +--- com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.19.2 -> 2.20.1
+|              |    |         |    |    +--- com.fasterxml.jackson.core:jackson-annotations:2.20
+|              |    |         |    |    +--- com.fasterxml.jackson.core:jackson-core:2.20.1 (*)
+|              |    |         |    |    +--- com.fasterxml.jackson.core:jackson-databind:2.20.1 (*)
+|              |    |         |    |    \--- com.fasterxml.jackson:jackson-bom:2.20.1 (*)
+|              |    |         |    +--- io.swagger.core.v3:swagger-annotations:2.2.37
+|              |    |         |    +--- org.yaml:snakeyaml:2.3 -> 2.4
+|              |    |         |    +--- io.swagger.core.v3:swagger-models:2.2.37 (*)
+|              |    |         |    \--- jakarta.validation:jakarta.validation-api:2.0.2
+|              |    |         +--- io.swagger.parser.v3:swagger-parser-core:2.1.37 (*)
+|              |    |         +--- io.swagger.parser.v3:swagger-parser-safe-url-resolver:2.1.37
+|              |    |         |    \--- commons-io:commons-io:2.20.0 -> 2.21.0
+|              |    |         +--- commons-io:commons-io:2.20.0 -> 2.21.0
+|              |    |         +--- org.yaml:snakeyaml:2.4
+|              |    |         +--- com.fasterxml.jackson.core:jackson-annotations:2.19.0 -> 2.20
+|              |    |         +--- com.fasterxml.jackson.core:jackson-databind:2.19.0 -> 2.20.1 (*)
+|              |    |         \--- com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.19.0 -> 2.20.1 (*)
+|              |    +--- io.swagger.parser.v3:swagger-parser-v3:2.1.37 (*)
+|              |    +--- org.yaml:snakeyaml:2.4
+|              |    \--- commons-io:commons-io:2.20.0 -> 2.21.0
+|              +--- com.samskivert:jmustache:1.16
+|              +--- com.github.jknack:handlebars:4.3.1
+|              |    \--- org.slf4j:slf4j-api:1.7.32 -> 2.0.17 (*)
+|              +--- com.github.jknack:handlebars-jackson2:4.3.1
+|              |    +--- com.github.jknack:handlebars:4.3.1 (*)
+|              |    \--- com.fasterxml.jackson.core:jackson-databind:2.14.0-rc2 -> 2.20.1 (*)
+|              +--- commons-io:commons-io:2.20.0 -> 2.21.0
+|              +--- org.slf4j:slf4j-ext:1.7.36 -> 2.0.17
+|              |    +--- org.slf4j:slf4j-api:2.0.17 (*)
+|              |    \--- org.slf4j:slf4j-bom:2.0.17 (*)
+|              +--- org.slf4j:slf4j-api:1.7.36 -> 2.0.17 (*)
+|              +--- org.slf4j:slf4j-simple:1.7.36 -> 2.0.17
+|              |    +--- org.slf4j:slf4j-api:2.0.17 (*)
+|              |    \--- org.slf4j:slf4j-bom:2.0.17 (*)
+|              +--- org.apache.commons:commons-lang3:3.18.0 -> 3.19.0
+|              +--- org.apache.commons:commons-text:1.10.0
+|              |    \--- org.apache.commons:commons-lang3:3.12.0 -> 3.19.0
+|              +--- org.apache.maven.resolver:maven-resolver-util:1.9.18 -> 1.9.24 (*)
+|              +--- commons-cli:commons-cli:1.10.0
+|              +--- com.google.guava:guava:32.1.3-jre -> 33.5.0-jre (*)
+|              +--- com.fasterxml.jackson.datatype:jackson-datatype-guava:2.18.2 -> 2.20.1
+|              |    +--- com.google.guava:guava:25.1-jre -> 33.5.0-jre (*)
+|              |    +--- com.fasterxml.jackson.core:jackson-annotations:2.20
+|              |    +--- com.fasterxml.jackson.core:jackson-core:2.20.1 (*)
+|              |    +--- com.fasterxml.jackson.core:jackson-databind:2.20.1 (*)
+|              |    \--- com.fasterxml.jackson:jackson-bom:2.20.1 (*)
+|              +--- org.commonmark:commonmark:0.21.0
+|              +--- com.github.mifmif:generex:1.0.2
+|              |    \--- dk.brics.automaton:automaton:1.11-8
+|              +--- com.github.curious-odd-man:rgxgen:1.4
+|              +--- com.fasterxml.jackson.core:jackson-databind:2.18.2 -> 2.20.1 (*)
+|              +--- com.fasterxml.jackson.datatype:jackson-datatype-joda:2.18.2 -> 2.20.1
+|              |    +--- com.fasterxml.jackson.core:jackson-annotations:2.20
+|              |    +--- com.fasterxml.jackson.core:jackson-core:2.20.1 (*)
+|              |    +--- com.fasterxml.jackson.core:jackson-databind:2.20.1 (*)
+|              |    +--- joda-time:joda-time:2.12.7
+|              |    \--- com.fasterxml.jackson:jackson-bom:2.20.1 (*)
+|              +--- com.fasterxml.jackson.core:jackson-annotations:2.18.2 -> 2.20
+|              +--- com.github.joschi.jackson:jackson-datatype-threetenbp:2.18.2
+|              |    +--- com.fasterxml.jackson.core:jackson-annotations:2.18.2 -> 2.20
+|              |    +--- org.threeten:threetenbp:1.7.0
+|              |    +--- com.fasterxml.jackson.core:jackson-core:2.18.2 -> 2.20.1 (*)
+|              |    \--- com.fasterxml.jackson.core:jackson-databind:2.18.2 -> 2.20.1 (*)
+|              +--- org.openapitools:openapi-generator-core:7.19.0
+|              |    +--- com.google.guava:guava:32.1.3-jre -> 33.5.0-jre (*)
+|              |    \--- org.slf4j:slf4j-api:1.7.36 -> 2.0.17 (*)
+|              +--- net.java.dev.jna:jna:5.12.1 -> 5.17.0
+|              +--- com.github.ben-manes.caffeine:caffeine:2.9.3 -> 3.2.3 (*)
+|              +--- org.projectlombok:lombok:1.18.38 -> 1.18.42
+|              \--- org.yaml:snakeyaml:2.4
++--- org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.8.0 (*)
++--- org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0 (*)
++--- org.jetbrains.kotlin:kotlin-metadata-jvm:2.3.0 (*)
++--- org.jetbrains.kotlin:kotlin-reflect:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-gradle-plugin:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlinx:kotlinx-coroutines-bom:{strictly 1.8.0} -> 1.8.0 (c)
++--- org.jetbrains.kotlinx:kotlinx-coroutines-core:{strictly 1.8.0} -> 1.8.0 (c)
++--- net.swiftzer.semver:semver:{strictly 2.1.0} -> 2.1.0 (c)
++--- org.jetbrains.kotlin.kapt:org.jetbrains.kotlin.kapt.gradle.plugin:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin.plugin.lombok:org.jetbrains.kotlin.plugin.lombok.gradle.plugin:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin.plugin.sam.with.receiver:org.jetbrains.kotlin.plugin.sam.with.receiver.gradle.plugin:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin.plugin.spring:org.jetbrains.kotlin.plugin.spring.gradle.plugin:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin.plugin.jpa:org.jetbrains.kotlin.plugin.jpa.gradle.plugin:{strictly 2.3.0} -> 2.3.0 (c)
++--- net.ltgt.errorprone:net.ltgt.errorprone.gradle.plugin:{strictly 5.0.0} -> 5.0.0 (c)
++--- net.ltgt.nullaway:net.ltgt.nullaway.gradle.plugin:{strictly 3.0.0} -> 3.0.0 (c)
++--- com.gradle.develocity:com.gradle.develocity.gradle.plugin:{strictly 4.3.2} -> 4.3.2 (c)
++--- com.diffplug.spotless:com.diffplug.spotless.gradle.plugin:{strictly 8.2.1} -> 8.2.1 (c)
++--- dev.detekt:dev.detekt.gradle.plugin:{strictly 2.0.0-alpha.2} -> 2.0.0-alpha.2 (c)
++--- org.jetbrains.dokka:org.jetbrains.dokka.gradle.plugin:{strictly 2.2.0-Beta} -> 2.2.0-Beta (c)
++--- me.champeau.jmh:me.champeau.jmh.gradle.plugin:{strictly 0.7.3} -> 0.7.3 (c)
++--- org.gradlex.jvm-dependency-conflict-resolution:org.gradlex.jvm-dependency-conflict-resolution.gradle.plugin:{strictly 2.5} -> 2.5 (c)
++--- org.gradlex.java-module-dependencies:org.gradlex.java-module-dependencies.gradle.plugin:{strictly 1.12} -> 1.12 (c)
++--- org.gradlex.java-module-testing:org.gradlex.java-module-testing.gradle.plugin:{strictly 1.8} -> 1.8 (c)
++--- org.gradlex.extra-java-module-info:org.gradlex.extra-java-module-info.gradle.plugin:{strictly 1.14} -> 1.14 (c)
++--- com.gradleup.shadow:com.gradleup.shadow.gradle.plugin:{strictly 9.3.1} -> 9.3.1 (c)
++--- org.jetbrains.kotlin:kotlin-metadata-jvm:{strictly 2.3.0} -> 2.3.0 (c)
++--- com.vanniktech.maven.publish:com.vanniktech.maven.publish.gradle.plugin:{strictly 0.36.0} -> 0.36.0 (c)
++--- com.autonomousapps.dependency-analysis:com.autonomousapps.dependency-analysis.gradle.plugin:{strictly 3.5.1} -> 3.5.1 (c)
++--- io.fuchs.gradle.classpath-collision-detector:io.fuchs.gradle.classpath-collision-detector.gradle.plugin:{strictly 1.0.0} -> 1.0.0 (c)
++--- org.cyclonedx.bom:org.cyclonedx.bom.gradle.plugin:{strictly 3.1.0} -> 3.1.0 (c)
++--- com.github.spotbugs:com.github.spotbugs.gradle.plugin:{strictly 6.4.8} -> 6.4.8 (c)
++--- org.jetbrains.kotlinx.kover:org.jetbrains.kotlinx.kover.gradle.plugin:{strictly 0.9.6} -> 0.9.6 (c)
++--- com.google.devtools.ksp:com.google.devtools.ksp.gradle.plugin:{strictly 2.3.5} -> 2.3.5 (c)
++--- io.freefair.lombok:io.freefair.lombok.gradle.plugin:{strictly 9.2.0} -> 9.2.0 (c)
++--- org.openrewrite.rewrite:org.openrewrite.rewrite.gradle.plugin:{strictly 7.25.0} -> 7.25.0 (c)
++--- org.springframework.boot:org.springframework.boot.gradle.plugin:{strictly 4.1.0-M1} -> 4.1.0-M1 (c)
++--- org.openapi.generator:org.openapi.generator.gradle.plugin:{strictly 7.19.0} -> 7.19.0 (c)
++--- org.jetbrains.kotlin:kotlin-stdlib:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-gradle-plugins-bom:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-gradle-plugin-api:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:fus-statistics-gradle-plugin:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-gradle-plugin-idea:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-gradle-plugin-idea-proto:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-klib-commonizer-api:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-build-statistics:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-util-klib-metadata:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:abi-tools-api:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-compiler-runner:{strictly 2.3.0} -> 2.3.0 (c)
++--- net.swiftzer.semver:semver-jvm:{strictly 2.1.0} -> 2.1.0 (c)
++--- org.jetbrains.kotlin:kotlin-lombok:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-sam-with-receiver:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-allopen:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-noarg:{strictly 2.3.0} -> 2.3.0 (c)
++--- net.ltgt.gradle:gradle-errorprone-plugin:{strictly 5.0.0} -> 5.0.0 (c)
++--- net.ltgt.gradle:gradle-nullaway-plugin:{strictly 3.0.0} -> 3.0.0 (c)
++--- com.gradle:develocity-gradle-plugin:{strictly 4.3.2} -> 4.3.2 (c)
++--- com.diffplug.spotless:spotless-plugin-gradle:{strictly 8.2.1} -> 8.2.1 (c)
++--- dev.detekt:detekt-gradle-plugin:{strictly 2.0.0-alpha.2} -> 2.0.0-alpha.2 (c)
++--- org.jetbrains.dokka:dokka-gradle-plugin:{strictly 2.2.0-Beta} -> 2.2.0-Beta (c)
++--- me.champeau.jmh:jmh-gradle-plugin:{strictly 0.7.3} -> 0.7.3 (c)
++--- org.gradlex:jvm-dependency-conflict-resolution:{strictly 2.5} -> 2.5 (c)
++--- org.gradlex:java-module-dependencies:{strictly 1.12} -> 1.12 (c)
++--- org.gradlex:java-module-testing:{strictly 1.8} -> 1.8 (c)
++--- org.gradlex:extra-java-module-info:{strictly 1.14} -> 1.14 (c)
++--- com.gradleup.shadow:shadow-gradle-plugin:{strictly 9.3.1} -> 9.3.1 (c)
++--- com.vanniktech:gradle-maven-publish-plugin:{strictly 0.36.0} -> 0.36.0 (c)
++--- com.autonomousapps:dependency-analysis-gradle-plugin:{strictly 3.5.1} -> 3.5.1 (c)
++--- io.fuchs.gradle.classpath-collision-detector:classpath-collision-detector:{strictly 1.0.0} -> 1.0.0 (c)
++--- org.cyclonedx:cyclonedx-gradle-plugin:{strictly 3.1.0} -> 3.1.0 (c)
++--- com.github.spotbugs.snom:spotbugs-gradle-plugin:{strictly 6.4.8} -> 6.4.8 (c)
++--- org.jetbrains.kotlinx:kover-gradle-plugin:{strictly 0.9.6} -> 0.9.6 (c)
++--- com.google.devtools.ksp:symbol-processing-gradle-plugin:{strictly 2.3.5} -> 2.3.5 (c)
++--- io.freefair.gradle:lombok-plugin:{strictly 9.2.0} -> 9.2.0 (c)
++--- org.openrewrite:plugin:{strictly 7.25.0} -> 7.25.0 (c)
++--- org.springframework.boot:spring-boot-gradle-plugin:{strictly 4.1.0-M1} -> 4.1.0-M1 (c)
++--- org.openapitools:openapi-generator-gradle-plugin:{strictly 7.19.0} -> 7.19.0 (c)
++--- org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:{strictly 1.8.0} -> 1.8.0 (c)
++--- org.jetbrains:annotations:{strictly 23.0.0} -> 23.0.0 (c)
++--- org.jetbrains.kotlin:kotlin-gradle-plugin-annotations:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-native-utils:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-tooling-core:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-build-tools-api:{strictly 2.3.0} -> 2.3.0 (c)
++--- com.google.code.gson:gson:{strictly 2.11.0} -> 2.11.0 (c)
++--- org.jetbrains.kotlin:kotlin-util-io:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-util-klib:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlin:kotlin-daemon-client:{strictly 2.3.0} -> 2.3.0 (c)
++--- org.jetbrains.kotlinx:kotlinx-serialization-core:{strictly 1.8.0} -> 1.8.0 (c)
++--- com.diffplug.durian:durian-core:{strictly 1.2.0} -> 1.2.0 (c)
++--- com.diffplug.durian:durian-io:{strictly 1.2.0} -> 1.2.0 (c)
++--- com.diffplug.durian:durian-collect:{strictly 1.2.0} -> 1.2.0 (c)
++--- org.eclipse.jgit:org.eclipse.jgit:{strictly 7.5.0.202512021534-r} -> 7.5.0.202512021534-r (c)
++--- com.diffplug.spotless:spotless-lib:{strictly 4.3.0} -> 4.3.0 (c)
++--- com.diffplug.spotless:spotless-lib-extra:{strictly 4.3.0} -> 4.3.0 (c)
++--- io.github.detekt.sarif4k:sarif4k:{strictly 0.6.0} -> 0.6.0 (c)
++--- org.jetbrains.kotlinx:kotlinx-serialization-bom:{strictly 1.8.0} -> 1.8.0 (c)
++--- org.jetbrains.kotlinx:kotlinx-serialization-json:{strictly 1.8.0} -> 1.8.0 (c)
++--- org.jetbrains.dokka:dokka-core:{strictly 2.2.0-Beta} -> 2.2.0-Beta (c)
++--- org.openjdk.jmh:jmh-core:{strictly 1.37} -> 1.37 (c)
++--- org.ow2.asm:asm:{strictly 9.9.1} -> 9.9.1 (c)
++--- com.github.javaparser:javaparser-core:{strictly 3.28.0} -> 3.28.0 (c)
++--- commons-codec:commons-codec:{strictly 1.20.0} -> 1.20.0 (c)
++--- commons-io:commons-io:{strictly 2.21.0} -> 2.21.0 (c)
++--- org.apache.logging.log4j:log4j-core:{strictly 2.25.3} -> 2.25.3 (c)
++--- org.vafer:jdependency:{strictly 2.14} -> 2.14 (c)
++--- org.jdom:jdom2:{strictly 2.0.6.1} -> 2.0.6.1 (c)
++--- org.codehaus.plexus:plexus-utils:{strictly 4.0.2} -> 4.0.2 (c)
++--- org.codehaus.plexus:plexus-xml:{strictly 4.1.0} -> 4.1.0 (c)
++--- org.apache.ant:ant:{strictly 1.10.15} -> 1.10.15 (c)
++--- com.vanniktech:central-portal:{strictly 0.36.0} -> 0.36.0 (c)
++--- org.jetbrains.kotlin:kotlin-bom:{strictly 2.0.21} -> 2.0.21 (c)
++--- com.squareup.okio:okio-bom:{strictly 3.16.4} -> 3.16.4 (c)
++--- com.autonomousapps:graph-support:{strictly 0.9.0} -> 0.9.0 (c)
++--- com.autonomousapps:variant-artifacts:{strictly 0.3.3} -> 0.3.3 (c)
++--- com.google.guava:guava:{strictly 33.5.0-jre} -> 33.5.0-jre (c)
++--- org.jetbrains.kotlin:kotlin-stdlib-jdk8:{strictly 2.0.21} -> 2.0.21 (c)
++--- com.autonomousapps:kotlin-editor-relocated:{strictly 0.18.0} -> 0.18.0 (c)
++--- com.squareup.moshi:moshi-kotlin:{strictly 1.15.2} -> 1.15.2 (c)
++--- dev.zacsweers.moshix:moshi-sealed-reflect:{strictly 0.30.0} -> 0.30.0 (c)
++--- com.squareup.okio:okio:{strictly 3.16.4} -> 3.16.4 (c)
++--- com.github.ben-manes.caffeine:caffeine:{strictly 3.2.3} -> 3.2.3 (c)
++--- com.autonomousapps:antlr:{strictly 4.13.2.0} -> 4.13.2.0 (c)
++--- com.autonomousapps:asm-relocated:{strictly 9.9.0} -> 9.9.0 (c)
++--- javax.inject:javax.inject:{strictly 1} -> 1 (c)
++--- com.squareup.moshi:moshi:{strictly 1.15.2} -> 1.15.2 (c)
++--- dev.zacsweers.moshix:moshi-sealed-runtime:{strictly 0.30.0} -> 0.30.0 (c)
++--- org.apache.maven:maven-core:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.cyclonedx:cyclonedx-core-java:{strictly 11.0.1} -> 11.0.1 (c)
++--- org.jspecify:jspecify:{strictly 1.0.0} -> 1.0.0 (c)
++--- org.jetbrains.kotlinx:kover-features-jvm:{strictly 0.9.6} -> 0.9.6 (c)
++--- org.jetbrains.kotlinx:kover-jvm-agent:{strictly 0.9.6} -> 0.9.6 (c)
++--- com.google.devtools.ksp:symbol-processing-api:{strictly 2.3.5} -> 2.3.5 (c)
++--- com.google.devtools.ksp:symbol-processing-common-deps:{strictly 2.3.5} -> 2.3.5 (c)
++--- org.openrewrite:rewrite-bom:{strictly 8.72.0} -> 8.72.0 (c)
++--- org.springframework.boot:spring-boot-buildpack-platform:{strictly 4.1.0-M1} -> 4.1.0-M1 (c)
++--- org.springframework.boot:spring-boot-loader-tools:{strictly 4.1.0-M1} -> 4.1.0-M1 (c)
++--- io.spring.gradle:dependency-management-plugin:{strictly 1.1.7} -> 1.1.7 (c)
++--- org.apache.commons:commons-compress:{strictly 1.27.1} -> 1.27.1 (c)
++--- org.springframework:spring-core:{strictly 7.0.3} -> 7.0.3 (c)
++--- org.openapitools:openapi-generator:{strictly 7.19.0} -> 7.19.0 (c)
++--- com.google.errorprone:error_prone_annotations:{strictly 2.43.0} -> 2.43.0 (c)
++--- org.jetbrains.kotlinx:kotlinx-serialization-core-jvm:{strictly 1.8.0} -> 1.8.0 (c)
++--- com.googlecode.javaewah:JavaEWAH:{strictly 1.2.3} -> 1.2.3 (c)
++--- org.slf4j:slf4j-api:{strictly 2.0.17} -> 2.0.17 (c)
++--- com.googlecode.concurrent-trees:concurrent-trees:{strictly 2.6.1} -> 2.6.1 (c)
++--- dev.equo.ide:solstice:{strictly 1.8.1} -> 1.8.1 (c)
++--- org.eclipse.platform:org.eclipse.osgi:{strictly 3.24.0} -> 3.24.0 (c)
++--- io.github.detekt.sarif4k:sarif4k-jvm:{strictly 0.6.0} -> 0.6.0 (c)
++--- org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:{strictly 1.8.0} -> 1.8.0 (c)
++--- com.fasterxml.jackson.module:jackson-module-kotlin:{strictly 2.20.1} -> 2.20.1 (c)
++--- com.fasterxml.jackson.dataformat:jackson-dataformat-xml:{strictly 2.20.1} -> 2.20.1 (c)
++--- net.sf.jopt-simple:jopt-simple:{strictly 5.0.4} -> 5.0.4 (c)
++--- org.apache.commons:commons-math3:{strictly 3.6.1} -> 3.6.1 (c)
++--- org.ow2.asm:asm-bom:{strictly 9.9.1} -> 9.9.1 (c)
++--- org.apache.logging.log4j:log4j-api:{strictly 2.25.3} -> 2.25.3 (c)
++--- org.apache.logging.log4j:log4j-bom:{strictly 2.25.3} -> 2.25.3 (c)
++--- org.apache.maven:maven-xml:{strictly 4.0.0-rc-3} -> 4.0.0-rc-3 (c)
++--- org.apache.ant:ant-launcher:{strictly 1.10.15} -> 1.10.15 (c)
++--- com.squareup.okhttp3:okhttp:{strictly 5.1.0} -> 5.1.0 (c)
++--- com.squareup.retrofit2:retrofit:{strictly 3.0.0} -> 3.0.0 (c)
++--- com.squareup.retrofit2:converter-scalars:{strictly 3.0.0} -> 3.0.0 (c)
++--- com.squareup.retrofit2:converter-moshi:{strictly 3.0.0} -> 3.0.0 (c)
++--- com.google.guava:failureaccess:{strictly 1.0.3} -> 1.0.3 (c)
++--- com.google.j2objc:j2objc-annotations:{strictly 3.1} -> 3.1 (c)
++--- org.jetbrains.kotlin:kotlin-stdlib-jdk7:{strictly 2.0.21} -> 2.0.21 (c)
++--- com.squareup:kotlinpoet:{strictly 2.1.0} -> 2.1.0 (c)
++--- com.squareup.moshi:moshi-adapters:{strictly 1.15.2} -> 1.15.2 (c)
++--- com.squareup.okio:okio-jvm:{strictly 3.16.4} -> 3.16.4 (c)
++--- org.apache.maven:maven-model:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.apache.maven:maven-settings:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.apache.maven:maven-settings-builder:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.apache.maven:maven-builder-support:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.apache.maven:maven-repository-metadata:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.apache.maven:maven-artifact:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.apache.maven:maven-plugin-api:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.apache.maven:maven-model-builder:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.apache.maven:maven-resolver-provider:{strictly 3.9.11} -> 3.9.11 (c)
++--- org.apache.maven.resolver:maven-resolver-impl:{strictly 1.9.24} -> 1.9.24 (c)
++--- org.apache.maven.resolver:maven-resolver-api:{strictly 1.9.24} -> 1.9.24 (c)
++--- org.apache.maven.resolver:maven-resolver-spi:{strictly 1.9.24} -> 1.9.24 (c)
++--- org.apache.maven.resolver:maven-resolver-util:{strictly 1.9.24} -> 1.9.24 (c)
++--- org.apache.maven.shared:maven-shared-utils:{strictly 3.4.2} -> 3.4.2 (c)
++--- org.eclipse.sisu:org.eclipse.sisu.plexus:{strictly 0.9.0.M4} -> 0.9.0.M4 (c)
++--- org.eclipse.sisu:org.eclipse.sisu.inject:{strictly 0.9.0.M4} -> 0.9.0.M4 (c)
++--- com.google.inject:guice:{strictly 5.1.0} -> 5.1.0 (c)
++--- org.codehaus.plexus:plexus-classworlds:{strictly 2.9.0} -> 2.9.0 (c)
++--- org.codehaus.plexus:plexus-interpolation:{strictly 1.28} -> 1.28 (c)
++--- org.codehaus.plexus:plexus-component-annotations:{strictly 2.2.0} -> 2.2.0 (c)
++--- org.apache.commons:commons-lang3:{strictly 3.19.0} -> 3.19.0 (c)
++--- org.apache.commons:commons-collections4:{strictly 4.5.0} -> 4.5.0 (c)
++--- com.github.package-url:packageurl-java:{strictly 1.5.0} -> 1.5.0 (c)
++--- com.networknt:json-schema-validator:{strictly 1.5.9} -> 1.5.9 (c)
++--- org.jetbrains.intellij.deps:intellij-coverage-reporter:{strictly 1.0.765} -> 1.0.765 (c)
++--- net.java.dev.jna:jna-platform:{strictly 5.17.0} -> 5.17.0 (c)
++--- org.apache.httpcomponents.client5:httpclient5:{strictly 5.6} -> 5.6 (c)
++--- org.tomlj:tomlj:{strictly 1.0.0} -> 1.0.0 (c)
++--- tools.jackson.core:jackson-databind:{strictly 3.0.4} -> 3.0.4 (c)
++--- org.slf4j:jcl-over-slf4j:{strictly 2.0.17} -> 2.0.17 (c)
++--- io.swagger.parser.v3:swagger-parser:{strictly 2.1.37} -> 2.1.37 (c)
++--- com.samskivert:jmustache:{strictly 1.16} -> 1.16 (c)
++--- com.github.jknack:handlebars:{strictly 4.3.1} -> 4.3.1 (c)
++--- com.github.jknack:handlebars-jackson2:{strictly 4.3.1} -> 4.3.1 (c)
++--- org.slf4j:slf4j-ext:{strictly 2.0.17} -> 2.0.17 (c)
++--- org.slf4j:slf4j-simple:{strictly 2.0.17} -> 2.0.17 (c)
++--- org.apache.commons:commons-text:{strictly 1.10.0} -> 1.10.0 (c)
++--- commons-cli:commons-cli:{strictly 1.10.0} -> 1.10.0 (c)
++--- com.fasterxml.jackson.datatype:jackson-datatype-guava:{strictly 2.20.1} -> 2.20.1 (c)
++--- org.commonmark:commonmark:{strictly 0.21.0} -> 0.21.0 (c)
++--- com.github.mifmif:generex:{strictly 1.0.2} -> 1.0.2 (c)
++--- com.github.curious-odd-man:rgxgen:{strictly 1.4} -> 1.4 (c)
++--- com.fasterxml.jackson.core:jackson-databind:{strictly 2.20.1} -> 2.20.1 (c)
++--- com.fasterxml.jackson.datatype:jackson-datatype-joda:{strictly 2.20.1} -> 2.20.1 (c)
++--- com.fasterxml.jackson.core:jackson-annotations:{strictly 2.20} -> 2.20 (c)
++--- com.github.joschi.jackson:jackson-datatype-threetenbp:{strictly 2.18.2} -> 2.18.2 (c)
++--- org.openapitools:openapi-generator-core:{strictly 7.19.0} -> 7.19.0 (c)
++--- net.java.dev.jna:jna:{strictly 5.17.0} -> 5.17.0 (c)
++--- org.projectlombok:lombok:{strictly 1.18.42} -> 1.18.42 (c)
++--- org.yaml:snakeyaml:{strictly 2.4} -> 2.4 (c)
++--- org.slf4j:slf4j-bom:{strictly 2.0.17} -> 2.0.17 (c)
++--- org.tukaani:xz:{strictly 1.9} -> 1.9 (c)
++--- com.diffplug.durian:durian-swt.os:{strictly 4.3.0} -> 4.3.0 (c)
++--- com.fasterxml.jackson:jackson-bom:{strictly 2.20.1} -> 2.20.1 (c)
++--- com.fasterxml.jackson.core:jackson-core:{strictly 2.20.1} -> 2.20.1 (c)
++--- org.codehaus.woodstox:stax2-api:{strictly 4.2.2} -> 4.2.2 (c)
++--- com.fasterxml.woodstox:woodstox-core:{strictly 7.1.1} -> 7.1.1 (c)
++--- org.apache.maven:maven-api-xml:{strictly 4.0.0-rc-3} -> 4.0.0-rc-3 (c)
++--- com.squareup.okhttp3:okhttp-jvm:{strictly 5.1.0} -> 5.1.0 (c)
++--- com.squareup:kotlinpoet-jvm:{strictly 2.1.0} -> 2.1.0 (c)
++--- org.codehaus.plexus:plexus-sec-dispatcher:{strictly 2.0} -> 2.0 (c)
++--- org.apache.maven.resolver:maven-resolver-named-locks:{strictly 1.9.24} -> 1.9.24 (c)
++--- aopalliance:aopalliance:{strictly 1.0} -> 1.0 (c)
++--- com.ethlo.time:itu:{strictly 1.14.0} -> 1.14.0 (c)
++--- com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:{strictly 2.20.1} -> 2.20.1 (c)
++--- org.jetbrains.intellij.deps:coverage-report:{strictly 1.0.25} -> 1.0.25 (c)
++--- org.jetbrains.intellij.deps:intellij-coverage-agent:{strictly 1.0.765} -> 1.0.765 (c)
++--- org.apache.httpcomponents.core5:httpcore5:{strictly 5.4} -> 5.4 (c)
++--- org.apache.httpcomponents.core5:httpcore5-h2:{strictly 5.4} -> 5.4 (c)
++--- org.antlr:antlr4-runtime:{strictly 4.7.2} -> 4.7.2 (c)
++--- com.google.code.findbugs:jsr305:{strictly 3.0.2} -> 3.0.2 (c)
++--- tools.jackson.core:jackson-core:{strictly 3.0.4} -> 3.0.4 (c)
++--- tools.jackson:jackson-bom:{strictly 3.0.4} -> 3.0.4 (c)
++--- io.swagger.parser.v3:swagger-parser-v2-converter:{strictly 2.1.37} -> 2.1.37 (c)
++--- io.swagger.parser.v3:swagger-parser-v3:{strictly 2.1.37} -> 2.1.37 (c)
++--- dk.brics.automaton:automaton:{strictly 1.11-8} -> 1.11-8 (c)
++--- joda-time:joda-time:{strictly 2.12.7} -> 2.12.7 (c)
++--- org.threeten:threetenbp:{strictly 1.7.0} -> 1.7.0 (c)
++--- org.apache.maven:maven-api-annotations:{strictly 4.0.0-rc-3} -> 4.0.0-rc-3 (c)
++--- org.codehaus.plexus:plexus-cipher:{strictly 2.0} -> 2.0 (c)
++--- org.freemarker:freemarker:{strictly 2.3.32} -> 2.3.32 (c)
++--- io.swagger:swagger-core:{strictly 1.6.16} -> 1.6.16 (c)
++--- io.swagger:swagger-parser:{strictly 1.0.75} -> 1.0.75 (c)
++--- io.swagger:swagger-compat-spec-parser:{strictly 1.0.75} -> 1.0.75 (c)
++--- io.swagger.core.v3:swagger-models:{strictly 2.2.37} -> 2.2.37 (c)
++--- io.swagger.parser.v3:swagger-parser-core:{strictly 2.1.37} -> 2.1.37 (c)
++--- io.swagger.core.v3:swagger-core:{strictly 2.2.37} -> 2.2.37 (c)
++--- io.swagger.parser.v3:swagger-parser-safe-url-resolver:{strictly 2.1.37} -> 2.1.37 (c)
++--- jakarta.xml.bind:jakarta.xml.bind-api:{strictly 2.3.3} -> 2.3.3 (c)
++--- io.swagger:swagger-parser-safe-url-resolver:{strictly 1.0.75} -> 1.0.75 (c)
++--- com.github.java-json-tools:json-schema-validator:{strictly 2.2.14} -> 2.2.14 (c)
++--- com.github.java-json-tools:json-patch:{strictly 1.13} -> 1.13 (c)
++--- org.apache.httpcomponents:httpclient:{strictly 4.5.14} -> 4.5.14 (c)
++--- com.fasterxml.jackson.datatype:jackson-datatype-jsr310:{strictly 2.20.1} -> 2.20.1 (c)
++--- io.swagger.core.v3:swagger-annotations:{strictly 2.2.37} -> 2.2.37 (c)
++--- jakarta.validation:jakarta.validation-api:{strictly 2.0.2} -> 2.0.2 (c)
++--- jakarta.activation:jakarta.activation-api:{strictly 1.2.2} -> 1.2.2 (c)
++--- io.swagger:swagger-annotations:{strictly 1.6.16} -> 1.6.16 (c)
++--- io.swagger:swagger-models:{strictly 1.6.16} -> 1.6.16 (c)
++--- com.github.java-json-tools:jackson-coreutils-equivalence:{strictly 1.0} -> 1.0 (c)
++--- com.github.java-json-tools:json-schema-core:{strictly 1.2.14} -> 1.2.14 (c)
++--- com.googlecode.libphonenumber:libphonenumber:{strictly 8.11.1} -> 8.11.1 (c)
++--- com.github.java-json-tools:msg-simple:{strictly 1.2} -> 1.2 (c)
++--- com.github.java-json-tools:jackson-coreutils:{strictly 2.0} -> 2.0 (c)
++--- org.apache.httpcomponents:httpcore:{strictly 4.4.16} -> 4.4.16 (c)
++--- com.github.java-json-tools:uri-template:{strictly 0.10} -> 0.10 (c)
++--- org.mozilla:rhino:{strictly 1.7.7.2} -> 1.7.7.2 (c)
+\--- com.github.java-json-tools:btf:{strictly 1.3} -> 1.3 (c)

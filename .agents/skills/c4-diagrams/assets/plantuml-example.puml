@@ -1,0 +1,24 @@
+@startuml
+/' Enhanced PlantUML C4 template '/
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.13.0/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+
+title System Context Diagram – Application
+
+Person(user, "User", "End user interacting with the platform")
+Person(admin, "Administrator", "Manages configuration and operations")
+
+System_Boundary(app_boundary, "Application System") {
+    System(app, "Application Platform", "Core system handling business capabilities")
+}
+
+System_Ext(payment, "Payment Gateway", "Processes payments")
+System_Ext(email, "Email Service", "Delivers transactional emails")
+
+Rel(user, app, "Uses", "HTTPS / Web UI")
+Rel(admin, app, "Administers", "HTTPS / Admin Panel")
+Rel(app, payment, "Processes payments via", "API")
+Rel(app, email, "Sends notifications via", "SMTP / API")
+
+@enduml

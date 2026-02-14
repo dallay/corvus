@@ -1,0 +1,18 @@
+flowchart TD
+  A["Followed issue template?"] -->|NO| B["Close and ask to follow template"]
+  A -->|YES| C["Is duplicate?"]
+  C -->|YES| D["Close and point to duplicate"]
+  C -->|NO| E["Has proper reproduction?"]
+  E -->|NO| F["Label: needs reproduction. Bot will auto close if no update has been made in 3 days"]
+  E -->|YES| G["Is actually a bug?"]
+  G -->|NO| H{"Is the behavior intended?"}
+  H -->|YES| I["Explain and close - point to docs if needed"]
+  H -->|NO| J["Keep open for discussion. Remove pending triage label"]
+  G -->|YES| K["1. Remove pending triage label 2. Add bug label 3. Add related feature label if applicable 4. Add priority label"]
+  K --> L{"Does the bug make Vite unusable?"}
+  L -->|YES| M{"Does the bug affect the majority of users?"}
+  M -->|YES| N["p5: urgent"]
+  M -->|NO| O["p4: important"]
+  L -->|NO| P{"Are there workarounds for the bug?"}
+  P -->|YES| Q["p2: has workaround"]
+  P -->|NO| R["p3: minor bug"]

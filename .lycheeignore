@@ -1,0 +1,47 @@
+^https?://localhost
+^https?://127\.0\.0\.1
+^https?://0\.0\.0\.0
+^mailto:.*@example\.com
+
+# Maven central snapshots not yet deployed
+^https://central\.sonatype\.com/repository/maven-snapshots/.*
+
+# Mend.io returns 403 Forbidden to bots
+^https://www\.mend\.io/.*
+
+# Checkstyle header file contains regex patterns that look like URLs
+gradle/configs/checkstyle/checkstyle-header-file\.txt
+
+# =============================================================================
+# Astro/Starlight Internal Documentation Links
+# These links are resolved by Astro at build time, not real URLs
+# =============================================================================
+
+# Root-relative links with base path /starter-gradle
+# Matches: /starter-gradle/en/guides/any-page, /starter-gradle/es/api/any-page, etc.
+^/starter-gradle/(en|es)/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/?$
+^/starter-gradle/$
+
+# Links without base path
+^/(en|es)/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/?$
+
+# Any path under /guides/ (cualquier página en guides)
+/guides/[a-zA-Z0-9_-]+/?$
+
+# Any path under /en/ or /es/ (cualquier sección, no solo guides)
+/(en|es)/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/?$
+
+# Relative links in markdown: ./pagename/, ../guides/pagename/, ../section/pagename/
+^\./[a-zA-Z0-9_-]+/?$
+^\.\./[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/?$
+^\.\./[a-zA-Z0-9_-]+/?$
+
+# Root link in 404 pages
+^/$
+
+# Fragment-only links (anchors) - cualquier anchor
+^#.+$
+
+# Any path-like string without scheme used in frontmatter
+# Matches: guides/pagename/, api/reference/, etc.
+^[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/?$

@@ -1,0 +1,16 @@
+########################################
+## Spotless forbidden rules, e.g.:
+#
+## Forbid import
+#^\s*import\s+java\.sql\..*$
+#
+## Forbid System.out.println
+#^\s*System\.out\.println\(.*\).*$
+#
+## Forbid XXX comments
+#^\s*//\s*XXX:.*
+########################################
+
+### jdk
+import java.util.Date
+import java.nio.file.Paths

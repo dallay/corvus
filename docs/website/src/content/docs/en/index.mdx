@@ -1,0 +1,43 @@
+---
+title: Starter Gradle
+description: A centralized, maintainable, and robust Gradle starter template for JVM projects.
+template: splash
+hero:
+  tagline: The ultimate foundation for your next JVM project. Centralized build logic, multi-language support, and production-ready tooling — all in one template.
+  actions:
+    - text: Get Started
+      link: guides/getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/dallay/starter-gradle
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## Why Starter Gradle?
+
+<CardGrid stagger>
+  <Card title="Centralized Build Logic" icon="setting">
+    Manage all your convention plugins in one place with `build-logic`. No more copy-pasting Gradle configurations across modules.
+  </Card>
+  <Card title="Multi-language Support" icon="open-book">
+    First-class support for **Kotlin**, **Java**, and **Spring Boot** with pre-configured modules and convention plugins.
+  </Card>
+  <Card title="High Quality Standards" icon="approve-check">
+    Integrated static analysis with **Detekt**, **SpotBugs**, and **PMD**. Automated formatting with **Spotless** keeps your code consistent.
+  </Card>
+  <Card title="Modern Tooling" icon="rocket">
+    Uses **Gradle Version Catalogs**, **Configuration Cache**, and keeps dependencies up-to-date with best practices.
+  </Card>
+</CardGrid>
+
+## Explore the Docs
+
+<CardGrid>
+  <LinkCard title="Project Structure" description="Understand how the project is organized and where to find key files." href="guides/structure/" />
+  <LinkCard title="Features Checklist" description="A comprehensive list of all features, plugins, and integrations included." href="guides/features/" />
+  <LinkCard title="Architecture" description="Deep dive into the architecture decisions and patterns used." href="guides/architecture/" />
+  <LinkCard title="Development Workflow" description="Standard development workflow: build, test, lint, and deploy." href="guides/development/" />
+</CardGrid>

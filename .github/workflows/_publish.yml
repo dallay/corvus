@@ -1,0 +1,102 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: "_publish"
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        type: boolean
+        required: true
+      changelog:
+        type: boolean
+        default: false
+    secrets:
+      SIGNING_IN_MEMORY_KEY:
+        required: true
+      SIGNING_IN_MEMORY_KEY_PASSWORD:
+        required: true
+      MAVEN_CENTRAL_USERNAME:
+        required: true
+      MAVEN_CENTRAL_PASSWORD:
+        required: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
+
+      - name: 📦 Setup Node
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: "24"
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          java-version: "25"
+          distribution: "corretto"
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
+        with:
+          gradle-version: wrapper
+
+      - name: 🔧 Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
+      - name: 🔧 Show Gradle version
+        run: ./gradlew --version
+
+      - name: 🌿 Build Changelog
+        if: ${{ inputs.changelog }}
+        id: changelog
+        uses: mikepenz/release-changelog-builder-action@439f79b5b5428107c7688c1d2b0e8bacc9b8792c # v6.0.1
+        with:
+          configuration: ".github/config/changelog.json"
+          commitMode: true
+          ignorePreReleases: ${{ !contains(github.ref, '-') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📄 Summary Changelog
+        if: ${{ steps.changelog.outputs.changelog }}
+        run: |
+          {
+            echo "<details>"
+            echo "<summary>📜 Release Changelog</summary>"
+            echo
+            printf "%s\n" "${{ steps.changelog.outputs.changelog }}"
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 👻 Publish to Maven Central
+        env:
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
+          # ⚠️ Warning: Do not use never-expiring User Token!!!
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+        run: |
+          if [ "${GITHUB_REPOSITORY}" = "dallay/starter-gradle" ]; then
+            if [ "${{ inputs.release }}" = "true" ]; then
+              ./gradlew :build-logic:publishPluginMavenPublicationToMavenCentralRepository publishToMavenCentral
+            else
+              ./gradlew publishToMavenCentral
+            fi
+          else
+            ./gradlew publishToMavenCentral
+          fi
+
+      - name: 🚀 Create GitHub Release
+        if: ${{ inputs.release }}
+        uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
+        with:
+          body: ${{ steps.changelog.outputs.changelog }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

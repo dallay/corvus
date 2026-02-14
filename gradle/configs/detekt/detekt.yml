@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/SchemaStore/schemastore/master/src/schemas/json/detekt-1.22.0.json
+# see: https://github.com/detekt/detekt/blob/v2.0.0-alpha.0/detekt-core/src/main/resources/default-detekt-config.yml
+# see: https://detekt.dev/docs/introduction/suppressing-rules
+# see: https://detekt.dev/docs/rules/comments
+config:
+  validation: true
+  warningsAsErrors: false
+  checkExhaustiveness: false
+
+naming:
+  MatchingDeclarationName:
+    active: false
+
+style:
+  ForbiddenComment:
+    active: false
+  UnusedPrivateClass:
+    active: false
+  UnusedParameter:
+    active: false
+  UnusedPrivateProperty:
+    active: false
+  UnusedPrivateFunction:
+    active: false
+  MagicNumber:
+    active: false
+  ForbiddenImport:
+    active: false
+    forbiddenImports:
+      - reason: "Use LocalDateTime instead"
+        value: "java.util.Date"
+      - reason: "Use Path instead"
+        value: "java.nio.file.Paths"
+  ForbiddenMethodCall:
+    active: false
+    methods:
+      - reason: "Use LocalDateTime instead"
+        value: "java.util.Date.<init>"
+      - reason: "Use Path instead"
+        value: "java.nio.file.Paths.get"

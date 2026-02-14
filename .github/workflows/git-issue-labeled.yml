@@ -1,0 +1,56 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Issue Labeled
+run-name: Auto create and close issues When specific label is added
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  issue-labeled:
+    permissions:
+      contents: read
+      issues: write # for actions-cool/issues-helper to update issues
+      pull-requests: write # for actions-cool/issues-helper to update PRs
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 🤔 status|waiting-reproduction
+        if: github.event.label.name == 'status|waiting-reproduction'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const issueNumber = context.issue.number
+            const user = context.payload.issue.user.login
+            const body = [
+              `Hello @${user}, please provide a minimal reproduction (link or code) so we can investigate. This issue may be closed if there is no further activity.`,
+              '',
+              '> [What is a minimal reproduction, and why is it required?](https://antfu.me/posts/why-reproductions-are-required)'
+            ].join('\n')
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body
+            })
+
+      - name: 🥴 close|stackoverflow
+        if: github.event.label.name == 'close|stackoverflow'
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const issueNumber = context.issue.number
+            const user = context.payload.issue.user.login
+            const body = `Hello @${user}, this issue has been closed because it is better suited for StackOverflow: https://stackoverflow.com.`
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body
+            })
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              state: 'closed'
+            })

@@ -1,0 +1,85 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+# https://docs.github.com/en/code-security/how-tos/scan-code-for-vulnerabilities/configure-code-scanning/customizing-your-advanced-setup-for-code-scanning
+name: CodeQL Scan
+
+on:
+  push:
+    branches:
+      - main
+      - minor
+  schedule:
+    - cron: "16 5 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  CodeQL-Scan:
+    permissions:
+      actions: read
+      contents: read
+      packages: read
+      security-events: write
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: actions
+            build-mode: none
+          - language: java-kotlin
+            build-mode: manual
+
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: 📦 Setup Node
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: "24"
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          java-version: "25"
+          distribution: "corretto"
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
+        with:
+          gradle-version: wrapper
+
+      - name: 🔧 Ensure gradlew is executable
+        run: chmod +x ./gradlew
+
+      - name: 🔧 Show Gradle version
+        run: ./gradlew --version
+
+      - name: ⚙️ Initialize CodeQL
+        uses: github/codeql-action/init@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          tools: latest
+          config-file: ./.github/config/codeql.yml
+
+      - name: 🏗 Build Java/Kotlin with Gradle
+        id: gradle_build_java_kotlin
+        continue-on-error: true
+        if: >
+          matrix.build-mode == 'manual' &&
+          matrix.language == 'java-kotlin'
+        run: ./gradlew clean build
+
+      - name: 🔍 Run CodeQL Analysis (java-kotlin)
+        if: >
+          steps.gradle_build_java_kotlin.outcome == 'success'
+        uses: github/codeql-action/analyze@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
+
+      - name: 🔍 Run CodeQL Analysis
+        if: matrix.language != 'java-kotlin'
+        uses: github/codeql-action/analyze@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10

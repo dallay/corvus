@@ -1,0 +1,14 @@
+name: Stale
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  stale:
+    uses: dallay/common-actions/.github/workflows/stale.yml@main
+    secrets: inherit

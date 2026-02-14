@@ -1,0 +1,7 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/github/codeql-action/main/src/db-config-schema.json
+# https://docs.github.com/en/code-security/how-tos/scan-code-for-vulnerabilities/configure-code-scanning/customizing-your-advanced-setup-for-code-scanning#using-a-custom-configuration-file
+name: CodeQL Configuration
+
+paths-ignore:
+  - "**/__tests__/**"
+  - "docs/**"

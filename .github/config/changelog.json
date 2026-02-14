@@ -1,0 +1,91 @@
+{
+  "$schema": "https://raw.githubusercontent.com/mikepenz/release-changelog-builder-action/main/configs/json-schema.json",
+  "template": "## 📢 What's Changed\n\n#{{CHANGELOG}}\n<details>\n<summary>🔐 Uncategorized Changes</summary>\n\n#{{UNCATEGORIZED}}\n</details>\n\n## Contributors:\n- #{{CONTRIBUTORS}}",
+  "commit_template": "- #{{TITLE}} #{{MERGE_SHA}}",
+  "pr_template": "- #{{TITLE}} - #{{MERGE_SHA}} - ##{{NUMBER}}",
+  "empty_template": "- No changes in this release",
+  "exclude_merge_branches": ["hotfix/temp-*", "owner/qa", "owner/test"],
+  "tag_resolver": {
+    "method": "semver",
+    "filter": {
+      "pattern": "v(.+)",
+      "target": "$1"
+    }
+  },
+  "ignore_labels": ["pr|changelog-ignore"],
+  "categories": [
+    {
+      "title": "### 🌋 Breaking Changes",
+      "labels": ["pr|breaking-change"]
+    },
+    {
+      "title": "### 🔙 Reverts",
+      "labels": ["pr|revert"]
+    },
+    {
+      "title": "### ✨ Features",
+      "labels": ["pr|feat"]
+    },
+    {
+      "title": "### 🐛 Bug Fixes",
+      "labels": ["pr|fix"]
+    },
+    {
+      "title": "### 🧹 Refactor & Performance",
+      "labels": ["pr|refactor", "pr|perf"]
+    },
+    {
+      "title": "### 🧪 Tests",
+      "labels": ["pr|test"]
+    },
+    {
+      "title": "### 🔧 Infrastructure",
+      "labels": ["pr|infra"]
+    },
+    {
+      "title": "### 📘 Documentation",
+      "labels": ["pr|docs"]
+    },
+    {
+      "title": "### 🧩 Misc",
+      "labels": ["pr|chore"]
+    },
+    {
+      "title": "### 📦 Dependencies",
+      "labels": ["pr|deps"]
+    }
+  ],
+  "label_extractor": [
+    {
+      "on_property": "title",
+      "method": "replace",
+      "pattern": "^revert: .*$",
+      "target": "pr|revert"
+    },
+    {
+      "on_property": "title",
+      "method": "regexr",
+      "pattern": "!!\\s*$",
+      "target": "$'pr|breaking-change"
+    },
+    {
+      "on_property": "title",
+      "method": "regexr",
+      "pattern": "\\.\\.\\s*$",
+      "target": "$'pr|changelog-ignore"
+    },
+    {
+      "on_property": "title",
+      "method": "regexr",
+      "pattern": "^(?!revert: )(feat|fix|refactor|perf|test|infra|deps|docs|chore)(\\(.+\\))?: (?!.*\\.\\.$).+",
+      "target": "pr|$1"
+    }
+  ],
+  "sort": {
+    "order": "ASC",
+    "on_property": "mergedAt"
+  },
+  "max_tags_to_fetch": 200,
+  "max_pull_requests": 1000,
+  "max_back_track_time_days": 365
+}
