@@ -111,10 +111,10 @@ For a more detailed view of the architecture, see the following C4 diagrams:
 
 | Level | Diagram | Description | File |
 |-------|---------|-------------|------|
-| C1 - Context | [System Context](./diagrams/context/system-context.mmd) | High-level view of the system and external actors | `context/system-context.mmd` |
-| C2 - Containers | [Main Containers](./diagrams/container/system-containers.mmd) | Applications and services that compose Corvus | `container/system-containers.mmd` |
-| C3 - Components | [Agent Core KMP](./diagrams/component/agent-core-kmp.mmd) | Internal components of the core module | `component/agent-core-kmp.mmd` |
-| - | [Module Dependencies](./diagrams/module-dependencies.mmd) | Gradle dependency relationships | `module-dependencies.mmd` |
+| C1 - Context | [System Context](./architecture/diagrams/context/system-context.mmd) | High-level view of the system and external actors | `context/system-context.mmd` |
+| C2 - Containers | [Main Containers](./architecture/diagrams/container/system-containers.mmd) | Applications and services that compose Corvus | `container/system-containers.mmd` |
+| C3 - Components | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd) | Internal components of the core module | `component/agent-core-kmp.mmd` |
+| - | [Module Dependencies](./architecture/diagrams/module-dependencies.mmd) | Gradle dependency relationships | `module-dependencies.mmd` |
 
 See [Architecture Index](./architecture/index.md) for more details on how to visualize them.
 

@@ -37,6 +37,13 @@ if (!Files.exists(docsSymlink)) {
 val pnpmShim = isolated.rootProject.projectDirectory.file("gradle/bin/pnpm").asFile.absolutePath
 val webRootDir = isolated.projectDirectory.asFile
 val appsDir = file("${webRootDir}/apps")
+val installArgs =
+  if (webRootDir.resolve("pnpm-lock.yaml").exists()) {
+    listOf("install", "--frozen-lockfile")
+  } else {
+    logger.lifecycle("⚠️ clients/web/pnpm-lock.yaml missing, using --no-frozen-lockfile")
+    listOf("install", "--no-frozen-lockfile")
+  }
 
 // Discover all web apps dynamically
 val webApps = appsDir.listFiles { file ->
@@ -65,7 +72,7 @@ val workspaceInstall =
     group = "web"
     description = "Install all workspace dependencies with pnpm"
     workingDir = webRootDir
-    commandLine(pnpmShim, "install", "--frozen-lockfile")
+    commandLine(listOf(pnpmShim) + installArgs)
     inputs.files("package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml")
     outputs.dir("node_modules")
   }
@@ -82,7 +89,7 @@ webApps.forEach { appName ->
       description = "Install dependencies for ${appName}"
       dependsOn(workspaceInstall)
       workingDir = appDir
-      commandLine(pnpmShim, "install", "--frozen-lockfile")
+      commandLine(listOf(pnpmShim) + installArgs)
       inputs.file("${appDir}/package.json")
       outputs.dir("${appDir}/node_modules")
     }
