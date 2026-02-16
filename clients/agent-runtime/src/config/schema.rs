@@ -1082,11 +1082,27 @@ impl Config {
         }
 
         if let Err(e) = fs::rename(&temp_path, &self.config_path) {
-            let _ = fs::remove_file(&temp_path);
-            if had_existing_config && backup_path.exists() {
-                let _ = fs::copy(&backup_path, &self.config_path);
+            if should_fallback_to_in_place_write(&e) {
+                if let Err(write_err) =
+                    write_config_in_place(&self.config_path, toml_str.as_bytes())
+                {
+                    let _ = fs::remove_file(&temp_path);
+                    if had_existing_config && backup_path.exists() {
+                        let _ = fs::copy(&backup_path, &self.config_path);
+                    }
+                    anyhow::bail!(
+                        "Failed to replace config file after atomic fallback: {write_err} \
+                         (rename error: {e})"
+                    );
+                }
+                let _ = fs::remove_file(&temp_path);
+            } else {
+                let _ = fs::remove_file(&temp_path);
+                if had_existing_config && backup_path.exists() {
+                    let _ = fs::copy(&backup_path, &self.config_path);
+                }
+                anyhow::bail!("Failed to atomically replace config file: {e}");
             }
-            anyhow::bail!("Failed to atomically replace config file: {e}");
         }
 
         sync_directory(parent_dir)?;
@@ -1111,6 +1127,36 @@ fn sync_directory(path: &Path) -> Result<()> {
 #[cfg(not(unix))]
 fn sync_directory(_path: &Path) -> Result<()> {
     Ok(())
+}
+
+fn write_config_in_place(path: &Path, contents: &[u8]) -> Result<()> {
+    let mut file = OpenOptions::new()
+        .create(true)
+        .write(true)
+        .truncate(true)
+        .open(path)
+        .with_context(|| {
+            format!(
+                "Failed to open config file for in-place write: {}",
+                path.display()
+            )
+        })?;
+    file.write_all(contents)
+        .context("Failed to write config contents in-place")?;
+    file.sync_all()
+        .context("Failed to fsync config file after in-place write")?;
+    Ok(())
+}
+
+#[cfg(unix)]
+fn should_fallback_to_in_place_write(error: &std::io::Error) -> bool {
+    // Bind-mounted files can reject replace-style renames with EBUSY/EXDEV.
+    matches!(error.raw_os_error(), Some(16 | 18))
+}
+
+#[cfg(not(unix))]
+fn should_fallback_to_in_place_write(_error: &std::io::Error) -> bool {
+    false
 }
 
 #[cfg(test)]
@@ -1363,6 +1409,18 @@ default_temperature = 0.7
         assert!(!names.iter().any(|name| name.ends_with(".bak")));
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn atomic_replace_fallback_matches_expected_errno() {
+        let busy = std::io::Error::from_raw_os_error(16);
+        let cross_device = std::io::Error::from_raw_os_error(18);
+        let permission = std::io::Error::from_raw_os_error(13);
+
+        assert!(should_fallback_to_in_place_write(&busy));
+        assert!(should_fallback_to_in_place_write(&cross_device));
+        assert!(!should_fallback_to_in_place_write(&permission));
     }
 
     // ── Telegram / Discord config ────────────────────────────

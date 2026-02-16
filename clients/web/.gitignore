@@ -37,3 +37,7 @@ coverage/
 .cache/
 .eslintcache
 .stylelintcache
+
+# Astro
+**/.astro/
+.astro/
