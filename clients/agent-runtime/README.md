@@ -47,6 +47,26 @@ ls -lh target/release/corvus
 
 ## Quick Start
 
+Use Corvus without compiling Rust locally:
+
+```bash
+npx @corvus/cli --help
+pnpm dlx @corvus/cli status
+yarn dlx @corvus/cli agent -m "Hello, Corvus!"
+bunx @corvus/cli doctor
+```
+
+Or install globally via your package manager:
+
+```bash
+npm i -g @corvus/cli
+pnpm add -g @corvus/cli
+yarn global add @corvus/cli
+bun add -g @corvus/cli
+```
+
+Build from source (Rust toolchain):
+
 ```bash
 git clone https://github.com/dallay/corvus.git
 cd corvus
