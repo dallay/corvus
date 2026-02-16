@@ -417,11 +417,7 @@ cargo test --test memory_comparison -- --nocapture
 ### Pre-push hook
 
 A git hook runs `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test` before every
-push. Enable it once:
-
-```bash
-git config core.hooksPath .githooks
-```
+push.
 
 To skip the hook when you need a quick push during development:
 

@@ -13,10 +13,10 @@ rootProject.name = "corvus"
 
 includeProjects(
   mapOf(
-    ":androidApp" to "apps/androidApp",
-    ":docs" to "apps/docs",
-    ":composeApp" to "apps/composeApp",
-    ":agent-runtime" to "apps/agent-runtime",
+    ":androidApp" to "clients/androidApp",
+    ":web" to "clients/web",
+    ":composeApp" to "clients/composeApp",
+    ":agent-runtime" to "clients/agent-runtime",
     ":agent-core-kmp" to "modules/agent-core-kmp",
   )
 )

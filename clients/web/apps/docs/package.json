@@ -1,5 +1,5 @@
 {
-  "name": "docs",
+  "name": "@corvus/docs",
   "type": "module",
   "version": "0.1.7",
   "scripts": {

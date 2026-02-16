@@ -1,0 +1,17 @@
+{
+  "name": "@corvus/landing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Corvus Landing Page",
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'Landing app not yet implemented' && exit 1",
+    "build": "echo 'Landing app not yet implemented' && exit 1",
+    "preview": "echo 'Landing app not yet implemented' && exit 1",
+    "format": "echo 'No files to format'",
+    "check": "echo 'No files to check'",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
