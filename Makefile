@@ -31,7 +31,7 @@ DEV_NULL := /dev/null
 MKDIR_P := mkdir -p
 
 # Module Names
-APP_MODULE := app
+APP_MODULE := composeApp
 DOCS_MODULE := docs
 
 # ------------------------------------------------------------------------------------
@@ -103,7 +103,7 @@ clean-all: clean ## Clean everything including Gradle caches
 # DEVELOPMENT
 # ------------------------------------------------------------------------------------
 
-run: check-tools ## Run the main application (app module)
+run: check-tools ## Run the main application (compose desktop module)
 	@echo "🚀 Running application..."
 	@$(GRADLEW) $(APP_MODULE):run
 
@@ -119,7 +119,7 @@ test: check-tools ## Run all tests
 
 test-app: check-tools ## Run tests for app module only
 	@echo "🧪 Running app tests..."
-	@$(GRADLEW) $(APP_MODULE):test
+	@$(GRADLEW) $(APP_MODULE):jvmTest
 
 test-coverage: check-tools ## Run tests with coverage report (Kover)
 	@echo "🧪 Running tests with coverage..."

@@ -16,7 +16,8 @@ Una mirada detallada a la organización del repositorio **Corvus**.
 
 ## El Directorio `apps`
 
-- `apps/app`: Módulo principal de la aplicación backend.
+- `apps/composeApp`: App Compose Kotlin Multiplatform (desktop + target Android listo).
+- `apps/iosApp`: App wrapper nativa de iOS conectada al framework Compose compartido.
 - `apps/docs`: Módulo del sitio de documentación (Astro + Starlight).
 
 ## El Directorio `modules`

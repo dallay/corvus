@@ -6,7 +6,8 @@ This page provides a comprehensive checklist of all functionalities, modules, an
 
 ## Modules
 
-- [x] **apps/app**: Main backend application module (Kotlin).
+- [x] **apps/composeApp**: Kotlin Multiplatform Compose app (desktop + Android-ready target).
+- [x] **apps/iosApp**: Native iOS host app for the shared Compose UI.
 - [x] **apps/docs**: Documentation website (Starlight/Astro).
 - [x] **modules/agent-core-kmp**: Shared Kotlin Multiplatform core bootstrap.
 - [x] **modules/agent-core-rust**: Embedded Rust AI core module.

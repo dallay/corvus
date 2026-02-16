@@ -14,7 +14,7 @@ long-running orchestration workloads.
 
 ```bash
 make setup          # Initial setup
-make run            # Run app module
+make run            # Run Compose desktop app
 make build          # Full build with tests
 make build-fast     # Build without tests
 make test           # Run tests
