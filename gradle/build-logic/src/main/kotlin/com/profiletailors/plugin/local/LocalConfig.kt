@@ -24,7 +24,7 @@ object LocalConfig {
     // CI Environment
     CI("CI", "false"),
     // Project group
-    GROUP("GROUP", "starter.gradle"),
+    GROUP("GROUP", "com.profiletailors"),
     // Project version
     VERSION("VERSION", "1.0.0-SNAPSHOT"),
     LICENSE("LICENSE", ""),
@@ -51,13 +51,13 @@ object LocalConfig {
     DOCKER_REGISTRY_USERNAME("DOCKER_REGISTRY_USERNAME", ""),
     DOCKER_REGISTRY_PASSWORD("DOCKER_REGISTRY_PASSWORD", ""),
     // Artifact info: Developer name
-    POM_DEVELOPER_NAME("POM_DEVELOPER_NAME", "dallay"),
+    POM_DEVELOPER_NAME("POM_DEVELOPER_NAME", "corvus-team"),
     // Artifact info: Project URL
-    POM_URL("POM_URL", "https://github.com/dallay"),
+    POM_URL("POM_URL", "https://github.com/dallay/corvus"),
     // Artifact info: Source code repository URL
-    POM_SCM_CONNECTION("POM_SCM_CONNECTION", "scm:git:https://github.com/dallay/404-page.git"),
+    POM_SCM_CONNECTION("POM_SCM_CONNECTION", "scm:git:https://github.com/dallay/corvus.git"),
     // Artifact info: License URL
-    POM_LICENSE_URL("POM_LICENSE_URL", "https://mit-license.org"),
+    POM_LICENSE_URL("POM_LICENSE_URL", "https://www.apache.org/licenses/LICENSE-2.0"),
     // central.sonatype.com account
     SONATYPE_USERNAME("mavenCentralUsername", ""),
     // central.sonatype.com password

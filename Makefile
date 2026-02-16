@@ -33,9 +33,6 @@ MKDIR_P := mkdir -p
 # Module Names
 APP_MODULE := app
 DOCS_MODULE := docs
-EXAMPLE_JAVA := example-java
-EXAMPLE_KOTLIN := example-kotlin
-EXAMPLE_SPRING := example-spring
 
 # ------------------------------------------------------------------------------------
 # CORE & HELP
@@ -112,18 +109,6 @@ run: check-tools ## Run the main application (app module)
 
 dev: run ## Alias for 'make run'
 
-run-java: check-tools ## Run the Java example
-	@echo "🚀 Running Java example..."
-	@$(GRADLEW) $(EXAMPLE_JAVA):run
-
-run-kotlin: check-tools ## Run the Kotlin example
-	@echo "🚀 Running Kotlin example..."
-	@$(GRADLEW) $(EXAMPLE_KOTLIN):run
-
-run-spring: check-tools ## Run the Spring example
-	@echo "🚀 Running Spring example..."
-	@$(GRADLEW) $(EXAMPLE_SPRING):bootRun
-
 # ------------------------------------------------------------------------------------
 # TESTING
 # ------------------------------------------------------------------------------------
@@ -197,7 +182,7 @@ docs-web-format: check-tools ## Format website docs (Biome)
 
 docs-web-dev: check-tools ## Run website docs dev server
 	@echo "🌐 Starting docs dev server..."
-	@cd docs/website && pnpm run dev
+	@cd apps/docs/website && pnpm run dev
 
 # ------------------------------------------------------------------------------------
 # DEPENDENCY MANAGEMENT
@@ -262,7 +247,7 @@ sync-version: ## Sync VERSION in gradle.properties with the latest git tag (vX.Y
 	@bash ./sync-version-with-tag.sh
 
 .PHONY: help check-tools setup wrapper build build-fast clean clean-all run dev \
-        run-java run-kotlin run-spring test test-app test-coverage test-verbose \
+        test test-app test-coverage test-verbose \
         format check-format lint-kotlin lint-java lint check docs docs-serve \
         docs-web-build docs-web-check docs-web-format docs-web-dev \
         deps deps-app deps-analysis deps-update tasks info version ci-build \

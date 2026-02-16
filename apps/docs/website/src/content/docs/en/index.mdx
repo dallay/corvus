@@ -1,0 +1,43 @@
+---
+title: Corvus
+description: Reactive agent platform for always-on orchestration on the JVM.
+template: splash
+hero:
+  tagline: Build long-running, proactive agents with Kotlin, Spring Boot, Neo4j, Rust sidecars, and a transparent control panel.
+  actions:
+    - text: Get Started
+      link: guides/getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/dallay/corvus
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+## Why Corvus?
+
+<CardGrid stagger>
+  <Card title="Reactive Orchestrator" icon="setting">
+    Kotlin + Spring Boot + Coroutines/WebFlux for non-blocking, always-on workflows.
+  </Card>
+  <Card title="Graph Memory" icon="open-book">
+    Knowledge-first architecture using Neo4j for connected context and durable memory.
+  </Card>
+  <Card title="Rust Sidecars" icon="rocket">
+    High-performance binaries for scraping and secure sandbox operations.
+  </Card>
+  <Card title="Transparent Operations" icon="approve-check">
+    Real-time observability through an Astro/Vue control surface and event streaming.
+  </Card>
+</CardGrid>
+
+## Explore the Docs
+
+<CardGrid>
+  <LinkCard title="Project Structure" description="Understand module layout and where responsibilities live." href="guides/structure/" />
+  <LinkCard title="Features Checklist" description="Review enabled tooling and quality guardrails." href="guides/features/" />
+  <LinkCard title="Architecture" description="See core design decisions and runtime model." href="guides/architecture/" />
+  <LinkCard title="Development Workflow" description="Build, test, lint, and release procedures." href="guides/development/" />
+</CardGrid>

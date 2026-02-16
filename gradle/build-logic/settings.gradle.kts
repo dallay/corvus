@@ -1,6 +1,6 @@
 @file:Suppress("UnstableApiUsage")
 
-rootProject.name = "profiletailors-build-logic"
+rootProject.name = "corvus-build-logic"
 
 run {
   enableFeaturePreview("TYPESAFE_PROJECT_ACCESSORS")

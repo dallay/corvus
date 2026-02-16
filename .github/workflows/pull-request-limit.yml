@@ -23,6 +23,6 @@ jobs:
           # Try to add label, but don't fail if it doesn't exist
           gh pr edit $PR --add-label 'close|invalid' 2>/dev/null || true
           # Add comment
-          gh pr comment $PR --body 'It seems you edited the limitation files. These files aren't open for contributions. If you think they should be, feel free to reply here.'
+          gh pr comment $PR --body "It seems you edited the limitation files. These files aren't open for contributions. If you think they should be, feel free to reply here."
           # Close the PR
           gh pr close $PR
