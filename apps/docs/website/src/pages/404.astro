@@ -1,9 +1,12 @@
 ---
+// biome-ignore lint/correctness/noUnusedImports: Used in Astro template below.
 import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+// biome-ignore lint/correctness/noUnusedImports: Used in Astro template below.
 import { Icon } from '@astrojs/starlight/components'
 
 const baseUrl = import.meta.env.BASE_URL
-const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : baseUrl + '/'
+// biome-ignore lint/correctness/noUnusedVariables: Used in Astro template below.
+const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
 
 // Detect locale from pathname (e.g., /corvus/es/...)
 const pathname = Astro.url.pathname
@@ -29,6 +32,7 @@ const t = {
   },
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Astro template below.
 const labels = t[locale]
 ---
 
