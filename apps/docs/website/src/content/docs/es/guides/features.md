@@ -6,7 +6,8 @@ Esta página proporciona una lista completa de todas las funcionalidades, módul
 
 ## Módulos
 
-- [x] **apps/composeApp**: App Compose Kotlin Multiplatform (desktop + target Android listo).
+- [x] **apps/composeApp**: Módulo UI compartido en Compose Kotlin Multiplatform.
+- [x] **apps/androidApp**: App host nativa de Android para la UI compartida en Compose.
 - [x] **apps/iosApp**: App host nativa de iOS para la UI compartida en Compose.
 - [x] **apps/docs**: Sitio web de documentación (Starlight/Astro).
 - [x] **modules/agent-core-kmp**: Base compartida en Kotlin Multiplatform.

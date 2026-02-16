@@ -38,13 +38,13 @@ Fast, small, and fully autonomous AI assistant infrastructure — deploy anywher
 
 Local machine quick benchmark (macOS arm64, Feb 2026) normalized for 0.8GHz edge hardware.
 
-| | OpenClaw | NanoBot | PicoClaw | Corvus 🦀 |
-|---|---|---|---|---|
-| **Language** | TypeScript | Python | Go | **Rust** |
-| **RAM** | > 1GB | > 100MB | < 10MB | **< 5MB** |
-| **Startup (0.8GHz core)** | > 500s | > 30s | < 1s | **< 10ms** |
-| **Binary Size** | ~28MB (dist) | N/A (Scripts) | ~8MB | **3.4 MB** |
-| **Cost** | Mac Mini $599 | Linux SBC ~$50 | Linux Board $10 | **Any hardware $10** |
+|                           | OpenClaw      | NanoBot        | PicoClaw        | Corvus 🦀            |
+|---------------------------|---------------|----------------|-----------------|----------------------|
+| **Language**              | TypeScript    | Python         | Go              | **Rust**             |
+| **RAM**                   | > 1GB         | > 100MB        | < 10MB          | **< 5ÒMB**           |
+| **Startup (0.8GHz core)** | > 500s        | > 30s          | < 1s            | **< 10ms**           |
+| **Binary Size**           | ~28MB (dist)  | N/A (Scripts)  | ~8MB            | **3.4 MB**           |
+| **Cost**                  | Mac Mini $599 | Linux SBC ~$50 | Linux Board $10 | **Any hardware $10** |
 
 > Notes: Corvus results measured with `/usr/bin/time -l` on release builds. OpenClaw requires Node.js runtime (~390MB overhead). PicoClaw and Corvus are static binaries.
 

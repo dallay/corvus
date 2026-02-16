@@ -10,7 +10,7 @@ gradle = "9.5.0-milestone-1"
 kotlin = "2.3.0"
 jdk = "21"
 node = "22.13.0"
-agp = "8.11.2"
+agp = "9.0.0"
 android-compileSdk = "36"
 android-minSdk = "24"
 android-targetSdk = "36"
@@ -48,6 +48,7 @@ kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-
 org-jetbrains-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm" }
 org-jetbrains-kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform" }
 com-android-application = { id = "com.android.application", version.ref = "agp" }
+com-android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 net-ltgt-errorprone = { id = "net.ltgt.errorprone", version = "5.0.0" }
 net-ltgt-nullaway = { id = "net.ltgt.nullaway", version = "3.0.0" }
 org-jetbrains-compose = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }

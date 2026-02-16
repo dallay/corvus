@@ -115,7 +115,8 @@ testImplementation(libs.junit.jupiter)
 
 ```
 ├── apps/
-│   ├── composeApp/         # Kotlin Multiplatform UI app (desktop + Android-ready)
+│   ├── composeApp/         # Shared Kotlin Multiplatform Compose UI module
+│   ├── androidApp/         # Native Android host app for Compose
 │   ├── iosApp/             # Native iOS host app for Compose
 │   └── docs/               # Documentation website
 ├── modules/

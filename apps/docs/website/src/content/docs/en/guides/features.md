@@ -6,7 +6,8 @@ This page provides a comprehensive checklist of all functionalities, modules, an
 
 ## Modules
 
-- [x] **apps/composeApp**: Kotlin Multiplatform Compose app (desktop + Android-ready target).
+- [x] **apps/composeApp**: Shared Kotlin Multiplatform Compose UI module (desktop + iOS + Android library target).
+- [x] **apps/androidApp**: Native Android application host for the shared Compose UI.
 - [x] **apps/iosApp**: Native iOS host app for the shared Compose UI.
 - [x] **apps/docs**: Documentation website (Starlight/Astro).
 - [x] **modules/agent-core-kmp**: Shared Kotlin Multiplatform core bootstrap.

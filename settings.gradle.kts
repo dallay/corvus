@@ -13,6 +13,7 @@ rootProject.name = "corvus"
 
 includeProjects(
   mapOf(
+    ":androidApp" to "apps/androidApp",
     ":docs" to "apps/docs",
     ":composeApp" to "apps/composeApp",
     ":agent-core-rust" to "modules/agent-core-rust",
