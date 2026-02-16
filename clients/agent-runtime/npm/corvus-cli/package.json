@@ -1,0 +1,33 @@
+{
+  "name": "@corvus/cli",
+  "version": "0.1.0",
+  "description": "Corvus runtime CLI wrapper for npm/pnpm/yarn/bun and npx",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dallay/corvus.git",
+    "directory": "clients/agent-runtime/npm/corvus-cli"
+  },
+  "bin": {
+    "corvus": "bin/corvus.js"
+  },
+  "files": [
+    "bin/corvus.js",
+    "lib",
+    "scripts",
+    "README.md"
+  ],
+  "scripts": {
+    "postinstall": "node ./scripts/postinstall.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "corvus",
+    "ai",
+    "agent",
+    "cli",
+    "rust"
+  ]
+}
