@@ -1,7 +1,37 @@
 @file:Suppress("UnstableApiUsage")
 
+import java.nio.file.Files
+import java.nio.file.Path
+import java.nio.file.Paths
+
 plugins {
   id("com.profiletailors.check.format-base")
+}
+
+// Verificar y crear symlink de docs si no existe
+val rootProjectDir = isolated.rootProject.projectDirectory.asFile.toPath()
+val docsSymlink = rootProjectDir.resolve("docs")
+val docsTarget = rootProjectDir.resolve("clients/web/apps/docs/src/content/docs")
+
+if (!Files.exists(docsSymlink)) {
+  if (Files.exists(docsTarget)) {
+    try {
+      Files.createSymbolicLink(docsSymlink, docsTarget)
+      logger.lifecycle("🔗 Symlink creado: docs → clients/web/apps/docs/src/content/docs")
+    } catch (e: Exception) {
+      logger.warn("⚠️ No se pudo crear symlink de docs: ${e.message}")
+      // Fallback: crear directorio vacío o copiar contenido
+      logger.lifecycle("📁 Creando directorio docs como fallback...")
+      docsSymlink.toFile().mkdirs()
+    }
+  } else {
+    logger.warn("⚠️ Target no existe: $docsTarget")
+  }
+} else if (Files.isSymbolicLink(docsSymlink)) {
+  val target = Files.readSymbolicLink(docsSymlink)
+  logger.lifecycle("✅ Symlink docs ya existe → $target")
+} else {
+  logger.lifecycle("📁 Directorio docs ya existe (no es symlink)")
 }
 
 val pnpmShim = isolated.rootProject.projectDirectory.file("gradle/bin/pnpm").asFile.absolutePath

@@ -64,11 +64,7 @@ object ChatWorkspaceDefaults {
     )
 }
 
-private data class ChatMessage(
-  val id: Int,
-  val role: ChatRole,
-  val content: String,
-)
+private data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
 
 private enum class ChatRole {
   User,
@@ -91,11 +87,7 @@ fun ChatWorkspace(
   val messages =
     remember(state.welcomeMessage) {
       mutableStateListOf(
-        ChatMessage(
-          id = 0,
-          role = ChatRole.Assistant,
-          content = state.welcomeMessage,
-        )
+        ChatMessage(id = 0, role = ChatRole.Assistant, content = state.welcomeMessage)
       )
     }
 
@@ -113,13 +105,7 @@ fun ChatWorkspace(
         webhookSecret = webhookSecret,
       )
 
-    messages.add(
-      ChatMessage(
-        id = nextId,
-        role = ChatRole.User,
-        content = prompt,
-      )
-    )
+    messages.add(ChatMessage(id = nextId, role = ChatRole.User, content = prompt))
     nextId += 1
 
     messages.add(
@@ -238,9 +224,7 @@ private fun ChatHeader(modelName: String, showConfig: Boolean, onToggleConfig: (
       )
     }
 
-    TextButton(onClick = onToggleConfig) {
-      Text(if (showConfig) "Volver al chat" else "Config")
-    }
+    TextButton(onClick = onToggleConfig) { Text(if (showConfig) "Volver al chat" else "Config") }
   }
 }
 
@@ -267,20 +251,14 @@ private fun ChatPanel(
       verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
       items(items = messages, key = { it.id }) { message ->
-        ChatBubble(
-          message = message,
-          modelName = modelName,
-        )
+        ChatBubble(message = message, modelName = modelName)
       }
     }
   }
 
   Spacer(modifier = Modifier.height(12.dp))
 
-  Row(
-    modifier = Modifier.fillMaxWidth(),
-    verticalAlignment = Alignment.Bottom,
-  ) {
+  Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
     TextField(
       value = query,
       onValueChange = onQueryChange,
@@ -293,11 +271,7 @@ private fun ChatPanel(
 
     Spacer(modifier = Modifier.width(8.dp))
 
-    Button(
-      onClick = onSend,
-      enabled = query.isNotBlank(),
-      modifier = Modifier.height(56.dp),
-    ) {
+    Button(onClick = onSend, enabled = query.isNotBlank(), modifier = Modifier.height(56.dp)) {
       Text("Send")
     }
   }
