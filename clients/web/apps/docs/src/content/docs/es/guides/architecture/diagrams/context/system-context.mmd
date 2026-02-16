@@ -1,0 +1,41 @@
+---
+# C4 Context Diagram - Corvus Platform
+# Generated: 2026-02-16
+# Skill: c4-diagrams
+# Git SHA: (current)
+---
+
+flowchart TB
+  %% External Actors
+  actor(Developer):::person
+  actor(EndUser):::person
+  
+  %% External Systems
+  subgraph EXTERNAL_SYSTEMS [Sistemas Externos]
+    OPENAI["OpenAI API\n(LLM Provider)"]
+    ANTHROPIC["Anthropic API\n(LLM Provider)"]
+    NEO4J_EXT["Neo4j Cloud\n(Graph Database)"]
+    WEB_SOURCES["Fuentes Web\n(Scraping)"]
+  end
+  
+  %% Corvus System Boundary
+  subgraph CORVUS_SYSTEM [Sistema Corvus]
+    CORVUS["Corvus Platform\nAgente Reactivo Siempre Activo"]
+  end
+  
+  %% Relationships
+  Developer -->|Configura y opera| CORVUS
+  EndUser -->|Interactúa con| CORVUS
+  
+  CORVUS -->|Consulta LLM| OPENAI
+  CORVUS -->|Consulta LLM| ANTHROPIC
+  CORVUS -->|Almacena conocimiento| NEO4J_EXT
+  CORVUS -->|Realiza scraping| WEB_SOURCES
+  
+  %% Styling
+  classDef person fill:#f9f,stroke:#333,stroke-width:2px
+  classDef system fill:#1168bd,stroke:#0b4884,stroke-width:2px,color:#fff
+  classDef external fill:#999,stroke:#666,stroke-width:2px,color:#fff
+  
+  class CORVUS system
+  class OPENAI,ANTHROPIC,NEO4J_EXT,WEB_SOURCES external
