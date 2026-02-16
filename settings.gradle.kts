@@ -16,7 +16,7 @@ includeProjects(
     ":androidApp" to "apps/androidApp",
     ":docs" to "apps/docs",
     ":composeApp" to "apps/composeApp",
-    ":agent-runtime-rust" to "apps/agent-runtime-rust",
+    ":agent-runtime" to "apps/agent-runtime",
     ":agent-core-kmp" to "modules/agent-core-kmp",
   )
 )
