@@ -37,10 +37,7 @@ import com.profiletailors.composeapp.generated.resources.onboarding_title_welcom
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
-data class OnboardingStep(
-  val titleRes: StringResource,
-  val descriptionRes: StringResource,
-)
+data class OnboardingStep(val titleRes: StringResource, val descriptionRes: StringResource)
 
 object OnboardingDefaults {
   val steps: List<OnboardingStep> =
@@ -103,14 +100,8 @@ fun OnboardingScreen(
       )
     }
 
-    Column(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-      StepIndicator(
-        currentStepIndex = currentStepIndex,
-        totalSteps = totalSteps,
-      )
+    Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+      StepIndicator(currentStepIndex = currentStepIndex, totalSteps = totalSteps)
 
       Spacer(modifier = Modifier.height(18.dp))
 
@@ -152,8 +143,7 @@ private fun StepIndicator(currentStepIndex: Int, totalSteps: Int) {
       val isActive = stepIndex == currentStepIndex
       Box(
         modifier =
-          Modifier
-            .size(if (isActive) 10.dp else 8.dp)
+          Modifier.size(if (isActive) 10.dp else 8.dp)
             .clip(CircleShape)
             .background(
               if (isActive) {
@@ -161,7 +151,7 @@ private fun StepIndicator(currentStepIndex: Int, totalSteps: Int) {
               } else {
                 colors.outlineVariant
               }
-            ),
+            )
       )
     }
   }
