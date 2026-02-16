@@ -4,10 +4,10 @@ set -e
 # Detect execution context (root or dev/)
 if [ -f "dev/docker-compose.yml" ]; then
     BASE_DIR="dev"
-    HOST_TARGET_DIR="target"
+    HOST_TARGET_DIR="clients/agent-runtime/target"
 elif [ -f "docker-compose.yml" ] && [ "$(basename "$(pwd)")" == "dev" ]; then
     BASE_DIR="."
-    HOST_TARGET_DIR="../target"
+    HOST_TARGET_DIR="../clients/agent-runtime/target"
 else
     echo "❌ Error: Run this script from the project root or dev/ directory."
     exit 1
@@ -63,7 +63,7 @@ case "$1" in
         echo -e "${GREEN}✅ Environment is running!${NC}"
         echo -e "   - Agent: http://127.0.0.1:3000"
         echo -e "   - Sandbox: running (background)"
-        echo -e "   - Config: target/.corvus/config.toml (Edit locally to apply changes)"
+        echo -e "   - Config: clients/agent-runtime/target/.corvus/config.toml (Edit locally to apply changes)"
         ;;
 
     down)

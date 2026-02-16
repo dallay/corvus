@@ -15,7 +15,7 @@ services:
   corvus-dev:
     build:
       context: ..
-      dockerfile: Dockerfile
+      dockerfile: clients/agent-runtime/Dockerfile
       target: dev
     container_name: corvus-dev
     restart: unless-stopped
@@ -27,7 +27,7 @@ services:
       - SANDBOX_HOST=corvus-sandbox
     volumes:
       # Mount single config file (avoids shadowing other files in .corvus)
-      - ../target/.corvus/config.toml:/corvus-data/.corvus/config.toml
+      - ../clients/agent-runtime/target/.corvus/config.toml:/corvus-data/.corvus/config.toml
       # Mount shared workspace
       - ../playground:/corvus-data/workspace
     ports:

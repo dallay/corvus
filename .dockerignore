@@ -1,0 +1,15 @@
+.git
+.gradle
+.idea
+.vscode
+build/
+**/build/
+gradle/
+clients/web/
+clients/composeApp/
+clients/iosApp/
+clients/androidApp/
+modules/agent-core-kmp/
+playground/
+target/
+clients/agent-runtime/target/
