@@ -132,7 +132,7 @@ mod tests {
             messages: vec![
                 Message {
                     role: "system".to_string(),
-                    content: "You are ZeroClaw".to_string(),
+                    content: "You are Corvus".to_string(),
                 },
                 Message {
                     role: "user".to_string(),

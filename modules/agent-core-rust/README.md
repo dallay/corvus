@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="zeroclaw.png" alt="ZeroClaw" width="200" />
+  <img src="corvus.png" alt="Corvus" width="200" />
 </p>
 
-<h1 align="center">ZeroClaw 🦀</h1>
+<h1 align="center">Corvus 🦀</h1>
 
 <p align="center">
   <strong>Zero overhead. Zero compromise. 100% Rust. 100% Agnostic.</strong><br>
@@ -27,18 +27,18 @@ Fast, small, and fully autonomous AI assistant infrastructure — deploy anywher
 - ⚡ **Lightning Fast:** 400X Faster startup time, boot in <10ms (under 1s even on 0.6GHz cores).
 - 🌍 **True Portability:** Single self-contained binary across ARM, x86, and RISC-V.
 
-### Why teams pick ZeroClaw
+### Why teams pick Corvus
 
 - **Lean by default:** small Rust binary, fast startup, low memory footprint.
 - **Secure by design:** pairing, strict sandboxing, explicit allowlists, workspace scoping.
 - **Fully swappable:** core systems are traits (providers, channels, tools, memory, tunnels).
 - **No lock-in:** OpenAI-compatible provider support + pluggable custom endpoints.
 
-## Benchmark Snapshot (ZeroClaw vs OpenClaw)
+## Benchmark Snapshot (Corvus vs OpenClaw)
 
 Local machine quick benchmark (macOS arm64, Feb 2026) normalized for 0.8GHz edge hardware.
 
-| | OpenClaw | NanoBot | PicoClaw | ZeroClaw 🦀 |
+| | OpenClaw | NanoBot | PicoClaw | Corvus 🦀 |
 |---|---|---|---|---|
 | **Language** | TypeScript | Python | Go | **Rust** |
 | **RAM** | > 1GB | > 100MB | < 10MB | **< 5MB** |
@@ -46,71 +46,71 @@ Local machine quick benchmark (macOS arm64, Feb 2026) normalized for 0.8GHz edge
 | **Binary Size** | ~28MB (dist) | N/A (Scripts) | ~8MB | **3.4 MB** |
 | **Cost** | Mac Mini $599 | Linux SBC ~$50 | Linux Board $10 | **Any hardware $10** |
 
-> Notes: ZeroClaw results measured with `/usr/bin/time -l` on release builds. OpenClaw requires Node.js runtime (~390MB overhead). PicoClaw and ZeroClaw are static binaries.
+> Notes: Corvus results measured with `/usr/bin/time -l` on release builds. OpenClaw requires Node.js runtime (~390MB overhead). PicoClaw and Corvus are static binaries.
 
 <p align="center">
-  <img src="zero-claw.jpeg" alt="ZeroClaw vs OpenClaw Comparison" width="800" />
+  <img src="zero-claw.jpeg" alt="Corvus vs OpenClaw Comparison" width="800" />
 </p>
 
-Reproduce ZeroClaw numbers locally:
+Reproduce Corvus numbers locally:
 
 ```bash
 cargo build --release
-ls -lh target/release/zeroclaw
+ls -lh target/release/corvus
 
-/usr/bin/time -l target/release/zeroclaw --help
-/usr/bin/time -l target/release/zeroclaw status
+/usr/bin/time -l target/release/corvus --help
+/usr/bin/time -l target/release/corvus status
 ```
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/theonlyhennygod/zeroclaw.git
-cd zeroclaw
+git clone https://github.com/dallay/corvus.git
+cd corvus
 cargo build --release
 cargo install --path . --force
 
 # Quick setup (no prompts)
-zeroclaw onboard --api-key sk-... --provider openrouter
+corvus onboard --api-key sk-... --provider openrouter
 
 # Or interactive wizard
-zeroclaw onboard --interactive
+corvus onboard --interactive
 
 # Or quickly repair channels/allowlists only
-zeroclaw onboard --channels-only
+corvus onboard --channels-only
 
 # Chat
-zeroclaw agent -m "Hello, ZeroClaw!"
+corvus agent -m "Hello, Corvus!"
 
 # Interactive mode
-zeroclaw agent
+corvus agent
 
 # Start the gateway (webhook server)
-zeroclaw gateway                # default: 127.0.0.1:8080
-zeroclaw gateway --port 0       # random port (security hardened)
+corvus gateway                # default: 127.0.0.1:8080
+corvus gateway --port 0       # random port (security hardened)
 
 # Start full autonomous runtime
-zeroclaw daemon
+corvus daemon
 
 # Check status
-zeroclaw status
+corvus status
 
 # Run system diagnostics
-zeroclaw doctor
+corvus doctor
 
 # Check channel health
-zeroclaw channel doctor
+corvus channel doctor
 
 # Get integration setup details
-zeroclaw integrations info Telegram
+corvus integrations info Telegram
 
 # Manage background service
-zeroclaw service install
-zeroclaw service status
+corvus service install
+corvus service status
 
 # Migrate memory from OpenClaw (safe preview first)
-zeroclaw migrate openclaw --dry-run
-zeroclaw migrate openclaw
+corvus migrate openclaw --dry-run
+corvus migrate openclaw
 ```
 
 > **Dev fallback (no global install):** prefix commands with `cargo run --release --` (example: `cargo run --release -- status`).
@@ -120,7 +120,7 @@ zeroclaw migrate openclaw
 Every subsystem is a **trait** — swap implementations with a config change, zero code changes.
 
 <p align="center">
-  <img src="docs/architecture.svg" alt="ZeroClaw Architecture" width="900" />
+  <img src="docs/architecture.svg" alt="Corvus Architecture" width="900" />
 </p>
 
 | Subsystem | Trait | Ships with | Extend |
@@ -143,7 +143,7 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 - ✅ Supported today: `runtime.kind = "native"` or `runtime.kind = "docker"`
 - 🚧 Planned, not implemented yet: WASM / edge runtimes
 
-When an unsupported `runtime.kind` is configured, ZeroClaw now exits with a clear error instead of silently falling back to native.
+When an unsupported `runtime.kind` is configured, Corvus now exits with a clear error instead of silently falling back to native.
 
 ### Memory System (Full-Stack Search Engine)
 
@@ -172,7 +172,7 @@ keyword_weight = 0.3
 
 ## Security
 
-ZeroClaw enforces security at **every layer** — not just the sandbox. It passes all items from the community security checklist.
+Corvus enforces security at **every layer** — not just the sandbox. It passes all items from the community security checklist.
 
 ### Security Checklist
 
@@ -183,7 +183,7 @@ ZeroClaw enforces security at **every layer** — not just the sandbox. It passe
 | 3 | **Filesystem scoped (no /)** | ✅ | `workspace_only = true` by default. 14 system dirs + 4 sensitive dotfiles blocked. Null byte injection blocked. Symlink escape detection via canonicalization + resolved-path workspace checks in file read/write tools. |
 | 4 | **Access via tunnel only** | ✅ | Gateway refuses public bind without active tunnel. Supports Tailscale, Cloudflare, ngrok, or any custom tunnel. |
 
-> **Run your own nmap:** `nmap -p 1-65535 <your-host>` — ZeroClaw binds to localhost only, so nothing is exposed unless you explicitly configure a tunnel.
+> **Run your own nmap:** `nmap -p 1-65535 <your-host>` — Corvus binds to localhost only, so nothing is exposed unless you explicitly configure a tunnel.
 
 ### Channel allowlists (Telegram / Discord / Slack)
 
@@ -212,7 +212,7 @@ If you hit authorization warnings in logs (for example: `ignoring message from u
 rerun channel setup only:
 
 ```bash
-zeroclaw onboard --channels-only
+corvus onboard --channels-only
 ```
 
 ### WhatsApp Business Cloud API Setup
@@ -220,7 +220,7 @@ zeroclaw onboard --channels-only
 WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
 
 1. **Create a Meta Business App:**
-   - Go to [developers.facebook.com](https://developers.facebook.com)
+   - Open the WhatsApp Business Platform page from Meta and create an app
    - Create a new app → Select "Business" type
    - Add the "WhatsApp" product
 
@@ -229,7 +229,7 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
    - **Phone Number ID:** From WhatsApp → API Setup → Phone number ID
    - **Verify Token:** You define this (any random string) — Meta will send it back during webhook verification
 
-3. **Configure ZeroClaw:**
+3. **Configure Corvus:**
    ```toml
    [channels_config.whatsapp]
    access_token = "EAABx..."
@@ -240,7 +240,7 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
 
 4. **Start the gateway with a tunnel:**
    ```bash
-   zeroclaw gateway --port 8080
+   corvus gateway --port 8080
    ```
    WhatsApp requires HTTPS, so use a tunnel (ngrok, Cloudflare, Tailscale Funnel).
 
@@ -250,11 +250,11 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
    - **Verify Token:** Same as your `verify_token` in config
    - Subscribe to `messages` field
 
-6. **Test:** Send a message to your WhatsApp Business number — ZeroClaw will respond via the LLM.
+6. **Test:** Send a message to your WhatsApp Business number — Corvus will respond via the LLM.
 
 ## Configuration
 
-Config: `~/.zeroclaw/config.toml` (created by `onboard`)
+Config: `~/.corvus/config.toml` (created by `onboard`)
 
 ```toml
 api_key = "sk-..."
@@ -316,7 +316,7 @@ format = "openclaw"             # "openclaw" (default, markdown files) or "aieos
 
 ## Identity System (AIEOS Support)
 
-ZeroClaw supports **identity-agnostic** AI personas through two formats:
+Corvus supports **identity-agnostic** AI personas through two formats:
 
 ### OpenClaw (Default)
 
@@ -328,7 +328,7 @@ Traditional markdown files in your workspace:
 
 ### AIEOS (AI Entity Object Specification)
 
-[AIEOS](https://aieos.org) is a standardization framework for portable AI identity. ZeroClaw supports AIEOS v1.1 JSON payloads, allowing you to:
+[AIEOS](https://aieos.org) is a standardization framework for portable AI identity. Corvus supports AIEOS v1.1 JSON payloads, allowing you to:
 
 - **Import identities** from the AIEOS ecosystem
 - **Export identities** to other AIEOS-compatible systems
@@ -439,7 +439,7 @@ git push --no-verify
 
 ## Support
 
-ZeroClaw is an open-source project maintained with passion. If you find it useful and would like to support its continued development, hardware for testing, and coffee for the maintainer, you can support me here:
+Corvus is an open-source project maintained with passion. If you find it useful and would like to support its continued development, hardware for testing, and coffee for the maintainer, you can support me here:
 
 <a href="https://buymeacoffee.com/argenistherose"><img src="https://img.shields.io/badge/Buy%20Me%20a%20Coffee-Donate-yellow.svg?style=for-the-badge&logo=buy-me-a-coffee" alt="Buy Me a Coffee" /></a>
 
@@ -457,8 +457,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Implement a trait, submit a PR:
 - New `Tool` → `src/tools/`
 - New `Memory` → `src/memory/`
 - New `Tunnel` → `src/tunnel/`
-- New `Skill` → `~/.zeroclaw/workspace/skills/<name>/`
+- New `Skill` → `~/.corvus/workspace/skills/<name>/`
 
 ---
 
-**ZeroClaw** — Zero overhead. Zero compromise. Deploy anywhere. Swap anything. 🦀
+**Corvus** — Zero overhead. Zero compromise. Deploy anywhere. Swap anything. 🦀

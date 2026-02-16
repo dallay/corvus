@@ -2,8 +2,8 @@
 
 This module was bootstrapped from:
 
-- Repository: https://github.com/zeroclaw-labs/zeroclaw
-- Imported snapshot directory: `/Users/acosta/Downloads/zeroclaw-main`
+- Repository: https://github.com/dallay/corvus
+- Imported snapshot directory: local developer snapshot
 
 License and original project files are preserved inside this module.
 

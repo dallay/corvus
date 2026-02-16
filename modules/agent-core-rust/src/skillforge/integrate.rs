@@ -1,4 +1,4 @@
-//! Integrator — generates ZeroClaw-standard SKILL.toml + SKILL.md from scout results.
+//! Integrator — generates Corvus-standard SKILL.toml + SKILL.md from scout results.
 
 use std::fs;
 use std::path::PathBuf;
@@ -75,7 +75,7 @@ stars = {stars}
 updated_at = "{updated}"
 
 [skill.requirements]
-runtime = "zeroclaw >= 0.1"
+runtime = "corvus >= 0.1"
 
 [skill.metadata]
 auto_integrated = true
@@ -115,7 +115,7 @@ forge_timestamp = "{now}"
 ## Usage
 
 ```toml
-# Add to your ZeroClaw config:
+# Add to your Corvus config:
 [skills.{name}]
 enabled = true
 ```
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn integrate_creates_files() {
-        let tmp = std::env::temp_dir().join("zeroclaw-test-integrate");
+        let tmp = std::env::temp_dir().join("corvus-test-integrate");
         let _ = fs::remove_dir_all(&tmp);
 
         let integrator = Integrator::new(tmp.to_string_lossy().into_owned());

@@ -293,7 +293,7 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn shell_does_not_leak_api_key() {
         let _g1 = EnvGuard::set("API_KEY", "sk-test-secret-12345");
-        let _g2 = EnvGuard::set("ZEROCLAW_API_KEY", "sk-test-secret-67890");
+        let _g2 = EnvGuard::set("CORVUS_API_KEY", "sk-test-secret-67890");
 
         let tool = ShellTool::new(test_security_with_env_cmd(), test_runtime());
         let result = tool.execute(json!({"command": "env"})).await.unwrap();
@@ -304,7 +304,7 @@ mod tests {
         );
         assert!(
             !result.output.contains("sk-test-secret-67890"),
-            "ZEROCLAW_API_KEY leaked to shell command output"
+            "CORVUS_API_KEY leaked to shell command output"
         );
     }
 
@@ -344,7 +344,7 @@ mod tests {
 
         let tool = ShellTool::new(security.clone(), test_runtime());
         let denied = tool
-            .execute(json!({"command": "touch zeroclaw_shell_approval_test"}))
+            .execute(json!({"command": "touch corvus_shell_approval_test"}))
             .await
             .unwrap();
         assert!(!denied.success);
@@ -356,13 +356,13 @@ mod tests {
 
         let allowed = tool
             .execute(json!({
-                "command": "touch zeroclaw_shell_approval_test",
+                "command": "touch corvus_shell_approval_test",
                 "approved": true
             }))
             .await
             .unwrap();
         assert!(allowed.success);
 
-        let _ = std::fs::remove_file(std::env::temp_dir().join("zeroclaw_shell_approval_test"));
+        let _ = std::fs::remove_file(std::env::temp_dir().join("corvus_shell_approval_test"));
     }
 }

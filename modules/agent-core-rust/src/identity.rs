@@ -2,7 +2,7 @@
 //!
 //! AIEOS (AI Entity Object Specification) is a standardization framework for
 //! portable AI identity. This module handles loading and converting AIEOS v1.1
-//! JSON to ZeroClaw's system prompt format.
+//! JSON to Corvus's system prompt format.
 
 use crate::config::IdentityConfig;
 use anyhow::{Context, Result};
@@ -211,7 +211,7 @@ use std::path::PathBuf;
 /// Convert AIEOS identity to a system prompt string.
 ///
 /// Formats the AIEOS data into a structured markdown prompt compatible
-/// with ZeroClaw's agent system.
+/// with Corvus's agent system.
 pub fn aieos_to_system_prompt(identity: &AieosIdentity) -> String {
     use std::fmt::Write;
     let mut prompt = String::new();
@@ -477,7 +477,7 @@ mod tests {
     use super::*;
 
     fn test_workspace_dir() -> PathBuf {
-        std::env::temp_dir().join("zeroclaw-test-identity")
+        std::env::temp_dir().join("corvus-test-identity")
     }
 
     #[test]

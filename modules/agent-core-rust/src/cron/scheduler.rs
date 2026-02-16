@@ -176,8 +176,9 @@ async fn run_job_command(
         );
     }
 
+    // Use non-login shell for deterministic execution; login shells can inject host profile noise.
     let output = Command::new("sh")
-        .arg("-lc")
+        .arg("-c")
         .arg(&job.command)
         .current_dir(&config.workspace_dir)
         .output()

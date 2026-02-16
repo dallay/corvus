@@ -22,7 +22,7 @@ Una mirada detallada a la organización del repositorio **Corvus**.
 ## El Directorio `modules`
 
 - `modules/agent-core-kmp`: Base compartida en Kotlin Multiplatform para el núcleo del agente.
-- `modules/agent-core-rust`: Núcleo de IA en Rust importado desde ZeroClaw.
+- `modules/agent-core-rust`: Núcleo de IA en Rust importado desde corvus.
 
 ## El Directorio `gradle`
 

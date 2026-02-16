@@ -22,7 +22,7 @@ A detailed look at the organization of the **Corvus** repository.
 ## The `modules` Directory
 
 - `modules/agent-core-kmp`: Shared Kotlin Multiplatform bootstrap for the future agent core.
-- `modules/agent-core-rust`: Embedded Rust AI core imported from ZeroClaw.
+- `modules/agent-core-rust`: Embedded Rust AI core imported from corvus.
 
 ## The `gradle` Directory
 

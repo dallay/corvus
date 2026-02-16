@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-const SERVICE_LABEL: &str = "com.zeroclaw.daemon";
+const SERVICE_LABEL: &str = "com.corvus.daemon";
 
 pub fn handle_command(command: &crate::ServiceCommands, config: &Config) -> Result<()> {
     match command {
@@ -35,7 +35,7 @@ fn start(config: &Config) -> Result<()> {
         Ok(())
     } else if cfg!(target_os = "linux") {
         run_checked(Command::new("systemctl").args(["--user", "daemon-reload"]))?;
-        run_checked(Command::new("systemctl").args(["--user", "start", "zeroclaw.service"]))?;
+        run_checked(Command::new("systemctl").args(["--user", "start", "corvus.service"]))?;
         println!("✅ Service started");
         Ok(())
     } else {
@@ -57,7 +57,7 @@ fn stop(config: &Config) -> Result<()> {
         println!("✅ Service stopped");
         Ok(())
     } else if cfg!(target_os = "linux") {
-        let _ = run_checked(Command::new("systemctl").args(["--user", "stop", "zeroclaw.service"]));
+        let _ = run_checked(Command::new("systemctl").args(["--user", "stop", "corvus.service"]));
         println!("✅ Service stopped");
         Ok(())
     } else {
@@ -83,12 +83,9 @@ fn status(config: &Config) -> Result<()> {
     }
 
     if cfg!(target_os = "linux") {
-        let out = run_capture(Command::new("systemctl").args([
-            "--user",
-            "is-active",
-            "zeroclaw.service",
-        ]))
-        .unwrap_or_else(|_| "unknown".into());
+        let out =
+            run_capture(Command::new("systemctl").args(["--user", "is-active", "corvus.service"]))
+                .unwrap_or_else(|_| "unknown".into());
         println!("Service state: {}", out.trim());
         println!("Unit: {}", linux_service_file(config)?.display());
         return Ok(());
@@ -172,7 +169,7 @@ fn install_macos(config: &Config) -> Result<()> {
 
     fs::write(&file, plist)?;
     println!("✅ Installed launchd service: {}", file.display());
-    println!("   Start with: zeroclaw service start");
+    println!("   Start with: corvus service start");
     Ok(())
 }
 
@@ -184,15 +181,15 @@ fn install_linux(config: &Config) -> Result<()> {
 
     let exe = std::env::current_exe().context("Failed to resolve current executable")?;
     let unit = format!(
-        "[Unit]\nDescription=ZeroClaw daemon\nAfter=network.target\n\n[Service]\nType=simple\nExecStart={} daemon\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
+        "[Unit]\nDescription=Corvus daemon\nAfter=network.target\n\n[Service]\nType=simple\nExecStart={} daemon\nRestart=always\nRestartSec=3\n\n[Install]\nWantedBy=default.target\n",
         exe.display()
     );
 
     fs::write(&file, unit)?;
     let _ = run_checked(Command::new("systemctl").args(["--user", "daemon-reload"]));
-    let _ = run_checked(Command::new("systemctl").args(["--user", "enable", "zeroclaw.service"]));
+    let _ = run_checked(Command::new("systemctl").args(["--user", "enable", "corvus.service"]));
     println!("✅ Installed systemd user service: {}", file.display());
-    println!("   Start with: zeroclaw service start");
+    println!("   Start with: corvus service start");
     Ok(())
 }
 
@@ -215,7 +212,7 @@ fn linux_service_file(config: &Config) -> Result<PathBuf> {
         .join(".config")
         .join("systemd")
         .join("user")
-        .join("zeroclaw.service"))
+        .join("corvus.service"))
 }
 
 fn run_checked(command: &mut Command) -> Result<()> {
@@ -256,21 +253,21 @@ mod tests {
 
     #[test]
     fn run_capture_reads_stdout() {
-        let out = run_capture(Command::new("sh").args(["-lc", "echo hello"]))
+        let out = run_capture(Command::new("sh").args(["-c", "echo hello"]))
             .expect("stdout capture should succeed");
         assert_eq!(out.trim(), "hello");
     }
 
     #[test]
     fn run_capture_falls_back_to_stderr() {
-        let out = run_capture(Command::new("sh").args(["-lc", "echo warn 1>&2"]))
+        let out = run_capture(Command::new("sh").args(["-c", "echo warn 1>&2"]))
             .expect("stderr capture should succeed");
         assert_eq!(out.trim(), "warn");
     }
 
     #[test]
     fn run_checked_errors_on_non_zero_status() {
-        let err = run_checked(Command::new("sh").args(["-lc", "exit 17"]))
+        let err = run_checked(Command::new("sh").args(["-c", "exit 17"]))
             .expect_err("non-zero exit should error");
         assert!(err.to_string().contains("Command failed"));
     }
@@ -279,6 +276,6 @@ mod tests {
     fn linux_service_file_has_expected_suffix() {
         let file = linux_service_file(&Config::default()).unwrap();
         let path = file.to_string_lossy();
-        assert!(path.ends_with(".config/systemd/user/zeroclaw.service"));
+        assert!(path.ends_with(".config/systemd/user/corvus.service"));
     }
 }
