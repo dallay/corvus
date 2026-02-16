@@ -28,6 +28,11 @@ apps/web/
 - **Puerto**: 4322
 - **Uso**: Landing page marketing
 
+### chat (nuevo)
+- **Framework**: Vue 3 + shadcn-vue
+- **Puerto**: 4324
+- **Uso**: Interfaz de chat básica
+
 ### dashboard (futuro)
 - **Framework**: Vue/React (por definir)
 - **Puerto**: 4323
@@ -46,11 +51,13 @@ pnpm build
 pnpm build:docs
 pnpm build:landing
 pnpm build:dashboard
+pnpm build:chat
 
 # Development
 pnpm dev          # docs por defecto
 pnpm dev:landing
 pnpm dev:dashboard
+pnpm dev:chat
 
 # Lint/Format
 pnpm format

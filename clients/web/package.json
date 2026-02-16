@@ -9,9 +9,11 @@
     "build:docs": "pnpm --filter docs run build",
     "build:landing": "pnpm --filter landing run build",
     "build:dashboard": "pnpm --filter dashboard run build",
+    "build:chat": "pnpm --filter chat run build",
     "dev": "pnpm --filter docs run dev",
     "dev:landing": "pnpm --filter landing run dev",
     "dev:dashboard": "pnpm --filter dashboard run dev",
+    "dev:chat": "pnpm --filter chat run dev",
     "format": "pnpm -r run format",
     "check": "pnpm -r run check",
     "clean": "pnpm -r run clean"
