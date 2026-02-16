@@ -82,13 +82,6 @@ export default defineConfig({
               },
             },
             {
-              label: 'Architecture',
-              slug: 'guides/architecture',
-              translations: {
-                es: 'Arquitectura',
-              },
-            },
-            {
               label: 'Development',
               slug: 'guides/development',
               translations: {
@@ -114,6 +107,28 @@ export default defineConfig({
               slug: 'guides/release',
               translations: {
                 es: 'Proceso de Release',
+              },
+            },
+          ],
+        },
+        {
+          label: 'Architecture',
+          translations: {
+            es: 'Arquitectura',
+          },
+          items: [
+            {
+              label: 'Architecture Overview',
+              slug: 'guides/architecture',
+              translations: {
+                es: 'Visión General',
+              },
+            },
+            {
+              label: 'C4 Diagrams',
+              slug: 'guides/architecture/index',
+              translations: {
+                es: 'Diagramas C4',
               },
             },
           ],
