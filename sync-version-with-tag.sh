@@ -8,7 +8,7 @@ readonly TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
 readonly TARGETS=(
   "properties:gradle.properties:VERSION"
   "properties:gradle/build-logic/gradle.properties:VERSION"
-  "json:docs/website/package.json:version"
+  "json:apps/docs/website/package.json:version"
 )
 
 declare -a CHANGED_FILES=()
@@ -136,15 +136,15 @@ fi
 # Helpful next-steps message
 diff_files="${CHANGED_FILES[*]}"
 if [[ ${#CHANGED_FILES[@]} -eq 0 ]]; then
-  diff_files="gradle.properties gradle/build-logic/gradle.properties docs/website/package.json"
+  diff_files="gradle.properties gradle/build-logic/gradle.properties apps/docs/website/package.json"
 fi
 
 cat <<EOF
 Next steps (recommended):
   1) Review the changes: git diff "$diff_files"
-  2) Commit the change: git add gradle.properties gradle/build-logic/gradle.properties docs/website/package.json && git commit -m "chore: sync version to $version"
+  2) Commit the change: git add gradle.properties gradle/build-logic/gradle.properties apps/docs/website/package.json && git commit -m "chore: sync version to $version"
   3) Push your branch and tag as appropriate.
      If tag v$version already exists but points at the wrong commit, prefer creating a new patch version.
      Only force-update a tag after confirming no one else depends on it and with explicit confirmation.
-     See "Version already exists" troubleshooting guidance in docs/website/src/content/docs/guides/release.md.
+     See "Version already exists" troubleshooting guidance in apps/docs/website/src/content/docs/guides/release.md.
 EOF

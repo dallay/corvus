@@ -19,7 +19,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: docs/website
+        working-directory: apps/docs/website
     steps:
       - name: Checkout your repository using git
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -34,7 +34,7 @@ jobs:
         with:
           node-version: 24
           cache: "pnpm"
-          cache-dependency-path: docs/website/pnpm-lock.yaml
+          cache-dependency-path: apps/docs/website/pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -45,7 +45,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@7b1f4a764d45c48632c6b24a0339c27f5614fb0b # v4
         with:
-          path: docs/website/dist
+          path: apps/docs/website/dist
 
   deploy:
     needs: build

@@ -114,9 +114,12 @@ testImplementation(libs.junit.jupiter)
 ## Project Structure
 
 ```
-├── app/                    # Main application
-├── docs/                   # Documentation
-├── examples/               # Examples (java, kotlin, spring)
+├── apps/
+│   ├── app/                # Main backend application
+│   └── docs/               # Documentation website
+├── modules/
+│   ├── agent-core-kmp/     # Shared Kotlin Multiplatform core
+│   └── agent-core-rust/    # Embedded Rust AI core (ZeroClaw)
 ├── gradle/
 │   ├── build-logic/        # Custom plugins
 │   └── libs.versions.toml  # Version catalog

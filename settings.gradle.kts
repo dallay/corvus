@@ -9,14 +9,13 @@ plugins {
   id("org.gradle.toolchains.foojay-resolver-convention") version "1.0.0"
 }
 
-rootProject.name = "profiletailors-gradle-plugin"
+rootProject.name = "corvus"
 
 includeProjects(
   mapOf(
-    ":docs" to "docs",
-    ":app" to "app",
-    ":example-java" to "examples/example-java",
-    ":example-kotlin" to "examples/example-kotlin",
-    ":example-spring" to "examples/example-spring",
+    ":docs" to "apps/docs",
+    ":app" to "apps/app",
+    ":agent-core-rust" to "modules/agent-core-rust",
+    ":agent-core-kmp" to "modules/agent-core-kmp",
   )
 )

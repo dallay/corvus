@@ -100,7 +100,7 @@
       "description": "Astro ecosystem",
       "groupName": "Astro ecosystem",
       "matchPackageNames": ["astro", "@astrojs/**", "sharp", "astro-vtbot"],
-      "matchFileNames": ["docs/website/package.json"],
+      "matchFileNames": ["apps/docs/website/package.json"],
       "semanticCommitType": "chore",
       "minimumReleaseAge": "2 days"
     },
