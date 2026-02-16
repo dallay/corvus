@@ -1,8 +1,10 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const http = require('node:http');
 const https = require('node:https');
 
 const BIN_DIR = path.join(__dirname, '..', 'bin', 'native');
+const MAX_REDIRECTS = 5;
 
 function getAssetName() {
   const platform = process.platform;
@@ -28,9 +30,30 @@ function getVersionTag() {
 
 function getDownloadUrl(assetName) {
   const versionTag = getVersionTag();
-  const base = process.env.CORVUS_NPM_RELEASE_BASE
+  const baseOverride = process.env.CORVUS_NPM_RELEASE_BASE;
+  const baseValue = baseOverride
     ?? 'https://github.com/dallay/corvus/releases/download';
-  return `${base}/${versionTag}/${assetName}`;
+
+  let baseUrl;
+  try {
+    baseUrl = new URL(baseValue);
+  } catch (error) {
+    throw new Error(`Invalid CORVUS_NPM_RELEASE_BASE URL: ${baseValue}`);
+  }
+
+  if (!['https:', 'http:'].includes(baseUrl.protocol)) {
+    throw new Error(`Unsupported download URL protocol: ${baseUrl.protocol}`);
+  }
+
+  if (baseUrl.protocol === 'http:' && baseOverride) {
+    console.warn(
+      `[corvus] Insecure CORVUS_NPM_RELEASE_BASE detected (${baseOverride}). `
+      + 'Downloads will use HTTP and may be intercepted.',
+    );
+  }
+
+  const normalizedBase = baseUrl.href.replace(/\/+$/, '');
+  return `${normalizedBase}/${versionTag}/${assetName}`;
 }
 
 function getTargetPath(assetName) {
@@ -41,40 +64,95 @@ function ensureBinDir() {
   fs.mkdirSync(BIN_DIR, { recursive: true });
 }
 
-function downloadAsset(url, outPath) {
+function downloadAsset(url, outPath, redirectCount = 0) {
   return new Promise((resolve, reject) => {
-    const request = https.get(url, (response) => {
+    if (redirectCount > MAX_REDIRECTS) {
+      reject(new Error(`Too many redirects while fetching ${url}`));
+      return;
+    }
+
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(url);
+    } catch (error) {
+      reject(new Error(`Invalid download URL: ${url}`));
+      return;
+    }
+
+    const client = parsedUrl.protocol === 'http:' ? http : https;
+    const timeoutMs = 20_000;
+    let settled = false;
+    let file;
+
+    const finalize = (error, value) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (file) {
+        file.destroy();
+        fs.rmSync(outPath, { force: true });
+      }
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve(value);
+    };
+
+    const request = client.get(parsedUrl, (response) => {
+      response.on('error', (error) => {
+        finalize(error);
+      });
+
       if (
         response.statusCode >= 300
         && response.statusCode < 400
         && response.headers.location
       ) {
+        const redirectUrl = new URL(response.headers.location, parsedUrl).toString();
         response.resume();
-        downloadAsset(response.headers.location, outPath).then(resolve).catch(reject);
+        request.setTimeout(0);
+        settled = true;
+        downloadAsset(redirectUrl, outPath, redirectCount + 1).then(resolve).catch(reject);
         return;
       }
 
       if (response.statusCode !== 200) {
         response.resume();
+        request.setTimeout(0);
         reject(new Error(`HTTP ${response.statusCode} when fetching ${url}`));
         return;
       }
 
-      const file = fs.createWriteStream(outPath, { mode: 0o755 });
-      response.pipe(file);
-
+      file = fs.createWriteStream(outPath, { mode: 0o755 });
       file.on('finish', () => {
-        file.close(() => resolve(outPath));
+        file.close((closeError) => {
+          request.setTimeout(0);
+          if (closeError) {
+            finalize(closeError);
+            return;
+          }
+          const completedPath = outPath;
+          file = null;
+          finalize(null, completedPath);
+        });
       });
 
       file.on('error', (error) => {
-        fs.rmSync(outPath, { force: true });
-        reject(error);
+        request.setTimeout(0);
+        finalize(error);
       });
+
+      response.pipe(file);
     });
 
-    request.on('error', reject);
-    request.setTimeout(20_000, () => {
+    request.on('error', (error) => {
+      request.setTimeout(0);
+      finalize(error);
+    });
+
+    request.setTimeout(timeoutMs, () => {
       request.destroy(new Error(`Timeout downloading ${url}`));
     });
   });

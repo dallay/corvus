@@ -12,7 +12,7 @@
     "corvus": "bin/corvus.js"
   },
   "files": [
-    "bin",
+    "bin/corvus.js",
     "lib",
     "scripts",
     "README.md"
