@@ -4,7 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
-const SERVICE_LABEL: &str = "com.corvus.daemon";
+const SERVICE_LABEL: &str = "com.profiletailors.daemon";
 
 pub fn handle_command(command: &crate::ServiceCommands, config: &Config) -> Result<()> {
     match command {

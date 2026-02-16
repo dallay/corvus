@@ -119,7 +119,7 @@ testImplementation(libs.junit.jupiter)
 │   └── docs/               # Documentation website
 ├── modules/
 │   ├── agent-core-kmp/     # Shared Kotlin Multiplatform core
-│   └── agent-core-rust/    # Embedded Rust AI core (ZeroClaw)
+│   └── agent-core-rust/    # Embedded Rust AI core
 ├── gradle/
 │   ├── build-logic/        # Custom plugins
 │   └── libs.versions.toml  # Version catalog

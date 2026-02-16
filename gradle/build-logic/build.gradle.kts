@@ -76,20 +76,24 @@ dependencies {
 }
 
 val projectGroup: String = providers.gradleProperty("GROUP").get()
-val pomDeveloperName: String = providers.gradleProperty("POM_DEVELOPER_NAME").orElse("dallay").get()
+val pomDeveloperName: String =
+  providers.gradleProperty("POM_DEVELOPER_NAME").orElse("corvus-team").get()
 val pomUrl: String =
-  providers.gradleProperty("POM_URL").orElse("https://github.com/dallay/starter-gradle").get()
+  providers.gradleProperty("POM_URL").orElse("https://github.com/dallay/corvus").get()
 val pomScmConnection: String =
   providers
     .gradleProperty("POM_SCM_CONNECTION")
-    .orElse("scm:git:https://github.com/dallay/starter-gradle.git")
+    .orElse("scm:git:https://github.com/dallay/corvus.git")
     .get()
 val pomLicenseUrl: String =
-  providers.gradleProperty("POM_LICENSE_URL").orElse("https://mit-license.org").get()
+  providers
+    .gradleProperty("POM_LICENSE_URL")
+    .orElse("https://www.apache.org/licenses/LICENSE-2.0")
+    .get()
 val pomDeveloperEmail: String = "${pomDeveloperName}@users.noreply.github.com"
-val pomDeveloperOrganization: String = "profiletailors"
+val pomDeveloperOrganization: String = "corvus"
 val pomDeveloperOrganizationUrl: String = pomUrl
-val pomLicenseName: String = "MIT"
+val pomLicenseName: String = "Apache License 2.0"
 
 val catalogLibs
   get(): VersionCatalog = extensions.getByType<VersionCatalogsExtension>().named("libs")

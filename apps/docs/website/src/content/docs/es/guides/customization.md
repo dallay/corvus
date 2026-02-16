@@ -15,7 +15,7 @@ rootProject.name = "corvus"
 Actualiza metadatos de publicación en `gradle.properties`:
 
 ```properties
-GROUP=com.corvus
+GROUP=com.profiletailors
 VERSION=0.1.0-SNAPSHOT
 POM_DEVELOPER_NAME=corvus-team
 POM_URL=https://github.com/dallay/corvus

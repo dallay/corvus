@@ -1,4 +1,4 @@
-package com.corvus.agent.core
+package com.profiletailors.agent.core
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
