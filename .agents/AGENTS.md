@@ -9,14 +9,14 @@ plugins, and version catalogs.
 # Build & Run
 make build              # Full build with tests
 make build-fast         # Build without tests
-make run                # Run app module
-./gradlew app:run       # Direct Gradle
+make run                # Run Compose desktop app
+./gradlew composeApp:run # Direct Gradle
 
 # Testing
 make test                    # All tests
 make test-app                # Single module
-./gradlew :app:test --tests "ClassName.methodName"  # Single test
-./gradlew :app:test --tests "*Pattern*"             # Pattern match
+./gradlew :composeApp:jvmTest --tests "ClassName.methodName"  # Single test
+./gradlew :composeApp:jvmTest --tests "*Pattern*"             # Pattern match
 make test-coverage           # With Kover report
 make test-verbose            # --info output
 
@@ -115,7 +115,9 @@ testImplementation(libs.junit.jupiter)
 
 ```
 ├── apps/
-│   ├── app/                # Main backend application
+│   ├── composeApp/         # Shared Kotlin Multiplatform Compose UI module
+│   ├── androidApp/         # Native Android host app for Compose
+│   ├── iosApp/             # Native iOS host app for Compose
 │   └── docs/               # Documentation website
 ├── modules/
 │   ├── agent-core-kmp/     # Shared Kotlin Multiplatform core
@@ -154,7 +156,7 @@ class ServiceTest {
 Run specific test:
 
 ```bash
-./gradlew :app:test --tests "com.profiletailors.app.ApplicationTest.testMain"
+./gradlew :composeApp:jvmTest --tests "*ComposeAppCommonTest*"
 ```
 
 ## License

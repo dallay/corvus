@@ -1,0 +1,28 @@
+{
+  "name": "@corvus/web-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Corvus Web Apps Monorepo - Landing, Docs, Dashboard",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "build:docs": "pnpm --filter docs run build",
+    "build:landing": "pnpm --filter landing run build",
+    "build:dashboard": "pnpm --filter dashboard run build",
+    "dev": "pnpm --filter docs run dev",
+    "dev:landing": "pnpm --filter landing run dev",
+    "dev:dashboard": "pnpm --filter dashboard run dev",
+    "format": "pnpm -r run format",
+    "check": "pnpm -r run check",
+    "clean": "pnpm -r run clean"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "typescript": "^5.7.0"
+  },
+  "packageManager": "pnpm@9.15.0",
+  "engines": {
+    "node": ">=22.0.0",
+    "pnpm": ">=9.0.0"
+  }
+}

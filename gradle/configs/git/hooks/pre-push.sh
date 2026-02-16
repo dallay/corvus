@@ -3,6 +3,18 @@ set -e
 
 echo "🚀 Pre-push check start"
 
+RUST_RUNTIME_DIR="apps/agent-runtime"
+
+if [ -d "$RUST_RUNTIME_DIR" ]; then
+    echo "🦀 Running Rust runtime checks..."
+    (
+        cd "$RUST_RUNTIME_DIR"
+        cargo fmt --check
+        cargo clippy -- -D warnings
+        cargo test
+    )
+fi
+
 # Check if pnpm is available in the current PATH
 if command -v pnpm >/dev/null 2>&1; then
     echo "✅ pnpm found, running full check..."

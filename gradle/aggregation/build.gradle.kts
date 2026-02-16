@@ -7,5 +7,3 @@ plugins {
   id("com.profiletailors.report.test")
   id("com.profiletailors.report.code-coverage")
 }
-
-dependencies { runCatching { implementation(project(":app")) } }

@@ -10,6 +10,16 @@ gradle = "9.5.0-milestone-1"
 kotlin = "2.3.0"
 jdk = "21"
 node = "22.13.0"
+agp = "8.12.0"
+android-compileSdk = "36"
+android-minSdk = "24"
+android-targetSdk = "36"
+androidx-activity = "1.12.2"
+androidx-lifecycle = "2.9.6"
+compose-hot-reload = "1.0.0"
+compose-multiplatform = "1.10.0"
+kotlinx-coroutines = "1.10.2"
+material3 = "1.10.0-alpha05"
 
 [libraries]
 # https://mvnrepository.com/artifact/org.jspecify/jspecify
@@ -17,6 +27,17 @@ node = "22.13.0"
 jspecify = { module = "org.jspecify:jspecify", version = "1.0.0" }
 semver = { module = "net.swiftzer.semver:semver", version = "2.1.0" }
 slf4jBom = { module = "org.slf4j:slf4j-bom", version = "2.1.0-alpha1" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "androidx-activity" }
+androidx-lifecycle-runtime-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-runtime-compose", version.ref = "androidx-lifecycle" }
+androidx-lifecycle-viewmodel-compose = { module = "org.jetbrains.androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "androidx-lifecycle" }
+compose-components-resources = { module = "org.jetbrains.compose.components:components-resources", version.ref = "compose-multiplatform" }
+compose-foundation = { module = "org.jetbrains.compose.foundation:foundation", version.ref = "compose-multiplatform" }
+compose-material3 = { module = "org.jetbrains.compose.material3:material3", version.ref = "material3" }
+compose-runtime = { module = "org.jetbrains.compose.runtime:runtime", version.ref = "compose-multiplatform" }
+compose-ui = { module = "org.jetbrains.compose.ui:ui", version.ref = "compose-multiplatform" }
+compose-ui-tooling = { module = "org.jetbrains.compose.ui:ui-tooling", version.ref = "compose-multiplatform" }
+compose-ui-tooling-preview = { module = "org.jetbrains.compose.ui:ui-tooling-preview", version.ref = "compose-multiplatform" }
+kotlinx-coroutines-swing = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-swing", version.ref = "kotlinx-coroutines" }
 
 [bundles]
 
@@ -26,8 +47,13 @@ slf4jBom = { module = "org.slf4j:slf4j-bom", version = "2.1.0-alpha1" }
 # https://plugins.gradle.org/plugin/org.jetbrains.kotlin.jvm
 org-jetbrains-kotlin-jvm = { id = "org.jetbrains.kotlin.jvm" }
 org-jetbrains-kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform" }
+com-android-application = { id = "com.android.application", version.ref = "agp" }
+com-android-kotlin-multiplatform-library = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
 net-ltgt-errorprone = { id = "net.ltgt.errorprone", version = "5.0.0" }
 net-ltgt-nullaway = { id = "net.ltgt.nullaway", version = "3.0.0" }
+org-jetbrains-compose = { id = "org.jetbrains.compose", version.ref = "compose-multiplatform" }
+org-jetbrains-compose-hot-reload = { id = "org.jetbrains.compose.hot-reload", version.ref = "compose-hot-reload" }
+org-jetbrains-kotlin-plugin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 com-gradle-develocity = { id = "com.gradle.develocity", version = "4.3.2" }
 org-ec4j-editorconfig = { id = "org.ec4j.editorconfig", version = "0.1.0" }
 com-diffplug-spotless = { id = "com.diffplug.spotless", version = "8.2.1" }

@@ -1,0 +1,17 @@
+{
+  "name": "@corvus/dashboard",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Corvus Web Dashboard",
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'Dashboard app not yet implemented' && exit 1",
+    "build": "echo 'Dashboard app not yet implemented' && exit 1",
+    "preview": "echo 'Dashboard app not yet implemented' && exit 1",
+    "format": "echo 'No files to format'",
+    "check": "echo 'No files to check'",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

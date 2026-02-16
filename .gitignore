@@ -61,6 +61,7 @@ Icon?
 
 # Java / Gradle / Maven
 .gradle/
+local.properties
 !gradle/wrapper/gradle-wrapper.jar
 **/build/
 !**/src/main/**/build/
