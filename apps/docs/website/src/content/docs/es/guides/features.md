@@ -11,7 +11,7 @@ Esta página proporciona una lista completa de todas las funcionalidades, módul
 - [x] **apps/iosApp**: App host nativa de iOS para la UI compartida en Compose.
 - [x] **apps/docs**: Sitio web de documentación (Starlight/Astro).
 - [x] **modules/agent-core-kmp**: Base compartida en Kotlin Multiplatform.
-- [x] **modules/agent-core-rust**: Módulo del núcleo de IA en Rust.
+- [x] **apps/agent-runtime-rust**: App runtime del agente en Rust (gateway + daemon + CLI).
 - [x] **gradle/build-logic**: Plugins de convención centralizados.
 - [x] **gradle/aggregation**: Reportes agregados para pruebas y cobertura.
 - [x] **gradle/versions**: Gestión de versiones de dependencias y comprobaciones de consistencia.

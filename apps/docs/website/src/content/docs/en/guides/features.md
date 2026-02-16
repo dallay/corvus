@@ -11,7 +11,7 @@ This page provides a comprehensive checklist of all functionalities, modules, an
 - [x] **apps/iosApp**: Native iOS host app for the shared Compose UI.
 - [x] **apps/docs**: Documentation website (Starlight/Astro).
 - [x] **modules/agent-core-kmp**: Shared Kotlin Multiplatform core bootstrap.
-- [x] **modules/agent-core-rust**: Embedded Rust AI core module.
+- [x] **apps/agent-runtime-rust**: Rust agent runtime app (gateway + daemon + CLI).
 - [x] **gradle/build-logic**: Centralized convention plugins.
 - [x] **gradle/aggregation**: Aggregated reporting for tests and coverage.
 - [x] **gradle/versions**: Dependency version management and consistency checks.

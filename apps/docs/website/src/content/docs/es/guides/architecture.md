@@ -9,11 +9,13 @@ El proyecto sigue una arquitectura modular con un fuerte énfasis en la lógica 
 ```text
 .
 ├── apps/
-│   ├── app/            # Aplicación backend principal
-│   └── docs/           # Documentación (sitio Starlight)
+│   ├── agent-runtime-rust/ # App runtime del agente en Rust
+│   ├── androidApp/         # App host de Android
+│   ├── composeApp/         # Módulo compartido Compose Multiplatform
+│   ├── docs/               # Documentación (sitio Starlight)
+│   └── iosApp/             # App host de iOS (proyecto Xcode)
 ├── modules/
-│   ├── agent-core-kmp/ # Base compartida KMP
-│   └── agent-core-rust/# Núcleo de IA en Rust
+│   └── agent-core-kmp/ # Módulo compartido de contratos/base KMP
 ├── gradle/
 │   ├── build-logic/    # Plugins de convención personalizados de Gradle
 │   ├── libs.versions.toml # Catálogo de versiones
