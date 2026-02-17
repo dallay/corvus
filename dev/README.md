@@ -4,8 +4,8 @@ A fully containerized development sandbox for Corvus agents. This environment al
 
 ## Directory Structure
 
-- **`agent/`**: (Merged into root Dockerfile)
-  - The development image is built from the root `Dockerfile` using the `dev` stage (`target: dev`).
+- **`agent/`**: (Merged into clients/agent-runtime/Dockerfile)
+  - The development image is built from `clients/agent-runtime/Dockerfile` using the `dev` stage (`target: dev`).
   - Based on `debian:bookworm-slim` (unlike production `distroless`).
   - Includes `bash`, `curl`, and debug tools.
 - **`sandbox/`**: Dockerfile for the simulated user environment.
@@ -61,11 +61,14 @@ The local `playground/` directory (in repo root) is mounted as the shared worksp
 
 Files created by the agent are visible to the sandbox user, and vice versa.
 
-The agent configuration lives in `target/.corvus` (mounted to `/corvus-data/.corvus`), so settings persist across container rebuilds.
+The agent configuration lives in `clients/agent-runtime/target/.corvus` (mounted to `/corvus-data/.corvus`), so settings persist across container rebuilds.
 
 ### 6. Cleanup
+
 Stop containers and remove volumes and generated config:
+
 ```bash
 ./dev/cli.sh clean
 ```
-**Note:** This removes `target/.corvus` (config/DB) but leaves the `playground/` directory intact. To fully wipe everything, manually delete `playground/`.
+
+**Note:** This removes `clients/agent-runtime/target/.corvus` (config/DB) but leaves the `playground/` directory intact. To fully wipe everything, manually delete `playground/`.
