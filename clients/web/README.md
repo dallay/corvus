@@ -31,7 +31,7 @@ clients/web/
 
 ### dashboard
 
-- Estado: placeholder
+- Framework: Vue 3 + Vite + Tailwind + shadcn-vue style components
 - Puerto por defecto: 4323
 
 ## 🛠️ Comandos
