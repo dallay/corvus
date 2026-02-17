@@ -2,7 +2,10 @@
 //! Most LLM APIs follow the same `/v1/chat/completions` format.
 //! This module provides a single implementation that works for all of them.
 
-use crate::providers::traits::{ChatMessage, Provider};
+use crate::providers::traits::{
+    ChatMessage, ChatRequest as ProviderChatRequest, ChatResponse as ProviderChatResponse,
+    Provider, ToolCall as ProviderToolCall,
+};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
@@ -15,6 +18,9 @@ pub struct OpenAiCompatibleProvider {
     pub(crate) base_url: String,
     pub(crate) api_key: Option<String>,
     pub(crate) auth_header: AuthStyle,
+    /// When false, do not fall back to /v1/responses on chat completions 404.
+    /// GLM/Zhipu does not support the responses API.
+    supports_responses_fallback: bool,
     client: Client,
 }
 
@@ -36,6 +42,29 @@ impl OpenAiCompatibleProvider {
             base_url: base_url.trim_end_matches('/').to_string(),
             api_key: api_key.map(ToString::to_string),
             auth_header: auth_style,
+            supports_responses_fallback: true,
+            client: Client::builder()
+                .timeout(std::time::Duration::from_secs(120))
+                .connect_timeout(std::time::Duration::from_secs(10))
+                .build()
+                .unwrap_or_else(|_| Client::new()),
+        }
+    }
+
+    /// Same as `new` but skips the /v1/responses fallback on 404.
+    /// Use for providers (e.g. GLM) that only support chat completions.
+    pub fn new_no_responses_fallback(
+        name: &str,
+        base_url: &str,
+        api_key: Option<&str>,
+        auth_style: AuthStyle,
+    ) -> Self {
+        Self {
+            name: name.to_string(),
+            base_url: base_url.trim_end_matches('/').to_string(),
+            api_key: api_key.map(ToString::to_string),
+            auth_header: auth_style,
+            supports_responses_fallback: false,
             client: Client::builder()
                 .timeout(std::time::Duration::from_secs(120))
                 .connect_timeout(std::time::Duration::from_secs(10))
@@ -67,13 +96,42 @@ impl OpenAiCompatibleProvider {
         }
     }
 
+    fn path_ends_with(&self, suffix: &str) -> bool {
+        if let Ok(url) = reqwest::Url::parse(&self.base_url) {
+            return url.path().trim_end_matches('/').ends_with(suffix);
+        }
+
+        self.base_url.trim_end_matches('/').ends_with(suffix)
+    }
+
+    fn has_explicit_api_path(&self) -> bool {
+        let Ok(url) = reqwest::Url::parse(&self.base_url) else {
+            return false;
+        };
+
+        let path = url.path().trim_end_matches('/');
+        !path.is_empty() && path != "/"
+    }
+
     /// Build the full URL for responses API, detecting if base_url already includes the path.
     fn responses_url(&self) -> String {
-        // If base_url already contains "responses", use it as-is
-        if self.base_url.contains("responses") {
-            self.base_url.clone()
+        if self.path_ends_with("/responses") {
+            return self.base_url.clone();
+        }
+
+        let normalized_base = self.base_url.trim_end_matches('/');
+
+        // If chat endpoint is explicitly configured, derive sibling responses endpoint.
+        if let Some(prefix) = normalized_base.strip_suffix("/chat/completions") {
+            return format!("{prefix}/responses");
+        }
+
+        // If an explicit API path already exists (e.g. /v1, /openai, /api/coding/v3),
+        // append responses directly to avoid duplicate /v1 segments.
+        if self.has_explicit_api_path() {
+            format!("{normalized_base}/responses")
         } else {
-            format!("{}/v1/responses", self.base_url)
+            format!("{normalized_base}/v1/responses")
         }
     }
 }
@@ -83,6 +141,8 @@ struct ChatRequest {
     model: String,
     messages: Vec<Message>,
     temperature: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -279,6 +339,7 @@ impl Provider for OpenAiCompatibleProvider {
             model: model.to_string(),
             messages,
             temperature,
+            stream: Some(false),
         };
 
         let url = self.chat_completions_url();
@@ -293,7 +354,7 @@ impl Provider for OpenAiCompatibleProvider {
             let error = response.text().await?;
             let sanitized = super::sanitize_api_error(&error);
 
-            if status == reqwest::StatusCode::NOT_FOUND {
+            if status == reqwest::StatusCode::NOT_FOUND && self.supports_responses_fallback {
                 return self
                     .chat_via_responses(api_key, system_prompt, message, model)
                     .await
@@ -358,6 +419,7 @@ impl Provider for OpenAiCompatibleProvider {
             model: model.to_string(),
             messages: api_messages,
             temperature,
+            stream: Some(false),
         };
 
         let url = self.chat_completions_url();
@@ -370,7 +432,7 @@ impl Provider for OpenAiCompatibleProvider {
             let status = response.status();
 
             // Mirror chat_with_system: 404 may mean this provider uses the Responses API
-            if status == reqwest::StatusCode::NOT_FOUND {
+            if status == reqwest::StatusCode::NOT_FOUND && self.supports_responses_fallback {
                 // Extract system prompt and last user message for responses fallback
                 let system = messages.iter().find(|m| m.role == "system");
                 let last_user = messages.iter().rfind(|m| m.role == "user");
@@ -418,6 +480,50 @@ impl Provider for OpenAiCompatibleProvider {
                 }
             })
             .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))
+    }
+
+    async fn chat(
+        &self,
+        request: ProviderChatRequest<'_>,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<ProviderChatResponse> {
+        let text = self
+            .chat_with_history(request.messages, model, temperature)
+            .await?;
+
+        // Backward compatible path: chat_with_history may serialize tool_calls JSON into content.
+        if let Ok(message) = serde_json::from_str::<ResponseMessage>(&text) {
+            let tool_calls = message
+                .tool_calls
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|tc| {
+                    let function = tc.function?;
+                    let name = function.name?;
+                    let arguments = function.arguments.unwrap_or_else(|| "{}".to_string());
+                    Some(ProviderToolCall {
+                        id: uuid::Uuid::new_v4().to_string(),
+                        name,
+                        arguments,
+                    })
+                })
+                .collect::<Vec<_>>();
+
+            return Ok(ProviderChatResponse {
+                text: message.content,
+                tool_calls,
+            });
+        }
+
+        Ok(ProviderChatResponse {
+            text: Some(text),
+            tool_calls: vec![],
+        })
+    }
+
+    fn supports_native_tools(&self) -> bool {
+        true
     }
 }
 
@@ -476,7 +582,8 @@ mod tests {
                     content: "hello".to_string(),
                 },
             ],
-            temperature: 0.7,
+            temperature: 0.4,
+            stream: Some(false),
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("llama-3.3-70b"));
@@ -529,7 +636,7 @@ mod tests {
             make_provider("Venice", "https://api.venice.ai", None),
             make_provider("Moonshot", "https://api.moonshot.cn", None),
             make_provider("GLM", "https://open.bigmodel.cn", None),
-            make_provider("MiniMax", "https://api.minimax.chat", None),
+            make_provider("MiniMax", "https://api.minimaxi.com/v1", None),
             make_provider("Groq", "https://api.groq.com/openai", None),
             make_provider("Mistral", "https://api.mistral.ai", None),
             make_provider("xAI", "https://api.x.ai", None),
@@ -664,6 +771,47 @@ mod tests {
     }
 
     #[test]
+    fn responses_url_requires_exact_suffix_match() {
+        let p = make_provider(
+            "custom",
+            "https://my-api.example.com/api/v2/responses-proxy",
+            None,
+        );
+        assert_eq!(
+            p.responses_url(),
+            "https://my-api.example.com/api/v2/responses-proxy/responses"
+        );
+    }
+
+    #[test]
+    fn responses_url_derives_from_chat_endpoint() {
+        let p = make_provider(
+            "custom",
+            "https://my-api.example.com/api/v2/chat/completions",
+            None,
+        );
+        assert_eq!(
+            p.responses_url(),
+            "https://my-api.example.com/api/v2/responses"
+        );
+    }
+
+    #[test]
+    fn responses_url_base_with_v1_no_duplicate() {
+        let p = make_provider("test", "https://api.example.com/v1", None);
+        assert_eq!(p.responses_url(), "https://api.example.com/v1/responses");
+    }
+
+    #[test]
+    fn responses_url_non_v1_api_path_uses_raw_suffix() {
+        let p = make_provider("test", "https://api.example.com/api/coding/v3", None);
+        assert_eq!(
+            p.responses_url(),
+            "https://api.example.com/api/coding/v3/responses"
+        );
+    }
+
+    #[test]
     fn chat_completions_url_without_v1() {
         // Provider configured without /v1 in base URL
         let p = make_provider("test", "https://api.example.com", None);
@@ -694,6 +842,16 @@ mod tests {
         assert_eq!(
             p.chat_completions_url(),
             "https://api.z.ai/api/paas/v4/chat/completions"
+        );
+    }
+
+    #[test]
+    fn chat_completions_url_minimax() {
+        // MiniMax OpenAI-compatible endpoint requires /v1 base path.
+        let p = make_provider("minimax", "https://api.minimaxi.com/v1", None);
+        assert_eq!(
+            p.chat_completions_url(),
+            "https://api.minimaxi.com/v1/chat/completions"
         );
     }
 

@@ -1,6 +1,6 @@
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::time::Instant;
 
 /// How much autonomy the agent has
@@ -40,10 +40,7 @@ impl ActionTracker {
 
     /// Record an action and return the current count within the window.
     pub fn record(&self) -> usize {
-        let mut actions = self
-            .actions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut actions = self.actions.lock();
         let cutoff = Instant::now()
             .checked_sub(std::time::Duration::from_secs(3600))
             .unwrap_or_else(Instant::now);
@@ -54,10 +51,7 @@ impl ActionTracker {
 
     /// Count of actions in the current window without recording.
     pub fn count(&self) -> usize {
-        let mut actions = self
-            .actions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut actions = self.actions.lock();
         let cutoff = Instant::now()
             .checked_sub(std::time::Duration::from_secs(3600))
             .unwrap_or_else(Instant::now);
@@ -68,10 +62,7 @@ impl ActionTracker {
 
 impl Clone for ActionTracker {
     fn clone(&self) -> Self {
-        let actions = self
-            .actions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let actions = self.actions.lock();
         Self {
             actions: Mutex::new(actions.clone()),
         }
@@ -167,6 +158,25 @@ fn skip_env_assignments(s: &str) -> &str {
     }
 }
 
+/// Detect a single `&` operator (background/chain). `&&` is allowed.
+///
+/// We treat any standalone `&` as unsafe in policy validation because it can
+/// chain hidden sub-commands and escape foreground timeout expectations.
+fn contains_single_ampersand(s: &str) -> bool {
+    let bytes = s.as_bytes();
+    for (i, b) in bytes.iter().enumerate() {
+        if *b != b'&' {
+            continue;
+        }
+        let prev_is_amp = i > 0 && bytes[i - 1] == b'&';
+        let next_is_amp = i + 1 < bytes.len() && bytes[i + 1] == b'&';
+        if !prev_is_amp && !next_is_amp {
+            return true;
+        }
+    }
+    false
+}
+
 impl SecurityPolicy {
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
@@ -174,7 +184,7 @@ impl SecurityPolicy {
         for sep in ["&&", "||"] {
             normalized = normalized.replace(sep, "\x00");
         }
-        for sep in ['\n', ';', '|'] {
+        for sep in ['\n', ';', '|', '&'] {
             normalized = normalized.replace(sep, "\x00");
         }
 
@@ -331,6 +341,7 @@ impl SecurityPolicy {
     /// - Blocks subshell operators (`` ` ``, `$(`) that hide arbitrary execution
     /// - Splits on command separators (`|`, `&&`, `||`, `;`, newlines) and
     ///   validates each sub-command against the allowlist
+    /// - Blocks single `&` background chaining (`&&` remains supported)
     /// - Blocks output redirections (`>`, `>>`) that could write outside workspace
     pub fn is_command_allowed(&self, command: &str) -> bool {
         if self.autonomy == AutonomyLevel::ReadOnly {
@@ -345,6 +356,12 @@ impl SecurityPolicy {
 
         // Block output redirections — they can write to arbitrary paths
         if command.contains('>') {
+            return false;
+        }
+
+        // Block background command chaining (`&`), which can hide extra
+        // sub-commands and outlive timeout expectations. Keep `&&` allowed.
+        if contains_single_ampersand(command) {
             return false;
         }
 
@@ -709,6 +726,14 @@ mod tests {
         assert!(result.unwrap_err().contains("high-risk"));
     }
 
+    #[test]
+    fn validate_command_rejects_background_chain_bypass() {
+        let p = default_policy();
+        let result = p.validate_command_execution("ls & python3 -c 'print(1)'", false);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not allowed"));
+    }
+
     // ── is_path_allowed ─────────────────────────────────────
 
     #[test]
@@ -940,6 +965,14 @@ mod tests {
         assert!(!p.is_command_allowed("ls || rm -rf /"));
         // Both allowed — OK
         assert!(p.is_command_allowed("ls || echo fallback"));
+    }
+
+    #[test]
+    fn command_injection_background_chain_blocked() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("ls & rm -rf /"));
+        assert!(!p.is_command_allowed("ls&rm -rf /"));
+        assert!(!p.is_command_allowed("echo ok & python3 -c 'print(1)'"));
     }
 
     #[test]

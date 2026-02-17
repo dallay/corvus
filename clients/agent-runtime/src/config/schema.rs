@@ -34,6 +34,12 @@ pub struct Config {
     #[serde(default)]
     pub reliability: ReliabilityConfig,
 
+    #[serde(default)]
+    pub scheduler: SchedulerConfig,
+
+    #[serde(default)]
+    pub agent: AgentConfig,
+
     /// Model routing rules — route `hint:<name>` to specific provider+model combos.
     #[serde(default)]
     pub model_routes: Vec<ModelRouteConfig>,
@@ -63,23 +69,165 @@ pub struct Config {
     pub browser: BrowserConfig,
 
     #[serde(default)]
+    pub http_request: HttpRequestConfig,
+
+    #[serde(default)]
     pub identity: IdentityConfig,
 
-    /// Named delegate agents for agent-to-agent handoff.
-    ///
-    /// ```toml
-    /// [agents.researcher]
-    /// provider = "gemini"
-    /// model = "gemini-2.0-flash"
-    /// system_prompt = "You are a research assistant..."
-    ///
-    /// [agents.coder]
-    /// provider = "openrouter"
-    /// model = "anthropic/claude-sonnet-4-20250514"
-    /// system_prompt = "You are a coding assistant..."
-    /// ```
+    #[serde(default)]
+    pub cost: CostConfig,
+
+    #[serde(default)]
+    pub peripherals: PeripheralsConfig,
+
+    /// Delegate agent configurations for multi-agent workflows.
     #[serde(default)]
     pub agents: HashMap<String, DelegateAgentConfig>,
+
+    /// Hardware configuration (wizard-driven physical world setup).
+    #[serde(default)]
+    pub hardware: HardwareConfig,
+}
+
+// ── Delegate Agents ──────────────────────────────────────────────
+
+/// Configuration for a delegate sub-agent used by the `delegate` tool.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DelegateAgentConfig {
+    /// Provider name (e.g. "ollama", "openrouter", "anthropic")
+    pub provider: String,
+    /// Model name
+    pub model: String,
+    /// Optional system prompt for the sub-agent
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+    /// Optional API key override
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Temperature override
+    #[serde(default)]
+    pub temperature: Option<f64>,
+    /// Max recursion depth for nested delegation
+    #[serde(default = "default_max_depth")]
+    pub max_depth: u32,
+}
+
+fn default_max_depth() -> u32 {
+    3
+}
+
+// ── Hardware Config (wizard-driven) ─────────────────────────────
+
+/// Hardware transport mode.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HardwareTransport {
+    None,
+    Native,
+    Serial,
+    Probe,
+}
+
+impl Default for HardwareTransport {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl std::fmt::Display for HardwareTransport {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::None => write!(f, "none"),
+            Self::Native => write!(f, "native"),
+            Self::Serial => write!(f, "serial"),
+            Self::Probe => write!(f, "probe"),
+        }
+    }
+}
+
+/// Wizard-driven hardware configuration for physical world interaction.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HardwareConfig {
+    /// Whether hardware access is enabled
+    #[serde(default)]
+    pub enabled: bool,
+    /// Transport mode
+    #[serde(default)]
+    pub transport: HardwareTransport,
+    /// Serial port path (e.g. "/dev/ttyACM0")
+    #[serde(default)]
+    pub serial_port: Option<String>,
+    /// Serial baud rate
+    #[serde(default = "default_baud_rate")]
+    pub baud_rate: u32,
+    /// Probe target chip (e.g. "STM32F401RE")
+    #[serde(default)]
+    pub probe_target: Option<String>,
+    /// Enable workspace datasheet RAG (index PDF schematics for AI pin lookups)
+    #[serde(default)]
+    pub workspace_datasheets: bool,
+}
+
+fn default_baud_rate() -> u32 {
+    115200
+}
+
+impl HardwareConfig {
+    /// Return the active transport mode.
+    pub fn transport_mode(&self) -> HardwareTransport {
+        self.transport.clone()
+    }
+}
+
+impl Default for HardwareConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            transport: HardwareTransport::None,
+            serial_port: None,
+            baud_rate: default_baud_rate(),
+            probe_target: None,
+            workspace_datasheets: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentConfig {
+    /// When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models.
+    #[serde(default)]
+    pub compact_context: bool,
+    #[serde(default = "default_agent_max_tool_iterations")]
+    pub max_tool_iterations: usize,
+    #[serde(default = "default_agent_max_history_messages")]
+    pub max_history_messages: usize,
+    #[serde(default)]
+    pub parallel_tools: bool,
+    #[serde(default = "default_agent_tool_dispatcher")]
+    pub tool_dispatcher: String,
+}
+
+fn default_agent_max_tool_iterations() -> usize {
+    10
+}
+
+fn default_agent_max_history_messages() -> usize {
+    50
+}
+
+fn default_agent_tool_dispatcher() -> String {
+    "auto".into()
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            compact_context: false,
+            max_tool_iterations: default_agent_max_tool_iterations(),
+            max_history_messages: default_agent_max_history_messages(),
+            parallel_tools: false,
+            tool_dispatcher: default_agent_tool_dispatcher(),
+        }
+    }
 }
 
 // ── Identity (AIEOS / OpenClaw format) ──────────────────────────
@@ -111,34 +259,205 @@ impl Default for IdentityConfig {
     }
 }
 
-// ── Agent delegation ─────────────────────────────────────────────
+// ── Cost tracking and budget enforcement ───────────────────────────
 
-/// Configuration for a named delegate agent that can be invoked via the
-/// `delegate` tool. Each agent uses its own provider/model combination
-/// and system prompt, enabling multi-agent workflows with specialization.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DelegateAgentConfig {
-    /// Provider name (e.g. "gemini", "openrouter", "ollama")
-    pub provider: String,
-    /// Model identifier for the provider
-    pub model: String,
-    /// System prompt defining the agent's role and capabilities
+pub struct CostConfig {
+    /// Enable cost tracking (default: false)
     #[serde(default)]
-    pub system_prompt: Option<String>,
-    /// Optional API key override (uses default if not set).
-    /// Stored encrypted when `secrets.encrypt = true`.
+    pub enabled: bool,
+
+    /// Daily spending limit in USD (default: 10.00)
+    #[serde(default = "default_daily_limit")]
+    pub daily_limit_usd: f64,
+
+    /// Monthly spending limit in USD (default: 100.00)
+    #[serde(default = "default_monthly_limit")]
+    pub monthly_limit_usd: f64,
+
+    /// Warn when spending reaches this percentage of limit (default: 80)
+    #[serde(default = "default_warn_percent")]
+    pub warn_at_percent: u8,
+
+    /// Allow requests to exceed budget with --override flag (default: false)
     #[serde(default)]
-    pub api_key: Option<String>,
-    /// Temperature override (uses 0.7 if not set)
+    pub allow_override: bool,
+
+    /// Per-model pricing (USD per 1M tokens)
     #[serde(default)]
-    pub temperature: Option<f64>,
-    /// Maximum delegation depth to prevent infinite recursion (default: 3)
-    #[serde(default = "default_max_delegation_depth")]
-    pub max_depth: u32,
+    pub prices: std::collections::HashMap<String, ModelPricing>,
 }
 
-fn default_max_delegation_depth() -> u32 {
-    3
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelPricing {
+    /// Input price per 1M tokens
+    #[serde(default)]
+    pub input: f64,
+
+    /// Output price per 1M tokens
+    #[serde(default)]
+    pub output: f64,
+}
+
+fn default_daily_limit() -> f64 {
+    10.0
+}
+
+fn default_monthly_limit() -> f64 {
+    100.0
+}
+
+fn default_warn_percent() -> u8 {
+    80
+}
+
+impl Default for CostConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            daily_limit_usd: default_daily_limit(),
+            monthly_limit_usd: default_monthly_limit(),
+            warn_at_percent: default_warn_percent(),
+            allow_override: false,
+            prices: get_default_pricing(),
+        }
+    }
+}
+
+/// Default pricing for popular models (USD per 1M tokens)
+fn get_default_pricing() -> std::collections::HashMap<String, ModelPricing> {
+    let mut prices = std::collections::HashMap::new();
+
+    // Anthropic models
+    prices.insert(
+        "anthropic/claude-sonnet-4-20250514".into(),
+        ModelPricing {
+            input: 3.0,
+            output: 15.0,
+        },
+    );
+    prices.insert(
+        "anthropic/claude-opus-4-20250514".into(),
+        ModelPricing {
+            input: 15.0,
+            output: 75.0,
+        },
+    );
+    prices.insert(
+        "anthropic/claude-3.5-sonnet".into(),
+        ModelPricing {
+            input: 3.0,
+            output: 15.0,
+        },
+    );
+    prices.insert(
+        "anthropic/claude-3-haiku".into(),
+        ModelPricing {
+            input: 0.25,
+            output: 1.25,
+        },
+    );
+
+    // OpenAI models
+    prices.insert(
+        "openai/gpt-4o".into(),
+        ModelPricing {
+            input: 5.0,
+            output: 15.0,
+        },
+    );
+    prices.insert(
+        "openai/gpt-4o-mini".into(),
+        ModelPricing {
+            input: 0.15,
+            output: 0.60,
+        },
+    );
+    prices.insert(
+        "openai/o1-preview".into(),
+        ModelPricing {
+            input: 15.0,
+            output: 60.0,
+        },
+    );
+
+    // Google models
+    prices.insert(
+        "google/gemini-2.0-flash".into(),
+        ModelPricing {
+            input: 0.10,
+            output: 0.40,
+        },
+    );
+    prices.insert(
+        "google/gemini-1.5-pro".into(),
+        ModelPricing {
+            input: 1.25,
+            output: 5.0,
+        },
+    );
+
+    prices
+}
+
+// ── Peripherals (hardware: STM32, RPi GPIO, etc.) ────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeripheralsConfig {
+    /// Enable peripheral support (boards become agent tools)
+    #[serde(default)]
+    pub enabled: bool,
+    /// Board configurations (nucleo-f401re, rpi-gpio, etc.)
+    #[serde(default)]
+    pub boards: Vec<PeripheralBoardConfig>,
+    /// Path to datasheet docs (relative to workspace) for RAG retrieval.
+    /// Place .md/.txt files named by board (e.g. nucleo-f401re.md, rpi-gpio.md).
+    #[serde(default)]
+    pub datasheet_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PeripheralBoardConfig {
+    /// Board type: "nucleo-f401re", "rpi-gpio", "esp32", etc.
+    pub board: String,
+    /// Transport: "serial", "native", "websocket"
+    #[serde(default = "default_peripheral_transport")]
+    pub transport: String,
+    /// Path for serial: "/dev/ttyACM0", "/dev/ttyUSB0"
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Baud rate for serial (default: 115200)
+    #[serde(default = "default_peripheral_baud")]
+    pub baud: u32,
+}
+
+fn default_peripheral_transport() -> String {
+    "serial".into()
+}
+
+fn default_peripheral_baud() -> u32 {
+    115200
+}
+
+impl Default for PeripheralsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            boards: Vec::new(),
+            datasheet_dir: None,
+        }
+    }
+}
+
+impl Default for PeripheralBoardConfig {
+    fn default() -> Self {
+        Self {
+            board: String::new(),
+            transport: default_peripheral_transport(),
+            path: None,
+            baud: default_peripheral_baud(),
+        }
+    }
 }
 
 // ── Gateway security ─────────────────────────────────────────────
@@ -259,7 +578,54 @@ impl Default for SecretsConfig {
 
 // ── Browser (friendly-service browsing only) ───────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrowserComputerUseConfig {
+    /// Sidecar endpoint for computer-use actions (OS-level mouse/keyboard/screenshot)
+    #[serde(default = "default_browser_computer_use_endpoint")]
+    pub endpoint: String,
+    /// Optional bearer token for computer-use sidecar
+    #[serde(default)]
+    pub api_key: Option<String>,
+    /// Per-action request timeout in milliseconds
+    #[serde(default = "default_browser_computer_use_timeout_ms")]
+    pub timeout_ms: u64,
+    /// Allow remote/public endpoint for computer-use sidecar (default: false)
+    #[serde(default)]
+    pub allow_remote_endpoint: bool,
+    /// Optional window title/process allowlist forwarded to sidecar policy
+    #[serde(default)]
+    pub window_allowlist: Vec<String>,
+    /// Optional X-axis boundary for coordinate-based actions
+    #[serde(default)]
+    pub max_coordinate_x: Option<i64>,
+    /// Optional Y-axis boundary for coordinate-based actions
+    #[serde(default)]
+    pub max_coordinate_y: Option<i64>,
+}
+
+fn default_browser_computer_use_endpoint() -> String {
+    "http://127.0.0.1:8787/v1/actions".into()
+}
+
+fn default_browser_computer_use_timeout_ms() -> u64 {
+    15_000
+}
+
+impl Default for BrowserComputerUseConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: default_browser_computer_use_endpoint(),
+            api_key: None,
+            timeout_ms: default_browser_computer_use_timeout_ms(),
+            allow_remote_endpoint: false,
+            window_allowlist: Vec::new(),
+            max_coordinate_x: None,
+            max_coordinate_y: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BrowserConfig {
     /// Enable `browser_open` tool (opens URLs in Brave without scraping)
     #[serde(default)]
@@ -270,13 +636,77 @@ pub struct BrowserConfig {
     /// Browser session name (for agent-browser automation)
     #[serde(default)]
     pub session_name: Option<String>,
+    /// Browser automation backend: "agent_browser" | "rust_native" | "computer_use" | "auto"
+    #[serde(default = "default_browser_backend")]
+    pub backend: String,
+    /// Headless mode for rust-native backend
+    #[serde(default = "default_true")]
+    pub native_headless: bool,
+    /// WebDriver endpoint URL for rust-native backend (e.g. http://127.0.0.1:9515)
+    #[serde(default = "default_browser_webdriver_url")]
+    pub native_webdriver_url: String,
+    /// Optional Chrome/Chromium executable path for rust-native backend
+    #[serde(default)]
+    pub native_chrome_path: Option<String>,
+    /// Computer-use sidecar configuration
+    #[serde(default)]
+    pub computer_use: BrowserComputerUseConfig,
+}
+
+fn default_browser_backend() -> String {
+    "agent_browser".into()
+}
+
+fn default_browser_webdriver_url() -> String {
+    "http://127.0.0.1:9515".into()
+}
+
+impl Default for BrowserConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allowed_domains: Vec::new(),
+            session_name: None,
+            backend: default_browser_backend(),
+            native_headless: default_true(),
+            native_webdriver_url: default_browser_webdriver_url(),
+            native_chrome_path: None,
+            computer_use: BrowserComputerUseConfig::default(),
+        }
+    }
+}
+
+// ── HTTP request tool ───────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct HttpRequestConfig {
+    /// Enable `http_request` tool for API interactions
+    #[serde(default)]
+    pub enabled: bool,
+    /// Allowed domains for HTTP requests (exact or subdomain match)
+    #[serde(default)]
+    pub allowed_domains: Vec<String>,
+    /// Maximum response size in bytes (default: 1MB)
+    #[serde(default = "default_http_max_response_size")]
+    pub max_response_size: usize,
+    /// Request timeout in seconds (default: 30)
+    #[serde(default = "default_http_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+fn default_http_max_response_size() -> usize {
+    1_000_000 // 1MB
+}
+
+fn default_http_timeout_secs() -> u64 {
+    30
 }
 
 // ── Memory ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryConfig {
-    /// "sqlite" | "markdown" | "none"
+    /// "sqlite" | "lucid" | "markdown" | "none" (`none` = explicit no-op memory)
     pub backend: String,
     /// Auto-save conversation context to memory
     pub auto_save: bool,
@@ -313,6 +743,28 @@ pub struct MemoryConfig {
     /// Max tokens per chunk for document splitting
     #[serde(default = "default_chunk_size")]
     pub chunk_max_tokens: usize,
+
+    // ── Response Cache (saves tokens on repeated prompts) ──────
+    /// Enable LLM response caching to avoid paying for duplicate prompts
+    #[serde(default)]
+    pub response_cache_enabled: bool,
+    /// TTL in minutes for cached responses (default: 60)
+    #[serde(default = "default_response_cache_ttl")]
+    pub response_cache_ttl_minutes: u32,
+    /// Max number of cached responses before LRU eviction (default: 5000)
+    #[serde(default = "default_response_cache_max")]
+    pub response_cache_max_entries: usize,
+
+    // ── Memory Snapshot (soul backup to Markdown) ─────────────
+    /// Enable periodic export of core memories to MEMORY_SNAPSHOT.md
+    #[serde(default)]
+    pub snapshot_enabled: bool,
+    /// Run snapshot during hygiene passes (heartbeat-driven)
+    #[serde(default)]
+    pub snapshot_on_hygiene: bool,
+    /// Auto-hydrate from MEMORY_SNAPSHOT.md when brain.db is missing
+    #[serde(default = "default_true")]
+    pub auto_hydrate: bool,
 }
 
 fn default_embedding_provider() -> String {
@@ -348,6 +800,12 @@ fn default_cache_size() -> usize {
 fn default_chunk_size() -> usize {
     512
 }
+fn default_response_cache_ttl() -> u32 {
+    60
+}
+fn default_response_cache_max() -> usize {
+    5_000
+}
 
 impl Default for MemoryConfig {
     fn default() -> Self {
@@ -365,6 +823,12 @@ impl Default for MemoryConfig {
             keyword_weight: default_keyword_weight(),
             embedding_cache_size: default_cache_size(),
             chunk_max_tokens: default_chunk_size(),
+            response_cache_enabled: false,
+            response_cache_ttl_minutes: default_response_cache_ttl(),
+            response_cache_max_entries: default_response_cache_max(),
+            snapshot_enabled: false,
+            snapshot_on_hygiene: false,
+            auto_hydrate: true,
         }
     }
 }
@@ -562,6 +1026,14 @@ pub struct ReliabilityConfig {
     /// Fallback provider chain (e.g. `["anthropic", "openai"]`).
     #[serde(default)]
     pub fallback_providers: Vec<String>,
+    /// Additional API keys for round-robin rotation on rate-limit (429) errors.
+    /// The primary `api_key` is always tried first; these are extras.
+    #[serde(default)]
+    pub api_keys: Vec<String>,
+    /// Per-model fallback chains. When a model fails, try these alternatives in order.
+    /// Example: `{ "claude-opus-4-20250514" = ["claude-sonnet-4-20250514", "gpt-4o"] }`
+    #[serde(default)]
+    pub model_fallbacks: std::collections::HashMap<String, Vec<String>>,
     /// Initial backoff for channel/daemon restarts.
     #[serde(default = "default_channel_backoff_secs")]
     pub channel_initial_backoff_secs: u64,
@@ -606,10 +1078,49 @@ impl Default for ReliabilityConfig {
             provider_retries: default_provider_retries(),
             provider_backoff_ms: default_provider_backoff_ms(),
             fallback_providers: Vec::new(),
+            api_keys: Vec::new(),
+            model_fallbacks: std::collections::HashMap::new(),
             channel_initial_backoff_secs: default_channel_backoff_secs(),
             channel_max_backoff_secs: default_channel_backoff_max_secs(),
             scheduler_poll_secs: default_scheduler_poll_secs(),
             scheduler_retries: default_scheduler_retries(),
+        }
+    }
+}
+
+// ── Scheduler ────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchedulerConfig {
+    /// Enable the built-in scheduler loop.
+    #[serde(default = "default_scheduler_enabled")]
+    pub enabled: bool,
+    /// Maximum number of persisted scheduled tasks.
+    #[serde(default = "default_scheduler_max_tasks")]
+    pub max_tasks: usize,
+    /// Maximum tasks executed per scheduler polling cycle.
+    #[serde(default = "default_scheduler_max_concurrent")]
+    pub max_concurrent: usize,
+}
+
+fn default_scheduler_enabled() -> bool {
+    true
+}
+
+fn default_scheduler_max_tasks() -> usize {
+    64
+}
+
+fn default_scheduler_max_concurrent() -> usize {
+    4
+}
+
+impl Default for SchedulerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_scheduler_enabled(),
+            max_tasks: default_scheduler_max_tasks(),
+            max_concurrent: default_scheduler_max_concurrent(),
         }
     }
 }
@@ -742,6 +1253,7 @@ pub struct ChannelsConfig {
     pub email: Option<crate::channels::email_channel::EmailConfig>,
     pub irc: Option<IrcConfig>,
     pub lark: Option<LarkConfig>,
+    pub dingtalk: Option<DingTalkConfig>,
 }
 
 impl Default for ChannelsConfig {
@@ -758,6 +1270,7 @@ impl Default for ChannelsConfig {
             email: None,
             irc: None,
             lark: None,
+            dingtalk: None,
         }
     }
 }
@@ -774,6 +1287,10 @@ pub struct DiscordConfig {
     pub guild_id: Option<String>,
     #[serde(default)]
     pub allowed_users: Vec<String>,
+    /// When true, process messages from other bots (not just humans).
+    /// The bot still ignores its own messages to prevent feedback loops.
+    #[serde(default)]
+    pub listen_to_bots: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -813,7 +1330,7 @@ pub struct WhatsAppConfig {
     /// Webhook verify token (you define this, Meta sends it back for verification)
     pub verify_token: String,
     /// App secret from Meta Business Suite (for webhook signature verification)
-    /// Can also be set via `CORVUS_WHATSAPP_APP_SECRET` environment variable
+    /// Can also be set via `corvus_WHATSAPP_APP_SECRET` environment variable
     #[serde(default)]
     pub app_secret: Option<String>,
     /// Allowed phone numbers (E.164 format: +1234567890) or "*" for all
@@ -874,6 +1391,171 @@ pub struct LarkConfig {
     pub use_feishu: bool,
 }
 
+// ── Security Config ─────────────────────────────────────────────────
+
+/// Security configuration for sandboxing, resource limits, and audit logging
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SecurityConfig {
+    /// Sandbox configuration
+    #[serde(default)]
+    pub sandbox: SandboxConfig,
+
+    /// Resource limits
+    #[serde(default)]
+    pub resources: ResourceLimitsConfig,
+
+    /// Audit logging configuration
+    #[serde(default)]
+    pub audit: AuditConfig,
+}
+
+/// Sandbox configuration for OS-level isolation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SandboxConfig {
+    /// Enable sandboxing (None = auto-detect, Some = explicit)
+    #[serde(default)]
+    pub enabled: Option<bool>,
+
+    /// Sandbox backend to use
+    #[serde(default)]
+    pub backend: SandboxBackend,
+
+    /// Custom Firejail arguments (when backend = firejail)
+    #[serde(default)]
+    pub firejail_args: Vec<String>,
+}
+
+impl Default for SandboxConfig {
+    fn default() -> Self {
+        Self {
+            enabled: None, // Auto-detect
+            backend: SandboxBackend::Auto,
+            firejail_args: Vec::new(),
+        }
+    }
+}
+
+/// Sandbox backend selection
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum SandboxBackend {
+    /// Auto-detect best available (default)
+    #[default]
+    Auto,
+    /// Landlock (Linux kernel LSM, native)
+    Landlock,
+    /// Firejail (user-space sandbox)
+    Firejail,
+    /// Bubblewrap (user namespaces)
+    Bubblewrap,
+    /// Docker container isolation
+    Docker,
+    /// No sandboxing (application-layer only)
+    None,
+}
+
+/// Resource limits for command execution
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceLimitsConfig {
+    /// Maximum memory in MB per command
+    #[serde(default = "default_max_memory_mb")]
+    pub max_memory_mb: u32,
+
+    /// Maximum CPU time in seconds per command
+    #[serde(default = "default_max_cpu_time_seconds")]
+    pub max_cpu_time_seconds: u64,
+
+    /// Maximum number of subprocesses
+    #[serde(default = "default_max_subprocesses")]
+    pub max_subprocesses: u32,
+
+    /// Enable memory monitoring
+    #[serde(default = "default_memory_monitoring_enabled")]
+    pub memory_monitoring: bool,
+}
+
+fn default_max_memory_mb() -> u32 {
+    512
+}
+
+fn default_max_cpu_time_seconds() -> u64 {
+    60
+}
+
+fn default_max_subprocesses() -> u32 {
+    10
+}
+
+fn default_memory_monitoring_enabled() -> bool {
+    true
+}
+
+impl Default for ResourceLimitsConfig {
+    fn default() -> Self {
+        Self {
+            max_memory_mb: default_max_memory_mb(),
+            max_cpu_time_seconds: default_max_cpu_time_seconds(),
+            max_subprocesses: default_max_subprocesses(),
+            memory_monitoring: default_memory_monitoring_enabled(),
+        }
+    }
+}
+
+/// Audit logging configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditConfig {
+    /// Enable audit logging
+    #[serde(default = "default_audit_enabled")]
+    pub enabled: bool,
+
+    /// Path to audit log file (relative to corvus dir)
+    #[serde(default = "default_audit_log_path")]
+    pub log_path: String,
+
+    /// Maximum log size in MB before rotation
+    #[serde(default = "default_audit_max_size_mb")]
+    pub max_size_mb: u32,
+
+    /// Sign events with HMAC for tamper evidence
+    #[serde(default)]
+    pub sign_events: bool,
+}
+
+fn default_audit_enabled() -> bool {
+    true
+}
+
+fn default_audit_log_path() -> String {
+    "audit.log".to_string()
+}
+
+fn default_audit_max_size_mb() -> u32 {
+    100
+}
+
+impl Default for AuditConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_audit_enabled(),
+            log_path: default_audit_log_path(),
+            max_size_mb: default_audit_max_size_mb(),
+            sign_events: false,
+        }
+    }
+}
+
+/// DingTalk (钉钉) configuration for Stream Mode messaging
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DingTalkConfig {
+    /// Client ID (AppKey) from DingTalk developer console
+    pub client_id: String,
+    /// Client Secret (AppSecret) from DingTalk developer console
+    pub client_secret: String,
+    /// Allowed user IDs (staff IDs). Empty = deny all, "*" = allow all
+    #[serde(default)]
+    pub allowed_users: Vec<String>,
+}
+
 // ── Config impl ──────────────────────────────────────────────────
 
 impl Default for Config {
@@ -887,12 +1569,14 @@ impl Default for Config {
             config_path: corvus_dir.join("config.toml"),
             api_key: None,
             default_provider: Some("openrouter".to_string()),
-            default_model: Some("anthropic/claude-sonnet-4-20250514".to_string()),
+            default_model: Some("anthropic/claude-sonnet-4".to_string()),
             default_temperature: 0.7,
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
             runtime: RuntimeConfig::default(),
             reliability: ReliabilityConfig::default(),
+            scheduler: SchedulerConfig::default(),
+            agent: AgentConfig::default(),
             model_routes: Vec::new(),
             heartbeat: HeartbeatConfig::default(),
             channels_config: ChannelsConfig::default(),
@@ -902,8 +1586,12 @@ impl Default for Config {
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
+            http_request: HttpRequestConfig::default(),
             identity: IdentityConfig::default(),
+            cost: CostConfig::default(),
+            peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
+            hardware: HardwareConfig::default(),
         }
     }
 }
@@ -930,79 +1618,84 @@ impl Config {
             // Set computed paths that are skipped during serialization
             config.config_path = config_path.clone();
             config.workspace_dir = corvus_dir.join("workspace");
-
-            // Decrypt agent API keys if encryption is enabled
-            let store = crate::security::SecretStore::new(&corvus_dir, config.secrets.encrypt);
-            for agent in config.agents.values_mut() {
-                if let Some(ref encrypted_key) = agent.api_key {
-                    agent.api_key = Some(
-                        store
-                            .decrypt(encrypted_key)
-                            .context("Failed to decrypt agent API key")?,
-                    );
-                }
-            }
-
+            config.apply_env_overrides();
             Ok(config)
         } else {
             let mut config = Config::default();
             config.config_path = config_path.clone();
             config.workspace_dir = corvus_dir.join("workspace");
             config.save()?;
+            config.apply_env_overrides();
             Ok(config)
         }
     }
 
     /// Apply environment variable overrides to config
     pub fn apply_env_overrides(&mut self) {
-        // API Key: CORVUS_API_KEY or API_KEY
-        if let Ok(key) = std::env::var("CORVUS_API_KEY").or_else(|_| std::env::var("API_KEY")) {
+        // API Key: corvus_API_KEY or API_KEY (generic)
+        if let Ok(key) = std::env::var("corvus_API_KEY").or_else(|_| std::env::var("API_KEY")) {
             if !key.is_empty() {
                 self.api_key = Some(key);
             }
         }
+        // API Key: GLM_API_KEY overrides when provider is glm (provider-specific)
+        if self.default_provider.as_deref() == Some("glm")
+            || self.default_provider.as_deref() == Some("zhipu")
+        {
+            if let Ok(key) = std::env::var("GLM_API_KEY") {
+                if !key.is_empty() {
+                    self.api_key = Some(key);
+                }
+            }
+        }
 
-        // Provider: CORVUS_PROVIDER or PROVIDER
+        // Provider: corvus_PROVIDER or PROVIDER
         if let Ok(provider) =
-            std::env::var("CORVUS_PROVIDER").or_else(|_| std::env::var("PROVIDER"))
+            std::env::var("corvus_PROVIDER").or_else(|_| std::env::var("PROVIDER"))
         {
             if !provider.is_empty() {
                 self.default_provider = Some(provider);
             }
         }
 
-        // Model: CORVUS_MODEL
-        if let Ok(model) = std::env::var("CORVUS_MODEL") {
+        // Model: corvus_MODEL
+        if let Ok(model) = std::env::var("corvus_MODEL") {
             if !model.is_empty() {
                 self.default_model = Some(model);
             }
         }
 
-        // Workspace directory: CORVUS_WORKSPACE
-        if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
+        // Workspace directory: corvus_WORKSPACE
+        if let Ok(workspace) = std::env::var("corvus_WORKSPACE") {
             if !workspace.is_empty() {
                 self.workspace_dir = PathBuf::from(workspace);
             }
         }
 
-        // Gateway port: CORVUS_GATEWAY_PORT or PORT
+        // Gateway port: corvus_GATEWAY_PORT or PORT
         if let Ok(port_str) =
-            std::env::var("CORVUS_GATEWAY_PORT").or_else(|_| std::env::var("PORT"))
+            std::env::var("corvus_GATEWAY_PORT").or_else(|_| std::env::var("PORT"))
         {
             if let Ok(port) = port_str.parse::<u16>() {
                 self.gateway.port = port;
             }
         }
 
-        // Gateway host: CORVUS_GATEWAY_HOST or HOST
-        if let Ok(host) = std::env::var("CORVUS_GATEWAY_HOST").or_else(|_| std::env::var("HOST")) {
+        // Gateway host: corvus_GATEWAY_HOST or HOST
+        if let Ok(host) = std::env::var("corvus_GATEWAY_HOST").or_else(|_| std::env::var("HOST"))
+        {
             if !host.is_empty() {
                 self.gateway.host = host;
             }
         }
 
-        // Temperature: CORVUS_TEMPERATURE
-        if let Ok(temp_str) = std::env::var("CORVUS_TEMPERATURE") {
+        // Allow public bind: corvus_ALLOW_PUBLIC_BIND
+        if let Ok(val) = std::env::var("corvus_ALLOW_PUBLIC_BIND") {
+            self.gateway.allow_public_bind = val == "1" || val.eq_ignore_ascii_case("true");
+        }
+
+        // Temperature: corvus_TEMPERATURE
+        if let Ok(temp_str) = std::env::var("corvus_TEMPERATURE") {
             if let Ok(temp) = temp_str.parse::<f64>() {
                 if (0.0..=2.0).contains(&temp) {
                     self.default_temperature = temp;
@@ -1082,27 +1775,11 @@ impl Config {
         }
 
         if let Err(e) = fs::rename(&temp_path, &self.config_path) {
-            if should_fallback_to_in_place_write(&e) {
-                if let Err(write_err) =
-                    write_config_in_place(&self.config_path, toml_str.as_bytes())
-                {
-                    let _ = fs::remove_file(&temp_path);
-                    if had_existing_config && backup_path.exists() {
-                        let _ = fs::copy(&backup_path, &self.config_path);
-                    }
-                    anyhow::bail!(
-                        "Failed to replace config file after atomic fallback: {write_err} \
-                         (rename error: {e})"
-                    );
-                }
-                let _ = fs::remove_file(&temp_path);
-            } else {
-                let _ = fs::remove_file(&temp_path);
-                if had_existing_config && backup_path.exists() {
-                    let _ = fs::copy(&backup_path, &self.config_path);
-                }
-                anyhow::bail!("Failed to atomically replace config file: {e}");
+            let _ = fs::remove_file(&temp_path);
+            if had_existing_config && backup_path.exists() {
+                let _ = fs::copy(&backup_path, &self.config_path);
             }
+            anyhow::bail!("Failed to atomically replace config file: {e}");
         }
 
         sync_directory(parent_dir)?;
@@ -1127,36 +1804,6 @@ fn sync_directory(path: &Path) -> Result<()> {
 #[cfg(not(unix))]
 fn sync_directory(_path: &Path) -> Result<()> {
     Ok(())
-}
-
-fn write_config_in_place(path: &Path, contents: &[u8]) -> Result<()> {
-    let mut file = OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(true)
-        .open(path)
-        .with_context(|| {
-            format!(
-                "Failed to open config file for in-place write: {}",
-                path.display()
-            )
-        })?;
-    file.write_all(contents)
-        .context("Failed to write config contents in-place")?;
-    file.sync_all()
-        .context("Failed to fsync config file after in-place write")?;
-    Ok(())
-}
-
-#[cfg(unix)]
-fn should_fallback_to_in_place_write(error: &std::io::Error) -> bool {
-    // Bind-mounted files can reject replace-style renames with EBUSY/EXDEV.
-    matches!(error.raw_os_error(), Some(16 | 18))
-}
-
-#[cfg(not(unix))]
-fn should_fallback_to_in_place_write(_error: &std::io::Error) -> bool {
-    false
 }
 
 #[cfg(test)]
@@ -1266,6 +1913,7 @@ mod tests {
                 ..RuntimeConfig::default()
             },
             reliability: ReliabilityConfig::default(),
+            scheduler: SchedulerConfig::default(),
             model_routes: Vec::new(),
             heartbeat: HeartbeatConfig {
                 enabled: true,
@@ -1286,6 +1934,7 @@ mod tests {
                 email: None,
                 irc: None,
                 lark: None,
+                dingtalk: None,
             },
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
@@ -1293,8 +1942,13 @@ mod tests {
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
+            http_request: HttpRequestConfig::default(),
+            agent: AgentConfig::default(),
             identity: IdentityConfig::default(),
+            cost: CostConfig::default(),
+            peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
+            hardware: HardwareConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -1339,6 +1993,35 @@ default_temperature = 0.7
     }
 
     #[test]
+    fn agent_config_defaults() {
+        let cfg = AgentConfig::default();
+        assert!(!cfg.compact_context);
+        assert_eq!(cfg.max_tool_iterations, 10);
+        assert_eq!(cfg.max_history_messages, 50);
+        assert!(!cfg.parallel_tools);
+        assert_eq!(cfg.tool_dispatcher, "auto");
+    }
+
+    #[test]
+    fn agent_config_deserializes() {
+        let raw = r#"
+default_temperature = 0.7
+[agent]
+compact_context = true
+max_tool_iterations = 20
+max_history_messages = 80
+parallel_tools = true
+tool_dispatcher = "xml"
+"#;
+        let parsed: Config = toml::from_str(raw).unwrap();
+        assert!(parsed.agent.compact_context);
+        assert_eq!(parsed.agent.max_tool_iterations, 20);
+        assert_eq!(parsed.agent.max_history_messages, 80);
+        assert!(parsed.agent.parallel_tools);
+        assert_eq!(parsed.agent.tool_dispatcher, "xml");
+    }
+
+    #[test]
     fn config_save_and_load_tmpdir() {
         let dir = std::env::temp_dir().join("corvus_test_config");
         let _ = fs::remove_dir_all(&dir);
@@ -1356,6 +2039,7 @@ default_temperature = 0.7
             autonomy: AutonomyConfig::default(),
             runtime: RuntimeConfig::default(),
             reliability: ReliabilityConfig::default(),
+            scheduler: SchedulerConfig::default(),
             model_routes: Vec::new(),
             heartbeat: HeartbeatConfig::default(),
             channels_config: ChannelsConfig::default(),
@@ -1365,8 +2049,13 @@ default_temperature = 0.7
             composio: ComposioConfig::default(),
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
+            http_request: HttpRequestConfig::default(),
+            agent: AgentConfig::default(),
             identity: IdentityConfig::default(),
+            cost: CostConfig::default(),
+            peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
+            hardware: HardwareConfig::default(),
         };
 
         config.save().unwrap();
@@ -1383,7 +2072,8 @@ default_temperature = 0.7
 
     #[test]
     fn config_save_atomic_cleanup() {
-        let dir = std::env::temp_dir().join(format!("corvus_test_config_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("corvus_test_config_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
 
         let config_path = dir.join("config.toml");
@@ -1411,18 +2101,6 @@ default_temperature = 0.7
         let _ = fs::remove_dir_all(&dir);
     }
 
-    #[cfg(unix)]
-    #[test]
-    fn atomic_replace_fallback_matches_expected_errno() {
-        let busy = std::io::Error::from_raw_os_error(16);
-        let cross_device = std::io::Error::from_raw_os_error(18);
-        let permission = std::io::Error::from_raw_os_error(13);
-
-        assert!(should_fallback_to_in_place_write(&busy));
-        assert!(should_fallback_to_in_place_write(&cross_device));
-        assert!(!should_fallback_to_in_place_write(&permission));
-    }
-
     // ── Telegram / Discord config ────────────────────────────
 
     #[test]
@@ -1443,6 +2121,7 @@ default_temperature = 0.7
             bot_token: "discord-token".into(),
             guild_id: Some("12345".into()),
             allowed_users: vec![],
+            listen_to_bots: false,
         };
         let json = serde_json::to_string(&dc).unwrap();
         let parsed: DiscordConfig = serde_json::from_str(&json).unwrap();
@@ -1456,6 +2135,7 @@ default_temperature = 0.7
             bot_token: "tok".into(),
             guild_id: None,
             allowed_users: vec![],
+            listen_to_bots: false,
         };
         let json = serde_json::to_string(&dc).unwrap();
         let parsed: DiscordConfig = serde_json::from_str(&json).unwrap();
@@ -1546,6 +2226,7 @@ default_temperature = 0.7
             email: None,
             irc: None,
             lark: None,
+            dingtalk: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();
@@ -1705,6 +2386,7 @@ channel_id = "C123"
             email: None,
             irc: None,
             lark: None,
+            dingtalk: None,
         };
         let toml_str = toml::to_string_pretty(&c).unwrap();
         let parsed: ChannelsConfig = toml::from_str(&toml_str).unwrap();
@@ -1924,6 +2606,16 @@ default_temperature = 0.7
         let b = BrowserConfig::default();
         assert!(!b.enabled);
         assert!(b.allowed_domains.is_empty());
+        assert_eq!(b.backend, "agent_browser");
+        assert!(b.native_headless);
+        assert_eq!(b.native_webdriver_url, "http://127.0.0.1:9515");
+        assert!(b.native_chrome_path.is_none());
+        assert_eq!(b.computer_use.endpoint, "http://127.0.0.1:8787/v1/actions");
+        assert_eq!(b.computer_use.timeout_ms, 15_000);
+        assert!(!b.computer_use.allow_remote_endpoint);
+        assert!(b.computer_use.window_allowlist.is_empty());
+        assert!(b.computer_use.max_coordinate_x.is_none());
+        assert!(b.computer_use.max_coordinate_y.is_none());
     }
 
     #[test]
@@ -1932,12 +2624,42 @@ default_temperature = 0.7
             enabled: true,
             allowed_domains: vec!["example.com".into(), "docs.example.com".into()],
             session_name: None,
+            backend: "auto".into(),
+            native_headless: false,
+            native_webdriver_url: "http://localhost:4444".into(),
+            native_chrome_path: Some("/usr/bin/chromium".into()),
+            computer_use: BrowserComputerUseConfig {
+                endpoint: "https://computer-use.example.com/v1/actions".into(),
+                api_key: Some("test-token".into()),
+                timeout_ms: 8_000,
+                allow_remote_endpoint: true,
+                window_allowlist: vec!["Chrome".into(), "Visual Studio Code".into()],
+                max_coordinate_x: Some(3840),
+                max_coordinate_y: Some(2160),
+            },
         };
         let toml_str = toml::to_string(&b).unwrap();
         let parsed: BrowserConfig = toml::from_str(&toml_str).unwrap();
         assert!(parsed.enabled);
         assert_eq!(parsed.allowed_domains.len(), 2);
         assert_eq!(parsed.allowed_domains[0], "example.com");
+        assert_eq!(parsed.backend, "auto");
+        assert!(!parsed.native_headless);
+        assert_eq!(parsed.native_webdriver_url, "http://localhost:4444");
+        assert_eq!(
+            parsed.native_chrome_path.as_deref(),
+            Some("/usr/bin/chromium")
+        );
+        assert_eq!(
+            parsed.computer_use.endpoint,
+            "https://computer-use.example.com/v1/actions"
+        );
+        assert_eq!(parsed.computer_use.api_key.as_deref(), Some("test-token"));
+        assert_eq!(parsed.computer_use.timeout_ms, 8_000);
+        assert!(parsed.computer_use.allow_remote_endpoint);
+        assert_eq!(parsed.computer_use.window_allowlist.len(), 2);
+        assert_eq!(parsed.computer_use.max_coordinate_x, Some(3840));
+        assert_eq!(parsed.computer_use.max_coordinate_y, Some(2160));
     }
 
     #[test]
@@ -1954,23 +2676,32 @@ default_temperature = 0.7
 
     // ── Environment variable overrides (Docker support) ─────────
 
+    fn env_override_test_guard() -> std::sync::MutexGuard<'static, ()> {
+        static ENV_OVERRIDE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        ENV_OVERRIDE_TEST_LOCK
+            .lock()
+            .expect("env override test lock poisoned")
+    }
+
     #[test]
     fn env_override_api_key() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
         assert!(config.api_key.is_none());
 
-        std::env::set_var("CORVUS_API_KEY", "sk-test-env-key");
+        std::env::set_var("corvus_API_KEY", "sk-test-env-key");
         config.apply_env_overrides();
         assert_eq!(config.api_key.as_deref(), Some("sk-test-env-key"));
 
-        std::env::remove_var("CORVUS_API_KEY");
+        std::env::remove_var("corvus_API_KEY");
     }
 
     #[test]
     fn env_override_api_key_fallback() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::remove_var("CORVUS_API_KEY");
+        std::env::remove_var("corvus_API_KEY");
         std::env::set_var("API_KEY", "sk-fallback-key");
         config.apply_env_overrides();
         assert_eq!(config.api_key.as_deref(), Some("sk-fallback-key"));
@@ -1980,20 +2711,22 @@ default_temperature = 0.7
 
     #[test]
     fn env_override_provider() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::set_var("CORVUS_PROVIDER", "anthropic");
+        std::env::set_var("corvus_PROVIDER", "anthropic");
         config.apply_env_overrides();
         assert_eq!(config.default_provider.as_deref(), Some("anthropic"));
 
-        std::env::remove_var("CORVUS_PROVIDER");
+        std::env::remove_var("corvus_PROVIDER");
     }
 
     #[test]
     fn env_override_provider_fallback() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::remove_var("CORVUS_PROVIDER");
+        std::env::remove_var("corvus_PROVIDER");
         std::env::set_var("PROVIDER", "openai");
         config.apply_env_overrides();
         assert_eq!(config.default_provider.as_deref(), Some("openai"));
@@ -2003,55 +2736,60 @@ default_temperature = 0.7
 
     #[test]
     fn env_override_model() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::set_var("CORVUS_MODEL", "gpt-4o");
+        std::env::set_var("corvus_MODEL", "gpt-4o");
         config.apply_env_overrides();
         assert_eq!(config.default_model.as_deref(), Some("gpt-4o"));
 
-        std::env::remove_var("CORVUS_MODEL");
+        std::env::remove_var("corvus_MODEL");
     }
 
     #[test]
     fn env_override_workspace() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::set_var("CORVUS_WORKSPACE", "/custom/workspace");
+        std::env::set_var("corvus_WORKSPACE", "/custom/workspace");
         config.apply_env_overrides();
         assert_eq!(config.workspace_dir, PathBuf::from("/custom/workspace"));
 
-        std::env::remove_var("CORVUS_WORKSPACE");
+        std::env::remove_var("corvus_WORKSPACE");
     }
 
     #[test]
     fn env_override_empty_values_ignored() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
         let original_provider = config.default_provider.clone();
 
-        std::env::set_var("CORVUS_PROVIDER", "");
+        std::env::set_var("corvus_PROVIDER", "");
         config.apply_env_overrides();
         assert_eq!(config.default_provider, original_provider);
 
-        std::env::remove_var("CORVUS_PROVIDER");
+        std::env::remove_var("corvus_PROVIDER");
     }
 
     #[test]
     fn env_override_gateway_port() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
         assert_eq!(config.gateway.port, 3000);
 
-        std::env::set_var("CORVUS_GATEWAY_PORT", "8080");
+        std::env::set_var("corvus_GATEWAY_PORT", "8080");
         config.apply_env_overrides();
         assert_eq!(config.gateway.port, 8080);
 
-        std::env::remove_var("CORVUS_GATEWAY_PORT");
+        std::env::remove_var("corvus_GATEWAY_PORT");
     }
 
     #[test]
     fn env_override_port_fallback() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::remove_var("CORVUS_GATEWAY_PORT");
+        std::env::remove_var("corvus_GATEWAY_PORT");
         std::env::set_var("PORT", "9000");
         config.apply_env_overrides();
         assert_eq!(config.gateway.port, 9000);
@@ -2061,21 +2799,23 @@ default_temperature = 0.7
 
     #[test]
     fn env_override_gateway_host() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
         assert_eq!(config.gateway.host, "127.0.0.1");
 
-        std::env::set_var("CORVUS_GATEWAY_HOST", "0.0.0.0");
+        std::env::set_var("corvus_GATEWAY_HOST", "0.0.0.0");
         config.apply_env_overrides();
         assert_eq!(config.gateway.host, "0.0.0.0");
 
-        std::env::remove_var("CORVUS_GATEWAY_HOST");
+        std::env::remove_var("corvus_GATEWAY_HOST");
     }
 
     #[test]
     fn env_override_host_fallback() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::remove_var("CORVUS_GATEWAY_HOST");
+        std::env::remove_var("corvus_GATEWAY_HOST");
         std::env::set_var("HOST", "0.0.0.0");
         config.apply_env_overrides();
         assert_eq!(config.gateway.host, "0.0.0.0");
@@ -2085,36 +2825,39 @@ default_temperature = 0.7
 
     #[test]
     fn env_override_temperature() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::set_var("CORVUS_TEMPERATURE", "0.5");
+        std::env::set_var("corvus_TEMPERATURE", "0.5");
         config.apply_env_overrides();
         assert!((config.default_temperature - 0.5).abs() < f64::EPSILON);
 
-        std::env::remove_var("CORVUS_TEMPERATURE");
+        std::env::remove_var("corvus_TEMPERATURE");
     }
 
     #[test]
     fn env_override_temperature_out_of_range_ignored() {
+        let _env_guard = env_override_test_guard();
         // Clean up any leftover env vars from other tests
-        std::env::remove_var("CORVUS_TEMPERATURE");
+        std::env::remove_var("corvus_TEMPERATURE");
 
         let mut config = Config::default();
         let original_temp = config.default_temperature;
 
         // Temperature > 2.0 should be ignored
-        std::env::set_var("CORVUS_TEMPERATURE", "3.0");
+        std::env::set_var("corvus_TEMPERATURE", "3.0");
         config.apply_env_overrides();
         assert!(
             (config.default_temperature - original_temp).abs() < f64::EPSILON,
             "Temperature 3.0 should be ignored (out of range)"
         );
 
-        std::env::remove_var("CORVUS_TEMPERATURE");
+        std::env::remove_var("corvus_TEMPERATURE");
     }
 
     #[test]
     fn env_override_invalid_port_ignored() {
+        let _env_guard = env_override_test_guard();
         let mut config = Config::default();
         let original_port = config.gateway.port;
 
@@ -2135,236 +2878,41 @@ default_temperature = 0.7
         assert!(g.paired_tokens.is_empty());
     }
 
-    // ── Lark config ───────────────────────────────────────────────
+    // ── Peripherals config ───────────────────────────────────────
 
     #[test]
-    fn lark_config_serde() {
-        let lc = LarkConfig {
-            app_id: "cli_123456".into(),
-            app_secret: "secret_abc".into(),
-            encrypt_key: Some("encrypt_key".into()),
-            verification_token: Some("verify_token".into()),
-            allowed_users: vec!["user_123".into(), "user_456".into()],
-            use_feishu: true,
+    fn peripherals_config_default_disabled() {
+        let p = PeripheralsConfig::default();
+        assert!(!p.enabled);
+        assert!(p.boards.is_empty());
+    }
+
+    #[test]
+    fn peripheral_board_config_defaults() {
+        let b = PeripheralBoardConfig::default();
+        assert!(b.board.is_empty());
+        assert_eq!(b.transport, "serial");
+        assert!(b.path.is_none());
+        assert_eq!(b.baud, 115200);
+    }
+
+    #[test]
+    fn peripherals_config_toml_roundtrip() {
+        let p = PeripheralsConfig {
+            enabled: true,
+            boards: vec![PeripheralBoardConfig {
+                board: "nucleo-f401re".into(),
+                transport: "serial".into(),
+                path: Some("/dev/ttyACM0".into()),
+                baud: 115200,
+            }],
+            datasheet_dir: None,
         };
-        let json = serde_json::to_string(&lc).unwrap();
-        let parsed: LarkConfig = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.app_id, "cli_123456");
-        assert_eq!(parsed.app_secret, "secret_abc");
-        assert_eq!(parsed.encrypt_key.as_deref(), Some("encrypt_key"));
-        assert_eq!(parsed.verification_token.as_deref(), Some("verify_token"));
-        assert_eq!(parsed.allowed_users.len(), 2);
-        assert!(parsed.use_feishu);
-    }
-
-    #[test]
-    fn lark_config_toml_roundtrip() {
-        let lc = LarkConfig {
-            app_id: "cli_123456".into(),
-            app_secret: "secret_abc".into(),
-            encrypt_key: Some("encrypt_key".into()),
-            verification_token: Some("verify_token".into()),
-            allowed_users: vec!["*".into()],
-            use_feishu: false,
-        };
-        let toml_str = toml::to_string(&lc).unwrap();
-        let parsed: LarkConfig = toml::from_str(&toml_str).unwrap();
-        assert_eq!(parsed.app_id, "cli_123456");
-        assert_eq!(parsed.app_secret, "secret_abc");
-        assert!(!parsed.use_feishu);
-    }
-
-    #[test]
-    fn lark_config_deserializes_without_optional_fields() {
-        let json = r#"{"app_id":"cli_123","app_secret":"secret"}"#;
-        let parsed: LarkConfig = serde_json::from_str(json).unwrap();
-        assert!(parsed.encrypt_key.is_none());
-        assert!(parsed.verification_token.is_none());
-        assert!(parsed.allowed_users.is_empty());
-        assert!(!parsed.use_feishu);
-    }
-
-    #[test]
-    fn lark_config_defaults_to_lark_endpoint() {
-        let json = r#"{"app_id":"cli_123","app_secret":"secret"}"#;
-        let parsed: LarkConfig = serde_json::from_str(json).unwrap();
-        assert!(
-            !parsed.use_feishu,
-            "use_feishu should default to false (Lark)"
-        );
-    }
-
-    #[test]
-    fn lark_config_with_wildcard_allowed_users() {
-        let json = r#"{"app_id":"cli_123","app_secret":"secret","allowed_users":["*"]}"#;
-        let parsed: LarkConfig = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed.allowed_users, vec!["*"]);
-    }
-
-    // ══════════════════════════════════════════════════════════
-    // AGENT DELEGATION CONFIG TESTS
-    // ══════════════════════════════════════════════════════════
-
-    #[test]
-    fn agents_config_default_empty() {
-        let c = Config::default();
-        assert!(c.agents.is_empty());
-    }
-
-    #[test]
-    fn agents_config_backward_compat_missing_section() {
-        let minimal = r#"
-workspace_dir = "/tmp/ws"
-config_path = "/tmp/config.toml"
-default_temperature = 0.7
-"#;
-        let parsed: Config = toml::from_str(minimal).unwrap();
-        assert!(parsed.agents.is_empty());
-    }
-
-    #[test]
-    fn agents_config_toml_roundtrip() {
-        let toml_str = r#"
-default_temperature = 0.7
-
-[agents.researcher]
-provider = "gemini"
-model = "gemini-2.0-flash"
-system_prompt = "You are a research assistant."
-max_depth = 2
-
-[agents.coder]
-provider = "openrouter"
-model = "anthropic/claude-sonnet-4-20250514"
-"#;
-        let parsed: Config = toml::from_str(toml_str).unwrap();
-        assert_eq!(parsed.agents.len(), 2);
-
-        let researcher = &parsed.agents["researcher"];
-        assert_eq!(researcher.provider, "gemini");
-        assert_eq!(researcher.model, "gemini-2.0-flash");
-        assert_eq!(
-            researcher.system_prompt.as_deref(),
-            Some("You are a research assistant.")
-        );
-        assert_eq!(researcher.max_depth, 2);
-        assert!(researcher.api_key.is_none());
-        assert!(researcher.temperature.is_none());
-
-        let coder = &parsed.agents["coder"];
-        assert_eq!(coder.provider, "openrouter");
-        assert_eq!(coder.model, "anthropic/claude-sonnet-4-20250514");
-        assert!(coder.system_prompt.is_none());
-        assert_eq!(coder.max_depth, 3); // default
-    }
-
-    #[test]
-    fn agents_config_with_api_key_and_temperature() {
-        let toml_str = r#"
-[agents.fast]
-provider = "groq"
-model = "llama-3.3-70b-versatile"
-api_key = "gsk-test-key"
-temperature = 0.3
-"#;
-        let parsed: HashMap<String, DelegateAgentConfig> = toml::from_str::<toml::Value>(toml_str)
-            .unwrap()["agents"]
-            .clone()
-            .try_into()
-            .unwrap();
-        let fast = &parsed["fast"];
-        assert_eq!(fast.api_key.as_deref(), Some("gsk-test-key"));
-        assert!((fast.temperature.unwrap() - 0.3).abs() < f64::EPSILON);
-    }
-
-    #[test]
-    fn agent_api_key_encrypted_on_save_and_decrypted_on_load() {
-        let tmp = TempDir::new().unwrap();
-        let corvus_dir = tmp.path();
-        let config_path = corvus_dir.join("config.toml");
-
-        // Create a config with a plaintext agent API key
-        let mut agents = HashMap::new();
-        agents.insert(
-            "test_agent".to_string(),
-            DelegateAgentConfig {
-                provider: "openrouter".to_string(),
-                model: "test-model".to_string(),
-                system_prompt: None,
-                api_key: Some("sk-super-secret".to_string()),
-                temperature: None,
-                max_depth: 3,
-            },
-        );
-        let mut config = Config {
-            config_path: config_path.clone(),
-            workspace_dir: corvus_dir.join("workspace"),
-            secrets: SecretsConfig { encrypt: true },
-            agents,
-            ..Config::default()
-        };
-        std::fs::create_dir_all(&config.workspace_dir).unwrap();
-        config.save().unwrap();
-
-        // Read the raw TOML and verify the key is encrypted (not plaintext)
-        let raw = std::fs::read_to_string(&config_path).unwrap();
-        assert!(
-            !raw.contains("sk-super-secret"),
-            "Plaintext API key should not appear in saved config"
-        );
-        assert!(
-            raw.contains("enc2:"),
-            "Encrypted key should use enc2: prefix"
-        );
-
-        // Parse and decrypt — simulate load_or_init by reading + decrypting
-        let store = crate::security::SecretStore::new(corvus_dir, true);
-        let mut loaded: Config = toml::from_str(&raw).unwrap();
-        for agent in loaded.agents.values_mut() {
-            if let Some(ref encrypted_key) = agent.api_key {
-                agent.api_key = Some(store.decrypt(encrypted_key).unwrap());
-            }
-        }
-        assert_eq!(
-            loaded.agents["test_agent"].api_key.as_deref(),
-            Some("sk-super-secret"),
-            "Decrypted key should match original"
-        );
-    }
-
-    #[test]
-    fn agent_api_key_not_encrypted_when_disabled() {
-        let tmp = TempDir::new().unwrap();
-        let corvus_dir = tmp.path();
-        let config_path = corvus_dir.join("config.toml");
-
-        let mut agents = HashMap::new();
-        agents.insert(
-            "test_agent".to_string(),
-            DelegateAgentConfig {
-                provider: "openrouter".to_string(),
-                model: "test-model".to_string(),
-                system_prompt: None,
-                api_key: Some("sk-plaintext-ok".to_string()),
-                temperature: None,
-                max_depth: 3,
-            },
-        );
-        let config = Config {
-            config_path: config_path.clone(),
-            workspace_dir: corvus_dir.join("workspace"),
-            secrets: SecretsConfig { encrypt: false },
-            agents,
-            ..Config::default()
-        };
-        std::fs::create_dir_all(&config.workspace_dir).unwrap();
-        config.save().unwrap();
-
-        let raw = std::fs::read_to_string(&config_path).unwrap();
-        assert!(
-            raw.contains("sk-plaintext-ok"),
-            "With encryption disabled, key should remain plaintext"
-        );
-        assert!(!raw.contains("enc2:"), "No encryption prefix when disabled");
+        let toml_str = toml::to_string(&p).unwrap();
+        let parsed: PeripheralsConfig = toml::from_str(&toml_str).unwrap();
+        assert!(parsed.enabled);
+        assert_eq!(parsed.boards.len(), 1);
+        assert_eq!(parsed.boards[0].board, "nucleo-f401re");
+        assert_eq!(parsed.boards[0].path.as_deref(), Some("/dev/ttyACM0"));
     }
 }
