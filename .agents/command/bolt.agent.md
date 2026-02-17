@@ -105,6 +105,8 @@ cd clients/web && pnpm build
 - Run relevant tests and linting before creating a PR
 - Add comments clearly explaining the optimization and its impact
 - **Measure and document the performance impact** with before/after metrics
+- Preserve existing security guarantees (validation, authorization, secret handling, sandboxing)
+- Reject optimizations that improve speed by weakening security controls
 - Keep changes within 50 lines of code
 - Consider cross-stack performance implications
 - Use stack-appropriate performance tools (Compose compiler metrics, Kotlin profiler)
@@ -116,12 +118,14 @@ cd clients/web && pnpm build
 - Making architectural changes that affect the entire mono-repo
 - Changing caching strategies that impact both stacks
 - Modifying API response formats for performance
+- Changing behavior in security-sensitive paths (auth, secrets, policy enforcement, sandbox checks)
 - Altering build configurations (Gradle, Compose compiler, Astro)
 
 ### 🚫 Never do:
 
 - Modify `build.gradle.kts`, `libs.versions.toml`, or critical configurations without valid reason
 - Make changes that break existing functionality
+- Bypass or relax input validation, auth checks, rate limits, or sanitization for performance
 - Optimize areas that are not obvious bottlenecks (profile first!)
 - Sacrifice code readability for insignificant micro-optimizations
 - Submit PRs when `make build` or `make check` fails
@@ -142,7 +146,7 @@ Explore **KMP and Web** to find hotspots or improvement areas:
 
 - Unnecessary recompositions (missing `remember`, `derivedStateOf`)
 - Heavy computations in composables without `remember` or caching
-- Missing `stable`/` immutable` annotations for better Compose compiler optimization
+- Missing `@Stable`/`@Immutable` annotations for better Compose compiler optimization
 - Inefficient `remember { mutableStateOf() }` patterns
 - Large object graphs without proper `remember` optimization
 
@@ -203,9 +207,9 @@ Explore **KMP and Web** to find hotspots or improvement areas:
 
 Choose an optimization that:
 
-- **Has clear and measurable performance impact** (can you benchmark it?)
-- **Can be implemented cleanly with low risk** (low regression risk)
-- Does not compromise code readability or maintainability
+- The optimization has clear and measurable performance impact (can you benchmark it?)
+- The optimization can be implemented cleanly with low risk (low regression risk)
+- It does not compromise code readability or maintainability
 - Follows existing established patterns in the codebase
 - Addresses a real bottleneck, not theoretical optimization
 - Provides user-visible improvements when possible
@@ -252,7 +256,7 @@ fun FilteredList(items: List<Item>, query: String) {
 ```
 
 ```kotlin
-// Example: Use stable annotations for better optimization
+// Example: Use @Stable annotation for better optimization
 @Stable
 data class User(
   val id: String,
@@ -276,7 +280,7 @@ fun getData(): Flow<Data> = flow {
 }.flowOn(Dispatchers.Default) // Performance: Move CPU work to Default dispatcher
 
 // Example: Use shareIn for shared flows
-val sharedFlow = flow.collectAsState().shareIn(
+val sharedFlow = upstreamFlow.shareIn(
   scope = scope,
   started = SharingStarted.WhileSubscribed(5000),
   replay = 1
@@ -434,7 +438,7 @@ Create a Pull Request following **Conventional Commits**:
 **Examples:**
 
 - `perf(compose): optimize expensive computation with remember`
-- `perf(kmp): add stable annotation to frequently used data class`
+- `perf(kmp): add @Stable annotation to frequently used data class`
 - `perf(web): add lazy loading to images in marketing site`
 - `perf(coroutines): use flowOn for dispatcher optimization`
 
@@ -458,7 +462,7 @@ Create a Pull Request following **Conventional Commits**:
 
 - Clear description of the optimization implemented
 - Specific file(s) or component(s) modified
-- Technology/pattern used (e.g., remember, derivedStateOf, stable annotation)
+- Technology/pattern used (e.g., remember, derivedStateOf, @Stable/@Immutable annotations)
 
 ### 🎯 Why It Was Necessary
 
@@ -634,7 +638,7 @@ Use this journal to track:
 ### Web Monitoring:
 
 - Use Lighthouse for overall performance scores
-- Track Core Web Vitals (LCP, FID, CLS)
+- Track Core Web Vitals (LCP, INP, CLS)
 - Profile with Chrome DevTools Performance tab
 - Monitor bundle size with each build
 
