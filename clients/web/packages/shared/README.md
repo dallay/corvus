@@ -2,23 +2,33 @@
 
 Shared components, utilities, and styles for Corvus web applications.
 
-## 📦 Contents
+## Env Utilities
 
-- `components/` - Reusable UI components
-- `styles/` - Shared CSS/styling utilities
-- `utils/` - Helper functions
-- `types/` - Shared TypeScript types
+This package exposes environment helpers under `@corvus/shared/env`.
 
-## 🚀 Usage
+Goals:
 
-```typescript
-import { Button, Card } from '@corvus/shared/components';
-import { formatDate } from '@corvus/shared/utils';
-import type { User } from '@corvus/shared/types';
+- deterministic env precedence
+- provider-aware defaults (Cloudflare, Vercel, Netlify)
+- URL normalization and protocol validation (`http`/`https` only)
+- single source of truth for common ports
+
+Usage example:
+
+```js
+import { PORTS, resolveSiteUrl } from "@corvus/shared/env";
+
+const site = resolveSiteUrl({
+  env,
+  primaryKey: "MARKETING_URL",
+  localDefault: `http://localhost:${PORTS.MARKETING}`,
+  productionDefault: "https://profiletailors.com",
+  isProdLike,
+});
 ```
 
-## 🏗️ Adding shared code
+## Adding shared code
 
-1. Add files to appropriate subdirectory
-2. Export from `index.ts`
-3. Run `pnpm build` to compile
+1. Add files to package root or dedicated subfolders
+2. Expose them through `package.json` exports
+3. Keep APIs runtime-safe for Node + browser contexts

@@ -51,7 +51,6 @@ const testimonials = [
     <nav aria-label="Primary">
       <a href="#features">Platform</a>
       <a href="#proof">Proof</a>
-      <a href="/funnels">Funnels</a>
       <a href="#install">Install</a>
     </nav>
   </header>
@@ -66,7 +65,7 @@ const testimonials = [
       </p>
       <div class="hero-actions">
         <a class="btn btn-primary" href="#install">Start in 2 minutes</a>
-        <a class="btn btn-ghost" href="/funnels">View funnel templates</a>
+        <a class="btn btn-ghost" href="https://github.com/dallay/corvus" rel="noopener noreferrer">View Source</a>
       </div>
 
       <div class="command-card" id="install">
@@ -155,7 +154,7 @@ const testimonials = [
       <p>Use the installer wizard, pick your provider, and onboard in minutes.</p>
       <div class="hero-actions">
         <a class="btn btn-primary" href="/install">Download Installer</a>
-        <a class="btn btn-ghost" href="https://github.com/dallay/corvus">View Source</a>
+        <a class="btn btn-ghost" href="https://github.com/dallay/corvus" rel="noopener noreferrer">View Source</a>
       </div>
     </section>
   </main>
@@ -163,8 +162,7 @@ const testimonials = [
   <footer class="shell footer">
     <p>© {new Date().getFullYear()} Corvus</p>
     <div>
-      <a href="/funnels">Funnels</a>
-      <a href="https://github.com/dallay/corvus">GitHub</a>
+      <a href="https://github.com/dallay/corvus" rel="noopener noreferrer">GitHub</a>
       <a href="/install">Install Script</a>
     </div>
   </footer>
@@ -180,8 +178,16 @@ const testimonials = [
         if (!target) {
           return;
         }
+        const text = target.textContent?.trim();
+        if (!text) {
+          button.textContent = "Nothing to copy";
+          setTimeout(() => {
+            button.textContent = "Copy";
+          }, 1500);
+          return;
+        }
         try {
-          await navigator.clipboard.writeText(target.textContent?.trim() ?? "");
+          await navigator.clipboard.writeText(text);
           button.textContent = "Copied";
           setTimeout(() => {
             button.textContent = "Copy";

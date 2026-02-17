@@ -386,10 +386,12 @@ nav a:hover,
   }
 }
 
-.hero,
-.section,
-.footer {
-  animation: rise 480ms ease both;
+@media (prefers-reduced-motion: no-preference) {
+  .hero,
+  .section,
+  .footer {
+    animation: rise 480ms ease both;
+  }
 }
 
 @media (max-width: 960px) {

@@ -38,6 +38,9 @@ importers:
 
   apps/marketing:
     dependencies:
+      '@corvus/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       astro:
         specifier: ^5.17.2
         version: 5.17.2(rollup@4.57.1)(typescript@5.9.3)
@@ -49,8 +52,11 @@ importers:
         specifier: 2.3.15
         version: 2.3.15
       typescript:
-        specifier: ^5.9.2
+        specifier: ^5.9.3
         version: 5.9.3
+      vite:
+        specifier: ^6.4.1
+        version: 6.4.1
 
   packages/shared: {}
 

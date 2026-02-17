@@ -8,7 +8,7 @@ Monorepo para apps web de Corvus, incluyendo docs, marketing y futuros frontends
 clients/web/
 ├── apps/
 │   ├── docs/           # Documentación (Astro + Starlight)
-│   ├── marketing/      # Landing y funnels de marketing (Astro)
+│   ├── marketing/      # Landing y páginas de marketing (Astro)
 │   └── dashboard/      # Dashboard web (pendiente)
 ├── packages/
 │   └── shared/         # Utilidades compartidas
@@ -26,7 +26,7 @@ clients/web/
 ### marketing
 
 - Framework: Astro
-- Puerto por defecto: 4322
+- URL configurable con `MARKETING_URL` (dev default: `http://localhost:9988`)
 - Incluye script público de instalación en `/install`
 
 ### dashboard

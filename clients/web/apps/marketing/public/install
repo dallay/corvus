@@ -136,6 +136,9 @@ install_via_binary() {
   local install_dir="${CORVUS_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
   local target_path=""
   local download_url=""
+  local checksum_url=""
+  local expected_checksum=""
+  local computed_checksum=""
 
   asset="$(detect_binary_asset)"
   release_tag="${CORVUS_VERSION:-latest}"
@@ -153,10 +156,34 @@ install_via_binary() {
 
   target_path="${install_dir}/corvus"
   download_url="https://github.com/${REPO_SLUG}/releases/download/${release_tag}/${asset}"
+  checksum_url="${download_url}.sha256"
 
   print_info "Downloading ${download_url}"
 
+  # Download binary
   curl --proto '=https' --tlsv1.2 -fsSL "$download_url" -o "$target_path"
+
+  # Verify checksum for security
+  print_info "Verifying checksum..."
+  if ! expected_checksum="$(curl --proto '=https' --tlsv1.2 -fsSL "$checksum_url" 2>/dev/null | awk '{print $1}')"; then
+    print_warn "Could not download checksum file. Skipping verification."
+    print_warn "For production use, consider verifying the binary manually."
+  elif [ -n "$expected_checksum" ]; then
+    if ! has_cmd sha256sum; then
+      print_warn "sha256sum not available. Skipping checksum verification."
+    else
+      computed_checksum="$(sha256sum "$target_path" | awk '{print $1}')"
+      if [ "$computed_checksum" != "$expected_checksum" ]; then
+        print_error "Checksum verification failed!"
+        print_error "Expected: $expected_checksum"
+        print_error "Computed: $computed_checksum"
+        rm -f "$target_path"
+        return 1
+      fi
+      print_success "Checksum verified successfully"
+    fi
+  fi
+
   chmod 755 "$target_path"
 
   print_success "Corvus binary installed at ${target_path}"
