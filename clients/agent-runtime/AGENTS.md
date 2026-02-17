@@ -1,7 +1,7 @@
 # AGENTS.md — Agent Coding Guide
 
 This file defines the default working protocol for coding agents in this repository.
-Scope: entire repository.
+Scope: clients/agent-runtime (Rust agent-runtime module).
 
 ## 1) Project Snapshot (Read First)
 
