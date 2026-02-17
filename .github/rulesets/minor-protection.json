@@ -34,8 +34,13 @@
     {
       "type": "required_status_checks",
       "parameters": {
-        "required_status_checks": [],
-        "strict_required_status_checks_policy": false
+        "required_status_checks": [
+          {
+            "context": "core-check",
+            "integration_id": 15368
+          }
+        ],
+        "strict_required_status_checks_policy": true
       }
     },
     {

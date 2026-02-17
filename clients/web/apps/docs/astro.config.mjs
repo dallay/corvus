@@ -124,13 +124,6 @@ export default defineConfig({
                 es: 'Visión General',
               },
             },
-            {
-              label: 'C4 Diagrams',
-              slug: 'guides/architecture/index',
-              translations: {
-                es: 'Diagramas C4',
-              },
-            },
           ],
         },
       ],
