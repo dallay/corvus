@@ -8,7 +8,7 @@ on:
 
 jobs:
   publish-snapshot:
-    if: github.repository == 'dallay/starter-gradle'
+    if: github.repository == 'dallay/corvus'
     uses: ./.github/workflows/_publish.yml
     with:
       release: false

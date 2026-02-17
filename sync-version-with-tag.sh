@@ -8,7 +8,9 @@ readonly TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
 readonly TARGETS=(
   "properties:gradle.properties:VERSION"
   "properties:gradle/build-logic/gradle.properties:VERSION"
-  "json:apps/docs/website/package.json:version"
+  "json:clients/web/apps/docs/package.json:version"
+  "toml:clients/agent-runtime/Cargo.toml:version"
+  "json:clients/agent-runtime/npm/corvus-cli/package.json:version"
 )
 
 declare -a CHANGED_FILES=()
@@ -51,6 +53,40 @@ update_properties_key() {
       if (!updated) print prefix value
     }
   ' "$file" > "$temp_file"
+  write_if_changed "$file" "$temp_file"
+}
+
+update_toml_string_key() {
+  local file="$1"
+  local key="$2"
+  local value="$3"
+  local temp_file
+
+  if [[ ! -f "$file" ]]; then
+    echo "ERROR: $file not found"
+    exit 1
+  fi
+
+  temp_file="$(mktemp "$(dirname "$file")/.sync-version.XXXXXX")"
+  awk -v key="$key" -v value="$value" '
+    BEGIN { updated = 0 }
+    {
+      line = $0
+      pattern = "^[[:space:]]*" key "[[:space:]]*=[[:space:]]*\"[^\"]*\"[[:space:]]*$"
+      if (!updated && line ~ pattern) {
+        sub("^([[:space:]]*" key "[[:space:]]*=[[:space:]]*)\"[^\"]*\"", "\\1\"" value "\"", line)
+        updated = 1
+      }
+      print line
+    }
+    END {
+      if (!updated) exit 1
+    }
+  ' "$file" > "$temp_file" || {
+    rm -f "$temp_file"
+    echo "ERROR: Could not find TOML string key \"$key\" in $file"
+    exit 1
+  }
   write_if_changed "$file" "$temp_file"
 }
 
@@ -102,6 +138,9 @@ apply_target_update() {
     json)
       update_json_string_key "$file" "$key" "$version"
       ;;
+    toml)
+      update_toml_string_key "$file" "$key" "$version"
+      ;;
     *)
       echo "ERROR: Unsupported target type '$target_type' in '$target'"
       exit 1
@@ -136,15 +175,15 @@ fi
 # Helpful next-steps message
 diff_files="${CHANGED_FILES[*]}"
 if [[ ${#CHANGED_FILES[@]} -eq 0 ]]; then
-  diff_files="gradle.properties gradle/build-logic/gradle.properties apps/docs/website/package.json"
+  diff_files="gradle.properties gradle/build-logic/gradle.properties clients/web/apps/docs/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json"
 fi
 
-cat <<EOF
+cat <<NEXT_STEPS
 Next steps (recommended):
   1) Review the changes: git diff "$diff_files"
-  2) Commit the change: git add gradle.properties gradle/build-logic/gradle.properties apps/docs/website/package.json && git commit -m "chore: sync version to $version"
+  2) Commit the change: git add gradle.properties gradle/build-logic/gradle.properties clients/web/apps/docs/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json && git commit -m "chore: sync version to $version"
   3) Push your branch and tag as appropriate.
      If tag v$version already exists but points at the wrong commit, prefer creating a new patch version.
      Only force-update a tag after confirming no one else depends on it and with explicit confirmation.
-     See "Version already exists" troubleshooting guidance in apps/docs/website/src/content/docs/guides/release.md.
-EOF
+     See "Version already exists" troubleshooting guidance in clients/web/apps/docs/src/content/docs/guides/release.md.
+NEXT_STEPS
