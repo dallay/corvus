@@ -159,7 +159,7 @@ fn load_open_skills(repo_dir: &Path) -> Vec<Skill> {
 }
 
 fn open_skills_enabled() -> bool {
-    if let Ok(raw) = std::env::var("corvus_OPEN_SKILLS_ENABLED") {
+    if let Ok(raw) = std::env::var("CORVUS_OPEN_SKILLS_ENABLED") {
         let value = raw.trim().to_ascii_lowercase();
         return !matches!(value.as_str(), "0" | "false" | "off" | "no");
     }
@@ -169,7 +169,7 @@ fn open_skills_enabled() -> bool {
 }
 
 fn resolve_open_skills_dir() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("corvus_OPEN_SKILLS_DIR") {
+    if let Ok(path) = std::env::var("CORVUS_OPEN_SKILLS_DIR") {
         let trimmed = path.trim();
         if !trimmed.is_empty() {
             return Some(PathBuf::from(trimmed));
