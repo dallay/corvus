@@ -10,15 +10,13 @@ plugins, and version catalogs.
 > Every decision, every line of code, every architecture choice MUST prioritize:
 >
 > 1. **Security First** - Always think about attacks, vulnerabilities, and safe defaults
-     >
-- Never trust user input
-  - Use parameterized queries, never string concatenation for SQL
-  - Validate and sanitize all data
-  - Follow principle of least privilege
-  - Keep dependencies updated to patch security vulnerabilities
+>    - Never trust user input
+>    - Use parameterized queries, never string concatenation for SQL
+>    - Validate and sanitize all data
+>    - Follow principle of least privilege
+>    - Keep dependencies updated to patch security vulnerabilities
 > 2. **Extreme Performance Second** - Optimize for efficiency after security
-     >
-- Think about algorithmic complexity (O(n) vs O(n²))
+>    - Think about algorithmic complexity (O(n) vs O(n²))
 >    - Avoid unnecessary allocations
 >    - Use lazy initialization when appropriate
 >    - Profile before optimizing - measure don't guess
@@ -156,7 +154,7 @@ testImplementation(libs.junit.jupiter)
 Located in `.agents/skills/`. Reference for detailed patterns:
 
 | Skill                                                                | Description                               | Trigger                          |
-|----------------------------------------------------------------------|-------------------------------------------|----------------------------------|
+| -------------------------------------------------------------------- | ----------------------------------------- | -------------------------------- |
 | [gradle](.agents/skills/gradle/SKILL.md)                             | Gradle best practices, custom tasks       | `build.gradle.kts`, build config |
 | [kotlin](.agents/skills/kotlin/SKILL.md)                             | Kotlin conventions, null safety           | `.kt` files                      |
 | [c4-diagrams](.agents/skills/c4-diagrams/SKILL.md)                   | C4 architecture diagrams                  | `docs/architecture/diagrams`     |

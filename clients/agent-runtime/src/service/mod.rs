@@ -83,12 +83,9 @@ fn status(config: &Config) -> Result<()> {
     }
 
     if cfg!(target_os = "linux") {
-        let out = run_capture(Command::new("systemctl").args([
-            "--user",
-            "is-active",
-            "corvus.service",
-        ]))
-        .unwrap_or_else(|_| "unknown".into());
+        let out =
+            run_capture(Command::new("systemctl").args(["--user", "is-active", "corvus.service"]))
+                .unwrap_or_else(|_| "unknown".into());
         println!("Service state: {}", out.trim());
         println!("Unit: {}", linux_service_file(config)?.display());
         return Ok(());
@@ -256,21 +253,21 @@ mod tests {
 
     #[test]
     fn run_capture_reads_stdout() {
-        let out = run_capture(Command::new("sh").args(["-lc", "echo hello"]))
+        let out = run_capture(Command::new("sh").args(["-c", "echo hello"]))
             .expect("stdout capture should succeed");
         assert_eq!(out.trim(), "hello");
     }
 
     #[test]
     fn run_capture_falls_back_to_stderr() {
-        let out = run_capture(Command::new("sh").args(["-lc", "echo warn 1>&2"]))
+        let out = run_capture(Command::new("sh").args(["-c", "echo warn 1>&2"]))
             .expect("stderr capture should succeed");
         assert_eq!(out.trim(), "warn");
     }
 
     #[test]
     fn run_checked_errors_on_non_zero_status() {
-        let err = run_checked(Command::new("sh").args(["-lc", "exit 17"]))
+        let err = run_checked(Command::new("sh").args(["-c", "exit 17"]))
             .expect_err("non-zero exit should error");
         assert!(err.to_string().contains("Command failed"));
     }

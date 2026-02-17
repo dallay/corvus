@@ -3,7 +3,7 @@
 //! Listens for newline-delimited JSON on USART2 (PA2=TX, PA3=RX).
 //! USART2 is connected to ST-Link VCP — host sees /dev/ttyACM0 (Linux) or /dev/cu.usbmodem* (macOS).
 //!
-//! Protocol: same as Arduino/ESP32 — see docs/hardware-peripherals-design.md
+//! Protocol: same as Arduino/ESP32 — see docs/en/guides/hardware-peripherals-design.md
 
 #![no_std]
 #![no_main]

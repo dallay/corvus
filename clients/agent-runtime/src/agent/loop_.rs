@@ -1,3 +1,4 @@
+use crate::approval::{ApprovalManager, ApprovalRequest, ApprovalResponse};
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::observability::{self, Observer, ObserverEvent};
@@ -7,13 +8,69 @@ use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
+use regex::{Regex, RegexSet};
 use std::fmt::Write;
 use std::io::Write as _;
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::Instant;
 use uuid::Uuid;
+
 /// Maximum agentic tool-use iterations per user message to prevent runaway loops.
 const MAX_TOOL_ITERATIONS: usize = 10;
+
+static SENSITIVE_KEY_PATTERNS: LazyLock<RegexSet> = LazyLock::new(|| {
+    RegexSet::new([
+        r"(?i)token",
+        r"(?i)api[_-]?key",
+        r"(?i)password",
+        r"(?i)secret",
+        r"(?i)user[_-]?key",
+        r"(?i)bearer",
+        r"(?i)credential",
+    ])
+    .unwrap()
+});
+
+static SENSITIVE_KV_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?i)(token|api[_-]?key|password|secret|user[_-]?key|bearer|credential)["']?\s*[:=]\s*(?:"([^"]{8,})"|'([^']{8,})'|([a-zA-Z0-9_\-\.]{8,}))"#).unwrap()
+});
+
+/// Scrub credentials from tool output to prevent accidental exfiltration.
+/// Replaces known credential patterns with a redacted placeholder while preserving
+/// a small prefix for context.
+fn scrub_credentials(input: &str) -> String {
+    SENSITIVE_KV_REGEX
+        .replace_all(input, |caps: &regex::Captures| {
+            let full_match = &caps[0];
+            let key = &caps[1];
+            let val = caps
+                .get(2)
+                .or(caps.get(3))
+                .or(caps.get(4))
+                .map(|m| m.as_str())
+                .unwrap_or("");
+
+            // Preserve first 4 chars for context, then redact
+            let prefix = if val.len() > 4 { &val[..4] } else { "" };
+
+            if full_match.contains(':') {
+                if full_match.contains('"') {
+                    format!("\"{}\": \"{}*[REDACTED]\"", key, prefix)
+                } else {
+                    format!("{}: {}*[REDACTED]", key, prefix)
+                }
+            } else if full_match.contains('=') {
+                if full_match.contains('"') {
+                    format!("{}=\"{}*[REDACTED]\"", key, prefix)
+                } else {
+                    format!("{}={}*[REDACTED]", key, prefix)
+                }
+            } else {
+                format!("{}: {}*[REDACTED]", key, prefix)
+            }
+        })
+        .to_string()
+}
 
 /// Trigger auto-compaction when non-system message count exceeds this threshold.
 const MAX_HISTORY_MESSAGES: usize = 50;
@@ -26,6 +83,23 @@ const COMPACTION_MAX_SOURCE_CHARS: usize = 12_000;
 
 /// Max characters retained in stored compaction summary.
 const COMPACTION_MAX_SUMMARY_CHARS: usize = 2_000;
+
+/// Convert a tool registry to OpenAI function-calling format for native tool support.
+fn tools_to_openai_format(tools_registry: &[Box<dyn Tool>]) -> Vec<serde_json::Value> {
+    tools_registry
+        .iter()
+        .map(|tool| {
+            serde_json::json!({
+                "type": "function",
+                "function": {
+                    "name": tool.name(),
+                    "description": tool.description(),
+                    "parameters": tool.parameters_schema()
+                }
+            })
+        })
+        .collect()
+}
 
 fn autosave_memory_key(prefix: &str) -> String {
     format!("{prefix}_{}", Uuid::new_v4())
@@ -128,7 +202,7 @@ async fn build_context(mem: &dyn Memory, user_msg: &str) -> String {
     let mut context = String::new();
 
     // Pull relevant memories for this message
-    if let Ok(entries) = mem.recall(user_msg, 5).await {
+    if let Ok(entries) = mem.recall(user_msg, 5, None).await {
         if !entries.is_empty() {
             context.push_str("[Memory context]\n");
             for entry in &entries {
@@ -255,6 +329,23 @@ fn parse_tool_calls_from_json_value(value: &serde_json::Value) -> Vec<ParsedTool
     calls
 }
 
+const TOOL_CALL_OPEN_TAGS: [&str; 3] = ["<tool_call>", "<toolcall>", "<tool-call>"];
+
+fn find_first_tag<'a>(haystack: &str, tags: &'a [&'a str]) -> Option<(usize, &'a str)> {
+    tags.iter()
+        .filter_map(|tag| haystack.find(tag).map(|idx| (idx, *tag)))
+        .min_by_key(|(idx, _)| *idx)
+}
+
+fn matching_tool_call_close_tag(open_tag: &str) -> Option<&'static str> {
+    match open_tag {
+        "<tool_call>" => Some("</tool_call>"),
+        "<toolcall>" => Some("</toolcall>"),
+        "<tool-call>" => Some("</tool-call>"),
+        _ => None,
+    }
+}
+
 /// Extract JSON values from a string.
 ///
 /// # Security Warning
@@ -311,6 +402,9 @@ fn extract_json_values(input: &str) -> Vec<serde_json::Value> {
 /// </tool_call>
 /// ```
 ///
+/// Also accepts common tag variants (`<toolcall>`, `<tool-call>`) for model
+/// compatibility.
+///
 /// Also supports JSON with `tool_calls` array from OpenAI-format responses.
 fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
     let mut text_parts = Vec::new();
@@ -332,16 +426,21 @@ fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
         }
     }
 
-    // Fall back to XML-style <invoke> tag parsing (Corvus's original format)
-    while let Some(start) = remaining.find("<tool_call>") {
+    // Fall back to XML-style tool-call tag parsing.
+    while let Some((start, open_tag)) = find_first_tag(remaining, &TOOL_CALL_OPEN_TAGS) {
         // Everything before the tag is text
         let before = &remaining[..start];
         if !before.trim().is_empty() {
             text_parts.push(before.trim().to_string());
         }
 
-        if let Some(end) = remaining[start..].find("</tool_call>") {
-            let inner = &remaining[start + 11..start + end];
+        let Some(close_tag) = matching_tool_call_close_tag(open_tag) else {
+            break;
+        };
+
+        let after_open = &remaining[start + open_tag.len()..];
+        if let Some(close_idx) = after_open.find(close_tag) {
+            let inner = &after_open[..close_idx];
             let mut parsed_any = false;
             let json_values = extract_json_values(inner);
             for value in json_values {
@@ -356,7 +455,7 @@ fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
                 tracing::warn!("Malformed <tool_call> JSON: expected tool-call object in tag body");
             }
 
-            remaining = &remaining[start + end + 12..];
+            remaining = &after_open[close_idx + close_tag.len()..];
         } else {
             break;
         }
@@ -367,7 +466,7 @@ fn parse_tool_calls(response: &str) -> (String, Vec<ParsedToolCall>) {
     // (e.g., in emails, files, or web pages) could include JSON that mimics a
     // tool call. Tool calls MUST be explicitly wrapped in either:
     // 1. OpenAI-style JSON with a "tool_calls" array
-    // 2. Corvus <invoke>...</invoke> tags
+    // 2. Corvus tool-call tags (<tool_call>, <toolcall>, <tool-call>)
     // This ensures only the LLM's intentional tool calls are executed.
 
     // Remaining text after last tool call
@@ -419,6 +518,7 @@ struct ParsedToolCall {
 /// Execute a single turn of the agent loop: send messages, parse tool calls,
 /// execute tools, and loop until the LLM produces a final text response.
 /// When `silent` is true, suppresses stdout (for channel use).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn agent_turn(
     provider: &dyn Provider,
     history: &mut Vec<ChatMessage>,
@@ -438,12 +538,15 @@ pub(crate) async fn agent_turn(
         model,
         temperature,
         silent,
+        None,
+        "channel",
     )
     .await
 }
 
 /// Execute a single turn of the agent loop: send messages, parse tool calls,
 /// execute tools, and loop until the LLM produces a final text response.
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_tool_call_loop(
     provider: &dyn Provider,
     history: &mut Vec<ChatMessage>,
@@ -453,7 +556,17 @@ pub(crate) async fn run_tool_call_loop(
     model: &str,
     temperature: f64,
     silent: bool,
+    approval: Option<&ApprovalManager>,
+    channel_name: &str,
 ) -> Result<String> {
+    // Build native tool definitions once if the provider supports them.
+    let use_native_tools = provider.supports_native_tools() && !tools_registry.is_empty();
+    let tool_definitions = if use_native_tools {
+        tools_to_openai_format(tools_registry)
+    } else {
+        Vec::new()
+    };
+
     for _iteration in 0..MAX_TOOL_ITERATIONS {
         observer.record_event(&ObserverEvent::LlmRequest {
             provider: provider_name.to_string(),
@@ -462,57 +575,140 @@ pub(crate) async fn run_tool_call_loop(
         });
 
         let llm_started_at = Instant::now();
-        let response = match provider
-            .chat_with_history(history, model, temperature)
-            .await
-        {
-            Ok(resp) => {
-                observer.record_event(&ObserverEvent::LlmResponse {
-                    provider: provider_name.to_string(),
-                    model: model.to_string(),
-                    duration: llm_started_at.elapsed(),
-                    success: true,
-                    error_message: None,
-                });
-                resp
-            }
-            Err(e) => {
-                observer.record_event(&ObserverEvent::LlmResponse {
-                    provider: provider_name.to_string(),
-                    model: model.to_string(),
-                    duration: llm_started_at.elapsed(),
-                    success: false,
-                    error_message: Some(crate::providers::sanitize_api_error(&e.to_string())),
-                });
-                return Err(e);
-            }
-        };
 
-        let response_text = response;
-        let assistant_history_content = response_text.clone();
-        let (parsed_text, tool_calls) = parse_tool_calls(&response_text);
-        let parsed_text = parsed_text;
-        let tool_calls = tool_calls;
+        // Choose between native tool-call API and prompt-based tool use.
+        let (response_text, parsed_text, tool_calls, assistant_history_content) =
+            if use_native_tools {
+                match provider
+                    .chat_with_tools(history, &tool_definitions, model, temperature)
+                    .await
+                {
+                    Ok(resp) => {
+                        observer.record_event(&ObserverEvent::LlmResponse {
+                            provider: provider_name.to_string(),
+                            model: model.to_string(),
+                            duration: llm_started_at.elapsed(),
+                            success: true,
+                            error_message: None,
+                        });
+                        let response_text = resp.text_or_empty().to_string();
+                        let mut calls = parse_structured_tool_calls(&resp.tool_calls);
+                        let mut parsed_text = String::new();
+
+                        if calls.is_empty() {
+                            let (fallback_text, fallback_calls) = parse_tool_calls(&response_text);
+                            if !fallback_text.is_empty() {
+                                parsed_text = fallback_text;
+                            }
+                            calls = fallback_calls;
+                        }
+
+                        let assistant_history_content = if resp.tool_calls.is_empty() {
+                            response_text.clone()
+                        } else {
+                            build_assistant_history_with_tool_calls(
+                                &response_text,
+                                &resp.tool_calls,
+                            )
+                        };
+
+                        (response_text, parsed_text, calls, assistant_history_content)
+                    }
+                    Err(e) => {
+                        observer.record_event(&ObserverEvent::LlmResponse {
+                            provider: provider_name.to_string(),
+                            model: model.to_string(),
+                            duration: llm_started_at.elapsed(),
+                            success: false,
+                            error_message: Some(crate::providers::sanitize_api_error(
+                                &e.to_string(),
+                            )),
+                        });
+                        return Err(e);
+                    }
+                }
+            } else {
+                match provider
+                    .chat_with_history(history, model, temperature)
+                    .await
+                {
+                    Ok(resp) => {
+                        observer.record_event(&ObserverEvent::LlmResponse {
+                            provider: provider_name.to_string(),
+                            model: model.to_string(),
+                            duration: llm_started_at.elapsed(),
+                            success: true,
+                            error_message: None,
+                        });
+                        let response_text = resp;
+                        let assistant_history_content = response_text.clone();
+                        let (parsed_text, calls) = parse_tool_calls(&response_text);
+                        (response_text, parsed_text, calls, assistant_history_content)
+                    }
+                    Err(e) => {
+                        observer.record_event(&ObserverEvent::LlmResponse {
+                            provider: provider_name.to_string(),
+                            model: model.to_string(),
+                            duration: llm_started_at.elapsed(),
+                            success: false,
+                            error_message: Some(crate::providers::sanitize_api_error(
+                                &e.to_string(),
+                            )),
+                        });
+                        return Err(e);
+                    }
+                }
+            };
+
+        let display_text = if parsed_text.is_empty() {
+            response_text.clone()
+        } else {
+            parsed_text
+        };
 
         if tool_calls.is_empty() {
             // No tool calls — this is the final response
             history.push(ChatMessage::assistant(response_text.clone()));
-            return Ok(if parsed_text.is_empty() {
-                response_text
-            } else {
-                parsed_text
-            });
+            return Ok(display_text);
         }
 
         // Print any text the LLM produced alongside tool calls (unless silent)
-        if !silent && !parsed_text.is_empty() {
-            print!("{parsed_text}");
+        if !silent && !display_text.is_empty() {
+            print!("{display_text}");
             let _ = std::io::stdout().flush();
         }
 
         // Execute each tool call and build results
         let mut tool_results = String::new();
         for call in &tool_calls {
+            // ── Approval hook ────────────────────────────────
+            if let Some(mgr) = approval {
+                if mgr.needs_approval(&call.name) {
+                    let request = ApprovalRequest {
+                        tool_name: call.name.clone(),
+                        arguments: call.arguments.clone(),
+                    };
+
+                    // Only prompt interactively on CLI; auto-approve on other channels.
+                    let decision = if channel_name == "cli" {
+                        mgr.prompt_cli(&request)
+                    } else {
+                        ApprovalResponse::Yes
+                    };
+
+                    mgr.record_decision(&call.name, &call.arguments, decision, channel_name);
+
+                    if decision == ApprovalResponse::No {
+                        let _ = writeln!(
+                            tool_results,
+                            "<tool_result name=\"{}\">\nDenied by user.\n</tool_result>",
+                            call.name
+                        );
+                        continue;
+                    }
+                }
+            }
+
             observer.record_event(&ObserverEvent::ToolCallStart {
                 tool: call.name.clone(),
             });
@@ -526,7 +722,7 @@ pub(crate) async fn run_tool_call_loop(
                             success: r.success,
                         });
                         if r.success {
-                            r.output
+                            scrub_credentials(&r.output)
                         } else {
                             format!("Error: {}", r.error.unwrap_or_else(|| r.output))
                         }
@@ -552,7 +748,7 @@ pub(crate) async fn run_tool_call_loop(
         }
 
         // Add assistant message with tool calls + tool results to history
-        history.push(ChatMessage::assistant(assistant_history_content.clone()));
+        history.push(ChatMessage::assistant(assistant_history_content));
         history.push(ChatMessage::user(format!("[Tool results]\n{tool_results}")));
     }
 
@@ -597,7 +793,7 @@ pub async fn run(
     model_override: Option<String>,
     temperature: f64,
     peripheral_overrides: Vec<String>,
-) -> Result<()> {
+) -> Result<String> {
     // ── Wire up agnostic subsystems ──────────────────────────────
     let base_observer = observability::create_observer(&config.observability);
     let observer: Arc<dyn Observer> = Arc::from(base_observer);
@@ -634,6 +830,7 @@ pub async fn run(
         (None, None)
     };
     let mut tools_registry = tools::all_tools_with_runtime(
+        Arc::new(config.clone()),
         &security,
         runtime,
         mem.clone(),
@@ -668,6 +865,7 @@ pub async fn run(
     let provider: Box<dyn Provider> = providers::create_routed_provider(
         provider_name,
         config.api_key.as_deref(),
+        config.api_url.as_deref(),
         &config.reliability,
         &config.model_routes,
         model_name,
@@ -726,6 +924,24 @@ pub async fn run(
             "Delete a memory entry. Use when: memory is incorrect/stale or explicitly requested for removal. Don't use when: impact is uncertain.",
         ),
     ];
+    tool_descs.push((
+        "cron_add",
+        "Create a cron job. Supports schedule kinds: cron, at, every; and job types: shell or agent.",
+    ));
+    tool_descs.push((
+        "cron_list",
+        "List all cron jobs with schedule, status, and metadata.",
+    ));
+    tool_descs.push(("cron_remove", "Remove a cron job by job_id."));
+    tool_descs.push((
+        "cron_update",
+        "Patch a cron job (schedule, enabled, command/prompt, model, delivery, session_target).",
+    ));
+    tool_descs.push((
+        "cron_run",
+        "Force-run a cron job immediately and record a run history entry.",
+    ));
+    tool_descs.push(("cron_runs", "Show recent run history for a cron job."));
     tool_descs.push((
         "screenshot",
         "Capture a screenshot of the current screen. Returns file path and base64-encoded PNG. Use when: visual verification, UI inspection, debugging displays.",
@@ -803,15 +1019,20 @@ pub async fn run(
     // Append structured tool-use instructions with schemas
     system_prompt.push_str(&build_tool_instructions(&tools_registry));
 
+    // ── Approval manager (supervised mode) ───────────────────────
+    let approval_manager = ApprovalManager::from_config(&config.autonomy);
+
     // ── Execute ──────────────────────────────────────────────────
     let start = Instant::now();
+
+    let mut final_output = String::new();
 
     if let Some(msg) = message {
         // Auto-save user message to memory
         if config.memory.auto_save {
             let user_key = autosave_memory_key("user_msg");
             let _ = mem
-                .store(&user_key, &msg, MemoryCategory::Conversation)
+                .store(&user_key, &msg, MemoryCategory::Conversation, None)
                 .await;
         }
 
@@ -843,8 +1064,11 @@ pub async fn run(
             model_name,
             temperature,
             false,
+            Some(&approval_manager),
+            "cli",
         )
         .await?;
+        final_output = response.clone();
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
 
@@ -853,45 +1077,59 @@ pub async fn run(
             let summary = truncate_with_ellipsis(&response, 100);
             let response_key = autosave_memory_key("assistant_resp");
             let _ = mem
-                .store(&response_key, &summary, MemoryCategory::Daily)
+                .store(&response_key, &summary, MemoryCategory::Daily, None)
                 .await;
         }
     } else {
         println!("🦀 Corvus Interactive Mode");
         println!("Type /quit to exit.\n");
-
-        let (tx, mut rx) = tokio::sync::mpsc::channel(32);
         let cli = crate::channels::CliChannel::new();
-
-        // Spawn listener
-        let listen_handle = tokio::spawn(async move {
-            let _ = crate::channels::Channel::listen(&cli, tx).await;
-        });
 
         // Persistent conversation history across turns
         let mut history = vec![ChatMessage::system(&system_prompt)];
 
-        while let Some(msg) = rx.recv().await {
+        loop {
+            print!("> ");
+            let _ = std::io::stdout().flush();
+
+            let mut input = String::new();
+            match std::io::stdin().read_line(&mut input) {
+                Ok(0) => break,
+                Ok(_) => {}
+                Err(e) => {
+                    eprintln!("\nError reading input: {e}\n");
+                    break;
+                }
+            }
+
+            let user_input = input.trim().to_string();
+            if user_input.is_empty() {
+                continue;
+            }
+            if user_input == "/quit" || user_input == "/exit" {
+                break;
+            }
+
             // Auto-save conversation turns
             if config.memory.auto_save {
                 let user_key = autosave_memory_key("user_msg");
                 let _ = mem
-                    .store(&user_key, &msg.content, MemoryCategory::Conversation)
+                    .store(&user_key, &user_input, MemoryCategory::Conversation, None)
                     .await;
             }
 
             // Inject memory + hardware RAG context into user message
-            let mem_context = build_context(mem.as_ref(), &msg.content).await;
+            let mem_context = build_context(mem.as_ref(), &user_input).await;
             let rag_limit = if config.agent.compact_context { 2 } else { 5 };
             let hw_context = hardware_rag
                 .as_ref()
-                .map(|r| build_hardware_context(r, &msg.content, &board_names, rag_limit))
+                .map(|r| build_hardware_context(r, &user_input, &board_names, rag_limit))
                 .unwrap_or_default();
             let context = format!("{mem_context}{hw_context}");
             let enriched = if context.is_empty() {
-                msg.content.clone()
+                user_input.clone()
             } else {
-                format!("{context}{}", msg.content)
+                format!("{context}{user_input}")
             };
 
             history.push(ChatMessage::user(&enriched));
@@ -905,6 +1143,8 @@ pub async fn run(
                 model_name,
                 temperature,
                 false,
+                Some(&approval_manager),
+                "cli",
             )
             .await
             {
@@ -914,7 +1154,15 @@ pub async fn run(
                     continue;
                 }
             };
-            println!("\n{response}\n");
+            final_output = response.clone();
+            if let Err(e) = crate::channels::Channel::send(
+                &cli,
+                &crate::channels::traits::SendMessage::new(format!("\n{response}\n"), "user"),
+            )
+            .await
+            {
+                eprintln!("\nError sending CLI response: {e}\n");
+            }
             observer.record_event(&ObserverEvent::TurnComplete);
 
             // Auto-compaction before hard trimming to preserve long-context signal.
@@ -933,21 +1181,20 @@ pub async fn run(
                 let summary = truncate_with_ellipsis(&response, 100);
                 let response_key = autosave_memory_key("assistant_resp");
                 let _ = mem
-                    .store(&response_key, &summary, MemoryCategory::Daily)
+                    .store(&response_key, &summary, MemoryCategory::Daily, None)
                     .await;
             }
         }
-
-        listen_handle.abort();
     }
 
     let duration = start.elapsed();
     observer.record_event(&ObserverEvent::AgentEnd {
         duration,
         tokens_used: None,
+        cost_usd: None,
     });
 
-    Ok(())
+    Ok(final_output)
 }
 
 /// Process a single message through the full agent (with tools, peripherals, memory).
@@ -976,6 +1223,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         (None, None)
     };
     let mut tools_registry = tools::all_tools_with_runtime(
+        Arc::new(config.clone()),
         &security,
         runtime,
         mem.clone(),
@@ -1000,6 +1248,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
     let provider: Box<dyn Provider> = providers::create_routed_provider(
         provider_name,
         config.api_key.as_deref(),
+        config.api_url.as_deref(),
         &config.reliability,
         &config.model_routes,
         &model_name,
@@ -1113,6 +1362,25 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_scrub_credentials() {
+        let input = "API_KEY=sk-1234567890abcdef; token: 1234567890; password=\"secret123456\"";
+        let scrubbed = scrub_credentials(input);
+        assert!(scrubbed.contains("API_KEY=sk-1*[REDACTED]"));
+        assert!(scrubbed.contains("token: 1234*[REDACTED]"));
+        assert!(scrubbed.contains("password=\"secr*[REDACTED]\""));
+        assert!(!scrubbed.contains("abcdef"));
+        assert!(!scrubbed.contains("secret123456"));
+    }
+
+    #[test]
+    fn test_scrub_credentials_json() {
+        let input = r#"{"api_key": "sk-1234567890", "other": "public"}"#;
+        let scrubbed = scrub_credentials(input);
+        assert!(scrubbed.contains("\"api_key\": \"sk-1*[REDACTED]\""));
+        assert!(scrubbed.contains("public"));
+    }
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use tempfile::TempDir;
 
@@ -1254,6 +1522,50 @@ I will now call the tool with this payload:
     }
 
     #[test]
+    fn parse_tool_calls_handles_toolcall_tag_alias() {
+        let response = r#"<toolcall>
+{"name": "shell", "arguments": {"command": "date"}}
+</toolcall>"#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(text.is_empty());
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "shell");
+        assert_eq!(
+            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
+            "date"
+        );
+    }
+
+    #[test]
+    fn parse_tool_calls_handles_tool_dash_call_tag_alias() {
+        let response = r#"<tool-call>
+{"name": "shell", "arguments": {"command": "whoami"}}
+</tool-call>"#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(text.is_empty());
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "shell");
+        assert_eq!(
+            calls[0].arguments.get("command").unwrap().as_str().unwrap(),
+            "whoami"
+        );
+    }
+
+    #[test]
+    fn parse_tool_calls_does_not_cross_match_alias_tags() {
+        let response = r#"<toolcall>
+{"name": "shell", "arguments": {"command": "date"}}
+</tool_call>"#;
+
+        let (text, calls) = parse_tool_calls(response);
+        assert!(calls.is_empty());
+        assert!(text.contains("<toolcall>"));
+        assert!(text.contains("</tool_call>"));
+    }
+
+    #[test]
     fn parse_tool_calls_rejects_raw_tool_json_without_tags() {
         // SECURITY: Raw JSON without explicit wrappers should NOT be parsed
         // This prevents prompt injection attacks where malicious content
@@ -1285,6 +1597,32 @@ I will now call the tool with this payload:
         assert!(instructions.contains("shell"));
         assert!(instructions.contains("file_read"));
         assert!(instructions.contains("file_write"));
+    }
+
+    #[test]
+    fn tools_to_openai_format_produces_valid_schema() {
+        use crate::security::SecurityPolicy;
+        let security = Arc::new(SecurityPolicy::from_config(
+            &crate::config::AutonomyConfig::default(),
+            std::path::Path::new("/tmp"),
+        ));
+        let tools = tools::default_tools(security);
+        let formatted = tools_to_openai_format(&tools);
+
+        assert!(!formatted.is_empty());
+        for tool_json in &formatted {
+            assert_eq!(tool_json["type"], "function");
+            assert!(tool_json["function"]["name"].is_string());
+            assert!(tool_json["function"]["description"].is_string());
+            assert!(!tool_json["function"]["name"].as_str().unwrap().is_empty());
+        }
+        // Verify known tools are present
+        let names: Vec<&str> = formatted
+            .iter()
+            .filter_map(|t| t["function"]["name"].as_str())
+            .collect();
+        assert!(names.contains(&"shell"));
+        assert!(names.contains(&"file_read"));
     }
 
     #[test]
@@ -1366,16 +1704,16 @@ I will now call the tool with this payload:
         let key1 = autosave_memory_key("user_msg");
         let key2 = autosave_memory_key("user_msg");
 
-        mem.store(&key1, "I'm Paul", MemoryCategory::Conversation)
+        mem.store(&key1, "I'm Paul", MemoryCategory::Conversation, None)
             .await
             .unwrap();
-        mem.store(&key2, "I'm 45", MemoryCategory::Conversation)
+        mem.store(&key2, "I'm 45", MemoryCategory::Conversation, None)
             .await
             .unwrap();
 
         assert_eq!(mem.count().await.unwrap(), 2);
 
-        let recalled = mem.recall("45", 5).await.unwrap();
+        let recalled = mem.recall("45", 5, None).await.unwrap();
         assert!(recalled.iter().any(|entry| entry.content.contains("45")));
     }
 
