@@ -381,7 +381,7 @@ async fn main() -> Result<()> {
             onboard::run_quick_setup(api_key.as_deref(), provider.as_deref(), memory.as_deref())?
         };
         // Auto-start channels if user said yes during wizard
-        if std::env::var("corvus_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
+        if std::env::var("CORVUS_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
             channels::start_channels(config).await?;
         }
         return Ok(());

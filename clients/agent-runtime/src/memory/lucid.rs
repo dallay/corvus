@@ -29,33 +29,36 @@ impl LucidMemory {
     const DEFAULT_LOCAL_HIT_THRESHOLD: usize = 3;
     const DEFAULT_FAILURE_COOLDOWN_MS: u64 = 15_000;
 
-    pub fn new(workspace_dir: &Path, local: SqliteMemory) -> Self {
-        let lucid_cmd = std::env::var("corvus_LUCID_CMD")
-            .unwrap_or_else(|_| Self::DEFAULT_LUCID_CMD.to_string());
+    fn env(name: &str) -> Option<String> {
+        std::env::var(name).ok()
+    }
 
-        let token_budget = std::env::var("corvus_LUCID_BUDGET")
-            .ok()
+    pub fn new(workspace_dir: &Path, local: SqliteMemory) -> Self {
+        let lucid_cmd =
+            Self::env("CORVUS_LUCID_CMD").unwrap_or_else(|| Self::DEFAULT_LUCID_CMD.to_string());
+
+        let token_budget = Self::env("CORVUS_LUCID_BUDGET")
             .and_then(|v| v.parse::<usize>().ok())
             .filter(|v| *v > 0)
             .unwrap_or(Self::DEFAULT_TOKEN_BUDGET);
 
         let recall_timeout = Self::read_env_duration_ms(
-            "corvus_LUCID_RECALL_TIMEOUT_MS",
+            "CORVUS_LUCID_RECALL_TIMEOUT_MS",
             Self::DEFAULT_RECALL_TIMEOUT_MS,
             20,
         );
         let store_timeout = Self::read_env_duration_ms(
-            "corvus_LUCID_STORE_TIMEOUT_MS",
+            "CORVUS_LUCID_STORE_TIMEOUT_MS",
             Self::DEFAULT_STORE_TIMEOUT_MS,
             50,
         );
         let local_hit_threshold = Self::read_env_usize(
-            "corvus_LUCID_LOCAL_HIT_THRESHOLD",
+            "CORVUS_LUCID_LOCAL_HIT_THRESHOLD",
             Self::DEFAULT_LOCAL_HIT_THRESHOLD,
             1,
         );
         let failure_cooldown = Self::read_env_duration_ms(
-            "corvus_LUCID_FAILURE_COOLDOWN_MS",
+            "CORVUS_LUCID_FAILURE_COOLDOWN_MS",
             Self::DEFAULT_FAILURE_COOLDOWN_MS,
             100,
         );
@@ -98,15 +101,13 @@ impl LucidMemory {
     }
 
     fn read_env_usize(name: &str, default: usize, min: usize) -> usize {
-        std::env::var(name)
-            .ok()
+        Self::env(name)
             .and_then(|v| v.parse::<usize>().ok())
             .map_or(default, |v| v.max(min))
     }
 
     fn read_env_duration_ms(name: &str, default_ms: u64, min_ms: u64) -> Duration {
-        let millis = std::env::var(name)
-            .ok()
+        let millis = Self::env(name)
             .and_then(|v| v.parse::<u64>().ok())
             .map_or(default_ms, |v| v.max(min_ms));
         Duration::from_millis(millis)

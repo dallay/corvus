@@ -1330,7 +1330,7 @@ pub struct WhatsAppConfig {
     /// Webhook verify token (you define this, Meta sends it back for verification)
     pub verify_token: String,
     /// App secret from Meta Business Suite (for webhook signature verification)
-    /// Can also be set via `corvus_WHATSAPP_APP_SECRET` environment variable
+    /// Can also be set via `CORVUS_WHATSAPP_APP_SECRET` environment variable
     #[serde(default)]
     pub app_secret: Option<String>,
     /// Allowed phone numbers (E.164 format: +1234567890) or "*" for all
@@ -1632,8 +1632,10 @@ impl Config {
 
     /// Apply environment variable overrides to config
     pub fn apply_env_overrides(&mut self) {
-        // API Key: corvus_API_KEY or API_KEY (generic)
-        if let Ok(key) = std::env::var("corvus_API_KEY").or_else(|_| std::env::var("API_KEY")) {
+        let corvus_env = |name: &str| std::env::var(format!("CORVUS_{name}"));
+
+        // API Key: CORVUS_API_KEY or API_KEY (generic)
+        if let Ok(key) = corvus_env("API_KEY").or_else(|_| std::env::var("API_KEY")) {
             if !key.is_empty() {
                 self.api_key = Some(key);
             }
@@ -1649,53 +1651,48 @@ impl Config {
             }
         }
 
-        // Provider: corvus_PROVIDER or PROVIDER
-        if let Ok(provider) =
-            std::env::var("corvus_PROVIDER").or_else(|_| std::env::var("PROVIDER"))
-        {
+        // Provider: CORVUS_PROVIDER or PROVIDER
+        if let Ok(provider) = corvus_env("PROVIDER").or_else(|_| std::env::var("PROVIDER")) {
             if !provider.is_empty() {
                 self.default_provider = Some(provider);
             }
         }
 
-        // Model: corvus_MODEL
-        if let Ok(model) = std::env::var("corvus_MODEL") {
+        // Model: CORVUS_MODEL
+        if let Ok(model) = corvus_env("MODEL") {
             if !model.is_empty() {
                 self.default_model = Some(model);
             }
         }
 
-        // Workspace directory: corvus_WORKSPACE
-        if let Ok(workspace) = std::env::var("corvus_WORKSPACE") {
+        // Workspace directory: CORVUS_WORKSPACE
+        if let Ok(workspace) = corvus_env("WORKSPACE") {
             if !workspace.is_empty() {
                 self.workspace_dir = PathBuf::from(workspace);
             }
         }
 
-        // Gateway port: corvus_GATEWAY_PORT or PORT
-        if let Ok(port_str) =
-            std::env::var("corvus_GATEWAY_PORT").or_else(|_| std::env::var("PORT"))
-        {
+        // Gateway port: CORVUS_GATEWAY_PORT or PORT
+        if let Ok(port_str) = corvus_env("GATEWAY_PORT").or_else(|_| std::env::var("PORT")) {
             if let Ok(port) = port_str.parse::<u16>() {
                 self.gateway.port = port;
             }
         }
 
-        // Gateway host: corvus_GATEWAY_HOST or HOST
-        if let Ok(host) = std::env::var("corvus_GATEWAY_HOST").or_else(|_| std::env::var("HOST"))
-        {
+        // Gateway host: CORVUS_GATEWAY_HOST or HOST
+        if let Ok(host) = corvus_env("GATEWAY_HOST").or_else(|_| std::env::var("HOST")) {
             if !host.is_empty() {
                 self.gateway.host = host;
             }
         }
 
-        // Allow public bind: corvus_ALLOW_PUBLIC_BIND
-        if let Ok(val) = std::env::var("corvus_ALLOW_PUBLIC_BIND") {
+        // Allow public bind: CORVUS_ALLOW_PUBLIC_BIND
+        if let Ok(val) = corvus_env("ALLOW_PUBLIC_BIND") {
             self.gateway.allow_public_bind = val == "1" || val.eq_ignore_ascii_case("true");
         }
 
-        // Temperature: corvus_TEMPERATURE
-        if let Ok(temp_str) = std::env::var("corvus_TEMPERATURE") {
+        // Temperature: CORVUS_TEMPERATURE
+        if let Ok(temp_str) = corvus_env("TEMPERATURE") {
             if let Ok(temp) = temp_str.parse::<f64>() {
                 if (0.0..=2.0).contains(&temp) {
                     self.default_temperature = temp;
@@ -2072,8 +2069,7 @@ tool_dispatcher = "xml"
 
     #[test]
     fn config_save_atomic_cleanup() {
-        let dir =
-            std::env::temp_dir().join(format!("corvus_test_config_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("corvus_test_config_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
 
         let config_path = dir.join("config.toml");
@@ -2689,11 +2685,11 @@ default_temperature = 0.7
         let mut config = Config::default();
         assert!(config.api_key.is_none());
 
-        std::env::set_var("corvus_API_KEY", "sk-test-env-key");
+        std::env::set_var("CORVUS_API_KEY", "sk-test-env-key");
         config.apply_env_overrides();
         assert_eq!(config.api_key.as_deref(), Some("sk-test-env-key"));
 
-        std::env::remove_var("corvus_API_KEY");
+        std::env::remove_var("CORVUS_API_KEY");
     }
 
     #[test]
@@ -2701,7 +2697,7 @@ default_temperature = 0.7
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::remove_var("corvus_API_KEY");
+        std::env::remove_var("CORVUS_API_KEY");
         std::env::set_var("API_KEY", "sk-fallback-key");
         config.apply_env_overrides();
         assert_eq!(config.api_key.as_deref(), Some("sk-fallback-key"));
@@ -2714,11 +2710,11 @@ default_temperature = 0.7
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::set_var("corvus_PROVIDER", "anthropic");
+        std::env::set_var("CORVUS_PROVIDER", "anthropic");
         config.apply_env_overrides();
         assert_eq!(config.default_provider.as_deref(), Some("anthropic"));
 
-        std::env::remove_var("corvus_PROVIDER");
+        std::env::remove_var("CORVUS_PROVIDER");
     }
 
     #[test]
@@ -2726,7 +2722,7 @@ default_temperature = 0.7
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::remove_var("corvus_PROVIDER");
+        std::env::remove_var("CORVUS_PROVIDER");
         std::env::set_var("PROVIDER", "openai");
         config.apply_env_overrides();
         assert_eq!(config.default_provider.as_deref(), Some("openai"));
@@ -2739,11 +2735,11 @@ default_temperature = 0.7
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::set_var("corvus_MODEL", "gpt-4o");
+        std::env::set_var("CORVUS_MODEL", "gpt-4o");
         config.apply_env_overrides();
         assert_eq!(config.default_model.as_deref(), Some("gpt-4o"));
 
-        std::env::remove_var("corvus_MODEL");
+        std::env::remove_var("CORVUS_MODEL");
     }
 
     #[test]
@@ -2751,11 +2747,11 @@ default_temperature = 0.7
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::set_var("corvus_WORKSPACE", "/custom/workspace");
+        std::env::set_var("CORVUS_WORKSPACE", "/custom/workspace");
         config.apply_env_overrides();
         assert_eq!(config.workspace_dir, PathBuf::from("/custom/workspace"));
 
-        std::env::remove_var("corvus_WORKSPACE");
+        std::env::remove_var("CORVUS_WORKSPACE");
     }
 
     #[test]
@@ -2764,11 +2760,11 @@ default_temperature = 0.7
         let mut config = Config::default();
         let original_provider = config.default_provider.clone();
 
-        std::env::set_var("corvus_PROVIDER", "");
+        std::env::set_var("CORVUS_PROVIDER", "");
         config.apply_env_overrides();
         assert_eq!(config.default_provider, original_provider);
 
-        std::env::remove_var("corvus_PROVIDER");
+        std::env::remove_var("CORVUS_PROVIDER");
     }
 
     #[test]
@@ -2777,11 +2773,11 @@ default_temperature = 0.7
         let mut config = Config::default();
         assert_eq!(config.gateway.port, 3000);
 
-        std::env::set_var("corvus_GATEWAY_PORT", "8080");
+        std::env::set_var("CORVUS_GATEWAY_PORT", "8080");
         config.apply_env_overrides();
         assert_eq!(config.gateway.port, 8080);
 
-        std::env::remove_var("corvus_GATEWAY_PORT");
+        std::env::remove_var("CORVUS_GATEWAY_PORT");
     }
 
     #[test]
@@ -2789,7 +2785,7 @@ default_temperature = 0.7
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::remove_var("corvus_GATEWAY_PORT");
+        std::env::remove_var("CORVUS_GATEWAY_PORT");
         std::env::set_var("PORT", "9000");
         config.apply_env_overrides();
         assert_eq!(config.gateway.port, 9000);
@@ -2803,11 +2799,11 @@ default_temperature = 0.7
         let mut config = Config::default();
         assert_eq!(config.gateway.host, "127.0.0.1");
 
-        std::env::set_var("corvus_GATEWAY_HOST", "0.0.0.0");
+        std::env::set_var("CORVUS_GATEWAY_HOST", "0.0.0.0");
         config.apply_env_overrides();
         assert_eq!(config.gateway.host, "0.0.0.0");
 
-        std::env::remove_var("corvus_GATEWAY_HOST");
+        std::env::remove_var("CORVUS_GATEWAY_HOST");
     }
 
     #[test]
@@ -2815,7 +2811,7 @@ default_temperature = 0.7
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::remove_var("corvus_GATEWAY_HOST");
+        std::env::remove_var("CORVUS_GATEWAY_HOST");
         std::env::set_var("HOST", "0.0.0.0");
         config.apply_env_overrides();
         assert_eq!(config.gateway.host, "0.0.0.0");
@@ -2828,31 +2824,31 @@ default_temperature = 0.7
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::set_var("corvus_TEMPERATURE", "0.5");
+        std::env::set_var("CORVUS_TEMPERATURE", "0.5");
         config.apply_env_overrides();
         assert!((config.default_temperature - 0.5).abs() < f64::EPSILON);
 
-        std::env::remove_var("corvus_TEMPERATURE");
+        std::env::remove_var("CORVUS_TEMPERATURE");
     }
 
     #[test]
     fn env_override_temperature_out_of_range_ignored() {
         let _env_guard = env_override_test_guard();
         // Clean up any leftover env vars from other tests
-        std::env::remove_var("corvus_TEMPERATURE");
+        std::env::remove_var("CORVUS_TEMPERATURE");
 
         let mut config = Config::default();
         let original_temp = config.default_temperature;
 
         // Temperature > 2.0 should be ignored
-        std::env::set_var("corvus_TEMPERATURE", "3.0");
+        std::env::set_var("CORVUS_TEMPERATURE", "3.0");
         config.apply_env_overrides();
         assert!(
             (config.default_temperature - original_temp).abs() < f64::EPSILON,
             "Temperature 3.0 should be ignored (out of range)"
         );
 
-        std::env::remove_var("corvus_TEMPERATURE");
+        std::env::remove_var("CORVUS_TEMPERATURE");
     }
 
     #[test]

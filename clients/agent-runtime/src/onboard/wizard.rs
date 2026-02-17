@@ -51,6 +51,7 @@ const MODEL_PREVIEW_LIMIT: usize = 20;
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const MODEL_CACHE_TTL_SECS: u64 = 12 * 60 * 60;
 const CUSTOM_MODEL_SENTINEL: &str = "__custom_model__";
+const OLLAMA_DEFAULT_BASE_URL: &str = "http://localhost:11434";
 
 // ── Main wizard entry point ──────────────────────────────────────
 
@@ -176,7 +177,7 @@ pub fn run_wizard() -> Result<Config> {
             );
             println!();
             // Signal to main.rs to call start_channels after wizard returns
-            std::env::set_var("corvus_AUTOSTART_CHANNELS", "1");
+            std::env::set_var("CORVUS_AUTOSTART_CHANNELS", "1");
         }
     }
 
@@ -233,7 +234,7 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
             );
             println!();
             // Signal to main.rs to call start_channels after wizard returns
-            std::env::set_var("corvus_AUTOSTART_CHANNELS", "1");
+            std::env::set_var("CORVUS_AUTOSTART_CHANNELS", "1");
         }
     }
 
@@ -753,6 +754,46 @@ fn build_model_fetch_client() -> Result<reqwest::blocking::Client> {
         .context("failed to build model-fetch HTTP client")
 }
 
+fn normalize_http_url(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let parsed = reqwest::Url::parse(trimmed).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+
+    Some(trimmed.trim_end_matches('/').to_string())
+}
+
+fn resolve_ollama_base_url_for_fetch(api_key: Option<&str>) -> String {
+    api_key
+        .and_then(normalize_http_url)
+        .or_else(|| {
+            std::env::var("CORVUS_OLLAMA_BASE_URL")
+                .ok()
+                .and_then(|value| normalize_http_url(&value))
+        })
+        .or_else(|| {
+            std::env::var("OLLAMA_BASE_URL")
+                .ok()
+                .and_then(|value| normalize_http_url(&value))
+        })
+        .or_else(|| {
+            std::env::var("CORVUS_API_KEY")
+                .ok()
+                .and_then(|value| normalize_http_url(&value))
+        })
+        .or_else(|| {
+            std::env::var("API_KEY")
+                .ok()
+                .and_then(|value| normalize_http_url(&value))
+        })
+        .unwrap_or_else(|| OLLAMA_DEFAULT_BASE_URL.to_string())
+}
+
 fn normalize_model_ids(ids: Vec<String>) -> Vec<String> {
     let mut unique = BTreeSet::new();
     for id in ids {
@@ -899,13 +940,14 @@ fn fetch_gemini_models(api_key: Option<&str>) -> Result<Vec<String>> {
     Ok(parse_gemini_model_ids(&payload))
 }
 
-fn fetch_ollama_models() -> Result<Vec<String>> {
+fn fetch_ollama_models(api_key: Option<&str>) -> Result<Vec<String>> {
     let client = build_model_fetch_client()?;
+    let endpoint = format!("{}/api/tags", resolve_ollama_base_url_for_fetch(api_key));
     let payload: Value = client
-        .get("http://localhost:11434/api/tags")
+        .get(&endpoint)
         .send()
         .and_then(reqwest::blocking::Response::error_for_status)
-        .context("model fetch failed: GET http://localhost:11434/api/tags")?
+        .with_context(|| format!("model fetch failed: GET {endpoint}"))?
         .json()
         .context("failed to parse Ollama model list response")?;
 
@@ -946,7 +988,7 @@ fn fetch_live_models_for_provider(provider_name: &str, api_key: &str) -> Result<
         )?,
         "anthropic" => fetch_anthropic_models(api_key.as_deref())?,
         "gemini" => fetch_gemini_models(api_key.as_deref())?,
-        "ollama" => fetch_ollama_models()?,
+        "ollama" => fetch_ollama_models(api_key.as_deref())?,
         _ => Vec::new(),
     };
 
@@ -1388,6 +1430,9 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
     // ── API key ──
     let api_key = if provider_name == "ollama" {
         print_bullet("Ollama runs locally — no API key needed!");
+        print_bullet(
+            "If Corvus runs in Docker/remote, set OLLAMA_BASE_URL (e.g. http://host.docker.internal:11434).",
+        );
         String::new()
     } else if canonical_provider_name(provider_name) == "gemini" {
         // Special handling for Gemini: check for CLI auth first
@@ -1781,6 +1826,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
 /// Map provider name to its conventional env var
 fn provider_env_var(name: &str) -> &'static str {
     match canonical_provider_name(name) {
+        "ollama" => "OLLAMA_BASE_URL",
         "openrouter" => "OPENROUTER_API_KEY",
         "anthropic" => "ANTHROPIC_API_KEY",
         "openai" => "OPENAI_API_KEY",
@@ -2873,7 +2919,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     access_token: access_token.trim().to_string(),
                     phone_number_id: phone_number_id.trim().to_string(),
                     verify_token: verify_token.trim().to_string(),
-                    app_secret: None, // Can be set via corvus_WHATSAPP_APP_SECRET env var
+                    app_secret: None, // Can be set via CORVUS_WHATSAPP_APP_SECRET env var
                     allowed_numbers,
                 });
             }
@@ -4461,7 +4507,7 @@ mod tests {
         assert_eq!(provider_env_var("openrouter"), "OPENROUTER_API_KEY");
         assert_eq!(provider_env_var("anthropic"), "ANTHROPIC_API_KEY");
         assert_eq!(provider_env_var("openai"), "OPENAI_API_KEY");
-        assert_eq!(provider_env_var("ollama"), "API_KEY"); // fallback
+        assert_eq!(provider_env_var("ollama"), "OLLAMA_BASE_URL");
         assert_eq!(provider_env_var("xai"), "XAI_API_KEY");
         assert_eq!(provider_env_var("grok"), "XAI_API_KEY"); // alias
         assert_eq!(provider_env_var("together"), "TOGETHER_API_KEY"); // alias
