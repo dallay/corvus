@@ -9,7 +9,7 @@ clients/web/
 ├── apps/
 │   ├── docs/           # Documentación (Astro + Starlight)
 │   ├── marketing/      # Landing y páginas de marketing (Astro)
-│   └── dashboard/      # Dashboard web (pendiente)
+│   └── dashboard/      # Dashboard web (Vue 3 + Vite)
 ├── packages/
 │   └── shared/         # Utilidades compartidas
 ├── package.json

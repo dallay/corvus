@@ -24,10 +24,10 @@ const _classes = computed(() =>
 
 <template>
   <input
-    :class="classes"
+    :class="_classes"
     :type="type ?? 'text'"
     :value="modelValue"
     :placeholder="placeholder"
-    @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+    @input="_emit('update:modelValue', ($event.target as HTMLInputElement).value)"
   />
 </template>

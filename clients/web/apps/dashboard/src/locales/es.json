@@ -1,0 +1,25 @@
+{
+  "app": {
+    "simpleChat": "Chat simple de IA",
+    "gatewayConfig": "Configuracion del gateway",
+    "config": "Config",
+    "backToChat": "Volver al chat"
+  },
+  "form": {
+    "baseUrl": "Base URL",
+    "baseUrlPlaceholder": "http://127.0.0.1:3000",
+    "pairingCode": "Codigo de emparejamiento",
+    "pairingCodePlaceholder": "Codigo de emparejamiento",
+    "bearerToken": "Token bearer",
+    "bearerTokenPlaceholder": "Token bearer",
+    "webhookSecret": "Secreto del webhook",
+    "webhookSecretPlaceholder": "Secreto del webhook",
+    "save": "Guardar configuracion"
+  },
+  "chat": {
+    "welcome": "Hola, soy {modelName}. En que puedo ayudarte?",
+    "processing": "Procesando \"{text}\" con {modelName}. Gateway: {gateway}",
+    "inputPlaceholder": "Escribe un mensaje...",
+    "send": "Enviar"
+  }
+}

@@ -40,7 +40,7 @@ const _classes = computed(() =>
 </script>
 
 <template>
-  <button :type="type ?? 'button'" :class="classes">
+  <button :type="type ?? 'button'" :class="_classes">
     <slot />
   </button>
 </template>
