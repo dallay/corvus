@@ -52,24 +52,33 @@ tools:
   # Rust-specific tools
   cargo:
     enabled: true
+  # Kotlin/JVM tools
+  gradle:
+    enabled: true
   
 # Chat configuration
 chat:
   auto_reply: true
 
-# Path filters - ignore generated files
+# Path filters - ignore generated files and build artifacts
 path_filters:
   - "!**/target/**"
+  - "!**/build/**"
   - "!**/node_modules/**"
+  - "!**/.gradle/**"
   - "!**/.cargo/**"
   - "!**/Cargo.lock"
+  - "!**/pnpm-lock.yaml"
+  - "!**/*.lockfile"
 
-# Review instructions specific to Rust and this project
+# Unified review instructions for the multi-module project
 review_instructions:
-  - "Focus on Rust best practices and idiomatic code"
-  - "Check for security vulnerabilities in encryption/crypto code"
-  - "Ensure proper error handling with Result types"
-  - "Verify memory safety and avoid unnecessary clones"
-  - "Check for proper use of lifetimes and borrowing"
-  - "Ensure tests cover critical security paths"
-  - "Review configuration migration code carefully"
+  - "Focus on project-wide best practices and idiomatic code for both Rust and Kotlin."
+  - "Rust: Focus on memory safety, proper use of lifetimes, and avoiding unnecessary clones."
+  - "Rust: Ensure proper error handling with Result types and idiomatic anyhow/thiserror usage."
+  - "Kotlin/KMP: Emphasize null safety, avoiding the !! operator, and using idiomatic Kotlin patterns like expression bodies."
+  - "Kotlin/KMP: Use sealed interfaces/classes for results and state representation."
+  - "Kotlin/KMP: Ensure proper use of coroutines and avoid blocking calls in suspend functions."
+  - "Security: Check for vulnerabilities in encryption, crypto code, and configuration handling."
+  - "Testing: Verify that tests cover critical paths and follow established naming conventions (e.g., backticks for Kotlin tests)."
+  - "Architecture: Ensure changes respect the multi-module structure and contract boundaries between KMP and Rust sidecars."
