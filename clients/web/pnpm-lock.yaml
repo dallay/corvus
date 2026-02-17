@@ -36,7 +36,21 @@ importers:
         specifier: 2.1.11
         version: 2.1.11
 
-  apps/landing: {}
+  apps/marketing:
+    dependencies:
+      astro:
+        specifier: ^5.17.2
+        version: 5.17.2(rollup@4.57.1)(typescript@5.9.3)
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
+    devDependencies:
+      '@biomejs/biome':
+        specifier: 2.3.15
+        version: 2.3.15
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
 
   packages/shared: {}
 

@@ -1,0 +1,198 @@
+---
+import MarketingLayout from "../layouts/MarketingLayout.astro";
+
+const featureCards = [
+  {
+    title: "Secure by Default",
+    body: "Pairing, sandboxed tools, explicit allowlists and workspace scoping are enabled from day one.",
+  },
+  {
+    title: "Tiny Runtime",
+    body: "Small Rust core with fast cold-start and low memory usage to run on edge hardware.",
+  },
+  {
+    title: "Swappable Stack",
+    body: "Providers, channels, memory and tools are composable modules. Replace one layer without rewiring everything.",
+  },
+  {
+    title: "Production Signals",
+    body: "Built-in doctor/status flows and deployment-friendly service commands for predictable operations.",
+  },
+];
+
+const testimonials = [
+  {
+    quote:
+      "We moved from heavy orchestration to Corvus in two sprints and cut infra cost without giving up reliability.",
+    author: "Platform Team, FinOps Startup",
+  },
+  {
+    quote:
+      "The onboarding flow made rollout easy. New developers go from zero to first task in minutes.",
+    author: "Engineering Lead, Growth Studio",
+  },
+  {
+    quote:
+      "Finally an AI runtime that behaves like software infrastructure, not a fragile demo stack.",
+    author: "CTO, B2B SaaS",
+  },
+];
+---
+
+<MarketingLayout
+  title="Corvus | Lean AI Runtime For Teams"
+  description="Build and scale autonomous agents with a secure-by-default runtime, tiny footprint, and one-command onboarding."
+>
+  <header class="topbar shell">
+    <a class="brand" href="/">
+      <span class="brand-mark" aria-hidden="true"></span>
+      Corvus
+    </a>
+    <nav aria-label="Primary">
+      <a href="#features">Platform</a>
+      <a href="#proof">Proof</a>
+      <a href="/funnels">Funnels</a>
+      <a href="#install">Install</a>
+    </nav>
+  </header>
+
+  <main>
+    <section class="hero shell">
+      <p class="eyebrow">AUTONOMOUS INFRASTRUCTURE • RUST CORE • MULTI-CHANNEL</p>
+      <h1>Ship AI operators that stay fast, secure, and online.</h1>
+      <p class="subtitle">
+        Corvus gives your team an operational runtime for agents: strict defaults, tiny footprint,
+        and a distribution model that works from laptops to edge boxes.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="#install">Start in 2 minutes</a>
+        <a class="btn btn-ghost" href="/funnels">View funnel templates</a>
+      </div>
+
+      <div class="command-card" id="install">
+        <span class="label">One-line installer</span>
+        <code id="install-command">curl -fsSL https://profiletailors.com/install | bash</code>
+        <button type="button" class="copy-btn" data-copy="#install-command">Copy</button>
+      </div>
+
+      <div class="metric-grid" role="list" aria-label="Performance highlights">
+        <article role="listitem">
+          <strong>&lt; 10ms</strong>
+          <span>cold start target</span>
+        </article>
+        <article role="listitem">
+          <strong>&lt; 5MB</strong>
+          <span>runtime memory profile</span>
+        </article>
+        <article role="listitem">
+          <strong>22+</strong>
+          <span>provider integrations</span>
+        </article>
+      </div>
+    </section>
+
+    <section class="section shell" id="features">
+      <div class="section-head">
+        <p class="eyebrow">PLATFORM</p>
+        <h2>Designed for serious runtime work, not demos.</h2>
+      </div>
+      <div class="feature-grid">
+        {
+          featureCards.map((item) => (
+            <article class="feature-card">
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="section shell comparison">
+      <div class="section-head">
+        <p class="eyebrow">POSITIONING</p>
+        <h2>Lean architecture with explicit tradeoffs.</h2>
+      </div>
+      <div class="comparison-grid">
+        <article>
+          <h3>Traditional agent stacks</h3>
+          <ul>
+            <li>Large runtime overhead before first task</li>
+            <li>Security model bolted on later</li>
+            <li>Difficult to run on low-cost hardware</li>
+          </ul>
+        </article>
+        <article>
+          <h3>Corvus approach</h3>
+          <ul>
+            <li>Small binary footprint with quick startup</li>
+            <li>Pairing, allowlists and scoped tools by default</li>
+            <li>Portable runtime for local, cloud, and edge</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="section shell" id="proof">
+      <div class="section-head">
+        <p class="eyebrow">CUSTOMER SIGNALS</p>
+        <h2>Teams adopt Corvus for operational confidence.</h2>
+      </div>
+      <div class="testimonial-row">
+        {
+          testimonials.map((item) => (
+            <article class="testimonial-card">
+              <p>“{item.quote}”</p>
+              <span>{item.author}</span>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="section shell cta-band">
+      <h2>Launch your first production-ready agent today.</h2>
+      <p>Use the installer wizard, pick your provider, and onboard in minutes.</p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="/install">Download Installer</a>
+        <a class="btn btn-ghost" href="https://github.com/dallay/corvus">View Source</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell footer">
+    <p>© {new Date().getFullYear()} Corvus</p>
+    <div>
+      <a href="/funnels">Funnels</a>
+      <a href="https://github.com/dallay/corvus">GitHub</a>
+      <a href="/install">Install Script</a>
+    </div>
+  </footer>
+
+  <script>
+    document.querySelectorAll(".copy-btn").forEach((button) => {
+      button.addEventListener("click", async () => {
+        const selector = button.getAttribute("data-copy");
+        if (!selector) {
+          return;
+        }
+        const target = document.querySelector(selector);
+        if (!target) {
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(target.textContent?.trim() ?? "");
+          button.textContent = "Copied";
+          setTimeout(() => {
+            button.textContent = "Copy";
+          }, 1500);
+        } catch {
+          button.textContent = "Copy failed";
+          setTimeout(() => {
+            button.textContent = "Copy";
+          }, 1500);
+        }
+      });
+    });
+  </script>
+</MarketingLayout>
