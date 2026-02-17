@@ -36,7 +36,7 @@
       "parameters": {
         "required_status_checks": [
           {
-            "context": "core-check",
+            "context": "pr-checks",
             "integration_id": 15368
           }
         ],
