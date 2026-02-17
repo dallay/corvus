@@ -1,49 +1,45 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref } from "vue";
 
-import ChatMessage from '@/components/chat/ChatMessage.vue'
-import Button from '@/components/ui/button/Button.vue'
-import Input from '@/components/ui/input/Input.vue'
-
-type Role = 'assistant' | 'user'
+type Role = "assistant" | "user";
 
 interface Message {
-  id: number
-  role: Role
-  content: string
+  id: number;
+  role: Role;
+  content: string;
 }
 
-const modelName = 'Corvus Agent'
-const showConfig = ref(false)
-const prompt = ref('')
-const baseUrl = ref('http://127.0.0.1:3000')
-const pairingCode = ref('')
-const bearerToken = ref('')
-const webhookSecret = ref('')
+const modelName = "Corvus Agent";
+const _showConfig = ref(false);
+const prompt = ref("");
+const baseUrl = ref("http://127.0.0.1:3000");
+const _pairingCode = ref("");
+const _bearerToken = ref("");
+const _webhookSecret = ref("");
 
 const messages = ref<Message[]>([
   {
     id: 0,
-    role: 'assistant',
+    role: "assistant",
     content: `Hola, soy ${modelName}. ¿En qué puedo ayudarte?`,
   },
-])
+]);
 
-const canSend = computed(() => prompt.value.trim().length > 0)
+const _canSend = computed(() => prompt.value.trim().length > 0);
 
-function sendMessage() {
-  const text = prompt.value.trim()
+function _sendMessage() {
+  const text = prompt.value.trim();
   if (!text) {
-    return
+    return;
   }
 
-  messages.value.push({ id: Date.now(), role: 'user', content: text })
+  messages.value.push({ id: Date.now(), role: "user", content: text });
   messages.value.push({
     id: Date.now() + 1,
-    role: 'assistant',
+    role: "assistant",
     content: `Procesando "${text}" con ${modelName}. Gateway: ${baseUrl.value}`,
-  })
-  prompt.value = ''
+  });
+  prompt.value = "";
 }
 </script>
 
