@@ -16,7 +16,9 @@
     "dev:dashboard": "pnpm --filter @corvus/dashboard run dev",
     "format": "pnpm -r run format",
     "check": "pnpm -r run check",
-    "clean": "pnpm -r run clean"
+    "clean": "pnpm -r run clean",
+    "test": "pnpm -r run test",
+    "test:dashboard": "pnpm --filter @corvus/dashboard run test"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.2",

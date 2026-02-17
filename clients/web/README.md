@@ -36,7 +36,7 @@ clients/web/
 
 ## 🛠️ Comandos
 
-Requisitos minimos:
+Requisitos mínimos:
 
 - Node.js 20.19+ (recomendado 22+)
 - pnpm 10.30+
@@ -67,6 +67,8 @@ pnpm dev:landing
 # Quality
 pnpm format
 pnpm check
+pnpm test
+pnpm test:dashboard
 ```
 
 ## 📦 Añadir más proyectos web
