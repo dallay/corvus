@@ -1,5 +1,5 @@
-use super::traits::ChatMessage;
 use super::Provider;
+use super::traits::ChatMessage;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};

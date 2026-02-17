@@ -182,29 +182,58 @@ fn parse_custom_provider_url(
     }
 }
 
+fn normalize_http_url(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let parsed = reqwest::Url::parse(trimmed).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return None;
+    }
+
+    Some(trimmed.trim_end_matches('/').to_string())
+}
+
+fn resolve_ollama_base_url(
+    explicit_api_key: Option<&str>,
+    resolved_api_key: Option<&str>,
+) -> Option<String> {
+    explicit_api_key
+        .and_then(normalize_http_url)
+        .or_else(|| resolved_api_key.and_then(normalize_http_url))
+}
+
 /// Factory: create the right provider from config
 #[allow(clippy::too_many_lines)]
 pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<dyn Provider>> {
     let resolved_key = resolve_api_key(name, api_key);
     let key = resolved_key.as_deref();
+    let ollama_base_url = resolve_ollama_base_url(api_key, key);
     match name {
         // ── Primary providers (custom implementations) ───────
         "openrouter" => Ok(Box::new(openrouter::OpenRouterProvider::new(key))),
         "anthropic" => Ok(Box::new(anthropic::AnthropicProvider::new(key))),
         "openai" => Ok(Box::new(openai::OpenAiProvider::new(key))),
-        // Ollama is a local service that doesn't use API keys.
-        // The api_key parameter is ignored to avoid it being misinterpreted as a base_url.
-        "ollama" => Ok(Box::new(ollama::OllamaProvider::new(None))),
-        "gemini" | "google" | "google-gemini" => {
-            Ok(Box::new(gemini::GeminiProvider::new(key)))
-        }
+        // Ollama has no auth key, but accepts an optional base URL override.
+        "ollama" => Ok(Box::new(ollama::OllamaProvider::new(
+            ollama_base_url.as_deref(),
+        ))),
+        "gemini" | "google" | "google-gemini" => Ok(Box::new(gemini::GeminiProvider::new(key))),
 
         // ── OpenAI-compatible providers ──────────────────────
         "venice" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Venice", "https://api.venice.ai", key, AuthStyle::Bearer,
+            "Venice",
+            "https://api.venice.ai",
+            key,
+            AuthStyle::Bearer,
         ))),
         "vercel" | "vercel-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Vercel AI Gateway", "https://api.vercel.ai", key, AuthStyle::Bearer,
+            "Vercel AI Gateway",
+            "https://api.vercel.ai",
+            key,
+            AuthStyle::Bearer,
         ))),
         "cloudflare" | "cloudflare-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Cloudflare AI Gateway",
@@ -213,20 +242,37 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
             AuthStyle::Bearer,
         ))),
         "moonshot" | "kimi" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Moonshot", "https://api.moonshot.cn", key, AuthStyle::Bearer,
+            "Moonshot",
+            "https://api.moonshot.cn",
+            key,
+            AuthStyle::Bearer,
         ))),
         "synthetic" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Synthetic", "https://api.synthetic.com", key, AuthStyle::Bearer,
+            "Synthetic",
+            "https://api.synthetic.com",
+            key,
+            AuthStyle::Bearer,
         ))),
         "opencode" | "opencode-zen" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "OpenCode Zen", "https://opencode.ai/zen/v1", key, AuthStyle::Bearer,
+            "OpenCode Zen",
+            "https://opencode.ai/zen/v1",
+            key,
+            AuthStyle::Bearer,
         ))),
         "zai" | "z.ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Z.AI", "https://api.z.ai/api/coding/paas/v4", key, AuthStyle::Bearer,
+            "Z.AI",
+            "https://api.z.ai/api/coding/paas/v4",
+            key,
+            AuthStyle::Bearer,
         ))),
-        "glm" | "zhipu" => Ok(Box::new(OpenAiCompatibleProvider::new_no_responses_fallback(
-            "GLM", "https://api.z.ai/api/paas/v4", key, AuthStyle::Bearer,
-        ))),
+        "glm" | "zhipu" => Ok(Box::new(
+            OpenAiCompatibleProvider::new_no_responses_fallback(
+                "GLM",
+                "https://api.z.ai/api/paas/v4",
+                key,
+                AuthStyle::Bearer,
+            ),
+        )),
         "minimax" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "MiniMax",
             "https://api.minimaxi.com/v1",
@@ -240,49 +286,93 @@ pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<
             AuthStyle::Bearer,
         ))),
         "qianfan" | "baidu" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Qianfan", "https://aip.baidubce.com", key, AuthStyle::Bearer,
+            "Qianfan",
+            "https://aip.baidubce.com",
+            key,
+            AuthStyle::Bearer,
         ))),
         "qwen" | "dashscope" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Qwen", "https://dashscope.aliyuncs.com/compatible-mode/v1", key, AuthStyle::Bearer,
+            "Qwen",
+            "https://dashscope.aliyuncs.com/compatible-mode/v1",
+            key,
+            AuthStyle::Bearer,
         ))),
         "qwen-intl" | "dashscope-intl" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Qwen", "https://dashscope-intl.aliyuncs.com/compatible-mode/v1", key, AuthStyle::Bearer,
+            "Qwen",
+            "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+            key,
+            AuthStyle::Bearer,
         ))),
         "qwen-us" | "dashscope-us" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Qwen", "https://dashscope-us.aliyuncs.com/compatible-mode/v1", key, AuthStyle::Bearer,
+            "Qwen",
+            "https://dashscope-us.aliyuncs.com/compatible-mode/v1",
+            key,
+            AuthStyle::Bearer,
         ))),
 
         // ── Extended ecosystem (community favorites) ─────────
         "groq" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Groq", "https://api.groq.com/openai", key, AuthStyle::Bearer,
+            "Groq",
+            "https://api.groq.com/openai",
+            key,
+            AuthStyle::Bearer,
         ))),
         "mistral" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Mistral", "https://api.mistral.ai", key, AuthStyle::Bearer,
+            "Mistral",
+            "https://api.mistral.ai",
+            key,
+            AuthStyle::Bearer,
         ))),
         "xai" | "grok" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "xAI", "https://api.x.ai", key, AuthStyle::Bearer,
+            "xAI",
+            "https://api.x.ai",
+            key,
+            AuthStyle::Bearer,
         ))),
         "deepseek" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "DeepSeek", "https://api.deepseek.com", key, AuthStyle::Bearer,
+            "DeepSeek",
+            "https://api.deepseek.com",
+            key,
+            AuthStyle::Bearer,
         ))),
         "together" | "together-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Together AI", "https://api.together.xyz", key, AuthStyle::Bearer,
+            "Together AI",
+            "https://api.together.xyz",
+            key,
+            AuthStyle::Bearer,
         ))),
         "fireworks" | "fireworks-ai" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Fireworks AI", "https://api.fireworks.ai/inference/v1", key, AuthStyle::Bearer,
+            "Fireworks AI",
+            "https://api.fireworks.ai/inference/v1",
+            key,
+            AuthStyle::Bearer,
         ))),
         "perplexity" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Perplexity", "https://api.perplexity.ai", key, AuthStyle::Bearer,
+            "Perplexity",
+            "https://api.perplexity.ai",
+            key,
+            AuthStyle::Bearer,
         ))),
         "cohere" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "Cohere", "https://api.cohere.com/compatibility", key, AuthStyle::Bearer,
+            "Cohere",
+            "https://api.cohere.com/compatibility",
+            key,
+            AuthStyle::Bearer,
         ))),
         "copilot" | "github-copilot" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "GitHub Copilot", "https://api.githubcopilot.com", key, AuthStyle::Bearer,
+            "GitHub Copilot",
+            "https://api.githubcopilot.com",
+            key,
+            AuthStyle::Bearer,
         ))),
-        "nvidia" | "nvidia-nim" | "build.nvidia.com" => Ok(Box::new(OpenAiCompatibleProvider::new(
-            "NVIDIA NIM", "https://integrate.api.nvidia.com/v1", key, AuthStyle::Bearer,
-        ))),
+        "nvidia" | "nvidia-nim" | "build.nvidia.com" => {
+            Ok(Box::new(OpenAiCompatibleProvider::new(
+                "NVIDIA NIM",
+                "https://integrate.api.nvidia.com/v1",
+                key,
+                AuthStyle::Bearer,
+            )))
+        }
 
         // ── Bring Your Own Provider (custom URL) ───────────
         // Format: "custom:https://your-api.com" or "custom:http://localhost:1234"
@@ -467,9 +557,23 @@ mod tests {
     #[test]
     fn factory_ollama() {
         assert!(create_provider("ollama", None).is_ok());
-        // Ollama ignores the api_key parameter since it's a local service
+        // Non-URL "keys" are ignored and localhost is used.
         assert!(create_provider("ollama", Some("dummy")).is_ok());
         assert!(create_provider("ollama", Some("any-value-here")).is_ok());
+        // URL values are treated as a base URL override for containerized setups.
+        assert!(create_provider("ollama", Some("http://host.docker.internal:11434")).is_ok());
+    }
+
+    #[test]
+    fn resolve_ollama_base_url_accepts_http_url() {
+        let url = resolve_ollama_base_url(Some("http://host.docker.internal:11434"), None);
+        assert_eq!(url.as_deref(), Some("http://host.docker.internal:11434"));
+    }
+
+    #[test]
+    fn resolve_ollama_base_url_rejects_non_url_value() {
+        let url = resolve_ollama_base_url(Some("sk-not-a-url"), None);
+        assert!(url.is_none());
     }
 
     #[test]

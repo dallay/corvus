@@ -110,6 +110,41 @@ run: check-tools ## Run the main application (compose desktop module)
 dev: run ## Alias for 'make run'
 
 # ------------------------------------------------------------------------------------
+# DEV ENVIRONMENT (Docker)
+# ------------------------------------------------------------------------------------
+
+dev-up: ## Start dev environment (Agent + Sandbox containers)
+	@echo "🚀 Starting Dev Environment..."
+	@./dev/cli.sh up
+
+dev-down: ## Stop dev containers
+	@echo "🛑 Stopping dev containers..."
+	@docker compose -f dev/docker-compose.yml down
+
+dev-shell: ## Enter Sandbox (Ubuntu) - simulate user environment
+	@echo "💻 Entering Sandbox..."
+	@./dev/cli.sh shell
+
+dev-agent: ## Enter Agent container (Corvus CLI) - debug the binary
+	@echo "🤖 Entering Agent container..."
+	@./dev/cli.sh agent
+
+dev-logs: ## View dev container logs (follow mode)
+	@echo "📜 Following logs..."
+	@docker compose -f dev/docker-compose.yml logs -f
+
+dev-build: ## Rebuild dev images and restart
+	@echo "🔨 Rebuilding dev images..."
+	@./dev/cli.sh build
+
+dev-clean: ## Stop containers and wipe workspace data
+	@echo "⚠️  Cleaning dev environment..."
+	@./dev/cli.sh clean
+
+dev-status: ## Show dev container status
+	@docker compose -f dev/docker-compose.yml ps
+
+# ------------------------------------------------------------------------------------
 # TESTING
 # ------------------------------------------------------------------------------------
 
@@ -247,6 +282,7 @@ sync-version: ## Sync VERSION in gradle.properties with the latest git tag (vX.Y
 	@bash ./sync-version-with-tag.sh
 
 .PHONY: help check-tools setup wrapper build build-fast clean clean-all run dev \
+        dev-up dev-down dev-shell dev-agent dev-logs dev-build dev-clean dev-status \
         test test-app test-coverage test-verbose \
         format check-format lint-kotlin lint-java lint check docs docs-serve \
         docs-web-build docs-web-check docs-web-format docs-web-dev \

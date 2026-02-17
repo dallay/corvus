@@ -4,7 +4,7 @@ description: >
   Generates and keeps C4 models in docs/architecture/diagrams up to date. Trigger: files in docs/architecture/diagrams, changes to .mmd/.puml/.puml.md diagrams
 license: Apache-2.0
 metadata:
-  author: @dallay
+  author: "@dallay"
   version: "1.0"
 ---
 

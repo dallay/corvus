@@ -39,7 +39,7 @@ Corvus architecture targets:
 
 ## Documentation Site
 
-Customize `apps/docs/website/astro.config.mjs`:
+Customize `clients/web/apps/docs/astro.config.mjs`:
 
 - `base`: `/corvus`
 - `starlight.title`: `Corvus`

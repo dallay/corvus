@@ -1,6 +1,14 @@
 ---
 name: kotlin-coroutines
-description: Advanced Kotlin coroutines patterns for AmethystMultiplatform. Use when working with: (1) Structured concurrency (supervisorScope, coroutineScope), (2) Advanced Flow operators (flatMapLatest, combine, merge, shareIn, stateIn), (3) Channels and callbackFlow, (4) Dispatcher management and context switching, (5) Exception handling (CoroutineExceptionHandler, SupervisorJob), (6) Testing async code (runTest, Turbine), (7) Nostr relay connection pools and subscriptions, (8) Backpressure handling in event streams. Delegates to kotlin-expert for basic StateFlow/SharedFlow patterns. Complements nostr-expert for relay communication.
+description: |
+  Advanced Kotlin coroutines patterns for AmethystMultiplatform. Use when working with:
+  (1) Structured concurrency (supervisorScope, coroutineScope), (2) Advanced Flow operators
+  (flatMapLatest, combine, merge, shareIn, stateIn), (3) Channels and callbackFlow,
+  (4) Dispatcher management and context switching, (5) Exception handling
+  (CoroutineExceptionHandler, SupervisorJob), (6) Testing async code (runTest, Turbine),
+  (7) Nostr relay connection pools and subscriptions, (8) Backpressure handling in event streams.
+  Delegates to kotlin-expert for basic StateFlow/SharedFlow patterns.
+  Complements nostr-expert for relay communication.
 ---
 
 # Kotlin Coroutines - Advanced Async Patterns

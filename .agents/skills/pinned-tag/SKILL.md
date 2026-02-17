@@ -6,7 +6,7 @@ description: >
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 license: Apache-2.0
 metadata:
-  author: @dallay
+  author: "@dallay"
   version: "1.1"
 ---
 

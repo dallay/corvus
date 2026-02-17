@@ -1,3 +1,11 @@
+---
+name: android-expert
+description: |
+  Android platform expertise for Amethyst Multiplatform project. Use when working with
+  Android navigation, runtime permissions, lifecycle, platform APIs, Material3 UI,
+  Android-specific build/manifest configuration, and KMP Android integration patterns.
+---
+
 # android-expert
 
 Android platform expertise for Amethyst Multiplatform project. Covers Compose Navigation, Material3, permissions, lifecycle, and Android-specific patterns in KMP architecture.

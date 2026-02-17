@@ -5,7 +5,7 @@ description: >
     Trigger: When working with build.gradle.kts, settings.gradle.kts, custom tasks, or Gradle plugins.
 allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 metadata:
-    author: @dallay
+    author: "@dallay"
     version: "1.0"
     source: https://github.com/liutikas/gradle-best-practices
 ---

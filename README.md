@@ -24,7 +24,7 @@ make check          # Run format + lint + tests
 ## Repository
 
 - GitHub: <https://github.com/dallay/corvus>
-- Documentation source: `apps/docs/website/`
+- Documentation source: `clients/web/apps/docs/`
 
 ## Current Baseline
 

@@ -50,7 +50,7 @@ You can keep the project version in sync with a Git tag automatically using the 
 - `make sync-version` — runs `./sync-version-with-tag.sh` and syncs the latest semantic Git tag version (`vX.Y.Z`) into:
   - `gradle.properties` (`VERSION=`)
   - `gradle/build-logic/gradle.properties` (`VERSION=`)
-  - `apps/docs/website/package.json` (`"version"`)
+  - `clients/web/apps/docs/package.json` (`"version"`)
 - `./sync-version-with-tag.sh` — shell script that selects the globally latest semantic tag using `git tag --sort=-v:refname | grep -Em1 '^v[0-9]+\.[0-9]+\.[0-9]+$'` (not the nearest tag from `HEAD`), extracts the numeric version (drops the leading `v`), and updates all version targets listed above.
 
 Usage patterns (pick one workflow):
@@ -79,7 +79,7 @@ git fetch --tags
 # Sync version files to the latest tag
 make sync-version
 # Review and commit the change
-git add gradle.properties gradle/build-logic/gradle.properties apps/docs/website/package.json
+git add gradle.properties gradle/build-logic/gradle.properties clients/web/apps/docs/package.json
 git commit -m "chore: sync version to $(awk -F= '/^VERSION=/{print $2; exit}' gradle.properties)"
 # Push the commit (no need to recreate the tag)
 git push origin main
