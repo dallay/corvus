@@ -39,11 +39,15 @@ use tracing_subscriber::FmtSubscriber;
 
 mod agent;
 mod channels;
+mod rag {
+    pub use corvus::rag::*;
+}
 mod config;
 mod cron;
 mod daemon;
 mod doctor;
 mod gateway;
+mod hardware;
 mod health;
 mod heartbeat;
 mod identity;
@@ -52,6 +56,7 @@ mod memory;
 mod migration;
 mod observability;
 mod onboard;
+mod peripherals;
 mod providers;
 mod runtime;
 mod security;
@@ -64,10 +69,13 @@ mod util;
 
 use config::Config;
 
+// Re-export so binary's hardware/peripherals modules can use crate::HardwareCommands etc.
+pub use corvus::{HardwareCommands, PeripheralCommands};
+
 /// `Corvus` - Zero overhead. Zero compromise. 100% Rust.
 #[derive(Parser, Debug)]
 #[command(name = "corvus")]
-#[command(author = "dallay")]
+#[command(author = "theonlyhennygod")]
 #[command(version = "0.1.0")]
 #[command(about = "The fastest, smallest AI assistant.", long_about = None)]
 struct Cli {
@@ -109,7 +117,7 @@ enum Commands {
         #[arg(long)]
         provider: Option<String>,
 
-        /// Memory backend (sqlite, markdown, none) - used in quick mode, default: sqlite
+        /// Memory backend (sqlite, lucid, markdown, none) - used in quick mode, default: sqlite
         #[arg(long)]
         memory: Option<String>,
     },
@@ -128,9 +136,13 @@ enum Commands {
         #[arg(long)]
         model: Option<String>,
 
-        /// Temperature (0.0 - 2.0)
-        #[arg(short, long, default_value = "0.7")]
-        temperature: f64,
+        /// Temperature (0.0 - 2.0); defaults to config default_temperature
+        #[arg(short, long)]
+        temperature: Option<f64>,
+
+        /// Attach a peripheral (board:path, e.g. nucleo-f401re:/dev/ttyACM0)
+        #[arg(long)]
+        peripheral: Vec<String>,
     },
 
     /// Start the gateway server (webhooks, websockets)
@@ -173,6 +185,12 @@ enum Commands {
         cron_command: CronCommands,
     },
 
+    /// Manage provider model catalogs
+    Models {
+        #[command(subcommand)]
+        model_command: ModelCommands,
+    },
+
     /// Manage channels (telegram, discord, slack)
     Channel {
         #[command(subcommand)]
@@ -195,6 +213,18 @@ enum Commands {
     Migrate {
         #[command(subcommand)]
         migrate_command: MigrateCommands,
+    },
+
+    /// Discover and introspect USB hardware
+    Hardware {
+        #[command(subcommand)]
+        hardware_command: corvus::HardwareCommands,
+    },
+
+    /// Manage hardware peripherals (STM32, RPi GPIO, etc.)
+    Peripheral {
+        #[command(subcommand)]
+        peripheral_command: corvus::PeripheralCommands,
     },
 }
 
@@ -223,10 +253,41 @@ enum CronCommands {
         /// Command to run
         command: String,
     },
+    /// Add a one-shot delayed task (e.g. "30m", "2h", "1d")
+    Once {
+        /// Delay duration
+        delay: String,
+        /// Command to run
+        command: String,
+    },
     /// Remove a scheduled task
     Remove {
         /// Task ID
         id: String,
+    },
+    /// Pause a scheduled task
+    Pause {
+        /// Task ID
+        id: String,
+    },
+    /// Resume a paused task
+    Resume {
+        /// Task ID
+        id: String,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum ModelCommands {
+    /// Refresh and cache provider models
+    Refresh {
+        /// Provider name (defaults to configured default provider)
+        #[arg(long)]
+        provider: Option<String>,
+
+        /// Force live refresh and ignore fresh cache
+        #[arg(long)]
+        force: bool,
     },
 }
 
@@ -320,14 +381,15 @@ async fn main() -> Result<()> {
             onboard::run_quick_setup(api_key.as_deref(), provider.as_deref(), memory.as_deref())?
         };
         // Auto-start channels if user said yes during wizard
-        if std::env::var("CORVUS_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
+        if std::env::var("corvus_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
             channels::start_channels(config).await?;
         }
         return Ok(());
     }
 
     // All other commands need config loaded first
-    let config = Config::load_or_init()?;
+    let mut config = Config::load_or_init()?;
+    config.apply_env_overrides();
 
     match cli.command {
         Commands::Onboard { .. } => unreachable!(),
@@ -337,7 +399,11 @@ async fn main() -> Result<()> {
             provider,
             model,
             temperature,
-        } => agent::run(config, message, provider, model, temperature).await,
+            peripheral,
+        } => {
+            let temp = temperature.unwrap_or(config.default_temperature);
+            agent::run(config, message, provider, model, temp, peripheral).await
+        }
 
         Commands::Gateway { port, host } => {
             if port == 0 {
@@ -422,11 +488,28 @@ async fn main() -> Result<()> {
                     }
                 );
             }
+            println!();
+            println!("Peripherals:");
+            println!(
+                "  Enabled:   {}",
+                if config.peripherals.enabled {
+                    "yes"
+                } else {
+                    "no"
+                }
+            );
+            println!("  Boards:    {}", config.peripherals.boards.len());
 
             Ok(())
         }
 
         Commands::Cron { cron_command } => cron::handle_command(cron_command, &config),
+
+        Commands::Models { model_command } => match model_command {
+            ModelCommands::Refresh { provider, force } => {
+                onboard::run_models_refresh(&config, provider.as_deref(), force)
+            }
+        },
 
         Commands::Service { service_command } => service::handle_command(&service_command, &config),
 
@@ -448,6 +531,14 @@ async fn main() -> Result<()> {
 
         Commands::Migrate { migrate_command } => {
             migration::handle_command(migrate_command, &config).await
+        }
+
+        Commands::Hardware { hardware_command } => {
+            hardware::handle_command(hardware_command.clone(), &config)
+        }
+
+        Commands::Peripheral { peripheral_command } => {
+            peripherals::handle_command(peripheral_command.clone(), &config)
         }
     }
 }

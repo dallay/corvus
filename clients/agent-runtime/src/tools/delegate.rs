@@ -220,15 +220,22 @@ impl Tool for DelegateTool {
         };
 
         match result {
-            Ok(response) => Ok(ToolResult {
-                success: true,
-                output: format!(
-                    "[Agent '{agent_name}' ({provider}/{model})]\n{response}",
-                    provider = agent_config.provider,
-                    model = agent_config.model
-                ),
-                error: None,
-            }),
+            Ok(response) => {
+                let mut rendered = response;
+                if rendered.trim().is_empty() {
+                    rendered = "[Empty response]".to_string();
+                }
+
+                Ok(ToolResult {
+                    success: true,
+                    output: format!(
+                        "[Agent '{agent_name}' ({provider}/{model})]\n{rendered}",
+                        provider = agent_config.provider,
+                        model = agent_config.model
+                    ),
+                    error: None,
+                })
+            }
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),

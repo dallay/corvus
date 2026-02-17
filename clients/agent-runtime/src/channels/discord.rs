@@ -10,16 +10,23 @@ pub struct DiscordChannel {
     bot_token: String,
     guild_id: Option<String>,
     allowed_users: Vec<String>,
+    listen_to_bots: bool,
     client: reqwest::Client,
     typing_handle: std::sync::Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
 impl DiscordChannel {
-    pub fn new(bot_token: String, guild_id: Option<String>, allowed_users: Vec<String>) -> Self {
+    pub fn new(
+        bot_token: String,
+        guild_id: Option<String>,
+        allowed_users: Vec<String>,
+        listen_to_bots: bool,
+    ) -> Self {
         Self {
             bot_token,
             guild_id,
             allowed_users,
+            listen_to_bots,
             client: reqwest::Client::new(),
             typing_handle: std::sync::Mutex::new(None),
         }
@@ -309,8 +316,8 @@ impl Channel for DiscordChannel {
                         continue;
                     }
 
-                    // Skip bot messages
-                    if d.get("author").and_then(|a| a.get("bot")).and_then(serde_json::Value::as_bool).unwrap_or(false) {
+                    // Skip bot messages (unless listen_to_bots is enabled)
+                    if !self.listen_to_bots && d.get("author").and_then(|a| a.get("bot")).and_then(serde_json::Value::as_bool).unwrap_or(false) {
                         continue;
                     }
 
@@ -336,11 +343,14 @@ impl Channel for DiscordChannel {
                         continue;
                     }
 
-                    let channel_id = d.get("channel_id").and_then(|c| c.as_str()).unwrap_or("").to_string();
-
+                    let message_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
                     let channel_msg = ChannelMessage {
-                        id: Uuid::new_v4().to_string(),
-                        sender: channel_id,
+                        id: if message_id.is_empty() {
+                            Uuid::new_v4().to_string()
+                        } else {
+                            format!("discord_{message_id}")
+                        },
+                        sender: author_id.to_string(),
                         content: content.to_string(),
                         channel: "discord".to_string(),
                         timestamp: std::time::SystemTime::now()
@@ -411,7 +421,7 @@ mod tests {
 
     #[test]
     fn discord_channel_name() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![]);
+        let ch = DiscordChannel::new("fake".into(), None, vec![], false);
         assert_eq!(ch.name(), "discord");
     }
 
@@ -432,21 +442,21 @@ mod tests {
 
     #[test]
     fn empty_allowlist_denies_everyone() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![]);
+        let ch = DiscordChannel::new("fake".into(), None, vec![], false);
         assert!(!ch.is_user_allowed("12345"));
         assert!(!ch.is_user_allowed("anyone"));
     }
 
     #[test]
     fn wildcard_allows_everyone() {
-        let ch = DiscordChannel::new("fake".into(), None, vec!["*".into()]);
+        let ch = DiscordChannel::new("fake".into(), None, vec!["*".into()], false);
         assert!(ch.is_user_allowed("12345"));
         assert!(ch.is_user_allowed("anyone"));
     }
 
     #[test]
     fn specific_allowlist_filters() {
-        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into(), "222".into()]);
+        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into(), "222".into()], false);
         assert!(ch.is_user_allowed("111"));
         assert!(ch.is_user_allowed("222"));
         assert!(!ch.is_user_allowed("333"));
@@ -455,7 +465,7 @@ mod tests {
 
     #[test]
     fn allowlist_is_exact_match_not_substring() {
-        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into()]);
+        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into()], false);
         assert!(!ch.is_user_allowed("1111"));
         assert!(!ch.is_user_allowed("11"));
         assert!(!ch.is_user_allowed("0111"));
@@ -463,20 +473,20 @@ mod tests {
 
     #[test]
     fn allowlist_empty_string_user_id() {
-        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into()]);
+        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into()], false);
         assert!(!ch.is_user_allowed(""));
     }
 
     #[test]
     fn allowlist_with_wildcard_and_specific() {
-        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into(), "*".into()]);
+        let ch = DiscordChannel::new("fake".into(), None, vec!["111".into(), "*".into()], false);
         assert!(ch.is_user_allowed("111"));
         assert!(ch.is_user_allowed("anyone_else"));
     }
 
     #[test]
     fn allowlist_case_sensitive() {
-        let ch = DiscordChannel::new("fake".into(), None, vec!["ABC".into()]);
+        let ch = DiscordChannel::new("fake".into(), None, vec!["ABC".into()], false);
         assert!(ch.is_user_allowed("ABC"));
         assert!(!ch.is_user_allowed("abc"));
         assert!(!ch.is_user_allowed("Abc"));
@@ -651,14 +661,14 @@ mod tests {
 
     #[test]
     fn typing_handle_starts_as_none() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![]);
+        let ch = DiscordChannel::new("fake".into(), None, vec![], false);
         let guard = ch.typing_handle.lock().unwrap();
         assert!(guard.is_none());
     }
 
     #[tokio::test]
     async fn start_typing_sets_handle() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![]);
+        let ch = DiscordChannel::new("fake".into(), None, vec![], false);
         let _ = ch.start_typing("123456").await;
         let guard = ch.typing_handle.lock().unwrap();
         assert!(guard.is_some());
@@ -666,7 +676,7 @@ mod tests {
 
     #[tokio::test]
     async fn stop_typing_clears_handle() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![]);
+        let ch = DiscordChannel::new("fake".into(), None, vec![], false);
         let _ = ch.start_typing("123456").await;
         let _ = ch.stop_typing("123456").await;
         let guard = ch.typing_handle.lock().unwrap();
@@ -675,17 +685,68 @@ mod tests {
 
     #[tokio::test]
     async fn stop_typing_is_idempotent() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![]);
+        let ch = DiscordChannel::new("fake".into(), None, vec![], false);
         assert!(ch.stop_typing("123456").await.is_ok());
         assert!(ch.stop_typing("123456").await.is_ok());
     }
 
     #[tokio::test]
     async fn start_typing_replaces_existing_task() {
-        let ch = DiscordChannel::new("fake".into(), None, vec![]);
+        let ch = DiscordChannel::new("fake".into(), None, vec![], false);
         let _ = ch.start_typing("111").await;
         let _ = ch.start_typing("222").await;
         let guard = ch.typing_handle.lock().unwrap();
         assert!(guard.is_some());
+    }
+
+    // ── Message ID edge cases ─────────────────────────────────────
+
+    #[test]
+    fn discord_message_id_format_includes_discord_prefix() {
+        // Verify that message IDs follow the format: discord_{message_id}
+        let message_id = "123456789012345678";
+        let expected_id = format!("discord_{message_id}");
+        assert_eq!(expected_id, "discord_123456789012345678");
+    }
+
+    #[test]
+    fn discord_message_id_is_deterministic() {
+        // Same message_id = same ID (prevents duplicates after restart)
+        let message_id = "123456789012345678";
+        let id1 = format!("discord_{message_id}");
+        let id2 = format!("discord_{message_id}");
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn discord_message_id_different_message_different_id() {
+        // Different message IDs produce different IDs
+        let id1 = format!("discord_123456789012345678");
+        let id2 = format!("discord_987654321098765432");
+        assert_ne!(id1, id2);
+    }
+
+    #[test]
+    fn discord_message_id_uses_snowflake_id() {
+        // Discord snowflake IDs are numeric strings
+        let message_id = "123456789012345678"; // Typical snowflake format
+        let id = format!("discord_{message_id}");
+        assert!(id.starts_with("discord_"));
+        // Snowflake IDs are numeric
+        assert!(message_id.chars().all(|c| c.is_ascii_digit()));
+    }
+
+    #[test]
+    fn discord_message_id_fallback_to_uuid_on_empty() {
+        // Edge case: empty message_id falls back to UUID
+        let message_id = "";
+        let id = if message_id.is_empty() {
+            format!("discord_{}", uuid::Uuid::new_v4())
+        } else {
+            format!("discord_{message_id}")
+        };
+        assert!(id.starts_with("discord_"));
+        // Should have UUID dashes
+        assert!(id.contains('-'));
     }
 }

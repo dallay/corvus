@@ -1,14 +1,22 @@
-use crate::config::schema::{IrcConfig, WhatsAppConfig};
+use crate::config::schema::{DingTalkConfig, IrcConfig, WhatsAppConfig};
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
     HeartbeatConfig, IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
     RuntimeConfig, SecretsConfig, SlackConfig, TelegramConfig, WebhookConfig,
 };
+use crate::hardware::{self, HardwareConfig};
+use crate::memory::{
+    default_memory_backend_key, memory_backend_profile, selectable_memory_backends,
+};
 use anyhow::{Context, Result};
 use console::style;
 use dialoguer::{Confirm, Input, Select};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 // ── Project context collected during wizard ──────────────────────
 
@@ -38,6 +46,12 @@ const BANNER: &str = r"
     ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
 ";
 
+const LIVE_MODEL_MAX_OPTIONS: usize = 120;
+const MODEL_PREVIEW_LIMIT: usize = 20;
+const MODEL_CACHE_FILE: &str = "models_cache.json";
+const MODEL_CACHE_TTL_SECS: u64 = 12 * 60 * 60;
+const CUSTOM_MODEL_SENTINEL: &str = "__custom_model__";
+
 // ── Main wizard entry point ──────────────────────────────────────
 
 pub fn run_wizard() -> Result<Config> {
@@ -55,28 +69,31 @@ pub fn run_wizard() -> Result<Config> {
     );
     println!();
 
-    print_step(1, 8, "Workspace Setup");
+    print_step(1, 9, "Workspace Setup");
     let (workspace_dir, config_path) = setup_workspace()?;
 
-    print_step(2, 8, "AI Provider & API Key");
-    let (provider, api_key, model) = setup_provider()?;
+    print_step(2, 9, "AI Provider & API Key");
+    let (provider, api_key, model) = setup_provider(&workspace_dir)?;
 
-    print_step(3, 8, "Channels (How You Talk to Corvus)");
+    print_step(3, 9, "Channels (How You Talk to Corvus)");
     let channels_config = setup_channels()?;
 
-    print_step(4, 8, "Tunnel (Expose to Internet)");
+    print_step(4, 9, "Tunnel (Expose to Internet)");
     let tunnel_config = setup_tunnel()?;
 
-    print_step(5, 8, "Tool Mode & Security");
+    print_step(5, 9, "Tool Mode & Security");
     let (composio_config, secrets_config) = setup_tool_mode()?;
 
-    print_step(6, 8, "Memory Configuration");
+    print_step(6, 9, "Hardware (Physical World)");
+    let hardware_config = setup_hardware()?;
+
+    print_step(7, 9, "Memory Configuration");
     let memory_config = setup_memory()?;
 
-    print_step(7, 8, "Project Context (Personalize Your Agent)");
+    print_step(8, 9, "Project Context (Personalize Your Agent)");
     let project_ctx = setup_project_context()?;
 
-    print_step(8, 8, "Workspace Files");
+    print_step(9, 9, "Workspace Files");
     scaffold_workspace(&workspace_dir, &project_ctx)?;
 
     // ── Build config ──
@@ -96,6 +113,8 @@ pub fn run_wizard() -> Result<Config> {
         autonomy: AutonomyConfig::default(),
         runtime: RuntimeConfig::default(),
         reliability: crate::config::ReliabilityConfig::default(),
+        scheduler: crate::config::schema::SchedulerConfig::default(),
+        agent: crate::config::schema::AgentConfig::default(),
         model_routes: Vec::new(),
         heartbeat: HeartbeatConfig::default(),
         channels_config,
@@ -105,8 +124,12 @@ pub fn run_wizard() -> Result<Config> {
         composio: composio_config,
         secrets: secrets_config,
         browser: BrowserConfig::default(),
+        http_request: crate::config::HttpRequestConfig::default(),
         identity: crate::config::IdentityConfig::default(),
+        cost: crate::config::CostConfig::default(),
+        peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
+        hardware: hardware_config,
     };
 
     println!(
@@ -132,7 +155,8 @@ pub fn run_wizard() -> Result<Config> {
         || config.channels_config.slack.is_some()
         || config.channels_config.imessage.is_some()
         || config.channels_config.matrix.is_some()
-        || config.channels_config.email.is_some();
+        || config.channels_config.email.is_some()
+        || config.channels_config.dingtalk.is_some();
 
     if has_channels && config.api_key.is_some() {
         let launch: bool = Confirm::new()
@@ -152,7 +176,7 @@ pub fn run_wizard() -> Result<Config> {
             );
             println!();
             // Signal to main.rs to call start_channels after wizard returns
-            std::env::set_var("CORVUS_AUTOSTART_CHANNELS", "1");
+            std::env::set_var("corvus_AUTOSTART_CHANNELS", "1");
         }
     }
 
@@ -188,7 +212,8 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
         || config.channels_config.slack.is_some()
         || config.channels_config.imessage.is_some()
         || config.channels_config.matrix.is_some()
-        || config.channels_config.email.is_some();
+        || config.channels_config.email.is_some()
+        || config.channels_config.dingtalk.is_some();
 
     if has_channels && config.api_key.is_some() {
         let launch: bool = Confirm::new()
@@ -208,7 +233,7 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
             );
             println!();
             // Signal to main.rs to call start_channels after wizard returns
-            std::env::set_var("CORVUS_AUTOSTART_CHANNELS", "1");
+            std::env::set_var("corvus_AUTOSTART_CHANNELS", "1");
         }
     }
 
@@ -218,8 +243,44 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
 // ── Quick setup (zero prompts) ───────────────────────────────────
 
 /// Non-interactive setup: generates a sensible default config instantly.
-/// Use `corvus onboard` or `corvus onboard --api-key sk-... --provider openrouter --memory sqlite`.
+/// Use `corvus onboard` or `corvus onboard --api-key sk-... --provider openrouter --memory sqlite|lucid`.
 /// Use `corvus onboard --interactive` for the full wizard.
+fn backend_key_from_choice(choice: usize) -> &'static str {
+    selectable_memory_backends()
+        .get(choice)
+        .map_or(default_memory_backend_key(), |backend| backend.key)
+}
+
+fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
+    let profile = memory_backend_profile(backend);
+
+    MemoryConfig {
+        backend: backend.to_string(),
+        auto_save: profile.auto_save_default,
+        hygiene_enabled: profile.uses_sqlite_hygiene,
+        archive_after_days: if profile.uses_sqlite_hygiene { 7 } else { 0 },
+        purge_after_days: if profile.uses_sqlite_hygiene { 30 } else { 0 },
+        conversation_retention_days: 30,
+        embedding_provider: "none".to_string(),
+        embedding_model: "text-embedding-3-small".to_string(),
+        embedding_dimensions: 1536,
+        vector_weight: 0.7,
+        keyword_weight: 0.3,
+        embedding_cache_size: if profile.uses_sqlite_hygiene {
+            10000
+        } else {
+            0
+        },
+        chunk_max_tokens: 512,
+        response_cache_enabled: false,
+        response_cache_ttl_minutes: 60,
+        response_cache_max_entries: 5_000,
+        snapshot_enabled: false,
+        snapshot_on_hygiene: false,
+        auto_hydrate: true,
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 pub fn run_quick_setup(
     api_key: Option<&str>,
@@ -246,36 +307,12 @@ pub fn run_quick_setup(
 
     let provider_name = provider.unwrap_or("openrouter").to_string();
     let model = default_model_for_provider(&provider_name);
-    let memory_backend_name = memory_backend.unwrap_or("sqlite").to_string();
+    let memory_backend_name = memory_backend
+        .unwrap_or(default_memory_backend_key())
+        .to_string();
 
     // Create memory config based on backend choice
-    let memory_config = MemoryConfig {
-        backend: memory_backend_name.clone(),
-        auto_save: memory_backend_name != "none",
-        hygiene_enabled: memory_backend_name == "sqlite",
-        archive_after_days: if memory_backend_name == "sqlite" {
-            7
-        } else {
-            0
-        },
-        purge_after_days: if memory_backend_name == "sqlite" {
-            30
-        } else {
-            0
-        },
-        conversation_retention_days: 30,
-        embedding_provider: "none".to_string(),
-        embedding_model: "text-embedding-3-small".to_string(),
-        embedding_dimensions: 1536,
-        vector_weight: 0.7,
-        keyword_weight: 0.3,
-        embedding_cache_size: if memory_backend_name == "sqlite" {
-            10000
-        } else {
-            0
-        },
-        chunk_max_tokens: 512,
-    };
+    let memory_config = memory_config_defaults_for_backend(&memory_backend_name);
 
     let config = Config {
         workspace_dir: workspace_dir.clone(),
@@ -288,6 +325,8 @@ pub fn run_quick_setup(
         autonomy: AutonomyConfig::default(),
         runtime: RuntimeConfig::default(),
         reliability: crate::config::ReliabilityConfig::default(),
+        scheduler: crate::config::schema::SchedulerConfig::default(),
+        agent: crate::config::schema::AgentConfig::default(),
         model_routes: Vec::new(),
         heartbeat: HeartbeatConfig::default(),
         channels_config: ChannelsConfig::default(),
@@ -297,8 +336,12 @@ pub fn run_quick_setup(
         composio: ComposioConfig::default(),
         secrets: SecretsConfig::default(),
         browser: BrowserConfig::default(),
+        http_request: crate::config::HttpRequestConfig::default(),
         identity: crate::config::IdentityConfig::default(),
+        cost: crate::config::CostConfig::default(),
+        peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
+        hardware: crate::config::HardwareConfig::default(),
     };
 
     config.save()?;
@@ -396,17 +439,775 @@ pub fn run_quick_setup(
     Ok(config)
 }
 
+fn canonical_provider_name(provider_name: &str) -> &str {
+    match provider_name {
+        "grok" => "xai",
+        "together" => "together-ai",
+        "google" | "google-gemini" => "gemini",
+        _ => provider_name,
+    }
+}
+
 /// Pick a sensible default model for the given provider.
+const MINIMAX_ONBOARD_MODELS: [(&str, &str); 5] = [
+    ("MiniMax-M2.5", "MiniMax M2.5 (latest, recommended)"),
+    ("MiniMax-M2.5-highspeed", "MiniMax M2.5 High-Speed (faster)"),
+    ("MiniMax-M2.1", "MiniMax M2.1 (stable)"),
+    ("MiniMax-M2.1-highspeed", "MiniMax M2.1 High-Speed (faster)"),
+    ("MiniMax-M2", "MiniMax M2 (legacy)"),
+];
+
 fn default_model_for_provider(provider: &str) -> String {
-    match provider {
+    match canonical_provider_name(provider) {
         "anthropic" => "claude-sonnet-4-20250514".into(),
-        "openai" => "gpt-4o".into(),
+        "openai" => "gpt-5.2".into(),
         "glm" | "zhipu" | "zai" | "z.ai" => "glm-5".into(),
+        "minimax" => "MiniMax-M2.5".into(),
         "ollama" => "llama3.2".into(),
         "groq" => "llama-3.3-70b-versatile".into(),
         "deepseek" => "deepseek-chat".into(),
-        "gemini" | "google" | "google-gemini" => "gemini-2.0-flash".into(),
-        _ => "anthropic/claude-sonnet-4-20250514".into(),
+        "gemini" => "gemini-2.5-pro".into(),
+        _ => "anthropic/claude-sonnet-4.5".into(),
+    }
+}
+
+fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
+    match canonical_provider_name(provider_name) {
+        "openrouter" => vec![
+            (
+                "anthropic/claude-sonnet-4.5".to_string(),
+                "Claude Sonnet 4.5 (balanced, recommended)".to_string(),
+            ),
+            (
+                "openai/gpt-5.2".to_string(),
+                "GPT-5.2 (latest flagship)".to_string(),
+            ),
+            (
+                "openai/gpt-5-mini".to_string(),
+                "GPT-5 mini (fast, cost-efficient)".to_string(),
+            ),
+            (
+                "google/gemini-3-pro-preview".to_string(),
+                "Gemini 3 Pro Preview (frontier reasoning)".to_string(),
+            ),
+            (
+                "x-ai/grok-4.1-fast".to_string(),
+                "Grok 4.1 Fast (reasoning + speed)".to_string(),
+            ),
+            (
+                "deepseek/deepseek-v3.2".to_string(),
+                "DeepSeek V3.2 (agentic + affordable)".to_string(),
+            ),
+            (
+                "meta-llama/llama-4-maverick".to_string(),
+                "Llama 4 Maverick (open model)".to_string(),
+            ),
+        ],
+        "anthropic" => vec![
+            (
+                "claude-sonnet-4-20250514".to_string(),
+                "Claude Sonnet 4 (balanced, recommended)".to_string(),
+            ),
+            (
+                "claude-opus-4-1-20250805".to_string(),
+                "Claude Opus 4.1 (best quality)".to_string(),
+            ),
+            (
+                "claude-3-5-haiku-20241022".to_string(),
+                "Claude 3.5 Haiku (fastest, cheapest)".to_string(),
+            ),
+        ],
+        "openai" => vec![
+            (
+                "gpt-5.2".to_string(),
+                "GPT-5.2 (latest coding/agentic flagship)".to_string(),
+            ),
+            (
+                "gpt-5-mini".to_string(),
+                "GPT-5 mini (faster, cheaper)".to_string(),
+            ),
+            (
+                "gpt-5-nano".to_string(),
+                "GPT-5 nano (lowest latency/cost)".to_string(),
+            ),
+            (
+                "gpt-5.2-codex".to_string(),
+                "GPT-5.2 Codex (agentic coding)".to_string(),
+            ),
+        ],
+        "venice" => vec![
+            (
+                "llama-3.3-70b".to_string(),
+                "Llama 3.3 70B (default, fast)".to_string(),
+            ),
+            (
+                "claude-opus-45".to_string(),
+                "Claude Opus 4.5 via Venice (strongest)".to_string(),
+            ),
+            (
+                "llama-3.1-405b".to_string(),
+                "Llama 3.1 405B (largest open source)".to_string(),
+            ),
+        ],
+        "groq" => vec![
+            (
+                "llama-3.3-70b-versatile".to_string(),
+                "Llama 3.3 70B (fast, recommended)".to_string(),
+            ),
+            (
+                "openai/gpt-oss-120b".to_string(),
+                "GPT-OSS 120B (strong open-weight)".to_string(),
+            ),
+            (
+                "openai/gpt-oss-20b".to_string(),
+                "GPT-OSS 20B (cost-efficient open-weight)".to_string(),
+            ),
+        ],
+        "mistral" => vec![
+            (
+                "mistral-large-latest".to_string(),
+                "Mistral Large (latest flagship)".to_string(),
+            ),
+            (
+                "mistral-medium-latest".to_string(),
+                "Mistral Medium (balanced)".to_string(),
+            ),
+            (
+                "codestral-latest".to_string(),
+                "Codestral (code-focused)".to_string(),
+            ),
+            (
+                "devstral-latest".to_string(),
+                "Devstral (software engineering specialist)".to_string(),
+            ),
+        ],
+        "deepseek" => vec![
+            (
+                "deepseek-chat".to_string(),
+                "DeepSeek Chat (mapped to V3.2 non-thinking)".to_string(),
+            ),
+            (
+                "deepseek-reasoner".to_string(),
+                "DeepSeek Reasoner (mapped to V3.2 thinking)".to_string(),
+            ),
+        ],
+        "xai" => vec![
+            (
+                "grok-4-1-fast-reasoning".to_string(),
+                "Grok 4.1 Fast Reasoning (recommended)".to_string(),
+            ),
+            (
+                "grok-4-1-fast-non-reasoning".to_string(),
+                "Grok 4.1 Fast Non-Reasoning (low latency)".to_string(),
+            ),
+            (
+                "grok-code-fast-1".to_string(),
+                "Grok Code Fast 1 (coding specialist)".to_string(),
+            ),
+            ("grok-4".to_string(), "Grok 4 (max quality)".to_string()),
+        ],
+        "perplexity" => vec![
+            (
+                "sonar-pro".to_string(),
+                "Sonar Pro (flagship web-grounded model)".to_string(),
+            ),
+            (
+                "sonar-reasoning-pro".to_string(),
+                "Sonar Reasoning Pro (complex multi-step reasoning)".to_string(),
+            ),
+            (
+                "sonar-deep-research".to_string(),
+                "Sonar Deep Research (long-form research)".to_string(),
+            ),
+            ("sonar".to_string(), "Sonar (search, fast)".to_string()),
+        ],
+        "fireworks" => vec![
+            (
+                "accounts/fireworks/models/llama-v3p3-70b-instruct".to_string(),
+                "Llama 3.3 70B".to_string(),
+            ),
+            (
+                "accounts/fireworks/models/mixtral-8x22b-instruct".to_string(),
+                "Mixtral 8x22B".to_string(),
+            ),
+        ],
+        "together-ai" => vec![
+            (
+                "meta-llama/Llama-3.3-70B-Instruct-Turbo".to_string(),
+                "Llama 3.3 70B Instruct Turbo (recommended)".to_string(),
+            ),
+            (
+                "moonshotai/Kimi-K2.5".to_string(),
+                "Kimi K2.5 (reasoning + coding)".to_string(),
+            ),
+            (
+                "deepseek-ai/DeepSeek-V3.1".to_string(),
+                "DeepSeek V3.1 (strong value)".to_string(),
+            ),
+        ],
+        "cohere" => vec![
+            (
+                "command-a-03-2025".to_string(),
+                "Command A (flagship enterprise model)".to_string(),
+            ),
+            (
+                "command-a-reasoning-08-2025".to_string(),
+                "Command A Reasoning (agentic reasoning)".to_string(),
+            ),
+            (
+                "command-r-08-2024".to_string(),
+                "Command R (stable fast baseline)".to_string(),
+            ),
+        ],
+        "moonshot" => vec![
+            (
+                "kimi-latest".to_string(),
+                "Kimi Latest (rolling latest assistant model)".to_string(),
+            ),
+            (
+                "kimi-k2-0905-preview".to_string(),
+                "Kimi K2 0905 Preview (strong coding)".to_string(),
+            ),
+            (
+                "kimi-thinking-preview".to_string(),
+                "Kimi Thinking Preview (deep reasoning)".to_string(),
+            ),
+        ],
+        "glm" | "zhipu" | "zai" | "z.ai" => vec![
+            (
+                "glm-4.7".to_string(),
+                "GLM-4.7 (latest flagship)".to_string(),
+            ),
+            ("glm-5".to_string(), "GLM-5 (high reasoning)".to_string()),
+            (
+                "glm-4-plus".to_string(),
+                "GLM-4 Plus (stable baseline)".to_string(),
+            ),
+        ],
+        "minimax" => vec![
+            (
+                "MiniMax-M2.5".to_string(),
+                "MiniMax M2.5 (latest flagship)".to_string(),
+            ),
+            (
+                "MiniMax-M2.1".to_string(),
+                "MiniMax M2.1 (strong coding/reasoning)".to_string(),
+            ),
+            (
+                "MiniMax-M2.1-lightning".to_string(),
+                "MiniMax M2.1 Lightning (fast)".to_string(),
+            ),
+        ],
+        "ollama" => vec![
+            (
+                "llama3.2".to_string(),
+                "Llama 3.2 (recommended local)".to_string(),
+            ),
+            ("mistral".to_string(), "Mistral 7B".to_string()),
+            ("codellama".to_string(), "Code Llama".to_string()),
+            ("phi3".to_string(), "Phi-3 (small, fast)".to_string()),
+        ],
+        "gemini" => vec![
+            (
+                "gemini-3-pro-preview".to_string(),
+                "Gemini 3 Pro Preview (latest frontier reasoning)".to_string(),
+            ),
+            (
+                "gemini-2.5-pro".to_string(),
+                "Gemini 2.5 Pro (stable reasoning)".to_string(),
+            ),
+            (
+                "gemini-2.5-flash".to_string(),
+                "Gemini 2.5 Flash (best price/performance)".to_string(),
+            ),
+            (
+                "gemini-2.5-flash-lite".to_string(),
+                "Gemini 2.5 Flash-Lite (lowest cost)".to_string(),
+            ),
+        ],
+        _ => vec![("default".to_string(), "Default model".to_string())],
+    }
+}
+
+fn supports_live_model_fetch(provider_name: &str) -> bool {
+    matches!(
+        canonical_provider_name(provider_name),
+        "openrouter"
+            | "openai"
+            | "anthropic"
+            | "groq"
+            | "mistral"
+            | "deepseek"
+            | "xai"
+            | "together-ai"
+            | "gemini"
+            | "ollama"
+    )
+}
+
+fn build_model_fetch_client() -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .connect_timeout(Duration::from_secs(4))
+        .build()
+        .context("failed to build model-fetch HTTP client")
+}
+
+fn normalize_model_ids(ids: Vec<String>) -> Vec<String> {
+    let mut unique = BTreeSet::new();
+    for id in ids {
+        let trimmed = id.trim();
+        if !trimmed.is_empty() {
+            unique.insert(trimmed.to_string());
+        }
+    }
+    unique.into_iter().collect()
+}
+
+fn parse_openai_compatible_model_ids(payload: &Value) -> Vec<String> {
+    let mut models = Vec::new();
+
+    if let Some(data) = payload.get("data").and_then(Value::as_array) {
+        for model in data {
+            if let Some(id) = model.get("id").and_then(Value::as_str) {
+                models.push(id.to_string());
+            }
+        }
+    } else if let Some(data) = payload.as_array() {
+        for model in data {
+            if let Some(id) = model.get("id").and_then(Value::as_str) {
+                models.push(id.to_string());
+            }
+        }
+    }
+
+    normalize_model_ids(models)
+}
+
+fn parse_gemini_model_ids(payload: &Value) -> Vec<String> {
+    let Some(models) = payload.get("models").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    let mut ids = Vec::new();
+    for model in models {
+        let supports_generate_content = model
+            .get("supportedGenerationMethods")
+            .and_then(Value::as_array)
+            .is_none_or(|methods| {
+                methods
+                    .iter()
+                    .any(|method| method.as_str() == Some("generateContent"))
+            });
+
+        if !supports_generate_content {
+            continue;
+        }
+
+        if let Some(name) = model.get("name").and_then(Value::as_str) {
+            ids.push(name.trim_start_matches("models/").to_string());
+        }
+    }
+
+    normalize_model_ids(ids)
+}
+
+fn parse_ollama_model_ids(payload: &Value) -> Vec<String> {
+    let Some(models) = payload.get("models").and_then(Value::as_array) else {
+        return Vec::new();
+    };
+
+    let mut ids = Vec::new();
+    for model in models {
+        if let Some(name) = model.get("name").and_then(Value::as_str) {
+            ids.push(name.to_string());
+        }
+    }
+
+    normalize_model_ids(ids)
+}
+
+fn fetch_openai_compatible_models(endpoint: &str, api_key: Option<&str>) -> Result<Vec<String>> {
+    let Some(api_key) = api_key else {
+        return Ok(Vec::new());
+    };
+
+    let client = build_model_fetch_client()?;
+    let payload: Value = client
+        .get(endpoint)
+        .bearer_auth(api_key)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .with_context(|| format!("model fetch failed: GET {endpoint}"))?
+        .json()
+        .context("failed to parse model list response")?;
+
+    Ok(parse_openai_compatible_model_ids(&payload))
+}
+
+fn fetch_openrouter_models(api_key: Option<&str>) -> Result<Vec<String>> {
+    let client = build_model_fetch_client()?;
+    let mut request = client.get("https://openrouter.ai/api/v1/models");
+    if let Some(api_key) = api_key {
+        request = request.bearer_auth(api_key);
+    }
+
+    let payload: Value = request
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context("model fetch failed: GET https://openrouter.ai/api/v1/models")?
+        .json()
+        .context("failed to parse OpenRouter model list response")?;
+
+    Ok(parse_openai_compatible_model_ids(&payload))
+}
+
+fn fetch_anthropic_models(api_key: Option<&str>) -> Result<Vec<String>> {
+    let Some(api_key) = api_key else {
+        return Ok(Vec::new());
+    };
+
+    let client = build_model_fetch_client()?;
+    let payload: Value = client
+        .get("https://api.anthropic.com/v1/models")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context("model fetch failed: GET https://api.anthropic.com/v1/models")?
+        .json()
+        .context("failed to parse Anthropic model list response")?;
+
+    Ok(parse_openai_compatible_model_ids(&payload))
+}
+
+fn fetch_gemini_models(api_key: Option<&str>) -> Result<Vec<String>> {
+    let Some(api_key) = api_key else {
+        return Ok(Vec::new());
+    };
+
+    let client = build_model_fetch_client()?;
+    let payload: Value = client
+        .get("https://generativelanguage.googleapis.com/v1beta/models")
+        .query(&[("key", api_key), ("pageSize", "200")])
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context("model fetch failed: GET Gemini models")?
+        .json()
+        .context("failed to parse Gemini model list response")?;
+
+    Ok(parse_gemini_model_ids(&payload))
+}
+
+fn fetch_ollama_models() -> Result<Vec<String>> {
+    let client = build_model_fetch_client()?;
+    let payload: Value = client
+        .get("http://localhost:11434/api/tags")
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context("model fetch failed: GET http://localhost:11434/api/tags")?
+        .json()
+        .context("failed to parse Ollama model list response")?;
+
+    Ok(parse_ollama_model_ids(&payload))
+}
+
+fn fetch_live_models_for_provider(provider_name: &str, api_key: &str) -> Result<Vec<String>> {
+    let provider_name = canonical_provider_name(provider_name);
+    let api_key = if api_key.trim().is_empty() {
+        std::env::var(provider_env_var(provider_name))
+            .ok()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+    } else {
+        Some(api_key.trim().to_string())
+    };
+
+    let models = match provider_name {
+        "openrouter" => fetch_openrouter_models(api_key.as_deref())?,
+        "openai" => {
+            fetch_openai_compatible_models("https://api.openai.com/v1/models", api_key.as_deref())?
+        }
+        "groq" => fetch_openai_compatible_models(
+            "https://api.groq.com/openai/v1/models",
+            api_key.as_deref(),
+        )?,
+        "mistral" => {
+            fetch_openai_compatible_models("https://api.mistral.ai/v1/models", api_key.as_deref())?
+        }
+        "deepseek" => fetch_openai_compatible_models(
+            "https://api.deepseek.com/v1/models",
+            api_key.as_deref(),
+        )?,
+        "xai" => fetch_openai_compatible_models("https://api.x.ai/v1/models", api_key.as_deref())?,
+        "together-ai" => fetch_openai_compatible_models(
+            "https://api.together.xyz/v1/models",
+            api_key.as_deref(),
+        )?,
+        "anthropic" => fetch_anthropic_models(api_key.as_deref())?,
+        "gemini" => fetch_gemini_models(api_key.as_deref())?,
+        "ollama" => fetch_ollama_models()?,
+        _ => Vec::new(),
+    };
+
+    Ok(models)
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct ModelCacheEntry {
+    provider: String,
+    fetched_at_unix: u64,
+    models: Vec<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+struct ModelCacheState {
+    entries: Vec<ModelCacheEntry>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedModels {
+    models: Vec<String>,
+    age_secs: u64,
+}
+
+fn model_cache_path(workspace_dir: &Path) -> PathBuf {
+    workspace_dir.join("state").join(MODEL_CACHE_FILE)
+}
+
+fn now_unix_secs() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
+}
+
+fn load_model_cache_state(workspace_dir: &Path) -> Result<ModelCacheState> {
+    let path = model_cache_path(workspace_dir);
+    if !path.exists() {
+        return Ok(ModelCacheState::default());
+    }
+
+    let raw = fs::read_to_string(&path)
+        .with_context(|| format!("failed to read model cache at {}", path.display()))?;
+
+    match serde_json::from_str::<ModelCacheState>(&raw) {
+        Ok(state) => Ok(state),
+        Err(_) => Ok(ModelCacheState::default()),
+    }
+}
+
+fn save_model_cache_state(workspace_dir: &Path, state: &ModelCacheState) -> Result<()> {
+    let path = model_cache_path(workspace_dir);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).with_context(|| {
+            format!(
+                "failed to create model cache directory {}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let json = serde_json::to_vec_pretty(state).context("failed to serialize model cache")?;
+    fs::write(&path, json)
+        .with_context(|| format!("failed to write model cache at {}", path.display()))?;
+
+    Ok(())
+}
+
+fn cache_live_models_for_provider(
+    workspace_dir: &Path,
+    provider_name: &str,
+    models: &[String],
+) -> Result<()> {
+    let normalized_models = normalize_model_ids(models.to_vec());
+    if normalized_models.is_empty() {
+        return Ok(());
+    }
+
+    let mut state = load_model_cache_state(workspace_dir)?;
+    let now = now_unix_secs();
+
+    if let Some(entry) = state
+        .entries
+        .iter_mut()
+        .find(|entry| entry.provider == provider_name)
+    {
+        entry.fetched_at_unix = now;
+        entry.models = normalized_models;
+    } else {
+        state.entries.push(ModelCacheEntry {
+            provider: provider_name.to_string(),
+            fetched_at_unix: now,
+            models: normalized_models,
+        });
+    }
+
+    save_model_cache_state(workspace_dir, &state)
+}
+
+fn load_cached_models_for_provider_internal(
+    workspace_dir: &Path,
+    provider_name: &str,
+    ttl_secs: Option<u64>,
+) -> Result<Option<CachedModels>> {
+    let state = load_model_cache_state(workspace_dir)?;
+    let now = now_unix_secs();
+
+    let Some(entry) = state
+        .entries
+        .into_iter()
+        .find(|entry| entry.provider == provider_name)
+    else {
+        return Ok(None);
+    };
+
+    if entry.models.is_empty() {
+        return Ok(None);
+    }
+
+    let age_secs = now.saturating_sub(entry.fetched_at_unix);
+    if ttl_secs.is_some_and(|ttl| age_secs > ttl) {
+        return Ok(None);
+    }
+
+    Ok(Some(CachedModels {
+        models: entry.models,
+        age_secs,
+    }))
+}
+
+fn load_cached_models_for_provider(
+    workspace_dir: &Path,
+    provider_name: &str,
+    ttl_secs: u64,
+) -> Result<Option<CachedModels>> {
+    load_cached_models_for_provider_internal(workspace_dir, provider_name, Some(ttl_secs))
+}
+
+fn load_any_cached_models_for_provider(
+    workspace_dir: &Path,
+    provider_name: &str,
+) -> Result<Option<CachedModels>> {
+    load_cached_models_for_provider_internal(workspace_dir, provider_name, None)
+}
+
+fn humanize_age(age_secs: u64) -> String {
+    if age_secs < 60 {
+        format!("{age_secs}s")
+    } else if age_secs < 60 * 60 {
+        format!("{}m", age_secs / 60)
+    } else {
+        format!("{}h", age_secs / (60 * 60))
+    }
+}
+
+fn build_model_options(model_ids: Vec<String>, source: &str) -> Vec<(String, String)> {
+    model_ids
+        .into_iter()
+        .map(|model_id| {
+            let label = format!("{model_id} ({source})");
+            (model_id, label)
+        })
+        .collect()
+}
+
+fn print_model_preview(models: &[String]) {
+    for model in models.iter().take(MODEL_PREVIEW_LIMIT) {
+        println!("  {} {model}", style("-"));
+    }
+
+    if models.len() > MODEL_PREVIEW_LIMIT {
+        println!(
+            "  {} ... and {} more",
+            style("-"),
+            models.len() - MODEL_PREVIEW_LIMIT
+        );
+    }
+}
+
+pub fn run_models_refresh(
+    config: &Config,
+    provider_override: Option<&str>,
+    force: bool,
+) -> Result<()> {
+    let provider_name = provider_override
+        .or(config.default_provider.as_deref())
+        .unwrap_or("openrouter")
+        .trim()
+        .to_string();
+
+    if provider_name.is_empty() {
+        anyhow::bail!("Provider name cannot be empty");
+    }
+
+    if !supports_live_model_fetch(&provider_name) {
+        anyhow::bail!("Provider '{provider_name}' does not support live model discovery yet");
+    }
+
+    if !force {
+        if let Some(cached) = load_cached_models_for_provider(
+            &config.workspace_dir,
+            &provider_name,
+            MODEL_CACHE_TTL_SECS,
+        )? {
+            println!(
+                "Using cached model list for '{}' (updated {} ago):",
+                provider_name,
+                humanize_age(cached.age_secs)
+            );
+            print_model_preview(&cached.models);
+            println!();
+            println!(
+                "Tip: run `corvus models refresh --force --provider {}` to fetch latest now.",
+                provider_name
+            );
+            return Ok(());
+        }
+    }
+
+    let api_key = config.api_key.clone().unwrap_or_default();
+
+    match fetch_live_models_for_provider(&provider_name, &api_key) {
+        Ok(models) if !models.is_empty() => {
+            cache_live_models_for_provider(&config.workspace_dir, &provider_name, &models)?;
+            println!(
+                "Refreshed '{}' model cache with {} models.",
+                provider_name,
+                models.len()
+            );
+            print_model_preview(&models);
+            Ok(())
+        }
+        Ok(_) => {
+            if let Some(stale_cache) =
+                load_any_cached_models_for_provider(&config.workspace_dir, &provider_name)?
+            {
+                println!(
+                    "Provider returned no models; using stale cache (updated {} ago):",
+                    humanize_age(stale_cache.age_secs)
+                );
+                print_model_preview(&stale_cache.models);
+                return Ok(());
+            }
+
+            anyhow::bail!("Provider '{}' returned an empty model list", provider_name)
+        }
+        Err(error) => {
+            if let Some(stale_cache) =
+                load_any_cached_models_for_provider(&config.workspace_dir, &provider_name)?
+            {
+                println!(
+                    "Live refresh failed ({}). Falling back to stale cache (updated {} ago):",
+                    error,
+                    humanize_age(stale_cache.age_secs)
+                );
+                print_model_preview(&stale_cache.models);
+                return Ok(());
+            }
+
+            Err(error)
+                .with_context(|| format!("failed to refresh models for provider '{provider_name}'"))
+        }
     }
 }
 
@@ -471,11 +1272,11 @@ fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
 // ── Step 2: Provider & API Key ───────────────────────────────────
 
 #[allow(clippy::too_many_lines)]
-fn setup_provider() -> Result<(String, String, String)> {
+fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
     // ── Tier selection ──
     let tiers = vec![
         "⭐ Recommended (OpenRouter, Venice, Anthropic, OpenAI, Gemini)",
-        "⚡ Fast inference (Groq, Fireworks, Together AI)",
+        "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
         "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Amazon Bedrock)",
         "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
         "🏠 Local / private (Ollama — no API key needed)",
@@ -509,7 +1310,8 @@ fn setup_provider() -> Result<(String, String, String)> {
         1 => vec![
             ("groq", "Groq — ultra-fast LPU inference"),
             ("fireworks", "Fireworks AI — fast open-source inference"),
-            ("together", "Together AI — open-source model hosting"),
+            ("together-ai", "Together AI — open-source model hosting"),
+            ("nvidia", "NVIDIA NIM — DeepSeek, Llama, & more"),
         ],
         2 => vec![
             ("vercel", "Vercel AI Gateway"),
@@ -587,10 +1389,7 @@ fn setup_provider() -> Result<(String, String, String)> {
     let api_key = if provider_name == "ollama" {
         print_bullet("Ollama runs locally — no API key needed!");
         String::new()
-    } else if provider_name == "gemini"
-        || provider_name == "google"
-        || provider_name == "google-gemini"
-    {
+    } else if canonical_provider_name(provider_name) == "gemini" {
         // Special handling for Gemini: check for CLI auth first
         if crate::providers::gemini::GeminiProvider::has_cli_credentials() {
             print_bullet(&format!(
@@ -643,7 +1442,7 @@ fn setup_provider() -> Result<(String, String, String)> {
             "groq" => "https://console.groq.com/keys",
             "mistral" => "https://console.mistral.ai/api-keys",
             "deepseek" => "https://platform.deepseek.com/api_keys",
-            "together" => "https://api.together.xyz/settings/api-keys",
+            "together-ai" => "https://api.together.xyz/settings/api-keys",
             "fireworks" => "https://fireworks.ai/account/api-keys",
             "perplexity" => "https://www.perplexity.ai/settings/api",
             "xai" => "https://console.x.ai",
@@ -654,8 +1453,9 @@ fn setup_provider() -> Result<(String, String, String)> {
             "minimax" => "https://www.minimaxi.com/user-center/basic-information",
             "vercel" => "https://vercel.com/account/tokens",
             "cloudflare" => "https://dash.cloudflare.com/profile/api-tokens",
+            "nvidia" | "nvidia-nim" | "build.nvidia.com" => "https://build.nvidia.com/",
             "bedrock" => "https://console.aws.amazon.com/iam",
-            "gemini" | "google" | "google-gemini" => "https://aistudio.google.com/app/apikey",
+            "gemini" => "https://aistudio.google.com/app/apikey",
             _ => "",
         };
 
@@ -689,7 +1489,7 @@ fn setup_provider() -> Result<(String, String, String)> {
     let models: Vec<(&str, &str)> = match provider_name {
         "openrouter" => vec![
             (
-                "anthropic/claude-sonnet-4-20250514",
+                "anthropic/claude-sonnet-4",
                 "Claude Sonnet 4 (balanced, recommended)",
             ),
             (
@@ -775,6 +1575,12 @@ fn setup_provider() -> Result<(String, String, String)> {
             ),
             ("mistralai/Mixtral-8x22B-Instruct-v0.1", "Mixtral 8x22B"),
         ],
+        "nvidia" | "nvidia-nim" | "build.nvidia.com" => vec![
+            ("deepseek-ai/DeepSeek-R1", "DeepSeek R1 (reasoning)"),
+            ("meta/llama-3.1-70b-instruct", "Llama 3.1 70B Instruct"),
+            ("mistralai/Mistral-7B-Instruct-v0.3", "Mistral 7B Instruct"),
+            ("meta/llama-3.1-405b-instruct", "Llama 3.1 405B Instruct"),
+        ],
         "cohere" => vec![
             ("command-r-plus", "Command R+ (flagship)"),
             ("command-r", "Command R (fast)"),
@@ -788,10 +1594,7 @@ fn setup_provider() -> Result<(String, String, String)> {
             ("glm-4-plus", "GLM-4 Plus (flagship)"),
             ("glm-4-flash", "GLM-4 Flash (fast)"),
         ],
-        "minimax" => vec![
-            ("abab6.5s-chat", "ABAB 6.5s Chat"),
-            ("abab6.5-chat", "ABAB 6.5 Chat"),
-        ],
+        "minimax" => MINIMAX_ONBOARD_MODELS.to_vec(),
         "ollama" => vec![
             ("llama3.2", "Llama 3.2 (recommended local)"),
             ("mistral", "Mistral 7B"),
@@ -810,7 +1613,144 @@ fn setup_provider() -> Result<(String, String, String)> {
         _ => vec![("default", "Default model")],
     };
 
-    let model_labels: Vec<&str> = models.iter().map(|(_, label)| *label).collect();
+    let mut model_options: Vec<(String, String)> = models
+        .into_iter()
+        .map(|(model_id, label)| (model_id.to_string(), label.to_string()))
+        .collect();
+    let mut live_options: Option<Vec<(String, String)>> = None;
+
+    if supports_live_model_fetch(provider_name) {
+        let can_fetch_without_key = matches!(provider_name, "openrouter" | "ollama");
+        let has_api_key = !api_key.trim().is_empty()
+            || std::env::var(provider_env_var(provider_name))
+                .ok()
+                .is_some_and(|value| !value.trim().is_empty());
+
+        if can_fetch_without_key || has_api_key {
+            if let Some(cached) =
+                load_cached_models_for_provider(workspace_dir, provider_name, MODEL_CACHE_TTL_SECS)?
+            {
+                let shown_count = cached.models.len().min(LIVE_MODEL_MAX_OPTIONS);
+                print_bullet(&format!(
+                    "Found cached models ({shown_count}) updated {} ago.",
+                    humanize_age(cached.age_secs)
+                ));
+
+                live_options = Some(build_model_options(
+                    cached
+                        .models
+                        .into_iter()
+                        .take(LIVE_MODEL_MAX_OPTIONS)
+                        .collect(),
+                    "cached",
+                ));
+            }
+
+            let should_fetch_now = Confirm::new()
+                .with_prompt(if live_options.is_some() {
+                    "  Refresh models from provider now?"
+                } else {
+                    "  Fetch latest models from provider now?"
+                })
+                .default(live_options.is_none())
+                .interact()?;
+
+            if should_fetch_now {
+                match fetch_live_models_for_provider(provider_name, &api_key) {
+                    Ok(live_model_ids) if !live_model_ids.is_empty() => {
+                        cache_live_models_for_provider(
+                            workspace_dir,
+                            provider_name,
+                            &live_model_ids,
+                        )?;
+
+                        let fetched_count = live_model_ids.len();
+                        let shown_count = fetched_count.min(LIVE_MODEL_MAX_OPTIONS);
+                        let shown_models: Vec<String> = live_model_ids
+                            .into_iter()
+                            .take(LIVE_MODEL_MAX_OPTIONS)
+                            .collect();
+
+                        if shown_count < fetched_count {
+                            print_bullet(&format!(
+                                "Fetched {fetched_count} models. Showing first {shown_count}."
+                            ));
+                        } else {
+                            print_bullet(&format!("Fetched {shown_count} live models."));
+                        }
+
+                        live_options = Some(build_model_options(shown_models, "live"));
+                    }
+                    Ok(_) => {
+                        print_bullet("Provider returned no models; using curated list.");
+                    }
+                    Err(error) => {
+                        print_bullet(&format!(
+                            "Live fetch failed ({}); using cached/curated list.",
+                            style(error.to_string()).yellow()
+                        ));
+
+                        if live_options.is_none() {
+                            if let Some(stale) =
+                                load_any_cached_models_for_provider(workspace_dir, provider_name)?
+                            {
+                                print_bullet(&format!(
+                                    "Loaded stale cache from {} ago.",
+                                    humanize_age(stale.age_secs)
+                                ));
+
+                                live_options = Some(build_model_options(
+                                    stale
+                                        .models
+                                        .into_iter()
+                                        .take(LIVE_MODEL_MAX_OPTIONS)
+                                        .collect(),
+                                    "stale-cache",
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            print_bullet("No API key detected, so using curated model list.");
+            print_bullet("Tip: add an API key and rerun onboarding to fetch live models.");
+        }
+    }
+
+    if let Some(live_model_options) = live_options {
+        let source_options = vec![
+            format!("Provider model list ({})", live_model_options.len()),
+            format!("Curated starter list ({})", model_options.len()),
+        ];
+
+        let source_idx = Select::new()
+            .with_prompt("  Model source")
+            .items(&source_options)
+            .default(0)
+            .interact()?;
+
+        if source_idx == 0 {
+            model_options = live_model_options;
+        }
+    }
+
+    if model_options.is_empty() {
+        model_options.push((
+            default_model_for_provider(provider_name),
+            "Provider default model".to_string(),
+        ));
+    }
+
+    model_options.push((
+        CUSTOM_MODEL_SENTINEL.to_string(),
+        "Custom model ID (type manually)".to_string(),
+    ));
+
+    let model_labels: Vec<String> = model_options
+        .iter()
+        .map(|(model_id, label)| format!("{label} — {}", style(model_id).dim()))
+        .collect();
 
     let model_idx = Select::new()
         .with_prompt("  Select your default model")
@@ -818,7 +1758,15 @@ fn setup_provider() -> Result<(String, String, String)> {
         .default(0)
         .interact()?;
 
-    let model = models[model_idx].0.to_string();
+    let selected_model = model_options[model_idx].0.clone();
+    let model = if selected_model == CUSTOM_MODEL_SENTINEL {
+        Input::new()
+            .with_prompt("  Enter custom model ID")
+            .default(default_model_for_provider(provider_name))
+            .interact_text()?
+    } else {
+        selected_model
+    };
 
     println!(
         "  {} Provider: {} | Model: {}",
@@ -832,7 +1780,7 @@ fn setup_provider() -> Result<(String, String, String)> {
 
 /// Map provider name to its conventional env var
 fn provider_env_var(name: &str) -> &'static str {
-    match name {
+    match canonical_provider_name(name) {
         "openrouter" => "OPENROUTER_API_KEY",
         "anthropic" => "ANTHROPIC_API_KEY",
         "openai" => "OPENAI_API_KEY",
@@ -840,8 +1788,8 @@ fn provider_env_var(name: &str) -> &'static str {
         "groq" => "GROQ_API_KEY",
         "mistral" => "MISTRAL_API_KEY",
         "deepseek" => "DEEPSEEK_API_KEY",
-        "xai" | "grok" => "XAI_API_KEY",
-        "together" | "together-ai" => "TOGETHER_API_KEY",
+        "xai" => "XAI_API_KEY",
+        "together-ai" => "TOGETHER_API_KEY",
         "fireworks" | "fireworks-ai" => "FIREWORKS_API_KEY",
         "perplexity" => "PERPLEXITY_API_KEY",
         "cohere" => "COHERE_API_KEY",
@@ -855,7 +1803,8 @@ fn provider_env_var(name: &str) -> &'static str {
         "vercel" | "vercel-ai" => "VERCEL_API_KEY",
         "cloudflare" | "cloudflare-ai" => "CLOUDFLARE_API_KEY",
         "bedrock" | "aws-bedrock" => "AWS_ACCESS_KEY_ID",
-        "gemini" | "google" | "google-gemini" => "GEMINI_API_KEY",
+        "gemini" => "GEMINI_API_KEY",
+        "nvidia" | "nvidia-nim" | "build.nvidia.com" => "NVIDIA_API_KEY",
         _ => "API_KEY",
     }
 }
@@ -948,6 +1897,194 @@ fn setup_tool_mode() -> Result<(ComposioConfig, SecretsConfig)> {
     }
 
     Ok((composio_config, secrets_config))
+}
+
+// ── Step 6: Hardware (Physical World) ───────────────────────────
+
+fn setup_hardware() -> Result<HardwareConfig> {
+    print_bullet("Corvus can talk to physical hardware (LEDs, sensors, motors).");
+    print_bullet("Scanning for connected devices...");
+    println!();
+
+    // ── Auto-discovery ──
+    let devices = hardware::discover_hardware();
+
+    if devices.is_empty() {
+        println!(
+            "  {} {}",
+            style("ℹ").dim(),
+            style("No hardware devices detected on this system.").dim()
+        );
+        println!(
+            "  {} {}",
+            style("ℹ").dim(),
+            style("You can enable hardware later in config.toml under [hardware].").dim()
+        );
+    } else {
+        println!(
+            "  {} {} device(s) found:",
+            style("✓").green().bold(),
+            devices.len()
+        );
+        for device in &devices {
+            let detail = device
+                .detail
+                .as_deref()
+                .map(|d| format!(" ({d})"))
+                .unwrap_or_default();
+            let path = device
+                .device_path
+                .as_deref()
+                .map(|p| format!(" → {p}"))
+                .unwrap_or_default();
+            println!(
+                "    {} {}{}{} [{}]",
+                style("›").cyan(),
+                style(&device.name).green(),
+                style(&detail).dim(),
+                style(&path).dim(),
+                style(device.transport.to_string()).cyan()
+            );
+        }
+    }
+    println!();
+
+    let options = vec![
+        "🚀 Native — direct GPIO on this Linux board (Raspberry Pi, Orange Pi, etc.)",
+        "🔌 Tethered — control an Arduino/ESP32/Nucleo plugged into USB",
+        "🔬 Debug Probe — flash/read MCUs via SWD/JTAG (probe-rs)",
+        "☁️  Software Only — no hardware access (default)",
+    ];
+
+    let recommended = hardware::recommended_wizard_default(&devices);
+
+    let choice = Select::new()
+        .with_prompt("  How should Corvus interact with the physical world?")
+        .items(&options)
+        .default(recommended)
+        .interact()?;
+
+    let mut hw_config = hardware::config_from_wizard_choice(choice, &devices);
+
+    // ── Serial: pick a port if multiple found ──
+    if hw_config.transport_mode() == hardware::HardwareTransport::Serial {
+        let serial_devices: Vec<&hardware::DiscoveredDevice> = devices
+            .iter()
+            .filter(|d| d.transport == hardware::HardwareTransport::Serial)
+            .collect();
+
+        if serial_devices.len() > 1 {
+            let port_labels: Vec<String> = serial_devices
+                .iter()
+                .map(|d| {
+                    format!(
+                        "{} ({})",
+                        d.device_path.as_deref().unwrap_or("unknown"),
+                        d.name
+                    )
+                })
+                .collect();
+
+            let port_idx = Select::new()
+                .with_prompt("  Multiple serial devices found — select one")
+                .items(&port_labels)
+                .default(0)
+                .interact()?;
+
+            hw_config.serial_port = serial_devices[port_idx].device_path.clone();
+        } else if serial_devices.is_empty() {
+            // User chose serial but no device discovered — ask for manual path
+            let manual_port: String = Input::new()
+                .with_prompt("  Serial port path (e.g. /dev/ttyUSB0)")
+                .default("/dev/ttyUSB0".into())
+                .interact_text()?;
+            hw_config.serial_port = Some(manual_port);
+        }
+
+        // Baud rate
+        let baud_options = vec![
+            "115200 (default, recommended)",
+            "9600 (legacy Arduino)",
+            "57600",
+            "230400",
+            "Custom",
+        ];
+        let baud_idx = Select::new()
+            .with_prompt("  Serial baud rate")
+            .items(&baud_options)
+            .default(0)
+            .interact()?;
+
+        hw_config.baud_rate = match baud_idx {
+            1 => 9600,
+            2 => 57600,
+            3 => 230_400,
+            4 => {
+                let custom: String = Input::new()
+                    .with_prompt("  Custom baud rate")
+                    .default("115200".into())
+                    .interact_text()?;
+                custom.parse::<u32>().unwrap_or(115_200)
+            }
+            _ => 115_200,
+        };
+    }
+
+    // ── Probe: ask for target chip ──
+    if hw_config.transport_mode() == hardware::HardwareTransport::Probe
+        && hw_config.probe_target.is_none()
+    {
+        let target: String = Input::new()
+            .with_prompt("  Target MCU chip (e.g. STM32F411CEUx, nRF52840_xxAA)")
+            .default("STM32F411CEUx".into())
+            .interact_text()?;
+        hw_config.probe_target = Some(target);
+    }
+
+    // ── Datasheet RAG ──
+    if hw_config.enabled {
+        let datasheets = Confirm::new()
+            .with_prompt("  Enable datasheet RAG? (index PDF schematics for AI pin lookups)")
+            .default(true)
+            .interact()?;
+        hw_config.workspace_datasheets = datasheets;
+    }
+
+    // ── Summary ──
+    if hw_config.enabled {
+        let transport_label = match hw_config.transport_mode() {
+            hardware::HardwareTransport::Native => "Native GPIO".to_string(),
+            hardware::HardwareTransport::Serial => format!(
+                "Serial → {} @ {} baud",
+                hw_config.serial_port.as_deref().unwrap_or("?"),
+                hw_config.baud_rate
+            ),
+            hardware::HardwareTransport::Probe => format!(
+                "Probe (SWD/JTAG) → {}",
+                hw_config.probe_target.as_deref().unwrap_or("?")
+            ),
+            hardware::HardwareTransport::None => "Software Only".to_string(),
+        };
+
+        println!(
+            "  {} Hardware: {} | datasheets: {}",
+            style("✓").green().bold(),
+            style(&transport_label).green(),
+            if hw_config.workspace_datasheets {
+                style("on").green().to_string()
+            } else {
+                style("off").dim().to_string()
+            }
+        );
+    } else {
+        println!(
+            "  {} Hardware: {}",
+            style("✓").green().bold(),
+            style("disabled (software only)").dim()
+        );
+    }
+
+    Ok(hw_config)
 }
 
 // ── Step 6: Project Context ─────────────────────────────────────
@@ -1055,11 +2192,10 @@ fn setup_memory() -> Result<MemoryConfig> {
     print_bullet("You can always change this later in config.toml.");
     println!();
 
-    let options = vec![
-        "SQLite with Vector Search (recommended) — fast, hybrid search, embeddings",
-        "Markdown Files — simple, human-readable, no dependencies",
-        "None — disable persistent memory",
-    ];
+    let options: Vec<&str> = selectable_memory_backends()
+        .iter()
+        .map(|backend| backend.label)
+        .collect();
 
     let choice = Select::new()
         .with_prompt("  Select memory backend")
@@ -1067,20 +2203,16 @@ fn setup_memory() -> Result<MemoryConfig> {
         .default(0)
         .interact()?;
 
-    let backend = match choice {
-        1 => "markdown",
-        2 => "none",
-        _ => "sqlite", // 0 and any unexpected value defaults to sqlite
-    };
+    let backend = backend_key_from_choice(choice);
+    let profile = memory_backend_profile(backend);
 
-    let auto_save = if backend == "none" {
+    let auto_save = if !profile.auto_save_default {
         false
     } else {
-        let save = Confirm::new()
+        Confirm::new()
             .with_prompt("  Auto-save conversations to memory?")
             .default(true)
-            .interact()?;
-        save
+            .interact()?
     };
 
     println!(
@@ -1090,21 +2222,9 @@ fn setup_memory() -> Result<MemoryConfig> {
         if auto_save { "on" } else { "off" }
     );
 
-    Ok(MemoryConfig {
-        backend: backend.to_string(),
-        auto_save,
-        hygiene_enabled: backend == "sqlite", // Only enable hygiene for SQLite
-        archive_after_days: if backend == "sqlite" { 7 } else { 0 },
-        purge_after_days: if backend == "sqlite" { 30 } else { 0 },
-        conversation_retention_days: 30,
-        embedding_provider: "none".to_string(),
-        embedding_model: "text-embedding-3-small".to_string(),
-        embedding_dimensions: 1536,
-        vector_weight: 0.7,
-        keyword_weight: 0.3,
-        embedding_cache_size: if backend == "sqlite" { 10000 } else { 0 },
-        chunk_max_tokens: 512,
-    })
+    let mut config = memory_config_defaults_for_backend(backend);
+    config.auto_save = auto_save;
+    Ok(config)
 }
 
 // ── Step 3: Channels ────────────────────────────────────────────
@@ -1127,6 +2247,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
         email: None,
         irc: None,
         lark: None,
+        dingtalk: None,
     };
 
     loop {
@@ -1195,13 +2316,21 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     "— HTTP endpoint"
                 }
             ),
+            format!(
+                "DingTalk   {}",
+                if config.dingtalk.is_some() {
+                    "✅ connected"
+                } else {
+                    "— 钉钉 Stream Mode"
+                }
+            ),
             "Done — finish setup".to_string(),
         ];
 
         let choice = Select::new()
             .with_prompt("  Connect a channel (or Done to continue)")
             .items(&options)
-            .default(8)
+            .default(9)
             .interact()?;
 
         match choice {
@@ -1227,18 +2356,27 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     continue;
                 }
 
-                // Test connection
+                // Test connection (run entirely in separate thread — reqwest::blocking Response
+                // must be used and dropped there to avoid "Cannot drop a runtime" panic)
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                let url = format!("https://api.telegram.org/bot{token}/getMe");
-                match client.get(&url).send() {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().unwrap_or_default();
-                        let bot_name = data
-                            .get("result")
-                            .and_then(|r| r.get("username"))
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("unknown");
+                let token_clone = token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let url = format!("https://api.telegram.org/bot{token_clone}/getMe");
+                    let resp = client.get(&url).send()?;
+                    let ok = resp.status().is_success();
+                    let data: serde_json::Value = resp.json().unwrap_or_default();
+                    let bot_name = data
+                        .get("result")
+                        .and_then(|r| r.get("username"))
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    Ok::<_, reqwest::Error>((ok, bot_name))
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok((true, bot_name))) => {
                         println!(
                             "\r  {} Connected as @{bot_name}        ",
                             style("✅").green().bold()
@@ -1311,20 +2449,27 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     continue;
                 }
 
-                // Test connection
+                // Test connection (run entirely in separate thread — Response must be used/dropped there)
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                match client
-                    .get("https://discord.com/api/v10/users/@me")
-                    .header("Authorization", format!("Bot {token}"))
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().unwrap_or_default();
-                        let bot_name = data
-                            .get("username")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("unknown");
+                let token_clone = token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let resp = client
+                        .get("https://discord.com/api/v10/users/@me")
+                        .header("Authorization", format!("Bot {token_clone}"))
+                        .send()?;
+                    let ok = resp.status().is_success();
+                    let data: serde_json::Value = resp.json().unwrap_or_default();
+                    let bot_name = data
+                        .get("username")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    Ok::<_, reqwest::Error>((ok, bot_name))
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok((true, bot_name))) => {
                         println!(
                             "\r  {} Connected as {bot_name}        ",
                             style("✅").green().bold()
@@ -1378,6 +2523,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     bot_token: token,
                     guild_id: if guild.is_empty() { None } else { Some(guild) },
                     allowed_users,
+                    listen_to_bots: false,
                 });
             }
             2 => {
@@ -1402,37 +2548,44 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     continue;
                 }
 
-                // Test connection
+                // Test connection (run entirely in separate thread — Response must be used/dropped there)
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                match client
-                    .get("https://slack.com/api/auth.test")
-                    .bearer_auth(&token)
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().unwrap_or_default();
-                        let ok = data
-                            .get("ok")
-                            .and_then(serde_json::Value::as_bool)
-                            .unwrap_or(false);
-                        let team = data
-                            .get("team")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("unknown");
-                        if ok {
-                            println!(
-                                "\r  {} Connected to workspace: {team}        ",
-                                style("✅").green().bold()
-                            );
-                        } else {
-                            let err = data
-                                .get("error")
-                                .and_then(serde_json::Value::as_str)
-                                .unwrap_or("unknown error");
-                            println!("\r  {} Slack error: {err}", style("❌").red().bold());
-                            continue;
-                        }
+                let token_clone = token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let resp = client
+                        .get("https://slack.com/api/auth.test")
+                        .bearer_auth(&token_clone)
+                        .send()?;
+                    let ok = resp.status().is_success();
+                    let data: serde_json::Value = resp.json().unwrap_or_default();
+                    let api_ok = data
+                        .get("ok")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false);
+                    let team = data
+                        .get("team")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    let err = data
+                        .get("error")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown error")
+                        .to_string();
+                    Ok::<_, reqwest::Error>((ok, api_ok, team, err))
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok((true, true, team, _))) => {
+                        println!(
+                            "\r  {} Connected to workspace: {team}        ",
+                            style("✅").green().bold()
+                        );
+                    }
+                    Ok(Ok((true, false, _, err))) => {
+                        println!("\r  {} Slack error: {err}", style("❌").red().bold());
+                        continue;
                     }
                     _ => {
                         println!(
@@ -1571,21 +2724,29 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     continue;
                 }
 
-                // Test connection
+                // Test connection (run entirely in separate thread — Response must be used/dropped there)
                 let hs = homeserver.trim_end_matches('/');
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                match client
-                    .get(format!("{hs}/_matrix/client/v3/account/whoami"))
-                    .header("Authorization", format!("Bearer {access_token}"))
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().unwrap_or_default();
-                        let user_id = data
-                            .get("user_id")
-                            .and_then(serde_json::Value::as_str)
-                            .unwrap_or("unknown");
+                let hs_owned = hs.to_string();
+                let access_token_clone = access_token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let resp = client
+                        .get(format!("{hs_owned}/_matrix/client/v3/account/whoami"))
+                        .header("Authorization", format!("Bearer {access_token_clone}"))
+                        .send()?;
+                    let ok = resp.status().is_success();
+                    let data: serde_json::Value = resp.json().unwrap_or_default();
+                    let user_id = data
+                        .get("user_id")
+                        .and_then(serde_json::Value::as_str)
+                        .unwrap_or("unknown")
+                        .to_string();
+                    Ok::<_, reqwest::Error>((ok, user_id))
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok((true, user_id))) => {
                         println!(
                             "\r  {} Connected as {user_id}        ",
                             style("✅").green().bold()
@@ -1659,19 +2820,28 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     .default("corvus-whatsapp-verify".into())
                     .interact_text()?;
 
-                // Test connection
+                // Test connection (run entirely in separate thread — Response must be used/dropped there)
                 print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                let url = format!(
-                    "https://graph.facebook.com/v18.0/{}",
-                    phone_number_id.trim()
-                );
-                match client
-                    .get(&url)
-                    .header("Authorization", format!("Bearer {}", access_token.trim()))
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
+                let phone_number_id_clone = phone_number_id.clone();
+                let access_token_clone = access_token.clone();
+                let thread_result = std::thread::spawn(move || {
+                    let client = reqwest::blocking::Client::new();
+                    let url = format!(
+                        "https://graph.facebook.com/v18.0/{}",
+                        phone_number_id_clone.trim()
+                    );
+                    let resp = client
+                        .get(&url)
+                        .header(
+                            "Authorization",
+                            format!("Bearer {}", access_token_clone.trim()),
+                        )
+                        .send()?;
+                    Ok::<_, reqwest::Error>(resp.status().is_success())
+                })
+                .join();
+                match thread_result {
+                    Ok(Ok(true)) => {
                         println!(
                             "\r  {} Connected to WhatsApp API        ",
                             style("✅").green().bold()
@@ -1703,7 +2873,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     access_token: access_token.trim().to_string(),
                     phone_number_id: phone_number_id.trim().to_string(),
                     verify_token: verify_token.trim().to_string(),
-                    app_secret: None, // Can be set via CORVUS_WHATSAPP_APP_SECRET env var
+                    app_secret: None, // Can be set via corvus_WHATSAPP_APP_SECRET env var
                     allowed_numbers,
                 });
             }
@@ -1879,6 +3049,76 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     style(&port).cyan()
                 );
             }
+            8 => {
+                // ── DingTalk ──
+                println!();
+                println!(
+                    "  {} {}",
+                    style("DingTalk Setup").white().bold(),
+                    style("— 钉钉 Stream Mode").dim()
+                );
+                print_bullet("1. Go to DingTalk developer console (open.dingtalk.com)");
+                print_bullet("2. Create an app and enable the Stream Mode bot");
+                print_bullet("3. Copy the Client ID (AppKey) and Client Secret (AppSecret)");
+                println!();
+
+                let client_id: String = Input::new()
+                    .with_prompt("  Client ID (AppKey)")
+                    .interact_text()?;
+
+                if client_id.trim().is_empty() {
+                    println!("  {} Skipped", style("→").dim());
+                    continue;
+                }
+
+                let client_secret: String = Input::new()
+                    .with_prompt("  Client Secret (AppSecret)")
+                    .interact_text()?;
+
+                // Test connection
+                print!("  {} Testing connection... ", style("⏳").dim());
+                let client = reqwest::blocking::Client::new();
+                let body = serde_json::json!({
+                    "clientId": client_id,
+                    "clientSecret": client_secret,
+                });
+                match client
+                    .post("https://api.dingtalk.com/v1.0/gateway/connections/open")
+                    .json(&body)
+                    .send()
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        println!(
+                            "\r  {} DingTalk credentials verified        ",
+                            style("✅").green().bold()
+                        );
+                    }
+                    _ => {
+                        println!(
+                            "\r  {} Connection failed — check your credentials",
+                            style("❌").red().bold()
+                        );
+                        continue;
+                    }
+                }
+
+                let users_str: String = Input::new()
+                    .with_prompt("  Allowed staff IDs (comma-separated, '*' for all)")
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                let allowed_users: Vec<String> = users_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                config.dingtalk = Some(DingTalkConfig {
+                    client_id,
+                    client_secret,
+                    allowed_users,
+                });
+            }
             _ => break, // Done
         }
         println!();
@@ -1912,6 +3152,9 @@ fn setup_channels() -> Result<ChannelsConfig> {
     }
     if config.webhook.is_some() {
         active.push("Webhook");
+    }
+    if config.dingtalk.is_some() {
+        active.push("DingTalk");
     }
 
     println!(
@@ -2363,7 +3606,8 @@ fn print_summary(config: &Config) {
         || config.channels_config.slack.is_some()
         || config.channels_config.imessage.is_some()
         || config.channels_config.matrix.is_some()
-        || config.channels_config.email.is_some();
+        || config.channels_config.email.is_some()
+        || config.channels_config.dingtalk.is_some();
 
     println!();
     println!(
@@ -2493,6 +3737,40 @@ fn print_summary(config: &Config) {
         }
     );
 
+    // Hardware
+    println!(
+        "    {} Hardware:      {}",
+        style("🔌").cyan(),
+        if config.hardware.enabled {
+            let mode = config.hardware.transport_mode();
+            match mode {
+                hardware::HardwareTransport::Native => {
+                    style("Native GPIO (direct)").green().to_string()
+                }
+                hardware::HardwareTransport::Serial => format!(
+                    "{}",
+                    style(format!(
+                        "Serial → {} @ {} baud",
+                        config.hardware.serial_port.as_deref().unwrap_or("?"),
+                        config.hardware.baud_rate
+                    ))
+                    .green()
+                ),
+                hardware::HardwareTransport::Probe => format!(
+                    "{}",
+                    style(format!(
+                        "Probe → {}",
+                        config.hardware.probe_target.as_deref().unwrap_or("?")
+                    ))
+                    .green()
+                ),
+                hardware::HardwareTransport::None => "disabled (software only)".to_string(),
+            }
+        } else {
+            "disabled (software only)".to_string()
+        }
+    );
+
     println!();
     println!("  {}", style("Next steps:").white().bold());
     println!();
@@ -2562,6 +3840,7 @@ fn print_summary(config: &Config) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use tempfile::TempDir;
 
     // ── ProjectContext defaults ──────────────────────────────────
@@ -2977,6 +4256,204 @@ mod tests {
         assert!(heartbeat.contains("Claw"));
     }
 
+    // ── model helper coverage ───────────────────────────────────
+
+    #[test]
+    fn default_model_for_provider_uses_latest_defaults() {
+        assert_eq!(default_model_for_provider("openai"), "gpt-5.2");
+        assert_eq!(
+            default_model_for_provider("anthropic"),
+            "claude-sonnet-4-20250514"
+        );
+        assert_eq!(default_model_for_provider("gemini"), "gemini-2.5-pro");
+        assert_eq!(default_model_for_provider("google"), "gemini-2.5-pro");
+        assert_eq!(
+            default_model_for_provider("google-gemini"),
+            "gemini-2.5-pro"
+        );
+    }
+
+    #[test]
+    fn curated_models_for_openai_include_latest_choices() {
+        let ids: Vec<String> = curated_models_for_provider("openai")
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+
+        assert!(ids.contains(&"gpt-5.2".to_string()));
+        assert!(ids.contains(&"gpt-5-mini".to_string()));
+    }
+
+    #[test]
+    fn supports_live_model_fetch_for_supported_and_unsupported_providers() {
+        assert!(supports_live_model_fetch("openai"));
+        assert!(supports_live_model_fetch("anthropic"));
+        assert!(supports_live_model_fetch("gemini"));
+        assert!(supports_live_model_fetch("google"));
+        assert!(supports_live_model_fetch("grok"));
+        assert!(supports_live_model_fetch("together"));
+        assert!(supports_live_model_fetch("ollama"));
+        assert!(!supports_live_model_fetch("venice"));
+    }
+
+    #[test]
+    fn curated_models_provider_aliases_share_same_catalog() {
+        assert_eq!(
+            curated_models_for_provider("xai"),
+            curated_models_for_provider("grok")
+        );
+        assert_eq!(
+            curated_models_for_provider("together-ai"),
+            curated_models_for_provider("together")
+        );
+        assert_eq!(
+            curated_models_for_provider("gemini"),
+            curated_models_for_provider("google")
+        );
+        assert_eq!(
+            curated_models_for_provider("gemini"),
+            curated_models_for_provider("google-gemini")
+        );
+    }
+
+    #[test]
+    fn parse_openai_model_ids_supports_data_array_payload() {
+        let payload = json!({
+            "data": [
+                {"id": "  gpt-5.1  "},
+                {"id": "gpt-5-mini"},
+                {"id": "gpt-5.1"},
+                {"id": ""}
+            ]
+        });
+
+        let ids = parse_openai_compatible_model_ids(&payload);
+        assert_eq!(ids, vec!["gpt-5-mini".to_string(), "gpt-5.1".to_string()]);
+    }
+
+    #[test]
+    fn parse_openai_model_ids_supports_root_array_payload() {
+        let payload = json!([
+            {"id": "alpha"},
+            {"id": "beta"},
+            {"id": "alpha"}
+        ]);
+
+        let ids = parse_openai_compatible_model_ids(&payload);
+        assert_eq!(ids, vec!["alpha".to_string(), "beta".to_string()]);
+    }
+
+    #[test]
+    fn parse_gemini_model_ids_filters_for_generate_content() {
+        let payload = json!({
+            "models": [
+                {
+                    "name": "models/gemini-2.5-pro",
+                    "supportedGenerationMethods": ["generateContent", "countTokens"]
+                },
+                {
+                    "name": "models/text-embedding-004",
+                    "supportedGenerationMethods": ["embedContent"]
+                },
+                {
+                    "name": "models/gemini-2.5-flash",
+                    "supportedGenerationMethods": ["generateContent"]
+                }
+            ]
+        });
+
+        let ids = parse_gemini_model_ids(&payload);
+        assert_eq!(
+            ids,
+            vec!["gemini-2.5-flash".to_string(), "gemini-2.5-pro".to_string()]
+        );
+    }
+
+    #[test]
+    fn parse_ollama_model_ids_extracts_and_deduplicates_names() {
+        let payload = json!({
+            "models": [
+                {"name": "llama3.2:latest"},
+                {"name": "mistral:latest"},
+                {"name": "llama3.2:latest"}
+            ]
+        });
+
+        let ids = parse_ollama_model_ids(&payload);
+        assert_eq!(
+            ids,
+            vec!["llama3.2:latest".to_string(), "mistral:latest".to_string()]
+        );
+    }
+
+    #[test]
+    fn model_cache_round_trip_returns_fresh_entry() {
+        let tmp = TempDir::new().unwrap();
+        let models = vec!["gpt-5.1".to_string(), "gpt-5-mini".to_string()];
+
+        cache_live_models_for_provider(tmp.path(), "openai", &models).unwrap();
+
+        let cached =
+            load_cached_models_for_provider(tmp.path(), "openai", MODEL_CACHE_TTL_SECS).unwrap();
+        let cached = cached.expect("expected fresh cached models");
+
+        assert_eq!(cached.models.len(), 2);
+        assert!(cached.models.contains(&"gpt-5.1".to_string()));
+        assert!(cached.models.contains(&"gpt-5-mini".to_string()));
+    }
+
+    #[test]
+    fn model_cache_ttl_filters_stale_entries() {
+        let tmp = TempDir::new().unwrap();
+        let stale = ModelCacheState {
+            entries: vec![ModelCacheEntry {
+                provider: "openai".to_string(),
+                fetched_at_unix: now_unix_secs().saturating_sub(MODEL_CACHE_TTL_SECS + 120),
+                models: vec!["gpt-5.1".to_string()],
+            }],
+        };
+
+        save_model_cache_state(tmp.path(), &stale).unwrap();
+
+        let fresh =
+            load_cached_models_for_provider(tmp.path(), "openai", MODEL_CACHE_TTL_SECS).unwrap();
+        assert!(fresh.is_none());
+
+        let stale_any = load_any_cached_models_for_provider(tmp.path(), "openai").unwrap();
+        assert!(stale_any.is_some());
+    }
+
+    #[test]
+    fn run_models_refresh_uses_fresh_cache_without_network() {
+        let tmp = TempDir::new().unwrap();
+
+        cache_live_models_for_provider(tmp.path(), "openai", &["gpt-5.1".to_string()]).unwrap();
+
+        let config = Config {
+            workspace_dir: tmp.path().to_path_buf(),
+            default_provider: Some("openai".to_string()),
+            ..Config::default()
+        };
+
+        run_models_refresh(&config, None, false).unwrap();
+    }
+
+    #[test]
+    fn run_models_refresh_rejects_unsupported_provider() {
+        let tmp = TempDir::new().unwrap();
+
+        let config = Config {
+            workspace_dir: tmp.path().to_path_buf(),
+            default_provider: Some("venice".to_string()),
+            ..Config::default()
+        };
+
+        let err = run_models_refresh(&config, None, true).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("does not support live model discovery"));
+    }
+
     // ── provider_env_var ────────────────────────────────────────
 
     #[test]
@@ -2987,12 +4464,70 @@ mod tests {
         assert_eq!(provider_env_var("ollama"), "API_KEY"); // fallback
         assert_eq!(provider_env_var("xai"), "XAI_API_KEY");
         assert_eq!(provider_env_var("grok"), "XAI_API_KEY"); // alias
-        assert_eq!(provider_env_var("together"), "TOGETHER_API_KEY");
-        assert_eq!(provider_env_var("together-ai"), "TOGETHER_API_KEY"); // alias
+        assert_eq!(provider_env_var("together"), "TOGETHER_API_KEY"); // alias
+        assert_eq!(provider_env_var("together-ai"), "TOGETHER_API_KEY");
+        assert_eq!(provider_env_var("google"), "GEMINI_API_KEY"); // alias
+        assert_eq!(provider_env_var("google-gemini"), "GEMINI_API_KEY"); // alias
+        assert_eq!(provider_env_var("gemini"), "GEMINI_API_KEY");
+        assert_eq!(provider_env_var("nvidia"), "NVIDIA_API_KEY");
+        assert_eq!(provider_env_var("nvidia-nim"), "NVIDIA_API_KEY"); // alias
+        assert_eq!(provider_env_var("build.nvidia.com"), "NVIDIA_API_KEY"); // alias
     }
 
     #[test]
     fn provider_env_var_unknown_falls_back() {
         assert_eq!(provider_env_var("some-new-provider"), "API_KEY");
+    }
+
+    #[test]
+    fn backend_key_from_choice_maps_supported_backends() {
+        assert_eq!(backend_key_from_choice(0), "sqlite");
+        assert_eq!(backend_key_from_choice(1), "lucid");
+        assert_eq!(backend_key_from_choice(2), "markdown");
+        assert_eq!(backend_key_from_choice(3), "none");
+        assert_eq!(backend_key_from_choice(999), "sqlite");
+    }
+
+    #[test]
+    fn memory_backend_profile_marks_lucid_as_optional_sqlite_backed() {
+        let lucid = memory_backend_profile("lucid");
+        assert!(lucid.auto_save_default);
+        assert!(lucid.uses_sqlite_hygiene);
+        assert!(lucid.sqlite_based);
+        assert!(lucid.optional_dependency);
+
+        let markdown = memory_backend_profile("markdown");
+        assert!(markdown.auto_save_default);
+        assert!(!markdown.uses_sqlite_hygiene);
+
+        let none = memory_backend_profile("none");
+        assert!(!none.auto_save_default);
+        assert!(!none.uses_sqlite_hygiene);
+
+        let custom = memory_backend_profile("custom-memory");
+        assert!(custom.auto_save_default);
+        assert!(!custom.uses_sqlite_hygiene);
+    }
+
+    #[test]
+    fn memory_config_defaults_for_lucid_enable_sqlite_hygiene() {
+        let config = memory_config_defaults_for_backend("lucid");
+        assert_eq!(config.backend, "lucid");
+        assert!(config.auto_save);
+        assert!(config.hygiene_enabled);
+        assert_eq!(config.archive_after_days, 7);
+        assert_eq!(config.purge_after_days, 30);
+        assert_eq!(config.embedding_cache_size, 10000);
+    }
+
+    #[test]
+    fn memory_config_defaults_for_none_disable_sqlite_hygiene() {
+        let config = memory_config_defaults_for_backend("none");
+        assert_eq!(config.backend, "none");
+        assert!(!config.auto_save);
+        assert!(!config.hygiene_enabled);
+        assert_eq!(config.archive_after_days, 0);
+        assert_eq!(config.purge_after_days, 0);
+        assert_eq!(config.embedding_cache_size, 0);
     }
 }

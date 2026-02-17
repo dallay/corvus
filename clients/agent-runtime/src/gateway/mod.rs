@@ -45,11 +45,14 @@ fn whatsapp_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String 
     format!("whatsapp_{}_{}", msg.sender, msg.id)
 }
 
+/// How often the rate limiter sweeps stale IP entries from its map.
+const RATE_LIMITER_SWEEP_INTERVAL_SECS: u64 = 300; // 5 minutes
+
 #[derive(Debug)]
 struct SlidingWindowRateLimiter {
     limit_per_window: u32,
     window: Duration,
-    requests: Mutex<HashMap<String, Vec<Instant>>>,
+    requests: Mutex<(HashMap<String, Vec<Instant>>, Instant)>,
 }
 
 impl SlidingWindowRateLimiter {
@@ -57,7 +60,7 @@ impl SlidingWindowRateLimiter {
         Self {
             limit_per_window,
             window,
-            requests: Mutex::new(HashMap::new()),
+            requests: Mutex::new((HashMap::new(), Instant::now())),
         }
     }
 
@@ -69,10 +72,20 @@ impl SlidingWindowRateLimiter {
         let now = Instant::now();
         let cutoff = now.checked_sub(self.window).unwrap_or_else(Instant::now);
 
-        let mut requests = self
+        let mut guard = self
             .requests
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (requests, last_sweep) = &mut *guard;
+
+        // Periodic sweep: remove IPs with no recent requests
+        if last_sweep.elapsed() >= Duration::from_secs(RATE_LIMITER_SWEEP_INTERVAL_SECS) {
+            requests.retain(|_, timestamps| {
+                timestamps.retain(|t| *t > cutoff);
+                !timestamps.is_empty()
+            });
+            *last_sweep = now;
+        }
 
         let entry = requests.entry(key.to_owned()).or_default();
         entry.retain(|instant| *instant > cutoff);
@@ -198,7 +211,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let model = config
         .default_model
         .clone()
-        .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".into());
+        .unwrap_or_else(|| "anthropic/claude-sonnet-4".into());
     let temperature = config.default_temperature;
     let mem: Arc<dyn Memory> = Arc::from(memory::create_memory(
         &config.memory,
@@ -227,7 +240,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
 
     // WhatsApp app secret for webhook signature verification
     // Priority: environment variable > config file
-    let whatsapp_app_secret: Option<Arc<str>> = std::env::var("CORVUS_WHATSAPP_APP_SECRET")
+    let whatsapp_app_secret: Option<Arc<str>> = std::env::var("corvus_WHATSAPP_APP_SECRET")
         .ok()
         .and_then(|secret| {
             let secret = secret.trim();
@@ -456,8 +469,9 @@ async fn handle_webhook(
     let Json(webhook_body) = match body {
         Ok(b) => b,
         Err(e) => {
+            tracing::warn!("Webhook JSON parse error: {e}");
             let err = serde_json::json!({
-                "error": format!("Invalid JSON: {e}. Expected: {{\"message\": \"...\"}}")
+                "error": "Invalid JSON body. Expected: {\"message\": \"...\"}"
             });
             return (StatusCode::BAD_REQUEST, Json(err));
         }
@@ -493,7 +507,7 @@ async fn handle_webhook(
 
     match state
         .provider
-        .chat(message, &state.model, state.temperature)
+        .simple_chat(message, &state.model, state.temperature)
         .await
     {
         Ok(response) => {
@@ -647,7 +661,7 @@ async fn handle_whatsapp_message(
         // Call the LLM
         match state
             .provider
-            .chat(&msg.content, &state.model, state.temperature)
+            .simple_chat(&msg.content, &state.model, state.temperature)
             .await
         {
             Ok(response) => {
@@ -729,6 +743,55 @@ mod tests {
         assert!(limiter.allow_pair("127.0.0.1"));
         assert!(limiter.allow_pair("127.0.0.1"));
         assert!(!limiter.allow_pair("127.0.0.1"));
+    }
+
+    #[test]
+    fn rate_limiter_sweep_removes_stale_entries() {
+        let limiter = SlidingWindowRateLimiter::new(10, Duration::from_secs(60));
+        // Add entries for multiple IPs
+        assert!(limiter.allow("ip-1"));
+        assert!(limiter.allow("ip-2"));
+        assert!(limiter.allow("ip-3"));
+
+        {
+            let guard = limiter
+                .requests
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            assert_eq!(guard.0.len(), 3);
+        }
+
+        // Force a sweep by backdating last_sweep
+        {
+            let mut guard = limiter
+                .requests
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            guard.1 = Instant::now() - Duration::from_secs(RATE_LIMITER_SWEEP_INTERVAL_SECS + 1);
+            // Clear timestamps for ip-2 and ip-3 to simulate stale entries
+            guard.0.get_mut("ip-2").unwrap().clear();
+            guard.0.get_mut("ip-3").unwrap().clear();
+        }
+
+        // Next allow() call should trigger sweep and remove stale entries
+        assert!(limiter.allow("ip-1"));
+
+        {
+            let guard = limiter
+                .requests
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            assert_eq!(guard.0.len(), 1, "Stale entries should have been swept");
+            assert!(guard.0.contains_key("ip-1"));
+        }
+    }
+
+    #[test]
+    fn rate_limiter_zero_limit_always_allows() {
+        let limiter = SlidingWindowRateLimiter::new(0, Duration::from_secs(60));
+        for _ in 0..100 {
+            assert!(limiter.allow("any-key"));
+        }
     }
 
     #[test]

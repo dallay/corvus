@@ -1,4 +1,4 @@
-use super::traits::ChatMessage;
+use super::traits::{ChatMessage, ChatRequest, ChatResponse};
 use super::Provider;
 use async_trait::async_trait;
 use std::collections::HashMap;
@@ -14,7 +14,7 @@ pub struct Route {
 /// based on a task hint encoded in the model parameter.
 ///
 /// The model parameter can be:
-/// - A regular model name (e.g. "anthropic/claude-sonnet-4-20250514") → uses default provider
+/// - A regular model name (e.g. "anthropic/claude-sonnet-4") → uses default provider
 /// - A hint-prefixed string (e.g. "hint:reasoning") → resolves via route table
 ///
 /// This wraps multiple pre-created providers and selects the right one per request.
@@ -124,6 +124,24 @@ impl Provider for RouterProvider {
         provider
             .chat_with_history(messages, &resolved_model, temperature)
             .await
+    }
+
+    async fn chat(
+        &self,
+        request: ChatRequest<'_>,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<ChatResponse> {
+        let (provider_idx, resolved_model) = self.resolve(model);
+        let (_, provider) = &self.providers[provider_idx];
+        provider.chat(request, &resolved_model, temperature).await
+    }
+
+    fn supports_native_tools(&self) -> bool {
+        self.providers
+            .get(self.default_index)
+            .map(|(_, p)| p.supports_native_tools())
+            .unwrap_or(false)
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
@@ -246,7 +264,10 @@ mod tests {
             ],
         );
 
-        let result = router.chat("hello", "hint:reasoning", 0.5).await.unwrap();
+        let result = router
+            .simple_chat("hello", "hint:reasoning", 0.5)
+            .await
+            .unwrap();
         assert_eq!(result, "smart-response");
         assert_eq!(mocks[1].call_count(), 1);
         assert_eq!(mocks[1].last_model(), "claude-opus");
@@ -260,7 +281,7 @@ mod tests {
             vec![("fast", "fast", "llama-3-70b")],
         );
 
-        let result = router.chat("hello", "hint:fast", 0.5).await.unwrap();
+        let result = router.simple_chat("hello", "hint:fast", 0.5).await.unwrap();
         assert_eq!(result, "fast-response");
         assert_eq!(mocks[0].call_count(), 1);
         assert_eq!(mocks[0].last_model(), "llama-3-70b");
@@ -273,7 +294,10 @@ mod tests {
             vec![],
         );
 
-        let result = router.chat("hello", "hint:nonexistent", 0.5).await.unwrap();
+        let result = router
+            .simple_chat("hello", "hint:nonexistent", 0.5)
+            .await
+            .unwrap();
         assert_eq!(result, "default-response");
         assert_eq!(mocks[0].call_count(), 1);
         // Falls back to default with the hint as model name
@@ -291,7 +315,7 @@ mod tests {
         );
 
         let result = router
-            .chat("hello", "anthropic/claude-sonnet-4-20250514", 0.5)
+            .simple_chat("hello", "anthropic/claude-sonnet-4-20250514", 0.5)
             .await
             .unwrap();
         assert_eq!(result, "primary-response");
