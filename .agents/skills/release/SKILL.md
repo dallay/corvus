@@ -17,10 +17,12 @@ Before publishing, ensure the user has:
 
 1. **GPG Key configured**: Must have a signing key set up
 2. **Maven Central access**: Repository secrets configured:
-  - `SIGNING_IN_MEMORY_KEY`: GPG private key
-  - `SIGNING_IN_MEMORY_KEY_PASSWORD`: GPG key passphrase
-  - `MAVEN_CENTRAL_USERNAME`: Maven Central username
-  - `MAVEN_CENTRAL_PASSWORD`: Maven Central password
+
+- `SIGNING_IN_MEMORY_KEY`: GPG private key
+- `SIGNING_IN_MEMORY_KEY_PASSWORD`: GPG key passphrase
+- `MAVEN_CENTRAL_USERNAME`: Maven Central username
+- `MAVEN_CENTRAL_PASSWORD`: Maven Central password
+
 3. **Write permissions**: Must be a maintainer of the repository
 
 If any prerequisite is missing, inform the user and guide them to the
@@ -137,10 +139,11 @@ Snapshots use version with `-SNAPSHOT` suffix (e.g., `1.2.3-SNAPSHOT`).
 
 1. Check workflow logs in GitHub Actions
 2. Common issues:
-  - **Signing failed**: GPG secrets not configured correctly
-  - **Maven Central auth failed**: Credentials expired
-  - **Build failed**: Run `./gradlew check` locally first
-  - **Version mismatch**: Git tag must match code version (e.g., `v1.2.3` = `1.2.3`)
+
+- **Signing failed**: GPG secrets not configured correctly
+- **Maven Central auth failed**: Credentials expired
+- **Build failed**: Run `./gradlew check` locally first
+- **Version mismatch**: Git tag must match code version (e.g., `v1.2.3` = `1.2.3`)
 
 ### Version already exists
 

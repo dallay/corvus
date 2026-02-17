@@ -1,6 +1,6 @@
+import { getPortFromUrl, PORTS, resolveSiteUrl } from "@corvus/shared/env";
 import { defineConfig } from "astro/config";
 import { loadEnv } from "vite";
-import { PORTS, getPortFromUrl, resolveSiteUrl } from "@corvus/shared/env";
 
 const DEFAULT_DEV_URL = `http://localhost:${PORTS.MARKETING}`;
 const DEFAULT_PROD_URL = "https://profiletailors.com";

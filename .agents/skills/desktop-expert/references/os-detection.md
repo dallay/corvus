@@ -1,6 +1,7 @@
 # OS Detection & Platform-Specific Code
 
-Patterns for detecting operating system and implementing platform-specific behavior in Compose Desktop.
+Patterns for detecting operating system and implementing platform-specific behavior in Compose
+Desktop.
 
 ## OS Detection
 
@@ -467,11 +468,13 @@ fun testPlatformDetection() {
 ### 1. Centralize Detection
 
 ✅ **DO:** Use PlatformDetector singleton
+
 ```kotlin
 if (PlatformDetector.isMacOS) { /* ... */ }
 ```
 
 ❌ **DON'T:** Repeat detection everywhere
+
 ```kotlin
 if (System.getProperty("os.name").lowercase().contains("mac")) { /* ... */ }
 ```
@@ -517,6 +520,7 @@ fun openBrowser(url: String) {
 ### 4. Test on All Platforms
 
 Always test platform-specific code on:
+
 - macOS (Intel + Apple Silicon if possible)
 - Windows (10/11)
 - Linux (Ubuntu/Fedora)

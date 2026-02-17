@@ -21,7 +21,8 @@ body {
   margin: 0;
   padding: 0;
   min-height: 100%;
-  background: radial-gradient(circle at 15% -10%, #15314d 0%, transparent 40%),
+  background:
+    radial-gradient(circle at 15% -10%, #15314d 0%, transparent 40%),
     radial-gradient(circle at 80% 0%, #1f4255 0%, transparent 34%), var(--bg);
   color: var(--text);
   font-family: "Manrope", "Avenir Next", "Segoe UI", sans-serif;
@@ -62,7 +63,8 @@ li + li {
   inset: 0;
   pointer-events: none;
   z-index: -1;
-  background: linear-gradient(130deg, rgba(68, 224, 179, 0.08), transparent 45%),
+  background:
+    linear-gradient(130deg, rgba(68, 224, 179, 0.08), transparent 45%),
     linear-gradient(310deg, rgba(44, 127, 255, 0.1), transparent 40%);
 }
 

@@ -358,15 +358,19 @@ These commands run the build and all checks. **No performance PR should be creat
 **If `make build` or `make check` fails:**
 
 1. Identify which check failed:
-  - Build issue? (Kotlin, Gradle)
-  - Static analysis? (Detekt, Biome)
-  - Tests?
+
+- Build issue? (Kotlin, Gradle)
+- Static analysis? (Detekt, Biome)
+- Tests?
+
 2. Review your optimization for unintended side effects
 3. Common issues:
-  - Caching causing stale data
-  - Race conditions in async code
-  - Memoization causing memory leaks
-  - Over-aggressive optimization breaking edge cases
+
+- Caching causing stale data
+- Race conditions in async code
+- Memoization causing memory leaks
+- Over-aggressive optimization breaking edge cases
+
 4. Adjust implementation to maintain both performance AND correctness
 5. Re-run `make build && make check` until green
 6. Only then proceed to Present phase

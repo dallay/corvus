@@ -233,9 +233,6 @@ tasks.withType<PublishToMavenRepository>().configureEach {
 // because this build-logic project must be self-contained and cannot
 // use convention plugins defined within itself.
 
-// TODO remove it
-configurations.configureEach { resolutionStrategy { force("org.projectlombok:lombok:1.18.42") } }
-
 dependencies {
   testImplementation("org.jetbrains.kotlin:kotlin-test")
   testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.0")

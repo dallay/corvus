@@ -1,6 +1,7 @@
 # Android Navigation Patterns
 
-Complete navigation implementation patterns for Amethyst Android app using Navigation Compose with type safety.
+Complete navigation implementation patterns for Amethyst Android app using Navigation Compose with
+type safety.
 
 ## Type-Safe Routes (Navigation 2.8.0+)
 

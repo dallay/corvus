@@ -4,11 +4,11 @@ Standard keyboard shortcuts for desktop applications across macOS, Windows, and 
 
 ## Primary Modifier Keys
 
-| Platform | Primary | Secondary | Tertiary |
-|----------|---------|-----------|----------|
-| **macOS** | Cmd (⌘) / `meta` | Option (⌥) / `alt` | Ctrl (⌃) / `ctrl` |
-| **Windows** | Ctrl / `ctrl` | Alt / `alt` | Win / `meta` |
-| **Linux** | Ctrl / `ctrl` | Alt / `alt` | Super / `meta` |
+| Platform    | Primary          | Secondary          | Tertiary          |
+|-------------|------------------|--------------------|-------------------|
+| **macOS**   | Cmd (⌘) / `meta` | Option (⌥) / `alt` | Ctrl (⌃) / `ctrl` |
+| **Windows** | Ctrl / `ctrl`    | Alt / `alt`        | Win / `meta`      |
+| **Linux**   | Ctrl / `ctrl`    | Alt / `alt`        | Super / `meta`    |
 
 **In Compose Desktop:**
 
@@ -24,15 +24,15 @@ KeyShortcut(Key.N, ctrl = true)    // Ctrl+N
 
 ## File Operations
 
-| Action | macOS | Windows | Linux | Notes |
-|--------|-------|---------|-------|-------|
-| **New** | Cmd+N | Ctrl+N | Ctrl+N | Create new |
-| **Open** | Cmd+O | Ctrl+O | Ctrl+O | Open file |
-| **Save** | Cmd+S | Ctrl+S | Ctrl+S | Save current |
+| Action      | macOS       | Windows      | Linux        | Notes              |
+|-------------|-------------|--------------|--------------|--------------------|
+| **New**     | Cmd+N       | Ctrl+N       | Ctrl+N       | Create new         |
+| **Open**    | Cmd+O       | Ctrl+O       | Ctrl+O       | Open file          |
+| **Save**    | Cmd+S       | Ctrl+S       | Ctrl+S       | Save current       |
 | **Save As** | Cmd+Shift+S | Ctrl+Shift+S | Ctrl+Shift+S | Save with new name |
-| **Close** | Cmd+W | Ctrl+W | Ctrl+W | Close window/tab |
-| **Quit** | Cmd+Q | Ctrl+Q | Ctrl+Q | Exit app |
-| **Print** | Cmd+P | Ctrl+P | Ctrl+P | Print |
+| **Close**   | Cmd+W       | Ctrl+W       | Ctrl+W       | Close window/tab   |
+| **Quit**    | Cmd+Q       | Ctrl+Q       | Ctrl+Q       | Exit app           |
+| **Print**   | Cmd+P       | Ctrl+P       | Ctrl+P       | Print              |
 
 **Compose Implementation:**
 
@@ -77,17 +77,17 @@ MenuBar {
 
 ## Edit Operations
 
-| Action | macOS | Windows | Linux | Notes |
-|--------|-------|---------|-------|-------|
-| **Undo** | Cmd+Z | Ctrl+Z | Ctrl+Z | Universal |
-| **Redo** | Cmd+Shift+Z | Ctrl+Y | Ctrl+Y | Windows/Linux use Y |
-| **Cut** | Cmd+X | Ctrl+X | Ctrl+X | Universal |
-| **Copy** | Cmd+C | Ctrl+C | Ctrl+C | Universal |
-| **Paste** | Cmd+V | Ctrl+V | Ctrl+V | Universal |
-| **Select All** | Cmd+A | Ctrl+A | Ctrl+A | Universal |
-| **Find** | Cmd+F | Ctrl+F | Ctrl+F | Search |
-| **Find Next** | Cmd+G | F3 | F3 | Next result |
-| **Replace** | Cmd+Option+F | Ctrl+H | Ctrl+H | Find & replace |
+| Action         | macOS        | Windows | Linux  | Notes               |
+|----------------|--------------|---------|--------|---------------------|
+| **Undo**       | Cmd+Z        | Ctrl+Z  | Ctrl+Z | Universal           |
+| **Redo**       | Cmd+Shift+Z  | Ctrl+Y  | Ctrl+Y | Windows/Linux use Y |
+| **Cut**        | Cmd+X        | Ctrl+X  | Ctrl+X | Universal           |
+| **Copy**       | Cmd+C        | Ctrl+C  | Ctrl+C | Universal           |
+| **Paste**      | Cmd+V        | Ctrl+V  | Ctrl+V | Universal           |
+| **Select All** | Cmd+A        | Ctrl+A  | Ctrl+A | Universal           |
+| **Find**       | Cmd+F        | Ctrl+F  | Ctrl+F | Search              |
+| **Find Next**  | Cmd+G        | F3      | F3     | Next result         |
+| **Replace**    | Cmd+Option+F | Ctrl+H  | Ctrl+H | Find & replace      |
 
 **Note:** Undo/Redo typically handled by text fields automatically.
 
@@ -95,15 +95,15 @@ MenuBar {
 
 ## Navigation
 
-| Action | macOS | Windows | Linux | Notes |
-|--------|-------|---------|-------|-------|
-| **Tab 1** | Cmd+1 | Ctrl+1 | Ctrl+1 | First tab/view |
-| **Tab 2** | Cmd+2 | Ctrl+2 | Ctrl+2 | Second tab/view |
-| **Tab 3** | Cmd+3 | Ctrl+3 | Ctrl+3 | Third tab/view |
-| **Next Tab** | Cmd+Option+→ | Ctrl+Tab | Ctrl+Tab | Cycle forward |
-| **Prev Tab** | Cmd+Option+← | Ctrl+Shift+Tab | Ctrl+Shift+Tab | Cycle back |
-| **Go Back** | Cmd+[ | Alt+← | Alt+← | Browser-style |
-| **Go Forward** | Cmd+] | Alt+→ | Alt+→ | Browser-style |
+| Action         | macOS        | Windows        | Linux          | Notes           |
+|----------------|--------------|----------------|----------------|-----------------|
+| **Tab 1**      | Cmd+1        | Ctrl+1         | Ctrl+1         | First tab/view  |
+| **Tab 2**      | Cmd+2        | Ctrl+2         | Ctrl+2         | Second tab/view |
+| **Tab 3**      | Cmd+3        | Ctrl+3         | Ctrl+3         | Third tab/view  |
+| **Next Tab**   | Cmd+Option+→ | Ctrl+Tab       | Ctrl+Tab       | Cycle forward   |
+| **Prev Tab**   | Cmd+Option+← | Ctrl+Shift+Tab | Ctrl+Shift+Tab | Cycle back      |
+| **Go Back**    | Cmd+[        | Alt+←          | Alt+←          | Browser-style   |
+| **Go Forward** | Cmd+]        | Alt+→          | Alt+→          | Browser-style   |
 
 **Compose Implementation:**
 
@@ -140,14 +140,14 @@ fun KeyEvent.isPrimaryPressed() = if (isMacOS) isMetaPressed else isCtrlPressed
 
 ## Window Management
 
-| Action | macOS | Windows | Linux | Notes |
-|--------|-------|---------|-------|-------|
-| **New Window** | Cmd+N | Ctrl+N | Ctrl+N | New instance |
-| **Close Window** | Cmd+W | Alt+F4 | Alt+F4 | Close current |
-| **Minimize** | Cmd+M | Win+Down | Super+Down | Minimize to dock/taskbar |
-| **Maximize** | Cmd+Ctrl+F | Win+Up | Super+Up | Fullscreen/maximize |
-| **Hide App** | Cmd+H | - | - | macOS only |
-| **Switch Window** | Cmd+` | Alt+Tab | Alt+Tab | Between app windows |
+| Action            | macOS      | Windows  | Linux      | Notes                    |
+|-------------------|------------|----------|------------|--------------------------|
+| **New Window**    | Cmd+N      | Ctrl+N   | Ctrl+N     | New instance             |
+| **Close Window**  | Cmd+W      | Alt+F4   | Alt+F4     | Close current            |
+| **Minimize**      | Cmd+M      | Win+Down | Super+Down | Minimize to dock/taskbar |
+| **Maximize**      | Cmd+Ctrl+F | Win+Up   | Super+Up   | Fullscreen/maximize      |
+| **Hide App**      | Cmd+H      | -        | -          | macOS only               |
+| **Switch Window** | Cmd+`      | Alt+Tab  | Alt+Tab    | Between app windows      |
 
 **Note:** Window management often handled by OS, not app shortcuts.
 
@@ -157,14 +157,14 @@ fun KeyEvent.isPrimaryPressed() = if (isMacOS) isMetaPressed else isCtrlPressed
 
 ### Nostr Actions
 
-| Action | macOS | Windows | Linux | Description |
-|--------|-------|---------|-------|-------------|
-| **New Note** | Cmd+N | Ctrl+N | Ctrl+N | Compose new post |
-| **Refresh Feed** | Cmd+R | Ctrl+R | Ctrl+R | Reload timeline |
-| **Search** | Cmd+K | Ctrl+K | Ctrl+K | Quick search |
-| **DMs** | Cmd+Shift+M | Ctrl+Shift+M | Ctrl+Shift+M | Open messages |
-| **Settings** | Cmd+, | Ctrl+, | Ctrl+, | Open preferences |
-| **Notifications** | Cmd+Shift+N | Ctrl+Shift+N | Ctrl+Shift+N | View alerts |
+| Action            | macOS       | Windows      | Linux        | Description      |
+|-------------------|-------------|--------------|--------------|------------------|
+| **New Note**      | Cmd+N       | Ctrl+N       | Ctrl+N       | Compose new post |
+| **Refresh Feed**  | Cmd+R       | Ctrl+R       | Ctrl+R       | Reload timeline  |
+| **Search**        | Cmd+K       | Ctrl+K       | Ctrl+K       | Quick search     |
+| **DMs**           | Cmd+Shift+M | Ctrl+Shift+M | Ctrl+Shift+M | Open messages    |
+| **Settings**      | Cmd+,       | Ctrl+,       | Ctrl+,       | Open preferences |
+| **Notifications** | Cmd+Shift+N | Ctrl+Shift+N | Ctrl+Shift+N | View alerts      |
 
 **Implementation:**
 
@@ -201,12 +201,12 @@ MenuBar {
 
 ## Accessibility
 
-| Action | macOS | Windows | Linux | Description |
-|--------|-------|---------|-------|-------------|
-| **Zoom In** | Cmd++ | Ctrl++ | Ctrl++ | Increase size |
-| **Zoom Out** | Cmd+- | Ctrl+- | Ctrl+- | Decrease size |
-| **Reset Zoom** | Cmd+0 | Ctrl+0 | Ctrl+0 | Default size |
-| **Help** | Cmd+? | F1 | F1 | Show help |
+| Action         | macOS | Windows | Linux  | Description   |
+|----------------|-------|---------|--------|---------------|
+| **Zoom In**    | Cmd++ | Ctrl++  | Ctrl++ | Increase size |
+| **Zoom Out**   | Cmd+- | Ctrl+-  | Ctrl+- | Decrease size |
+| **Reset Zoom** | Cmd+0 | Ctrl+0  | Ctrl+0 | Default size  |
+| **Help**       | Cmd+? | F1      | F1     | Show help     |
 
 ---
 
@@ -318,24 +318,24 @@ fun ShortcutRow(action: String, shortcut: String) {
 
 **Check for OS-level shortcuts:**
 
-| macOS Reserved | Description |
-|----------------|-------------|
-| Cmd+Tab | Switch apps |
-| Cmd+Space | Spotlight |
-| Cmd+H | Hide window |
-| Cmd+M | Minimize |
-| Cmd+Q | Quit |
-| Cmd+W | Close window |
+| macOS Reserved | Description  |
+|----------------|--------------|
+| Cmd+Tab        | Switch apps  |
+| Cmd+Space      | Spotlight    |
+| Cmd+H          | Hide window  |
+| Cmd+M          | Minimize     |
+| Cmd+Q          | Quit         |
+| Cmd+W          | Close window |
 
 **Windows Reserved:**
 
-| Windows Reserved | Description |
-|-----------------|-------------|
-| Win+D | Show desktop |
-| Win+E | File Explorer |
-| Win+L | Lock screen |
-| Alt+Tab | Switch apps |
-| Alt+F4 | Close window |
+| Windows Reserved | Description   |
+|------------------|---------------|
+| Win+D            | Show desktop  |
+| Win+E            | File Explorer |
+| Win+L            | Lock screen   |
+| Alt+Tab          | Switch apps   |
+| Alt+F4           | Close window  |
 
 **Don't override these unless critical.**
 

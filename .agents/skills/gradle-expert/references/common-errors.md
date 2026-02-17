@@ -1,6 +1,7 @@
 # Common Build Errors & Solutions
 
 ## Table of Contents
+
 - [Compose Version Conflicts](#compose-version-conflicts)
 - [secp256k1 JNI Errors](#secp256k1-jni-errors)
 - [Source Set Dependency Issues](#source-set-dependency-issues)
@@ -23,6 +24,7 @@ java.lang.IllegalStateException: Version mismatch: Compose runtime is 1.10.0 but
 **Cause:** Compose Compiler plugin version doesn't match Compose Runtime
 
 **Solution:**
+
 ```kotlin
 // In gradle/libs.versions.toml
 composeMultiplatform = "1.9.3"  // Must align with Kotlin version
@@ -33,6 +35,7 @@ kotlin = "2.3.0"
 ```
 
 **Verification:**
+
 ```bash
 ./gradlew :commons:dependencies | grep compose
 ```
@@ -46,6 +49,7 @@ Duplicate class androidx.compose.ui.platform.AndroidCompositionLocalMap found in
 **Cause:** Both Compose Multiplatform and AndroidX Compose BOM providing same classes
 
 **Solution:**
+
 ```kotlin
 // In commons/build.gradle.kts (KMP module)
 // Use Compose Multiplatform, NOT AndroidX BOM
@@ -75,6 +79,7 @@ Unresolved reference: WindowSizeClass
 **Cause:** Using Android's WindowSizeClass in shared KMP code
 
 **Solution:**
+
 ```kotlin
 // Don't use in commonMain or jvmAndroid:
 // import androidx.compose.material3.windowsizeclass.WindowSizeClass  // ❌
@@ -103,6 +108,7 @@ java.lang.UnsatisfiedLinkError: no secp256k1jni in java.library.path
 **Cause:** Desktop using wrong secp256k1 variant (Android JNI instead of JVM JNI)
 
 **Solution:**
+
 ```kotlin
 // In quartz/build.gradle.kts
 sourceSets {
@@ -119,6 +125,7 @@ sourceSets {
 ```
 
 **Verification:**
+
 ```bash
 ./gradlew :quartz:dependencies --configuration jvmRuntimeClasspath | grep secp256k1
 # Should show: secp256k1-kmp-jni-jvm, NOT jni-android
@@ -133,6 +140,7 @@ java.lang.NoSuchMethodError: fr.acinq.secp256k1.Secp256k1.sign
 **Cause:** Common, Android, and JVM variants have different versions
 
 **Solution:**
+
 ```toml
 # In gradle/libs.versions.toml
 # All three MUST use same version
@@ -153,6 +161,7 @@ java.lang.UnsatisfiedLinkError: dalvik.system.PathClassLoader couldn't find "lib
 **Cause:** Proguard stripping JNI classes
 
 **Solution:**
+
 ```proguard
 # In quartz/proguard-rules.pro
 -keep class fr.acinq.secp256k1.** { *; }
@@ -171,6 +180,7 @@ Could not get unknown property 'jvmAndroid' for source set container
 **Cause:** Source sets must be defined in dependency order
 
 **Solution:**
+
 ```kotlin
 // ✅ Correct order
 sourceSets {
@@ -200,6 +210,7 @@ Unresolved reference: ObjectMapper (Jackson)
 **Cause:** JVM-only library in commonMain
 
 **Solution:**
+
 ```kotlin
 sourceSets {
     commonMain {
@@ -224,6 +235,7 @@ java.lang.NoClassDefFoundError: android.content.Context
 **Cause:** Android-specific API in jvmAndroid or commonMain
 
 **Solution:**
+
 ```kotlin
 // Use expect/actual pattern
 
@@ -252,6 +264,7 @@ java.lang.NoClassDefFoundError: com.goterl.lazysodium.Sodium
 **Cause:** R8/Proguard removing JNA/LibSodium classes
 
 **Solution:**
+
 ```proguard
 # In quartz/proguard-rules.pro
 -keep class com.goterl.lazysodium.** { *; }
@@ -268,6 +281,7 @@ com.fasterxml.jackson.databind.exc.InvalidDefinitionException: Cannot construct 
 **Cause:** Jackson uses reflection, R8 strips class metadata
 
 **Solution:**
+
 ```proguard
 # Preserve reflection metadata
 -keepattributes *Annotation*
@@ -287,6 +301,7 @@ java.lang.IllegalArgumentException: No enum constant ...
 **Cause:** R8 obfuscating enum names
 
 **Solution:**
+
 ```proguard
 # Keep all enums
 -keep enum ** { *; }
@@ -307,6 +322,7 @@ FAILURE: Build failed with an exception.
 **Cause:** Icon file missing or wrong path
 
 **Solution:**
+
 ```kotlin
 // In desktopApp/build.gradle.kts
 nativeDistributions {
@@ -321,6 +337,7 @@ nativeDistributions {
 ```
 
 **Icon Requirements:**
+
 - macOS: `.icns` (512x512, 256x256, 128x128, 32x32)
 - Windows: `.ico` (256x256, 128x128, 64x64, 32x32, 16x16)
 - Linux: `.png` (512x512 recommended)
@@ -334,6 +351,7 @@ Error: Could not find or load main class com.vitorpamplona.amethyst.desktop.Main
 **Cause:** Wrong mainClass path or Main.kt doesn't have main()
 
 **Solution:**
+
 ```kotlin
 // In desktopApp/build.gradle.kts
 compose.desktop {
@@ -359,6 +377,7 @@ java.lang.UnsatisfiedLinkError: no secp256k1jni in java.library.path
 **Cause:** Native libraries not bundled in distribution
 
 **Solution:**
+
 ```kotlin
 // Native libs are automatically included via dependencies
 // Verify secp256k1-kmp-jni-jvm is in dependencies:
@@ -384,6 +403,7 @@ dependencies {
 **Cause:** Signature mismatch or missing expect
 
 **Solution:**
+
 ```kotlin
 // commonMain - expect declaration
 expect class CryptoProvider {
@@ -412,6 +432,7 @@ Compilation failed: module was compiled with an incompatible version of Kotlin
 **Cause:** Different JVM targets across modules
 
 **Solution:**
+
 ```kotlin
 // Ensure ALL modules use same JVM target
 
@@ -440,6 +461,7 @@ This declaration needs opt-in. Please use @OptIn(ComposeApi::class) or @Composab
 **Cause:** Compose compiler plugin not applied
 
 **Solution:**
+
 ```kotlin
 // In build.gradle.kts
 plugins {
@@ -461,6 +483,7 @@ Could not find com.github.vitorpamplona.compose-richtext:richtext-ui:f92ef49c9d
 **Cause:** Jitpack or custom Maven repository not configured
 
 **Solution:**
+
 ```kotlin
 // In settings.gradle
 dependencyResolutionManagement {
@@ -481,6 +504,7 @@ Version catalogs are not supported in this version of Gradle
 **Cause:** Gradle < 7.0
 
 **Solution:**
+
 ```properties
 # In gradle/wrapper/gradle-wrapper.properties
 distributionUrl=https\://services.gradle.org/distributions/gradle-8.9-bin.zip
@@ -497,6 +521,7 @@ No matching variant of fr.acinq.secp256k1:secp256k1-kmp-jni-android:0.22.0 was f
 **Cause:** Wrong dependency configuration for target
 
 **Solution:**
+
 ```kotlin
 // In androidMain (Android library module)
 dependencies {
@@ -521,6 +546,7 @@ Unsupported class file major version 65
 **Cause:** Compiled with Java 21, running with older Java
 
 **Solution:**
+
 ```bash
 # Check Java version
 java -version  # Should show 21
@@ -541,6 +567,7 @@ No matching toolchain found for requested JvmVersion
 **Cause:** Java 21 not installed or not detected
 
 **Solution:**
+
 ```bash
 # macOS (Homebrew)
 brew install openjdk@21
@@ -565,6 +592,7 @@ Daemon will be stopped at the end of the build because JVM version has changed
 **Cause:** Daemon started with different Java version
 
 **Solution:**
+
 ```bash
 # Stop all daemons
 ./gradlew --stop
@@ -582,6 +610,7 @@ org.gradle.java.home=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/H
 ## General Troubleshooting Steps
 
 ### Step 1: Clean Build
+
 ```bash
 ./gradlew clean
 ./gradlew --stop  # Stop daemon
@@ -589,12 +618,14 @@ org.gradle.java.home=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/H
 ```
 
 ### Step 2: Check Dependencies
+
 ```bash
 ./gradlew :moduleName:dependencies
 ./gradlew dependencyInsight --dependency libraryName
 ```
 
 ### Step 3: Enable Debug Logging
+
 ```bash
 ./gradlew build --info     # Info logging
 ./gradlew build --debug    # Debug logging (verbose)
@@ -602,6 +633,7 @@ org.gradle.java.home=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/H
 ```
 
 ### Step 4: Invalidate Caches
+
 ```bash
 # Clear Gradle cache
 rm -rf ~/.gradle/caches/
@@ -614,6 +646,7 @@ rm -rf ~/.gradle/wrapper/
 ```
 
 ### Step 5: Build Scan
+
 ```bash
 ./gradlew build --scan
 # Opens interactive diagnostics in browser
@@ -621,17 +654,17 @@ rm -rf ~/.gradle/wrapper/
 
 ## Quick Reference: Error Keywords → Solution
 
-| Error Keyword | Likely Cause | Quick Fix |
-|---------------|--------------|-----------|
-| `UnsatisfiedLinkError` | Wrong JNI variant | Check secp256k1/JNA variants by platform |
-| `IllegalStateException` (Compose) | Version mismatch | Align Compose Multiplatform + Kotlin versions |
-| `NoClassDefFoundError` | Proguard stripping | Add `-keep` rule for class |
-| `Unresolved reference` | Wrong source set | Move to appropriate source set (jvmAndroid) |
-| `Duplicate class` | BOM conflict | Remove AndroidX BOM from KMP modules |
-| `Version mismatch` | Plugin/runtime version mismatch | Update libs.versions.toml |
-| `No matching variant` | Repository or packaging issue | Add repository or @aar suffix |
-| `Could not find` (dependency) | Missing repository | Add maven/jitpack to repositories |
-| `Unsupported class file` | Java version mismatch | Update JAVA_HOME to Java 21 |
+| Error Keyword                     | Likely Cause                    | Quick Fix                                     |
+|-----------------------------------|---------------------------------|-----------------------------------------------|
+| `UnsatisfiedLinkError`            | Wrong JNI variant               | Check secp256k1/JNA variants by platform      |
+| `IllegalStateException` (Compose) | Version mismatch                | Align Compose Multiplatform + Kotlin versions |
+| `NoClassDefFoundError`            | Proguard stripping              | Add `-keep` rule for class                    |
+| `Unresolved reference`            | Wrong source set                | Move to appropriate source set (jvmAndroid)   |
+| `Duplicate class`                 | BOM conflict                    | Remove AndroidX BOM from KMP modules          |
+| `Version mismatch`                | Plugin/runtime version mismatch | Update libs.versions.toml                     |
+| `No matching variant`             | Repository or packaging issue   | Add repository or @aar suffix                 |
+| `Could not find` (dependency)     | Missing repository              | Add maven/jitpack to repositories             |
+| `Unsupported class file`          | Java version mismatch           | Update JAVA_HOME to Java 21                   |
 
 ---
 

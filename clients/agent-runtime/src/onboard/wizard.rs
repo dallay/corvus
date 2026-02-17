@@ -1,4 +1,4 @@
-use crate::config::schema::{DingTalkConfig, IrcConfig, WhatsAppConfig};
+use crate::config::schema::{DingTalkConfig, IrcConfig, QQConfig, WhatsAppConfig};
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
     HeartbeatConfig, IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
@@ -8,7 +8,11 @@ use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
     default_memory_backend_key, memory_backend_profile, selectable_memory_backends,
 };
-use anyhow::{Context, Result};
+use crate::providers::{
+    canonical_china_provider_name, is_glm_alias, is_glm_cn_alias, is_minimax_alias,
+    is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_zai_alias, is_zai_cn_alias,
+};
+use anyhow::{bail, Context, Result};
 use console::style;
 use dialoguer::{Confirm, Input, Select};
 use serde::{Deserialize, Serialize};
@@ -51,7 +55,6 @@ const MODEL_PREVIEW_LIMIT: usize = 20;
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const MODEL_CACHE_TTL_SECS: u64 = 12 * 60 * 60;
 const CUSTOM_MODEL_SENTINEL: &str = "__custom_model__";
-const OLLAMA_DEFAULT_BASE_URL: &str = "http://localhost:11434";
 
 // ── Main wizard entry point ──────────────────────────────────────
 
@@ -74,7 +77,7 @@ pub fn run_wizard() -> Result<Config> {
     let (workspace_dir, config_path) = setup_workspace()?;
 
     print_step(2, 9, "AI Provider & API Key");
-    let (provider, api_key, model) = setup_provider(&workspace_dir)?;
+    let (provider, api_key, model, provider_api_url) = setup_provider(&workspace_dir)?;
 
     print_step(3, 9, "Channels (How You Talk to Corvus)");
     let channels_config = setup_channels()?;
@@ -107,6 +110,7 @@ pub fn run_wizard() -> Result<Config> {
         } else {
             Some(api_key)
         },
+        api_url: provider_api_url,
         default_provider: Some(provider),
         default_model: Some(model),
         default_temperature: 0.7,
@@ -118,6 +122,7 @@ pub fn run_wizard() -> Result<Config> {
         agent: crate::config::schema::AgentConfig::default(),
         model_routes: Vec::new(),
         heartbeat: HeartbeatConfig::default(),
+        cron: crate::config::CronConfig::default(),
         channels_config,
         memory: memory_config, // User-selected memory backend
         tunnel: tunnel_config,
@@ -146,6 +151,7 @@ pub fn run_wizard() -> Result<Config> {
     );
 
     config.save()?;
+    persist_workspace_selection(&config.config_path)?;
 
     // ── Final summary ────────────────────────────────────────────
     print_summary(&config);
@@ -157,7 +163,8 @@ pub fn run_wizard() -> Result<Config> {
         || config.channels_config.imessage.is_some()
         || config.channels_config.matrix.is_some()
         || config.channels_config.email.is_some()
-        || config.channels_config.dingtalk.is_some();
+        || config.channels_config.dingtalk.is_some()
+        || config.channels_config.qq.is_some();
 
     if has_channels && config.api_key.is_some() {
         let launch: bool = Confirm::new()
@@ -200,6 +207,7 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
     print_step(1, 1, "Channels (How You Talk to Corvus)");
     config.channels_config = setup_channels()?;
     config.save()?;
+    persist_workspace_selection(&config.config_path)?;
 
     println!();
     println!(
@@ -214,7 +222,8 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
         || config.channels_config.imessage.is_some()
         || config.channels_config.matrix.is_some()
         || config.channels_config.email.is_some()
-        || config.channels_config.dingtalk.is_some();
+        || config.channels_config.dingtalk.is_some()
+        || config.channels_config.qq.is_some();
 
     if has_channels && config.api_key.is_some() {
         let launch: bool = Confirm::new()
@@ -284,7 +293,7 @@ fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
 
 #[allow(clippy::too_many_lines)]
 pub fn run_quick_setup(
-    api_key: Option<&str>,
+    credential_override: Option<&str>,
     provider: Option<&str>,
     memory_backend: Option<&str>,
 ) -> Result<Config> {
@@ -318,7 +327,8 @@ pub fn run_quick_setup(
     let config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
-        api_key: api_key.map(String::from),
+        api_key: credential_override.map(String::from),
+        api_url: None,
         default_provider: Some(provider_name.clone()),
         default_model: Some(model.clone()),
         default_temperature: 0.7,
@@ -330,6 +340,7 @@ pub fn run_quick_setup(
         agent: crate::config::schema::AgentConfig::default(),
         model_routes: Vec::new(),
         heartbeat: HeartbeatConfig::default(),
+        cron: crate::config::CronConfig::default(),
         channels_config: ChannelsConfig::default(),
         memory: memory_config,
         tunnel: crate::config::TunnelConfig::default(),
@@ -346,6 +357,7 @@ pub fn run_quick_setup(
     };
 
     config.save()?;
+    persist_workspace_selection(&config.config_path)?;
 
     // Scaffold minimal workspace files
     let default_ctx = ProjectContext {
@@ -376,7 +388,7 @@ pub fn run_quick_setup(
     println!(
         "  {} API Key:    {}",
         style("✓").green().bold(),
-        if api_key.is_some() {
+        if credential_override.is_some() {
             style("set").green()
         } else {
             style("not set (use --api-key or edit config.toml)").yellow()
@@ -425,7 +437,7 @@ pub fn run_quick_setup(
     );
     println!();
     println!("  {}", style("Next steps:").white().bold());
-    if api_key.is_none() {
+    if credential_override.is_none() {
         println!("    1. Set your API key:  export OPENROUTER_API_KEY=\"sk-...\"");
         println!("    2. Or edit:           ~/.corvus/config.toml");
         println!("    3. Chat:              corvus agent -m \"Hello!\"");
@@ -441,6 +453,10 @@ pub fn run_quick_setup(
 }
 
 fn canonical_provider_name(provider_name: &str) -> &str {
+    if let Some(canonical) = canonical_china_provider_name(provider_name) {
+        return canonical;
+    }
+
     match provider_name {
         "grok" => "xai",
         "together" => "together-ai",
@@ -460,10 +476,11 @@ const MINIMAX_ONBOARD_MODELS: [(&str, &str); 5] = [
 
 fn default_model_for_provider(provider: &str) -> String {
     match canonical_provider_name(provider) {
-        "anthropic" => "claude-sonnet-4-20250514".into(),
+        "anthropic" => "claude-sonnet-4-5-20250929".into(),
         "openai" => "gpt-5.2".into(),
-        "glm" | "zhipu" | "zai" | "z.ai" => "glm-5".into(),
+        "glm" | "zai" => "glm-5".into(),
         "minimax" => "MiniMax-M2.5".into(),
+        "qwen" => "qwen-plus".into(),
         "ollama" => "llama3.2".into(),
         "groq" => "llama-3.3-70b-versatile".into(),
         "deepseek" => "deepseek-chat".into(),
@@ -506,16 +523,16 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
         ],
         "anthropic" => vec![
             (
-                "claude-sonnet-4-20250514".to_string(),
-                "Claude Sonnet 4 (balanced, recommended)".to_string(),
+                "claude-sonnet-4-5-20250929".to_string(),
+                "Claude Sonnet 4.5 (balanced, recommended)".to_string(),
             ),
             (
-                "claude-opus-4-1-20250805".to_string(),
-                "Claude Opus 4.1 (best quality)".to_string(),
+                "claude-opus-4-6".to_string(),
+                "Claude Opus 4.6 (best quality)".to_string(),
             ),
             (
-                "claude-3-5-haiku-20241022".to_string(),
-                "Claude 3.5 Haiku (fastest, cheapest)".to_string(),
+                "claude-haiku-4-5-20251001".to_string(),
+                "Claude Haiku 4.5 (fastest, cheapest)".to_string(),
             ),
         ],
         "openai" => vec![
@@ -674,7 +691,7 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
                 "Kimi Thinking Preview (deep reasoning)".to_string(),
             ),
         ],
-        "glm" | "zhipu" | "zai" | "z.ai" => vec![
+        "glm" | "zai" => vec![
             (
                 "glm-4.7".to_string(),
                 "GLM-4.7 (latest flagship)".to_string(),
@@ -697,6 +714,20 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
             (
                 "MiniMax-M2.1-lightning".to_string(),
                 "MiniMax M2.1 Lightning (fast)".to_string(),
+            ),
+        ],
+        "qwen" => vec![
+            (
+                "qwen-max".to_string(),
+                "Qwen Max (highest quality)".to_string(),
+            ),
+            (
+                "qwen-plus".to_string(),
+                "Qwen Plus (balanced default)".to_string(),
+            ),
+            (
+                "qwen-turbo".to_string(),
+                "Qwen Turbo (fast and cost-efficient)".to_string(),
             ),
         ],
         "ollama" => vec![
@@ -752,46 +783,6 @@ fn build_model_fetch_client() -> Result<reqwest::blocking::Client> {
         .connect_timeout(Duration::from_secs(4))
         .build()
         .context("failed to build model-fetch HTTP client")
-}
-
-fn normalize_http_url(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-
-    let parsed = reqwest::Url::parse(trimmed).ok()?;
-    if !matches!(parsed.scheme(), "http" | "https") {
-        return None;
-    }
-
-    Some(trimmed.trim_end_matches('/').to_string())
-}
-
-fn resolve_ollama_base_url_for_fetch(api_key: Option<&str>) -> String {
-    api_key
-        .and_then(normalize_http_url)
-        .or_else(|| {
-            std::env::var("CORVUS_OLLAMA_BASE_URL")
-                .ok()
-                .and_then(|value| normalize_http_url(&value))
-        })
-        .or_else(|| {
-            std::env::var("OLLAMA_BASE_URL")
-                .ok()
-                .and_then(|value| normalize_http_url(&value))
-        })
-        .or_else(|| {
-            std::env::var("CORVUS_API_KEY")
-                .ok()
-                .and_then(|value| normalize_http_url(&value))
-        })
-        .or_else(|| {
-            std::env::var("API_KEY")
-                .ok()
-                .and_then(|value| normalize_http_url(&value))
-        })
-        .unwrap_or_else(|| OLLAMA_DEFAULT_BASE_URL.to_string())
 }
 
 fn normalize_model_ids(ids: Vec<String>) -> Vec<String> {
@@ -909,13 +900,29 @@ fn fetch_anthropic_models(api_key: Option<&str>) -> Result<Vec<String>> {
     };
 
     let client = build_model_fetch_client()?;
-    let payload: Value = client
+    let mut request = client
         .get("https://api.anthropic.com/v1/models")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
+        .header("anthropic-version", "2023-06-01");
+
+    if api_key.starts_with("sk-ant-oat01-") {
+        request = request
+            .header("Authorization", format!("Bearer {api_key}"))
+            .header("anthropic-beta", "oauth-2025-04-20");
+    } else {
+        request = request.header("x-api-key", api_key);
+    }
+
+    let response = request
         .send()
-        .and_then(reqwest::blocking::Response::error_for_status)
-        .context("model fetch failed: GET https://api.anthropic.com/v1/models")?
+        .context("model fetch failed: GET https://api.anthropic.com/v1/models")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response.text().unwrap_or_default();
+        bail!("Anthropic model list request failed (HTTP {status}): {body}");
+    }
+
+    let payload: Value = response
         .json()
         .context("failed to parse Anthropic model list response")?;
 
@@ -940,14 +947,13 @@ fn fetch_gemini_models(api_key: Option<&str>) -> Result<Vec<String>> {
     Ok(parse_gemini_model_ids(&payload))
 }
 
-fn fetch_ollama_models(api_key: Option<&str>) -> Result<Vec<String>> {
+fn fetch_ollama_models() -> Result<Vec<String>> {
     let client = build_model_fetch_client()?;
-    let endpoint = format!("{}/api/tags", resolve_ollama_base_url_for_fetch(api_key));
     let payload: Value = client
-        .get(&endpoint)
+        .get("http://localhost:11434/api/tags")
         .send()
         .and_then(reqwest::blocking::Response::error_for_status)
-        .with_context(|| format!("model fetch failed: GET {endpoint}"))?
+        .context("model fetch failed: GET http://localhost:11434/api/tags")?
         .json()
         .context("failed to parse Ollama model list response")?;
 
@@ -959,6 +965,14 @@ fn fetch_live_models_for_provider(provider_name: &str, api_key: &str) -> Result<
     let api_key = if api_key.trim().is_empty() {
         std::env::var(provider_env_var(provider_name))
             .ok()
+            .or_else(|| {
+                // Anthropic also accepts OAuth setup-tokens via ANTHROPIC_OAUTH_TOKEN
+                if provider_name == "anthropic" {
+                    std::env::var("ANTHROPIC_OAUTH_TOKEN").ok()
+                } else {
+                    None
+                }
+            })
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
     } else {
@@ -988,7 +1002,7 @@ fn fetch_live_models_for_provider(provider_name: &str, api_key: &str) -> Result<
         )?,
         "anthropic" => fetch_anthropic_models(api_key.as_deref())?,
         "gemini" => fetch_gemini_models(api_key.as_deref())?,
-        "ollama" => fetch_ollama_models(api_key.as_deref())?,
+        "ollama" => fetch_ollama_models()?,
         _ => Vec::new(),
     };
 
@@ -1269,6 +1283,18 @@ fn print_bullet(text: &str) {
     println!("  {} {}", style("›").cyan(), text);
 }
 
+fn persist_workspace_selection(config_path: &Path) -> Result<()> {
+    let config_dir = config_path
+        .parent()
+        .context("Config path must have a parent directory")?;
+    crate::config::schema::persist_active_workspace_config_dir(config_dir).with_context(|| {
+        format!(
+            "Failed to persist active workspace selection for {}",
+            config_dir.display()
+        )
+    })
+}
+
 // ── Step 1: Workspace ────────────────────────────────────────────
 
 fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
@@ -1314,13 +1340,13 @@ fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
 // ── Step 2: Provider & API Key ───────────────────────────────────
 
 #[allow(clippy::too_many_lines)]
-fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
+fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Option<String>)> {
     // ── Tier selection ──
     let tiers = vec![
         "⭐ Recommended (OpenRouter, Venice, Anthropic, OpenAI, Gemini)",
         "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
         "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Amazon Bedrock)",
-        "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
+        "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qwen/DashScope, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
         "🏠 Local / private (Ollama — no API key needed)",
         "🔧 Custom — bring your own OpenAI-compatible API",
     ];
@@ -1361,11 +1387,24 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
             ("bedrock", "Amazon Bedrock — AWS managed models"),
         ],
         3 => vec![
-            ("moonshot", "Moonshot — Kimi & Kimi Coding"),
-            ("glm", "GLM — ChatGLM / Zhipu models"),
-            ("minimax", "MiniMax — MiniMax AI models"),
-            ("qianfan", "Qianfan — Baidu AI models"),
-            ("zai", "Z.AI — Z.AI inference"),
+            ("moonshot", "Moonshot — Kimi API (China endpoint)"),
+            (
+                "moonshot-intl",
+                "Moonshot — Kimi API (international endpoint)",
+            ),
+            ("glm", "GLM — ChatGLM / Zhipu (international endpoint)"),
+            ("glm-cn", "GLM — ChatGLM / Zhipu (China endpoint)"),
+            (
+                "minimax",
+                "MiniMax — international endpoint (api.minimax.io)",
+            ),
+            ("minimax-cn", "MiniMax — China endpoint (api.minimaxi.com)"),
+            ("qwen", "Qwen — DashScope China endpoint"),
+            ("qwen-intl", "Qwen — DashScope international endpoint"),
+            ("qwen-us", "Qwen — DashScope US endpoint"),
+            ("qianfan", "Qianfan — Baidu AI models (China endpoint)"),
+            ("zai", "Z.AI — global coding endpoint"),
+            ("zai-cn", "Z.AI — China coding endpoint (open.bigmodel.cn)"),
             ("synthetic", "Synthetic — Synthetic AI models"),
             ("opencode", "OpenCode Zen — code-focused AI"),
             ("cohere", "Cohere — Command R+ & embeddings"),
@@ -1414,7 +1453,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
             style(&model).green()
         );
 
-        return Ok((provider_name, api_key, model));
+        return Ok((provider_name, api_key, model, None));
     }
 
     let provider_labels: Vec<&str> = providers.iter().map(|(_, label)| *label).collect();
@@ -1427,13 +1466,53 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
 
     let provider_name = providers[provider_idx].0;
 
-    // ── API key ──
+    // ── API key / endpoint ──
+    let mut provider_api_url: Option<String> = None;
     let api_key = if provider_name == "ollama" {
-        print_bullet("Ollama runs locally — no API key needed!");
-        print_bullet(
-            "If Corvus runs in Docker/remote, set OLLAMA_BASE_URL (e.g. http://host.docker.internal:11434).",
-        );
-        String::new()
+        let use_remote_ollama = Confirm::new()
+            .with_prompt("  Use a remote Ollama endpoint (for example Ollama Cloud)?")
+            .default(false)
+            .interact()?;
+
+        if use_remote_ollama {
+            let raw_url: String = Input::new()
+                .with_prompt("  Remote Ollama endpoint URL")
+                .default("https://ollama.com".into())
+                .interact_text()?;
+
+            let normalized_url = raw_url.trim().trim_end_matches('/').to_string();
+            if normalized_url.is_empty() {
+                anyhow::bail!("Remote Ollama endpoint URL cannot be empty.");
+            }
+
+            provider_api_url = Some(normalized_url.clone());
+
+            print_bullet(&format!(
+                "Remote endpoint configured: {}",
+                style(&normalized_url).cyan()
+            ));
+            print_bullet(&format!(
+                "If you use cloud-only models, append {} to the model ID.",
+                style(":cloud").yellow()
+            ));
+
+            let key: String = Input::new()
+                .with_prompt("  API key for remote Ollama endpoint (or Enter to skip)")
+                .allow_empty(true)
+                .interact_text()?;
+
+            if key.trim().is_empty() {
+                print_bullet(&format!(
+                    "No API key provided. Set {} later if required by your endpoint.",
+                    style("OLLAMA_API_KEY").yellow()
+                ));
+            }
+
+            key
+        } else {
+            print_bullet("Using local Ollama at http://localhost:11434 (no API key needed).");
+            String::new()
+        }
     } else if canonical_provider_name(provider_name) == "gemini" {
         // Special handling for Gemini: check for CLI auth first
         if crate::providers::gemini::GeminiProvider::has_cli_credentials() {
@@ -1478,30 +1557,77 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
                 .allow_empty(true)
                 .interact_text()?
         }
+    } else if canonical_provider_name(provider_name) == "anthropic" {
+        if std::env::var("ANTHROPIC_OAUTH_TOKEN").is_ok() {
+            print_bullet(&format!(
+                "{} ANTHROPIC_OAUTH_TOKEN environment variable detected!",
+                style("✓").green().bold()
+            ));
+            String::new()
+        } else if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+            print_bullet(&format!(
+                "{} ANTHROPIC_API_KEY environment variable detected!",
+                style("✓").green().bold()
+            ));
+            String::new()
+        } else {
+            print_bullet(&format!(
+                "Get your API key at: {}",
+                style("https://console.anthropic.com/settings/keys")
+                    .cyan()
+                    .underlined()
+            ));
+            print_bullet("Or run `claude setup-token` to get an OAuth setup-token.");
+            println!();
+
+            let key: String = Input::new()
+                .with_prompt("  Paste your API key or setup-token (or press Enter to skip)")
+                .allow_empty(true)
+                .interact_text()?;
+
+            if key.is_empty() {
+                print_bullet(&format!(
+                    "Skipped. Set {} or {} or edit config.toml later.",
+                    style("ANTHROPIC_API_KEY").yellow(),
+                    style("ANTHROPIC_OAUTH_TOKEN").yellow()
+                ));
+            }
+
+            key
+        }
     } else {
-        let key_url = match provider_name {
-            "openrouter" => "https://openrouter.ai/keys",
-            "anthropic" => "https://console.anthropic.com/settings/keys",
-            "openai" => "https://platform.openai.com/api-keys",
-            "venice" => "https://venice.ai/settings/api",
-            "groq" => "https://console.groq.com/keys",
-            "mistral" => "https://console.mistral.ai/api-keys",
-            "deepseek" => "https://platform.deepseek.com/api_keys",
-            "together-ai" => "https://api.together.xyz/settings/api-keys",
-            "fireworks" => "https://fireworks.ai/account/api-keys",
-            "perplexity" => "https://www.perplexity.ai/settings/api",
-            "xai" => "https://console.x.ai",
-            "cohere" => "https://dashboard.cohere.com/api-keys",
-            "moonshot" => "https://platform.moonshot.cn/console/api-keys",
-            "glm" | "zhipu" => "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys",
-            "zai" | "z.ai" => "https://platform.z.ai/",
-            "minimax" => "https://www.minimaxi.com/user-center/basic-information",
-            "vercel" => "https://vercel.com/account/tokens",
-            "cloudflare" => "https://dash.cloudflare.com/profile/api-tokens",
-            "nvidia" | "nvidia-nim" | "build.nvidia.com" => "https://build.nvidia.com/",
-            "bedrock" => "https://console.aws.amazon.com/iam",
-            "gemini" => "https://aistudio.google.com/app/apikey",
-            _ => "",
+        let key_url = if is_moonshot_alias(provider_name) {
+            "https://platform.moonshot.cn/console/api-keys"
+        } else if is_glm_cn_alias(provider_name) || is_zai_cn_alias(provider_name) {
+            "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys"
+        } else if is_glm_alias(provider_name) || is_zai_alias(provider_name) {
+            "https://platform.z.ai/"
+        } else if is_minimax_alias(provider_name) {
+            "https://www.minimaxi.com/user-center/basic-information"
+        } else if is_qwen_alias(provider_name) {
+            "https://help.aliyun.com/zh/model-studio/developer-reference/get-api-key"
+        } else if is_qianfan_alias(provider_name) {
+            "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/7lm0vxo78"
+        } else {
+            match provider_name {
+                "openrouter" => "https://openrouter.ai/keys",
+                "openai" => "https://platform.openai.com/api-keys",
+                "venice" => "https://venice.ai/settings/api",
+                "groq" => "https://console.groq.com/keys",
+                "mistral" => "https://console.mistral.ai/api-keys",
+                "deepseek" => "https://platform.deepseek.com/api_keys",
+                "together-ai" => "https://api.together.xyz/settings/api-keys",
+                "fireworks" => "https://fireworks.ai/account/api-keys",
+                "perplexity" => "https://www.perplexity.ai/settings/api",
+                "xai" => "https://console.x.ai",
+                "cohere" => "https://dashboard.cohere.com/api-keys",
+                "vercel" => "https://vercel.com/account/tokens",
+                "cloudflare" => "https://dash.cloudflare.com/profile/api-tokens",
+                "nvidia" | "nvidia-nim" | "build.nvidia.com" => "https://build.nvidia.com/",
+                "bedrock" => "https://console.aws.amazon.com/iam",
+                "gemini" => "https://aistudio.google.com/app/apikey",
+                _ => "",
+            }
         };
 
         println!();
@@ -1531,7 +1657,8 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
     };
 
     // ── Model selection ──
-    let models: Vec<(&str, &str)> = match provider_name {
+    let canonical_provider = canonical_provider_name(provider_name);
+    let models: Vec<(&str, &str)> = match canonical_provider {
         "openrouter" => vec![
             (
                 "anthropic/claude-sonnet-4",
@@ -1609,7 +1736,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
                 "Mixtral 8x22B",
             ),
         ],
-        "together" => vec![
+        "together-ai" => vec![
             (
                 "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
                 "Llama 3.1 70B Turbo",
@@ -1634,12 +1761,17 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
             ("moonshot-v1-128k", "Moonshot V1 128K"),
             ("moonshot-v1-32k", "Moonshot V1 32K"),
         ],
-        "glm" | "zhipu" | "zai" | "z.ai" => vec![
+        "glm" | "zai" => vec![
             ("glm-5", "GLM-5 (latest)"),
             ("glm-4-plus", "GLM-4 Plus (flagship)"),
             ("glm-4-flash", "GLM-4 Flash (fast)"),
         ],
         "minimax" => MINIMAX_ONBOARD_MODELS.to_vec(),
+        "qwen" => vec![
+            ("qwen-plus", "Qwen Plus (balanced default)"),
+            ("qwen-max", "Qwen Max (highest quality)"),
+            ("qwen-turbo", "Qwen Turbo (fast and cost-efficient)"),
+        ],
         "ollama" => vec![
             ("llama3.2", "Llama 3.2 (recommended local)"),
             ("mistral", "Mistral 7B"),
@@ -1664,7 +1796,11 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
         .collect();
     let mut live_options: Option<Vec<(String, String)>> = None;
 
-    if supports_live_model_fetch(provider_name) {
+    if provider_name == "ollama" && provider_api_url.is_some() {
+        print_bullet(
+            "Skipping local Ollama model discovery because a remote endpoint is configured.",
+        );
+    } else if supports_live_model_fetch(provider_name) {
         let can_fetch_without_key = matches!(provider_name, "openrouter" | "ollama");
         let has_api_key = !api_key.trim().is_empty()
             || std::env::var(provider_env_var(provider_name))
@@ -1820,16 +1956,16 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String)> {
         style(&model).green()
     );
 
-    Ok((provider_name.to_string(), api_key, model))
+    Ok((provider_name.to_string(), api_key, model, provider_api_url))
 }
 
 /// Map provider name to its conventional env var
 fn provider_env_var(name: &str) -> &'static str {
     match canonical_provider_name(name) {
-        "ollama" => "OLLAMA_BASE_URL",
         "openrouter" => "OPENROUTER_API_KEY",
         "anthropic" => "ANTHROPIC_API_KEY",
         "openai" => "OPENAI_API_KEY",
+        "ollama" => "OLLAMA_API_KEY",
         "venice" => "VENICE_API_KEY",
         "groq" => "GROQ_API_KEY",
         "mistral" => "MISTRAL_API_KEY",
@@ -1839,11 +1975,12 @@ fn provider_env_var(name: &str) -> &'static str {
         "fireworks" | "fireworks-ai" => "FIREWORKS_API_KEY",
         "perplexity" => "PERPLEXITY_API_KEY",
         "cohere" => "COHERE_API_KEY",
-        "moonshot" | "kimi" => "MOONSHOT_API_KEY",
-        "glm" | "zhipu" => "GLM_API_KEY",
+        "moonshot" => "MOONSHOT_API_KEY",
+        "glm" => "GLM_API_KEY",
         "minimax" => "MINIMAX_API_KEY",
-        "qianfan" | "baidu" => "QIANFAN_API_KEY",
-        "zai" | "z.ai" => "ZAI_API_KEY",
+        "qwen" => "DASHSCOPE_API_KEY",
+        "qianfan" => "QIANFAN_API_KEY",
+        "zai" => "ZAI_API_KEY",
         "synthetic" => "SYNTHETIC_API_KEY",
         "opencode" | "opencode-zen" => "OPENCODE_API_KEY",
         "vercel" | "vercel-ai" => "VERCEL_API_KEY",
@@ -2252,14 +2389,11 @@ fn setup_memory() -> Result<MemoryConfig> {
     let backend = backend_key_from_choice(choice);
     let profile = memory_backend_profile(backend);
 
-    let auto_save = if !profile.auto_save_default {
-        false
-    } else {
-        Confirm::new()
+    let auto_save = profile.auto_save_default
+        && Confirm::new()
             .with_prompt("  Auto-save conversations to memory?")
             .default(true)
-            .interact()?
-    };
+            .interact()?;
 
     println!(
         "  {} Memory: {} (auto-save: {})",
@@ -2286,14 +2420,17 @@ fn setup_channels() -> Result<ChannelsConfig> {
         telegram: None,
         discord: None,
         slack: None,
+        mattermost: None,
         webhook: None,
         imessage: None,
         matrix: None,
+        signal: None,
         whatsapp: None,
         email: None,
         irc: None,
         lark: None,
         dingtalk: None,
+        qq: None,
     };
 
     loop {
@@ -2367,7 +2504,15 @@ fn setup_channels() -> Result<ChannelsConfig> {
                 if config.dingtalk.is_some() {
                     "✅ connected"
                 } else {
-                    "— 钉钉 Stream Mode"
+                    "— DingTalk Stream Mode"
+                }
+            ),
+            format!(
+                "QQ Official {}",
+                if config.qq.is_some() {
+                    "✅ connected"
+                } else {
+                    "— Tencent QQ Bot"
                 }
             ),
             "Done — finish setup".to_string(),
@@ -2376,7 +2521,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
         let choice = Select::new()
             .with_prompt("  Connect a channel (or Done to continue)")
             .items(&options)
-            .default(9)
+            .default(10)
             .interact()?;
 
         match choice {
@@ -2570,6 +2715,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     guild_id: if guild.is_empty() { None } else { Some(guild) },
                     allowed_users,
                     listen_to_bots: false,
+                    mention_only: false,
                 });
             }
             2 => {
@@ -2782,22 +2928,14 @@ fn setup_channels() -> Result<ChannelsConfig> {
                         .header("Authorization", format!("Bearer {access_token_clone}"))
                         .send()?;
                     let ok = resp.status().is_success();
-                    let data: serde_json::Value = resp.json().unwrap_or_default();
-                    let user_id = data
-                        .get("user_id")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("unknown")
-                        .to_string();
-                    Ok::<_, reqwest::Error>((ok, user_id))
+                    Ok::<_, reqwest::Error>(ok)
                 })
                 .join();
                 match thread_result {
-                    Ok(Ok((true, user_id))) => {
-                        println!(
-                            "\r  {} Connected as {user_id}        ",
-                            style("✅").green().bold()
-                        );
-                    }
+                    Ok(Ok(true)) => println!(
+                        "\r  {} Connection verified        ",
+                        style("✅").green().bold()
+                    ),
                     _ => {
                         println!(
                             "\r  {} Connection failed — check homeserver URL and token",
@@ -3101,7 +3239,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
                 println!(
                     "  {} {}",
                     style("DingTalk Setup").white().bold(),
-                    style("— 钉钉 Stream Mode").dim()
+                    style("— DingTalk Stream Mode").dim()
                 );
                 print_bullet("1. Go to DingTalk developer console (open.dingtalk.com)");
                 print_bullet("2. Create an app and enable the Stream Mode bot");
@@ -3165,6 +3303,82 @@ fn setup_channels() -> Result<ChannelsConfig> {
                     allowed_users,
                 });
             }
+            9 => {
+                // ── QQ Official ──
+                println!();
+                println!(
+                    "  {} {}",
+                    style("QQ Official Setup").white().bold(),
+                    style("— Tencent QQ Bot SDK").dim()
+                );
+                print_bullet("1. Go to QQ Bot developer console (q.qq.com)");
+                print_bullet("2. Create a bot application");
+                print_bullet("3. Copy the App ID and App Secret");
+                println!();
+
+                let app_id: String = Input::new().with_prompt("  App ID").interact_text()?;
+
+                if app_id.trim().is_empty() {
+                    println!("  {} Skipped", style("→").dim());
+                    continue;
+                }
+
+                let app_secret: String =
+                    Input::new().with_prompt("  App Secret").interact_text()?;
+
+                // Test connection
+                print!("  {} Testing connection... ", style("⏳").dim());
+                let client = reqwest::blocking::Client::new();
+                let body = serde_json::json!({
+                    "appId": app_id,
+                    "clientSecret": app_secret,
+                });
+                match client
+                    .post("https://bots.qq.com/app/getAppAccessToken")
+                    .json(&body)
+                    .send()
+                {
+                    Ok(resp) if resp.status().is_success() => {
+                        let data: serde_json::Value = resp.json().unwrap_or_default();
+                        if data.get("access_token").is_some() {
+                            println!(
+                                "\r  {} QQ Bot credentials verified        ",
+                                style("✅").green().bold()
+                            );
+                        } else {
+                            println!(
+                                "\r  {} Auth error — check your credentials",
+                                style("❌").red().bold()
+                            );
+                            continue;
+                        }
+                    }
+                    _ => {
+                        println!(
+                            "\r  {} Connection failed — check your credentials",
+                            style("❌").red().bold()
+                        );
+                        continue;
+                    }
+                }
+
+                let users_str: String = Input::new()
+                    .with_prompt("  Allowed user IDs (comma-separated, '*' for all)")
+                    .allow_empty(true)
+                    .interact_text()?;
+
+                let allowed_users: Vec<String> = users_str
+                    .split(',')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                config.qq = Some(QQConfig {
+                    app_id,
+                    app_secret,
+                    allowed_users,
+                });
+            }
             _ => break, // Done
         }
         println!();
@@ -3201,6 +3415,9 @@ fn setup_channels() -> Result<ChannelsConfig> {
     }
     if config.dingtalk.is_some() {
         active.push("DingTalk");
+    }
+    if config.qq.is_some() {
+        active.push("QQ");
     }
 
     println!(
@@ -3653,7 +3870,8 @@ fn print_summary(config: &Config) {
         || config.channels_config.imessage.is_some()
         || config.channels_config.matrix.is_some()
         || config.channels_config.email.is_some()
-        || config.channels_config.dingtalk.is_some();
+        || config.channels_config.dingtalk.is_some()
+        || config.channels_config.qq.is_some();
 
     println!();
     println!(
@@ -3762,15 +3980,7 @@ fn print_summary(config: &Config) {
     );
 
     // Secrets
-    println!(
-        "    {} Secrets:       {}",
-        style("🔒").cyan(),
-        if config.secrets.encrypt {
-            style("encrypted").green().to_string()
-        } else {
-            style("plaintext").yellow().to_string()
-        }
-    );
+    println!("    {} Secrets:       configured", style("🔒").cyan());
 
     // Gateway
     println!(
@@ -4309,14 +4519,32 @@ mod tests {
         assert_eq!(default_model_for_provider("openai"), "gpt-5.2");
         assert_eq!(
             default_model_for_provider("anthropic"),
-            "claude-sonnet-4-20250514"
+            "claude-sonnet-4-5-20250929"
         );
+        assert_eq!(default_model_for_provider("qwen"), "qwen-plus");
+        assert_eq!(default_model_for_provider("qwen-intl"), "qwen-plus");
+        assert_eq!(default_model_for_provider("glm-cn"), "glm-5");
+        assert_eq!(default_model_for_provider("minimax-cn"), "MiniMax-M2.5");
+        assert_eq!(default_model_for_provider("zai-cn"), "glm-5");
         assert_eq!(default_model_for_provider("gemini"), "gemini-2.5-pro");
         assert_eq!(default_model_for_provider("google"), "gemini-2.5-pro");
         assert_eq!(
             default_model_for_provider("google-gemini"),
             "gemini-2.5-pro"
         );
+    }
+
+    #[test]
+    fn canonical_provider_name_normalizes_regional_aliases() {
+        assert_eq!(canonical_provider_name("qwen-intl"), "qwen");
+        assert_eq!(canonical_provider_name("dashscope-us"), "qwen");
+        assert_eq!(canonical_provider_name("moonshot-intl"), "moonshot");
+        assert_eq!(canonical_provider_name("kimi-cn"), "moonshot");
+        assert_eq!(canonical_provider_name("glm-cn"), "glm");
+        assert_eq!(canonical_provider_name("bigmodel"), "glm");
+        assert_eq!(canonical_provider_name("minimax-cn"), "minimax");
+        assert_eq!(canonical_provider_name("zai-cn"), "zai");
+        assert_eq!(canonical_provider_name("z.ai-global"), "zai");
     }
 
     #[test]
@@ -4328,6 +4556,16 @@ mod tests {
 
         assert!(ids.contains(&"gpt-5.2".to_string()));
         assert!(ids.contains(&"gpt-5-mini".to_string()));
+    }
+
+    #[test]
+    fn curated_models_for_openrouter_use_valid_anthropic_id() {
+        let ids: Vec<String> = curated_models_for_provider("openrouter")
+            .into_iter()
+            .map(|(id, _)| id)
+            .collect();
+
+        assert!(ids.contains(&"anthropic/claude-sonnet-4.5".to_string()));
     }
 
     #[test]
@@ -4359,6 +4597,22 @@ mod tests {
         assert_eq!(
             curated_models_for_provider("gemini"),
             curated_models_for_provider("google-gemini")
+        );
+        assert_eq!(
+            curated_models_for_provider("qwen"),
+            curated_models_for_provider("qwen-intl")
+        );
+        assert_eq!(
+            curated_models_for_provider("qwen"),
+            curated_models_for_provider("dashscope-us")
+        );
+        assert_eq!(
+            curated_models_for_provider("minimax"),
+            curated_models_for_provider("minimax-cn")
+        );
+        assert_eq!(
+            curated_models_for_provider("zai"),
+            curated_models_for_provider("zai-cn")
         );
     }
 
@@ -4507,7 +4761,7 @@ mod tests {
         assert_eq!(provider_env_var("openrouter"), "OPENROUTER_API_KEY");
         assert_eq!(provider_env_var("anthropic"), "ANTHROPIC_API_KEY");
         assert_eq!(provider_env_var("openai"), "OPENAI_API_KEY");
-        assert_eq!(provider_env_var("ollama"), "OLLAMA_BASE_URL");
+        assert_eq!(provider_env_var("ollama"), "OLLAMA_API_KEY");
         assert_eq!(provider_env_var("xai"), "XAI_API_KEY");
         assert_eq!(provider_env_var("grok"), "XAI_API_KEY"); // alias
         assert_eq!(provider_env_var("together"), "TOGETHER_API_KEY"); // alias
@@ -4515,6 +4769,13 @@ mod tests {
         assert_eq!(provider_env_var("google"), "GEMINI_API_KEY"); // alias
         assert_eq!(provider_env_var("google-gemini"), "GEMINI_API_KEY"); // alias
         assert_eq!(provider_env_var("gemini"), "GEMINI_API_KEY");
+        assert_eq!(provider_env_var("qwen"), "DASHSCOPE_API_KEY");
+        assert_eq!(provider_env_var("qwen-intl"), "DASHSCOPE_API_KEY");
+        assert_eq!(provider_env_var("dashscope-us"), "DASHSCOPE_API_KEY");
+        assert_eq!(provider_env_var("glm-cn"), "GLM_API_KEY");
+        assert_eq!(provider_env_var("minimax-cn"), "MINIMAX_API_KEY");
+        assert_eq!(provider_env_var("moonshot-intl"), "MOONSHOT_API_KEY");
+        assert_eq!(provider_env_var("zai-cn"), "ZAI_API_KEY");
         assert_eq!(provider_env_var("nvidia"), "NVIDIA_API_KEY");
         assert_eq!(provider_env_var("nvidia-nim"), "NVIDIA_API_KEY"); // alias
         assert_eq!(provider_env_var("build.nvidia.com"), "NVIDIA_API_KEY"); // alias

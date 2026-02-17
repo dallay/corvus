@@ -59,8 +59,10 @@ val x: Inner = //...
 ## Auto-fix guidance for agents (safe, conservative)
 
 1. Detect candidate fully-qualified usages with regex patterns such as:
-  - annotations: `@([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)`
-  - class/method references: `\b([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\.[A-Za-z_][\w]*\b`
+
+- annotations: `@([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)`
+- class/method references: `\b([A-Za-z_][\w]*(?:\.[A-Za-z_][\w]*)+)\.[A-Za-z_][\w]*\b`
+
 2. For each match, compute the simple name (substring after the last `.`).
 3. Collision check: if the simple name is already imported but from a different package, skip
    auto-fix and add a comment `// TODO: resolve name collision for SimpleName` near the occurrence.
@@ -79,7 +81,7 @@ val x: Inner = //...
 
 - Name collisions across packages: skip and report for manual resolution.
 - References inside annotation arguments that require compile-time constants: be conservative — if
-   replacement would alter constant expressions, skip and add TODO.
+  replacement would alter constant expressions, skip and add TODO.
 - Generated code or files explicitly marked as generated: skip.
 
 ## Agent guidance (short)

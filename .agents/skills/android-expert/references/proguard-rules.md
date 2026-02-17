@@ -5,6 +5,7 @@ Proguard configuration for optimizing and obfuscating Android APK while preservi
 ## What is Proguard/R8?
 
 **R8** is Android's default code shrinker and obfuscator (replaced Proguard in AGP 3.4.0+). It:
+
 - **Shrinks** code by removing unused classes/methods
 - **Obfuscates** code by renaming classes/methods to short names
 - **Optimizes** code by inlining methods and removing dead code
@@ -315,6 +316,7 @@ android {
 ```
 
 **Output files:**
+
 - `build/outputs/mapping/release/configuration.txt` - All Proguard rules applied
 - `build/outputs/mapping/release/mapping.txt` - Obfuscation mappings
 - `build/outputs/mapping/release/seeds.txt` - Classes kept by `-keep` rules
@@ -336,6 +338,7 @@ adb install app/build/outputs/apk/release/app-release.apk
 **Cause:** Proguard removed or renamed a method used via reflection.
 
 **Solution:**
+
 ```proguard
 -keep class com.example.YourClass {
     public <methods>;
@@ -347,6 +350,7 @@ adb install app/build/outputs/apk/release/app-release.apk
 **Cause:** Data class fields were renamed.
 
 **Solution:**
+
 ```proguard
 -keep @kotlinx.serialization.Serializable class * { *; }
 -keepclassmembers class * {
@@ -359,6 +363,7 @@ adb install app/build/outputs/apk/release/app-release.apk
 **Cause:** @Serializable route classes were obfuscated.
 
 **Solution:**
+
 ```proguard
 # Keep all route classes
 -keep @kotlinx.serialization.Serializable class com.vitorpamplona.amethyst.ui.navigation.routes.** { *; }
@@ -369,6 +374,7 @@ adb install app/build/outputs/apk/release/app-release.apk
 **Cause:** Native method signatures were changed.
 
 **Solution:**
+
 ```proguard
 -keepclasseswithmembernames class * {
     native <methods>;
@@ -380,6 +386,7 @@ adb install app/build/outputs/apk/release/app-release.apk
 ### 1. Keep Only What's Necessary
 
 Don't use broad wildcards:
+
 ```proguard
 # Bad - keeps everything
 -keep class com.vitorpamplona.** { *; }
@@ -439,6 +446,7 @@ See `scripts/analyze-apk-size.sh` for automated analysis.
 ```
 
 **Configure in build.gradle:**
+
 ```gradle
 android {
     flavorDimensions = ["channel"]

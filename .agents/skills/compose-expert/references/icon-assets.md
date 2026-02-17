@@ -5,6 +5,7 @@ Guide to creating and using custom ImageVector icons in Compose Multiplatform.
 ## Why ImageVector?
 
 ImageVector is the native Compose format for vector graphics:
+
 - **Pure Kotlin**: No XML, no asset files
 - **Multiplatform**: Works on Android, Desktop, iOS without conversion
 - **Performant**: Lightweight, composable, GPU-accelerated
@@ -47,6 +48,7 @@ fun roboBuilder(block: Builder.() -> Unit): ImageVector {
 ```
 
 **Usage**:
+
 ```kotlin
 @Composable
 fun CustomIcon() {
@@ -84,6 +86,7 @@ private val pathData1 = PathData {
 ```
 
 **Key elements**:
+
 - `pathData` variables for path commands
 - `addPath()` for each layer
 - Parameterized colors (`fgColor`)
@@ -94,17 +97,18 @@ private val pathData1 = PathData {
 
 Compose's PathData builder provides SVG-like commands:
 
-| Command | Description | Example |
-|---------|-------------|---------|
-| `moveTo(x, y)` | Move pen without drawing | `moveTo(100f, 100f)` |
-| `lineTo(x, y)` | Draw line to point | `lineTo(200f, 150f)` |
-| `curveToRelative(...)` | Relative cubic Bézier | `curveToRelative(10f, 20f, 30f, 40f, 50f, 60f)` |
-| `reflectiveCurveToRelative(...)` | Smooth curve | `reflectiveCurveToRelative(-51f, 3f, -53f, 55f)` |
-| `horizontalLineTo(x)` | Horizontal line | `horizontalLineTo(250f)` |
-| `verticalLineTo(y)` | Vertical line | `verticalLineTo(300f)` |
-| `close()` | Close path | `close()` |
+| Command                          | Description              | Example                                          |
+|----------------------------------|--------------------------|--------------------------------------------------|
+| `moveTo(x, y)`                   | Move pen without drawing | `moveTo(100f, 100f)`                             |
+| `lineTo(x, y)`                   | Draw line to point       | `lineTo(200f, 150f)`                             |
+| `curveToRelative(...)`           | Relative cubic Bézier    | `curveToRelative(10f, 20f, 30f, 40f, 50f, 60f)`  |
+| `reflectiveCurveToRelative(...)` | Smooth curve             | `reflectiveCurveToRelative(-51f, 3f, -53f, 55f)` |
+| `horizontalLineTo(x)`            | Horizontal line          | `horizontalLineTo(250f)`                         |
+| `verticalLineTo(y)`              | Vertical line            | `verticalLineTo(300f)`                           |
+| `close()`                        | Close path               | `close()`                                        |
 
 **Relative vs Absolute**:
+
 - `moveTo` / `lineTo` - Absolute coordinates
 - `moveToRelative` / `lineToRelative` - Relative to current position
 
@@ -178,11 +182,13 @@ object CachedRobohash {
 ```
 
 **Pattern**:
+
 - Key: `(seed, theme)` pair
 - Value: Assembled ImageVector
 - Lifecycle: Application lifetime (never cleared)
 
 **Usage**:
+
 ```kotlin
 @Composable
 fun RobohashImage(robot: String) {
@@ -305,6 +311,7 @@ fun MyCustomIcon(
 ```
 
 **Usage**:
+
 ```kotlin
 MyCustomIcon(
     modifier = Modifier.size(24.dp),
@@ -315,6 +322,7 @@ MyCustomIcon(
 ## Best Practices
 
 ### DO
+
 ✅ Cache generated ImageVectors for performance
 ✅ Use PathData DSL for readability
 ✅ Parameterize colors for theme support
@@ -324,6 +332,7 @@ MyCustomIcon(
 ✅ Use alpha for shadows and highlights
 
 ### DON'T
+
 ❌ Generate ImageVectors in @Composable without caching
 ❌ Hardcode theme-specific colors
 ❌ Create custom icons for standard Material icons
@@ -334,6 +343,7 @@ MyCustomIcon(
 ## Icon Organization
 
 ### Structure
+
 ```
 commons/icons/
 ├── CustomIcons.kt           # Icon collection object
@@ -346,6 +356,7 @@ commons/icons/
 ```
 
 ### Collection Object
+
 ```kotlin
 object CustomIcons {
     val Zap: ImageVector by lazy { ZapIcon.create() }

@@ -9,6 +9,7 @@ Real examples of abstraction decisions with rationale.
 **Location:** expect in commonMain, actual in androidMain/jvmMain/iosMain
 
 **Code:**
+
 ```kotlin
 // quartz/src/commonMain/.../Secp256k1Instance.kt
 expect object Secp256k1Instance {
@@ -18,6 +19,7 @@ expect object Secp256k1Instance {
 ```
 
 **Why abstracted:**
+
 - Used by all platforms (Android, Desktop, iOS)
 - Security APIs fundamentally different:
   - Android: secp256k1-kmp-jni-android (Android Keystore integration)
@@ -25,7 +27,8 @@ expect object Secp256k1Instance {
   - iOS: Native Security framework
 - Core protocol requirement (Nostr signatures)
 
-**Decision rationale:** Always abstract crypto - varies by platform security APIs, critical for all platforms.
+**Decision rationale:** Always abstract crypto - varies by platform security APIs, critical for all
+platforms.
 
 ---
 
@@ -34,6 +37,7 @@ expect object Secp256k1Instance {
 **Location:** expect object in commonMain
 
 **Code:**
+
 ```kotlin
 // quartz/src/commonMain/.../Log.kt
 expect object Log {
@@ -44,6 +48,7 @@ expect object Log {
 ```
 
 **Why abstracted:**
+
 - Used throughout quartz module (protocol library)
 - Logging systems differ:
   - Android: android.util.Log
@@ -51,7 +56,8 @@ expect object Log {
   - iOS: NSLog or OSLog
 - Simple interface, easy to implement
 
-**Decision rationale:** Often abstract logging - platform systems differ, widely used, simple interface.
+**Decision rationale:** Often abstract logging - platform systems differ, widely used, simple
+interface.
 
 ---
 
@@ -60,6 +66,7 @@ expect object Log {
 **Location:** expect functions in commonMain
 
 **Code:**
+
 ```kotlin
 // quartz/src/commonMain/.../Platform.kt
 expect fun platform(): String
@@ -67,11 +74,13 @@ expect fun currentTimeSeconds(): Long
 ```
 
 **Why abstracted:**
+
 - Used by Nostr event creation (timestamps)
 - Platform name for debugging
 - Simple utilities, clear platform boundary
 
-**Decision rationale:** Platform utilities are good abstraction candidates - simple, useful everywhere.
+**Decision rationale:** Platform utilities are good abstraction candidates - simple, useful
+everywhere.
 
 ---
 
@@ -80,6 +89,7 @@ expect fun currentTimeSeconds(): Long
 **Location:** jvmAndroid source set
 
 **Code:**
+
 ```kotlin
 // quartz/build.gradle.kts
 val jvmAndroid = create("jvmAndroid") {
@@ -88,6 +98,7 @@ val jvmAndroid = create("jvmAndroid") {
 ```
 
 **Why jvmAndroid (not commonMain):**
+
 - Jackson is JVM-specific library
 - Works on Android (JVM) + Desktop (JVM)
 - Does NOT work on iOS (not JVM) or web (not JVM)
@@ -95,7 +106,8 @@ val jvmAndroid = create("jvmAndroid") {
 
 **Decision rationale:** Use jvmAndroid for JVM libraries shared between Android and Desktop.
 
-**Future consideration:** For web support, migrate to kotlinx.serialization (works on all platforms).
+**Future consideration:** For web support, migrate to kotlinx.serialization (works on all
+platforms).
 
 ---
 
@@ -104,6 +116,7 @@ val jvmAndroid = create("jvmAndroid") {
 ### 1. Navigation Abstraction (Avoided)
 
 **What COULD have been done:**
+
 ```kotlin
 // ❌ Over-abstraction - DON'T DO THIS
 expect interface Navigator {
@@ -113,6 +126,7 @@ expect interface Navigator {
 ```
 
 **Why NOT abstracted:**
+
 - Navigation paradigms fundamentally different:
   - Android: Activity + Compose Navigation + back stack
   - Desktop: Window + screen state + no back stack concept
@@ -120,10 +134,12 @@ expect interface Navigator {
 - Creates leaky abstraction
 
 **Actual approach:** Keep platform-specific
+
 - Android: `INav` interface + Compose Navigation
 - Desktop: Simple screen enum + state
 
-**Decision rationale:** Never abstract navigation - platforms too different, abstraction would be leaky.
+**Decision rationale:** Never abstract navigation - platforms too different, abstraction would be
+leaky.
 
 ---
 
@@ -132,6 +148,7 @@ expect interface Navigator {
 **Current state:** Platform-specific (over-duplication)
 
 **Problem:**
+
 ```kotlin
 // Android uses R.string.*
 Text(stringResource(R.string.post_not_found))
@@ -140,9 +157,11 @@ Text(stringResource(R.string.post_not_found))
 Text("Post not found")
 ```
 
-**Why NOT yet abstracted:** Waiting for second platform to fully implement UI, then will create StringProvider interface.
+**Why NOT yet abstracted:** Waiting for second platform to fully implement UI, then will create
+StringProvider interface.
 
 **Planned abstraction:**
+
 ```kotlin
 // commonMain
 interface StringProvider {
@@ -156,7 +175,8 @@ class AndroidStringProvider(context: Context): StringProvider { ... }
 class DesktopStringProvider: StringProvider { ... }
 ```
 
-**Lesson:** Don't abstract prematurely - wait until second platform needs it, then create proper abstraction.
+**Lesson:** Don't abstract prematurely - wait until second platform needs it, then create proper
+abstraction.
 
 ---
 
@@ -167,6 +187,7 @@ class DesktopStringProvider: StringProvider { ... }
 **Location:** amethyst/src/main/.../MainActivity.kt
 
 **Code:**
+
 ```kotlin
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -181,6 +202,7 @@ class MainActivity : AppCompatActivity() {
 ```
 
 **Why platform-specific:**
+
 - AppCompatActivity is Android framework
 - Activity lifecycle unique to Android
 - enableEdgeToEdge() is Android-specific API
@@ -195,6 +217,7 @@ class MainActivity : AppCompatActivity() {
 **Location:** desktopApp/src/jvmMain/.../Main.kt
 
 **Code:**
+
 ```kotlin
 fun main() = application {
     Window(
@@ -213,6 +236,7 @@ fun main() = application {
 ```
 
 **Why platform-specific:**
+
 - Window, MenuBar, NavigationRail are Compose Desktop APIs
 - Keyboard shortcuts (Ctrl+N) are desktop paradigm
 - Sidebar navigation vs Android bottom nav
@@ -227,10 +251,12 @@ fun main() = application {
 **Location:** amethyst/.../AccountStateViewModel.kt
 
 **Partially abstracted:**
+
 - Business logic → IAccountState interface (can be shared)
 - UI state + lifecycle → AndroidX ViewModel (Android-only)
 
 **Why not fully abstracted:**
+
 - AndroidX ViewModel lifecycle tied to Android
 - Desktop doesn't need ViewModel (simpler state management)
 - SavedStateHandle is Android-specific
@@ -244,6 +270,7 @@ fun main() = application {
 ### Example 1: PubKeyFormatter (Pure Kotlin)
 
 **Before:**
+
 ```kotlin
 // amethyst/ui/note/PubKeyFormatter.kt
 fun String.toDisplayHexKey(): String {
@@ -252,6 +279,7 @@ fun String.toDisplayHexKey(): String {
 ```
 
 **After:**
+
 ```kotlin
 // commons/commonMain/formatters/PubKeyFormatter.kt
 fun String.toDisplayHexKey(): String {
@@ -263,6 +291,7 @@ import com.vitorpamplona.amethyst.commons.formatters.toDisplayHexKey
 ```
 
 **Why successful:**
+
 - Pure Kotlin, no platform dependencies
 - Widely reused
 - Simple utility function
@@ -272,6 +301,7 @@ import com.vitorpamplona.amethyst.commons.formatters.toDisplayHexKey
 ### Example 2: TimeAgoFormatter (Requires Abstraction)
 
 **Problem:**
+
 ```kotlin
 // Uses Android R.string.*
 fun timeAgo(timestamp: Long): String {
@@ -280,6 +310,7 @@ fun timeAgo(timestamp: Long): String {
 ```
 
 **Solution:** Abstract string resources
+
 ```kotlin
 // commonMain
 fun timeAgo(timestamp: Long, stringProvider: StringProvider): String {
@@ -299,13 +330,13 @@ stringProvider = DesktopStringProvider()
 
 ## Decision Pattern Summary
 
-| Pattern | Abstract? | Why |
-|---------|-----------|-----|
-| Pure Kotlin utilities | ✅ YES | No platform dependency, easy |
-| Crypto APIs | ✅ YES (expect/actual) | Platform security APIs differ |
-| JVM libraries | ⚠️ jvmAndroid | Works on Android+Desktop only |
-| UI components (simple) | ✅ YES | Composables work cross-platform |
-| UI components (complex) | ❌ NO | Platform dependencies |
-| Navigation | ❌ NO | Paradigms too different |
-| ViewModels | ⚠️ PARTIAL | Business logic yes, UI state no |
-| String resources | ⚠️ PLANNED | Needs abstraction layer |
+| Pattern                 | Abstract?             | Why                             |
+|-------------------------|-----------------------|---------------------------------|
+| Pure Kotlin utilities   | ✅ YES                 | No platform dependency, easy    |
+| Crypto APIs             | ✅ YES (expect/actual) | Platform security APIs differ   |
+| JVM libraries           | ⚠️ jvmAndroid         | Works on Android+Desktop only   |
+| UI components (simple)  | ✅ YES                 | Composables work cross-platform |
+| UI components (complex) | ❌ NO                  | Platform dependencies           |
+| Navigation              | ❌ NO                  | Paradigms too different         |
+| ViewModels              | ⚠️ PARTIAL            | Business logic yes, UI state no |
+| String resources        | ⚠️ PLANNED            | Needs abstraction layer         |

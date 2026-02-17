@@ -4,29 +4,29 @@ use anyhow::{Context, Result};
 use std::process::Command;
 
 const BRIDGE_APP_NAME: &str = "corvus-uno-q-bridge";
-const BRIDGE_REPO_DIR_CANDIDATES: [&str; 1] = ["corvus-uno-q-bridge"];
 
 /// Deploy the Bridge app. If host is Some, scp from repo and ssh to start.
 /// If host is None, assume we're ON the Uno Q — use embedded files and start.
 pub fn setup_uno_q_bridge(host: Option<&str>) -> Result<()> {
-    let firmware_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("firmware");
-    let bridge_dir = BRIDGE_REPO_DIR_CANDIDATES
-        .iter()
-        .map(|name| firmware_root.join(name))
-        .find(|path| path.exists());
+    let bridge_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("firmware")
+        .join("corvus-uno-q-bridge");
 
     if let Some(h) = host {
-        if let Some(dir) = bridge_dir.as_deref() {
-            deploy_remote(h, dir)?;
+        if bridge_dir.exists() {
+            deploy_remote(h, &bridge_dir)?;
         } else {
             anyhow::bail!(
-                "Bridge app not found under {} ({:?}). Run from repo root.",
-                firmware_root.display(),
-                BRIDGE_REPO_DIR_CANDIDATES
+                "Bridge app not found at {}. Run from corvus repo root.",
+                bridge_dir.display()
             );
         }
     } else {
-        deploy_local(bridge_dir.as_deref())?;
+        deploy_local(if bridge_dir.exists() {
+            Some(&bridge_dir)
+        } else {
+            None
+        })?;
     }
     Ok(())
 }
@@ -37,11 +37,6 @@ fn deploy_remote(host: &str, bridge_dir: &std::path::Path) -> Result<()> {
     } else {
         format!("arduino@{}", host)
     };
-
-    let remote_app_name = bridge_dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(BRIDGE_APP_NAME);
 
     println!("Copying Bridge app to {}...", host);
     let status = Command::new("ssh")
@@ -71,7 +66,7 @@ fn deploy_remote(host: &str, bridge_dir: &std::path::Path) -> Result<()> {
             "arduino-app-cli",
             "app",
             "start",
-            &format!("~/ArduinoApps/{remote_app_name}"),
+            "~/ArduinoApps/corvus-uno-q-bridge",
         ])
         .status()
         .context("arduino-app-cli start failed")?;

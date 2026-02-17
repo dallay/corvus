@@ -18,6 +18,7 @@ searchQuery
 ```
 
 **Amethyst pattern:**
+
 ```kotlin
 // Switch relays based on latest account
 accountFlow
@@ -112,6 +113,7 @@ sharedEvents.collect { /* collector 2 */ }
 ```
 
 **SharingStarted strategies:**
+
 - `Eagerly` - Start immediately, never stop
 - `Lazily` - Start on first subscriber, never stop
 - `WhileSubscribed(stopTimeout)` - Stop after last unsubscribe + timeout
@@ -131,6 +133,7 @@ val uiState: StateFlow<UiState> = repository.observeData()
 ```
 
 **Amethyst pattern:**
+
 ```kotlin
 // Connectivity status as StateFlow
 val connectivity: StateFlow<ConnectivityStatus> =
@@ -153,6 +156,7 @@ eventFlow
 ```
 
 **Strategies:**
+
 - `SUSPEND` - Slow down producer (default)
 - `DROP_OLDEST` - Drop oldest in buffer
 - `DROP_LATEST` - Drop newest emission
@@ -180,6 +184,7 @@ searchQuery
 ```
 
 **Amethyst pattern:**
+
 ```kotlin
 // ConnectivityFlow.kt:87
 connectivityFlow
@@ -240,6 +245,7 @@ repository.fetchData()
 **Critical:** Only affects UPSTREAM operators
 
 **Amethyst pattern:**
+
 ```kotlin
 // ConnectivityFlow.kt:87
 callbackFlow { /* ... */ }
@@ -291,19 +297,19 @@ fun <T> Flow<T>.retryWithBackoff(
 ## Performance Tips
 
 1. **Use shareIn for expensive operations**
-   - Compute once, share with multiple collectors
+  - Compute once, share with multiple collectors
 
 2. **Choose right backpressure strategy**
-   - UI updates: `conflate()` or `DROP_OLDEST`
-   - Events: `buffer()` with appropriate size
+  - UI updates: `conflate()` or `DROP_OLDEST`
+  - Events: `buffer()` with appropriate size
 
 3. **flowOn placement matters**
-   - Place after expensive operators to offload them
+  - Place after expensive operators to offload them
 
 4. **Avoid unnecessary emissions**
-   - Use `distinctUntilChanged()` when appropriate
-   - Consider `debounce()` for high-frequency sources
+  - Use `distinctUntilChanged()` when appropriate
+  - Consider `debounce()` for high-frequency sources
 
 5. **StateFlow vs SharedFlow**
-   - StateFlow: Always has value, conflates
-   - SharedFlow: Optional replay, configurable buffering
+  - StateFlow: Always has value, conflates
+  - SharedFlow: Optional replay, configurable buffering

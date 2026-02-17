@@ -3,6 +3,7 @@
 package com.profiletailors.plugin
 
 import com.profiletailors.plugin.gradle.ExecValueSource
+import com.sun.tools.attach.spi.AttachProvider.providers
 import java.io.File
 import javax.inject.Inject
 import kotlin.jvm.optionals.getOrNull
@@ -173,7 +174,7 @@ fun PluginAware.propOrDefault(
   defaultValue: String,
   fromProvider: Boolean = true,
 ): String {
-  // TODO: https://github.com/gradle/gradle/issues/29700
+  // https://github.com/gradle/gradle/issues/29700
   val waitingFixThisBug = true
   val value =
     when (this) {

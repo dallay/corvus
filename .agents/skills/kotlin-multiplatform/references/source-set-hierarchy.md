@@ -95,6 +95,7 @@ class TextNoteEvent(
 ```
 
 **Why commonMain:**
+
 - Pure Kotlin code
 - No platform APIs
 - Data class with business logic
@@ -131,11 +132,13 @@ androidMain { dependsOn(jvmAndroid) }  // Android gets Jackson, OkHttp
 ```
 
 **Why jvmAndroid:**
+
 - Jackson, OkHttp are JVM-only libraries
 - Works on Android (JVM) and Desktop (JVM)
 - Does NOT work on iOS (not JVM) or web (not JVM)
 
 **Usage in code:**
+
 ```kotlin
 // Can use Jackson in jvmAndroid source set
 val mapper = ObjectMapper()
@@ -165,11 +168,13 @@ class MainActivity : AppCompatActivity() {
 ```
 
 **Why androidMain:**
+
 - AppCompatActivity is Android framework
 - Activity lifecycle Android-specific
 - AndroidX libraries (viewModel())
 
 **Dependencies:**
+
 ```kotlin
 androidMain {
     dependsOn(jvmAndroid)  // Gets Jackson, OkHttp
@@ -209,11 +214,13 @@ fun main() = application {
 ```
 
 **Why jvmMain:**
+
 - Window, MenuBar, NavigationRail are Compose Desktop
 - Keyboard shortcuts desktop paradigm
 - Different UX from Android (sidebar vs bottom nav)
 
 **Dependencies:**
+
 ```kotlin
 jvmMain {
     dependsOn(jvmAndroid)  // Gets Jackson, OkHttp
@@ -244,11 +251,13 @@ val iosSimulatorArm64Main by getting { dependsOn(iosMain.get()) }
 ```
 
 **Why iosMain:**
+
 - iOS platform APIs
 - Native crypto (Security framework)
 - Different from Android/Desktop
 
 **Architecture targets:**
+
 - iosX64Main: Intel simulator
 - iosArm64Main: Device (iPhone, iPad)
 - iosSimulatorArm64Main: Apple Silicon simulator
@@ -271,6 +280,7 @@ val jvmAndroid = create("jvmAndroid") { ... }
 ```
 
 See comment in quartz/build.gradle.kts:131:
+
 ```kotlin
 // Must be defined before androidMain and jvmMain
 val jvmAndroid = create("jvmAndroid") { ... }
@@ -313,20 +323,21 @@ commonMain
 ```
 
 **Constraints:**
+
 - Cannot use jvmAndroid (Jackson, OkHttp)
 - Cannot use platform.posix
 - Must use pure Kotlin or web-compatible libs (ktor, kotlinx.serialization)
 
 ## Summary Table
 
-| Source Set | Extends | Can Use | Example Code |
-|------------|---------|---------|--------------|
-| commonMain | - | Kotlin stdlib only | TextNoteEvent, business logic |
-| jvmAndroid | commonMain | JVM libs (Jackson, OkHttp) | JSON parsing, HTTP |
-| androidMain | jvmAndroid | Android framework | Activity, ViewModel |
-| jvmMain | jvmAndroid | JVM + Compose Desktop | Window, MenuBar |
-| iosMain | commonMain | iOS platform | Security framework |
-| iosX64Main | iosMain | Simulator (Intel) | Architecture-specific |
-| iosArm64Main | iosMain | Device (ARM64) | Architecture-specific |
-| jsMain | commonMain | JS/DOM | Web (future) |
-| wasmMain | commonMain | wasm APIs | WebAssembly (future) |
+| Source Set   | Extends    | Can Use                    | Example Code                  |
+|--------------|------------|----------------------------|-------------------------------|
+| commonMain   | -          | Kotlin stdlib only         | TextNoteEvent, business logic |
+| jvmAndroid   | commonMain | JVM libs (Jackson, OkHttp) | JSON parsing, HTTP            |
+| androidMain  | jvmAndroid | Android framework          | Activity, ViewModel           |
+| jvmMain      | jvmAndroid | JVM + Compose Desktop      | Window, MenuBar               |
+| iosMain      | commonMain | iOS platform               | Security framework            |
+| iosX64Main   | iosMain    | Simulator (Intel)          | Architecture-specific         |
+| iosArm64Main | iosMain    | Device (ARM64)             | Architecture-specific         |
+| jsMain       | commonMain | JS/DOM                     | Web (future)                  |
+| wasmMain     | commonMain | wasm APIs                  | WebAssembly (future)          |

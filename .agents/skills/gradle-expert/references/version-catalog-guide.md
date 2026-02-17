@@ -2,11 +2,13 @@
 
 ## Overview
 
-AmethystMultiplatform uses Gradle's version catalog (`gradle/libs.versions.toml`) to centralize dependency management. This ensures version consistency across all modules and simplifies updates.
+AmethystMultiplatform uses Gradle's version catalog (`gradle/libs.versions.toml`) to centralize
+dependency management. This ensures version consistency across all modules and simplifies updates.
 
 ## Structure
 
 ### sections
+
 ```toml
 [versions]     # Version numbers (referenced by libraries and plugins)
 [libraries]    # Library dependencies
@@ -16,6 +18,7 @@ AmethystMultiplatform uses Gradle's version catalog (`gradle/libs.versions.toml`
 ## Version References
 
 ### Defining Versions
+
 ```toml
 [versions]
 kotlin = "2.3.0"
@@ -26,27 +29,33 @@ okhttp = "5.3.2"
 ### Special Patterns
 
 #### Android SDK Versions
+
 ```toml
 android-compileSdk = "36"
 android-minSdk = "26"
 android-targetSdk = "36"
 ```
+
 **Access in build.gradle.kts:**
+
 ```kotlin
 compileSdk = libs.versions.android.compileSdk.get().toInt()
 minSdk = libs.versions.android.minSdk.get().toInt()
 ```
 
 #### Version Suffixes (Git Commits)
+
 ```toml
 androidKotlinGeohash = "b481c6a64e"  # Jitpack commit hash
 markdown = "f92ef49c9d"
 ```
+
 **Why:** For GitHub dependencies via Jitpack that don't have semantic versions
 
 ## Library Declarations
 
 ### Basic Pattern
+
 ```toml
 [libraries]
 library-name = { group = "...", name = "...", version.ref = "..." }
@@ -55,24 +64,29 @@ library-name = { group = "...", name = "...", version.ref = "..." }
 ### Examples
 
 #### Version Reference
+
 ```toml
 okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
 ```
 
 #### Module Reference (for multi-artifact libs)
+
 ```toml
 androidx-camera-core = { module = "androidx.camera:camera-core", version.ref = "androidxCamera" }
 ```
 
 #### Without Group (shorthand)
+
 ```toml
 androidx-ui = { group = "androidx.compose.ui", name = "ui" }
 ```
+
 **Note:** Inherits version from BOM (compose-bom)
 
 ### BOMs (Bill of Materials)
 
 #### AndroidX Compose BOM
+
 ```toml
 [versions]
 composeBom = "2025.12.01"
@@ -84,6 +98,7 @@ androidx-material3 = { group = "androidx.compose.material3", name = "material3" 
 ```
 
 **Usage in build.gradle.kts:**
+
 ```kotlin
 val composeBom = platform(libs.androidx.compose.bom)
 implementation(composeBom)
@@ -92,6 +107,7 @@ implementation(libs.androidx.material3) // Version from BOM
 ```
 
 **Benefits:**
+
 - All AndroidX Compose artifacts use compatible versions
 - Update single BOM version, not individual libraries
 - Prevents version conflicts
@@ -99,6 +115,7 @@ implementation(libs.androidx.material3) // Version from BOM
 ### Platform-Specific Variants
 
 #### secp256k1 (KMP crypto library)
+
 ```toml
 secp256k1KmpJniAndroid = "0.22.0"
 
@@ -111,6 +128,7 @@ secp256k1-kmp-jni-jvm = { group = "fr.acinq.secp256k1", name = "secp256k1-kmp-jn
 **Critical:** All three variants MUST share the same version
 
 #### JNA (for LibSodium)
+
 ```toml
 jna = "5.18.1"
 
@@ -119,6 +137,7 @@ jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 ```
 
 **Usage in build.gradle.kts:**
+
 ```kotlin
 // androidMain - AAR packaging
 implementation("net.java.dev.jna:jna:5.18.1@aar")
@@ -132,6 +151,7 @@ implementation(libs.jna)
 ## Plugin Declarations
 
 ### Basic Pattern
+
 ```toml
 [plugins]
 plugin-id = { id = "...", version.ref = "..." }
@@ -140,6 +160,7 @@ plugin-id = { id = "...", version.ref = "..." }
 ### Examples
 
 #### Kotlin Plugins
+
 ```toml
 [versions]
 kotlin = "2.3.0"
@@ -155,6 +176,7 @@ serialization = { id = 'org.jetbrains.kotlin.plugin.serialization', version.ref 
 **Critical:** All Kotlin plugins MUST use the same Kotlin version
 
 #### Android Gradle Plugin
+
 ```toml
 [versions]
 agp = "8.13.2"
@@ -166,6 +188,7 @@ androidKotlinMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.lib
 ```
 
 #### Compose Multiplatform
+
 ```toml
 [versions]
 composeMultiplatform = "1.9.3"
@@ -189,6 +212,7 @@ plugins {
 ## Usage in Build Files
 
 ### Accessing Versions
+
 ```kotlin
 // Direct version access
 val kotlinVersion = libs.versions.kotlin.get()
@@ -196,6 +220,7 @@ val minSdk = libs.versions.android.minSdk.get().toInt()
 ```
 
 ### Accessing Libraries
+
 ```kotlin
 dependencies {
     implementation(libs.kotlinx.coroutines.core)
@@ -205,6 +230,7 @@ dependencies {
 ```
 
 ### Accessing Plugins
+
 ```kotlin
 plugins {
     alias(libs.plugins.kotlinMultiplatform)
@@ -215,7 +241,9 @@ plugins {
 ## Version Catalog Benefits
 
 ### 1. Centralized Version Management
+
 Update once, applies everywhere:
+
 ```toml
 # Change one line
 kotlin = "2.3.0"  → "2.4.0"
@@ -228,6 +256,7 @@ kotlin = "2.3.0"  → "2.4.0"
 ```
 
 ### 2. Type-Safe Accessors
+
 ```kotlin
 // Compile-time checked
 implementation(libs.okhttp)  // ✅ IDE autocomplete
@@ -237,6 +266,7 @@ implementation("com.squareup.okhttp3:okhttp:5.3.2")  // ❌ No autocomplete
 ```
 
 ### 3. Dependency Consistency
+
 ```kotlin
 // All modules reference same catalog
 :quartz  → libs.okhttp
@@ -247,6 +277,7 @@ implementation("com.squareup.okhttp3:okhttp:5.3.2")  // ❌ No autocomplete
 ```
 
 ### 4. Gradle Sync Improvements
+
 - Faster IDE sync (pre-parsed catalog)
 - Better dependency resolution
 - Clearer error messages
@@ -254,6 +285,7 @@ implementation("com.squareup.okhttp3:okhttp:5.3.2")  // ❌ No autocomplete
 ## Common Patterns
 
 ### GitHub Dependencies (Jitpack)
+
 ```toml
 [versions]
 markdown = "f92ef49c9d"  # Git commit hash
@@ -263,6 +295,7 @@ markdown-ui = { group = "com.github.vitorpamplona.compose-richtext", name = "ric
 ```
 
 **Repository config** (in settings.gradle):
+
 ```kotlin
 repositories {
     maven { url = "https://jitpack.io" }
@@ -270,6 +303,7 @@ repositories {
 ```
 
 ### Multi-Artifact Libraries
+
 ```toml
 [versions]
 media3 = "1.9.0"
@@ -283,6 +317,7 @@ androidx-media3-session = { group = "androidx.media3", name = "media3-session", 
 **Why:** All media3 artifacts share same version for compatibility
 
 ### Test Dependencies
+
 ```toml
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
@@ -294,6 +329,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 ## Version Update Strategy
 
 ### Check for Updates
+
 ```bash
 # Using Gradle Versions Plugin (if installed)
 ./gradlew dependencyUpdates
@@ -303,6 +339,7 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 ```
 
 ### Update Process
+
 1. **Update version in catalog**
    ```toml
    okhttp = "5.3.2"  → "5.4.0"
@@ -314,8 +351,8 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
    ```
 
 3. **Check for breaking changes**
-   - Review library changelog
-   - Run full test suite
+  - Review library changelog
+  - Run full test suite
 
 4. **Commit with clear message**
    ```
@@ -325,31 +362,38 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 ### Critical Version Alignments
 
 #### Kotlin Ecosystem
+
 ```toml
 kotlin = "2.3.0"
 kotlinxCoroutinesCore = "1.10.2"
 kotlinxSerialization = "1.9.0"
 ```
+
 **Rule:** Kotlin version must be compatible with kotlinx libraries
 
 #### Compose Ecosystem
+
 ```toml
 composeMultiplatform = "1.9.3"
 composeBom = "2025.12.01"
 kotlin = "2.3.0"
 ```
+
 **Rule:** Compose Multiplatform → Kotlin version (see compatibility matrix)
 
 #### AGP & Gradle
+
 ```toml
 agp = "8.13.2"
 # Requires Gradle 8.9+
 ```
+
 **Rule:** AGP version dictates minimum Gradle version
 
 ## Troubleshooting
 
 ### Issue 1: Unresolved Reference
+
 **Error:** `Unresolved reference: libs`
 
 **Cause:** Gradle version < 7.0 (version catalogs not supported)
@@ -357,20 +401,24 @@ agp = "8.13.2"
 **Fix:** Upgrade Gradle in `gradle/wrapper/gradle-wrapper.properties`
 
 ### Issue 2: Library Not Found
+
 **Error:** `Could not find com.example:library:1.0.0`
 
 **Cause:** Repository not configured or typo in catalog
 
 **Fix:**
+
 1. Check repository in settings.gradle
 2. Verify group/name/version in libs.versions.toml
 
 ### Issue 3: Version Conflict
+
 **Error:** `Conflict with dependency ... and ...`
 
 **Cause:** Different versions of same library via transitive dependencies
 
 **Fix:**
+
 ```kotlin
 configurations.all {
     resolutionStrategy {
@@ -382,6 +430,7 @@ configurations.all {
 ## Best Practices
 
 ### 1. Naming Conventions
+
 ```toml
 # Hyphen-separated, hierarchical
 androidx-compose-ui
@@ -394,6 +443,7 @@ secp256k1-kmp-jni-jvm
 ```
 
 ### 2. Group Related Dependencies
+
 ```toml
 # Camera APIs together
 androidx-camera-core
@@ -402,18 +452,21 @@ androidx-camera-view
 ```
 
 ### 3. Document Special Cases
+
 ```toml
 # JNA requires @aar for Android (see build.gradle.kts)
 jna = { group = "net.java.dev.jna", name = "jna", version.ref = "jna" }
 ```
 
 ### 4. Keep BOMs Updated
+
 ```toml
 # Update BOM, individual libs follow
 composeBom = "2025.12.01"  # Latest stable
 ```
 
 ### 5. Test Version Updates
+
 ```bash
 # Before committing
 ./gradlew :quartz:test

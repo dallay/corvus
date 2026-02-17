@@ -15,6 +15,7 @@ fun `test suspend function`() = runTest {
 ```
 
 **What runTest does:**
+
 - Skips delays automatically
 - Provides TestScope
 - Advances virtual time
@@ -61,6 +62,7 @@ fun `debounce works correctly`() = runTest {
 ```
 
 **Time control functions:**
+
 - `advanceTimeBy(millis)` - Move virtual time forward
 - `advanceUntilIdle()` - Run all pending work
 - `runCurrent()` - Run currently scheduled tasks only
@@ -162,6 +164,7 @@ fun `stateflow emits updates`() = runTest {
 ```
 
 **Turbine assertions:**
+
 - `awaitItem()` - Get next emission or fail
 - `awaitComplete()` - Verify flow completed
 - `awaitError()` - Verify flow threw exception
@@ -463,31 +466,31 @@ fun `shareIn creates hot flow`() = runTest {
 ## Best Practices
 
 1. **Use runTest for all coroutine tests**
-   - Provides virtual time
-   - Automatic cleanup
+  - Provides virtual time
+  - Automatic cleanup
 
 2. **Use Turbine for Flow testing**
-   - Clearer assertions
-   - Better error messages
+  - Clearer assertions
+  - Better error messages
 
 3. **Test both success and error paths**
-   - Normal flow
-   - Exception handling
-   - Edge cases
+  - Normal flow
+  - Exception handling
+  - Edge cases
 
 4. **Control virtual time explicitly**
-   - Don't rely on real delays
-   - Use `advanceTimeBy()` and `advanceUntilIdle()`
+  - Don't rely on real delays
+  - Use `advanceTimeBy()` and `advanceUntilIdle()`
 
 5. **Create fakes, not mocks**
-   - Simpler to maintain
-   - More realistic behavior
-   - Easier to debug
+  - Simpler to maintain
+  - More realistic behavior
+  - Easier to debug
 
 6. **Test cancellation behavior**
-   - Verify cleanup happens
-   - Check no emissions after cancel
+  - Verify cleanup happens
+  - Check no emissions after cancel
 
 7. **Test concurrent operations**
-   - Use `async` to spawn concurrent work
-   - Verify independence with SupervisorJob
+  - Use `async` to spawn concurrent work
+  - Verify independence with SupervisorJob

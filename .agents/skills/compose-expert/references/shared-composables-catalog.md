@@ -1,6 +1,7 @@
 # Shared Composables Catalog
 
-This catalog documents shared UI components in `commons/src/commonMain/kotlin/com/vitorpamplona/amethyst/commons/ui/`.
+This catalog documents shared UI components in
+`commons/src/commonMain/kotlin/com/vitorpamplona/amethyst/commons/ui/`.
 
 ## Directory Structure
 
@@ -17,15 +18,18 @@ commons/src/commonMain/kotlin/.../commons/ui/
 ### State Visualization
 
 **LoadingState** - Centered loading indicator with message
+
 ```kotlin
 @Composable
 fun LoadingState(message: String, modifier: Modifier = Modifier)
 ```
+
 - Use for: Async operations, data fetching
 - Pattern: fillMaxSize, centered Column, CircularProgressIndicator
 - Works on: Android, Desktop
 
 **EmptyState** - Centered empty state with optional refresh
+
 ```kotlin
 @Composable
 fun EmptyState(
@@ -36,11 +40,13 @@ fun EmptyState(
     refreshLabel: String = "Refresh"
 )
 ```
+
 - Use for: Empty lists, no data scenarios
 - Pattern: Centered Column, optional OutlinedButton
 - Works on: Android, Desktop
 
 **ErrorState** - Centered error message with retry
+
 ```kotlin
 @Composable
 fun ErrorState(
@@ -50,6 +56,7 @@ fun ErrorState(
     retryLabel: String = "Try Again"
 )
 ```
+
 - Use for: Error handling, failed operations
 - Pattern: error color, optional Button
 - Works on: Android, Desktop
@@ -57,6 +64,7 @@ fun ErrorState(
 ### Feed-Specific States
 
 **FeedEmptyState** - Pre-configured empty state for feeds
+
 ```kotlin
 @Composable
 fun FeedEmptyState(
@@ -67,6 +75,7 @@ fun FeedEmptyState(
 ```
 
 **FeedErrorState** - Pre-configured error state for feeds
+
 ```kotlin
 @Composable
 fun FeedErrorState(
@@ -79,12 +88,14 @@ fun FeedErrorState(
 ### Action Buttons
 
 **Shared Constants**:
+
 ```kotlin
 val ActionButtonShape = RoundedCornerShape(20.dp)
 val ActionButtonPadding = PaddingValues(vertical = 0.dp, horizontal = 16.dp)
 ```
 
 **AddButton** - Consistent "Add" action button
+
 ```kotlin
 @Composable
 fun AddButton(
@@ -94,10 +105,12 @@ fun AddButton(
     enabled: Boolean = true
 )
 ```
+
 - Pattern: OutlinedButton with consistent shape/padding
 - Works on: Android, Desktop
 
 **RemoveButton** - Consistent "Remove" action button
+
 ```kotlin
 @Composable
 fun RemoveButton(
@@ -111,6 +124,7 @@ fun RemoveButton(
 ### Custom Images
 
 **RobohashImage** - Deterministic avatar generation
+
 ```kotlin
 @Composable
 fun RobohashImage(
@@ -132,12 +146,14 @@ fun RobohashImage(
     loadRobohash: Boolean = true
 )
 ```
+
 - Use for: User avatars, deterministic graphics
 - Pattern: Uses CachedRobohash.get(), isLightTheme() detection
 - Fallback: Icons.Default.Face
 - Works on: Android, Desktop (pure ImageVector)
 
 **Theme Detection Helper**:
+
 ```kotlin
 @Composable
 private fun isLightTheme(): Boolean {
@@ -151,6 +167,7 @@ private fun isLightTheme(): Boolean {
 ### FeedHeader
 
 **FeedHeader** - Screen header with title and relay status
+
 ```kotlin
 @Composable
 fun FeedHeader(
@@ -160,10 +177,12 @@ fun FeedHeader(
     modifier: Modifier = Modifier
 )
 ```
+
 - Pattern: Row with SpaceBetween, title + RelayStatusIndicator
 - Works on: Android, Desktop
 
 **RelayStatusIndicator** - Compact relay connection indicator
+
 ```kotlin
 @Composable
 fun RelayStatusIndicator(
@@ -172,6 +191,7 @@ fun RelayStatusIndicator(
     modifier: Modifier = Modifier
 )
 ```
+
 - Pattern: Status icon + count text + refresh button
 - Colors: RelayStatusColors.{Disconnected, Connecting, Connected}
 - Visual cues: Check icon (connected), Close icon (disconnected)
@@ -181,6 +201,7 @@ fun RelayStatusIndicator(
 ### Placeholder Pattern
 
 **PlaceholderScreen** - Generic placeholder
+
 ```kotlin
 @Composable
 fun PlaceholderScreen(
@@ -189,10 +210,12 @@ fun PlaceholderScreen(
     modifier: Modifier = Modifier
 )
 ```
+
 - Pattern: Column with title (headlineMedium) + description
 - Use for: Unimplemented screens, coming soon features
 
 **Specific Placeholders**:
+
 - `SearchPlaceholder()` - Search screen
 - `MessagesPlaceholder()` - DMs screen
 - `NotificationsPlaceholder()` - Notifications screen
@@ -232,6 +255,7 @@ private val pathData1 = PathData {
 ```
 
 **roboBuilder** - Custom ImageVector.Builder DSL
+
 - Located in: `commons/robohash/`
 - Pattern: Builder-based, composable paths
 - Parts: Face, Eyes, Mouth, Body, Accessory (0-9 variants each)
@@ -242,6 +266,7 @@ private val pathData1 = PathData {
 ```kotlin
 CachedRobohash.get(seed: String, isLight: Boolean): ImageVector
 ```
+
 - Deterministic: Same seed → same avatar
 - Theme-aware: Different colors for light/dark
 - Cached: Performance optimization
@@ -250,6 +275,7 @@ CachedRobohash.get(seed: String, isLight: Boolean): ImageVector
 ## Sharing Guidelines
 
 ### Always Share
+
 - State visualization (Loading, Empty, Error)
 - Action buttons with consistent styling
 - Generic placeholders
@@ -258,12 +284,14 @@ CachedRobohash.get(seed: String, isLight: Boolean): ImageVector
 - Theme utilities (isLightTheme)
 
 ### Platform-Specific (Delegate to Experts)
+
 - Navigation structure (android-expert, desktop-expert)
 - Screen layouts and scaffolds
 - Platform system integrations
 - Gesture handling specifics
 
 ### Decision Framework
+
 1. **Can it use Material3 primitives?** → Share
 2. **Does it need platform system APIs?** → Platform-specific
 3. **Is it a visual component without navigation?** → Share
@@ -272,6 +300,7 @@ CachedRobohash.get(seed: String, isLight: Boolean): ImageVector
 ## Material3 Usage
 
 All shared composables use Material3:
+
 - `MaterialTheme.colorScheme.*` for colors
 - `MaterialTheme.typography.*` for text styles
 - `OutlinedButton`, `Button`, `IconButton` for actions

@@ -1,6 +1,7 @@
 # Compose State Management Patterns
 
-Visual guide to state management in Compose Multiplatform. For Kotlin-specific patterns (StateFlow, sealed classes), see `kotlin-expert` skill.
+Visual guide to state management in Compose Multiplatform. For Kotlin-specific patterns (StateFlow,
+sealed classes), see `kotlin-expert` skill.
 
 ## Core State Functions
 
@@ -80,6 +81,7 @@ fun ProfileScreen(userId: String) {
 Move state up to make composables reusable and testable:
 
 ### Before (Stateful)
+
 ```kotlin
 @Composable
 fun SearchBar() {
@@ -92,9 +94,11 @@ fun SearchBar() {
     )
 }
 ```
+
 ❌ Hard to test, can't control state externally
 
 ### After (Stateless)
+
 ```kotlin
 @Composable
 fun SearchBar(
@@ -120,9 +124,11 @@ fun SearchScreen() {
     }
 }
 ```
+
 ✅ Reusable, testable, state controlled by parent
 
 **Hoisting principle**: State goes up, events go down
+
 - State: `query: String` (read-only)
 - Events: `onQueryChange: (String) -> Unit` (write-only)
 
@@ -172,6 +178,7 @@ fun RelayStatusIndicator(
 
 **Pattern**: Visual state derived from domain state
 **Visual mapping**:
+
 - 0 relays → Red + X icon
 - 1-2 relays → Yellow + Check icon
 - 3+ relays → Green + Check icon
@@ -199,6 +206,7 @@ fun FeedScreen(viewModel: FeedViewModel) {
 
 **Pattern**: Sealed class → visual state component
 **Components**:
+
 - `LoadingState` - Progress indicator
 - `EmptyState` - Empty message + refresh
 - `ErrorState` - Error message + retry
@@ -207,6 +215,7 @@ fun FeedScreen(viewModel: FeedViewModel) {
 ## Common Patterns
 
 ### Toggle State
+
 ```kotlin
 var isExpanded by remember { mutableStateOf(false) }
 
@@ -223,6 +232,7 @@ if (isExpanded) {
 ```
 
 ### List State with Actions
+
 ```kotlin
 var items by remember { mutableStateOf(listOf("Item 1", "Item 2")) }
 
@@ -243,6 +253,7 @@ Column {
 ```
 
 ### TextField State
+
 ```kotlin
 var text by remember { mutableStateOf("") }
 
@@ -256,6 +267,7 @@ TextField(
 ## Performance Patterns
 
 ### Avoid Unnecessary Recomposition
+
 ```kotlin
 // ❌ Bad: Recomposes on every scroll position change
 @Composable
@@ -279,6 +291,7 @@ fun GoodScrollButton(scrollState: ScrollState) {
 ```
 
 ### Stable Parameters
+
 Use `@Immutable` data classes (see `kotlin-expert`) to prevent recomposition:
 
 ```kotlin
@@ -300,6 +313,7 @@ fun ProfileCard(profile: UserProfile) {
 For ViewModel state, Flow, StateFlow → See `kotlin-expert` skill
 
 Common integration pattern:
+
 ```kotlin
 // ViewModel (Kotlin state)
 class FeedViewModel {
@@ -317,17 +331,18 @@ fun FeedScreen(viewModel: FeedViewModel) {
 
 ## Quick Reference
 
-| Function | Use Case | Recomposes When |
-|----------|----------|----------------|
-| `remember { mutableStateOf() }` | Local UI state | State value changes |
-| `derivedStateOf { }` | Computed state | Derived result changes |
-| `produceState { }` | Async/Flow → State | Async operation updates value |
-| `collectAsState()` | Flow → State | Flow emits new value |
-| State hoisting | Reusable components | Parent passes new state |
+| Function                        | Use Case            | Recomposes When               |
+|---------------------------------|---------------------|-------------------------------|
+| `remember { mutableStateOf() }` | Local UI state      | State value changes           |
+| `derivedStateOf { }`            | Computed state      | Derived result changes        |
+| `produceState { }`              | Async/Flow → State  | Async operation updates value |
+| `collectAsState()`              | Flow → State        | Flow emits new value          |
+| State hoisting                  | Reusable components | Parent passes new state       |
 
 ## Sources
 
 State management patterns based on:
+
 - [State and Jetpack Compose - Android Developers](https://developer.android.com/develop/ui/compose/state)
 - [When should I use derivedStateOf?](https://medium.com/androiddevelopers/jetpack-compose-when-should-i-use-derivedstateof-63ce7954c11b)
 - [Advanced State and Side Effects](https://developer.android.com/codelabs/jetpack-compose-advanced-state-side-effects)

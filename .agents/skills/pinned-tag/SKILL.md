@@ -70,8 +70,9 @@ use of full commit SHAs instead of mutable tags.
 2. **Resolve SHA**: Run `git ls-remote --tags https://github.com/owner/repo.git` filtered by the
    tag.
 3. **Apply Patch**: Replace the tag with the SHA and add the tag name as a comment for readability.
-  - *Before*: `uses: actions/checkout@v3`
-  - *After*: `uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3`
+
+- *Before*: `uses: actions/checkout@v3`
+- *After*: `uses: actions/checkout@f43a0e5ff2bd294095638e18286ca9a3d1956744 # v3`
 
 ## Limitations
 

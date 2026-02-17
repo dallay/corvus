@@ -90,17 +90,20 @@ impl Tool for HardwareMemoryReadTool {
             });
         }
 
+        let address_str = args
+            .get("address")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0x20000000");
+        let _address = parse_hex_address(address_str).unwrap_or(NUCLEO_RAM_BASE);
+
+        let requested_length = args.get("length").and_then(|v| v.as_u64()).unwrap_or(128);
+        let _length = usize::try_from(requested_length)
+            .unwrap_or(256)
+            .clamp(1, 256);
+
         #[cfg(feature = "probe")]
         {
-            let address_str = args
-                .get("address")
-                .and_then(|v| v.as_str())
-                .unwrap_or("0x20000000");
-            let address = parse_hex_address(address_str).unwrap_or(NUCLEO_RAM_BASE);
-            let length = args.get("length").and_then(|v| v.as_u64()).unwrap_or(128) as usize;
-            let length = length.clamp(1, 256);
-
-            match probe_read_memory(chip.unwrap(), address, length) {
+            match probe_read_memory(chip.unwrap(), _address, _length) {
                 Ok(output) => {
                     return Ok(ToolResult {
                         success: true,
