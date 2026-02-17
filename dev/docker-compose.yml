@@ -11,7 +11,7 @@
 name: corvus-dev
 services:
   # ── The Agent (Development Image) ──
-  # Builds from source using the 'dev' stage of the root Dockerfile
+  # Builds from source using the 'dev' stage of the clients/agent-runtime/Dockerfile
   corvus-dev:
     build:
       context: ..

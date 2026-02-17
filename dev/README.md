@@ -4,8 +4,8 @@ A fully containerized development sandbox for Corvus agents. This environment al
 
 ## Directory Structure
 
-- **`agent/`**: (Merged into root Dockerfile)
-  - The development image is built from the root `Dockerfile` using the `dev` stage (`target: dev`).
+- **`agent/`**: (Merged into clients/agent-runtime/Dockerfile)
+  - The development image is built from `clients/agent-runtime/Dockerfile` using the `dev` stage (`target: dev`).
   - Based on `debian:bookworm-slim` (unlike production `distroless`).
   - Includes `bash`, `curl`, and debug tools.
 - **`sandbox/`**: Dockerfile for the simulated user environment.
