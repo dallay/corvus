@@ -19,10 +19,21 @@ on:
         required: true
       MAVEN_CENTRAL_PASSWORD:
         required: true
+      CARGO_REGISTRY_TOKEN:
+        required: false
+      NPM_TOKEN:
+        required: false
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
 
     steps:
       - name: ✈ Checkout repository
@@ -34,6 +45,12 @@ jobs:
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: "24"
+
+      - name: 🦀 Setup Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          cargo --version
 
       - name: ☕ Setup Java
         uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
@@ -74,6 +91,55 @@ jobs:
             echo "</details>"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: 🔎 Validate release version consistency
+        if: ${{ inputs.release }}
+        env:
+          TAG_VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "$TAG_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid release tag: $TAG_VERSION"
+            exit 1
+          fi
+
+          expected_version="${TAG_VERSION#v}"
+          gradle_version="$(awk -F= '/^VERSION=/{print $2}' gradle.properties)"
+          cargo_version="$(awk -F' = ' '/^version = /{gsub(/\"/, "", $2); print $2; exit}' clients/agent-runtime/Cargo.toml)"
+          npm_version="$(awk -F'"' '/"version"/{print $4; exit}' clients/agent-runtime/npm/corvus-cli/package.json)"
+
+          for item in \
+            "gradle.properties:$gradle_version" \
+            "clients/agent-runtime/Cargo.toml:$cargo_version" \
+            "clients/agent-runtime/npm/corvus-cli/package.json:$npm_version"; do
+            file="${item%%:*}"
+            actual="${item#*:}"
+            if [[ "$actual" != "$expected_version" ]]; then
+              echo "Version mismatch in ${file}: expected ${expected_version}, got ${actual}"
+              exit 1
+            fi
+          done
+
+      - name: 🔐 Validate release credentials
+        if: ${{ inputs.release }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          missing=0
+          for secret in CARGO_REGISTRY_TOKEN NPM_TOKEN DOCKERHUB_USERNAME DOCKERHUB_TOKEN; do
+            if [[ -z "${!secret:-}" ]]; then
+              echo "Missing required secret for releases: ${secret}"
+              missing=1
+            fi
+          done
+          if [[ "$missing" -ne 0 ]]; then
+            exit 1
+          fi
+
       - name: 👻 Publish to Maven Central
         env:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
@@ -82,7 +148,7 @@ jobs:
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
         run: |
-          if [ "${GITHUB_REPOSITORY}" = "dallay/starter-gradle" ]; then
+          if [ "${GITHUB_REPOSITORY}" = "dallay/corvus" ]; then
             if [ "${{ inputs.release }}" = "true" ]; then
               ./gradlew :build-logic:publishPluginMavenPublicationToMavenCentralRepository publishToMavenCentral
             else
@@ -91,6 +157,74 @@ jobs:
           else
             ./gradlew publishToMavenCentral
           fi
+
+      - name: 📦 Publish Rust crate to crates.io
+        if: ${{ inputs.release }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          cd clients/agent-runtime
+          cargo publish --locked
+
+      - name: 📦 Publish npm package
+        if: ${{ inputs.release }}
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cat <<EOF > "$HOME/.npmrc"
+          //registry.npmjs.org/:_authToken=${NPM_TOKEN}
+          EOF
+          cd clients/agent-runtime/npm/corvus-cli
+          npm publish --access public
+
+      - name: 🐳 Set up QEMU
+        if: ${{ inputs.release }}
+        uses: docker/setup-qemu-action@e474179bdfa42213eab2f8c674c6daef42f43a09 # v3.6.0
+
+      - name: 🐳 Set up Docker Buildx
+        if: ${{ inputs.release }}
+        uses: docker/setup-buildx-action@f4f5800b94467d3a33e1d9b90bba96fd39e8564e # v3.11.1
+
+      - name: 🔐 Login to Docker Hub
+        if: ${{ inputs.release }}
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.5.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🔐 Login to GitHub Container Registry
+        if: ${{ inputs.release }}
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.5.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Generate Docker tags and labels
+        if: ${{ inputs.release }}
+        id: docker-meta
+        uses: docker/metadata-action@902fa8ec7d6ecbf8d84cc7b29e5c6ea6f7eb9e81 # v5.8.0
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/corvus
+            ghcr.io/${{ github.repository_owner }}/corvus
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}},value=${{ github.ref_name }}
+            type=raw,value=latest
+
+      - name: 🐳 Build and push Docker image
+        if: ${{ inputs.release }}
+        uses: docker/build-push-action@95139e6fce77e460f7d1d9c03d096667e6bfca44 # v6.17.0
+        with:
+          context: .
+          file: clients/agent-runtime/Dockerfile
+          target: release
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
 
       - name: 🚀 Create GitHub Release
         if: ${{ inputs.release }}

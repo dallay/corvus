@@ -8,9 +8,9 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 | --------------- | ------------------------------------ | ------------------------------------ | --------------------------------------- |
 | **CI/CD**       | `pull-request-check.yml`             | Main CI checks for PRs and pushes    | Push to any branch, PR to main/minor/\* |
 | **CI/CD**       | `pull-request-check-build-logic.yml` | Checks for build-logic changes       | Changes to `gradle/build-logic/**`      |
-| **CI/CD**       | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages | Push to `main`                          |
+| **CI/CD**       | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages | Push docs to `main`, Release published  |
 | **Security**    | `codeql-analysis.yml`                | Security scanning with CodeQL        | Push to main/minor, daily schedule      |
-| **Publishing**  | `publish-release.yml`                | Publish release to Maven Central     | Tag push `v*.*.*`                       |
+| **Publishing**  | `publish-release.yml`                | Publish release (Maven, Cargo, npm, Docker)     | Tag push `v*.*.*`                       |
 | **Publishing**  | `publish-snapshot.yml`               | Publish snapshot versions            | Manual, daily schedule                  |
 | **Publishing**  | `_publish.yml`                       | Reusable publish workflow            | Called by other workflows               |
 | **Automation**  | `auto-fix-lockfile.yml`              | Auto-update lockfiles                | Daily schedule, manual                  |
@@ -88,7 +88,8 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 
 **Triggers**:
 
-- Push to `main` branch
+- Push to `main` branch (docs-related paths only)
+- Release published
 - Manual trigger
 
 **What it does**:
@@ -97,13 +98,15 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 2. 📦 Sets up pnpm 10
 3. 📦 Sets up Node.js 24 with pnpm caching
 4. 📥 Installs dependencies (`pnpm install`)
-5. 🏗 Builds the site (`pnpm run build` in `website/docs`)
+5. 🏗 Builds the site (`pnpm run build` in `clients/web/apps/docs`)
 6. ⬆️ Uploads artifact for deployment
 7. 🚀 Deploys to GitHub Pages
 
 **Key Points**:
 
 - Requires `contents: read`, `pages: write`, `id-token: write` permissions
+- Uses path filters on push to avoid unnecessary deployments
+- Also deploys on release publication to keep release docs aligned
 - Uses GitHub Pages artifact upload and deployment actions
 - Output available at GitHub Pages URL
 
@@ -146,7 +149,7 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 
 ### `publish-release.yml` - Release Publishing
 
-**Purpose**: Publishes a release version to Maven Central and creates GitHub release.
+**Purpose**: Publishes release artifacts to Maven Central, crates.io, npm, Docker Hub, and GHCR, then creates a GitHub release.
 
 **Triggers**:
 
@@ -160,7 +163,7 @@ Calls the reusable `_publish.yml` workflow with:
 
 **Restrictions**:
 
-- Only runs on `dallay/starter-gradle` repository
+- Only runs on `dallay/corvus` repository
 - Requires tag starting with `v`
 
 ---
@@ -182,13 +185,13 @@ Calls the reusable `_publish.yml` workflow with:
 
 **Restrictions**:
 
-- Only runs on `dallay/starter-gradle` repository
+- Only runs on `dallay/corvus` repository
 
 ---
 
 ### `_publish.yml` - Reusable Publishing Workflow
 
-**Purpose**: Internal reusable workflow for publishing artifacts.
+**Purpose**: Internal reusable workflow for publishing release/snapshot artifacts.
 
 **Called by**: `publish-release.yml`, `publish-snapshot.yml`
 
@@ -204,15 +207,20 @@ Calls the reusable `_publish.yml` workflow with:
 - `SIGNING_IN_MEMORY_KEY_PASSWORD` - GPG key password
 - `MAVEN_CENTRAL_USERNAME` - Maven Central username
 - `MAVEN_CENTRAL_PASSWORD` - Maven Central password
+- `CARGO_REGISTRY_TOKEN` - crates.io publish token (release)
+- `NPM_TOKEN` - npm publish token (release)
+- `DOCKERHUB_USERNAME` - Docker Hub namespace/user (release)
+- `DOCKERHUB_TOKEN` - Docker Hub access token (release)
 
 **What it does**:
 
 1. 📦 Sets up build environment
 2. 🌿 Generates changelog (if enabled) using `release-changelog-builder-action`
 3. 👻 Publishes to Maven Central using Gradle
-   - For `dallay/starter-gradle`: also publishes build-logic
-   - For forks: only publishes main project
-4. 🚀 Creates GitHub release (if enabled)
+4. 🦀 Publishes Rust crate to crates.io (release only)
+5. 📦 Publishes npm package `@corvus/cli` to npm (release only)
+6. 🐳 Builds and publishes multi-arch Docker image to Docker Hub + GHCR (release only)
+7. 🚀 Creates GitHub release (if enabled)
 
 **Key Points**:
 
@@ -584,7 +592,7 @@ Other workflows call dallay/common-actions:
 
 For issues with GitHub Actions:
 
-1. Check the [Actions tab](https://github.com/dallay/starter-gradle/actions) for failed runs
+1. Check the [Actions tab](https://github.com/dallay/corvus/actions) for failed runs
 2. Review workflow logs for error details
 3. Check [GitHub Status](https://www.githubstatus.com/) for service disruptions
 4. Open an issue with the `ci|actions` label
