@@ -1,18 +1,16 @@
 {
+  "id": 12903678,
   "name": "main-protection",
   "target": "branch",
+  "source_type": "Repository",
+  "source": "dallay/corvus",
   "enforcement": "active",
-  "bypass_actors": [
-    {
-      "actor_id": 5,
-      "actor_type": "RepositoryRole",
-      "bypass_mode": "pull_request"
-    }
-  ],
   "conditions": {
     "ref_name": {
-      "include": ["~DEFAULT_BRANCH"],
-      "exclude": []
+      "exclude": [],
+      "include": [
+        "~DEFAULT_BRANCH"
+      ]
     }
   },
   "rules": [
@@ -21,21 +19,28 @@
       "parameters": {
         "required_approving_review_count": 1,
         "dismiss_stale_reviews_on_push": true,
+        "required_reviewers": [],
         "require_code_owner_review": false,
         "require_last_push_approval": false,
-        "required_review_thread_resolution": false
+        "required_review_thread_resolution": false,
+        "allowed_merge_methods": [
+          "merge",
+          "squash",
+          "rebase"
+        ]
       }
     },
     {
       "type": "required_status_checks",
       "parameters": {
+        "strict_required_status_checks_policy": true,
+        "do_not_enforce_on_create": false,
         "required_status_checks": [
           {
-            "context": "core-check",
+            "context": "pr-checks",
             "integration_id": 15368
           }
-        ],
-        "strict_required_status_checks_policy": true
+        ]
       }
     },
     {
@@ -49,6 +54,13 @@
     },
     {
       "type": "required_signatures"
+    }
+  ],
+  "bypass_actors": [
+    {
+      "actor_id": 5,
+      "actor_type": "RepositoryRole",
+      "bypass_mode": "pull_request"
     }
   ]
 }
