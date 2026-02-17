@@ -3,7 +3,8 @@ set -euo pipefail
 IFS=$'\n\t'
 
 readonly CLI_PACKAGE="@corvus/cli"
-readonly REPO_SLUG="dallay/corvus"
+readonly PRIMARY_REPO_SLUG="profiletailors/corvus"
+readonly LEGACY_REPO_SLUG="dallay/corvus"
 readonly DEFAULT_INSTALL_DIR="$HOME/.local/bin"
 
 GREEN='\033[0;32m'
@@ -13,6 +14,8 @@ BLUE='\033[0;34m'
 NC='\033[0m'
 
 INSTALL_METHOD=""
+RESOLVED_DOWNLOAD_URL=""
+RESOLVED_CHECKSUM_URL=""
 
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
@@ -107,32 +110,74 @@ detect_binary_asset() {
   esac
 }
 
-resolve_latest_tag() {
-  local api_url="https://api.github.com/repos/${REPO_SLUG}/releases/latest"
-  local tag=""
+normalize_release_tag() {
+  local raw_tag="$1"
 
-  if ! has_cmd curl; then
-    print_error "curl is required to fetch release metadata."
+  if [ -z "$raw_tag" ]; then
     return 1
   fi
 
-  tag="$(
-    curl --proto '=https' --tlsv1.2 -fsSL "$api_url" \
-      | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-      | head -n 1
-  )"
-
-  if ! printf "%s" "$tag" | grep -Eq '^v[0-9A-Za-z._-]+$'; then
-    print_error "Could not resolve a valid release tag."
-    return 1
+  if [ "$raw_tag" = "latest" ]; then
+    printf "%s" "$raw_tag"
+    return 0
   fi
 
-  printf "%s" "$tag"
+  if printf "%s" "$raw_tag" | grep -Eq '^[0-9A-Za-z._-]+$'; then
+    case "$raw_tag" in
+      v*)
+        printf "%s" "$raw_tag"
+        ;;
+      *)
+        printf "v%s" "$raw_tag"
+        ;;
+    esac
+    return 0
+  fi
+
+  return 1
+}
+
+download_binary_from_releases() {
+  local release_tag="$1"
+  local asset="$2"
+  local target_path="$3"
+  local repo_slug=""
+  local candidate_url=""
+  local candidate_checksum_url=""
+
+  RESOLVED_DOWNLOAD_URL=""
+  RESOLVED_CHECKSUM_URL=""
+
+  for repo_slug in "$PRIMARY_REPO_SLUG" "$LEGACY_REPO_SLUG"; do
+    if [ "$release_tag" = "latest" ]; then
+      candidate_url="https://github.com/${repo_slug}/releases/latest/download/${asset}"
+    else
+      candidate_url="https://github.com/${repo_slug}/releases/download/${release_tag}/${asset}"
+    fi
+    candidate_checksum_url="${candidate_url}.sha256"
+
+    print_info "Downloading ${candidate_url}"
+    if curl --proto '=https' --tlsv1.2 -fsSL "$candidate_url" -o "$target_path"; then
+      RESOLVED_DOWNLOAD_URL="$candidate_url"
+      RESOLVED_CHECKSUM_URL="$candidate_checksum_url"
+      break
+    fi
+
+    print_warn "Download failed for ${repo_slug}. Trying next source..."
+  done
+
+  if [ -z "$RESOLVED_DOWNLOAD_URL" ]; then
+    print_error "Could not download Corvus binary."
+    print_error "Tried: ${PRIMARY_REPO_SLUG} and ${LEGACY_REPO_SLUG}"
+    print_error "You can force a version with CORVUS_VERSION=<version>."
+    return 1
+  fi
 }
 
 install_via_binary() {
   local asset=""
   local release_tag=""
+  local normalized_release_tag=""
   local install_dir="${CORVUS_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
   local target_path=""
   local download_url=""
@@ -142,12 +187,7 @@ install_via_binary() {
 
   asset="$(detect_binary_asset)"
   release_tag="${CORVUS_VERSION:-latest}"
-
-  if [ "$release_tag" = "latest" ]; then
-    release_tag="$(resolve_latest_tag)"
-  fi
-
-  if ! printf "%s" "$release_tag" | grep -Eq '^v[0-9A-Za-z._-]+$'; then
+  if ! normalized_release_tag="$(normalize_release_tag "$release_tag")"; then
     print_error "Invalid CORVUS_VERSION value: $release_tag"
     return 1
   fi
@@ -155,13 +195,9 @@ install_via_binary() {
   mkdir -p "$install_dir"
 
   target_path="${install_dir}/corvus"
-  download_url="https://github.com/${REPO_SLUG}/releases/download/${release_tag}/${asset}"
-  checksum_url="${download_url}.sha256"
-
-  print_info "Downloading ${download_url}"
-
-  # Download binary
-  curl --proto '=https' --tlsv1.2 -fsSL "$download_url" -o "$target_path"
+  download_binary_from_releases "$normalized_release_tag" "$asset" "$target_path"
+  download_url="$RESOLVED_DOWNLOAD_URL"
+  checksum_url="$RESOLVED_CHECKSUM_URL"
 
   # Verify checksum for security
   print_info "Verifying checksum..."
