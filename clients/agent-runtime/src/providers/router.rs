@@ -1,5 +1,5 @@
-use super::traits::{ChatMessage, ChatRequest, ChatResponse};
 use super::Provider;
+use super::traits::{ChatMessage, ChatRequest, ChatResponse};
 use async_trait::async_trait;
 use std::collections::HashMap;
 
@@ -158,8 +158,8 @@ impl Provider for RouterProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct MockProvider {
         calls: Arc<AtomicUsize>,

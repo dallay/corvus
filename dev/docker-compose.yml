@@ -26,10 +26,10 @@ services:
       - CORVUS_GATEWAY_PORT=3000
       - SANDBOX_HOST=corvus-sandbox
     volumes:
-      # Mount single config file (avoids shadowing other files in .corvus)
-      - ../clients/agent-runtime/target/.corvus/config.toml:/corvus-data/.corvus/config.toml
+      # Mount full config directory so atomic config writes work inside the container.
+      - ../clients/agent-runtime/target/.corvus:/corvus-data/.corvus
       # Mount shared workspace
-      - ../playground:/corvus-data/workspace
+      - ../clients/agent-runtime/target/playground:/corvus-data/workspace
     ports:
       - "127.0.0.1:3000:3000"
     networks:

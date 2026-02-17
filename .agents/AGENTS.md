@@ -3,6 +3,27 @@
 Gradle-based multi-module project in Kotlin. Emphasizes centralized build configurations, custom
 plugins, and version catalogs.
 
+## Core Principles
+
+> **⚠️ CRITICAL: Security First, Performance Second**
+>
+> Every decision, every line of code, every architecture choice MUST prioritize:
+>
+> 1. **Security First** - Always think about attacks, vulnerabilities, and safe defaults
+>    - Never trust user input
+    - Use parameterized queries, never string concatenation for SQL
+    - Validate and sanitize all data
+    - Follow principle of least privilege
+    - Keep dependencies updated to patch security vulnerabilities
+> 2. **Extreme Performance Second** - Optimize for efficiency after security
+>    - Think about algorithmic complexity (O(n) vs O(n²))
+>    - Avoid unnecessary allocations
+>    - Use lazy initialization when appropriate
+>    - Profile before optimizing - measure don't guess
+>    - Consider memory footprint and startup time
+>
+> These principles override convenience, speed of development, and "getting it done quickly."
+
 ## Quick Commands
 
 ```bash

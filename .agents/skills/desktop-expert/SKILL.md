@@ -1,3 +1,11 @@
+---
+name: desktop-expert
+description: |
+  Compose Multiplatform Desktop expertise for AmethystMultiplatform. Use when working
+  with Desktop-only APIs (Window, Tray, MenuBar, Dialog), keyboard shortcuts,
+  desktop navigation patterns, OS-specific UX conventions, and desktop file/system integrations.
+---
+
 # Desktop Expert
 
 Expert in Compose Multiplatform Desktop development for AmethystMultiplatform. Covers Desktop-specific APIs, OS conventions, navigation patterns, and UX principles.

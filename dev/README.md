@@ -25,6 +25,24 @@ Run all commands from the repository root using the helper script:
 ```
 Builds the agent from source and starts both containers.
 
+### Provider Configuration (Per Developer)
+The dev stack is provider-agnostic. Choose provider via shell environment before `./dev/cli.sh up`.
+
+Ollama on host (macOS + Docker Desktop/OrbStack):
+```bash
+export PROVIDER=ollama
+export CORVUS_MODEL=llama3.2
+./dev/cli.sh up
+```
+
+OpenRouter (or other remote provider):
+```bash
+export PROVIDER=openrouter
+export API_KEY=your_openrouter_api_key
+export CORVUS_MODEL=anthropic/claude-sonnet-4-20250514
+./dev/cli.sh up
+```
+
 ### 2. Enter Agent Container (`corvus-dev`)
 ```bash
 ./dev/cli.sh agent

@@ -60,12 +60,11 @@ RUN apt-get update && apt-get install -y \
     vim \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=permissions /corvus-data /corvus-data
+COPY --from=permissions --chown=65534:65534 /corvus-data /corvus-data
 COPY --from=builder /app/target/release/corvus /usr/local/bin/corvus
 
 # Overwrite minimal config with DEV template (Ollama defaults)
-COPY dev/config.template.toml /corvus-data/.corvus/config.toml
-RUN chown 65534:65534 /corvus-data/.corvus/config.toml
+COPY --chown=65534:65534 dev/config.template.toml /corvus-data/.corvus/config.toml
 
 # Environment setup
 # Use consistent workspace path
@@ -89,7 +88,7 @@ CMD ["gateway", "--port", "3000", "--host", "[::]"]
 FROM gcr.io/distroless/cc-debian13:nonroot AS release
 
 COPY --from=builder /app/target/release/corvus /usr/local/bin/corvus
-COPY --from=permissions /corvus-data /corvus-data
+COPY --from=permissions --chown=65534:65534 /corvus-data /corvus-data
 
 # Environment setup
 ENV CORVUS_WORKSPACE=/corvus-data/workspace

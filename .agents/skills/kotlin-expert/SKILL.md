@@ -1,6 +1,15 @@
 ---
 name: kotlin-expert
-description: Advanced Kotlin patterns for AmethystMultiplatform. Flow state management (StateFlow/SharedFlow), sealed hierarchies (classes vs interfaces), immutability (@Immutable, data classes), DSL builders (type-safe fluent APIs), inline functions (reified generics, performance). Use when working with: (1) State management patterns (StateFlow/SharedFlow/MutableStateFlow), (2) Sealed classes or sealed interfaces, (3) @Immutable annotations for Compose, (4) DSL builders with lambda receivers, (5) inline/reified functions, (6) Kotlin performance optimization. Complements kotlin-coroutines agent (async patterns) - this skill focuses on Amethyst-specific Kotlin idioms.
+description: |
+  Advanced Kotlin patterns for AmethystMultiplatform. Flow state management
+  (StateFlow/SharedFlow), sealed hierarchies (classes vs interfaces), immutability
+  (@Immutable, data classes), DSL builders (type-safe fluent APIs), inline functions
+  (reified generics, performance). Use when working with: (1) State management patterns
+  (StateFlow/SharedFlow/MutableStateFlow), (2) Sealed classes or sealed interfaces,
+  (3) @Immutable annotations for Compose, (4) DSL builders with lambda receivers,
+  (5) inline/reified functions, (6) Kotlin performance optimization.
+  Complements kotlin-coroutines agent (async patterns) - this skill focuses on
+  Amethyst-specific Kotlin idioms.
 ---
 
 # Kotlin Expert
