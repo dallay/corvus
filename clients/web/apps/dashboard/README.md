@@ -1,20 +1,23 @@
 # Dashboard
 
-Corvus web dashboard - coming soon.
+Corvus web dashboard implemented with Vue 3 + Vite and shadcn-vue style components.
 
-## Development Plan
+## Features
 
-- **Framework**: Vue/React (TBD)
-- **Features**:
-  - Authentication
-  - Agent management
-  - Analytics dashboard
-  - Settings panel
-  - Real-time updates
+- Basic chat workspace aligned with the Corvus system design:
+  - Header with model name
+  - Chat panel with user/assistant bubbles
+  - Gateway config panel (base URL, pairing code, bearer token, webhook secret)
+  - Message composer with send action
+- Local state only (mock assistant responses for now)
+- Tailwind CSS v4 styling with reusable shadcn-vue-inspired UI primitives (`Button`, `Input`)
 
-## Getting Started
+## Run
 
 ```bash
-# From web root
+# From clients/web
+pnpm install
 pnpm dev:dashboard
 ```
+
+Dashboard runs on <http://localhost:4323>.

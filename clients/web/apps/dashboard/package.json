@@ -5,13 +5,30 @@
   "description": "Corvus Web Dashboard",
   "type": "module",
   "scripts": {
-    "dev": "echo 'Dashboard app not yet implemented' && exit 1",
-    "build": "echo 'Dashboard app not yet implemented' && exit 1",
-    "preview": "echo 'Dashboard app not yet implemented' && exit 1",
-    "format": "echo 'No files to format'",
-    "check": "echo 'No files to check'",
-    "clean": "rm -rf dist"
+    "dev": "vite --port 4323",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview --port 4323",
+    "format": "biome format --write src package.json components.json tsconfig*.json vite.config.ts index.html postcss.config.js",
+    "check": "biome check src package.json components.json tsconfig*.json vite.config.ts index.html postcss.config.js"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.3.1",
+    "vue": "^3.5.22"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.3.15",
+    "@tailwindcss/postcss": "^4.1.16",
+    "@types/node": "^24.10.1",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "@vue/tsconfig": "^0.8.1",
+    "autoprefixer": "^10.4.21",
+    "postcss": "^8.5.6",
+    "tailwindcss": "^4.1.16",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.10",
+    "vue-tsc": "^3.1.1",
+    "@tsconfig/node22": "^22.0.2"
+  }
 }
