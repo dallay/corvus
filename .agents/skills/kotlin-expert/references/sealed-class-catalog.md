@@ -3,6 +3,7 @@
 Comprehensive list of sealed types in AmethystMultiplatform with usage patterns.
 
 ## Table of Contents
+
 - [State Management](#state-management)
 - [Result Types](#result-types)
 - [Tag Variants](#tag-variants)
@@ -15,7 +16,8 @@ Comprehensive list of sealed types in AmethystMultiplatform with usage patterns.
 
 ### AccountState (Sealed Class)
 
-**File:** `commons/src/jvmAndroid/kotlin/com/vitorpamplona/amethyst/commons/account/AccountManager.kt:36-46`
+**File:**
+`commons/src/jvmAndroid/kotlin/com/vitorpamplona/amethyst/commons/account/AccountManager.kt:36-46`
 
 ```kotlin
 sealed class AccountState {
@@ -32,6 +34,7 @@ sealed class AccountState {
 ```
 
 **Why sealed class:**
+
 - Two distinct states with different data
 - `LoggedIn` holds data, `LoggedOut` doesn't
 - No need for generics or multiple inheritance
@@ -54,7 +57,8 @@ fun handleAccountState(state: AccountState) {
 
 ### VerificationState (Sealed Class)
 
-**File:** `quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip03Timestamp/VerificationState.kt`
+**File:**
+`quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip03Timestamp/VerificationState.kt`
 
 ```kotlin
 sealed class VerificationState {
@@ -66,6 +70,7 @@ sealed class VerificationState {
 ```
 
 **Pattern:**
+
 - State machine (NotStarted → Started → Failed/Verified)
 - Only `Failed` carries data (reason)
 - Rest are singletons (`data object`)
@@ -76,7 +81,8 @@ sealed class VerificationState {
 
 ### SignerResult (Sealed Interface with Generics)
 
-**File:** `quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip46RemoteSigner/signer/SignerResult.kt:25-46`
+**File:**
+`quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip46RemoteSigner/signer/SignerResult.kt:25-46`
 
 ```kotlin
 sealed interface SignerResult<T : IResult> {
@@ -104,6 +110,7 @@ data class DecryptionResult(val plaintext: String) : IResult
 ```
 
 **Why sealed interface:**
+
 - Generic result type `<T : IResult>`
 - Nested sealed hierarchy (RequestAddressed)
 - Need covariance for flexible result types
@@ -132,7 +139,8 @@ suspend fun signEvent(event: Event): SignerResult<SignResult> {
 
 ### CacheResults (Sealed Class with Generics)
 
-**File:** `quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip01Core/signers/caches/CacheResults.kt`
+**File:**
+`quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip01Core/signers/caches/CacheResults.kt`
 
 ```kotlin
 sealed class CacheResults<T> {
@@ -142,6 +150,7 @@ sealed class CacheResults<T> {
 ```
 
 **Pattern:**
+
 - Simple binary result (found/not found)
 - `Found` carries data, `NotFound` doesn't
 - Generic for reusability
@@ -152,7 +161,8 @@ sealed class CacheResults<T> {
 
 ### MuteTag (Sealed Class)
 
-**File:** `quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip51Lists/muteList/tags/MuteTag.kt`
+**File:**
+`quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip51Lists/muteList/tags/MuteTag.kt`
 
 ```kotlin
 sealed class MuteTag(
@@ -183,6 +193,7 @@ sealed class MuteTag(
 ```
 
 **Pattern:**
+
 - Common base class with shared properties
 - Each variant represents different tag type
 - Factory method `parse()` for parsing
@@ -190,7 +201,8 @@ sealed class MuteTag(
 
 ### BookmarkIdTag (Sealed Class)
 
-**File:** `quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip51Lists/bookmarkList/tags/BookmarkIdTag.kt`
+**File:**
+`quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip51Lists/bookmarkList/tags/BookmarkIdTag.kt`
 
 ```kotlin
 sealed class BookmarkIdTag {
@@ -216,6 +228,7 @@ sealed class BookmarkIdTag {
 ```
 
 **Pattern:**
+
 - Abstract properties in sealed class
 - Data classes implement abstract properties
 - Parse factory returns sealed variant
@@ -226,7 +239,8 @@ sealed class BookmarkIdTag {
 
 ### SignerExceptions (Sealed Class)
 
-**File:** `quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip01Core/signers/SignerExceptions.kt`
+**File:**
+`quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip01Core/signers/SignerExceptions.kt`
 
 ```kotlin
 sealed class SignerExceptions(message: String) : Exception(message) {
@@ -238,6 +252,7 @@ sealed class SignerExceptions(message: String) : Exception(message) {
 ```
 
 **Pattern:**
+
 - Sealed exception hierarchy
 - Extends `Exception` base class
 - Type-safe error handling
@@ -271,6 +286,7 @@ try {
 4. **SignerExceptions** - Exception hierarchy
 
 **Characteristics:**
+
 - Need common constructor parameters
 - Single inheritance only
 - State variants
@@ -284,6 +300,7 @@ try {
 2. **RelayUrlNormalizer.Result** - Binary result with no shared state
 
 **Characteristics:**
+
 - Need generics with variance (`out`, `in`)
 - No common state needed
 - Multiple inheritance possible
@@ -424,9 +441,11 @@ fun renderUi(state: UiState) {
 **Complete list of sealed types found in codebase:**
 
 ### Commons
+
 - AccountState (class)
 
 ### Quartz
+
 - BaseZapSplitSetup (class)
 - MuteTag (class)
 - BookmarkIdTag (class)

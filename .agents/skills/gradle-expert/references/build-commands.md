@@ -1,6 +1,7 @@
 # Build Commands Reference
 
 ## Table of Contents
+
 - [Core Build Tasks](#core-build-tasks)
 - [Module-Specific Builds](#module-specific-builds)
 - [Desktop Tasks](#desktop-tasks)
@@ -12,6 +13,7 @@
 ## Core Build Tasks
 
 ### Full Project Build
+
 ```bash
 ./gradlew build                    # Build all modules
 ./gradlew clean build              # Clean build
@@ -19,6 +21,7 @@
 ```
 
 ### Incremental Builds
+
 ```bash
 ./gradlew :quartz:build            # Build only quartz module
 ./gradlew :commons:build           # Build only commons module
@@ -28,6 +31,7 @@
 ## Module-Specific Builds
 
 ### Quartz (KMP Library)
+
 ```bash
 ./gradlew :quartz:build                           # All targets
 ./gradlew :quartz:compileKotlinJvm                # JVM target only
@@ -37,6 +41,7 @@
 ```
 
 ### Commons (Shared UI)
+
 ```bash
 ./gradlew :commons:build                          # All targets
 ./gradlew :commons:compileKotlinJvm               # Desktop target
@@ -46,12 +51,14 @@
 ## Desktop Tasks
 
 ### Run Desktop App
+
 ```bash
 ./gradlew :desktopApp:run                         # Run desktop app
 ./gradlew :desktopApp:runDistributable            # Run packaged version
 ```
 
 ### Package Desktop App
+
 ```bash
 ./gradlew :desktopApp:createDistributable         # Create runnable package
 ./gradlew :desktopApp:packageDmg                  # macOS DMG
@@ -60,6 +67,7 @@
 ```
 
 ### Distribution Location
+
 - macOS: `desktopApp/build/compose/binaries/main/dmg/`
 - Windows: `desktopApp/build/compose/binaries/main/msi/`
 - Linux: `desktopApp/build/compose/binaries/main/deb/`
@@ -67,6 +75,7 @@
 ## Android Tasks
 
 ### Compile & Assemble
+
 ```bash
 ./gradlew :amethyst:assembleDebug                 # Debug APK
 ./gradlew :amethyst:assembleRelease               # Release APK
@@ -74,12 +83,14 @@
 ```
 
 ### Install & Run
+
 ```bash
 ./gradlew :amethyst:installDebug                  # Install debug on device
 adb shell am start -n com.vitorpamplona.amethyst/.MainActivity
 ```
 
 ### Proguard/R8
+
 ```bash
 ./gradlew :quartz:minifyReleaseWithR8             # Test R8 minification
 ```
@@ -87,6 +98,7 @@ adb shell am start -n com.vitorpamplona.amethyst/.MainActivity
 ## Testing
 
 ### Unit Tests
+
 ```bash
 ./gradlew test                                    # All unit tests
 ./gradlew :quartz:jvmTest                         # JVM unit tests
@@ -95,11 +107,13 @@ adb shell am start -n com.vitorpamplona.amethyst/.MainActivity
 ```
 
 ### Android Instrumented Tests
+
 ```bash
 ./gradlew :quartz:connectedAndroidTest            # Requires device/emulator
 ```
 
 ### Test Reports
+
 ```bash
 # Reports location: <module>/build/reports/tests/
 open quartz/build/reports/tests/jvmTest/index.html
@@ -108,6 +122,7 @@ open quartz/build/reports/tests/jvmTest/index.html
 ## Analysis & Diagnostics
 
 ### Dependency Analysis
+
 ```bash
 ./gradlew dependencies                            # All dependencies
 ./gradlew :quartz:dependencies                    # Quartz dependencies
@@ -115,17 +130,20 @@ open quartz/build/reports/tests/jvmTest/index.html
 ```
 
 ### Build Scan
+
 ```bash
 ./gradlew build --scan                            # Upload to scans.gradle.com
 ```
 
 ### Performance Profiling
+
 ```bash
 ./gradlew build --profile                         # Generate profile report
 # Report: build/reports/profile/profile-<timestamp>.html
 ```
 
 ### Task Dependencies
+
 ```bash
 ./gradlew :desktopApp:run --dry-run               # Show task graph
 ./gradlew :desktopApp:dependencies --scan         # Visualize dependencies
@@ -134,29 +152,34 @@ open quartz/build/reports/tests/jvmTest/index.html
 ## Performance Optimization
 
 ### Configuration Cache
+
 ```bash
 ./gradlew build --configuration-cache             # Enable config cache
 ./gradlew build --configuration-cache-problems=warn
 ```
 
 ### Build Cache
+
 ```bash
 ./gradlew build --build-cache                     # Enable build cache
 ./gradlew cleanBuildCache                         # Clear build cache
 ```
 
 ### Parallel Execution
+
 ```bash
 ./gradlew build --parallel --max-workers=8        # Parallel with 8 workers
 ```
 
 ### Daemon Management
+
 ```bash
 ./gradlew --stop                                  # Stop Gradle daemon
 ./gradlew --status                                # Daemon status
 ```
 
 ### Incremental Compilation
+
 ```bash
 # Already enabled by default in Kotlin, but can verify:
 ./gradlew :quartz:compileKotlinJvm --info | grep "Incremental"
@@ -187,27 +210,32 @@ kotlin.daemon.jvmargs=-Xmx2g
 ## Common Workflows
 
 ### Full Desktop Build & Run
+
 ```bash
 ./gradlew :desktopApp:clean :desktopApp:run
 ```
 
 ### Quick Desktop Iteration
+
 ```bash
 # No clean - incremental compilation
 ./gradlew :desktopApp:run
 ```
 
 ### Android Release Build
+
 ```bash
 ./gradlew :amethyst:clean :amethyst:bundleRelease
 ```
 
 ### Test All KMP Targets
+
 ```bash
 ./gradlew :quartz:test :quartz:testDebugUnitTest
 ```
 
 ### Publish Quartz Locally for Testing
+
 ```bash
 ./gradlew :quartz:publishToMavenLocal
 # Then update version in consumer project to test

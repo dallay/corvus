@@ -18,6 +18,7 @@ Visual UI patterns for sharing composables across Android and Desktop.
 - Performance: lazy lists, image loading
 
 **Delegate to other skills:**
+
 - Navigation structure → `android-expert`, `desktop-expert`
 - Kotlin state patterns (StateFlow, sealed classes) → `kotlin-expert`
 - Build configuration → `gradle-expert`
@@ -72,6 +73,7 @@ fun SharedComponent(
 ```
 
 **Pattern**: State down, events up
+
 - Parameters above modifier = required state/events
 - `modifier` parameter = layout control
 - Parameters below modifier = optional customization
@@ -103,6 +105,7 @@ val ActionButtonPadding = PaddingValues(vertical = 0.dp, horizontal = 16.dp)
 ```
 
 **Why this works on all platforms:**
+
 - Material3 primitives (OutlinedButton, Text)
 - No platform APIs
 - Configurable through parameters
@@ -224,6 +227,7 @@ fun SearchScreen() {
 ```
 
 **Principle**: State up, events down
+
 - State: `query: String` (read-only parameter)
 - Events: `onQueryChange: (String) -> Unit` (callback parameter)
 
@@ -299,6 +303,7 @@ fun ThemedComponent() {
 ```
 
 **Principles:**
+
 - Colors: `MaterialTheme.colorScheme.*`
 - Typography: `MaterialTheme.typography.*`
 - Shapes: `MaterialTheme.shapes.*`
@@ -368,6 +373,7 @@ fun CustomIcon() {
 ```
 
 **Why ImageVector?**
+
 - Pure Kotlin, no XML
 - Works on Android, Desktop, iOS
 - GPU-accelerated
@@ -417,6 +423,7 @@ fun DataScreen(uiState: UiState) {
 ```
 
 **Components** (all in `commons/commonMain`):
+
 - `LoadingState` - Progress indicator + message
 - `EmptyState` - Empty message + optional refresh button
 - `ErrorState` - Error message + optional retry button
@@ -447,6 +454,7 @@ fun RelayStatusIndicator(connectedCount: Int) {
 ```
 
 **Visual mapping**:
+
 - 0 relays → Red + X icon
 - 1-2 relays → Yellow + Check icon
 - 3+ relays → Green + Check icon
@@ -524,16 +532,16 @@ fun FeedList(items: List<Item>) {
 
 ## Quick Reference
 
-| Task | Pattern | Location |
-|------|---------|----------|
-| Reusable UI | State hoisting | commons/commonMain |
-| Simple state | remember { mutableStateOf() } | Composable scope |
-| Derived state | derivedStateOf { } | remember block |
-| Async → state | produceState { } | Composable function |
-| Custom icons | roboBuilder + PathData | commons/icons |
-| Loading/Error | LoadingState, ErrorState | commons/ui/components |
-| Theme colors | MaterialTheme.colorScheme | Any @Composable |
-| Navigation | Delegate to platform expert | amethyst/, desktopApp/ |
+| Task          | Pattern                       | Location               |
+|---------------|-------------------------------|------------------------|
+| Reusable UI   | State hoisting                | commons/commonMain     |
+| Simple state  | remember { mutableStateOf() } | Composable scope       |
+| Derived state | derivedStateOf { }            | remember block         |
+| Async → state | produceState { }              | Composable function    |
+| Custom icons  | roboBuilder + PathData        | commons/icons          |
+| Loading/Error | LoadingState, ErrorState      | commons/ui/components  |
+| Theme colors  | MaterialTheme.colorScheme     | Any @Composable        |
+| Navigation    | Delegate to platform expert   | amethyst/, desktopApp/ |
 
 ## Common Workflows
 
@@ -565,6 +573,7 @@ fun FeedList(items: List<Item>) {
 ### Navigation (Delegate)
 
 For navigation patterns:
+
 - Android bottom nav → `android-expert`
 - Desktop sidebar → `desktop-expert`
 - Multi-window → `desktop-expert`

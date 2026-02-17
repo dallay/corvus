@@ -8,11 +8,13 @@ description: |
 
 # Desktop Expert
 
-Expert in Compose Multiplatform Desktop development for AmethystMultiplatform. Covers Desktop-specific APIs, OS conventions, navigation patterns, and UX principles.
+Expert in Compose Multiplatform Desktop development for AmethystMultiplatform. Covers
+Desktop-specific APIs, OS conventions, navigation patterns, and UX principles.
 
 ## When to Use This Skill
 
 **Auto-invoke when:**
+
 - Working with `desktopApp/` module files
 - Using Desktop-only APIs: `Window`, `Tray`, `MenuBar`, `Dialog`
 - Implementing keyboard shortcuts, menu systems
@@ -22,6 +24,7 @@ Expert in Compose Multiplatform Desktop development for AmethystMultiplatform. C
 - Desktop UX patterns (keyboard-first, tooltips)
 
 **Delegate to:**
+
 - **kotlin-multiplatform**: Shared code questions, `jvmMain` source set structure
 - **gradle-expert**: All `build.gradle.kts` issues, dependency conflicts
 - **compose-expert**: General Compose patterns, `@Composable` best practices, Material3
@@ -29,6 +32,7 @@ Expert in Compose Multiplatform Desktop development for AmethystMultiplatform. C
 ## Scope
 
 **In scope:**
+
 - Desktop-only Compose APIs
 - Window management, positioning, state
 - MenuBar + keyboard shortcuts (OS-specific)
@@ -39,6 +43,7 @@ Expert in Compose Multiplatform Desktop development for AmethystMultiplatform. C
 - Desktop UX principles
 
 **Out of scope:**
+
 - Build configuration → **gradle-expert**
 - Shared composables → **compose-expert**
 - KMP structure → **kotlin-multiplatform**
@@ -72,6 +77,7 @@ fun main() = application {
 ```
 
 **Key points:**
+
 - `application {}` is the root composable (JVM-only)
 - `Window()` creates the main window
 - `rememberWindowState()` manages size/position
@@ -199,16 +205,16 @@ MenuBar {
 
 **Standard shortcuts:**
 
-| Action | macOS | Windows/Linux |
-|--------|-------|---------------|
-| New | Cmd+N | Ctrl+N |
-| Open | Cmd+O | Ctrl+O |
-| Save | Cmd+S | Ctrl+S |
-| Quit | Cmd+Q | Ctrl+Q (Alt+F4) |
-| Settings | Cmd+, | Ctrl+, |
-| Copy | Cmd+C | Ctrl+C |
-| Paste | Cmd+V | Ctrl+V |
-| Undo | Cmd+Z | Ctrl+Z |
+| Action   | macOS | Windows/Linux   |
+|----------|-------|-----------------|
+| New      | Cmd+N | Ctrl+N          |
+| Open     | Cmd+O | Ctrl+O          |
+| Save     | Cmd+S | Ctrl+S          |
+| Quit     | Cmd+Q | Ctrl+Q (Alt+F4) |
+| Settings | Cmd+, | Ctrl+,          |
+| Copy     | Cmd+C | Ctrl+C          |
+| Paste    | Cmd+V | Ctrl+V          |
+| Undo     | Cmd+Z | Ctrl+Z          |
 
 **See:** `references/keyboard-shortcuts.md` for full list.
 
@@ -286,12 +292,14 @@ Row(Modifier.fillMaxSize()) {
 **See:** Main.kt:191-264
 
 **Why NavigationRail?**
+
 - Desktop has horizontal space (1200+ dp width)
 - Vertical sidebar is standard desktop pattern
 - Always visible (no tabs hidden)
 - Icon + label both visible
 
 **Android comparison:**
+
 - Android: `BottomNavigationBar` (horizontal, bottom)
 - Desktop: `NavigationRail` (vertical, left)
 
@@ -390,31 +398,31 @@ val isLinux = osName.contains("nux") || osName.contains("nix")
 
 ### Menu Bar Placement
 
-| OS | Behavior |
-|----|----------|
-| **macOS** | System-wide menu bar at top of screen |
-| **Windows** | In-window menu bar |
-| **Linux** | Varies by desktop environment |
+| OS          | Behavior                              |
+|-------------|---------------------------------------|
+| **macOS**   | System-wide menu bar at top of screen |
+| **Windows** | In-window menu bar                    |
+| **Linux**   | Varies by desktop environment         |
 
 Compose Desktop `MenuBar` adapts automatically.
 
 ### Keyboard Modifier Keys
 
-| Modifier | macOS | Windows/Linux |
-|----------|-------|---------------|
-| Primary | `meta = true` (Cmd) | `ctrl = true` |
-| Secondary | `ctrl = true` | `alt = true` |
-| Shift | `shift = true` | `shift = true` |
+| Modifier  | macOS               | Windows/Linux  |
+|-----------|---------------------|----------------|
+| Primary   | `meta = true` (Cmd) | `ctrl = true`  |
+| Secondary | `ctrl = true`       | `alt = true`   |
+| Shift     | `shift = true`      | `shift = true` |
 
 **Best practice:** Detect OS and use appropriate modifier.
 
 ### System Tray Behavior
 
-| OS | Tray Location |
-|----|---------------|
-| **macOS** | Top-right menu bar |
+| OS          | Tray Location        |
+|-------------|----------------------|
+| **macOS**   | Top-right menu bar   |
 | **Windows** | Bottom-right taskbar |
-| **Linux** | Top panel (varies) |
+| **Linux**   | Top panel (varies)   |
 
 ---
 
@@ -423,6 +431,7 @@ Compose Desktop `MenuBar` adapts automatically.
 ### Keyboard-First Design
 
 **Every action should have:**
+
 1. Mouse/touch interaction
 2. Keyboard shortcut (if frequent)
 3. Tooltip showing shortcut
@@ -512,6 +521,7 @@ desktopApp/
 ```
 
 **Key files:**
+
 - `Main.kt:87-138` - `application {}`, `Window`, `MenuBar`
 - `Main.kt:183-264` - NavigationRail pattern
 - `build.gradle.kts:45-73` - Desktop packaging config
@@ -647,17 +657,20 @@ fun FeedScreen() {
 ## Resources
 
 ### Official Documentation
+
 - [Desktop-only API | Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/compose-desktop-components.html)
 - [Top-level windows management](https://kotlinlang.org/docs/multiplatform/compose-desktop-top-level-windows-management.html)
 - [Tray/MenuBar Tutorial](https://github.com/JetBrains/compose-multiplatform/blob/master/tutorials/Tray_Notifications_MenuBar_new/README.md)
 
 ### Bundled References
+
 - `references/desktop-compose-apis.md` - Complete Desktop API catalog
 - `references/desktop-navigation.md` - NavigationRail vs BottomNav patterns
 - `references/keyboard-shortcuts.md` - Standard shortcuts by OS
 - `references/os-detection.md` - Platform detection patterns
 
 ### Codebase Examples
+
 - Main.kt:87-138 - Window, MenuBar entry point
 - Main.kt:183-264 - NavigationRail pattern
 - FeedScreen.kt:49-136 - Desktop screen layout
@@ -670,34 +683,36 @@ fun FeedScreen() {
 When working on desktop features:
 
 1. **Should this be shared or desktop-only?**
-   - Business logic → Share in `commonMain`
-   - Navigation/layout → Keep in `desktopApp/jvmMain`
+  - Business logic → Share in `commonMain`
+  - Navigation/layout → Keep in `desktopApp/jvmMain`
 
 2. **Does this need OS-specific behavior?**
-   - Keyboard shortcuts → Yes (Cmd vs Ctrl)
-   - File paths → Yes (separators)
-   - Icons → Yes (per-OS formats)
+  - Keyboard shortcuts → Yes (Cmd vs Ctrl)
+  - File paths → Yes (separators)
+  - Icons → Yes (per-OS formats)
 
 3. **Is there a desktop UX convention?**
-   - Check MenuBar standards
-   - Consider keyboard-first design
-   - Tooltips for all actions
+  - Check MenuBar standards
+  - Consider keyboard-first design
+  - Tooltips for all actions
 
 4. **Does this need gradle-expert?**
-   - Any `build.gradle.kts` changes → Delegate
-   - Packaging/distribution issues → Delegate
+  - Any `build.gradle.kts` changes → Delegate
+  - Packaging/distribution issues → Delegate
 
 ---
 
 ## Anti-Patterns
 
 ❌ **Hardcoding Ctrl everywhere**
+
 ```kotlin
 // Main.kt:105 - Current issue
 shortcut = KeyShortcut(Key.N, ctrl = true)  // Wrong on macOS
 ```
 
 ✅ **OS-aware shortcuts**
+
 ```kotlin
 shortcut = DesktopShortcuts.primary(Key.N)
 ```
@@ -705,11 +720,13 @@ shortcut = DesktopShortcuts.primary(Key.N)
 ---
 
 ❌ **Using Android navigation on Desktop**
+
 ```kotlin
 Scaffold(bottomBar = { BottomNavigationBar() })  // Wrong for desktop
 ```
 
 ✅ **NavigationRail for desktop**
+
 ```kotlin
 Row {
     NavigationRail { /* ... */ }
@@ -720,6 +737,7 @@ Row {
 ---
 
 ❌ **No keyboard shortcuts**
+
 ```kotlin
 IconButton(onClick = { refresh() }) {
     Icon(Icons.Default.Refresh, "Refresh")
@@ -727,6 +745,7 @@ IconButton(onClick = { refresh() }) {
 ```
 
 ✅ **Shortcuts + tooltips**
+
 ```kotlin
 IconButton(
     onClick = { refresh() },

@@ -1,6 +1,7 @@
 # Nostr Relay Async Patterns
 
-Proven coroutine patterns for Nostr relay connections, subscriptions, and event streaming in Amethyst.
+Proven coroutine patterns for Nostr relay connections, subscriptions, and event streaming in
+Amethyst.
 
 ## Core Pattern: callbackFlow for Relay Subscriptions
 
@@ -59,6 +60,7 @@ fun INostrClient.reqAsFlow(
 ```
 
 **Key techniques:**
+
 1. **callbackFlow** - Bridge callback API to Flow
 2. **Deduplication** - `eventIds` set prevents duplicates
 3. **EOSE handling** - Changes insertion strategy (append → prepend)
@@ -82,6 +84,7 @@ fun observeFromRelays(
 ```
 
 **Explanation:**
+
 - Each relay produces `Flow<List<Event>>`
 - `flatMapConcat` flattens to `Flow<Event>`
 - `merge()` combines all relay flows
@@ -105,6 +108,7 @@ suspend fun subscribeToRelays(
 ```
 
 **Why supervisorScope:**
+
 - If one relay fails, others continue
 - All children cancelled when scope cancelled
 - Structured concurrency maintained
@@ -125,6 +129,7 @@ relayFlow
 ```
 
 **Strategy selection:**
+
 - `DROP_OLDEST` - For real-time feeds (lose old events OK)
 - `DROP_LATEST` - For priority queues (lose new events OK)
 - `SUSPEND` - For critical events (slow down producer)
@@ -200,6 +205,7 @@ val status = callbackFlow {
 ```
 
 **Key patterns:**
+
 1. **Initial state** - Emit current connectivity immediately
 2. **Callback registration** - Register listener in flow body
 3. **Cleanup** - Unregister in `awaitClose`
@@ -254,6 +260,7 @@ class PushNotificationReceiverService : FirebaseMessagingService() {
 ```
 
 **Why this pattern:**
+
 - **SupervisorJob** - One failure doesn't cancel others
 - **ExceptionHandler** - Log exceptions, don't crash
 - **Scoped lifecycle** - Cancel all on destroy
@@ -313,6 +320,7 @@ fun ObserveRelayEvents(
 ```
 
 **Lifecycle:**
+
 1. Composable enters → subscribe
 2. filters change → cancel + re-subscribe
 3. Composable leaves → cancel + cleanup
@@ -346,6 +354,7 @@ fun observeMultipleFeeds(
 ```
 
 **Benefits:**
+
 - All subscriptions run concurrently
 - One failure doesn't affect others (supervisorScope)
 - Single output channel for all events

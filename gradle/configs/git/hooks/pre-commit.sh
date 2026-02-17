@@ -9,16 +9,23 @@ PART1="TO"
 PART2="DO"
 KEYWORDS="${PART1}${PART2}"
 
-# Get newly added lines from staged changes
-DIFF_CONTENT=$(git diff --cached --unified=0 | grep '^+' | grep -v '^+++' || true)
+# Only scan staged source files (skip docs like .md)
+SOURCE_FILE_REGEX='\.(kt|kts|java|groovy|gradle|xml|properties|toml|ya?ml|json|rs|swift|[cm]|cc|cpp|h|hpp|js|jsx|ts|tsx|py|rb|go|sh)$'
+STAGED_SOURCE_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E "$SOURCE_FILE_REGEX" || true)
 
 HAS_FORBIDDEN=0
 
-if [ -n "$DIFF_CONTENT" ]; then
-  for KEY in $KEYWORDS; do
-    if echo "$DIFF_CONTENT" | grep -i "$KEY" >/dev/null 2>&1; then
-      echo "❌ ERROR: detected forbidden keyword in added lines: '$KEY'"
-      HAS_FORBIDDEN=1
+if [ -n "$STAGED_SOURCE_FILES" ]; then
+  for FILE in $STAGED_SOURCE_FILES; do
+    # Get newly added lines from staged changes for each source file
+    DIFF_CONTENT=$(git diff --cached --unified=0 -- "$FILE" | grep '^+' | grep -v '^+++' || true)
+    if [ -n "$DIFF_CONTENT" ]; then
+      for KEY in $KEYWORDS; do
+        if echo "$DIFF_CONTENT" | grep -i -w "$KEY" >/dev/null 2>&1; then
+          echo "❌ ERROR: detected forbidden keyword in added lines: '$KEY' (file: $FILE)"
+          HAS_FORBIDDEN=1
+        fi
+      done
     fi
   done
 fi

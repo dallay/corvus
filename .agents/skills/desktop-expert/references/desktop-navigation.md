@@ -4,10 +4,10 @@ Comparison of mobile vs desktop navigation patterns in AmethystMultiplatform.
 
 ## Core Difference
 
-| Platform | Pattern | Location | Rationale |
-|----------|---------|----------|-----------|
-| **Android** | Bottom Navigation Bar | Horizontal, bottom | Thumb reach on mobile |
-| **Desktop** | Navigation Rail | Vertical, left sidebar | Horizontal screen space |
+| Platform    | Pattern               | Location               | Rationale               |
+|-------------|-----------------------|------------------------|-------------------------|
+| **Android** | Bottom Navigation Bar | Horizontal, bottom     | Thumb reach on mobile   |
+| **Desktop** | Navigation Rail       | Vertical, left sidebar | Horizontal screen space |
 
 ---
 
@@ -298,6 +298,7 @@ Row(Modifier.fillMaxSize()) {
 ```
 
 **Use cases:**
+
 - Email: List + message detail
 - Notes: List + editor
 - Settings: Categories + options
@@ -346,6 +347,7 @@ Window(
 ```
 
 **Standard:**
+
 - Ctrl+1: First nav item (Feed)
 - Ctrl+2: Second nav item (Search)
 - Ctrl+3: Third nav item (Messages)
@@ -386,6 +388,7 @@ NavHost(navController, startDestination = "feed") {
 ### Desktop NavigationRail
 
 ✅ **DO:**
+
 - Keep width 72-80dp
 - Show both icon and label
 - Use Spacer.weight(1f) for bottom items
@@ -393,6 +396,7 @@ NavHost(navController, startDestination = "feed") {
 - Limit to 5-7 primary items
 
 ❌ **DON'T:**
+
 - Use bottom navigation on desktop
 - Hide labels (plenty of space)
 - Make it collapsible (not standard)
@@ -401,12 +405,14 @@ NavHost(navController, startDestination = "feed") {
 ### Android NavigationBar
 
 ✅ **DO:**
+
 - Limit to 3-5 items
 - Use bottom placement
 - Consider label visibility on small screens
 - Use standard icons
 
 ❌ **DON'T:**
+
 - Put more than 5 items
 - Use top placement (deprecated)
 - Put critical actions only in nav bar
@@ -418,7 +424,8 @@ NavHost(navController, startDestination = "feed") {
 When adding Android support:
 
 1. **Extract shared state:** Move `AppScreen` to `commons/commonMain`
-2. **Platform layouts:** Keep `NavigationRail` in `desktopApp/jvmMain`, `NavigationBar` in `amethyst/androidMain`
+2. **Platform layouts:** Keep `NavigationRail` in `desktopApp/jvmMain`, `NavigationBar` in
+   `amethyst/androidMain`
 3. **Shared screens:** Composables in `commons/commonMain` (FeedScreen content)
 4. **Platform chrome:** Navigation containers in platform modules
 
@@ -460,5 +467,7 @@ fun FeedScreen() {
 ## References
 
 - **Current Desktop:** Main.kt:191-264
-- **Material3 NavigationRail:** [Material Design Docs](https://m3.material.io/components/navigation-rail)
-- **Material3 NavigationBar:** [Material Design Docs](https://m3.material.io/components/navigation-bar)
+- **Material3 NavigationRail:
+  ** [Material Design Docs](https://m3.material.io/components/navigation-rail)
+- **Material3 NavigationBar:
+  ** [Material Design Docs](https://m3.material.io/components/navigation-bar)

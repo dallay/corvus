@@ -1,6 +1,7 @@
 # Android Runtime Permissions
 
-Complete permission handling patterns for Amethyst using Accompanist Permissions library and Android best practices.
+Complete permission handling patterns for Amethyst using Accompanist Permissions library and Android
+best practices.
 
 ## Permission Categories in Amethyst
 
@@ -290,6 +291,7 @@ fun NotificationPermissionPrompt(onEnableClick: () -> Unit) {
 ### 1. Request Contextually
 
 **Bad:**
+
 ```kotlin
 // Requesting permission on app launch
 @Composable
@@ -304,6 +306,7 @@ fun AppContent() {
 ```
 
 **Good:**
+
 ```kotlin
 // Request when user explicitly wants to use camera
 @Composable
@@ -649,7 +652,8 @@ companion object {
 ## File Locations
 
 - `amethyst/src/main/AndroidManifest.xml` - Permission declarations
-- `amethyst/src/main/java/com/vitorpamplona/amethyst/ui/screen/loggedIn/LoggedInPage.kt` - Notification permission pattern
+- `amethyst/src/main/java/com/vitorpamplona/amethyst/ui/screen/loggedIn/LoggedInPage.kt` -
+  Notification permission pattern
 - `amethyst/build.gradle` - Accompanist dependency
 
 ## Resources

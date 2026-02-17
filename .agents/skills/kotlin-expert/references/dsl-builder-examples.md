@@ -3,6 +3,7 @@
 Type-safe fluent APIs and DSL patterns from the codebase.
 
 ## Table of Contents
+
 - [TagArrayBuilder Pattern](#tagarraybuilder-pattern)
 - [Builder Variations](#builder-variations)
 - [DSL Principles](#dsl-principles)
@@ -14,7 +15,8 @@ Type-safe fluent APIs and DSL patterns from the codebase.
 
 ### Core Implementation
 
-**File:** `quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip01Core/core/TagArrayBuilder.kt:23-91`
+**File:**
+`quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip01Core/core/TagArrayBuilder.kt:23-91`
 
 ```kotlin
 class TagArrayBuilder<T : IEvent> {
@@ -134,7 +136,8 @@ val tags = tagArray<TextNoteEvent> {
 
 ### PrivateTagArrayBuilder
 
-**File:** `quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip51Lists/PrivateTagArrayBuilder.kt`
+**File:**
+`quartz/src/commonMain/kotlin/com/vitorpamplona/quartz/nip51Lists/PrivateTagArrayBuilder.kt`
 
 ```kotlin
 class PrivateTagArrayBuilder {
@@ -323,6 +326,7 @@ val result = Builder()
 ### 3. Inline for Performance
 
 **Why inline:**
+
 - Eliminates lambda allocation
 - Allows `reified` type parameters
 - Better for hot paths (frequently called)

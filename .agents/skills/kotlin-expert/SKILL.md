@@ -14,7 +14,8 @@ description: |
 
 # Kotlin Expert
 
-Advanced Kotlin patterns for AmethystMultiplatform. Covers Flow state management, sealed hierarchies, immutability, DSL builders, and inline functions with real codebase examples.
+Advanced Kotlin patterns for AmethystMultiplatform. Covers Flow state management, sealed
+hierarchies, immutability, DSL builders, and inline functions with real codebase examples.
 
 ## Mental Model
 
@@ -46,6 +47,7 @@ Performance
 ```
 
 **Delegation:**
+
 - **kotlin-coroutines agent**: Deep async (structured concurrency, channels, operators)
 - **kotlin-multiplatform skill**: expect/actual, source sets
 - **This skill**: Amethyst Kotlin idioms, state patterns, type safety
@@ -56,7 +58,8 @@ Performance
 
 ### StateFlow: State that Changes
 
-**Mental model:** StateFlow is a "hot" observable state holder. Always has a value, new collectors immediately get current state.
+**Mental model:** StateFlow is a "hot" observable state holder. Always has a value, new collectors
+immediately get current state.
 
 **Amethyst pattern:**
 
@@ -73,7 +76,9 @@ class AccountManager {
 ```
 
 **Key principles:**
-1. **Private mutable, public immutable**: `_accountState` (MutableStateFlow) private, `accountState` (StateFlow) public
+
+1. **Private mutable, public immutable**: `_accountState` (MutableStateFlow) private,
+   `accountState` (StateFlow) public
 2. **Always has value**: Initial value required (`LoggedOut`)
 3. **Single value**: Replays ONE most recent value to new subscribers
 4. **Hot**: Stays in memory, all collectors share same instance
@@ -82,7 +87,8 @@ class AccountManager {
 
 ### SharedFlow: Event Streams
 
-**Mental model:** SharedFlow is a "hot" broadcast stream for events. Configurable replay buffer, doesn't require initial value.
+**Mental model:** SharedFlow is a "hot" broadcast stream for events. Configurable replay buffer,
+doesn't require initial value.
 
 **Amethyst pattern:**
 
@@ -94,15 +100,16 @@ val availableRelays: StateFlow<Set<NormalizedRelayUrl>> = client.availableRelays
 
 **When to use StateFlow vs SharedFlow:**
 
-| Scenario | Use StateFlow | Use SharedFlow |
-|----------|---------------|----------------|
-| **UI state** | ✅ Current screen data, login status | ❌ |
-| **One-time events** | ❌ | ✅ Navigation, snackbars, toasts |
-| **Always has value** | ✅ | ❌ Optional |
-| **Replay count** | 1 (latest only) | Configurable (0, 1, n) |
-| **Backpressure** | Conflates (drops old) | Configurable buffer |
+| Scenario             | Use StateFlow                       | Use SharedFlow                  |
+|----------------------|-------------------------------------|---------------------------------|
+| **UI state**         | ✅ Current screen data, login status | ❌                               |
+| **One-time events**  | ❌                                   | ✅ Navigation, snackbars, toasts |
+| **Always has value** | ✅                                   | ❌ Optional                      |
+| **Replay count**     | 1 (latest only)                     | Configurable (0, 1, n)          |
+| **Backpressure**     | Conflates (drops old)               | Configurable buffer             |
 
 **Best practice:**
+
 ```kotlin
 // State: Use StateFlow
 private val _uiState = MutableStateFlow(UiState.Loading)
@@ -116,11 +123,13 @@ val navigationEvents: SharedFlow<NavEvent> = _navigationEvents.asSharedFlow()
 ### Flow Anti-Patterns
 
 ❌ **Exposing mutable state:**
+
 ```kotlin
 val accountState: MutableStateFlow<AccountState>  // BAD: Can be mutated externally
 ```
 
 ✅ **Expose immutable:**
+
 ```kotlin
 val accountState: StateFlow<AccountState> = _accountState.asStateFlow()  // GOOD
 ```
@@ -128,11 +137,13 @@ val accountState: StateFlow<AccountState> = _accountState.asStateFlow()  // GOOD
 ---
 
 ❌ **SharedFlow for state:**
+
 ```kotlin
 val loginState = MutableSharedFlow<LoginState>()  // BAD: State might get lost
 ```
 
 ✅ **StateFlow for state:**
+
 ```kotlin
 val loginState = MutableStateFlow(LoginState.LoggedOut)  // GOOD: Always has value
 ```
@@ -171,19 +182,22 @@ when (state) {
 ```
 
 **Key principles:**
+
 1. **Closed hierarchy**: All subclasses known at compile-time
 2. **Exhaustive when**: Compiler ensures all cases handled
 3. **Shared data**: Sealed class can hold common properties
 4. **Single inheritance**: Subclass can't extend another class
 
 **When to use:**
+
 - Modeling UI states (Loading, Success, Error)
 - Login states (LoggedOut, LoggedIn)
 - Result types with different data per variant
 
 ### Sealed Interfaces: Generic Result Types
 
-**Mental model:** Sealed interfaces for contracts with multiple implementations that need generics or multiple inheritance.
+**Mental model:** Sealed interfaces for contracts with multiple implementations that need generics
+or multiple inheritance.
 
 **Amethyst pattern:**
 
@@ -211,6 +225,7 @@ fun handleResult(result: SignerResult<SignResult>) {
 ```
 
 **Key principles:**
+
 1. **Multiple inheritance**: Subtype can implement other interfaces
 2. **Variance**: Supports `out`/`in` modifiers for generics
 3. **No constructor**: Can't hold state directly (subtypes can)
@@ -218,12 +233,12 @@ fun handleResult(result: SignerResult<SignResult>) {
 
 ### Sealed Class vs Sealed Interface
 
-| Feature | Sealed Class | Sealed Interface |
-|---------|--------------|------------------|
-| **Constructor** | ✅ Can hold common state | ❌ No constructor |
-| **Inheritance** | ❌ Single parent only | ✅ Multiple interfaces |
-| **Generics** | ❌ No variance | ✅ Covariance/contravariance |
-| **Use case** | State variants | Result types, contracts |
+| Feature         | Sealed Class            | Sealed Interface            |
+|-----------------|-------------------------|-----------------------------|
+| **Constructor** | ✅ Can hold common state | ❌ No constructor            |
+| **Inheritance** | ❌ Single parent only    | ✅ Multiple interfaces       |
+| **Generics**    | ❌ No variance           | ✅ Covariance/contravariance |
+| **Use case**    | State variants          | Result types, contracts     |
 
 **Decision tree:**
 
@@ -242,6 +257,7 @@ Subtypes need multiple inheritance?
 ```
 
 **Amethyst examples:**
+
 - `sealed class AccountState` - state variants with different data
 - `sealed interface SignerResult<T>` - generic result types with variance
 
@@ -253,7 +269,8 @@ Subtypes need multiple inheritance?
 
 ### @Immutable Annotation
 
-**Mental model:** @Immutable tells Compose "this value never changes after construction." Compose can skip recomposition if @Immutable object reference doesn't change.
+**Mental model:** @Immutable tells Compose "this value never changes after construction." Compose
+can skip recomposition if @Immutable object reference doesn't change.
 
 **Amethyst pattern:**
 
@@ -273,6 +290,7 @@ class TextNoteEvent(
 ```
 
 **Key principles:**
+
 1. **All properties immutable**: Only `val`, never `var`
 2. **No mutable collections**: Use `ImmutableList`, `Array`, not `MutableList`
 3. **Deep immutability**: Nested objects also immutable
@@ -316,6 +334,7 @@ val newStatus = oldStatus.copy(connected = true)  // Immutable update
 ```
 
 **Key principles:**
+
 1. **Structural equality**: `equals()` compares properties, not reference
 2. **copy()**: Create modified copies without mutating
 3. **All properties in constructor**: For proper `equals()`/`hashCode()`
@@ -338,6 +357,7 @@ val updated = relays.add("wss://relay3.com")  // relays unchanged, updated has 3
 ```
 
 **When to use:**
+
 - Compose state that needs collection
 - Publicly exposed collections
 - Shared state across threads
@@ -350,7 +370,8 @@ val updated = relays.add("wss://relay3.com")  // relays unchanged, updated has 3
 
 ### Type-Safe Fluent APIs
 
-**Mental model:** DSL (Domain-Specific Language) builders use lambda receivers and method chaining to create readable, type-safe APIs.
+**Mental model:** DSL (Domain-Specific Language) builders use lambda receivers and method chaining
+to create readable, type-safe APIs.
 
 **Amethyst pattern:**
 
@@ -389,6 +410,7 @@ val tags = tagArray<TextNoteEvent> {
 ```
 
 **Key patterns:**
+
 1. **Method chaining**: Return `this` from mutator methods
 2. **Lambda receiver**: `TagArrayBuilder<T>.() -> Unit` - lambda has `this: TagArrayBuilder<T>`
 3. **inline function**: Eliminates lambda overhead
@@ -419,6 +441,7 @@ val result = myDsl {
 ```
 
 **Why inline?**
+
 - Eliminates lambda object allocation
 - Enables `reified` type parameters
 - Better performance for frequently-called DSLs
@@ -431,7 +454,8 @@ val result = myDsl {
 
 ### inline fun: Eliminate Overhead
 
-**Mental model:** `inline` copies function body to call site. No lambda object created, direct code insertion.
+**Mental model:** `inline` copies function body to call site. No lambda object created, direct code
+insertion.
 
 **Pattern:**
 
@@ -454,6 +478,7 @@ inline fun <T> measureTime(block: () -> T): T {
 ```
 
 **Benefits:**
+
 1. **Zero overhead**: No lambda object allocation
 2. **Non-local returns**: Can `return` from outer function inside lambda
 3. **reified enabled**: Access to type parameter at runtime
@@ -530,7 +555,8 @@ inline fun foo(crossinline block: () -> Unit) {
 
 ## 6. Value Classes (Opportunity)
 
-**Mental model:** `value class` is a compile-time wrapper with zero runtime overhead. Single property, no boxing.
+**Mental model:** `value class` is a compile-time wrapper with zero runtime overhead. Single
+property, no boxing.
 
 **Not currently used in Amethyst** - potential optimization.
 
@@ -554,11 +580,13 @@ fetchEvent(id)  // Type safe
 ```
 
 **When to use:**
+
 - Type safety for primitives (IDs, hex strings, timestamps)
 - High-frequency allocations (event processing)
 - Clear domain types without overhead
 
 **Restrictions:**
+
 - Single property only
 - Must be `val`
 - Can't have `init` block with logic
@@ -669,20 +697,22 @@ val event = Event.builder()
 
 **When to delegate:**
 
-| Topic | Delegate To | This Skill Covers |
-|-------|-------------|-------------------|
-| Structured concurrency, channels | kotlin-coroutines agent | Flow state patterns only |
-| expect/actual, source sets | kotlin-multiplatform skill | Platform-agnostic Kotlin |
-| General Compose patterns | compose-expert skill | @Immutable for performance |
-| Build configuration | gradle-expert skill | - |
+| Topic                            | Delegate To                | This Skill Covers          |
+|----------------------------------|----------------------------|----------------------------|
+| Structured concurrency, channels | kotlin-coroutines agent    | Flow state patterns only   |
+| expect/actual, source sets       | kotlin-multiplatform skill | Platform-agnostic Kotlin   |
+| General Compose patterns         | compose-expert skill       | @Immutable for performance |
+| Build configuration              | gradle-expert skill        | -                          |
 
 **Ask kotlin-coroutines agent for:**
+
 - Advanced Flow operators (flatMapLatest, combine, zip)
 - Channel patterns
 - Structured concurrency (supervisorScope, coroutineScope)
 - Error handling in coroutines
 
 **This skill teaches:**
+
 - StateFlow/SharedFlow state management
 - Sealed hierarchies
 - @Immutable for Compose
@@ -694,11 +724,13 @@ val event = Event.builder()
 ## Anti-Patterns
 
 ❌ **Mutable public state:**
+
 ```kotlin
 val accountState: MutableStateFlow<AccountState>  // BAD
 ```
 
 ✅ **Immutable public interface:**
+
 ```kotlin
 val accountState: StateFlow<AccountState> = _accountState.asStateFlow()
 ```
@@ -706,6 +738,7 @@ val accountState: StateFlow<AccountState> = _accountState.asStateFlow()
 ---
 
 ❌ **Sealed class for generic results:**
+
 ```kotlin
 sealed class Result<T> {  // BAD: Can't use variance
     data class Success<T>(val value: T) : Result<T>()
@@ -713,6 +746,7 @@ sealed class Result<T> {  // BAD: Can't use variance
 ```
 
 ✅ **Sealed interface for generics:**
+
 ```kotlin
 sealed interface Result<out T> {  // GOOD: Covariance
     data class Success<T>(val value: T) : Result<T>
@@ -722,6 +756,7 @@ sealed interface Result<out T> {  // GOOD: Covariance
 ---
 
 ❌ **Mutable properties in @Immutable class:**
+
 ```kotlin
 @Immutable
 data class Event(
@@ -730,6 +765,7 @@ data class Event(
 ```
 
 ✅ **All val:**
+
 ```kotlin
 @Immutable
 data class Event(
@@ -740,11 +776,13 @@ data class Event(
 ---
 
 ❌ **Passing class explicitly when reified available:**
+
 ```kotlin
 inline fun <T> parse(json: String, clazz: KClass<T>): T  // BAD
 ```
 
 ✅ **Use reified:**
+
 ```kotlin
 inline fun <reified T> parse(json: String): T  // GOOD
 ```
@@ -795,17 +833,20 @@ Passing lambda to function?
 ## Resources
 
 ### Official Docs
+
 - [StateFlow and SharedFlow | Android Developers](https://developer.android.com/kotlin/flow/stateflow-and-sharedflow)
 - [Sealed Classes | Kotlin Docs](https://kotlinlang.org/docs/sealed-classes.html)
 - [Inline Functions | Kotlin Docs](https://kotlinlang.org/docs/inline-functions.html)
 
 ### Bundled References
+
 - `references/flow-patterns.md` - StateFlow/SharedFlow examples from AccountManager, RelayManager
 - `references/sealed-class-catalog.md` - All sealed types in quartz
 - `references/dsl-builder-examples.md` - TagArrayBuilder, other DSL patterns
 - `references/immutability-patterns.md` - @Immutable usage, data classes, collections
 
 ### Codebase Examples
+
 - AccountManager.kt:36-50 - sealed class AccountState, StateFlow pattern
 - RelayConnectionManager.kt:44-52 - StateFlow state management
 - SignerResult.kt:25-46 - sealed interface with generics

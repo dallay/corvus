@@ -3,6 +3,7 @@
 @Immutable annotation, data classes, and immutable collections for Compose performance.
 
 ## Table of Contents
+
 - [Why Immutability Matters](#why-immutability-matters)
 - [@Immutable Annotation](#immutable-annotation)
 - [Data Classes](#data-classes)
@@ -16,7 +17,8 @@
 
 ### Compose Recomposition
 
-**Mental model:** Compose tracks state changes by comparing references. If an `@Immutable` object reference doesn't change, Compose skips recomposition.
+**Mental model:** Compose tracks state changes by comparing references. If an `@Immutable` object
+reference doesn't change, Compose skips recomposition.
 
 ```kotlin
 // Without @Immutable - Recomposes on every parent recomposition
@@ -38,6 +40,7 @@ fun UserCard(user: User) {  // Smart recomposition
 ```
 
 **Performance difference:**
+
 - Without `@Immutable`: 1000 `UserCard` recompositions per screen update
 - With `@Immutable`: 10 `UserCard` recompositions (only changed users)
 
@@ -85,6 +88,7 @@ class TextNoteEvent(
 ```
 
 **Requirements for @Immutable:**
+
 1. All properties must be `val` (no `var`)
 2. All property types must be immutable or primitives
 3. No mutable collections (`MutableList`, `MutableMap`)
@@ -111,6 +115,7 @@ class MutableCounter {
 ```
 
 **Amethyst uses @Immutable extensively:**
+
 - 173+ event classes annotated with `@Immutable`
 - All Nostr events immutable by design
 - Critical for feed performance (thousands of events)
@@ -137,6 +142,7 @@ data class RelayStatus(
 ```
 
 **Benefits:**
+
 1. **Structural equality:** `equals()` compares values, not references
 2. **copy():** Create modified copies without mutation
 3. **toString():** Debugging-friendly output
@@ -220,6 +226,7 @@ dependencies {
 ```
 
 **Why use:**
+
 - Structural sharing (efficient copies)
 - Explicit immutability (compiler enforced)
 - Safe for Compose state
@@ -465,17 +472,20 @@ val copy = mutableList.toList() + 10001  // O(n) time, full copy
 ### When to Use Immutable Collections
 
 **Use ImmutableList/Map/Set when:**
+
 - Storing in Compose state (@Immutable class)
 - Sharing across coroutines
 - Frequent modifications (structural sharing efficient)
 - Need compile-time immutability guarantee
 
 **Use Array when:**
+
 - Fixed size, no modifications
 - Nostr protocol (tags are `Array<Array<String>>`)
 - Performance-critical (array access is fastest)
 
 **Use regular List/Map/Set when:**
+
 - Local scope only
 - Build once, read many times
 - Converting to immutable at boundary
@@ -612,6 +622,7 @@ class GoodViewModel {
 ## Checklist for Immutability
 
 **For @Immutable classes:**
+
 - [ ] All properties are `val`, never `var`
 - [ ] No mutable collections (`MutableList`, `MutableMap`, `MutableSet`)
 - [ ] Nested objects are also `@Immutable` or primitives
@@ -620,12 +631,14 @@ class GoodViewModel {
 - [ ] Arrays used only when truly immutable by contract
 
 **For StateFlow state:**
+
 - [ ] State class is `@Immutable`
 - [ ] Use immutable collections (ImmutableList, ImmutableMap)
 - [ ] Create new instances for updates (`copy()`, `.add()`, `.put()`)
 - [ ] Never mutate state in-place
 
 **For Compose performance:**
+
 - [ ] All `@Composable` parameters are `@Immutable` or `@Stable`
 - [ ] Lists use `ImmutableList` and `key` parameter in `items()`
 - [ ] Heavy objects (events, profiles) cached and reused

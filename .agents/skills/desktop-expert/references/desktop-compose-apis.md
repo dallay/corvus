@@ -40,6 +40,7 @@ Window(
 ```
 
 **Example:**
+
 ```kotlin
 val windowState = rememberWindowState(
     width = 1200.dp,
@@ -73,11 +74,13 @@ fun rememberWindowState(
 ```
 
 **WindowPlacement:**
+
 - `Floating` - Normal window
 - `Maximized` - Fullscreen
 - `Fullscreen` - Fullscreen without decorations
 
 **WindowPosition:**
+
 - `PlatformDefault` - OS decides
 - `Aligned(alignment)` - Center, TopStart, etc.
 - `Absolute(x, y)` - Fixed position in pixels
@@ -103,6 +106,7 @@ DialogWindow(
 ```
 
 **Example:**
+
 ```kotlin
 var showDialog by remember { mutableStateOf(false) }
 
@@ -142,6 +146,7 @@ fun FrameWindowScope.MenuBar(
 ```
 
 **Example:**
+
 ```kotlin
 Window(onCloseRequest = ::exitApplication) {
     MenuBar {
@@ -190,6 +195,7 @@ fun MenuScope.Item(
 ```
 
 **With keyboard shortcut:**
+
 ```kotlin
 Item(
     text = "Save",
@@ -225,6 +231,7 @@ fun MenuScope.CheckboxItem(
 ```
 
 **Example:**
+
 ```kotlin
 var darkMode by remember { mutableStateOf(false) }
 
@@ -274,6 +281,7 @@ fun ApplicationScope.Tray(
 ```
 
 **Example:**
+
 ```kotlin
 application {
     var isVisible by remember { mutableStateOf(true) }
@@ -338,6 +346,7 @@ LaunchedEffect(Unit) {
 ```
 
 **Notification types:**
+
 - `Info` - Information
 - `Warning` - Warning
 - `Error` - Error
@@ -361,6 +370,7 @@ data class KeyShortcut(
 ```
 
 **Examples:**
+
 ```kotlin
 // Ctrl+S (Windows/Linux)
 KeyShortcut(Key.S, ctrl = true)
@@ -428,6 +438,7 @@ Box(
 ```
 
 **Cursor types:**
+
 - `DEFAULT_CURSOR`
 - `HAND_CURSOR`
 - `TEXT_CURSOR`
@@ -593,5 +604,6 @@ frame.isVisible = true
 - **JVM Target:** 11+ (recommend 21)
 
 **See also:**
+
 - [Official Desktop API docs](https://www.jetbrains.com/help/kotlin-multiplatform-dev/compose-desktop-components.html)
 - [Compose Multiplatform repo](https://github.com/JetBrains/compose-multiplatform)

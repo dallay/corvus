@@ -3,6 +3,7 @@
 StateFlow and SharedFlow usage patterns from the codebase.
 
 ## Table of Contents
+
 - [StateFlow for State Management](#stateflow-for-state-management)
 - [Flow Composition](#flow-composition)
 - [Common Patterns](#common-patterns)
@@ -14,7 +15,8 @@ StateFlow and SharedFlow usage patterns from the codebase.
 
 ### AccountManager Pattern
 
-**File:** `commons/src/jvmAndroid/kotlin/com/vitorpamplona/amethyst/commons/account/AccountManager.kt:36-115`
+**File:**
+`commons/src/jvmAndroid/kotlin/com/vitorpamplona/amethyst/commons/account/AccountManager.kt:36-115`
 
 ```kotlin
 sealed class AccountState {
@@ -63,6 +65,7 @@ class AccountManager {
 ```
 
 **Pattern highlights:**
+
 - Private `MutableStateFlow` for internal mutations
 - Public `StateFlow` via `.asStateFlow()` for read-only access
 - Sealed class for type-safe state variants
@@ -70,7 +73,8 @@ class AccountManager {
 
 ### RelayConnectionManager Pattern
 
-**File:** `commons/src/jvmAndroid/kotlin/com/vitorpamplona/amethyst/commons/network/RelayConnectionManager.kt:44-80`
+**File:**
+`commons/src/jvmAndroid/kotlin/com/vitorpamplona/amethyst/commons/network/RelayConnectionManager.kt:44-80`
 
 ```kotlin
 data class RelayStatus(
@@ -125,6 +129,7 @@ open class RelayConnectionManager(
 ```
 
 **Pattern highlights:**
+
 - `Map` as state value for collection tracking
 - Immutable map updates (copy with modifications)
 - Helper function `updateRelayStatus` for consistent updates

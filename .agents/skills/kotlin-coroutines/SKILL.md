@@ -13,7 +13,8 @@ description: |
 
 # Kotlin Coroutines - Advanced Async Patterns
 
-Expert guidance for complex async operations in Amethyst: relay pools, event streams, structured concurrency, and testing.
+Expert guidance for complex async operations in Amethyst: relay pools, event streams, structured
+concurrency, and testing.
 
 ## Mental Model
 
@@ -31,6 +32,7 @@ Relay Pool (supervisorScope)
 ```
 
 **Key principles:**
+
 - **supervisorScope** - Children fail independently
 - **callbackFlow** - Bridge callbacks to Flow
 - **shareIn/stateIn** - Hot flows from cold
@@ -39,6 +41,7 @@ Relay Pool (supervisorScope)
 ## When to Use This Skill
 
 Use for **advanced** async patterns:
+
 - Multi-relay subscriptions with supervisorScope
 - Complex Flow operators (flatMapLatest, combine, merge)
 - callbackFlow for Android callbacks (connectivity, location)
@@ -47,6 +50,7 @@ Use for **advanced** async patterns:
 - Testing coroutines with runTest and Turbine
 
 **Delegate to kotlin-expert for:**
+
 - Basic StateFlow/SharedFlow patterns
 - Simple viewModelScope.launch
 - MutableStateFlow → asStateFlow()
@@ -93,6 +97,7 @@ fun INostrClient.reqAsFlow(
 ```
 
 **Key techniques:**
+
 1. Deduplication with Set
 2. EOSE handling (append → prepend strategy)
 3. trySend (non-blocking from callback)
@@ -119,6 +124,7 @@ suspend fun connectToRelays(relays: List<Relay>) = supervisorScope {
 ```
 
 **Why supervisorScope:**
+
 - One relay failure doesn't cancel others
 - All cancelled together when scope cancelled
 - Proper cleanup guaranteed
@@ -144,6 +150,7 @@ class MyService : Service() {
 ```
 
 **Pattern benefits:**
+
 - SupervisorJob: children fail independently
 - ExceptionHandler: log instead of crash
 - Scoped lifecycle: cancel all on destroy
@@ -177,6 +184,7 @@ val status = callbackFlow {
 ```
 
 **Key patterns:**
+
 1. Emit initial state immediately
 2. Register callback in flow body
 3. Cleanup in awaitClose
@@ -197,6 +205,7 @@ fun observeFromRelays(
 ```
 
 **Flow:**
+
 - Each relay: `Flow<List<Event>>`
 - flatMapConcat: flatten to `Flow<Event>`
 - merge(): combine all relays
@@ -205,23 +214,25 @@ fun observeFromRelays(
 ## Advanced Operators
 
 For comprehensive coverage of Flow operators:
-- **flatMapLatest, combine, zip, merge** → See [advanced-flow-operators.md](references/advanced-flow-operators.md)
+
+- **flatMapLatest, combine, zip, merge** →
+  See [advanced-flow-operators.md](references/advanced-flow-operators.md)
 - **shareIn, stateIn** → Conversion to hot flows
 - **buffer, conflate** → Backpressure strategies
 - **debounce, sample** → Rate limiting
 
 ### Quick Reference
 
-| Operator | Use Case | Example |
-|----------|----------|---------|
-| **flatMapLatest** | Cancel previous, switch to new | Search (cancel old query) |
-| **combine** | Latest from ALL flows | combine(account, settings, connectivity) |
-| **merge** | Single stream from multiple | merge(relay1, relay2, relay3) |
-| **shareIn** | Multiple collectors, single upstream | Share expensive computation |
-| **stateIn** | StateFlow from Flow | ViewModel state |
-| **buffer(DROP_OLDEST)** | High-frequency streams | Real-time event feed |
-| **conflate** | Latest only | UI updates |
-| **debounce** | Wait for quiet period | Search input |
+| Operator                | Use Case                             | Example                                  |
+|-------------------------|--------------------------------------|------------------------------------------|
+| **flatMapLatest**       | Cancel previous, switch to new       | Search (cancel old query)                |
+| **combine**             | Latest from ALL flows                | combine(account, settings, connectivity) |
+| **merge**               | Single stream from multiple          | merge(relay1, relay2, relay3)            |
+| **shareIn**             | Multiple collectors, single upstream | Share expensive computation              |
+| **stateIn**             | StateFlow from Flow                  | ViewModel state                          |
+| **buffer(DROP_OLDEST)** | High-frequency streams               | Real-time event feed                     |
+| **conflate**            | Latest only                          | UI updates                               |
+| **debounce**            | Wait for quiet period                | Search input                             |
 
 ## Nostr Relay Patterns
 
@@ -229,6 +240,7 @@ For complete relay-specific patterns:
 → See [relay-patterns.md](references/relay-patterns.md)
 
 Covers:
+
 - Multi-relay subscription management
 - Connection lifecycle and reconnection
 - Event deduplication strategies
@@ -259,6 +271,7 @@ fun `relay subscription receives events`() = runTest {
 ```
 
 **Testing tools:**
+
 - `runTest` - Virtual time, auto cleanup
 - Turbine `.test {}` - Flow assertions
 - `advanceTimeBy()` - Control time
@@ -269,6 +282,7 @@ fun `relay subscription receives events`() = runTest {
 ### Scenario: Implement New Relay Feature
 
 **Steps:**
+
 1. callbackFlow for subscription
 2. Deduplication (Set of event IDs)
 3. awaitClose for cleanup
@@ -293,6 +307,7 @@ fun observeKind(kind: Int): Flow<Event> = callbackFlow {
 ### Scenario: Handle Network Connectivity Changes
 
 **Steps:**
+
 1. callbackFlow for connectivity
 2. flatMapLatest to reconnect
 3. debounce to stabilize
@@ -315,6 +330,7 @@ connectivityFlow
 ### Scenario: Optimize Multi-Collector Performance
 
 **Steps:**
+
 1. Use shareIn for expensive upstream
 2. Configure SharingStarted strategy
 3. Set replay buffer size
@@ -336,11 +352,13 @@ val events: SharedFlow<Event> = client
 ## Anti-Patterns
 
 ❌ **Using GlobalScope**
+
 ```kotlin
 GlobalScope.launch { /* Leaks, no structured concurrency */ }
 ```
 
 ✅ **Use scoped coroutines**
+
 ```kotlin
 viewModelScope.launch { /* Cancelled with ViewModel */ }
 ```
@@ -348,6 +366,7 @@ viewModelScope.launch { /* Cancelled with ViewModel */ }
 ---
 
 ❌ **Forgetting awaitClose**
+
 ```kotlin
 callbackFlow {
     registerCallback()
@@ -356,6 +375,7 @@ callbackFlow {
 ```
 
 ✅ **Always cleanup**
+
 ```kotlin
 callbackFlow {
     registerCallback()
@@ -366,11 +386,13 @@ callbackFlow {
 ---
 
 ❌ **Blocking in Flow**
+
 ```kotlin
 flow.map { Thread.sleep(1000); process(it) }
 ```
 
 ✅ **Suspend, don't block**
+
 ```kotlin
 flow.map { delay(1000); process(it) }.flowOn(Dispatchers.Default)
 ```
@@ -378,11 +400,13 @@ flow.map { delay(1000); process(it) }.flowOn(Dispatchers.Default)
 ---
 
 ❌ **Ignoring backpressure**
+
 ```kotlin
 fastProducer.collect { slowConsumer(it) }  // Blocks producer!
 ```
 
 ✅ **Handle backpressure**
+
 ```kotlin
 fastProducer
     .buffer(64, BufferOverflow.DROP_OLDEST)
@@ -392,16 +416,19 @@ fastProducer
 ## Delegation
 
 **Use kotlin-expert for:**
+
 - Basic StateFlow/SharedFlow patterns
 - viewModelScope.launch usage
 - Simple MutableStateFlow → asStateFlow()
 
 **Use nostr-expert for:**
+
 - Nostr protocol details (NIPs, event structure)
 - Event creation and signing
 - Cryptographic operations
 
 **This skill provides:**
+
 - Advanced async patterns
 - Structured concurrency
 - Complex Flow operators

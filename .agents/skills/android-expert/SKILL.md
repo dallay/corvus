@@ -8,11 +8,13 @@ description: |
 
 # android-expert
 
-Android platform expertise for Amethyst Multiplatform project. Covers Compose Navigation, Material3, permissions, lifecycle, and Android-specific patterns in KMP architecture.
+Android platform expertise for Amethyst Multiplatform project. Covers Compose Navigation, Material3,
+permissions, lifecycle, and Android-specific patterns in KMP architecture.
 
 ## When to Use
 
 Auto-invoke when working with:
+
 - Android navigation (Navigation Compose, routes, bottom nav)
 - Runtime permissions (camera, notifications, biometric)
 - Platform APIs (Intent, Context, Activity)
@@ -42,6 +44,7 @@ Intent Filters (11+)
 ```
 
 **Key Principles:**
+
 1. **Type-Safe Navigation** - @Serializable routes, no strings
 2. **Declarative Permissions** - Request contextually with Accompanist
 3. **Edge-to-Edge + Insets** - Scaffold handles system bars
@@ -77,6 +80,7 @@ amethyst/                    # Android app module
 ### Pattern: @Serializable Routes
 
 **Best Practice (Navigation 2.8.0+):**
+
 ```kotlin
 // Routes.kt - Define all routes with type safety
 @Serializable
@@ -120,6 +124,7 @@ fun AppNavigation(
 ### Navigation Manager Pattern
 
 **Amethyst Pattern (`Nav.kt`):**
+
 ```kotlin
 class Nav(
     val controller: NavHostController,
@@ -159,6 +164,7 @@ fun HomeScreen(nav: Nav) {
 ### Bottom Navigation
 
 **Material3 Pattern:**
+
 ```kotlin
 @Composable
 fun AppBottomBar(
@@ -193,6 +199,7 @@ enum class BottomBarItem(val route: Route, val icon: ImageVector, val label: Str
 ### Declarative Permission Handling
 
 **Accompanist Pattern (Experimental API):**
+
 ```kotlin
 import com.google.accompanist.permissions.*
 
@@ -270,6 +277,7 @@ fun MediaUploadFeature() {
 ### Lifecycle-Aware Permission Requests
 
 **Amethyst Pattern (LoggedInPage.kt):**
+
 ```kotlin
 @OptIn(ExperimentalPermissionsApi::class)
 @Composable
@@ -304,6 +312,7 @@ fun NotificationRegistration(accountViewModel: AccountViewModel) {
 ### AndroidManifest Permission Declarations
 
 **Key Permissions in Amethyst:**
+
 ```xml
 <!-- AndroidManifest.xml -->
 <manifest>
@@ -344,6 +353,7 @@ fun NotificationRegistration(accountViewModel: AccountViewModel) {
 ### Edge-to-Edge Setup
 
 **MainActivity Pattern:**
+
 ```kotlin
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -362,6 +372,7 @@ class MainActivity : AppCompatActivity() {
 ### Theme Configuration
 
 **Material3 Color Schemes:**
+
 ```kotlin
 // theme/Theme.kt
 private val DarkColorPalette = darkColorScheme(
@@ -406,6 +417,7 @@ fun AmethystTheme(
 ### Scaffold with Insets
 
 **Handling System Bars:**
+
 ```kotlin
 @Composable
 fun MainScreen(navController: NavHostController) {
@@ -428,6 +440,7 @@ fun MainScreen(navController: NavHostController) {
 ```
 
 **Custom Inset Handling:**
+
 ```kotlin
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.systemBars
@@ -450,6 +463,7 @@ fun CustomEdgeToEdgeScreen() {
 ### ViewModel Pattern
 
 **Standard Structure (80+ ViewModels in Amethyst):**
+
 ```kotlin
 class FeedViewModel(
     private val accountStateViewModel: AccountStateViewModel
@@ -489,6 +503,7 @@ sealed class FeedState {
 ### Compose Integration
 
 **collectAsStateWithLifecycle Pattern:**
+
 ```kotlin
 @Composable
 fun FeedScreen(
@@ -521,6 +536,7 @@ fun FeedScreen(
 ### Lifecycle Effects
 
 **LifecycleResumeEffect Pattern:**
+
 ```kotlin
 @Composable
 fun ChatScreen(chatViewModel: ChatViewModel) {
@@ -537,6 +553,7 @@ fun ChatScreen(chatViewModel: ChatViewModel) {
 ```
 
 **DisposableEffect for Cleanup:**
+
 ```kotlin
 @Composable
 fun VideoPlayer(videoUrl: String) {
@@ -565,6 +582,7 @@ fun VideoPlayer(videoUrl: String) {
 ### Activity & Context Access
 
 **LocalContext Pattern:**
+
 ```kotlin
 @Composable
 fun ShareButton(text: String) {
@@ -585,6 +603,7 @@ fun ShareButton(text: String) {
 ```
 
 **Activity Reference:**
+
 ```kotlin
 // WindowUtils.kt pattern
 @Composable
@@ -618,6 +637,7 @@ fun FullscreenToggle() {
 ### Intent Handling
 
 **Deep Links (AppNavigation.kt pattern):**
+
 ```kotlin
 @Composable
 fun AppNavigation(
@@ -671,6 +691,7 @@ fun handleNostrUri(uri: Uri, navController: NavHostController) {
 ### File Sharing with FileProvider
 
 **ShareHelper Pattern:**
+
 ```kotlin
 fun shareImage(context: Context, imageUri: Uri) {
     try {
@@ -698,6 +719,7 @@ fun shareImage(context: Context, imageUri: Uri) {
 ```
 
 **FileProvider Configuration (AndroidManifest.xml):**
+
 ```xml
 <provider
     android:name="androidx.core.content.FileProvider"
@@ -713,6 +735,7 @@ fun shareImage(context: Context, imageUri: Uri) {
 ### Activity Results
 
 **External Signer Integration (Amethyst pattern):**
+
 ```kotlin
 @Composable
 fun SignerIntegration(accountViewModel: AccountViewModel) {
@@ -744,6 +767,7 @@ fun SignerIntegration(accountViewModel: AccountViewModel) {
 ### Android Block
 
 **build.gradle (Amethyst pattern):**
+
 ```gradle
 android {
     namespace = 'com.vitorpamplona.amethyst'
@@ -805,6 +829,7 @@ kotlin {
 ### Dependencies
 
 **Key Android Dependencies:**
+
 ```gradle
 dependencies {
     // Compose BOM
@@ -835,6 +860,7 @@ dependencies {
 ### Proguard Rules
 
 **Common Rules for Amethyst:**
+
 ```proguard
 # Keep Kotlin metadata
 -keep class kotlin.Metadata { *; }
@@ -866,6 +892,7 @@ dependencies {
 ### Android Module Layout
 
 **Amethyst Structure:**
+
 ```
 amethyst/
 ├── src/
@@ -879,6 +906,7 @@ amethyst/
 ```
 
 **Platform-Specific Code:**
+
 ```kotlin
 // commons/src/androidMain/kotlin/Platform.android.kt
 actual fun openExternalUrl(url: String, context: Any) {
@@ -924,6 +952,7 @@ android {
 ### 1. Single Activity Architecture
 
 **All screens in one activity, navigation via Compose:**
+
 ```kotlin
 class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -953,6 +982,7 @@ class MainActivity : AppCompatActivity() {
 ### 2. Configuration Changes
 
 **ViewModels survive rotation:**
+
 ```kotlin
 // ViewModel persists across config changes
 @Composable
@@ -1035,22 +1065,23 @@ fun testPermissionRequest() {
 
 ## Quick Reference
 
-| Task | Pattern |
-|------|---------|
-| **Navigate** | `navController.navigate(Route.Profile(id))` |
+| Task                   | Pattern                                               |
+|------------------------|-------------------------------------------------------|
+| **Navigate**           | `navController.navigate(Route.Profile(id))`           |
 | **Request Permission** | `rememberPermissionState().launchPermissionRequest()` |
-| **Access Context** | `val context = LocalContext.current` |
-| **Get Activity** | `val activity = context.getActivity()` |
-| **Open URL** | `Intent(ACTION_VIEW, Uri.parse(url))` |
-| **Share Text** | `Intent(ACTION_SEND).putExtra(EXTRA_TEXT, text)` |
-| **Observe Flow** | `flow.collectAsStateWithLifecycle()` |
-| **Lifecycle Effect** | `LifecycleResumeEffect { ... }` |
-| **Handle Insets** | `Modifier.systemBarsPadding()` |
-| **Theme** | `MaterialTheme(colorScheme = ...) { }` |
+| **Access Context**     | `val context = LocalContext.current`                  |
+| **Get Activity**       | `val activity = context.getActivity()`                |
+| **Open URL**           | `Intent(ACTION_VIEW, Uri.parse(url))`                 |
+| **Share Text**         | `Intent(ACTION_SEND).putExtra(EXTRA_TEXT, text)`      |
+| **Observe Flow**       | `flow.collectAsStateWithLifecycle()`                  |
+| **Lifecycle Effect**   | `LifecycleResumeEffect { ... }`                       |
+| **Handle Insets**      | `Modifier.systemBarsPadding()`                        |
+| **Theme**              | `MaterialTheme(colorScheme = ...) { }`                |
 
 ## File Locations
 
 **Key Android Files:**
+
 - `amethyst/src/main/java/com/vitorpamplona/amethyst/ui/MainActivity.kt`
 - `amethyst/src/main/java/com/vitorpamplona/amethyst/ui/navigation/routes/Routes.kt`
 - `amethyst/src/main/java/com/vitorpamplona/amethyst/ui/navigation/AppNavigation.kt`
