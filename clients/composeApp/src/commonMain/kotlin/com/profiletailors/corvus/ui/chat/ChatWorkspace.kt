@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -39,12 +40,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
+@Immutable
 data class ChatWorkspaceState(
   val modelName: String,
   val inputPlaceholder: String,
   val welcomeMessage: String,
 )
 
+@Immutable
 data class AgentGatewayConfig(
   val baseUrl: String,
   val pairingCode: String,
@@ -64,7 +67,7 @@ object ChatWorkspaceDefaults {
     )
 }
 
-private data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
+@Immutable private data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
 
 private enum class ChatRole {
   User,
@@ -286,9 +289,14 @@ private fun ConfigPanel(
   onWebhookSecretChange: (String) -> Unit,
   modifier: Modifier = Modifier,
 ) {
-  val healthUrl = endpointUrl(gatewayConfig.baseUrl, "/health")
-  val pairUrl = endpointUrl(gatewayConfig.baseUrl, "/pair")
-  val webhookUrl = endpointUrl(gatewayConfig.baseUrl, "/webhook")
+  val (healthUrl, pairUrl, webhookUrl) =
+    remember(gatewayConfig.baseUrl) {
+      Triple(
+        endpointUrl(gatewayConfig.baseUrl, "/health"),
+        endpointUrl(gatewayConfig.baseUrl, "/pair"),
+        endpointUrl(gatewayConfig.baseUrl, "/webhook"),
+      )
+    }
 
   Surface(
     modifier = modifier.fillMaxWidth(),
