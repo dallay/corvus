@@ -11,14 +11,14 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # 1. Copy manifests to cache dependencies
-COPY Cargo.toml Cargo.lock ./
+COPY clients/agent-runtime/Cargo.toml clients/agent-runtime/Cargo.lock ./
 # Create dummy main.rs to build dependencies
 RUN mkdir src && echo "fn main() {}" > src/main.rs
 RUN cargo build --release --locked
 RUN rm -rf src
 
 # 2. Copy source code
-COPY . .
+COPY clients/agent-runtime/ .
 # Touch main.rs to force rebuild
 RUN touch src/main.rs
 RUN cargo build --release --locked && \

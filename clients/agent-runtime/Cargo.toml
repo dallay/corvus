@@ -26,7 +26,7 @@ serde_json = { version = "1.0", default-features = false, features = ["std"] }
 
 # Config
 directories = "5.0"
-toml = "0.8"
+toml = "1.0"
 shellexpand = "3.1"
 
 # Logging - minimal
@@ -34,10 +34,13 @@ tracing = { version = "0.1", default-features = false }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "ansi"] }
 
 # Observability - Prometheus metrics
-prometheus = { version = "0.13", default-features = false }
+prometheus = { version = "0.14", default-features = false }
 
 # Base64 encoding (screenshots, image data)
 base64 = "0.22"
+
+# Optional Rust-native browser automation backend
+fantoccini = { version = "0.22.0", optional = true, default-features = false, features = ["rustls-tls"] }
 
 # Error handling
 anyhow = "1.0"
@@ -54,17 +57,29 @@ hmac = "0.12"
 sha2 = "0.10"
 hex = "0.4"
 
+# CSPRNG for secure token generation
+rand = "0.8"
+
+# Fast mutexes that don't poison on panic
+parking_lot = "0.12"
+
+# Landlock (Linux sandbox) - optional dependency
+landlock = { version = "0.4", optional = true }
+
 # Async traits
 async-trait = "0.1"
 
 # Memory / persistence
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.38", features = ["bundled"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 cron = "0.12"
 
 # Interactive CLI prompts
-dialoguer = { version = "0.11", features = ["fuzzy-select"] }
+dialoguer = { version = "0.12", features = ["fuzzy-select"] }
 console = "0.15"
+
+# Hardware discovery (device path globbing)
+glob = "0.3"
 
 # Discord WebSocket gateway
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
@@ -78,7 +93,7 @@ tokio-rustls = "0.26.4"
 webpki-roots = "1.0.6"
 
 # HTTP server (gateway) — replaces raw TCP for proper HTTP/1.1 compliance
-axum = { version = "0.7", default-features = false, features = ["http1", "json", "tokio", "query"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query"] }
 tower = { version = "0.5", default-features = false }
 tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"] }
 http-body-util = "0.1"
@@ -86,14 +101,45 @@ http-body-util = "0.1"
 # OpenTelemetry — OTLP trace + metrics export
 opentelemetry = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
 opentelemetry_sdk = { version = "0.31", default-features = false, features = ["trace", "metrics"] }
-opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-blocking-client"] }
+opentelemetry-otlp = { version = "0.31", default-features = false, features = ["trace", "metrics", "http-proto", "reqwest-client", "reqwest-rustls-webpki-roots"] }
+
+# USB device enumeration (hardware discovery)
+nusb = { version = "0.2", default-features = false, optional = true }
+
+# Serial port for peripheral communication (STM32, etc.)
+tokio-serial = { version = "5", default-features = false, optional = true }
+
+# probe-rs for STM32/Nucleo memory read (Phase B)
+probe-rs = { version = "0.30", optional = true }
+
+# PDF extraction for datasheet RAG (optional, enable with --features rag-pdf)
+pdf-extract = { version = "0.10", optional = true }
+
+# Raspberry Pi GPIO (Linux/RPi only) — target-specific to avoid compile failure on macOS
+[target.'cfg(target_os = "linux")'.dependencies]
+rppal = { version = "0.14", optional = true }
+
+[features]
+default = ["hardware"]
+hardware = ["nusb", "tokio-serial"]
+peripheral-rpi = ["rppal"]
+# probe = probe-rs for Nucleo memory read (adds ~50 deps; optional)
+probe = ["dep:probe-rs"]
+# rag-pdf = PDF ingestion for datasheet RAG
+rag-pdf = ["dep:pdf-extract"]
+# Optional browser automation backend implemented in Rust.
+browser-native = ["dep:fantoccini"]
+# Optional Linux sandbox backend using the Landlock crate.
+sandbox-landlock = ["dep:landlock"]
+# Optional sandbox backend via bubblewrap binary (no Rust dependency required).
+sandbox-bubblewrap = []
 
 [profile.release]
 opt-level = "z"      # Optimize for size
-lto = true          # Link-time optimization
-codegen-units = 1   # Better optimization
-strip = true        # Remove debug symbols
-panic = "abort"     # Reduce binary size
+lto = "thin"         # Lower memory use during release builds
+codegen-units = 8     # Faster, lower-RAM codegen for small devices
+strip = true          # Remove debug symbols
+panic = "abort"      # Reduce binary size
 
 [profile.dist]
 inherits = "release"

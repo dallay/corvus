@@ -1,0 +1,83 @@
+# CodeRabbit configuration for Corvus
+# Documentation: https://docs.coderabbit.ai/reference/configuration
+
+language: en-US
+early_access: false
+
+reviews:
+  # Request changes workflow
+  request_changes_workflow: false
+
+  # High level summary of the PR
+  high_level_summary: true
+
+  # Generate sequence diagrams
+  sequence_diagrams: true
+
+  # Auto-review configuration
+  auto_review:
+    enabled: true
+    # Only review PRs targeting these branches
+    base_branches:
+      - main
+      - develop
+    # Skip reviews for draft PRs or WIP
+    drafts: false
+
+  # Poem configuration
+  poem: false
+
+  # Reviewer suggestions
+  suggested_reviewers: true
+  auto_assign_reviewers: false
+
+  # Enable finishing touches
+  finishing_touches:
+    # Generate docstrings
+    docstrings:
+      enabled: true
+    # Generate unit tests
+    unit_tests:
+      enabled: true
+
+  # Tools configuration
+  tools:
+    clippy:
+      enabled: true
+    detekt:
+      enabled: true
+
+  # Path filters - ignore generated files and build artifacts
+  path_filters:
+    - "!**/target/**"
+    - "!**/build/**"
+    - "!**/node_modules/**"
+    - "!**/.gradle/**"
+    - "!**/.cargo/**"
+    - "!**/Cargo.lock"
+    - "!**/pnpm-lock.yaml"
+    - "!**/*.lockfile"
+
+  # Unified review instructions for the multi-module project
+  path_instructions:
+    - path: "**/*.rs"
+      instructions: |
+        Focus on Rust best practices and idiomatic code.
+        Focus on memory safety, proper use of lifetimes, and avoiding unnecessary clones.
+        Ensure proper error handling with Result types and idiomatic anyhow/thiserror usage.
+    - path: "**/*.kt"
+      instructions: |
+        Focus on Kotlin best practices and idiomatic code.
+        Emphasize null safety, avoiding the !! operator, and using idiomatic Kotlin patterns like expression bodies.
+        Use sealed interfaces/classes for results and state representation.
+        Ensure proper use of coroutines and avoid blocking calls in suspend functions.
+    - path: "**/*"
+      instructions: |
+        Focus on project-wide best practices.
+        Security: Check for vulnerabilities in encryption, crypto code, and configuration handling.
+        Testing: Verify that tests cover critical paths and follow established naming conventions (e.g., backticks for Kotlin tests).
+        Architecture: Ensure changes respect the multi-module structure and contract boundaries between KMP and Rust sidecars.
+
+# Chat configuration
+chat:
+  auto_reply: true

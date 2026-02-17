@@ -140,6 +140,13 @@ Located in `.agents/skills/`. Reference for detailed patterns:
 | [pr-creator](.agents/skills/pr-creator/SKILL.md)   | PR creation workflow                      | Creating PRs                     |
 | [pinned-tag](.agents/skills/pinned-tag/SKILL.md)   | Pin GitHub Actions                        | CI security                      |
 | [release](.agents/skills/release/SKILL.md)         | Release process, Maven Central publishing | Creating releases                |
+| [android-expert](.agents/skills/android-expert/SKILL.md) | Android-specific patterns, best practices | Android development |
+| [compose-expert](.agents/skills/compose-expert/SKILL.md) | Jetpack Compose UI patterns | Compose UI code |
+| [desktop-expert](.agents/skills/desktop-expert/SKILL.md) | Compose Desktop, desktop patterns | Desktop app development |
+| [gradle-expert](.agents/skills/gradle-expert/SKILL.md) | Advanced Gradle, custom plugins | Complex Gradle configs |
+| [kotlin-coroutines](.agents/skills/kotlin-coroutines/SKILL.md) | Coroutines, async patterns | Coroutines, Flow |
+| [kotlin-expert](.agents/skills/kotlin-expert/SKILL.md) | Advanced Kotlin features | Advanced Kotlin |
+| [kotlin-multiplatform](.agents/skills/kotlin-multiplatform/SKILL.md) | KMP patterns, expect/actual | KMP modules |
 
 ## Testing
 
