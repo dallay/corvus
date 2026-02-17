@@ -52,6 +52,18 @@ jobs:
           rustup default stable
           cargo --version
 
+      - name: 🦀 Install cross-compilation tools
+        if: ${{ inputs.release }}
+        run: |
+          # Install cross for easy cross-compilation
+          cargo install cross --locked
+
+          # Add required targets
+          rustup target add x86_64-unknown-linux-gnu
+          rustup target add aarch64-unknown-linux-gnu
+          rustup target add x86_64-apple-darwin
+          rustup target add aarch64-apple-darwin
+
       - name: ☕ Setup Java
         uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
         with:
@@ -226,11 +238,67 @@ jobs:
           tags: ${{ steps.docker-meta.outputs.tags }}
           labels: ${{ steps.docker-meta.outputs.labels }}
 
+      - name: 🔨 Build native binaries for GitHub Release
+        if: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          cd clients/agent-runtime
+          mkdir -p dist
+
+          # Build for Linux x64 using cross
+          echo "Building for Linux x64..."
+          cross build --release --target x86_64-unknown-linux-gnu
+          cp target/x86_64-unknown-linux-gnu/release/corvus dist/corvus-linux-x64
+
+          # Build for Linux arm64 using cross
+          echo "Building for Linux arm64..."
+          cross build --release --target aarch64-unknown-linux-gnu
+          cp target/aarch64-unknown-linux-gnu/release/corvus dist/corvus-linux-arm64
+
+          # Build for macOS x64 using cross
+          echo "Building for macOS x64..."
+          if cross build --release --target x86_64-apple-darwin 2>/dev/null; then
+            cp target/x86_64-apple-darwin/release/corvus dist/corvus-darwin-x64
+          else
+            echo "⚠️ Cross-compilation for macOS x64 not available, skipping..."
+            echo "Note: macOS binaries must be built on macOS runners or with special tooling"
+          fi
+
+          # Build for macOS arm64 using cross
+          echo "Building for macOS arm64..."
+          if cross build --release --target aarch64-apple-darwin 2>/dev/null; then
+            cp target/aarch64-apple-darwin/release/corvus dist/corvus-darwin-arm64
+          else
+            echo "⚠️ Cross-compilation for macOS arm64 not available, skipping..."
+            echo "Note: macOS binaries must be built on macOS runners or with special tooling"
+          fi
+
+          ls -la dist/
+
+      - name: 📋 Generate SHA256 checksums
+        if: ${{ inputs.release }}
+        run: |
+          set -euo pipefail
+          cd clients/agent-runtime/dist
+
+          for binary in corvus-*; do
+            if [ -f "$binary" ] && [[ ! "$binary" == *.sha256 ]] && [[ ! "$binary" == *.skip ]]; then
+              echo "Generating checksum for $binary..."
+              sha256sum "$binary" > "$binary.sha256"
+              cat "$binary.sha256"
+            fi
+          done
+
+          echo "Checksum files generated:"
+          ls -la *.sha256 || echo "No checksum files found"
+
       - name: 🚀 Create GitHub Release
         if: ${{ inputs.release }}
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
         with:
           body: ${{ steps.changelog.outputs.changelog }}
           generate_release_notes: true
+          files: |
+            clients/agent-runtime/dist/corvus-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

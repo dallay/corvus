@@ -10,6 +10,9 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./env": {
+      "import": "./env.mjs"
     }
   },
   "scripts": {

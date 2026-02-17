@@ -1,0 +1,310 @@
+#!/usr/bin/env bash
+set -euo pipefail
+IFS=$'\n\t'
+
+readonly CLI_PACKAGE="@corvus/cli"
+readonly REPO_SLUG="dallay/corvus"
+readonly DEFAULT_INSTALL_DIR="$HOME/.local/bin"
+
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+BLUE='\033[0;34m'
+NC='\033[0m'
+
+INSTALL_METHOD=""
+
+has_cmd() {
+  command -v "$1" >/dev/null 2>&1
+}
+
+print_info() {
+  printf "%b\n" "${BLUE}$*${NC}"
+}
+
+print_success() {
+  printf "%b\n" "${GREEN}$*${NC}"
+}
+
+print_warn() {
+  printf "%b\n" "${YELLOW}$*${NC}"
+}
+
+print_error() {
+  printf "%b\n" "${RED}$*${NC}"
+}
+
+is_interactive() {
+  [ -t 0 ] && [ -t 1 ]
+}
+
+confirm() {
+  local prompt="$1"
+  local default_answer="${2:-y}"
+  local answer=""
+
+  if ! is_interactive; then
+    [ "$default_answer" = "y" ]
+    return
+  fi
+
+  if [ "$default_answer" = "y" ]; then
+    read -r -p "$prompt [Y/n] " answer || true
+    answer="${answer:-y}"
+  else
+    read -r -p "$prompt [y/N] " answer || true
+    answer="${answer:-n}"
+  fi
+
+  case "$answer" in
+    y|Y|yes|YES)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+require_supported_shell() {
+  if [ -z "${BASH_VERSION:-}" ]; then
+    print_error "This installer requires bash."
+    exit 1
+  fi
+}
+
+detect_binary_asset() {
+  local os=""
+  local arch=""
+
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  arch="$(uname -m)"
+
+  case "$arch" in
+    x86_64|amd64)
+      arch="x64"
+      ;;
+    arm64|aarch64)
+      arch="arm64"
+      ;;
+    *)
+      print_error "Unsupported architecture: $arch"
+      return 1
+      ;;
+  esac
+
+  case "$os" in
+    darwin)
+      printf "corvus-darwin-%s" "$arch"
+      ;;
+    linux)
+      printf "corvus-linux-%s" "$arch"
+      ;;
+    *)
+      print_error "Unsupported OS: $os"
+      return 1
+      ;;
+  esac
+}
+
+resolve_latest_tag() {
+  local api_url="https://api.github.com/repos/${REPO_SLUG}/releases/latest"
+  local tag=""
+
+  if ! has_cmd curl; then
+    print_error "curl is required to fetch release metadata."
+    return 1
+  fi
+
+  tag="$(
+    curl --proto '=https' --tlsv1.2 -fsSL "$api_url" \
+      | sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+      | head -n 1
+  )"
+
+  if ! printf "%s" "$tag" | grep -Eq '^v[0-9A-Za-z._-]+$'; then
+    print_error "Could not resolve a valid release tag."
+    return 1
+  fi
+
+  printf "%s" "$tag"
+}
+
+install_via_binary() {
+  local asset=""
+  local release_tag=""
+  local install_dir="${CORVUS_INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
+  local target_path=""
+  local download_url=""
+  local checksum_url=""
+  local expected_checksum=""
+  local computed_checksum=""
+
+  asset="$(detect_binary_asset)"
+  release_tag="${CORVUS_VERSION:-latest}"
+
+  if [ "$release_tag" = "latest" ]; then
+    release_tag="$(resolve_latest_tag)"
+  fi
+
+  if ! printf "%s" "$release_tag" | grep -Eq '^v[0-9A-Za-z._-]+$'; then
+    print_error "Invalid CORVUS_VERSION value: $release_tag"
+    return 1
+  fi
+
+  mkdir -p "$install_dir"
+
+  target_path="${install_dir}/corvus"
+  download_url="https://github.com/${REPO_SLUG}/releases/download/${release_tag}/${asset}"
+  checksum_url="${download_url}.sha256"
+
+  print_info "Downloading ${download_url}"
+
+  # Download binary
+  curl --proto '=https' --tlsv1.2 -fsSL "$download_url" -o "$target_path"
+
+  # Verify checksum for security
+  print_info "Verifying checksum..."
+  if ! expected_checksum="$(curl --proto '=https' --tlsv1.2 -fsSL "$checksum_url" 2>/dev/null | awk '{print $1}')"; then
+    print_warn "Could not download checksum file. Skipping verification."
+    print_warn "For production use, consider verifying the binary manually."
+  elif [ -n "$expected_checksum" ]; then
+    if ! has_cmd sha256sum; then
+      print_warn "sha256sum not available. Skipping checksum verification."
+    else
+      computed_checksum="$(sha256sum "$target_path" | awk '{print $1}')"
+      if [ "$computed_checksum" != "$expected_checksum" ]; then
+        print_error "Checksum verification failed!"
+        print_error "Expected: $expected_checksum"
+        print_error "Computed: $computed_checksum"
+        rm -f "$target_path"
+        return 1
+      fi
+      print_success "Checksum verified successfully"
+    fi
+  fi
+
+  chmod 755 "$target_path"
+
+  print_success "Corvus binary installed at ${target_path}"
+
+  if ! printf "%s" ":$PATH:" | grep -q ":${install_dir}:"; then
+    print_warn "${install_dir} is not in PATH for this shell."
+    print_warn "Add it with: export PATH=\"${install_dir}:\$PATH\""
+  fi
+}
+
+install_via_package_manager() {
+  case "$INSTALL_METHOD" in
+    pnpm)
+      pnpm add --global "$CLI_PACKAGE"
+      ;;
+    npm)
+      npm install --global "$CLI_PACKAGE"
+      ;;
+    yarn)
+      yarn global add "$CLI_PACKAGE"
+      ;;
+    bun)
+      bun add --global "$CLI_PACKAGE"
+      ;;
+    *)
+      print_error "Unknown install method: $INSTALL_METHOD"
+      return 1
+      ;;
+  esac
+}
+
+select_install_method() {
+  local candidates=()
+  local choice=""
+  local index=1
+
+  if [ -n "${CORVUS_INSTALL_METHOD:-}" ]; then
+    INSTALL_METHOD="$CORVUS_INSTALL_METHOD"
+    return
+  fi
+
+  has_cmd pnpm && candidates+=("pnpm")
+  has_cmd npm && candidates+=("npm")
+  has_cmd yarn && candidates+=("yarn")
+  has_cmd bun && candidates+=("bun")
+
+  if [ "${#candidates[@]}" -eq 0 ]; then
+    INSTALL_METHOD="binary"
+    return
+  fi
+
+  if ! is_interactive; then
+    INSTALL_METHOD="binary"
+    return
+  fi
+
+  print_info "Choose installation method:"
+  for method in "${candidates[@]}"; do
+    printf "  %s) %s\n" "$index" "$method"
+    index=$((index + 1))
+  done
+  printf "  %s) binary (direct download)\n" "$index"
+
+  read -r -p "Method [1]: " choice || true
+  choice="${choice:-1}"
+
+  if [ "$choice" -eq "$index" ] 2>/dev/null; then
+    INSTALL_METHOD="binary"
+    return
+  fi
+
+  if [ "$choice" -ge 1 ] && [ "$choice" -lt "$index" ] 2>/dev/null; then
+    INSTALL_METHOD="${candidates[$((choice - 1))]}"
+    return
+  fi
+
+  print_warn "Invalid selection, using ${candidates[0]}"
+  INSTALL_METHOD="${candidates[0]}"
+}
+
+post_install_steps() {
+  if has_cmd corvus; then
+    print_success "Corvus CLI available: $(corvus --version 2>/dev/null || echo 'installed')"
+
+    if is_interactive && confirm "Run interactive onboarding now?" "y"; then
+      corvus onboard --interactive || print_warn "Onboarding exited with a non-zero status."
+    else
+      print_info "You can run onboarding later with: corvus onboard --interactive"
+    fi
+  else
+    print_warn "corvus command not found in current PATH yet."
+    print_warn "Open a new terminal and run: corvus --help"
+  fi
+}
+
+main() {
+  require_supported_shell
+
+  print_info "Corvus installer"
+  print_info "Security note: this script uses HTTPS downloads and avoids eval/dynamic shell execution."
+
+  select_install_method
+
+  print_info "Using install method: ${INSTALL_METHOD}"
+
+  case "$INSTALL_METHOD" in
+    binary)
+      install_via_binary
+      ;;
+    pnpm|npm|yarn|bun)
+      install_via_package_manager
+      ;;
+    *)
+      print_error "Unsupported method: $INSTALL_METHOD"
+      exit 1
+      ;;
+  esac
+
+  post_install_steps
+
+  print_success "Done. Try: corvus status"
+}
+
+main "$@"

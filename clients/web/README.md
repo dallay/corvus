@@ -1,42 +1,43 @@
 # Corvus Web Monorepo
 
-Estructura multi-app para proyectos web de Corvus.
+Monorepo para apps web de Corvus, incluyendo docs, marketing y futuros frontends.
 
 ## 📁 Estructura
 
-```
-apps/web/
+```text
+clients/web/
 ├── apps/
-│   ├── docs/           # Documentación Starlight (actual)
-│   ├── landing/        # Landing page (futuro)
-│   └── dashboard/      # Frontend web (futuro)
+│   ├── docs/           # Documentación (Astro + Starlight)
+│   ├── marketing/      # Landing y páginas de marketing (Astro)
+│   └── dashboard/      # Dashboard web (pendiente)
 ├── packages/
-│   └── shared/         # Componentes/utilidades compartidas
-├── package.json        # Workspace root
-└── pnpm-workspace.yaml # Configuración pnpm workspace
+│   └── shared/         # Utilidades compartidas
+├── package.json
+└── pnpm-workspace.yaml
 ```
 
 ## 🚀 Apps
 
 ### docs
-- **Framework**: Astro + Starlight
-- **Puerto**: 4321
-- **Uso**: Documentación del proyecto
 
-### landing (futuro)
-- **Framework**: Astro/Vue/React (por definir)
-- **Puerto**: 4322
-- **Uso**: Landing page marketing
+- Framework: Astro + Starlight
+- Puerto por defecto: 4321
 
-### dashboard (futuro)
-- **Framework**: Vue/React (por definir)
-- **Puerto**: 4323
-- **Uso**: Panel de administración
+### marketing
+
+- Framework: Astro
+- URL configurable con `MARKETING_URL` (dev default: `http://localhost:9988`)
+- Incluye script público de instalación en `/install`
+
+### dashboard
+
+- Estado: placeholder
+- Puerto por defecto: 4323
 
 ## 🛠️ Comandos
 
 ```bash
-# Instalar dependencias en todas las apps
+# Instalar dependencias workspace
 pnpm install
 
 # Build de todas las apps
@@ -44,37 +45,28 @@ pnpm build
 
 # Build individual
 pnpm build:docs
-pnpm build:landing
+pnpm build:marketing
 pnpm build:dashboard
 
+# Compatibilidad (alias antiguo)
+pnpm build:landing
+
 # Development
-pnpm dev          # docs por defecto
-pnpm dev:landing
+pnpm dev
+pnpm dev:marketing
 pnpm dev:dashboard
 
-# Lint/Format
+# Compatibilidad (alias antiguo)
+pnpm dev:landing
+
+# Quality
 pnpm format
 pnpm check
 ```
 
-## 📦 Packages Compartidos
+## 📦 Añadir más proyectos web
 
-Los paquetes en `packages/` pueden ser importados por cualquier app:
-
-```typescript
-import { Button } from '@corvus/shared';
-```
-
-## 🏗️ Agregar una nueva app
-
-1. Crear directorio en `apps/<nombre>/`
-2. Agregar `package.json` con nombre `@corvus/<nombre>`
-3. Ejecutar `pnpm install` desde root
-4. Agregar scripts en `package.json` root si es necesario
-5. Actualizar `build.gradle.kts` para incluir la nueva app
-
-## 📝 Notas
-
-- Cada app tiene su propio `node_modules` (a través de pnpm)
-- Las dependencias compartidas se instalan en root y se symlinkan
-- El build de Gradle construye todas las apps automáticamente
+1. Crear `apps/<nombre>/` con su `package.json`
+2. Ejecutar `pnpm install` en `clients/web`
+3. Ajustar scripts en `clients/web/package.json` si aplica
+4. Confirmar que `clients/web/build.gradle.kts` tenga el puerto/config correspondiente

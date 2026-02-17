@@ -62,7 +62,7 @@ data class WebAppConfig(
 // App configurations (extend as needed)
 val appConfigs = mapOf(
   "docs" to WebAppConfig("docs", "dist", 4321),
-  "landing" to WebAppConfig("landing", "dist", 4322),
+  "marketing" to WebAppConfig("marketing", "dist", 9988),
   "dashboard" to WebAppConfig("dashboard", "dist", 4323),
 )
 
