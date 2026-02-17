@@ -2,10 +2,12 @@
 import { computed, nextTick, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ChatMessage from "@/components/chat/ChatMessage.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import Button from "@/components/ui/button/Button.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import Input from "@/components/ui/input/Input.vue";
-import { escapeHtml } from "@/lib/utils";
 
 type Role = "assistant" | "user";
 
@@ -21,11 +23,14 @@ const MAX_PROMPT_LENGTH = 500;
 const modelName = "Corvus Agent";
 const { t } = useI18n();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const showConfig = ref(false);
 const prompt = ref("");
 const baseUrl = ref("http://127.0.0.1:3000");
 const chatContainer = ref<HTMLDivElement | null>(null);
 const secretInputNonce = ref(0);
+const saveStatus = ref<"idle" | "saving" | "success" | "error">("idle");
+const saveErrorMessage = ref("");
 
 let messageIdCounter = 1;
 let pairingCodeInput = "";
@@ -40,6 +45,7 @@ const messages = ref<Message[]>([
   },
 ]);
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const canSend = computed(() => prompt.value.trim().length > 0);
 
 function nextMessageId(): number {
@@ -48,6 +54,7 @@ function nextMessageId(): number {
   return currentId;
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function captureSecretInput(field: SecretField, value: string): void {
   if (field === "pairingCode") {
     pairingCodeInput = value;
@@ -60,15 +67,42 @@ function captureSecretInput(field: SecretField, value: string): void {
   webhookSecretInput = value;
 }
 
-function saveGatewayConfig(): void {
-  const hasSecretPayload =
-    pairingCodeInput.length > 0 || bearerTokenInput.length > 0 || webhookSecretInput.length > 0;
-  void hasSecretPayload;
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+async function saveGatewayConfig(): Promise<void> {
+  saveStatus.value = "saving";
+  saveErrorMessage.value = "";
 
-  pairingCodeInput = "";
-  bearerTokenInput = "";
-  webhookSecretInput = "";
-  secretInputNonce.value += 1;
+  const gatewayBaseUrl = baseUrl.value.replace(/\/$/, "");
+
+  try {
+    const response = await fetch(`${gatewayBaseUrl}/web/dashboard/config`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        gatewayId: "default",
+        baseUrl: baseUrl.value,
+        pairingCode: pairingCodeInput,
+        bearerToken: bearerTokenInput,
+        webhookSecret: webhookSecretInput,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    pairingCodeInput = "";
+    bearerTokenInput = "";
+    webhookSecretInput = "";
+    secretInputNonce.value += 1;
+    saveStatus.value = "success";
+  } catch (error) {
+    saveStatus.value = "error";
+    saveErrorMessage.value = t("form.saveError");
+    console.error("Error saving gateway config", error);
+  }
 }
 
 function scrollChatToBottom(): void {
@@ -78,6 +112,7 @@ function scrollChatToBottom(): void {
   chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function sendMessage(): Promise<void> {
   const text = prompt.value.trim();
   if (!text) {
@@ -85,14 +120,13 @@ async function sendMessage(): Promise<void> {
   }
 
   const normalizedText = text.slice(0, MAX_PROMPT_LENGTH);
-  const escapedText = escapeHtml(normalizedText);
 
   messages.value.push({ id: nextMessageId(), role: "user", content: normalizedText });
   messages.value.push({
     id: nextMessageId(),
     role: "assistant",
     content: t("chat.processing", {
-      text: escapedText,
+      text: normalizedText,
       modelName,
       gateway: baseUrl.value,
     }),
@@ -102,22 +136,6 @@ async function sendMessage(): Promise<void> {
   await nextTick();
   scrollChatToBottom();
 }
-
-void {
-  ChatMessage,
-  Button,
-  Input,
-  showConfig,
-  prompt,
-  baseUrl,
-  chatContainer,
-  secretInputNonce,
-  messages,
-  canSend,
-  captureSecretInput,
-  saveGatewayConfig,
-  sendMessage,
-};
 </script>
 
 <template>
@@ -130,7 +148,7 @@ void {
             {{ showConfig ? t("app.gatewayConfig") : t("app.simpleChat") }}
           </p>
         </div>
-        <Button variant="ghost" size="sm" @click="showConfig = !showConfig">
+        <Button data-testid="toggle-config" variant="ghost" size="sm" @click="showConfig = !showConfig">
           {{ showConfig ? t("app.backToChat") : t("app.config") }}
         </Button>
       </header>
@@ -171,8 +189,14 @@ void {
           />
         </label>
         <div class="flex justify-end">
-          <Button type="submit">{{ t("form.save") }}</Button>
+          <Button :disabled="saveStatus === 'saving'" type="submit">{{ t("form.save") }}</Button>
         </div>
+        <p v-if="saveStatus === 'success'" class="text-sm text-emerald-700">
+          {{ t("form.saveSuccess") }}
+        </p>
+        <p v-if="saveStatus === 'error'" class="text-sm text-red-700">
+          {{ saveErrorMessage }}
+        </p>
       </form>
 
       <section v-else class="flex min-h-[70vh] flex-col rounded-xl border border-slate-200 bg-white shadow-sm">

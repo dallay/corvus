@@ -4,6 +4,9 @@
   "private": true,
   "description": "Corvus Web Dashboard",
   "type": "module",
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "scripts": {
     "dev": "vite --port 4323",
     "build": "vue-tsc -b && vite build",

@@ -3,15 +3,10 @@ import { describe, expect, it } from "vitest";
 import { createI18n } from "vue-i18n";
 
 import App from "@/App.vue";
-import es from "@/locales/es.json";
+import { i18nConfig } from "@/i18n";
 
 function mountApp() {
-  const i18n = createI18n({
-    legacy: false,
-    locale: "es",
-    fallbackLocale: "es",
-    messages: { es },
-  });
+  const i18n = createI18n(i18nConfig);
 
   return mount(App, {
     global: {
@@ -30,8 +25,12 @@ describe("App", () => {
     await wrapper.get("form").trigger("submit.prevent");
 
     const chatMessages = wrapper.findAll('[data-testid="chat-message"]');
+    const lastMessage = chatMessages[chatMessages.length - 1];
     expect(chatMessages).toHaveLength(initialMessages + 2);
-    expect(chatMessages.at(-1)?.text()).toContain("&lt;script&gt;alert");
+    // Contract: ChatMessage renders with text interpolation (never v-html).
+    expect(lastMessage?.html()).toContain("&lt;script&gt;alert");
+    expect(lastMessage?.find("script").exists()).toBe(false);
+    expect(lastMessage?.text()).toContain('<script>alert("x")</script>');
     expect((input.element as HTMLInputElement).value).toBe("");
   });
 
@@ -40,14 +39,14 @@ describe("App", () => {
 
     expect(wrapper.find('input[placeholder="Escribe un mensaje..."]').exists()).toBe(true);
 
-    await wrapper.get("button").trigger("click");
+    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
 
     expect(wrapper.find('input[placeholder="http://127.0.0.1:3000"]').exists()).toBe(true);
-    expect(wrapper.find('input[placeholder="Codigo de emparejamiento"]').exists()).toBe(true);
+    expect(wrapper.find('input[placeholder="Código de emparejamiento"]').exists()).toBe(true);
     expect(wrapper.find('input[placeholder="Token bearer"]').exists()).toBe(true);
     expect(wrapper.find('input[placeholder="Secreto del webhook"]').exists()).toBe(true);
 
-    await wrapper.get("button").trigger("click");
+    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
     expect(wrapper.find('input[placeholder="Escribe un mensaje..."]').exists()).toBe(true);
   });
 });

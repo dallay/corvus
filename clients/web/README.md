@@ -36,6 +36,11 @@ clients/web/
 
 ## 🛠️ Comandos
 
+Requisitos minimos:
+
+- Node.js 20.19+ (recomendado 22+)
+- pnpm 10.30+
+
 ```bash
 # Instalar dependencias workspace
 pnpm install
