@@ -9,7 +9,7 @@ clients/web/
 ├── apps/
 │   ├── docs/           # Documentación (Astro + Starlight)
 │   ├── marketing/      # Landing y páginas de marketing (Astro)
-│   └── dashboard/      # Dashboard web (pendiente)
+│   └── dashboard/      # Dashboard web (Vue 3 + Vite)
 ├── packages/
 │   └── shared/         # Utilidades compartidas
 ├── package.json
@@ -35,6 +35,11 @@ clients/web/
 - Puerto por defecto: 4323
 
 ## 🛠️ Comandos
+
+Requisitos minimos:
+
+- Node.js 20.19+ (recomendado 22+)
+- pnpm 10.30+
 
 ```bash
 # Instalar dependencias workspace

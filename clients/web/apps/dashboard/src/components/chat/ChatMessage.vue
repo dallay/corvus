@@ -6,7 +6,11 @@ defineProps<{
 </script>
 
 <template>
-  <div :class="['flex w-full', role === 'user' ? 'justify-end' : 'justify-start']">
+  <div
+    data-testid="chat-message"
+    :data-role="role"
+    :class="['flex w-full', role === 'user' ? 'justify-end' : 'justify-start']"
+  >
     <div
       :class="[
         'max-w-[80%] rounded-xl px-4 py-3 text-sm shadow-sm',
