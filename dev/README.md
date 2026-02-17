@@ -64,8 +64,11 @@ Files created by the agent are visible to the sandbox user, and vice versa.
 The agent configuration lives in `clients/agent-runtime/target/.corvus` (mounted to `/corvus-data/.corvus`), so settings persist across container rebuilds.
 
 ### 6. Cleanup
+
 Stop containers and remove volumes and generated config:
+
 ```bash
 ./dev/cli.sh clean
 ```
+
 **Note:** This removes `clients/agent-runtime/target/.corvus` (config/DB) but leaves the `playground/` directory intact. To fully wipe everything, manually delete `playground/`.

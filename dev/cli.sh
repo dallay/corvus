@@ -27,7 +27,7 @@ function ensure_config {
     WORKSPACE_DIR="$CONFIG_DIR/workspace"
 
     if [ ! -f "$CONFIG_FILE" ]; then
-        echo -e "${YELLOW}⚙️  Config file missing in clients/agent-runtime/target/.corvus. Creating default dev config from template...${NC}"
+        echo -e "${YELLOW}⚙️  Config file missing in $HOST_TARGET_DIR/.corvus. Creating default dev config from template...${NC}"
         mkdir -p "$WORKSPACE_DIR"
 
         # Copy template
@@ -63,7 +63,7 @@ case "$1" in
         echo -e "${GREEN}✅ Environment is running!${NC}"
         echo -e "   - Agent: http://127.0.0.1:3000"
         echo -e "   - Sandbox: running (background)"
-        echo -e "   - Config: clients/agent-runtime/target/.corvus/config.toml (Edit locally to apply changes)"
+        echo -e "   - Config: $HOST_TARGET_DIR/.corvus/config.toml (Edit locally to apply changes)"
         ;;
 
     down)
@@ -95,7 +95,7 @@ case "$1" in
         ;;
 
     clean)
-        echo -e "${RED}⚠️  WARNING: This will delete 'clients/agent-runtime/target/.corvus' data and Docker volumes.${NC}"
+        echo -e "${RED}⚠️  WARNING: This will delete '$HOST_TARGET_DIR/.corvus' data and Docker volumes.${NC}"
         read -p "Are you sure? (y/N) " -n 1 -r
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
