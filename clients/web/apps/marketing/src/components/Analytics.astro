@@ -1,0 +1,11 @@
+---
+interface Props {
+  /** AHREFS Analytics site key. Optional - if not provided, analytics will not load. */
+  key?: string;
+}
+
+const { key } = Astro.props;
+---
+{key && (
+  <script type="text/partytown" is:inline src="https://analytics.ahrefs.com/analytics.js" data-key={key} async></script>
+)}

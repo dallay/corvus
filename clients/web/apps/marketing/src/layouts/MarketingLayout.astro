@@ -1,5 +1,7 @@
 ---
 import "../styles/global.css";
+import { AHREFS_KEY } from "astro:env/client";
+import Analytics from "../components/Analytics.astro";
 
 interface Props {
   title?: string;
@@ -30,6 +32,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? "http://localhost:99
     <link rel="canonical" href={canonical} />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{title}</title>
+    <Analytics key={AHREFS_KEY} />
   </head>
   <body>
     <div class="site-backdrop" aria-hidden="true"></div>
