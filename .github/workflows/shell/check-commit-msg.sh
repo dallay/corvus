@@ -21,7 +21,7 @@ echo -e "📝 Latest commit message:\n  ${GREEN}${COMMIT_MSG}${RESET}\n"
 # ------------------------------
 # Commit message pattern
 # ------------------------------
-COMMIT_MSG_PATTERN='^(revert: )?(build|chore|ci|deps|docs|feat|fix|infra|perf|refactor|release|style|test|wip)(\([^)]+\))?(!)?: [^\n\r]{1,100}[^\s\n\r]$'
+COMMIT_MSG_PATTERN='^(revert: )?(build|chore|ci|deps|docs|feat|fix|infra|perf|refactor|release|style|test|wip)(\([^)]+\))?(!)?: [^[:cntrl:]]{1,100}[^[:space:][:cntrl:]]$'
 
 # ------------------------------
 # Skip merge or initial commit

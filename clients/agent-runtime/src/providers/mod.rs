@@ -4,6 +4,7 @@ pub mod copilot;
 pub mod gemini;
 pub mod ollama;
 pub mod openai;
+pub mod openai_codex;
 pub mod openrouter;
 pub mod reliable;
 pub mod router;
@@ -17,6 +18,7 @@ pub use traits::{
 
 use compatible::{AuthStyle, OpenAiCompatibleProvider};
 use reliable::ReliableProvider;
+use std::path::PathBuf;
 
 const MAX_API_ERROR_CHARS: usize = 200;
 const MINIMAX_INTL_BASE_URL: &str = "https://api.minimax.io/v1";
@@ -175,6 +177,23 @@ fn zai_base_url(name: &str) -> Option<&'static str> {
         Some(ZAI_GLOBAL_BASE_URL)
     } else {
         None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ProviderRuntimeOptions {
+    pub auth_profile_override: Option<String>,
+    pub corvus_dir: Option<PathBuf>,
+    pub secrets_encrypt: bool,
+}
+
+impl Default for ProviderRuntimeOptions {
+    fn default() -> Self {
+        Self {
+            auth_profile_override: None,
+            corvus_dir: None,
+            secrets_encrypt: true,
+        }
     }
 }
 
@@ -355,7 +374,21 @@ fn parse_custom_provider_url(
 
 /// Factory: create the right provider from config (without custom URL)
 pub fn create_provider(name: &str, api_key: Option<&str>) -> anyhow::Result<Box<dyn Provider>> {
-    create_provider_with_url(name, api_key, None)
+    create_provider_with_options(name, api_key, &ProviderRuntimeOptions::default())
+}
+
+/// Factory: create provider with runtime options (auth profile override, state dir).
+pub fn create_provider_with_options(
+    name: &str,
+    api_key: Option<&str>,
+    options: &ProviderRuntimeOptions,
+) -> anyhow::Result<Box<dyn Provider>> {
+    match name {
+        "openai-codex" | "openai_codex" | "codex" => {
+            Ok(Box::new(openai_codex::OpenAiCodexProvider::new(options)))
+        }
+        _ => create_provider_with_url(name, api_key, None),
+    }
 }
 
 /// Factory: create the right provider from config with optional custom base URL
@@ -539,20 +572,40 @@ pub fn create_resilient_provider(
     api_url: Option<&str>,
     reliability: &crate::config::ReliabilityConfig,
 ) -> anyhow::Result<Box<dyn Provider>> {
+    create_resilient_provider_with_options(
+        primary_name,
+        api_key,
+        api_url,
+        reliability,
+        &ProviderRuntimeOptions::default(),
+    )
+}
+
+/// Create provider chain with retry/fallback behavior and auth runtime options.
+pub fn create_resilient_provider_with_options(
+    primary_name: &str,
+    api_key: Option<&str>,
+    api_url: Option<&str>,
+    reliability: &crate::config::ReliabilityConfig,
+    options: &ProviderRuntimeOptions,
+) -> anyhow::Result<Box<dyn Provider>> {
     let mut providers: Vec<(String, Box<dyn Provider>)> = Vec::new();
 
-    providers.push((
-        primary_name.to_string(),
-        create_provider_with_url(primary_name, api_key, api_url)?,
-    ));
+    let primary_provider = match primary_name {
+        "openai-codex" | "openai_codex" | "codex" => {
+            create_provider_with_options(primary_name, api_key, options)?
+        }
+        _ => create_provider_with_url(primary_name, api_key, api_url)?,
+    };
+    providers.push((primary_name.to_string(), primary_provider));
 
     for fallback in &reliability.fallback_providers {
         if fallback == primary_name || providers.iter().any(|(name, _)| name == fallback) {
             continue;
         }
 
-        // Fallback providers don't use the custom api_url (it's specific to primary)
-        match create_provider(fallback, api_key) {
+        // Fallback providers don't use the custom api_url (it's specific to primary).
+        match create_provider_with_options(fallback, api_key, options) {
             Ok(provider) => providers.push((fallback.clone(), provider)),
             Err(_error) => {
                 tracing::warn!(
@@ -682,6 +735,12 @@ pub fn list_providers() -> Vec<ProviderInfo> {
             name: "openai",
             display_name: "OpenAI",
             aliases: &[],
+            local: false,
+        },
+        ProviderInfo {
+            name: "openai-codex",
+            display_name: "OpenAI Codex (OAuth)",
+            aliases: &["openai_codex", "codex"],
             local: false,
         },
         ProviderInfo {
@@ -941,6 +1000,12 @@ mod tests {
     #[test]
     fn factory_openai() {
         assert!(create_provider("openai", Some("provider-test-credential")).is_ok());
+    }
+
+    #[test]
+    fn factory_openai_codex() {
+        let options = ProviderRuntimeOptions::default();
+        assert!(create_provider_with_options("openai-codex", None, &options).is_ok());
     }
 
     #[test]
@@ -1347,6 +1412,7 @@ mod tests {
             "cohere",
             "copilot",
             "nvidia",
+            "astrai",
         ];
         for name in providers {
             assert!(

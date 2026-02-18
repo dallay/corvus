@@ -140,15 +140,35 @@ impl OpenAiCompatibleProvider {
             format!("{normalized_base}/v1/responses")
         }
     }
+
+    fn tool_specs_to_openai_format(tools: &[crate::tools::ToolSpec]) -> Vec<serde_json::Value> {
+        tools
+            .iter()
+            .map(|tool| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": tool.name,
+                        "description": tool.description,
+                        "parameters": tool.parameters
+                    }
+                })
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Serialize)]
-struct ChatRequest {
+struct ApiChatRequest {
     model: String,
     messages: Vec<Message>,
     temperature: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tools: Option<Vec<serde_json::Value>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tool_choice: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -171,8 +191,31 @@ struct Choice {
 struct ResponseMessage {
     #[serde(default)]
     content: Option<String>,
+    /// Reasoning/thinking models (e.g. Qwen3, GLM-4) may return their output
+    /// in `reasoning_content` instead of `content`. Used as automatic fallback.
+    #[serde(default)]
+    reasoning_content: Option<String>,
     #[serde(default)]
     tool_calls: Option<Vec<ToolCall>>,
+}
+
+impl ResponseMessage {
+    /// Extract text content, falling back to `reasoning_content` when `content`
+    /// is missing or empty. Reasoning/thinking models (Qwen3, GLM-4, etc.)
+    /// often return their output solely in `reasoning_content`.
+    fn effective_content(&self) -> String {
+        match &self.content {
+            Some(c) if !c.is_empty() => c.clone(),
+            _ => self.reasoning_content.clone().unwrap_or_default(),
+        }
+    }
+
+    fn effective_content_optional(&self) -> Option<String> {
+        match &self.content {
+            Some(c) if !c.is_empty() => Some(c.clone()),
+            _ => self.reasoning_content.clone().filter(|c| !c.is_empty()),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -225,9 +268,9 @@ struct ResponsesContent {
     text: Option<String>,
 }
 
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 // Streaming support (SSE parser)
-// ═══════════════════════════════════════════════════════════════
+// ---------------------------------------------------------------
 
 /// Server-Sent Event stream chunk for OpenAI-compatible streaming.
 #[derive(Debug, Deserialize)]
@@ -245,6 +288,9 @@ struct StreamChoice {
 struct StreamDelta {
     #[serde(default)]
     content: Option<String>,
+    /// Reasoning/thinking models may stream output via `reasoning_content`.
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 /// Parse SSE (Server-Sent Events) stream from OpenAI-compatible providers.
@@ -272,7 +318,13 @@ fn parse_sse_line(line: &str) -> StreamResult<Option<String>> {
         // Extract content from delta
         if let Some(choice) = chunk.choices.first() {
             if let Some(content) = &choice.delta.content {
-                return Ok(Some(content.clone()));
+                if !content.is_empty() {
+                    return Ok(Some(content.clone()));
+                }
+            }
+            // Fallback to reasoning_content for thinking models
+            if let Some(reasoning) = &choice.delta.reasoning_content {
+                return Ok(Some(reasoning.clone()));
             }
         }
     }
@@ -451,6 +503,12 @@ impl OpenAiCompatibleProvider {
 
 #[async_trait]
 impl Provider for OpenAiCompatibleProvider {
+    fn capabilities(&self) -> crate::providers::traits::ProviderCapabilities {
+        crate::providers::traits::ProviderCapabilities {
+            native_tool_calling: true,
+        }
+    }
+
     async fn chat_with_system(
         &self,
         system_prompt: Option<&str>,
@@ -479,11 +537,13 @@ impl Provider for OpenAiCompatibleProvider {
             content: message.to_string(),
         });
 
-        let request = ChatRequest {
+        let request = ApiChatRequest {
             model: model.to_string(),
             messages,
             temperature,
             stream: Some(false),
+            tools: None,
+            tool_choice: None,
         };
 
         let url = self.chat_completions_url();
@@ -529,10 +589,10 @@ impl Provider for OpenAiCompatibleProvider {
                         .map_or(false, |t| !t.is_empty())
                 {
                     serde_json::to_string(&c.message)
-                        .unwrap_or_else(|_| c.message.content.unwrap_or_default())
+                        .unwrap_or_else(|_| c.message.effective_content())
                 } else {
-                    // No tool calls, return content as-is
-                    c.message.content.unwrap_or_default()
+                    // No tool calls, return content (with reasoning_content fallback)
+                    c.message.effective_content()
                 }
             })
             .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))
@@ -559,11 +619,13 @@ impl Provider for OpenAiCompatibleProvider {
             })
             .collect();
 
-        let request = ChatRequest {
+        let request = ApiChatRequest {
             model: model.to_string(),
             messages: api_messages,
             temperature,
             stream: Some(false),
+            tools: None,
+            tool_choice: None,
         };
 
         let url = self.chat_completions_url();
@@ -617,13 +679,90 @@ impl Provider for OpenAiCompatibleProvider {
                         .map_or(false, |t| !t.is_empty())
                 {
                     serde_json::to_string(&c.message)
-                        .unwrap_or_else(|_| c.message.content.unwrap_or_default())
+                        .unwrap_or_else(|_| c.message.effective_content())
                 } else {
-                    // No tool calls, return content as-is
-                    c.message.content.unwrap_or_default()
+                    // No tool calls, return content (with reasoning_content fallback)
+                    c.message.effective_content()
                 }
             })
             .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))
+    }
+
+    async fn chat_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[serde_json::Value],
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<ProviderChatResponse> {
+        let credential = self.credential.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} API key not set. Run `corvus onboard` or set the appropriate env var.",
+                self.name
+            )
+        })?;
+
+        let api_messages: Vec<Message> = messages
+            .iter()
+            .map(|m| Message {
+                role: m.role.clone(),
+                content: m.content.clone(),
+            })
+            .collect();
+
+        let request = ApiChatRequest {
+            model: model.to_string(),
+            messages: api_messages,
+            temperature,
+            stream: Some(false),
+            tools: if tools.is_empty() {
+                None
+            } else {
+                Some(tools.to_vec())
+            },
+            tool_choice: if tools.is_empty() {
+                None
+            } else {
+                Some("auto".to_string())
+            },
+        };
+
+        let url = self.chat_completions_url();
+        let response = self
+            .apply_auth_header(self.client.post(&url).json(&request), credential)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(super::api_error(&self.name, response).await);
+        }
+
+        let chat_response: ApiChatResponse = response.json().await?;
+        let choice = chat_response
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))?;
+
+        let text = choice.message.effective_content_optional();
+        let tool_calls = choice
+            .message
+            .tool_calls
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|tc| {
+                let function = tc.function?;
+                let name = function.name?;
+                let arguments = function.arguments.unwrap_or_else(|| "{}".to_string());
+                Some(ProviderToolCall {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name,
+                    arguments,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Ok(ProviderChatResponse { text, tool_calls })
     }
 
     async fn chat(
@@ -632,12 +771,23 @@ impl Provider for OpenAiCompatibleProvider {
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<ProviderChatResponse> {
+        // If native tools are requested, delegate to chat_with_tools.
+        if let Some(tools) = request.tools {
+            if !tools.is_empty() && self.supports_native_tools() {
+                let native_tools = Self::tool_specs_to_openai_format(tools);
+                return self
+                    .chat_with_tools(request.messages, &native_tools, model, temperature)
+                    .await;
+            }
+        }
+
         let text = self
             .chat_with_history(request.messages, model, temperature)
             .await?;
 
         // Backward compatible path: chat_with_history may serialize tool_calls JSON into content.
         if let Ok(message) = serde_json::from_str::<ResponseMessage>(&text) {
+            let parsed_text = message.effective_content_optional();
             let tool_calls = message
                 .tool_calls
                 .unwrap_or_default()
@@ -655,7 +805,7 @@ impl Provider for OpenAiCompatibleProvider {
                 .collect::<Vec<_>>();
 
             return Ok(ProviderChatResponse {
-                text: message.content,
+                text: parsed_text,
                 tool_calls,
             });
         }
@@ -708,11 +858,13 @@ impl Provider for OpenAiCompatibleProvider {
             content: message.to_string(),
         });
 
-        let request = ChatRequest {
+        let request = ApiChatRequest {
             model: model.to_string(),
             messages,
             temperature,
             stream: Some(options.enabled),
+            tools: None,
+            tool_choice: None,
         };
 
         let url = self.chat_completions_url();
@@ -775,6 +927,20 @@ impl Provider for OpenAiCompatibleProvider {
         })
         .boxed()
     }
+
+    async fn warmup(&self) -> anyhow::Result<()> {
+        if let Some(credential) = self.credential.as_ref() {
+            // Hit the chat completions URL with a GET to establish the connection pool.
+            // The server will likely return 405 Method Not Allowed, which is fine -
+            // the goal is TLS handshake and HTTP/2 negotiation.
+            let url = self.chat_completions_url();
+            let _ = self
+                .apply_auth_header(self.client.get(&url), credential)
+                .send()
+                .await?;
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -824,7 +990,7 @@ mod tests {
 
     #[test]
     fn request_serializes_correctly() {
-        let req = ChatRequest {
+        let req = ApiChatRequest {
             model: "llama-3.3-70b".to_string(),
             messages: vec![
                 Message {
@@ -838,11 +1004,16 @@ mod tests {
             ],
             temperature: 0.4,
             stream: Some(false),
+            tools: None,
+            tool_choice: None,
         };
         let json = serde_json::to_string(&req).unwrap();
         assert!(json.contains("llama-3.3-70b"));
         assert!(json.contains("system"));
         assert!(json.contains("user"));
+        // tools/tool_choice should be omitted when None
+        assert!(!json.contains("tools"));
+        assert!(!json.contains("tool_choice"));
     }
 
     #[test]
@@ -939,9 +1110,9 @@ mod tests {
         );
     }
 
-    // ══════════════════════════════════════════════════════════
+    // ----------------------------------------------------------
     // Custom endpoint path tests (Issue #114)
-    // ══════════════════════════════════════════════════════════
+    // ----------------------------------------------------------
 
     #[test]
     fn chat_completions_url_standard_openai() {
@@ -1086,9 +1257,9 @@ mod tests {
         );
     }
 
-    // ══════════════════════════════════════════════════════════
+    // ----------------------------------------------------------
     // Provider-specific endpoint tests (Issue #167)
-    // ══════════════════════════════════════════════════════════
+    // ----------------------------------------------------------
 
     #[test]
     fn chat_completions_url_zai() {
@@ -1128,5 +1299,287 @@ mod tests {
             p.chat_completions_url(),
             "https://opencode.ai/zen/v1/chat/completions"
         );
+    }
+
+    #[tokio::test]
+    async fn warmup_without_key_is_noop() {
+        let provider = make_provider("test", "https://example.com", None);
+        let result = provider.warmup().await;
+        assert!(result.is_ok());
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // Native tool calling tests
+    // ══════════════════════════════════════════════════════════
+
+    #[test]
+    fn capabilities_reports_native_tool_calling() {
+        let p = make_provider("test", "https://example.com", None);
+        let caps = <OpenAiCompatibleProvider as Provider>::capabilities(&p);
+        assert!(caps.native_tool_calling);
+    }
+
+    #[test]
+    fn tool_specs_convert_to_openai_format() {
+        let specs = vec![crate::tools::ToolSpec {
+            name: "shell".to_string(),
+            description: "Run shell command".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {"command": {"type": "string"}},
+                "required": ["command"]
+            }),
+        }];
+
+        let tools = OpenAiCompatibleProvider::tool_specs_to_openai_format(&specs);
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["type"], "function");
+        assert_eq!(tools[0]["function"]["name"], "shell");
+        assert_eq!(tools[0]["function"]["description"], "Run shell command");
+        assert_eq!(tools[0]["function"]["parameters"]["required"][0], "command");
+    }
+
+    #[test]
+    fn request_serializes_with_tools() {
+        let tools = vec![serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "get_weather",
+                "description": "Get weather for a location",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "location": {"type": "string"}
+                    }
+                }
+            }
+        })];
+
+        let req = ApiChatRequest {
+            model: "test-model".to_string(),
+            messages: vec![Message {
+                role: "user".to_string(),
+                content: "What is the weather?".to_string(),
+            }],
+            temperature: 0.7,
+            stream: Some(false),
+            tools: Some(tools),
+            tool_choice: Some("auto".to_string()),
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"tools\""));
+        assert!(json.contains("get_weather"));
+        assert!(json.contains("\"tool_choice\":\"auto\""));
+    }
+
+    #[test]
+    fn response_with_tool_calls_deserializes() {
+        let json = r#"{
+            "choices": [{
+                "message": {
+                    "content": null,
+                    "tool_calls": [{
+                        "type": "function",
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": "{\"location\":\"London\"}"
+                        }
+                    }]
+                }
+            }]
+        }"#;
+
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        assert!(msg.content.is_none());
+        let tool_calls = msg.tool_calls.as_ref().unwrap();
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(
+            tool_calls[0].function.as_ref().unwrap().name.as_deref(),
+            Some("get_weather")
+        );
+        assert_eq!(
+            tool_calls[0]
+                .function
+                .as_ref()
+                .unwrap()
+                .arguments
+                .as_deref(),
+            Some("{\"location\":\"London\"}")
+        );
+    }
+
+    #[test]
+    fn response_with_multiple_tool_calls() {
+        let json = r#"{
+            "choices": [{
+                "message": {
+                    "content": "I'll check both.",
+                    "tool_calls": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "get_weather",
+                                "arguments": "{\"location\":\"London\"}"
+                            }
+                        },
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "get_time",
+                                "arguments": "{\"timezone\":\"UTC\"}"
+                            }
+                        }
+                    ]
+                }
+            }]
+        }"#;
+
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        assert_eq!(msg.content.as_deref(), Some("I'll check both."));
+        let tool_calls = msg.tool_calls.as_ref().unwrap();
+        assert_eq!(tool_calls.len(), 2);
+        assert_eq!(
+            tool_calls[0].function.as_ref().unwrap().name.as_deref(),
+            Some("get_weather")
+        );
+        assert_eq!(
+            tool_calls[1].function.as_ref().unwrap().name.as_deref(),
+            Some("get_time")
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_with_tools_fails_without_key() {
+        let p = make_provider("TestProvider", "https://example.com", None);
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "hello".to_string(),
+        }];
+        let tools = vec![serde_json::json!({
+            "type": "function",
+            "function": {
+                "name": "test_tool",
+                "description": "A test tool",
+                "parameters": {}
+            }
+        })];
+
+        let result = p.chat_with_tools(&messages, &tools, "model", 0.7).await;
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("TestProvider API key not set"));
+    }
+
+    #[test]
+    fn response_with_no_tool_calls_has_empty_vec() {
+        let json = r#"{"choices":[{"message":{"content":"Just text, no tools."}}]}"#;
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        assert_eq!(msg.content.as_deref(), Some("Just text, no tools."));
+        assert!(msg.tool_calls.is_none());
+    }
+
+    // ----------------------------------------------------------
+    // Reasoning model fallback tests (reasoning_content)
+    // ----------------------------------------------------------
+
+    #[test]
+    fn reasoning_content_fallback_when_content_empty() {
+        // Reasoning models (Qwen3, GLM-4) return content: "" with reasoning_content populated
+        let json = r#"{"choices":[{"message":{"content":"","reasoning_content":"Thinking output here"}}]}"#;
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        assert_eq!(msg.effective_content(), "Thinking output here");
+    }
+
+    #[test]
+    fn reasoning_content_fallback_when_content_null() {
+        // Some models may return content: null with reasoning_content
+        let json =
+            r#"{"choices":[{"message":{"content":null,"reasoning_content":"Fallback text"}}]}"#;
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        assert_eq!(msg.effective_content(), "Fallback text");
+    }
+
+    #[test]
+    fn reasoning_content_fallback_when_content_missing() {
+        // content field absent entirely, reasoning_content present
+        let json = r#"{"choices":[{"message":{"reasoning_content":"Only reasoning"}}]}"#;
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        assert_eq!(msg.effective_content(), "Only reasoning");
+    }
+
+    #[test]
+    fn reasoning_content_not_used_when_content_present() {
+        // Normal model: content populated, reasoning_content should be ignored
+        let json = r#"{"choices":[{"message":{"content":"Normal response","reasoning_content":"Should be ignored"}}]}"#;
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        assert_eq!(msg.effective_content(), "Normal response");
+    }
+
+    #[test]
+    fn reasoning_content_both_absent_returns_empty() {
+        // Neither content nor reasoning_content - returns empty string
+        let json = r#"{"choices":[{"message":{}}]}"#;
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        assert_eq!(msg.effective_content(), "");
+    }
+
+    #[test]
+    fn reasoning_content_ignored_by_normal_models() {
+        // Standard response without reasoning_content still works
+        let json = r#"{"choices":[{"message":{"content":"Hello from Venice!"}}]}"#;
+        let resp: ApiChatResponse = serde_json::from_str(json).unwrap();
+        let msg = &resp.choices[0].message;
+        assert!(msg.reasoning_content.is_none());
+        assert_eq!(msg.effective_content(), "Hello from Venice!");
+    }
+
+    // ----------------------------------------------------------
+    // SSE streaming reasoning_content fallback tests
+    // ----------------------------------------------------------
+
+    #[test]
+    fn parse_sse_line_with_content() {
+        let line = r#"data: {"choices":[{"delta":{"content":"hello"}}]}"#;
+        let result = parse_sse_line(line).unwrap();
+        assert_eq!(result, Some("hello".to_string()));
+    }
+
+    #[test]
+    fn parse_sse_line_with_reasoning_content() {
+        let line = r#"data: {"choices":[{"delta":{"reasoning_content":"thinking..."}}]}"#;
+        let result = parse_sse_line(line).unwrap();
+        assert_eq!(result, Some("thinking...".to_string()));
+    }
+
+    #[test]
+    fn parse_sse_line_with_both_prefers_content() {
+        let line = r#"data: {"choices":[{"delta":{"content":"real answer","reasoning_content":"thinking..."}}]}"#;
+        let result = parse_sse_line(line).unwrap();
+        assert_eq!(result, Some("real answer".to_string()));
+    }
+
+    #[test]
+    fn parse_sse_line_with_empty_content_falls_back_to_reasoning_content() {
+        let line =
+            r#"data: {"choices":[{"delta":{"content":"","reasoning_content":"thinking..."}}]}"#;
+        let result = parse_sse_line(line).unwrap();
+        assert_eq!(result, Some("thinking...".to_string()));
+    }
+
+    #[test]
+    fn parse_sse_line_done_sentinel() {
+        let line = "data: [DONE]";
+        let result = parse_sse_line(line).unwrap();
+        assert_eq!(result, None);
     }
 }

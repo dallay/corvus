@@ -1,7 +1,7 @@
 //! Hardware peripherals — STM32, RPi GPIO, etc.
 //!
 //! Peripherals extend the agent with physical capabilities. See
-//! `docs/en/guides/hardware-peripherals-design.md` for the full design.
+//! `docs/hardware-peripherals-design.md` for the full design.
 
 pub mod traits;
 

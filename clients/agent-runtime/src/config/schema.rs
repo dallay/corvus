@@ -47,6 +47,10 @@ pub struct Config {
     #[serde(default)]
     pub model_routes: Vec<ModelRouteConfig>,
 
+    /// Automatic query classification — maps user messages to model hints.
+    #[serde(default)]
+    pub query_classification: QueryClassificationConfig,
+
     #[serde(default)]
     pub heartbeat: HeartbeatConfig,
 
@@ -76,6 +80,9 @@ pub struct Config {
 
     #[serde(default)]
     pub http_request: HttpRequestConfig,
+
+    #[serde(default)]
+    pub web_search: WebSearchConfig,
 
     #[serde(default)]
     pub identity: IdentityConfig,
@@ -455,7 +462,7 @@ impl Default for PeripheralBoardConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GatewayConfig {
-    /// Gateway port (default: 8080)
+    /// Gateway port (default: 3000)
     #[serde(default = "default_gateway_port")]
     pub port: u16,
     /// Gateway host (default: 127.0.0.1)
@@ -479,9 +486,22 @@ pub struct GatewayConfig {
     #[serde(default = "default_webhook_rate_limit")]
     pub webhook_rate_limit_per_minute: u32,
 
+    /// Trust proxy-forwarded client IP headers (`X-Forwarded-For`, `X-Real-IP`).
+    /// Disabled by default; enable only behind a trusted reverse proxy.
+    #[serde(default)]
+    pub trust_forwarded_headers: bool,
+
+    /// Maximum distinct client keys tracked by gateway rate limiter maps.
+    #[serde(default = "default_gateway_rate_limit_max_keys")]
+    pub rate_limit_max_keys: usize,
+
     /// TTL for webhook idempotency keys.
     #[serde(default = "default_idempotency_ttl_secs")]
     pub idempotency_ttl_secs: u64,
+
+    /// Maximum distinct idempotency keys retained in memory.
+    #[serde(default = "default_gateway_idempotency_max_keys")]
+    pub idempotency_max_keys: usize,
 }
 
 fn default_gateway_port() -> u16 {
@@ -504,6 +524,14 @@ fn default_idempotency_ttl_secs() -> u64 {
     300
 }
 
+fn default_gateway_rate_limit_max_keys() -> usize {
+    10_000
+}
+
+fn default_gateway_idempotency_max_keys() -> usize {
+    10_000
+}
+
 fn default_true() -> bool {
     true
 }
@@ -518,7 +546,10 @@ impl Default for GatewayConfig {
             paired_tokens: Vec::new(),
             pair_rate_limit_per_minute: default_pair_rate_limit(),
             webhook_rate_limit_per_minute: default_webhook_rate_limit(),
+            trust_forwarded_headers: false,
+            rate_limit_max_keys: default_gateway_rate_limit_max_keys(),
             idempotency_ttl_secs: default_idempotency_ttl_secs(),
+            idempotency_max_keys: default_gateway_idempotency_max_keys(),
         }
     }
 }
@@ -693,6 +724,51 @@ fn default_http_timeout_secs() -> u64 {
     30
 }
 
+// ── Web search ───────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WebSearchConfig {
+    /// Enable `web_search_tool` for web searches
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Search provider: "duckduckgo" (free, no API key) or "brave" (requires API key)
+    #[serde(default = "default_web_search_provider")]
+    pub provider: String,
+    /// Brave Search API key (required if provider is "brave")
+    #[serde(default)]
+    pub brave_api_key: Option<String>,
+    /// Maximum results per search (1-10)
+    #[serde(default = "default_web_search_max_results")]
+    pub max_results: usize,
+    /// Request timeout in seconds
+    #[serde(default = "default_web_search_timeout_secs")]
+    pub timeout_secs: u64,
+}
+
+fn default_web_search_provider() -> String {
+    "duckduckgo".into()
+}
+
+fn default_web_search_max_results() -> usize {
+    5
+}
+
+fn default_web_search_timeout_secs() -> u64 {
+    15
+}
+
+impl Default for WebSearchConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            provider: default_web_search_provider(),
+            brave_api_key: None,
+            max_results: default_web_search_max_results(),
+            timeout_secs: default_web_search_timeout_secs(),
+        }
+    }
+}
+
 // ── Memory ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -729,6 +805,11 @@ pub struct MemoryConfig {
     /// Weight for keyword BM25 in hybrid search (0.0–1.0)
     #[serde(default = "default_keyword_weight")]
     pub keyword_weight: f64,
+    /// Minimum hybrid score (0.0–1.0) for a memory to be included in context.
+    /// Memories scoring below this threshold are dropped to prevent irrelevant
+    /// context from bleeding into conversations. Default: 0.4
+    #[serde(default = "default_min_relevance_score")]
+    pub min_relevance_score: f64,
     /// Max embedding cache entries before LRU eviction
     #[serde(default = "default_cache_size")]
     pub embedding_cache_size: usize,
@@ -757,6 +838,12 @@ pub struct MemoryConfig {
     /// Auto-hydrate from MEMORY_SNAPSHOT.md when brain.db is missing
     #[serde(default = "default_true")]
     pub auto_hydrate: bool,
+
+    // ── SQLite backend options ─────────────────────────────────
+    /// For sqlite backend: max seconds to wait when opening the DB (e.g. file locked).
+    /// None = wait indefinitely (default). Recommended max: 300.
+    #[serde(default)]
+    pub sqlite_open_timeout_secs: Option<u64>,
 }
 
 fn default_embedding_provider() -> String {
@@ -786,6 +873,9 @@ fn default_vector_weight() -> f64 {
 fn default_keyword_weight() -> f64 {
     0.3
 }
+fn default_min_relevance_score() -> f64 {
+    0.4
+}
 fn default_cache_size() -> usize {
     10_000
 }
@@ -813,6 +903,7 @@ impl Default for MemoryConfig {
             embedding_dimensions: default_embedding_dims(),
             vector_weight: default_vector_weight(),
             keyword_weight: default_keyword_weight(),
+            min_relevance_score: default_min_relevance_score(),
             embedding_cache_size: default_cache_size(),
             chunk_max_tokens: default_chunk_size(),
             response_cache_enabled: false,
@@ -821,6 +912,7 @@ impl Default for MemoryConfig {
             snapshot_enabled: false,
             snapshot_on_hygiene: false,
             auto_hydrate: true,
+            sqlite_open_timeout_secs: None,
         }
     }
 }
@@ -1165,6 +1257,40 @@ pub struct ModelRouteConfig {
     pub api_key: Option<String>,
 }
 
+// ── Query Classification ─────────────────────────────────────────
+
+/// Automatic query classification — classifies user messages by keyword/pattern
+/// and routes to the appropriate model hint. Disabled by default.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct QueryClassificationConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub rules: Vec<ClassificationRule>,
+}
+
+/// A single classification rule mapping message patterns to a model hint.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ClassificationRule {
+    /// Must match a `[[model_routes]]` hint value.
+    pub hint: String,
+    /// Case-insensitive substring matches.
+    #[serde(default)]
+    pub keywords: Vec<String>,
+    /// Case-sensitive literal matches (for "```", "fn ", etc.).
+    #[serde(default)]
+    pub patterns: Vec<String>,
+    /// Only match if message length >= N chars.
+    #[serde(default)]
+    pub min_length: Option<usize>,
+    /// Only match if message length <= N chars.
+    #[serde(default)]
+    pub max_length: Option<usize>,
+    /// Higher priority rules are checked first.
+    #[serde(default)]
+    pub priority: i32,
+}
+
 // ── Heartbeat ────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1314,10 +1440,31 @@ impl Default for ChannelsConfig {
     }
 }
 
+/// Streaming mode for channels that support progressive message updates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum StreamMode {
+    /// No streaming -- send the complete response as a single message (default).
+    #[default]
+    Off,
+    /// Update a draft message with every flush interval.
+    Partial,
+}
+
+fn default_draft_update_interval_ms() -> u64 {
+    1000
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TelegramConfig {
     pub bot_token: String,
     pub allowed_users: Vec<String>,
+    /// Streaming mode for progressive response delivery via message edits.
+    #[serde(default)]
+    pub stream_mode: StreamMode,
+    /// Minimum interval (ms) between draft message edits to avoid rate limits.
+    #[serde(default = "default_draft_update_interval_ms")]
+    pub draft_update_interval_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1352,6 +1499,10 @@ pub struct MattermostConfig {
     pub channel_id: Option<String>,
     #[serde(default)]
     pub allowed_users: Vec<String>,
+    /// When true (default), replies thread on the original post.
+    /// When false, replies go to the channel root.
+    #[serde(default)]
+    pub thread_replies: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1695,11 +1846,13 @@ impl Default for Config {
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
+            web_search: WebSearchConfig::default(),
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
+            query_classification: QueryClassificationConfig::default(),
         }
     }
 }
@@ -1825,27 +1978,35 @@ pub(crate) fn persist_active_workspace_config_dir(config_dir: &Path) -> Result<(
     Ok(())
 }
 
-fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> PathBuf {
+fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf, PathBuf) {
     let workspace_config_dir = workspace_dir.to_path_buf();
     if workspace_config_dir.join("config.toml").exists() {
-        return workspace_config_dir;
+        return (
+            workspace_config_dir.clone(),
+            workspace_config_dir.join("workspace"),
+        );
     }
 
-    let legacy_config_dir = workspace_dir.parent().map(|parent| parent.join(".corvus"));
+    let legacy_config_dir = workspace_dir
+        .parent()
+        .map(|parent| parent.join(".corvus"));
     if let Some(legacy_dir) = legacy_config_dir {
         if legacy_dir.join("config.toml").exists() {
-            return legacy_dir;
+            return (legacy_dir, workspace_config_dir);
         }
 
         if workspace_dir
             .file_name()
             .is_some_and(|name| name == std::ffi::OsStr::new("workspace"))
         {
-            return legacy_dir;
+            return (legacy_dir, workspace_config_dir);
         }
     }
 
-    workspace_config_dir
+    (
+        workspace_config_dir.clone(),
+        workspace_config_dir.join("workspace"),
+    )
 }
 
 fn decrypt_optional_secret(
@@ -1892,8 +2053,7 @@ impl Config {
         // 3. Default ~/.corvus layout
         let (corvus_dir, workspace_dir) = match std::env::var("CORVUS_WORKSPACE") {
             Ok(custom_workspace) if !custom_workspace.is_empty() => {
-                let workspace = PathBuf::from(custom_workspace);
-                (resolve_config_dir_for_workspace(&workspace), workspace)
+                resolve_config_dir_for_workspace(&PathBuf::from(custom_workspace))
             }
             _ => load_persisted_workspace_dirs(&default_corvus_dir)?
                 .unwrap_or((default_corvus_dir, default_workspace_dir)),
@@ -1941,6 +2101,12 @@ impl Config {
                 &store,
                 &mut config.browser.computer_use.api_key,
                 "config.browser.computer_use.api_key",
+            )?;
+
+            decrypt_optional_secret(
+                &store,
+                &mut config.web_search.brave_api_key,
+                "config.web_search.brave_api_key",
             )?;
 
             for agent in config.agents.values_mut() {
@@ -2001,8 +2167,8 @@ impl Config {
             }
         }
 
-        // Model: CORVUS_MODEL
-        if let Ok(model) = std::env::var("CORVUS_MODEL") {
+        // Model: CORVUS_MODEL or MODEL
+        if let Ok(model) = std::env::var("CORVUS_MODEL").or_else(|_| std::env::var("MODEL")) {
             if !model.is_empty() {
                 self.default_model = Some(model);
             }
@@ -2011,7 +2177,9 @@ impl Config {
         // Workspace directory: CORVUS_WORKSPACE
         if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
             if !workspace.is_empty() {
-                self.workspace_dir = PathBuf::from(workspace);
+                let (_, workspace_dir) =
+                    resolve_config_dir_for_workspace(&PathBuf::from(workspace));
+                self.workspace_dir = workspace_dir;
             }
         }
 
@@ -2025,7 +2193,8 @@ impl Config {
         }
 
         // Gateway host: CORVUS_GATEWAY_HOST or HOST
-        if let Ok(host) = std::env::var("CORVUS_GATEWAY_HOST").or_else(|_| std::env::var("HOST")) {
+        if let Ok(host) = std::env::var("CORVUS_GATEWAY_HOST").or_else(|_| std::env::var("HOST"))
+        {
             if !host.is_empty() {
                 self.gateway.host = host;
             }
@@ -2041,6 +2210,55 @@ impl Config {
             if let Ok(temp) = temp_str.parse::<f64>() {
                 if (0.0..=2.0).contains(&temp) {
                     self.default_temperature = temp;
+                }
+            }
+        }
+
+        // Web search enabled: CORVUS_WEB_SEARCH_ENABLED or WEB_SEARCH_ENABLED
+        if let Ok(enabled) = std::env::var("CORVUS_WEB_SEARCH_ENABLED")
+            .or_else(|_| std::env::var("WEB_SEARCH_ENABLED"))
+        {
+            self.web_search.enabled = enabled == "1" || enabled.eq_ignore_ascii_case("true");
+        }
+
+        // Web search provider: CORVUS_WEB_SEARCH_PROVIDER or WEB_SEARCH_PROVIDER
+        if let Ok(provider) = std::env::var("CORVUS_WEB_SEARCH_PROVIDER")
+            .or_else(|_| std::env::var("WEB_SEARCH_PROVIDER"))
+        {
+            let provider = provider.trim();
+            if !provider.is_empty() {
+                self.web_search.provider = provider.to_string();
+            }
+        }
+
+        // Brave API key: CORVUS_BRAVE_API_KEY or BRAVE_API_KEY
+        if let Ok(api_key) =
+            std::env::var("CORVUS_BRAVE_API_KEY").or_else(|_| std::env::var("BRAVE_API_KEY"))
+        {
+            let api_key = api_key.trim();
+            if !api_key.is_empty() {
+                self.web_search.brave_api_key = Some(api_key.to_string());
+            }
+        }
+
+        // Web search max results: CORVUS_WEB_SEARCH_MAX_RESULTS or WEB_SEARCH_MAX_RESULTS
+        if let Ok(max_results) = std::env::var("CORVUS_WEB_SEARCH_MAX_RESULTS")
+            .or_else(|_| std::env::var("WEB_SEARCH_MAX_RESULTS"))
+        {
+            if let Ok(max_results) = max_results.parse::<usize>() {
+                if (1..=10).contains(&max_results) {
+                    self.web_search.max_results = max_results;
+                }
+            }
+        }
+
+        // Web search timeout: CORVUS_WEB_SEARCH_TIMEOUT_SECS or WEB_SEARCH_TIMEOUT_SECS
+        if let Ok(timeout_secs) = std::env::var("CORVUS_WEB_SEARCH_TIMEOUT_SECS")
+            .or_else(|_| std::env::var("WEB_SEARCH_TIMEOUT_SECS"))
+        {
+            if let Ok(timeout_secs) = timeout_secs.parse::<u64>() {
+                if timeout_secs > 0 {
+                    self.web_search.timeout_secs = timeout_secs;
                 }
             }
         }
@@ -2066,6 +2284,12 @@ impl Config {
             &store,
             &mut config_to_save.browser.computer_use.api_key,
             "config.browser.computer_use.api_key",
+        )?;
+
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.web_search.brave_api_key,
+            "config.web_search.brave_api_key",
         )?;
 
         for agent in config_to_save.agents.values_mut() {
@@ -2252,6 +2476,7 @@ default_temperature = 0.7
         assert_eq!(m.archive_after_days, 7);
         assert_eq!(m.purge_after_days, 30);
         assert_eq!(m.conversation_retention_days, 30);
+        assert!(m.sqlite_open_timeout_secs.is_none());
     }
 
     #[test]
@@ -2297,6 +2522,7 @@ default_temperature = 0.7
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),
             model_routes: Vec::new(),
+            query_classification: QueryClassificationConfig::default(),
             heartbeat: HeartbeatConfig {
                 enabled: true,
                 interval_minutes: 15,
@@ -2307,6 +2533,8 @@ default_temperature = 0.7
                 telegram: Some(TelegramConfig {
                     bot_token: "123:ABC".into(),
                     allowed_users: vec!["user1".into()],
+                    stream_mode: StreamMode::default(),
+                    draft_update_interval_ms: default_draft_update_interval_ms(),
                 }),
                 discord: None,
                 slack: None,
@@ -2329,6 +2557,7 @@ default_temperature = 0.7
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
+            web_search: WebSearchConfig::default(),
             agent: AgentConfig::default(),
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
@@ -2428,6 +2657,7 @@ tool_dispatcher = "xml"
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),
             model_routes: Vec::new(),
+            query_classification: QueryClassificationConfig::default(),
             heartbeat: HeartbeatConfig::default(),
             cron: CronConfig::default(),
             channels_config: ChannelsConfig::default(),
@@ -2438,6 +2668,7 @@ tool_dispatcher = "xml"
             secrets: SecretsConfig::default(),
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
+            web_search: WebSearchConfig::default(),
             agent: AgentConfig::default(),
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
@@ -2478,6 +2709,7 @@ tool_dispatcher = "xml"
         config.api_key = Some("root-credential".into());
         config.composio.api_key = Some("composio-credential".into());
         config.browser.computer_use.api_key = Some("browser-credential".into());
+        config.web_search.brave_api_key = Some("brave-credential".into());
 
         config.agents.insert(
             "worker".into(),
@@ -2519,6 +2751,15 @@ tool_dispatcher = "xml"
             "browser-credential"
         );
 
+        let web_search_encrypted = stored.web_search.brave_api_key.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(
+            web_search_encrypted
+        ));
+        assert_eq!(
+            store.decrypt(web_search_encrypted).unwrap(),
+            "brave-credential"
+        );
+
         let worker = stored.agents.get("worker").unwrap();
         let worker_encrypted = worker.api_key.as_deref().unwrap();
         assert!(crate::security::SecretStore::is_encrypted(worker_encrypted));
@@ -2529,7 +2770,8 @@ tool_dispatcher = "xml"
 
     #[test]
     fn config_save_atomic_cleanup() {
-        let dir = std::env::temp_dir().join(format!("corvus_test_config_{}", uuid::Uuid::new_v4()));
+        let dir =
+            std::env::temp_dir().join(format!("corvus_test_config_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
 
         let config_path = dir.join("config.toml");
@@ -2564,11 +2806,23 @@ tool_dispatcher = "xml"
         let tc = TelegramConfig {
             bot_token: "123:XYZ".into(),
             allowed_users: vec!["alice".into(), "bob".into()],
+            stream_mode: StreamMode::Partial,
+            draft_update_interval_ms: 500,
         };
         let json = serde_json::to_string(&tc).unwrap();
         let parsed: TelegramConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.bot_token, "123:XYZ");
         assert_eq!(parsed.allowed_users.len(), 2);
+        assert_eq!(parsed.stream_mode, StreamMode::Partial);
+        assert_eq!(parsed.draft_update_interval_ms, 500);
+    }
+
+    #[test]
+    fn telegram_config_defaults_stream_off() {
+        let json = r#"{"bot_token":"tok","allowed_users":[]}"#;
+        let parsed: TelegramConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.stream_mode, StreamMode::Off);
+        assert_eq!(parsed.draft_update_interval_ms, 1000);
     }
 
     #[test]
@@ -2942,7 +3196,10 @@ channel_id = "C123"
         );
         assert_eq!(g.pair_rate_limit_per_minute, 10);
         assert_eq!(g.webhook_rate_limit_per_minute, 60);
+        assert!(!g.trust_forwarded_headers);
+        assert_eq!(g.rate_limit_max_keys, 10_000);
         assert_eq!(g.idempotency_ttl_secs, 300);
+        assert_eq!(g.idempotency_max_keys, 10_000);
     }
 
     #[test]
@@ -2970,7 +3227,10 @@ channel_id = "C123"
             paired_tokens: vec!["zc_test_token".into()],
             pair_rate_limit_per_minute: 12,
             webhook_rate_limit_per_minute: 80,
+            trust_forwarded_headers: true,
+            rate_limit_max_keys: 2048,
             idempotency_ttl_secs: 600,
+            idempotency_max_keys: 4096,
         };
         let toml_str = toml::to_string(&g).unwrap();
         let parsed: GatewayConfig = toml::from_str(&toml_str).unwrap();
@@ -2979,7 +3239,10 @@ channel_id = "C123"
         assert_eq!(parsed.paired_tokens, vec!["zc_test_token"]);
         assert_eq!(parsed.pair_rate_limit_per_minute, 12);
         assert_eq!(parsed.webhook_rate_limit_per_minute, 80);
+        assert!(parsed.trust_forwarded_headers);
+        assert_eq!(parsed.rate_limit_max_keys, 2048);
         assert_eq!(parsed.idempotency_ttl_secs, 600);
+        assert_eq!(parsed.idempotency_max_keys, 4096);
     }
 
     #[test]
@@ -3289,6 +3552,22 @@ default_temperature = 0.7
     }
 
     #[test]
+    fn env_override_model_fallback() {
+        let _env_guard = env_override_test_guard();
+        let mut config = Config::default();
+
+        std::env::remove_var("CORVUS_MODEL");
+        std::env::set_var("MODEL", "anthropic/claude-3.5-sonnet");
+        config.apply_env_overrides();
+        assert_eq!(
+            config.default_model.as_deref(),
+            Some("anthropic/claude-3.5-sonnet")
+        );
+
+        std::env::remove_var("MODEL");
+    }
+
+    #[test]
     fn env_override_workspace() {
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
@@ -3313,7 +3592,7 @@ default_temperature = 0.7
 
         let config = Config::load_or_init().unwrap();
 
-        assert_eq!(config.workspace_dir, workspace_dir);
+        assert_eq!(config.workspace_dir, workspace_dir.join("workspace"));
         assert_eq!(config.config_path, workspace_dir.join("config.toml"));
         assert!(workspace_dir.join("config.toml").exists());
 
@@ -3446,7 +3725,7 @@ default_model = "legacy-model"
 
         let config = Config::load_or_init().unwrap();
 
-        assert_eq!(config.workspace_dir, env_workspace_dir);
+        assert_eq!(config.workspace_dir, env_workspace_dir.join("workspace"));
         assert_eq!(config.config_path, env_workspace_dir.join("config.toml"));
 
         std::env::remove_var("CORVUS_WORKSPACE");
@@ -3595,6 +3874,54 @@ default_model = "legacy-model"
     }
 
     #[test]
+    fn env_override_web_search_config() {
+        let _env_guard = env_override_test_guard();
+        let mut config = Config::default();
+
+        std::env::set_var("WEB_SEARCH_ENABLED", "false");
+        std::env::set_var("WEB_SEARCH_PROVIDER", "brave");
+        std::env::set_var("WEB_SEARCH_MAX_RESULTS", "7");
+        std::env::set_var("WEB_SEARCH_TIMEOUT_SECS", "20");
+        std::env::set_var("BRAVE_API_KEY", "brave-test-key");
+
+        config.apply_env_overrides();
+
+        assert!(!config.web_search.enabled);
+        assert_eq!(config.web_search.provider, "brave");
+        assert_eq!(config.web_search.max_results, 7);
+        assert_eq!(config.web_search.timeout_secs, 20);
+        assert_eq!(
+            config.web_search.brave_api_key.as_deref(),
+            Some("brave-test-key")
+        );
+
+        std::env::remove_var("WEB_SEARCH_ENABLED");
+        std::env::remove_var("WEB_SEARCH_PROVIDER");
+        std::env::remove_var("WEB_SEARCH_MAX_RESULTS");
+        std::env::remove_var("WEB_SEARCH_TIMEOUT_SECS");
+        std::env::remove_var("BRAVE_API_KEY");
+    }
+
+    #[test]
+    fn env_override_web_search_invalid_values_ignored() {
+        let _env_guard = env_override_test_guard();
+        let mut config = Config::default();
+        let original_max_results = config.web_search.max_results;
+        let original_timeout = config.web_search.timeout_secs;
+
+        std::env::set_var("WEB_SEARCH_MAX_RESULTS", "99");
+        std::env::set_var("WEB_SEARCH_TIMEOUT_SECS", "0");
+
+        config.apply_env_overrides();
+
+        assert_eq!(config.web_search.max_results, original_max_results);
+        assert_eq!(config.web_search.timeout_secs, original_timeout);
+
+        std::env::remove_var("WEB_SEARCH_MAX_RESULTS");
+        std::env::remove_var("WEB_SEARCH_TIMEOUT_SECS");
+    }
+
+    #[test]
     fn gateway_config_default_values() {
         let g = GatewayConfig::default();
         assert_eq!(g.port, 3000);
@@ -3602,6 +3929,9 @@ default_model = "legacy-model"
         assert!(g.require_pairing);
         assert!(!g.allow_public_bind);
         assert!(g.paired_tokens.is_empty());
+        assert!(!g.trust_forwarded_headers);
+        assert_eq!(g.rate_limit_max_keys, 10_000);
+        assert_eq!(g.idempotency_max_keys, 10_000);
     }
 
     // ── Peripherals config ───────────────────────────────────────

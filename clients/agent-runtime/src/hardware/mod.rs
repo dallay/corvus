@@ -1,6 +1,6 @@
 //! Hardware discovery — USB device enumeration and introspection.
 //!
-//! See `docs/en/guides/hardware-peripherals-design.md` for the full design.
+//! See `docs/hardware-peripherals-design.md` for the full design.
 
 pub mod registry;
 

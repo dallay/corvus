@@ -5,6 +5,11 @@ use std::path::PathBuf;
 use std::process::Command;
 
 const SERVICE_LABEL: &str = "com.corvus.daemon";
+const WINDOWS_TASK_NAME: &str = "Corvus Daemon";
+
+fn windows_task_name() -> &'static str {
+    WINDOWS_TASK_NAME
+}
 
 pub fn handle_command(command: &crate::ServiceCommands, config: &Config) -> Result<()> {
     match command {
@@ -21,6 +26,8 @@ fn install(config: &Config) -> Result<()> {
         install_macos(config)
     } else if cfg!(target_os = "linux") {
         install_linux(config)
+    } else if cfg!(target_os = "windows") {
+        install_windows(config)
     } else {
         anyhow::bail!("Service management is supported on macOS and Linux only");
     }
@@ -36,6 +43,11 @@ fn start(config: &Config) -> Result<()> {
     } else if cfg!(target_os = "linux") {
         run_checked(Command::new("systemctl").args(["--user", "daemon-reload"]))?;
         run_checked(Command::new("systemctl").args(["--user", "start", "corvus.service"]))?;
+        println!("✅ Service started");
+        Ok(())
+    } else if cfg!(target_os = "windows") {
+        let _ = config;
+        run_checked(Command::new("schtasks").args(["/Run", "/TN", windows_task_name()]))?;
         println!("✅ Service started");
         Ok(())
     } else {
@@ -58,6 +70,12 @@ fn stop(config: &Config) -> Result<()> {
         Ok(())
     } else if cfg!(target_os = "linux") {
         let _ = run_checked(Command::new("systemctl").args(["--user", "stop", "corvus.service"]));
+        println!("✅ Service stopped");
+        Ok(())
+    } else if cfg!(target_os = "windows") {
+        let _ = config;
+        let task_name = windows_task_name();
+        let _ = run_checked(Command::new("schtasks").args(["/End", "/TN", task_name]));
         println!("✅ Service stopped");
         Ok(())
     } else {
@@ -83,11 +101,39 @@ fn status(config: &Config) -> Result<()> {
     }
 
     if cfg!(target_os = "linux") {
-        let out =
-            run_capture(Command::new("systemctl").args(["--user", "is-active", "corvus.service"]))
-                .unwrap_or_else(|_| "unknown".into());
+        let out = run_capture(Command::new("systemctl").args([
+            "--user",
+            "is-active",
+            "corvus.service",
+        ]))
+        .unwrap_or_else(|_| "unknown".into());
         println!("Service state: {}", out.trim());
         println!("Unit: {}", linux_service_file(config)?.display());
+        return Ok(());
+    }
+
+    if cfg!(target_os = "windows") {
+        let _ = config;
+        let task_name = windows_task_name();
+        let out =
+            run_capture(Command::new("schtasks").args(["/Query", "/TN", task_name, "/FO", "LIST"]));
+        match out {
+            Ok(text) => {
+                let running = text.contains("Running");
+                println!(
+                    "Service: {}",
+                    if running {
+                        "✅ running"
+                    } else {
+                        "❌ not running"
+                    }
+                );
+                println!("Task: {}", task_name);
+            }
+            Err(_) => {
+                println!("Service: ❌ not installed");
+            }
+        }
         return Ok(());
     }
 
@@ -115,6 +161,23 @@ fn uninstall(config: &Config) -> Result<()> {
         }
         let _ = run_checked(Command::new("systemctl").args(["--user", "daemon-reload"]));
         println!("✅ Service uninstalled ({})", file.display());
+        return Ok(());
+    }
+
+    if cfg!(target_os = "windows") {
+        let task_name = windows_task_name();
+        let _ = run_checked(Command::new("schtasks").args(["/Delete", "/TN", task_name, "/F"]));
+        // Remove the wrapper script
+        let wrapper = config
+            .config_path
+            .parent()
+            .map_or_else(|| PathBuf::from("."), PathBuf::from)
+            .join("logs")
+            .join("corvus-daemon.cmd");
+        if wrapper.exists() {
+            fs::remove_file(&wrapper).ok();
+        }
+        println!("✅ Service uninstalled");
         return Ok(());
     }
 
@@ -193,6 +256,55 @@ fn install_linux(config: &Config) -> Result<()> {
     Ok(())
 }
 
+fn install_windows(config: &Config) -> Result<()> {
+    let exe = std::env::current_exe().context("Failed to resolve current executable")?;
+    let logs_dir = config
+        .config_path
+        .parent()
+        .map_or_else(|| PathBuf::from("."), PathBuf::from)
+        .join("logs");
+    fs::create_dir_all(&logs_dir)?;
+
+    // Create a wrapper script that redirects output to log files
+    let wrapper = logs_dir.join("corvus-daemon.cmd");
+    let stdout_log = logs_dir.join("daemon.stdout.log");
+    let stderr_log = logs_dir.join("daemon.stderr.log");
+
+    let wrapper_content = format!(
+        "@echo off\r\n\"{}\" daemon >>\"{}\" 2>>\"{}\"",
+        exe.display(),
+        stdout_log.display(),
+        stderr_log.display()
+    );
+    fs::write(&wrapper, &wrapper_content)?;
+
+    let task_name = windows_task_name();
+
+    // Remove any existing task first (ignore errors if it doesn't exist)
+    let _ = Command::new("schtasks")
+        .args(["/Delete", "/TN", task_name, "/F"])
+        .output();
+
+    run_checked(Command::new("schtasks").args([
+        "/Create",
+        "/TN",
+        task_name,
+        "/SC",
+        "ONLOGON",
+        "/TR",
+        &format!("\"{}\"", wrapper.display()),
+        "/RL",
+        "HIGHEST",
+        "/F",
+    ]))?;
+
+    println!("✅ Installed Windows scheduled task: {}", task_name);
+    println!("   Wrapper: {}", wrapper.display());
+    println!("   Logs: {}", logs_dir.display());
+    println!("   Start with: corvus service start");
+    Ok(())
+}
+
 fn macos_service_file() -> Result<PathBuf> {
     let home = directories::UserDirs::new()
         .map(|u| u.home_dir().to_path_buf())
@@ -251,31 +363,56 @@ mod tests {
         assert_eq!(escaped, "&lt;&amp;&gt;&quot;&apos; and text");
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn run_capture_reads_stdout() {
-        let out = run_capture(Command::new("sh").args(["-c", "echo hello"]))
+        let out = run_capture(Command::new("sh").args(["-lc", "echo hello"]))
             .expect("stdout capture should succeed");
         assert_eq!(out.trim(), "hello");
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn run_capture_falls_back_to_stderr() {
-        let out = run_capture(Command::new("sh").args(["-c", "echo warn 1>&2"]))
+        let out = run_capture(Command::new("sh").args(["-lc", "echo warn 1>&2"]))
             .expect("stderr capture should succeed");
         assert_eq!(out.trim(), "warn");
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn run_checked_errors_on_non_zero_status() {
-        let err = run_checked(Command::new("sh").args(["-c", "exit 17"]))
+        let err = run_checked(Command::new("sh").args(["-lc", "exit 17"]))
             .expect_err("non-zero exit should error");
         assert!(err.to_string().contains("Command failed"));
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn linux_service_file_has_expected_suffix() {
         let file = linux_service_file(&Config::default()).unwrap();
         let path = file.to_string_lossy();
         assert!(path.ends_with(".config/systemd/user/corvus.service"));
+    }
+
+    #[test]
+    fn windows_task_name_is_constant() {
+        assert_eq!(windows_task_name(), "Corvus Daemon");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn run_capture_reads_stdout_windows() {
+        let out = run_capture(Command::new("cmd").args(["/C", "echo hello"]))
+            .expect("stdout capture should succeed");
+        assert_eq!(out.trim(), "hello");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn run_checked_errors_on_non_zero_status_windows() {
+        let err = run_checked(Command::new("cmd").args(["/C", "exit /b 17"]))
+            .expect_err("non-zero exit should error");
+        assert!(err.to_string().contains("Command failed"));
     }
 }
