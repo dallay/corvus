@@ -26,7 +26,7 @@ Please follow the [GitHub Flow](https://guides.github.com/introduction/flow/) wh
 Messages must be matched by the following regex:
 
 ```regexp
-/^(?:revert: )?(feat|fix|refactor|perf|test|infra|deps|docs|chore|wip|release)(\(.+\))?: [^\n\r]{1,99}[^\s\n\r]$/
+/^(?:revert: )?(build|chore|ci|deps|docs|feat|fix|infra|perf|refactor|release|style|test|wip)(\(.+\))?(!)?: [^\n\r]{1,100}[^\s\n\r]$/
 ```
 
 #### Examples
@@ -87,8 +87,8 @@ In the body, it should say: `This reverts commit <hash>.`, where the hash is the
 
 If the prefix is `feat`, `fix` or `perf`, it will appear in the changelog. However, if there is any `BREAKING CHANGE`, the commit will always appear in the changelog.
 
-Other prefixes are up to your discretion. Suggested prefixes are `docs`, `chore`, `style`, `refactor`, and `test` for
-non-changelog related tasks.
+Supported prefixes in this repository are `build`, `chore`, `ci`, `deps`, `docs`, `feat`,
+`fix`, `infra`, `perf`, `refactor`, `release`, `style`, `test`, and `wip`.
 
 ### Scope
 
@@ -123,7 +123,7 @@ message is then used for this.
 
 > **Warning**: Follow the Commit Message Guidelines when writing your commit message
 >
-> we only accept commit message in the format of `<type>(<scope>): <subject>`. please refer to [Conventional Commits](https://github.com/conventional-commits/conventionalcommits.org) for more details.
+> we only accept commit message in the format of `<type>(<scope>): <subject>`. please refer to [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) for more details.
 
 </details>
 

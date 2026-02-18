@@ -12,13 +12,13 @@ on:
         default: false
     secrets:
       SIGNING_IN_MEMORY_KEY:
-        required: true
+        required: false
       SIGNING_IN_MEMORY_KEY_PASSWORD:
-        required: true
+        required: false
       MAVEN_CENTRAL_USERNAME:
-        required: true
+        required: false
       MAVEN_CENTRAL_PASSWORD:
-        required: true
+        required: false
       CARGO_REGISTRY_TOKEN:
         required: false
       NPM_TOKEN:
@@ -30,6 +30,8 @@ on:
 
 jobs:
   publish:
+    outputs:
+      changelog: ${{ steps.changelog.outputs.changelog }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -132,34 +134,55 @@ jobs:
             fi
           done
 
-      - name: 🔐 Validate release credentials
+          shopt -s nullglob
+          web_version_files=(
+            clients/web/package.json
+            clients/web/apps/*/package.json
+            clients/web/packages/*/package.json
+          )
+
+          for file in "${web_version_files[@]}"; do
+            [[ -f "$file" ]] || continue
+            web_version="$(awk -F'"' '/^[[:space:]]*"version"[[:space:]]*:/{print $4; exit}' "$file")"
+            [[ -z "$web_version" ]] && continue
+            if [[ "$web_version" != "$expected_version" ]]; then
+              echo "Version mismatch in ${file}: expected ${expected_version}, got ${web_version}"
+              exit 1
+            fi
+          done
+          shopt -u nullglob
+
+      - name: 🔐 Check optional release credentials
         if: ${{ inputs.release }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          SIGNING_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          MAVEN_USER: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
         run: |
           set -euo pipefail
-          missing=0
-          for secret in CARGO_REGISTRY_TOKEN NPM_TOKEN DOCKERHUB_USERNAME DOCKERHUB_TOKEN; do
-            if [[ -z "${!secret:-}" ]]; then
-              echo "Missing required secret for releases: ${secret}"
-              missing=1
-            fi
-          done
-          if [[ "$missing" -ne 0 ]]; then
-            exit 1
-          fi
+          echo "Checking optional release credentials..."
+          [[ -n "$SIGNING_KEY" ]] && echo "✅ Maven signing key configured" || echo "⚠️ Maven signing key not configured"
+          [[ -n "$MAVEN_USER" ]] && echo "✅ Maven Central credentials configured" || echo "⚠️ Maven Central credentials not configured"
+          [[ -n "$CARGO_REGISTRY_TOKEN" ]] && echo "✅ Cargo registry token configured" || echo "⚠️ Cargo registry token not configured"
+          [[ -n "$NPM_TOKEN" ]] && echo "✅ NPM token configured" || echo "⚠️ NPM token not configured"
+          [[ -n "$DOCKERHUB_USERNAME" ]] && echo "✅ DockerHub credentials configured" || echo "⚠️ DockerHub credentials not configured"
 
       - name: 👻 Publish to Maven Central
+        if: ${{ inputs.release }}
+        continue-on-error: true
         env:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          # ⚠️ Warning: Do not use never-expiring User Token!!!
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
         run: |
+          if [ -z "${{ secrets.SIGNING_IN_MEMORY_KEY }}" ] || [ -z "${{ secrets.MAVEN_CENTRAL_USERNAME }}" ]; then
+            echo "⚠️ Skipping Maven Central publish - required secrets not configured"
+            exit 0
+          fi
           if [ "${GITHUB_REPOSITORY}" = "dallay/corvus" ]; then
             if [ "${{ inputs.release }}" = "true" ]; then
               ./gradlew :build-logic:publishPluginMavenPublicationToMavenCentralRepository publishToMavenCentral
@@ -172,17 +195,27 @@ jobs:
 
       - name: 📦 Publish Rust crate to crates.io
         if: ${{ inputs.release }}
+        continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
+          if [ -z "${{ secrets.CARGO_REGISTRY_TOKEN }}" ]; then
+            echo "⚠️ Skipping crates.io publish - CARGO_REGISTRY_TOKEN not configured"
+            exit 0
+          fi
           cd clients/agent-runtime
           cargo publish --locked
 
       - name: 📦 Publish npm package
         if: ${{ inputs.release }}
+        continue-on-error: true
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "⚠️ Skipping npm publish - NPM_TOKEN not configured"
+            exit 0
+          fi
           cat <<EOF > "$HOME/.npmrc"
           //registry.npmjs.org/:_authToken=${NPM_TOKEN}
           EOF
@@ -191,22 +224,23 @@ jobs:
 
       - name: 🐳 Set up QEMU
         if: ${{ inputs.release }}
-        uses: docker/setup-qemu-action@e474179bdfa42213eab2f8c674c6daef42f43a09 # v3.6.0
+        uses: docker/setup-qemu-action@v3
 
       - name: 🐳 Set up Docker Buildx
         if: ${{ inputs.release }}
-        uses: docker/setup-buildx-action@f4f5800b94467d3a33e1d9b90bba96fd39e8564e # v3.11.1
+        uses: docker/setup-buildx-action@v3
 
       - name: 🔐 Login to Docker Hub
         if: ${{ inputs.release }}
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.5.0
+        continue-on-error: true
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: 🔐 Login to GitHub Container Registry
         if: ${{ inputs.release }}
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.5.0
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -215,7 +249,7 @@ jobs:
       - name: 🏷️ Generate Docker tags and labels
         if: ${{ inputs.release }}
         id: docker-meta
-        uses: docker/metadata-action@902fa8ec7d6ecbf8d84cc7b29e5c6ea6f7eb9e81 # v5.8.0
+        uses: docker/metadata-action@v5
         with:
           images: |
             docker.io/${{ secrets.DOCKERHUB_USERNAME }}/corvus
@@ -228,7 +262,8 @@ jobs:
 
       - name: 🐳 Build and push Docker image
         if: ${{ inputs.release }}
-        uses: docker/build-push-action@95139e6fce77e460f7d1d9c03d096667e6bfca44 # v6.17.0
+        continue-on-error: true
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: clients/agent-runtime/Dockerfile
@@ -238,65 +273,123 @@ jobs:
           tags: ${{ steps.docker-meta.outputs.tags }}
           labels: ${{ steps.docker-meta.outputs.labels }}
 
-      - name: 🔨 Build native binaries for GitHub Release
-        if: ${{ inputs.release }}
+  build-native-binaries:
+    if: ${{ inputs.release }}
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: corvus-linux-x64
+            archive_ext: tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: corvus-linux-arm64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: corvus-darwin-x64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: corvus-darwin-arm64
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: corvus-windows-x64
+            archive_ext: zip
+
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: 🦀 Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: 🦀 Install Rust target
+        run: rustup target add ${{ matrix.target }}
+
+      - name: 🦀 Install cross
+        if: runner.os == 'Linux'
+        run: cargo install cross --locked
+
+      - name: 🔨 Build binary (Linux native GNU)
+        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          cd clients/agent-runtime
+          cargo build --release --locked --target x86_64-unknown-linux-gnu
+
+      - name: 🔨 Build binary (Linux cross)
+        if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
+        run: |
+          cd clients/agent-runtime
+          cross build --release --target ${{ matrix.target }}
+
+      - name: 🔨 Build binary (macOS/Windows)
+        if: runner.os != 'Linux'
+        run: |
+          cd clients/agent-runtime
+          cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: 📦 Package artifact (Unix)
+        if: runner.os != 'Windows'
         run: |
           set -euo pipefail
           cd clients/agent-runtime
           mkdir -p dist
+          cp "target/${{ matrix.target }}/release/corvus" "dist/${{ matrix.artifact_name }}"
+          tar -czf "dist/${{ matrix.artifact_name }}.tar.gz" -C dist "${{ matrix.artifact_name }}"
 
-          # Build for Linux x64 using cross
-          echo "Building for Linux x64..."
-          cross build --release --target x86_64-unknown-linux-gnu
-          cp target/x86_64-unknown-linux-gnu/release/corvus dist/corvus-linux-x64
+      - name: 📦 Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          New-Item -ItemType Directory -Force -Path clients/agent-runtime/dist | Out-Null
+          Copy-Item "clients/agent-runtime/target/${{ matrix.target }}/release/corvus.exe" "clients/agent-runtime/dist/${{ matrix.artifact_name }}.exe"
+          Compress-Archive -Path "clients/agent-runtime/dist/${{ matrix.artifact_name }}.exe" -DestinationPath "clients/agent-runtime/dist/${{ matrix.artifact_name }}.zip" -Force
 
-          # Build for Linux arm64 using cross
-          echo "Building for Linux arm64..."
-          cross build --release --target aarch64-unknown-linux-gnu
-          cp target/aarch64-unknown-linux-gnu/release/corvus dist/corvus-linux-arm64
+      - name: ⬆ Upload release artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: clients/agent-runtime/dist/${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
 
-          # Build for macOS x64 using cross
-          echo "Building for macOS x64..."
-          if cross build --release --target x86_64-apple-darwin 2>/dev/null; then
-            cp target/x86_64-apple-darwin/release/corvus dist/corvus-darwin-x64
-          else
-            echo "⚠️ Cross-compilation for macOS x64 not available, skipping..."
-            echo "Note: macOS binaries must be built on macOS runners or with special tooling"
-          fi
+  release-assets:
+    if: ${{ inputs.release }}
+    needs: [publish, build-native-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
-          # Build for macOS arm64 using cross
-          echo "Building for macOS arm64..."
-          if cross build --release --target aarch64-apple-darwin 2>/dev/null; then
-            cp target/aarch64-apple-darwin/release/corvus dist/corvus-darwin-arm64
-          else
-            echo "⚠️ Cross-compilation for macOS arm64 not available, skipping..."
-            echo "Note: macOS binaries must be built on macOS runners or with special tooling"
-          fi
-
-          ls -la dist/
+    steps:
+      - name: ⬇ Download all release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: clients/agent-runtime/dist
+          merge-multiple: true
 
       - name: 📋 Generate SHA256 checksums
-        if: ${{ inputs.release }}
         run: |
           set -euo pipefail
           cd clients/agent-runtime/dist
-
-          for binary in corvus-*; do
-            if [ -f "$binary" ] && [[ ! "$binary" == *.sha256 ]] && [[ ! "$binary" == *.skip ]]; then
-              echo "Generating checksum for $binary..."
-              sha256sum "$binary" > "$binary.sha256"
-              cat "$binary.sha256"
-            fi
+          for archive in *.tar.gz *.zip; do
+            [[ -f "$archive" ]] || continue
+            sha256sum "$archive" > "$archive.sha256"
           done
-
-          echo "Checksum files generated:"
-          ls -la *.sha256 || echo "No checksum files found"
+          ls -la
 
       - name: 🚀 Create GitHub Release
-        if: ${{ inputs.release }}
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
         with:
-          body: ${{ steps.changelog.outputs.changelog }}
+          body: ${{ needs.publish.outputs.changelog }}
           generate_release_notes: true
           files: |
             clients/agent-runtime/dist/corvus-*

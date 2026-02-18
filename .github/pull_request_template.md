@@ -9,7 +9,7 @@ Thanks for creating this PR! Please fill in the information below so we can revi
 > [!Tip]
 > PR title must follow the pattern (Conventional Commits style):
 > ```
-> (feat|fix|refactor|perf|test|infra|deps|docs|chore|wip|release)(optional-scope): short description
+> (build|chore|ci|deps|docs|feat|fix|infra|perf|refactor|release|style|test|wip)(optional-scope)!: short description
 > Example: fix(parser): handle empty input correctly
 > ```
 
