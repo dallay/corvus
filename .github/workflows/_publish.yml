@@ -306,14 +306,22 @@ jobs:
       - name: ✈ Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
+      - name: 🦀 Resolve Rust channel
+        id: rust-channel
+        run: |
+          set -euo pipefail
+          channel="$(awk -F'"' '/^channel = /{print $2; exit}' clients/agent-runtime/rust-toolchain.toml)"
+          if [ -z "$channel" ]; then
+            echo "Failed to resolve Rust channel from clients/agent-runtime/rust-toolchain.toml"
+            exit 1
+          fi
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
       - name: 🦀 Setup Rust toolchain
         uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
         with:
-          toolchain: stable
+          toolchain: ${{ steps.rust-channel.outputs.channel }}
           targets: ${{ matrix.target }}
-
-      - name: 🦀 Install Rust target
-        run: rustup target add ${{ matrix.target }}
 
       - name: 🦀 Install cross
         if: runner.os == 'Linux'
