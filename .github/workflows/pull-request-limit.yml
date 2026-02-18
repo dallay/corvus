@@ -12,7 +12,8 @@ jobs:
     if: >
       github.event_name == 'pull_request_target' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
-      !contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
+      !contains(fromJson('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) &&
+      github.event.pull_request.user.login != 'yacosta738'
     runs-on: ubuntu-latest
     steps:
       - name: "Comment about changes we can't accept"
