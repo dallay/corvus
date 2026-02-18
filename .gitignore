@@ -36,6 +36,7 @@ Icon?
 /.metadata/
 /.recommenders/
 /bin/
+**/bin/
 /build/
 .classpath
 .factorypath
