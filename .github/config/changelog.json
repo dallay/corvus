@@ -48,7 +48,14 @@
     },
     {
       "title": "### 🧩 Misc",
-      "labels": ["pr|build", "pr|chore", "pr|ci", "pr|release", "pr|style", "pr|wip"]
+      "labels": [
+        "pr|build",
+        "pr|chore",
+        "pr|ci",
+        "pr|release",
+        "pr|style",
+        "pr|wip"
+      ]
     },
     {
       "title": "### 📦 Dependencies",

@@ -11,14 +11,14 @@ if (path == ":") {
   tasks.register("installGitHooks") {
     group = "toolbox"
     description = "Install or refresh Git hooks from gradle/configs/git/hooks"
-    
+
     val hooksSourceProvider =
       injected.providers.provider { rootProject.file("gradle/configs/git/hooks") }
     val hooksTargetProvider = injected.providers.provider { rootProject.file(".git/hooks") }
-    
+
     inputs.dir(hooksSourceProvider)
     outputs.dir(hooksTargetProvider)
-    
+
     doLast {
       val hooksSource = hooksSourceProvider.get()
       val hooksTarget = hooksTargetProvider.get()
