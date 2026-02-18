@@ -173,8 +173,8 @@ strip = true
 panic = "abort"
 
 [dev-dependencies]
-tempfile = "3.14"
-criterion = { version = "0.5", features = ["async_tokio"] }
+tempfile = "=3.25.0"
+criterion = { version = "=0.5.1", features = ["async_tokio"] }
 
 [[bench]]
 name = "agent_benchmarks"
