@@ -75,7 +75,7 @@ jobs:
       - name: 🔨 Build binary (Linux cross)
         if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
         working-directory: clients/agent-runtime
-        run: cross build --release --target ${{ matrix.target }}
+        run: cross build --release --locked --target ${{ matrix.target }}
 
       - name: 🔨 Build binary (macOS/Windows)
         if: runner.os != 'Linux'
