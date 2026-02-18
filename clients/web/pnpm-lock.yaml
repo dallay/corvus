@@ -9,10 +9,10 @@ importers:
   .:
     devDependencies:
       '@biomejs/biome':
-        specifier: ^2.4.2
+        specifier: 2.4.2
         version: 2.4.2
       typescript:
-        specifier: ^5.9.3
+        specifier: 5.9.3
         version: 5.9.3
 
   apps/dashboard:
@@ -37,43 +37,43 @@ importers:
         specifier: 2.3.15
         version: 2.3.15
       '@tailwindcss/postcss':
-        specifier: ^4.1.16
+        specifier: 4.1.18
         version: 4.1.18
       '@tsconfig/node22':
-        specifier: ^22.0.2
+        specifier: 22.0.5
         version: 22.0.5
       '@types/node':
-        specifier: ^24.10.1
+        specifier: 24.10.13
         version: 24.10.13
       '@vitejs/plugin-vue':
-        specifier: ^6.0.1
+        specifier: 6.0.4
         version: 6.0.4(vite@7.3.1(@types/node@24.10.13)(jiti@2.6.1)(lightningcss@1.30.2))(vue@3.5.28(typescript@5.9.3))
       '@vue/test-utils':
-        specifier: ^2.4.6
+        specifier: 2.4.6
         version: 2.4.6
       '@vue/tsconfig':
-        specifier: ^0.8.1
+        specifier: 0.8.1
         version: 0.8.1(typescript@5.9.3)(vue@3.5.28(typescript@5.9.3))
       happy-dom:
-        specifier: ^20.0.10
+        specifier: 20.6.1
         version: 20.6.1
       postcss:
-        specifier: ^8.5.6
+        specifier: 8.5.6
         version: 8.5.6
       tailwindcss:
-        specifier: ^4.1.16
+        specifier: 4.1.18
         version: 4.1.18
       typescript:
-        specifier: ^5.9.3
+        specifier: 5.9.3
         version: 5.9.3
       vite:
-        specifier: ^7.1.10
+        specifier: 7.3.1
         version: 7.3.1(@types/node@24.10.13)(jiti@2.6.1)(lightningcss@1.30.2)
       vitest:
-        specifier: ^3.2.4
+        specifier: 3.2.4
         version: 3.2.4(@types/debug@4.1.12)(@types/node@24.10.13)(happy-dom@20.6.1)(jiti@2.6.1)(lightningcss@1.30.2)
       vue-tsc:
-        specifier: ^3.1.1
+        specifier: 3.2.4
         version: 3.2.4(typescript@5.9.3)
 
   apps/docs:
@@ -114,10 +114,10 @@ importers:
         specifier: 2.3.15
         version: 2.3.15
       typescript:
-        specifier: ^5.9.3
+        specifier: 5.9.3
         version: 5.9.3
       vite:
-        specifier: ^6.4.1
+        specifier: 6.4.1
         version: 6.4.1(@types/node@24.10.13)(jiti@2.6.1)(lightningcss@1.30.2)
 
   packages/shared: {}

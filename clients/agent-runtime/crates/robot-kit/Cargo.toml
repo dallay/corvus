@@ -60,8 +60,8 @@ directories = "5.0"
 rppal = { version = "0.19", optional = true }
 
 [dev-dependencies]
-tokio-test = "0.4"
-tempfile = "3.14"
+tokio-test = "=0.4.5"
+tempfile = "=3.25.0"
 
 [package.metadata.docs.rs]
 all-features = true
