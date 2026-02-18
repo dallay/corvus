@@ -255,7 +255,7 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
 // ── Quick setup (zero prompts) ───────────────────────────────────
 
 /// Non-interactive setup: generates a sensible default config instantly.
-/// Use `corvus onboard` or `corvus onboard --api-key sk-... --provider openrouter --memory sqlite|lucid`.
+/// Use `corvus onboard` or `corvus onboard --api-key sk-... --provider openrouter --memory sqlite|lucid|markdown|knowledge_graph|none`.
 /// Use `corvus onboard --interactive` for the full wizard.
 fn backend_key_from_choice(choice: usize) -> &'static str {
     selectable_memory_backends()
@@ -4871,7 +4871,8 @@ mod tests {
         assert_eq!(backend_key_from_choice(0), "sqlite");
         assert_eq!(backend_key_from_choice(1), "lucid");
         assert_eq!(backend_key_from_choice(2), "markdown");
-        assert_eq!(backend_key_from_choice(3), "none");
+        assert_eq!(backend_key_from_choice(3), "knowledge_graph");
+        assert_eq!(backend_key_from_choice(4), "none");
         assert_eq!(backend_key_from_choice(999), "sqlite");
     }
 
@@ -4905,6 +4906,17 @@ mod tests {
         assert_eq!(config.archive_after_days, 7);
         assert_eq!(config.purge_after_days, 30);
         assert_eq!(config.embedding_cache_size, 10000);
+    }
+
+    #[test]
+    fn memory_config_defaults_for_knowledge_graph_disable_sqlite_hygiene() {
+        let config = memory_config_defaults_for_backend("knowledge_graph");
+        assert_eq!(config.backend, "knowledge_graph");
+        assert!(config.auto_save);
+        assert!(!config.hygiene_enabled);
+        assert_eq!(config.archive_after_days, 0);
+        assert_eq!(config.purge_after_days, 0);
+        assert_eq!(config.embedding_cache_size, 0);
     }
 
     #[test]

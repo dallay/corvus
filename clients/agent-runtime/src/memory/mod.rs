@@ -2,6 +2,7 @@ pub mod backend;
 pub mod chunker;
 pub mod embeddings;
 pub mod hygiene;
+pub mod knowledge_graph;
 pub mod lucid;
 pub mod markdown;
 pub mod none;
@@ -16,6 +17,7 @@ pub use backend::{
     classify_memory_backend, default_memory_backend_key, memory_backend_profile,
     selectable_memory_backends, MemoryBackendKind, MemoryBackendProfile,
 };
+pub use knowledge_graph::KnowledgeGraphMemory;
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
 pub use none::NoneMemory;
@@ -45,6 +47,7 @@ where
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
         MemoryBackendKind::Markdown => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
+        MemoryBackendKind::KnowledgeGraph => Ok(Box::new(KnowledgeGraphMemory::new(workspace_dir)?)),
         MemoryBackendKind::None => Ok(Box::new(NoneMemory::new())),
         MemoryBackendKind::Unknown => {
             tracing::warn!(
@@ -134,7 +137,7 @@ pub fn create_memory_for_migration(
 ) -> anyhow::Result<Box<dyn Memory>> {
     if matches!(classify_memory_backend(backend), MemoryBackendKind::None) {
         anyhow::bail!(
-            "memory backend 'none' disables persistence; choose sqlite, lucid, or markdown before migration"
+            "memory backend 'none' disables persistence; choose sqlite, lucid, markdown, or knowledge_graph before migration"
         );
     }
 
@@ -208,6 +211,17 @@ mod tests {
         };
         let mem = create_memory(&cfg, tmp.path(), None).unwrap();
         assert_eq!(mem.name(), "lucid");
+    }
+
+    #[test]
+    fn factory_knowledge_graph() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            backend: "knowledge_graph".into(),
+            ..MemoryConfig::default()
+        };
+        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
+        assert_eq!(mem.name(), "knowledge_graph");
     }
 
     #[test]

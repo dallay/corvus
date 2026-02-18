@@ -774,7 +774,7 @@ impl Default for WebSearchConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MemoryConfig {
-    /// "sqlite" | "lucid" | "markdown" | "none" (`none` = explicit no-op memory)
+    /// "sqlite" | "lucid" | "markdown" | "knowledge_graph" | "none" (`none` = explicit no-op memory)
     pub backend: String,
     /// Auto-save conversation context to memory
     pub auto_save: bool,
