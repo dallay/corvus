@@ -277,7 +277,10 @@ impl Provider for OpenRouterProvider {
             .client
             .post("https://openrouter.ai/api/v1/chat/completions")
             .header("Authorization", format!("Bearer {credential}"))
-            .header("HTTP-Referer", "https://github.com/theonlyhennygod/corvus")
+            .header(
+                "HTTP-Referer",
+                "https://github.com/theonlyhennygod/corvus",
+            )
             .header("X-Title", "Corvus")
             .json(&request)
             .send()
@@ -324,7 +327,10 @@ impl Provider for OpenRouterProvider {
             .client
             .post("https://openrouter.ai/api/v1/chat/completions")
             .header("Authorization", format!("Bearer {credential}"))
-            .header("HTTP-Referer", "https://github.com/theonlyhennygod/corvus")
+            .header(
+                "HTTP-Referer",
+                "https://github.com/theonlyhennygod/corvus",
+            )
             .header("X-Title", "Corvus")
             .json(&request)
             .send()
@@ -369,7 +375,10 @@ impl Provider for OpenRouterProvider {
             .client
             .post("https://openrouter.ai/api/v1/chat/completions")
             .header("Authorization", format!("Bearer {credential}"))
-            .header("HTTP-Referer", "https://github.com/theonlyhennygod/corvus")
+            .header(
+                "HTTP-Referer",
+                "https://github.com/theonlyhennygod/corvus",
+            )
             .header("X-Title", "Corvus")
             .json(&native_request)
             .send()
@@ -454,7 +463,10 @@ impl Provider for OpenRouterProvider {
             .client
             .post("https://openrouter.ai/api/v1/chat/completions")
             .header("Authorization", format!("Bearer {credential}"))
-            .header("HTTP-Referer", "https://github.com/theonlyhennygod/corvus")
+            .header(
+                "HTTP-Referer",
+                "https://github.com/theonlyhennygod/corvus",
+            )
             .header("X-Title", "Corvus")
             .json(&native_request)
             .send()

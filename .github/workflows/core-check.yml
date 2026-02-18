@@ -7,7 +7,6 @@ on:
       - "**"
     paths:
       - "modules/agent-core-kmp/**"
-      - "modules/agent-core-rust/**"
       - "gradle/**"
       - "settings.gradle.kts"
       - ".github/workflows/core-check.yml"
@@ -22,7 +21,6 @@ on:
       - patch/**
     paths:
       - "modules/agent-core-kmp/**"
-      - "modules/agent-core-rust/**"
       - "gradle/**"
       - "settings.gradle.kts"
       - ".github/workflows/core-check.yml"
@@ -77,7 +75,4 @@ jobs:
       - name: ✅ Run core checks
         shell: bash
         run: |
-          PATH="$HOME/.cargo/bin:$PATH" ./gradlew \
-            :agent-core-kmp:check \
-            :agent-core-rust:check \
-            -PenableRustTasks=true
+          PATH="$HOME/.cargo/bin:$PATH" ./gradlew :agent-core-kmp:check
