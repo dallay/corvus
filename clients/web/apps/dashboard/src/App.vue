@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, ref } from "vue";
+import { computed, nextTick, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
@@ -32,6 +32,9 @@ const secretInputNonce = ref(0);
 const saveStatus = ref<"idle" | "saving" | "success" | "error">("idle");
 const saveErrorMessage = ref("");
 
+let saveStatusTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let requestTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
 let messageIdCounter = 1;
 let pairingCodeInput = "";
 let bearerTokenInput = "";
@@ -54,8 +57,21 @@ function nextMessageId(): number {
   return currentId;
 }
 
+function resetSaveStatus(): void {
+  if (saveStatus.value === "saving") {
+    return;
+  }
+
+  if (saveStatusTimeoutId) {
+    clearTimeout(saveStatusTimeoutId);
+    saveStatusTimeoutId = null;
+  }
+  saveStatus.value = "idle";
+}
+
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function captureSecretInput(field: SecretField, value: string): void {
+  resetSaveStatus();
   if (field === "pairingCode") {
     pairingCodeInput = value;
     return;
@@ -69,24 +85,31 @@ function captureSecretInput(field: SecretField, value: string): void {
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function saveGatewayConfig(): Promise<void> {
+  resetSaveStatus();
   saveStatus.value = "saving";
   saveErrorMessage.value = "";
 
   const gatewayBaseUrl = baseUrl.value.replace(/\/$/, "");
+  const controller = new AbortController();
+  requestTimeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
+    const payload: Record<string, string> = {
+      gatewayId: "default",
+      baseUrl: gatewayBaseUrl,
+    };
+
+    if (pairingCodeInput) payload.pairingCode = pairingCodeInput;
+    if (bearerTokenInput) payload.bearerToken = bearerTokenInput;
+    if (webhookSecretInput) payload.webhookSecret = webhookSecretInput;
+
     const response = await fetch(`${gatewayBaseUrl}/web/dashboard/config`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        gatewayId: "default",
-        baseUrl: baseUrl.value,
-        pairingCode: pairingCodeInput,
-        bearerToken: bearerTokenInput,
-        webhookSecret: webhookSecretInput,
-      }),
+      body: JSON.stringify(payload),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -98,10 +121,23 @@ async function saveGatewayConfig(): Promise<void> {
     webhookSecretInput = "";
     secretInputNonce.value += 1;
     saveStatus.value = "success";
+
+    saveStatusTimeoutId = setTimeout(() => {
+      saveStatus.value = "idle";
+    }, 3000);
   } catch (error) {
     saveStatus.value = "error";
-    saveErrorMessage.value = t("form.saveError");
+    if (error instanceof Error && error.name === "AbortError") {
+      saveErrorMessage.value = t("form.timeoutError") || "Request timeout";
+    } else {
+      saveErrorMessage.value = t("form.saveError");
+    }
     console.error("Error saving gateway config", error);
+  } finally {
+    if (requestTimeoutId) {
+      clearTimeout(requestTimeoutId);
+      requestTimeoutId = null;
+    }
   }
 }
 
@@ -136,6 +172,11 @@ async function sendMessage(): Promise<void> {
   await nextTick();
   scrollChatToBottom();
 }
+
+onUnmounted(() => {
+  if (saveStatusTimeoutId) clearTimeout(saveStatusTimeoutId);
+  if (requestTimeoutId) clearTimeout(requestTimeoutId);
+});
 </script>
 
 <template>
@@ -160,13 +201,14 @@ async function sendMessage(): Promise<void> {
       >
         <label class="space-y-1 text-sm">
           <span class="font-medium">{{ t("form.baseUrl") }}</span>
-          <Input v-model="baseUrl" :placeholder="t('form.baseUrlPlaceholder')" />
+          <Input v-model="baseUrl" :placeholder="t('form.baseUrlPlaceholder')" @update:model-value="resetSaveStatus" />
         </label>
         <label class="space-y-1 text-sm">
           <span class="font-medium">{{ t("form.pairingCode") }}</span>
           <Input
             :key="`pairing-${secretInputNonce}`"
             :placeholder="t('form.pairingCodePlaceholder')"
+            type="password"
             @update:model-value="(value: string) => captureSecretInput('pairingCode', value)"
           />
         </label>
