@@ -48,23 +48,32 @@ jobs:
         with:
           node-version: "24"
 
+      - name: 🦀 Resolve Rust channel
+        id: rust-channel
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import tomllib
+
+          toolchain_file = pathlib.Path("clients/agent-runtime/rust-toolchain.toml")
+          data = tomllib.loads(toolchain_file.read_text(encoding="utf-8"))
+          channel = data.get("toolchain", {}).get("channel")
+
+          if not channel:
+              raise SystemExit(
+                  "Failed to resolve [toolchain].channel from "
+                  "clients/agent-runtime/rust-toolchain.toml",
+              )
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"channel={channel}\n")
+
       - name: 🦀 Setup Rust
         run: |
-          rustup toolchain install stable --profile minimal
-          rustup default stable
+          rustup toolchain install "${{ steps.rust-channel.outputs.channel }}" --profile minimal
+          rustup default "${{ steps.rust-channel.outputs.channel }}"
           cargo --version
-
-      - name: 🦀 Install cross-compilation tools
-        if: ${{ inputs.release }}
-        run: |
-          # Install cross for easy cross-compilation
-          cargo install cross --locked
-
-          # Add required targets
-          rustup target add x86_64-unknown-linux-gnu
-          rustup target add aarch64-unknown-linux-gnu
-          rustup target add x86_64-apple-darwin
-          rustup target add aarch64-apple-darwin
 
       - name: ☕ Setup Java
         uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
@@ -222,16 +231,42 @@ jobs:
           cd clients/agent-runtime/npm/corvus-cli
           npm publish --access public
 
+  build-native-binaries:
+    if: ${{ inputs.release }}
+    needs: publish
+    uses: ./.github/workflows/_build-native-binaries.yml
+
+  docker-image:
+    if: ${{ inputs.release }}
+    needs: [publish, build-native-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: ⬇ Download Linux artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: corvus-linux-*
+          path: clients/agent-runtime/dist
+          merge-multiple: true
+          if-no-files-found: error
+
+      - name: 📦 Extract Linux binaries
+        working-directory: clients/agent-runtime/dist
+        run: |
+          set -euo pipefail
+          tar -xzf corvus-linux-x64.tar.gz
+          tar -xzf corvus-linux-arm64.tar.gz
+          chmod +x corvus-linux-x64 corvus-linux-arm64
+
       - name: 🐳 Set up QEMU
-        if: ${{ inputs.release }}
         uses: docker/setup-qemu-action@v3
 
       - name: 🐳 Set up Docker Buildx
-        if: ${{ inputs.release }}
         uses: docker/setup-buildx-action@v3
 
       - name: 🔐 Login to Docker Hub
-        if: ${{ inputs.release }}
         continue-on-error: true
         uses: docker/login-action@v3
         with:
@@ -239,7 +274,6 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: 🔐 Login to GitHub Container Registry
-        if: ${{ inputs.release }}
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -247,7 +281,6 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 🏷️ Generate Docker tags and labels
-        if: ${{ inputs.release }}
         id: docker-meta
         uses: docker/metadata-action@v5
         with:
@@ -260,23 +293,17 @@ jobs:
             type=semver,pattern={{major}},value=${{ github.ref_name }}
             type=raw,value=latest
 
-      - name: 🐳 Build and push Docker image
-        if: ${{ inputs.release }}
+      - name: 🐳 Build and push Docker image (prebuilt binaries)
         continue-on-error: true
         uses: docker/build-push-action@v6
         with:
           context: .
-          file: clients/agent-runtime/Dockerfile
+          file: clients/agent-runtime/Dockerfile.release-prebuilt
           target: release
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.docker-meta.outputs.tags }}
           labels: ${{ steps.docker-meta.outputs.labels }}
-
-  build-native-binaries:
-    if: ${{ inputs.release }}
-    needs: publish
-    uses: ./.github/workflows/_build-native-binaries.yml
 
   release-assets:
     if: ${{ inputs.release }}
@@ -289,8 +316,10 @@ jobs:
       - name: ⬇ Download all release artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
+          pattern: corvus-*
           path: clients/agent-runtime/dist
           merge-multiple: true
+          if-no-files-found: error
 
       - name: 📋 Generate SHA256 checksums
         run: |
