@@ -2,7 +2,8 @@
 title: Proceso de Release
 ---
 
-Esta guía explica cómo publicar releases y snapshots en Maven Central usando GitHub Actions.
+Esta guía explica cómo publicar un release completo de Corvus (KMP + Rust + artefactos web)
+usando GitHub Actions.
 
 ## Requisitos Previos
 
@@ -14,7 +15,27 @@ Antes de poder publicar, asegúrate de tener:
    - `SIGNING_IN_MEMORY_KEY_PASSWORD`: Contraseña de la clave GPG
    - `MAVEN_CENTRAL_USERNAME`: Usuario de Maven Central
    - `MAVEN_CENTRAL_PASSWORD`: Contraseña de Maven Central
-3. **Permisos de escritura**: Debes ser mantenedor del repositorio
+3. **Secrets de canales de release** para artefactos no-Gradle:
+   - `CARGO_REGISTRY_TOKEN`: token de publicación en crates.io para `clients/agent-runtime`
+   - `NPM_TOKEN`: token de npm para `@corvus/cli`
+   - `DOCKERHUB_USERNAME`: usuario de Docker Hub
+   - `DOCKERHUB_TOKEN`: token de acceso de Docker Hub
+4. **Permisos de escritura**: Debes ser mantenedor del repositorio
+
+### Qué publica un release
+
+Cuando `publish-release.yml` corre por un tag `vX.Y.Z`, publica:
+
+- **Artefactos KMP/Gradle** a Maven Central (`publishToMavenCentral`)
+- **Artefactos del plugin de build logic** a Maven Central en tags estables
+- **Crate de Rust** (`clients/agent-runtime`) a crates.io
+- **Paquete npm CLI** (`clients/agent-runtime/npm/corvus-cli`) a npm
+- **Imágenes de contenedor** a Docker Hub y GHCR
+- **Binarios nativos + checksums** adjuntos al GitHub Release
+
+Las apps web (`clients/web/apps/docs`, `clients/web/apps/marketing`,
+`clients/web/apps/dashboard`) se construyen en workflows separados y no se publican a Maven,
+crates.io o npm desde `publish-release.yml`.
 
 ## Entendiendo el Modelo de Branches
 
@@ -35,22 +56,31 @@ Asegúrate de que todos los cambios que quieres publicar estén en el branch cor
 
 ### Paso 2: Actualizar la versión
 
-Actualiza la versión en los lugares apropiados:
+Actualiza la versión en todos los targets de versión del release:
 
-```kotlin
-// build.gradle.kts o gradle.properties
-version = "1.2.3"  // Para releases de patch
-version = "1.3.0"  // Para releases minor
+```text
+gradle.properties
+gradle/build-logic/gradle.properties
+clients/web/package.json
+clients/web/apps/*/package.json
+clients/web/packages/*/package.json
+clients/agent-runtime/Cargo.toml
+clients/agent-runtime/npm/corvus-cli/package.json
 ```
 
 ### Sincronizar la versión desde el tag Git automáticamente
 
 Puedes mantener la versión del proyecto en sincronía con el tag Git automáticamente con el script y el target Make incluidos en este repositorio.
 
-- `make sync-version` — ejecuta `./sync-version-with-tag.sh` y sincroniza la última versión semántica del tag Git (`vX.Y.Z`) en:
+- `make sync-version` — ejecuta `./sync-version-with-tag.sh` y sincroniza la última versión
+  semántica del tag Git (`vX.Y.Z`) en:
   - `gradle.properties` (`VERSION=`)
   - `gradle/build-logic/gradle.properties` (`VERSION=`)
-  - `clients/web/apps/docs/package.json` (`"version"`)
+  - `clients/web/package.json` (`"version"`)
+  - cada app web en `clients/web/apps/*/package.json` (`"version"`)
+  - cada package compartido en `clients/web/packages/*/package.json` (`"version"`)
+  - `clients/agent-runtime/Cargo.toml` (`version = "..."`)
+  - `clients/agent-runtime/npm/corvus-cli/package.json` (`"version"`)
 - `./sync-version-with-tag.sh` — script shell que selecciona el tag semántico más reciente global usando `git tag --sort=-v:refname | grep -Em1 '^v[0-9]+\.[0-9]+\.[0-9]+$'` (no el tag más cercano desde `HEAD`), extrae la versión numérica (quita la `v` inicial) y actualiza todos los targets de versión listados arriba.
 
 Flujos de uso (elige uno):
@@ -79,14 +109,15 @@ git fetch --tags
 # Sincronizar los archivos de versión con el último tag
 make sync-version
 # Revisar y commitear el cambio
-git add gradle.properties gradle/build-logic/gradle.properties clients/web/apps/docs/package.json
+git add gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json
 git commit -m "chore: sync version to $(awk -F= '/^VERSION=/{print $2; exit}' gradle.properties)"
 # Pushear el commit (no es necesario recrear el tag)
 git push origin main
 ```
 
 Notas y advertencias:
-- El CI de release exige que el tag Git (ej. `v0.1.1`) coincida con la versión en el código (ej. `0.1.1`). Si no coinciden, el build falla con un error como: "CI Release: GitHub tag (v0.1.1) must match Code version (0.1.1)".
+- El CI de release exige que el tag Git (ej. `v0.1.1`) coincida con todos los archivos de
+  versión controlados (Gradle + monorepo web + Cargo + npm). Si no coinciden, el build falla.
 - Es preferible crear el commit que actualiza la versión antes de crear el tag para evitar desajustes.
 - El script solo reconoce tags que cumplen la expresión `^v[0-9]+\.[0-9]+\.[0-9]+$`.
 
@@ -115,14 +146,20 @@ git push origin v1.2.3
 3. Espera a que termine (usualmente 5-10 minutos)
 
 El workflow hará:
-- Build del proyecto
-- Generación de changelog desde commits convencionales
-- Publicación en Maven Central
-- Creación de un GitHub release con el changelog
+- Build y publicación de artefactos Gradle/KMP en Maven Central
+- Publicación del crate de Rust en crates.io
+- Publicación del paquete npm CLI
+- Build y publicación de imágenes Docker (Docker Hub + GHCR)
+- Build de binarios nativos para Linux, macOS y Windows, generación de checksums SHA256 y adjunto al GitHub Release
+- Generación de changelog y creación/actualización del GitHub Release
+
+Después de publicar el GitHub Release, `deploy-docs.yml` también puede desplegar docs en
+GitHub Pages.
 
 ## Publicar un Snapshot
 
-Los snapshots se publican automáticamente cada día, pero también puedes dispararlos manualmente:
+Los snapshots se publican automáticamente cada día, pero esto aplica solo al canal
+Gradle/Maven.
 
 ### Automático (Diario)
 
@@ -135,7 +172,10 @@ El workflow `publish-snapshot.yml` corre diariamente a las 02:12 UTC.
 3. Selecciona el branch (usualmente `main` o `minor`)
 4. Haz clic en **Run workflow**
 
-Los snapshots usan la versión definida en tus archivos de build con un sufijo `-SNAPSHOT`.
+Los snapshots usan la versión definida en los archivos de build de Gradle con sufijo
+`-SNAPSHOT`.
+Crates de Rust, paquete npm, imágenes Docker y assets de GitHub Release solo se publican en
+releases estables `vX.Y.Z`.
 
 ## Solución de Problemas
 
@@ -146,6 +186,9 @@ Los snapshots usan la versión definida en tus archivos de build con un sufijo `
    - **Firma fallida**: Verifica que los secrets GPG estén correctamente configurados
    - **Autenticación Maven Central fallida**: Verifica que las credenciales no hayan expirado
    - **Build fallido**: Asegúrate de que todos los tests pasen localmente con `./gradlew check`
+   - **Versiones desalineadas**: La versión del tag debe coincidir con archivos Gradle + monorepo web + Cargo + npm
+   - **Secret faltante de release**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
+     `DOCKERHUB_USERNAME` o `DOCKERHUB_TOKEN`
 
 ### La versión ya existe
 
@@ -165,10 +208,11 @@ Los snapshots pueden ser cacheados por Maven/Gradle. Fuerza una actualización:
 Usa este checklist antes de publicar:
 
 - [ ] Todos los tests pasan localmente (`./gradlew check`)
-- [ ] La versión está actualizada en los archivos de build
+- [ ] La versión está sincronizada en todos los targets (Gradle, monorepo web, Cargo, npm)
 - [ ] CHANGELOG.md está actualizado (si se mantiene manualmente)
 - [ ] La clave GPG es válida y no ha expirado
 - [ ] Las credenciales de Maven Central son actuales
+- [ ] Los secrets de crates.io, npm y Docker Hub están configurados
 - [ ] El tag sigue el formato `vX.Y.Z`
 - [ ] Se está trabajando en el branch correcto (`main` para patches, `minor` para features)
 

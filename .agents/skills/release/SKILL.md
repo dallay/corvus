@@ -8,8 +8,8 @@ description:
 
 # Release Manager
 
-This skill guides the creation of releases and snapshots for this Gradle-based
-project, including publishing to Maven Central and GitHub Releases.
+This skill guides release and snapshot operations for Corvus across Gradle/KMP,
+Rust, npm, Docker images, and GitHub Releases.
 
 ## Prerequisites
 
@@ -23,10 +23,33 @@ Before publishing, ensure the user has:
 - `MAVEN_CENTRAL_USERNAME`: Maven Central username
 - `MAVEN_CENTRAL_PASSWORD`: Maven Central password
 
-3. **Write permissions**: Must be a maintainer of the repository
+3. **Release channel secrets** (required for stable release tags):
+
+- `CARGO_REGISTRY_TOKEN`: crates.io token
+- `NPM_TOKEN`: npm token for `@corvus/cli`
+- `DOCKERHUB_USERNAME`: Docker Hub username
+- `DOCKERHUB_TOKEN`: Docker Hub token
+
+4. **Write permissions**: Must be a maintainer of the repository
 
 If any prerequisite is missing, inform the user and guide them to the
 [GPG Setup Guide](../gpg-setup/) first.
+
+## Release Surface
+
+For `publish-release.yml` (tag `vX.Y.Z`), expect:
+
+- Gradle/KMP artifacts to Maven Central
+- Build logic plugin publication to Maven Central (release mode)
+- Rust crate publication from `clients/agent-runtime` to crates.io
+- npm CLI publication from `clients/agent-runtime/npm/corvus-cli`
+- Docker image publication to Docker Hub and GHCR
+- Native binaries (Linux, macOS, Windows) + SHA256 checksums attached to GitHub Release
+
+For `publish-snapshot.yml`:
+
+- Snapshot publication is Gradle/Maven-only
+- No crates.io, npm, Docker, or GitHub Release asset publication
 
 ## Branch Model
 
@@ -73,7 +96,12 @@ The user has two options for version management:
    ```
    VERSION=1.2.3
    ```
-3. Update `docs/website/package.json` version field
+3. Update web monorepo versions:
+   - `clients/web/package.json`
+   - `clients/web/apps/*/package.json`
+   - `clients/web/packages/*/package.json`
+4. Update `clients/agent-runtime/Cargo.toml` `version` field
+5. Update `clients/agent-runtime/npm/corvus-cli/package.json` `version` field
 
 **Option B - Sync from Git tag (if tag exists first):**
 
@@ -82,14 +110,14 @@ The user has two options for version management:
 make sync-version
 
 # Review changes
-git diff gradle.properties gradle/build-logic/gradle.properties docs/website/package.json
+git diff gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json
 ```
 
 The `make sync-version` command runs `./sync-version-with-tag.sh` which:
 
 - Finds the latest semantic Git tag (`vX.Y.Z`)
 - Extracts the numeric version (drops leading `v`)
-- Updates all version targets
+- Updates all tracked version targets (Gradle, web monorepo, Cargo, npm)
 
 ### Step 3: Create and Push Tag
 
@@ -118,7 +146,7 @@ The workflow will:
 
 ## Publishing a Snapshot
 
-Snapshots are useful for testing changes before a正式 release.
+Snapshots are useful for testing changes before a stable release.
 
 ### Automatic (Daily)
 
@@ -143,7 +171,8 @@ Snapshots use version with `-SNAPSHOT` suffix (e.g., `1.2.3-SNAPSHOT`).
 - **Signing failed**: GPG secrets not configured correctly
 - **Maven Central auth failed**: Credentials expired
 - **Build failed**: Run `./gradlew check` locally first
-- **Version mismatch**: Git tag must match code version (e.g., `v1.2.3` = `1.2.3`)
+- **Version mismatch**: Git tag must match Gradle, web monorepo, Cargo, and npm versions
+- **Missing release secret**: cargo/npm/docker secrets missing for release workflow
 
 ### Version already exists
 
@@ -165,10 +194,11 @@ Snapshots can be cached. Force update:
 Before publishing, verify:
 
 - [ ] All tests pass locally (`./gradlew check`)
-- [ ] Version updated in build files
+- [ ] Version updated in all release targets (Gradle, web monorepo, Cargo, npm)
 - [ ] CHANGELOG.md updated (if maintained)
 - [ ] GPG key valid and not expired
 - [ ] Maven Central credentials current
+- [ ] crates.io, npm, and Docker Hub secrets configured
 - [ ] Tag follows `vX.Y.Z` format
 - [ ] Working on correct branch (main for patches, minor for features)
 
@@ -179,7 +209,7 @@ Before publishing, verify:
 make sync-version
 
 # Verify current version
-cat gradle.properties | grep VERSION
+rg '^VERSION=' gradle.properties
 
 # Run all checks before release
 ./gradlew check
@@ -195,4 +225,4 @@ git push origin v1.2.3
 
 - [Release Process Documentation](../release/)
 - [GPG Setup Guide](../gpg-setup/)
-- [GitHub Workflows](https://github.com/dallay/starter-gradle/blob/main/.github/workflows/README.md)
+- [GitHub Workflows](https://github.com/dallay/corvus/blob/main/.github/workflows/README.md)

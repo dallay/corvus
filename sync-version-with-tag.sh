@@ -5,15 +5,51 @@
 set -euo pipefail
 
 readonly TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+$'
-readonly TARGETS=(
+readonly BASE_TARGETS=(
   "properties:gradle.properties:VERSION"
   "properties:gradle/build-logic/gradle.properties:VERSION"
-  "json:clients/web/apps/docs/package.json:version"
   "toml:clients/agent-runtime/Cargo.toml:version"
   "json:clients/agent-runtime/npm/corvus-cli/package.json:version"
 )
 
+declare -a TARGETS=("${BASE_TARGETS[@]}")
 declare -a CHANGED_FILES=()
+
+has_json_version_key() {
+  local file="$1"
+  awk '
+    BEGIN { found = 0 }
+    /^[[:space:]]*"version"[[:space:]]*:/ {
+      found = 1
+      exit
+    }
+    END {
+      if (!found) exit 1
+    }
+  ' "$file"
+}
+
+add_json_version_target() {
+  local file="$1"
+  if [[ -f "$file" ]] && has_json_version_key "$file"; then
+    TARGETS+=("json:${file}:version")
+  fi
+}
+
+collect_web_version_targets() {
+  local file
+  shopt -s nullglob
+
+  # Workspace root package version
+  add_json_version_target "clients/web/package.json"
+
+  # Monorepo apps and shared packages versions
+  for file in clients/web/apps/*/package.json clients/web/packages/*/package.json; do
+    add_json_version_target "$file"
+  done
+
+  shopt -u nullglob
+}
 
 write_if_changed() {
   local file="$1"
@@ -158,6 +194,8 @@ fi
 version="${tag#v}"
 echo "Syncing version files to: $version"
 
+collect_web_version_targets
+
 for target in "${TARGETS[@]}"; do
   apply_target_update "$target"
 done
@@ -175,15 +213,24 @@ fi
 # Helpful next-steps message
 diff_files="${CHANGED_FILES[*]}"
 if [[ ${#CHANGED_FILES[@]} -eq 0 ]]; then
-  diff_files="gradle.properties gradle/build-logic/gradle.properties clients/web/apps/docs/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json"
+  declare -A seen_files=()
+  declare -a target_files=()
+  for target in "${TARGETS[@]}"; do
+    IFS=: read -r _ file _ <<< "$target"
+    if [[ -z "${seen_files[$file]:-}" ]]; then
+      target_files+=("$file")
+      seen_files["$file"]=1
+    fi
+  done
+  diff_files="${target_files[*]}"
 fi
 
 cat <<NEXT_STEPS
 Next steps (recommended):
   1) Review the changes: git diff "$diff_files"
-  2) Commit the change: git add gradle.properties gradle/build-logic/gradle.properties clients/web/apps/docs/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json && git commit -m "chore: sync version to $version"
+  2) Commit the change: git add $diff_files && git commit -m "chore: sync version to $version"
   3) Push your branch and tag as appropriate.
-     If tag v$version already exists but points at the wrong commit, prefer creating a new patch version.
-     Only force-update a tag after confirming no one else depends on it and with explicit confirmation.
+      If tag v$version already exists but points at the wrong commit, prefer creating a new patch version.
+      Only force-update a tag after confirming no one else depends on it and with explicit confirmation.
      See "Version already exists" troubleshooting guidance in clients/web/apps/docs/src/content/docs/guides/release.md.
 NEXT_STEPS

@@ -30,6 +30,8 @@ on:
 
 jobs:
   publish:
+    outputs:
+      changelog: ${{ steps.changelog.outputs.changelog }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -131,6 +133,24 @@ jobs:
               exit 1
             fi
           done
+
+          shopt -s nullglob
+          web_version_files=(
+            clients/web/package.json
+            clients/web/apps/*/package.json
+            clients/web/packages/*/package.json
+          )
+
+          for file in "${web_version_files[@]}"; do
+            [[ -f "$file" ]] || continue
+            web_version="$(awk -F'"' '/^[[:space:]]*"version"[[:space:]]*:/ {print $4; exit}' "$file")"
+            [[ -z "$web_version" ]] && continue
+            if [[ "$web_version" != "$expected_version" ]]; then
+              echo "Version mismatch in ${file}: expected ${expected_version}, got ${web_version}"
+              exit 1
+            fi
+          done
+          shopt -u nullglob
 
       - name: 🔐 Validate release credentials
         if: ${{ inputs.release }}
@@ -238,65 +258,120 @@ jobs:
           tags: ${{ steps.docker-meta.outputs.tags }}
           labels: ${{ steps.docker-meta.outputs.labels }}
 
-      - name: 🔨 Build native binaries for GitHub Release
-        if: ${{ inputs.release }}
+  build-native-binaries:
+    if: ${{ inputs.release }}
+    needs: publish
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: corvus-linux-x64
+            archive_ext: tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: corvus-linux-arm64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: corvus-darwin-x64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: corvus-darwin-arm64
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: corvus-windows-x64
+            archive_ext: zip
+
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: 🦀 Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
+        with:
+          toolchain: stable
+          targets: ${{ matrix.target }}
+
+      - name: 🦀 Install cross
+        if: runner.os == 'Linux'
+        run: cargo install cross --locked
+
+      - name: 🔨 Build binary (Linux native GNU)
+        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          cd clients/agent-runtime
+          cargo build --release --locked --target x86_64-unknown-linux-gnu
+
+      - name: 🔨 Build binary (Linux cross)
+        if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
+        run: |
+          cd clients/agent-runtime
+          cross build --release --target ${{ matrix.target }}
+
+      - name: 🔨 Build binary (macOS/Windows)
+        if: runner.os != 'Linux'
+        run: |
+          cd clients/agent-runtime
+          cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: 📦 Package artifact (Unix)
+        if: runner.os != 'Windows'
         run: |
           set -euo pipefail
           cd clients/agent-runtime
           mkdir -p dist
+          cp "target/${{ matrix.target }}/release/corvus" "dist/${{ matrix.artifact_name }}"
+          tar -czf "dist/${{ matrix.artifact_name }}.tar.gz" -C dist "${{ matrix.artifact_name }}"
 
-          # Build for Linux x64 using cross
-          echo "Building for Linux x64..."
-          cross build --release --target x86_64-unknown-linux-gnu
-          cp target/x86_64-unknown-linux-gnu/release/corvus dist/corvus-linux-x64
+      - name: 📦 Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          New-Item -ItemType Directory -Force -Path clients/agent-runtime/dist | Out-Null
+          Copy-Item "clients/agent-runtime/target/${{ matrix.target }}/release/corvus.exe" "clients/agent-runtime/dist/${{ matrix.artifact_name }}.exe"
+          Compress-Archive -Path "clients/agent-runtime/dist/${{ matrix.artifact_name }}.exe" -DestinationPath "clients/agent-runtime/dist/${{ matrix.artifact_name }}.zip" -Force
 
-          # Build for Linux arm64 using cross
-          echo "Building for Linux arm64..."
-          cross build --release --target aarch64-unknown-linux-gnu
-          cp target/aarch64-unknown-linux-gnu/release/corvus dist/corvus-linux-arm64
+      - name: ⬆ Upload release artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: clients/agent-runtime/dist/${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
 
-          # Build for macOS x64 using cross
-          echo "Building for macOS x64..."
-          if cross build --release --target x86_64-apple-darwin 2>/dev/null; then
-            cp target/x86_64-apple-darwin/release/corvus dist/corvus-darwin-x64
-          else
-            echo "⚠️ Cross-compilation for macOS x64 not available, skipping..."
-            echo "Note: macOS binaries must be built on macOS runners or with special tooling"
-          fi
+  release-assets:
+    if: ${{ inputs.release }}
+    needs: [publish, build-native-binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
-          # Build for macOS arm64 using cross
-          echo "Building for macOS arm64..."
-          if cross build --release --target aarch64-apple-darwin 2>/dev/null; then
-            cp target/aarch64-apple-darwin/release/corvus dist/corvus-darwin-arm64
-          else
-            echo "⚠️ Cross-compilation for macOS arm64 not available, skipping..."
-            echo "Note: macOS binaries must be built on macOS runners or with special tooling"
-          fi
-
-          ls -la dist/
+    steps:
+      - name: ⬇ Download all release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: clients/agent-runtime/dist
+          merge-multiple: true
 
       - name: 📋 Generate SHA256 checksums
-        if: ${{ inputs.release }}
         run: |
           set -euo pipefail
           cd clients/agent-runtime/dist
-
-          for binary in corvus-*; do
-            if [ -f "$binary" ] && [[ ! "$binary" == *.sha256 ]] && [[ ! "$binary" == *.skip ]]; then
-              echo "Generating checksum for $binary..."
-              sha256sum "$binary" > "$binary.sha256"
-              cat "$binary.sha256"
-            fi
+          for archive in *.tar.gz *.zip; do
+            [[ -f "$archive" ]] || continue
+            sha256sum "$archive" > "$archive.sha256"
           done
-
-          echo "Checksum files generated:"
-          ls -la *.sha256 || echo "No checksum files found"
+          ls -la
 
       - name: 🚀 Create GitHub Release
-        if: ${{ inputs.release }}
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
         with:
-          body: ${{ steps.changelog.outputs.changelog }}
+          body: ${{ needs.publish.outputs.changelog }}
           generate_release_notes: true
           files: |
             clients/agent-runtime/dist/corvus-*
