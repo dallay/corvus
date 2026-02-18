@@ -5,20 +5,20 @@
 //! external service dependencies. They complement the unit tests in
 //! `src/agent/tests.rs` by running at the integration test boundary.
 //!
-//! Ref: https://github.com/zeroclaw-labs/zeroclaw/issues/618 (item 6)
+//! Ref: https://github.com/dallay/corvus/issues/618 (item 6)
 
 use anyhow::Result;
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::{Arc, Mutex};
-use zeroclaw::agent::agent::Agent;
-use zeroclaw::agent::dispatcher::{NativeToolDispatcher, XmlToolDispatcher};
-use zeroclaw::config::MemoryConfig;
-use zeroclaw::memory;
-use zeroclaw::memory::Memory;
-use zeroclaw::observability::{NoopObserver, Observer};
-use zeroclaw::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
-use zeroclaw::tools::{Tool, ToolResult};
+use corvus::agent::agent::Agent;
+use corvus::agent::dispatcher::{NativeToolDispatcher, XmlToolDispatcher};
+use corvus::config::MemoryConfig;
+use corvus::memory;
+use corvus::memory::Memory;
+use corvus::observability::{NoopObserver, Observer};
+use corvus::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
+use corvus::tools::{Tool, ToolResult};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock infrastructure

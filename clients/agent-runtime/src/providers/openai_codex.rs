@@ -10,7 +10,7 @@ use std::path::PathBuf;
 
 const CODEX_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
 const DEFAULT_CODEX_INSTRUCTIONS: &str =
-    "You are ZeroClaw, a concise and helpful coding assistant.";
+    "You are Corvus, a concise and helpful coding assistant.";
 
 pub struct OpenAiCodexProvider {
     auth: AuthService,
@@ -80,9 +80,9 @@ struct ResponsesContent {
 impl OpenAiCodexProvider {
     pub fn new(options: &ProviderRuntimeOptions) -> Self {
         let state_dir = options
-            .zeroclaw_dir
+            .corvus_dir
             .clone()
-            .unwrap_or_else(default_zeroclaw_dir);
+            .unwrap_or_else(default_corvus_dir);
         let auth = AuthService::new(&state_dir, options.secrets_encrypt);
 
         Self {
@@ -97,10 +97,10 @@ impl OpenAiCodexProvider {
     }
 }
 
-fn default_zeroclaw_dir() -> PathBuf {
+fn default_corvus_dir() -> PathBuf {
     directories::UserDirs::new().map_or_else(
-        || PathBuf::from(".zeroclaw"),
-        |dirs| dirs.home_dir().join(".zeroclaw"),
+        || PathBuf::from(".corvus"),
+        |dirs| dirs.home_dir().join(".corvus"),
     )
 }
 
@@ -142,7 +142,7 @@ fn clamp_reasoning_effort(model: &str, effort: &str) -> String {
 }
 
 fn resolve_reasoning_effort(model_id: &str) -> String {
-    let raw = std::env::var("ZEROCLAW_CODEX_REASONING_EFFORT")
+    let raw = std::env::var("CORVUS_CODEX_REASONING_EFFORT")
         .ok()
         .and_then(|value| first_nonempty(Some(&value)))
         .unwrap_or_else(|| "xhigh".to_string())
@@ -353,7 +353,7 @@ impl Provider for OpenAiCodexProvider {
             .await?
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "OpenAI Codex auth profile not found. Run `zeroclaw auth login --provider openai-codex`."
+                    "OpenAI Codex auth profile not found. Run `corvus auth login --provider openai-codex`."
                 )
             })?;
         let account_id = profile
@@ -361,7 +361,7 @@ impl Provider for OpenAiCodexProvider {
             .or_else(|| extract_account_id_from_jwt(&access_token))
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "OpenAI Codex account id not found in auth profile/token. Run `zeroclaw auth login --provider openai-codex` again."
+                    "OpenAI Codex account id not found in auth profile/token. Run `corvus auth login --provider openai-codex` again."
                 )
             })?;
         let normalized_model = normalize_model_id(model);
@@ -440,7 +440,7 @@ mod tests {
 
     #[test]
     fn default_state_dir_is_non_empty() {
-        let path = default_zeroclaw_dir();
+        let path = default_corvus_dir();
         assert!(!path.as_os_str().is_empty());
     }
 

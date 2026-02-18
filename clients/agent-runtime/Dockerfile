@@ -12,10 +12,15 @@ RUN apt-get update && apt-get install -y \
 
 # 1. Copy manifests to cache dependencies
 COPY clients/agent-runtime/Cargo.toml clients/agent-runtime/Cargo.lock ./
-# Create dummy main.rs to build dependencies
-RUN mkdir src && echo "fn main() {}" > src/main.rs
+COPY clients/agent-runtime/crates/robot-kit/Cargo.toml ./crates/robot-kit/Cargo.toml
+
+# Create dummy sources to build dependency graph for workspace members
+RUN mkdir -p src crates/robot-kit/src benches && \
+    echo "fn main() {}" > src/main.rs && \
+    echo "pub fn _dummy() {}" > crates/robot-kit/src/lib.rs && \
+    touch benches/agent_benchmarks.rs
 RUN cargo build --release --locked
-RUN rm -rf src
+RUN rm -rf src crates/robot-kit/src benches
 
 # 2. Copy source code
 COPY clients/agent-runtime/ .
