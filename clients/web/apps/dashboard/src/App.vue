@@ -31,8 +31,9 @@ const chatContainer = ref<HTMLDivElement | null>(null);
 const secretInputNonce = ref(0);
 const saveStatus = ref<"idle" | "saving" | "success" | "error">("idle");
 const saveErrorMessage = ref("");
-const saveStatusTimeoutId = ref<ReturnType<typeof setTimeout> | null>(null);
-const requestTimeoutId = ref<ReturnType<typeof setTimeout> | null>(null);
+
+let saveStatusTimeoutId: ReturnType<typeof setTimeout> | null = null;
+let requestTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
 let messageIdCounter = 1;
 let pairingCodeInput = "";
@@ -57,9 +58,13 @@ function nextMessageId(): number {
 }
 
 function resetSaveStatus(): void {
-  if (saveStatusTimeoutId.value) {
-    clearTimeout(saveStatusTimeoutId.value);
-    saveStatusTimeoutId.value = null;
+  if (saveStatus.value === "saving") {
+    return;
+  }
+
+  if (saveStatusTimeoutId) {
+    clearTimeout(saveStatusTimeoutId);
+    saveStatusTimeoutId = null;
   }
   saveStatus.value = "idle";
 }
@@ -86,7 +91,7 @@ async function saveGatewayConfig(): Promise<void> {
 
   const gatewayBaseUrl = baseUrl.value.replace(/\/$/, "");
   const controller = new AbortController();
-  requestTimeoutId.value = setTimeout(() => controller.abort(), 10000);
+  requestTimeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
     const payload: Record<string, string> = {
@@ -117,7 +122,7 @@ async function saveGatewayConfig(): Promise<void> {
     secretInputNonce.value += 1;
     saveStatus.value = "success";
 
-    saveStatusTimeoutId.value = setTimeout(() => {
+    saveStatusTimeoutId = setTimeout(() => {
       saveStatus.value = "idle";
     }, 3000);
   } catch (error) {
@@ -129,9 +134,9 @@ async function saveGatewayConfig(): Promise<void> {
     }
     console.error("Error saving gateway config", error);
   } finally {
-    if (requestTimeoutId.value) {
-      clearTimeout(requestTimeoutId.value);
-      requestTimeoutId.value = null;
+    if (requestTimeoutId) {
+      clearTimeout(requestTimeoutId);
+      requestTimeoutId = null;
     }
   }
 }
@@ -169,8 +174,8 @@ async function sendMessage(): Promise<void> {
 }
 
 onUnmounted(() => {
-  if (saveStatusTimeoutId.value) clearTimeout(saveStatusTimeoutId.value);
-  if (requestTimeoutId.value) clearTimeout(requestTimeoutId.value);
+  if (saveStatusTimeoutId) clearTimeout(saveStatusTimeoutId);
+  if (requestTimeoutId) clearTimeout(requestTimeoutId);
 });
 </script>
 

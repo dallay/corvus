@@ -16,7 +16,8 @@
     "webhookSecretPlaceholder": "Secreto del webhook",
     "save": "Guardar configuración",
     "saveSuccess": "Configuración guardada correctamente",
-    "saveError": "No se pudo guardar la configuración"
+    "saveError": "No se pudo guardar la configuración",
+    "timeoutError": "Tiempo de espera agotado"
   },
   "chat": {
     "welcome": "Hola, soy {modelName}. ¿En qué puedo ayudarte?",
