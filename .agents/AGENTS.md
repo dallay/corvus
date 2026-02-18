@@ -168,6 +168,7 @@ Located in `.agents/skills/`. Reference for detailed patterns:
 | [kotlin-coroutines](.agents/skills/kotlin-coroutines/SKILL.md)       | Coroutines, async patterns                | Coroutines, Flow                 |
 | [kotlin-expert](.agents/skills/kotlin-expert/SKILL.md)               | Advanced Kotlin features                  | Advanced Kotlin                  |
 | [kotlin-multiplatform](.agents/skills/kotlin-multiplatform/SKILL.md) | KMP patterns, expect/actual               | KMP modules                      |
+| [conventional-commits](.opencode/skill/conventional-commits/SKILL.md) | Conventional Commits specification        | Creating commits, git messages   |
 
 ## Testing
 

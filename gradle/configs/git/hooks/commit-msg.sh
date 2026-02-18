@@ -22,13 +22,13 @@ if [ ! -f "$MSG_PATH" ]; then
   exit 1
 fi
 
-COMMIT_MSG="$(<"$MSG_PATH")"
-echo -e "📝 Latest commit message:\n  ${GREEN}${COMMIT_MSG}${RESET}\n"
+COMMIT_MSG="$(awk 'BEGIN{header=""} /^[[:space:]]*#/ {next} {header=$0; print header; exit}' "$MSG_PATH")"
+echo -e "📝 Commit message header:\n  ${GREEN}${COMMIT_MSG}${RESET}\n"
 
 # ------------------------------
 # Commit message pattern
 # ------------------------------
-COMMIT_MSG_PATTERN='^(revert: )?(feat|fix|refactor|perf|test|infra|deps|docs|chore|wip|release)(\([^)]+\))?: .{1,100}$'
+COMMIT_MSG_PATTERN='^(revert: )?(build|chore|ci|deps|docs|feat|fix|infra|perf|refactor|release|style|test|wip)(\([^)]+\))?(!)?: [^\n\r]{1,100}[^\s\n\r]$'
 
 # ------------------------------
 # Skip merge or initial commit
@@ -46,11 +46,12 @@ fi
 if ! echo "$COMMIT_MSG" | grep -Eq "$COMMIT_MSG_PATTERN"; then
   echo -e "${BG_RED}ERROR${RESET}  ${RED}invalid commit message format.${RESET}\n"
   echo -e "${RED}Proper commit message format is required for automated changelog generation. Examples:${RESET}\n"
-  echo -e "  ${GREEN}feat(compiler): add 'comments' option${RESET}"
-  echo -e "  ${GREEN}fix(v-model): handle events on blur (close #28)${RESET}\n"
+  echo -e "  ${GREEN}feat(parser): add support for empty tuples${RESET}"
+  echo -e "  ${GREEN}fix(runtime): handle reconnect race condition${RESET}"
+  echo -e "  ${GREEN}refactor(core)!: remove legacy provider fallback${RESET}\n"
   echo -e "${RED}Commit message header: <type>(<scope>): <subject>${RESET}"
   echo -e "${RED}Commit message header pattern: ${COMMIT_MSG_PATTERN}${RESET}"
-  echo -e "${RED}See${RESET} ${BLUE}https://github.com/conventional-commits/conventionalcommits.org${RESET} ${RED}for more details.${RESET}\n"
+  echo -e "${RED}See${RESET} ${BLUE}https://www.conventionalcommits.org/en/v1.0.0/${RESET} ${RED}for more details.${RESET}\n"
   echo -e "${RED}❌ Invalid commit message:${RESET} '${COMMIT_MSG}'"
   exit 1
 fi
