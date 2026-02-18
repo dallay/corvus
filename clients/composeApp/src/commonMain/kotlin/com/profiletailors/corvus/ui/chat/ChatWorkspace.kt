@@ -40,6 +40,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 
+private val ChatPanelShape = RoundedCornerShape(16.dp)
+private val ConfigPanelShape = RoundedCornerShape(16.dp)
+private val EndpointCardShape = RoundedCornerShape(12.dp)
+private val ChatBubbleShape = RoundedCornerShape(14.dp)
+
 @Immutable
 data class ChatWorkspaceState(
   val modelName: String,
@@ -127,21 +132,27 @@ fun ChatWorkspace(
     query = ""
   }
 
-  ChatWorkspaceScreen(
-    state = state,
-    messages = messages,
-    query = query,
-    showConfig = showConfig,
-    gatewayConfig =
+  val gatewayConfig =
+    remember(baseUrl, pairingCode, bearerToken, webhookSecret) {
       AgentGatewayConfig(
         baseUrl = baseUrl,
         pairingCode = pairingCode,
         bearerToken = bearerToken,
         webhookSecret = webhookSecret,
-      ),
+      )
+    }
+
+  val onToggleConfigLambda = remember { { showConfig = !showConfig } }
+
+  ChatWorkspaceScreen(
+    state = state,
+    messages = messages,
+    query = query,
+    showConfig = showConfig,
+    gatewayConfig = gatewayConfig,
     onQueryChange = { query = it },
     onSend = ::sendMessage,
-    onToggleConfig = { showConfig = !showConfig },
+    onToggleConfig = onToggleConfigLambda,
     onBaseUrlChange = { baseUrl = it },
     onPairingCodeChange = { pairingCode = it },
     onBearerTokenChange = { bearerToken = it },
@@ -242,12 +253,14 @@ private fun ChatPanel(
   modifier: Modifier = Modifier,
 ) {
   val colors = MaterialTheme.colorScheme
+  val borderStroke =
+    remember(colors.outline) { BorderStroke(1.dp, colors.outline.copy(alpha = 0.3f)) }
 
   Surface(
     modifier = modifier.fillMaxWidth(),
-    shape = RoundedCornerShape(16.dp),
+    shape = ChatPanelShape,
     color = colors.surfaceVariant.copy(alpha = 0.32f),
-    border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.3f)),
+    border = borderStroke,
   ) {
     LazyColumn(
       modifier = Modifier.fillMaxSize().padding(12.dp),
@@ -274,7 +287,8 @@ private fun ChatPanel(
 
     Spacer(modifier = Modifier.width(8.dp))
 
-    Button(onClick = onSend, enabled = query.isNotBlank(), modifier = Modifier.height(56.dp)) {
+    val isSendEnabled = query.isNotBlank()
+    Button(onClick = onSend, enabled = isSendEnabled, modifier = Modifier.height(56.dp)) {
       Text("Send")
     }
   }
@@ -300,7 +314,7 @@ private fun ConfigPanel(
 
   Surface(
     modifier = modifier.fillMaxWidth(),
-    shape = RoundedCornerShape(16.dp),
+    shape = ConfigPanelShape,
     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
     color = MaterialTheme.colorScheme.surface,
   ) {
@@ -400,7 +414,7 @@ private fun ConfigPanel(
 private fun EndpointCard(title: String, subtitle: String, details: List<String>) {
   Surface(
     modifier = Modifier.fillMaxWidth(),
-    shape = RoundedCornerShape(12.dp),
+    shape = EndpointCardShape,
     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f),
     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
   ) {
@@ -441,7 +455,7 @@ private fun ChatBubble(message: ChatMessage, modelName: String) {
   ) {
     Surface(
       modifier = Modifier.widthIn(max = 320.dp),
-      shape = RoundedCornerShape(14.dp),
+      shape = ChatBubbleShape,
       color = if (isUser) colors.primaryContainer else colors.surface,
       border = BorderStroke(1.dp, colors.outline.copy(alpha = 0.2f)),
     ) {
