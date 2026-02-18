@@ -32,8 +32,7 @@ Before publishing, ensure the user has:
 
 4. **Write permissions**: Must be a maintainer of the repository
 
-If any prerequisite is missing, inform the user and guide them to the
-[GPG Setup Guide](../gpg-setup/) first.
+If any prerequisite is missing, inform the user and guide them to the [GPG Setup Guide](https://github.com/dallay/corvus/blob/main/clients/web/apps/docs/src/content/docs/en/guides/gpg-setup.md) first.
 
 ## Release Surface
 

@@ -224,23 +224,23 @@ jobs:
 
       - name: 🐳 Set up QEMU
         if: ${{ inputs.release }}
-        uses: docker/setup-qemu-action@e474179bdfa42213eab2f8c674c6daef42f43a09 # v3.6.0
+        uses: docker/setup-qemu-action@v3
 
       - name: 🐳 Set up Docker Buildx
         if: ${{ inputs.release }}
-        uses: docker/setup-buildx-action@f4f5800b94467d3a33e1d9b90bba96fd39e8564e # v3.11.1
+        uses: docker/setup-buildx-action@v3
 
       - name: 🔐 Login to Docker Hub
         if: ${{ inputs.release }}
         continue-on-error: true
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.5.0
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: 🔐 Login to GitHub Container Registry
         if: ${{ inputs.release }}
-        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.5.0
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -249,7 +249,7 @@ jobs:
       - name: 🏷️ Generate Docker tags and labels
         if: ${{ inputs.release }}
         id: docker-meta
-        uses: docker/metadata-action@902fa8ec7d6ecbf8d84cc7b29e5c6ea6f7eb9e81 # v5.8.0
+        uses: docker/metadata-action@v5
         with:
           images: |
             docker.io/${{ secrets.DOCKERHUB_USERNAME }}/corvus
@@ -263,7 +263,7 @@ jobs:
       - name: 🐳 Build and push Docker image
         if: ${{ inputs.release }}
         continue-on-error: true
-        uses: docker/build-push-action@95139e6fce77e460f7d1d9c03d096667e6bfca44 # v6.17.0
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: clients/agent-runtime/Dockerfile
@@ -311,6 +311,9 @@ jobs:
         with:
           toolchain: stable
           targets: ${{ matrix.target }}
+
+      - name: 🦀 Install Rust target
+        run: rustup target add ${{ matrix.target }}
 
       - name: 🦀 Install cross
         if: runner.os == 'Linux'
