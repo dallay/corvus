@@ -1,0 +1,108 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: "_build-native-binaries"
+
+on:
+  workflow_call:
+
+jobs:
+  build-native-binaries:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: corvus-linux-x64
+            archive_ext: tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            artifact_name: corvus-linux-arm64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: corvus-darwin-x64
+            archive_ext: tar.gz
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: corvus-darwin-arm64
+            archive_ext: tar.gz
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: corvus-windows-x64
+            archive_ext: zip
+
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: 🦀 Resolve Rust channel
+        id: rust-channel
+        shell: python
+        run: |
+          import os
+          import pathlib
+          import tomllib
+
+          toolchain_file = pathlib.Path("clients/agent-runtime/rust-toolchain.toml")
+          data = tomllib.loads(toolchain_file.read_text(encoding="utf-8"))
+          channel = data.get("toolchain", {}).get("channel")
+
+          if not channel:
+              raise SystemExit(
+                  "Failed to resolve [toolchain].channel from "
+                  "clients/agent-runtime/rust-toolchain.toml",
+              )
+
+          with pathlib.Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"channel={channel}\n")
+
+      - name: 🦀 Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
+        with:
+          toolchain: ${{ steps.rust-channel.outputs.channel }}
+          targets: ${{ matrix.target }}
+
+      - name: 🦀 Install cross
+        if: runner.os == 'Linux'
+        run: cargo install cross --locked
+
+      - name: 🔨 Build binary (Linux native GNU)
+        if: runner.os == 'Linux' && matrix.target == 'x86_64-unknown-linux-gnu'
+        working-directory: clients/agent-runtime
+        run: cargo build --release --locked --target x86_64-unknown-linux-gnu
+
+      - name: 🔨 Build binary (Linux cross)
+        if: runner.os == 'Linux' && matrix.target != 'x86_64-unknown-linux-gnu'
+        working-directory: clients/agent-runtime
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: 🔨 Build binary (macOS/Windows)
+        if: runner.os != 'Linux'
+        working-directory: clients/agent-runtime
+        run: cargo build --release --locked --target ${{ matrix.target }}
+
+      - name: 📦 Package artifact (Unix)
+        if: runner.os != 'Windows'
+        working-directory: clients/agent-runtime
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/corvus" "dist/${{ matrix.artifact_name }}"
+          tar -czf "dist/${{ matrix.artifact_name }}.tar.gz" -C dist "${{ matrix.artifact_name }}"
+
+      - name: 📦 Package artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          New-Item -ItemType Directory -Force -Path clients/agent-runtime/dist | Out-Null
+          Copy-Item "clients/agent-runtime/target/${{ matrix.target }}/release/corvus.exe" "clients/agent-runtime/dist/${{ matrix.artifact_name }}.exe"
+          Compress-Archive -Path "clients/agent-runtime/dist/${{ matrix.artifact_name }}.exe" -DestinationPath "clients/agent-runtime/dist/${{ matrix.artifact_name }}.zip" -Force
+
+      - name: ⬆ Upload release artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: clients/agent-runtime/dist/${{ matrix.artifact_name }}.${{ matrix.archive_ext }}
+          if-no-files-found: error
