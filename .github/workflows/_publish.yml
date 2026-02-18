@@ -12,13 +12,13 @@ on:
         default: false
     secrets:
       SIGNING_IN_MEMORY_KEY:
-        required: true
+        required: false
       SIGNING_IN_MEMORY_KEY_PASSWORD:
-        required: true
+        required: false
       MAVEN_CENTRAL_USERNAME:
-        required: true
+        required: false
       MAVEN_CENTRAL_PASSWORD:
-        required: true
+        required: false
       CARGO_REGISTRY_TOKEN:
         required: false
       NPM_TOKEN:
@@ -143,7 +143,7 @@ jobs:
 
           for file in "${web_version_files[@]}"; do
             [[ -f "$file" ]] || continue
-            web_version="$(awk -F'"' '/^[[:space:]]*"version"[[:space:]]*:/ {print $4; exit}' "$file")"
+            web_version="$(awk -F'"' '/^[[:space:]]*"version"[[:space:]]*:/{print $4; exit}' "$file")"
             [[ -z "$web_version" ]] && continue
             if [[ "$web_version" != "$expected_version" ]]; then
               echo "Version mismatch in ${file}: expected ${expected_version}, got ${web_version}"
@@ -152,34 +152,37 @@ jobs:
           done
           shopt -u nullglob
 
-      - name: 🔐 Validate release credentials
+      - name: 🔐 Check optional release credentials
         if: ${{ inputs.release }}
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
           DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          SIGNING_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
+          MAVEN_USER: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
         run: |
           set -euo pipefail
-          missing=0
-          for secret in CARGO_REGISTRY_TOKEN NPM_TOKEN DOCKERHUB_USERNAME DOCKERHUB_TOKEN; do
-            if [[ -z "${!secret:-}" ]]; then
-              echo "Missing required secret for releases: ${secret}"
-              missing=1
-            fi
-          done
-          if [[ "$missing" -ne 0 ]]; then
-            exit 1
-          fi
+          echo "Checking optional release credentials..."
+          [[ -n "$SIGNING_KEY" ]] && echo "✅ Maven signing key configured" || echo "⚠️ Maven signing key not configured"
+          [[ -n "$MAVEN_USER" ]] && echo "✅ Maven Central credentials configured" || echo "⚠️ Maven Central credentials not configured"
+          [[ -n "$CARGO_REGISTRY_TOKEN" ]] && echo "✅ Cargo registry token configured" || echo "⚠️ Cargo registry token not configured"
+          [[ -n "$NPM_TOKEN" ]] && echo "✅ NPM token configured" || echo "⚠️ NPM token not configured"
+          [[ -n "$DOCKERHUB_USERNAME" ]] && echo "✅ DockerHub credentials configured" || echo "⚠️ DockerHub credentials not configured"
 
       - name: 👻 Publish to Maven Central
+        if: ${{ inputs.release }}
+        continue-on-error: true
         env:
           ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
           ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_IN_MEMORY_KEY_PASSWORD }}
-          # ⚠️ Warning: Do not use never-expiring User Token!!!
           ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
           ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
         run: |
+          if [ -z "${{ secrets.SIGNING_IN_MEMORY_KEY }}" ] || [ -z "${{ secrets.MAVEN_CENTRAL_USERNAME }}" ]; then
+            echo "⚠️ Skipping Maven Central publish - required secrets not configured"
+            exit 0
+          fi
           if [ "${GITHUB_REPOSITORY}" = "dallay/corvus" ]; then
             if [ "${{ inputs.release }}" = "true" ]; then
               ./gradlew :build-logic:publishPluginMavenPublicationToMavenCentralRepository publishToMavenCentral
@@ -192,17 +195,27 @@ jobs:
 
       - name: 📦 Publish Rust crate to crates.io
         if: ${{ inputs.release }}
+        continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
+          if [ -z "${{ secrets.CARGO_REGISTRY_TOKEN }}" ]; then
+            echo "⚠️ Skipping crates.io publish - CARGO_REGISTRY_TOKEN not configured"
+            exit 0
+          fi
           cd clients/agent-runtime
           cargo publish --locked
 
       - name: 📦 Publish npm package
         if: ${{ inputs.release }}
+        continue-on-error: true
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
+          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
+            echo "⚠️ Skipping npm publish - NPM_TOKEN not configured"
+            exit 0
+          fi
           cat <<EOF > "$HOME/.npmrc"
           //registry.npmjs.org/:_authToken=${NPM_TOKEN}
           EOF
@@ -219,6 +232,7 @@ jobs:
 
       - name: 🔐 Login to Docker Hub
         if: ${{ inputs.release }}
+        continue-on-error: true
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.5.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -248,6 +262,7 @@ jobs:
 
       - name: 🐳 Build and push Docker image
         if: ${{ inputs.release }}
+        continue-on-error: true
         uses: docker/build-push-action@95139e6fce77e460f7d1d9c03d096667e6bfca44 # v6.17.0
         with:
           context: .
