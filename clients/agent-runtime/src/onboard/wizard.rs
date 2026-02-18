@@ -1,4 +1,4 @@
-use crate::config::schema::{DingTalkConfig, IrcConfig, QQConfig, WhatsAppConfig};
+use crate::config::schema::{DingTalkConfig, IrcConfig, QQConfig, StreamMode, WhatsAppConfig};
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
     HeartbeatConfig, IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
@@ -131,11 +131,13 @@ pub fn run_wizard() -> Result<Config> {
         secrets: secrets_config,
         browser: BrowserConfig::default(),
         http_request: crate::config::HttpRequestConfig::default(),
+        web_search: crate::config::WebSearchConfig::default(),
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
         peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
         hardware: hardware_config,
+        query_classification: crate::config::QueryClassificationConfig::default(),
     };
 
     println!(
@@ -276,6 +278,7 @@ fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
         embedding_dimensions: 1536,
         vector_weight: 0.7,
         keyword_weight: 0.3,
+        min_relevance_score: 0.4,
         embedding_cache_size: if profile.uses_sqlite_hygiene {
             10000
         } else {
@@ -288,6 +291,7 @@ fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
         snapshot_enabled: false,
         snapshot_on_hygiene: false,
         auto_hydrate: true,
+        sqlite_open_timeout_secs: None,
     }
 }
 
@@ -349,11 +353,13 @@ pub fn run_quick_setup(
         secrets: SecretsConfig::default(),
         browser: BrowserConfig::default(),
         http_request: crate::config::HttpRequestConfig::default(),
+        web_search: crate::config::WebSearchConfig::default(),
         identity: crate::config::IdentityConfig::default(),
         cost: crate::config::CostConfig::default(),
         peripherals: crate::config::PeripheralsConfig::default(),
         agents: std::collections::HashMap::new(),
         hardware: crate::config::HardwareConfig::default(),
+        query_classification: crate::config::QueryClassificationConfig::default(),
     };
 
     config.save()?;
@@ -774,6 +780,7 @@ fn supports_live_model_fetch(provider_name: &str) -> bool {
             | "together-ai"
             | "gemini"
             | "ollama"
+            | "astrai"
     )
 }
 
@@ -1002,7 +1009,28 @@ fn fetch_live_models_for_provider(provider_name: &str, api_key: &str) -> Result<
         )?,
         "anthropic" => fetch_anthropic_models(api_key.as_deref())?,
         "gemini" => fetch_gemini_models(api_key.as_deref())?,
-        "ollama" => fetch_ollama_models()?,
+        "ollama" => {
+            if api_key.as_deref().map_or(true, |k| k.trim().is_empty()) {
+                // Key is None or empty, assume local Ollama
+                fetch_ollama_models()?
+            } else {
+                // Key is present, assume Ollama Cloud and return hardcoded list
+                vec![
+                    "glm-5:cloud".to_string(),
+                    "glm-4.7:cloud".to_string(),
+                    "gpt-oss:cloud".to_string(),
+                    "gemini-3-flash-preview:cloud".to_string(),
+                    "qwen2.5-coder:1.5b".to_string(),
+                    "qwen2.5-coder:3b".to_string(),
+                    "qwen2.5:cloud".to_string(),
+                    "minimax-m2.5:cloud".to_string(),
+                    "deepseek-v3.1:cloud".to_string(),
+                ]
+            }
+        }
+        "astrai" => {
+            fetch_openai_compatible_models("https://as-trai.com/v1/models", api_key.as_deref())?
+        }
         _ => Vec::new(),
     };
 
@@ -1366,6 +1394,10 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             ("venice", "Venice AI — privacy-first (Llama, Opus)"),
             ("anthropic", "Anthropic — Claude Sonnet & Opus (direct)"),
             ("openai", "OpenAI — GPT-4o, o1, GPT-5 (direct)"),
+            (
+                "openai-codex",
+                "OpenAI Codex (ChatGPT subscription OAuth, no API key)",
+            ),
             ("deepseek", "DeepSeek — V3 & R1 (affordable)"),
             ("mistral", "Mistral — Large & Codestral"),
             ("xai", "xAI — Grok 3 & 4"),
@@ -1384,6 +1416,10 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
         2 => vec![
             ("vercel", "Vercel AI Gateway"),
             ("cloudflare", "Cloudflare AI Gateway"),
+            (
+                "astrai",
+                "Astrai — compliant AI routing (PII stripping, cost optimization)",
+            ),
             ("bedrock", "Amazon Bedrock — AWS managed models"),
         ],
         3 => vec![
@@ -1626,6 +1662,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
                 "nvidia" | "nvidia-nim" | "build.nvidia.com" => "https://build.nvidia.com/",
                 "bedrock" => "https://console.aws.amazon.com/iam",
                 "gemini" => "https://aistudio.google.com/app/apikey",
+                "astrai" => "https://as-trai.com",
                 _ => "",
             }
         };
@@ -1695,6 +1732,10 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             ("gpt-4o", "GPT-4o (flagship)"),
             ("gpt-4o-mini", "GPT-4o Mini (fast, cheap)"),
             ("o1-mini", "o1-mini (reasoning)"),
+        ],
+        "openai-codex" => vec![
+            ("gpt-5-codex", "GPT-5 Codex (recommended)"),
+            ("o4-mini", "o4-mini (fallback)"),
         ],
         "venice" => vec![
             ("llama-3.3-70b", "Llama 3.3 70B (default, fast)"),
@@ -1787,6 +1828,16 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             ("gemini-1.5-pro", "Gemini 1.5 Pro (best quality)"),
             ("gemini-1.5-flash", "Gemini 1.5 Flash (balanced)"),
         ],
+        "astrai" => vec![
+            ("auto", "Auto — Astrai best execution routing (recommended)"),
+            ("gpt-4o", "GPT-4o (OpenAI via Astrai)"),
+            (
+                "claude-sonnet-4.5",
+                "Claude Sonnet 4.5 (Anthropic via Astrai)",
+            ),
+            ("deepseek-v3", "DeepSeek V3 (best value via Astrai)"),
+            ("llama-3.3-70b", "Llama 3.3 70B (open source via Astrai)"),
+        ],
         _ => vec![("default", "Default model")],
     };
 
@@ -1796,11 +1847,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
         .collect();
     let mut live_options: Option<Vec<(String, String)>> = None;
 
-    if provider_name == "ollama" && provider_api_url.is_some() {
-        print_bullet(
-            "Skipping local Ollama model discovery because a remote endpoint is configured.",
-        );
-    } else if supports_live_model_fetch(provider_name) {
+    if supports_live_model_fetch(provider_name) {
         let can_fetch_without_key = matches!(provider_name, "openrouter" | "ollama");
         let has_api_key = !api_key.trim().is_empty()
             || std::env::var(provider_env_var(provider_name))
@@ -1988,6 +2035,7 @@ fn provider_env_var(name: &str) -> &'static str {
         "bedrock" | "aws-bedrock" => "AWS_ACCESS_KEY_ID",
         "gemini" => "GEMINI_API_KEY",
         "nvidia" | "nvidia-nim" | "build.nvidia.com" => "NVIDIA_API_KEY",
+        "astrai" => "ASTRAI_API_KEY",
         _ => "API_KEY",
     }
 }
@@ -2617,6 +2665,8 @@ fn setup_channels() -> Result<ChannelsConfig> {
                 config.telegram = Some(TelegramConfig {
                     bot_token: token,
                     allowed_users,
+                    stream_mode: StreamMode::default(),
+                    draft_update_interval_ms: 1000,
                 });
             }
             1 => {
@@ -4034,15 +4084,43 @@ fn print_summary(config: &Config) {
     let mut step = 1u8;
 
     if config.api_key.is_none() {
-        let env_var = provider_env_var(config.default_provider.as_deref().unwrap_or("openrouter"));
-        println!(
-            "    {} Set your API key:",
-            style(format!("{step}.")).cyan().bold()
-        );
-        println!(
-            "       {}",
-            style(format!("export {env_var}=\"sk-...\"")).yellow()
-        );
+        let provider = config.default_provider.as_deref().unwrap_or("openrouter");
+        if provider == "openai-codex" {
+            println!(
+                "    {} Authenticate OpenAI Codex:",
+                style(format!("{step}.")).cyan().bold()
+            );
+            println!(
+                "       {}",
+                style("corvus auth login --provider openai-codex --device-code").yellow()
+            );
+        } else if provider == "anthropic" {
+            println!(
+                "    {} Configure Anthropic auth:",
+                style(format!("{step}.")).cyan().bold()
+            );
+            println!(
+                "       {}",
+                style("export ANTHROPIC_API_KEY=\"sk-ant-...\"").yellow()
+            );
+            println!(
+                "       {}",
+                style(
+                    "or: corvus auth paste-token --provider anthropic --auth-kind authorization"
+                )
+                .yellow()
+            );
+        } else {
+            let env_var = provider_env_var(provider);
+            println!(
+                "    {} Set your API key:",
+                style(format!("{step}.")).cyan().bold()
+            );
+            println!(
+                "       {}",
+                style(format!("export {env_var}=\"sk-...\"")).yellow()
+            );
+        }
         println!();
         step += 1;
     }
@@ -4577,6 +4655,7 @@ mod tests {
         assert!(supports_live_model_fetch("grok"));
         assert!(supports_live_model_fetch("together"));
         assert!(supports_live_model_fetch("ollama"));
+        assert!(supports_live_model_fetch("astrai"));
         assert!(!supports_live_model_fetch("venice"));
     }
 
@@ -4779,6 +4858,7 @@ mod tests {
         assert_eq!(provider_env_var("nvidia"), "NVIDIA_API_KEY");
         assert_eq!(provider_env_var("nvidia-nim"), "NVIDIA_API_KEY"); // alias
         assert_eq!(provider_env_var("build.nvidia.com"), "NVIDIA_API_KEY"); // alias
+        assert_eq!(provider_env_var("astrai"), "ASTRAI_API_KEY");
     }
 
     #[test]

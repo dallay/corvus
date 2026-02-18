@@ -25,6 +25,7 @@ pub mod schema;
 pub mod screenshot;
 pub mod shell;
 pub mod traits;
+pub mod web_search_tool;
 
 pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
@@ -56,6 +57,7 @@ pub use shell::ShellTool;
 pub use traits::Tool;
 #[allow(unused_imports)]
 pub use traits::{ToolResult, ToolSpec};
+pub use web_search_tool::WebSearchTool;
 
 use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
@@ -138,9 +140,9 @@ pub fn all_tools_with_runtime(
         Box::new(CronUpdateTool::new(config.clone(), security.clone())),
         Box::new(CronRunTool::new(config.clone())),
         Box::new(CronRunsTool::new(config.clone())),
-        Box::new(MemoryStoreTool::new(memory.clone())),
+        Box::new(MemoryStoreTool::new(memory.clone(), security.clone())),
         Box::new(MemoryRecallTool::new(memory.clone())),
-        Box::new(MemoryForgetTool::new(memory)),
+        Box::new(MemoryForgetTool::new(memory, security.clone())),
         Box::new(ScheduleTool::new(security.clone(), root_config.clone())),
         Box::new(GitOperationsTool::new(
             security.clone(),
@@ -188,13 +190,27 @@ pub fn all_tools_with_runtime(
         )));
     }
 
+    // Web search tool (enabled by default for GLM and other models)
+    if root_config.web_search.enabled {
+        tools.push(Box::new(WebSearchTool::new(
+            root_config.web_search.provider.clone(),
+            root_config.web_search.brave_api_key.clone(),
+            root_config.web_search.max_results,
+            root_config.web_search.timeout_secs,
+        )));
+    }
+
     // Vision tools are always available
     tools.push(Box::new(ScreenshotTool::new(security.clone())));
     tools.push(Box::new(ImageInfoTool::new(security.clone())));
 
     if let Some(key) = composio_key {
         if !key.is_empty() {
-            tools.push(Box::new(ComposioTool::new(key, composio_entity_id)));
+            tools.push(Box::new(ComposioTool::new(
+                key,
+                composio_entity_id,
+                security.clone(),
+            )));
         }
     }
 
@@ -211,6 +227,7 @@ pub fn all_tools_with_runtime(
         tools.push(Box::new(DelegateTool::new(
             delegate_agents,
             delegate_fallback_credential,
+            security.clone(),
         )));
     }
 

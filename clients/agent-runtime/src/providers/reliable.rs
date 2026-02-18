@@ -1,4 +1,4 @@
-use super::traits::{ChatMessage, StreamChunk, StreamOptions, StreamResult};
+use super::traits::{ChatMessage, ChatResponse, StreamChunk, StreamOptions, StreamResult};
 use super::Provider;
 use async_trait::async_trait;
 use futures_util::{stream, StreamExt};
@@ -194,7 +194,7 @@ impl Provider for ReliableProvider {
                                 "retryable"
                             };
                             failures.push(format!(
-                                "{provider_name}/{current_model} attempt {}/{}: {failure_reason}",
+                                "provider={provider_name} model={current_model} attempt {}/{}: {failure_reason}",
                                 attempt + 1,
                                 self.max_retries + 1
                             ));
@@ -273,6 +273,110 @@ impl Provider for ReliableProvider {
                 for attempt in 0..=self.max_retries {
                     match provider
                         .chat_with_history(messages, current_model, temperature)
+                        .await
+                    {
+                        Ok(resp) => {
+                            if attempt > 0 || *current_model != model {
+                                tracing::info!(
+                                    provider = provider_name,
+                                    model = *current_model,
+                                    attempt,
+                                    original_model = model,
+                                    "Provider recovered (failover/retry)"
+                                );
+                            }
+                            return Ok(resp);
+                        }
+                        Err(e) => {
+                            let non_retryable = is_non_retryable(&e);
+                            let rate_limited = is_rate_limited(&e);
+
+                            let failure_reason = if rate_limited {
+                                "rate_limited"
+                            } else if non_retryable {
+                                "non_retryable"
+                            } else {
+                                "retryable"
+                            };
+                            failures.push(format!(
+                                "provider={provider_name} model={current_model} attempt {}/{}: {failure_reason}",
+                                attempt + 1,
+                                self.max_retries + 1
+                            ));
+
+                            if rate_limited {
+                                if let Some(new_key) = self.rotate_key() {
+                                    tracing::info!(
+                                        provider = provider_name,
+                                        "Rate limited, rotated API key (key ending ...{})",
+                                        &new_key[new_key.len().saturating_sub(4)..]
+                                    );
+                                }
+                            }
+
+                            if non_retryable {
+                                tracing::warn!(
+                                    provider = provider_name,
+                                    model = *current_model,
+                                    "Non-retryable error, moving on"
+                                );
+                                break;
+                            }
+
+                            if attempt < self.max_retries {
+                                let wait = self.compute_backoff(backoff_ms, &e);
+                                tracing::warn!(
+                                    provider = provider_name,
+                                    model = *current_model,
+                                    attempt = attempt + 1,
+                                    backoff_ms = wait,
+                                    "Provider call failed, retrying"
+                                );
+                                tokio::time::sleep(Duration::from_millis(wait)).await;
+                                backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
+                            }
+                        }
+                    }
+                }
+
+                tracing::warn!(
+                    provider = provider_name,
+                    model = *current_model,
+                    "Exhausted retries, trying next provider/model"
+                );
+            }
+        }
+
+        anyhow::bail!(
+            "All providers/models failed. Attempts:\n{}",
+            failures.join("\n")
+        )
+    }
+
+    fn supports_native_tools(&self) -> bool {
+        self.providers
+            .first()
+            .map(|(_, p)| p.supports_native_tools())
+            .unwrap_or(false)
+    }
+
+    async fn chat_with_tools(
+        &self,
+        messages: &[ChatMessage],
+        tools: &[serde_json::Value],
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<ChatResponse> {
+        let models = self.model_chain(model);
+        let mut failures = Vec::new();
+
+        for current_model in &models {
+            for (provider_name, provider) in &self.providers {
+                let mut backoff_ms = self.base_backoff_ms;
+
+                for attempt in 0..=self.max_retries {
+                    match provider
+                        .chat_with_tools(messages, tools, current_model, temperature)
                         .await
                     {
                         Ok(resp) => {
@@ -610,8 +714,8 @@ mod tests {
             .expect_err("all providers should fail");
         let msg = err.to_string();
         assert!(msg.contains("All providers/models failed"));
-        assert!(msg.contains("p1"));
-        assert!(msg.contains("p2"));
+        assert!(msg.contains("provider=p1 model=test"));
+        assert!(msg.contains("provider=p2 model=test"));
     }
 
     #[test]
@@ -906,6 +1010,140 @@ mod tests {
         let provider = ReliableProvider::new(vec![], 0, 500);
         let err = anyhow::anyhow!("500 Server Error");
         assert_eq!(provider.compute_backoff(500, &err), 500);
+    }
+
+    // ── §2.1 API auth error (401/403) tests ──────────────────
+
+    #[test]
+    fn non_retryable_detects_401() {
+        let err = anyhow::anyhow!("API error (401 Unauthorized): invalid api key");
+        assert!(
+            is_non_retryable(&err),
+            "401 errors must be detected as non-retryable"
+        );
+    }
+
+    #[test]
+    fn non_retryable_detects_403() {
+        let err = anyhow::anyhow!("API error (403 Forbidden): access denied");
+        assert!(
+            is_non_retryable(&err),
+            "403 errors must be detected as non-retryable"
+        );
+    }
+
+    #[test]
+    fn non_retryable_detects_404() {
+        let err = anyhow::anyhow!("API error (404 Not Found): model not found");
+        assert!(
+            is_non_retryable(&err),
+            "404 errors must be detected as non-retryable"
+        );
+    }
+
+    #[test]
+    fn non_retryable_does_not_flag_429() {
+        let err = anyhow::anyhow!("429 Too Many Requests");
+        assert!(
+            !is_non_retryable(&err),
+            "429 must NOT be treated as non-retryable (it is retryable with backoff)"
+        );
+    }
+
+    #[test]
+    fn non_retryable_does_not_flag_408() {
+        let err = anyhow::anyhow!("408 Request Timeout");
+        assert!(
+            !is_non_retryable(&err),
+            "408 must NOT be treated as non-retryable (it is retryable)"
+        );
+    }
+
+    #[test]
+    fn non_retryable_does_not_flag_500() {
+        let err = anyhow::anyhow!("500 Internal Server Error");
+        assert!(
+            !is_non_retryable(&err),
+            "500 must NOT be treated as non-retryable (server errors are retryable)"
+        );
+    }
+
+    #[test]
+    fn non_retryable_does_not_flag_502() {
+        let err = anyhow::anyhow!("502 Bad Gateway");
+        assert!(
+            !is_non_retryable(&err),
+            "502 must NOT be treated as non-retryable"
+        );
+    }
+
+    // ── §2.2 Rate limit Retry-After edge cases ───────────────
+
+    #[test]
+    fn parse_retry_after_zero() {
+        let err = anyhow::anyhow!("429 Too Many Requests, Retry-After: 0");
+        assert_eq!(
+            parse_retry_after_ms(&err),
+            Some(0),
+            "Retry-After: 0 should parse as 0ms"
+        );
+    }
+
+    #[test]
+    fn parse_retry_after_with_underscore_separator() {
+        let err = anyhow::anyhow!("rate limited, retry_after: 10");
+        assert_eq!(
+            parse_retry_after_ms(&err),
+            Some(10_000),
+            "retry_after with underscore must be parsed"
+        );
+    }
+
+    #[test]
+    fn parse_retry_after_space_separator() {
+        let err = anyhow::anyhow!("Retry-After 7");
+        assert_eq!(
+            parse_retry_after_ms(&err),
+            Some(7000),
+            "Retry-After with space separator must be parsed"
+        );
+    }
+
+    #[test]
+    fn rate_limited_false_for_generic_error() {
+        let err = anyhow::anyhow!("Connection refused");
+        assert!(
+            !is_rate_limited(&err),
+            "generic errors must not be flagged as rate-limited"
+        );
+    }
+
+    // ── §2.3 Malformed API response error classification ─────
+
+    #[tokio::test]
+    async fn non_retryable_skips_retries_for_401() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let provider = ReliableProvider::new(
+            vec![(
+                "primary".into(),
+                Box::new(MockProvider {
+                    calls: Arc::clone(&calls),
+                    fail_until_attempt: usize::MAX,
+                    response: "never",
+                    error: "API error (401 Unauthorized): invalid key",
+                }),
+            )],
+            5,
+            1,
+        );
+
+        let result = provider.simple_chat("hello", "test", 0.0).await;
+        assert!(result.is_err(), "401 should fail without retries");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "must not retry on 401 — should be exactly 1 call"
+        );
     }
 
     // ── Arc<ModelAwareMock> Provider impl for test ──

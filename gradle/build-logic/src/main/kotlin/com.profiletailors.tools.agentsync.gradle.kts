@@ -77,3 +77,6 @@ val agentsyncApply =
 
 // Run AgentSync as part of the standard verification lifecycle
 tasks.named("check") { dependsOn(agentsyncApply) }
+
+// Ensure generated/symlinked agent files are stabilized before Spotless reads them.
+tasks.matching { it.name.startsWith("spotless") }.configureEach { mustRunAfter(agentsyncApply) }

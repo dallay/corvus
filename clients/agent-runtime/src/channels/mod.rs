@@ -45,8 +45,14 @@ use std::collections::HashMap;
 use std::fmt::Write;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
+use tokio_util::sync::CancellationToken;
+
+/// Per-sender conversation history for channel messages.
+type ConversationHistoryMap = Arc<Mutex<HashMap<String, Vec<ChatMessage>>>>;
+/// Maximum history messages to keep per sender.
+const MAX_CHANNEL_HISTORY: usize = 50;
 
 /// Maximum characters per injected workspace file (matches `OpenClaw` default).
 const BOOTSTRAP_MAX_CHARS: usize = 20_000;
@@ -59,6 +65,7 @@ const CHANNEL_MESSAGE_TIMEOUT_SECS: u64 = 300;
 const CHANNEL_PARALLELISM_PER_CHANNEL: usize = 4;
 const CHANNEL_MIN_IN_FLIGHT_MESSAGES: usize = 8;
 const CHANNEL_MAX_IN_FLIGHT_MESSAGES: usize = 64;
+const CHANNEL_TYPING_REFRESH_INTERVAL_SECS: u64 = 4;
 
 #[derive(Clone)]
 struct ChannelRuntimeContext {
@@ -71,6 +78,9 @@ struct ChannelRuntimeContext {
     model: Arc<String>,
     temperature: f64,
     auto_save_memory: bool,
+    max_tool_iterations: usize,
+    min_relevance_score: f64,
+    conversation_histories: ConversationHistoryMap,
 }
 
 fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
@@ -86,13 +96,25 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     }
 }
 
-async fn build_memory_context(mem: &dyn Memory, user_msg: &str) -> String {
+async fn build_memory_context(
+    mem: &dyn Memory,
+    user_msg: &str,
+    min_relevance_score: f64,
+) -> String {
     let mut context = String::new();
 
     if let Ok(entries) = mem.recall(user_msg, 5, None).await {
-        if !entries.is_empty() {
+        let relevant: Vec<_> = entries
+            .iter()
+            .filter(|e| match e.score {
+                Some(score) => score >= min_relevance_score,
+                None => true, // keep entries without a score (e.g. non-vector backends)
+            })
+            .collect();
+
+        if !relevant.is_empty() {
             context.push_str("[Memory context]\n");
-            for entry in &entries {
+            for entry in &relevant {
                 let _ = writeln!(context, "- {}: {}", entry.key, entry.content);
             }
             context.push('\n');
@@ -157,6 +179,36 @@ fn log_worker_join_result(result: Result<(), tokio::task::JoinError>) {
     }
 }
 
+fn spawn_scoped_typing_task(
+    channel: Arc<dyn Channel>,
+    recipient: String,
+    cancellation_token: CancellationToken,
+) -> tokio::task::JoinHandle<()> {
+    let stop_signal = cancellation_token;
+    let refresh_interval = Duration::from_secs(CHANNEL_TYPING_REFRESH_INTERVAL_SECS);
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(refresh_interval);
+        interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+        loop {
+            tokio::select! {
+                () = stop_signal.cancelled() => break,
+                _ = interval.tick() => {
+                    if let Err(e) = channel.start_typing(&recipient).await {
+                        tracing::debug!("Failed to start typing on {}: {e}", channel.name());
+                    }
+                }
+            }
+        }
+
+        if let Err(e) = channel.stop_typing(&recipient).await {
+            tracing::debug!("Failed to stop typing on {}: {e}", channel.name());
+        }
+    });
+
+    handle
+}
+
 async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::ChannelMessage) {
     println!(
         "  💬 [{}] from {}: {}",
@@ -165,7 +217,8 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         truncate_with_ellipsis(&msg.content, 80)
     );
 
-    let memory_context = build_memory_context(ctx.memory.as_ref(), &msg.content).await;
+    let memory_context =
+        build_memory_context(ctx.memory.as_ref(), &msg.content, ctx.min_relevance_score).await;
 
     if ctx.auto_save_memory {
         let autosave_key = conversation_memory_key(&msg);
@@ -188,23 +241,94 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
 
     let target_channel = ctx.channels_by_name.get(&msg.channel).cloned();
 
-    if let Some(channel) = target_channel.as_ref() {
-        if let Err(e) = channel.start_typing(&msg.reply_target).await {
-            tracing::debug!("Failed to start typing on {}: {e}", channel.name());
-        }
-    }
-
     println!("  ⏳ Processing message...");
     let started_at = Instant::now();
 
-    let mut history = vec![
-        ChatMessage::system(ctx.system_prompt.as_str()),
-        ChatMessage::user(&enriched_message),
-    ];
+    // Build history from per-sender conversation cache
+    let history_key = format!("{}_{}", msg.channel, msg.sender);
+    let mut prior_turns = ctx
+        .conversation_histories
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(&history_key)
+        .cloned()
+        .unwrap_or_default();
+
+    let mut history = vec![ChatMessage::system(ctx.system_prompt.as_str())];
+    history.append(&mut prior_turns);
+    history.push(ChatMessage::user(&enriched_message));
 
     if let Some(instructions) = channel_delivery_instructions(&msg.channel) {
         history.push(ChatMessage::system(instructions));
     }
+
+    // Determine if this channel supports streaming draft updates
+    let use_streaming = target_channel
+        .as_ref()
+        .map_or(false, |ch| ch.supports_draft_updates());
+
+    // Set up streaming channel if supported
+    let (delta_tx, delta_rx) = if use_streaming {
+        let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
+
+    // Send initial draft message if streaming
+    let draft_message_id = if use_streaming {
+        if let Some(channel) = target_channel.as_ref() {
+            match channel
+                .send_draft(&SendMessage::new("...", &msg.reply_target))
+                .await
+            {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::debug!("Failed to send draft on {}: {e}", channel.name());
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    // Spawn a task to forward streaming deltas to draft updates
+    let draft_updater = if let (Some(mut rx), Some(draft_id_ref), Some(channel_ref)) = (
+        delta_rx,
+        draft_message_id.as_deref(),
+        target_channel.as_ref(),
+    ) {
+        let channel = Arc::clone(channel_ref);
+        let reply_target = msg.reply_target.clone();
+        let draft_id = draft_id_ref.to_string();
+        Some(tokio::spawn(async move {
+            let mut accumulated = String::new();
+            while let Some(delta) = rx.recv().await {
+                accumulated.push_str(&delta);
+                if let Err(e) = channel
+                    .update_draft(&reply_target, &draft_id, &accumulated)
+                    .await
+                {
+                    tracing::debug!("Draft update failed: {e}");
+                }
+            }
+        }))
+    } else {
+        None
+    };
+
+    let typing_cancellation = target_channel.as_ref().map(|_| CancellationToken::new());
+    let typing_task = match (target_channel.as_ref(), typing_cancellation.as_ref()) {
+        (Some(channel), Some(token)) => Some(spawn_scoped_typing_task(
+            Arc::clone(channel),
+            msg.reply_target.clone(),
+            token.clone(),
+        )),
+        _ => None,
+    };
 
     let llm_result = tokio::time::timeout(
         Duration::from_secs(CHANNEL_MESSAGE_TIMEOUT_SECS),
@@ -216,28 +340,60 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
             "channel-runtime",
             ctx.model.as_str(),
             ctx.temperature,
-            true, // silent — channels don't write to stdout
+            true,
             None,
             msg.channel.as_str(),
+            ctx.max_tool_iterations,
+            delta_tx,
         ),
     )
     .await;
 
-    if let Some(channel) = target_channel.as_ref() {
-        if let Err(e) = channel.stop_typing(&msg.reply_target).await {
-            tracing::debug!("Failed to stop typing on {}: {e}", channel.name());
-        }
+    // Wait for draft updater to finish
+    if let Some(handle) = draft_updater {
+        let _ = handle.await;
+    }
+
+    if let Some(token) = typing_cancellation.as_ref() {
+        token.cancel();
+    }
+    if let Some(handle) = typing_task {
+        log_worker_join_result(handle.await);
     }
 
     match llm_result {
         Ok(Ok(response)) => {
+            // Save user + assistant turn to per-sender history
+            {
+                let mut histories = ctx
+                    .conversation_histories
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner());
+                let turns = histories.entry(history_key).or_insert_with(Vec::new);
+                turns.push(ChatMessage::user(&enriched_message));
+                turns.push(ChatMessage::assistant(&response));
+                // Trim to MAX_CHANNEL_HISTORY (keep recent turns)
+                while turns.len() > MAX_CHANNEL_HISTORY {
+                    turns.remove(0);
+                }
+            }
             println!(
                 "  🤖 Reply ({}ms): {}",
                 started_at.elapsed().as_millis(),
                 truncate_with_ellipsis(&response, 80)
             );
             if let Some(channel) = target_channel.as_ref() {
-                if let Err(e) = channel
+                if let Some(ref draft_id) = draft_message_id {
+                    if let Err(e) = channel
+                        .finalize_draft(&msg.reply_target, draft_id, &response)
+                        .await
+                    {
+                        tracing::warn!("Failed to finalize draft: {e}; sending as new message");
+                        let _ = channel
+                            .send(&SendMessage::new(&response, &msg.reply_target))
+                            .await;
+                    }
+                } else if let Err(e) = channel
                     .send(&SendMessage::new(response, &msg.reply_target))
                     .await
                 {
@@ -251,12 +407,18 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
                 started_at.elapsed().as_millis()
             );
             if let Some(channel) = target_channel.as_ref() {
-                let _ = channel
-                    .send(&SendMessage::new(
-                        format!("⚠️ Error: {e}"),
-                        &msg.reply_target,
-                    ))
-                    .await;
+                if let Some(ref draft_id) = draft_message_id {
+                    let _ = channel
+                        .finalize_draft(&msg.reply_target, draft_id, &format!("⚠️ Error: {e}"))
+                        .await;
+                } else {
+                    let _ = channel
+                        .send(&SendMessage::new(
+                            format!("⚠️ Error: {e}"),
+                            &msg.reply_target,
+                        ))
+                        .await;
+                }
             }
         }
         Err(_) => {
@@ -270,12 +432,17 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
                 started_at.elapsed().as_millis()
             );
             if let Some(channel) = target_channel.as_ref() {
-                let _ = channel
-                    .send(&SendMessage::new(
-                        "⚠️ Request timed out while waiting for the model. Please try again.",
-                        &msg.reply_target,
-                    ))
-                    .await;
+                let error_text =
+                    "⚠️ Request timed out while waiting for the model. Please try again.";
+                if let Some(ref draft_id) = draft_message_id {
+                    let _ = channel
+                        .finalize_draft(&msg.reply_target, draft_id, error_text)
+                        .await;
+                } else {
+                    let _ = channel
+                        .send(&SendMessage::new(error_text, &msg.reply_target))
+                        .await;
+                }
             }
         }
     }
@@ -781,10 +948,10 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
     if let Some(ref tg) = config.channels_config.telegram {
         channels.push((
             "Telegram",
-            Arc::new(TelegramChannel::new(
-                tg.bot_token.clone(),
-                tg.allowed_users.clone(),
-            )),
+            Arc::new(
+                TelegramChannel::new(tg.bot_token.clone(), tg.allowed_users.clone())
+                    .with_streaming(tg.stream_mode, tg.draft_update_interval_ms),
+            ),
         ));
     }
 
@@ -953,11 +1120,16 @@ pub async fn start_channels(config: Config) -> Result<()> {
         .default_provider
         .clone()
         .unwrap_or_else(|| "openrouter".into());
-    let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider(
+    let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider_with_options(
         &provider_name,
         config.api_key.as_deref(),
         config.api_url.as_deref(),
         &config.reliability,
+        &providers::ProviderRuntimeOptions {
+            auth_profile_override: None,
+            corvus_dir: config.config_path.parent().map(std::path::PathBuf::from),
+            secrets_encrypt: config.secrets.encrypt,
+        },
     )?);
 
     // Warm up the provider connection pool (TLS handshake, DNS, HTTP/2 setup)
@@ -1096,10 +1268,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let mut channels: Vec<Arc<dyn Channel>> = Vec::new();
 
     if let Some(ref tg) = config.channels_config.telegram {
-        channels.push(Arc::new(TelegramChannel::new(
-            tg.bot_token.clone(),
-            tg.allowed_users.clone(),
-        )));
+        channels.push(Arc::new(
+            TelegramChannel::new(tg.bot_token.clone(), tg.allowed_users.clone())
+                .with_streaming(tg.stream_mode, tg.draft_update_interval_ms),
+        ));
     }
 
     if let Some(ref dc) = config.channels_config.discord {
@@ -1126,6 +1298,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
             mm.bot_token.clone(),
             mm.channel_id.clone(),
             mm.allowed_users.clone(),
+            mm.thread_replies.unwrap_or(true),
         )));
     }
 
@@ -1271,6 +1444,9 @@ pub async fn start_channels(config: Config) -> Result<()> {
         model: Arc::new(model.clone()),
         temperature,
         auto_save_memory: config.memory.auto_save,
+        max_tool_iterations: config.agent.max_tool_iterations,
+        min_relevance_score: config.memory.min_relevance_score,
+        conversation_histories: Arc::new(Mutex::new(HashMap::new())),
     });
 
     run_message_dispatch_loop(rx, runtime_ctx, max_in_flight_messages).await;
@@ -1319,6 +1495,8 @@ mod tests {
     #[derive(Default)]
     struct RecordingChannel {
         sent_messages: tokio::sync::Mutex<Vec<String>>,
+        start_typing_calls: AtomicUsize,
+        stop_typing_calls: AtomicUsize,
     }
 
     #[async_trait::async_trait]
@@ -1339,6 +1517,16 @@ mod tests {
             &self,
             _tx: tokio::sync::mpsc::Sender<traits::ChannelMessage>,
         ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn start_typing(&self, _recipient: &str) -> anyhow::Result<()> {
+            self.start_typing_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+
+        async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
+            self.stop_typing_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
     }
@@ -1437,6 +1625,39 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct HistoryCaptureProvider {
+        calls: std::sync::Mutex<Vec<Vec<(String, String)>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for HistoryCaptureProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("fallback".to_string())
+        }
+
+        async fn chat_with_history(
+            &self,
+            messages: &[ChatMessage],
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            let snapshot = messages
+                .iter()
+                .map(|m| (m.role.clone(), m.content.clone()))
+                .collect::<Vec<_>>();
+            let mut calls = self.calls.lock().unwrap_or_else(|e| e.into_inner());
+            calls.push(snapshot);
+            Ok(format!("response-{}", calls.len()))
+        }
+    }
+
     struct MockPriceTool;
 
     #[async_trait::async_trait]
@@ -1495,6 +1716,9 @@ mod tests {
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,
+            max_tool_iterations: 10,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -1536,6 +1760,9 @@ mod tests {
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,
+            max_tool_iterations: 10,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
         });
 
         process_channel_message(
@@ -1631,6 +1858,9 @@ mod tests {
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,
+            max_tool_iterations: 10,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
         });
 
         let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(4);
@@ -1668,6 +1898,50 @@ mod tests {
 
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_cancels_scoped_typing_task() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(20),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 10,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "typing-msg".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-typing".to_string(),
+                content: "hello".to_string(),
+                channel: "test-channel".to_string(),
+                timestamp: 1,
+            },
+        )
+        .await;
+
+        let starts = channel_impl.start_typing_calls.load(Ordering::SeqCst);
+        let stops = channel_impl.stop_typing_calls.load(Ordering::SeqCst);
+        assert_eq!(starts, 1, "start_typing should be called once");
+        assert_eq!(stops, 1, "stop_typing should be called once");
     }
 
     #[test]
@@ -1723,7 +1997,10 @@ mod tests {
         assert!(prompt.contains("### SOUL.md"), "missing SOUL.md header");
         assert!(prompt.contains("Be helpful"), "missing SOUL content");
         assert!(prompt.contains("### IDENTITY.md"), "missing IDENTITY.md");
-        assert!(prompt.contains("Name: Corvus"), "missing IDENTITY content");
+        assert!(
+            prompt.contains("Name: Corvus"),
+            "missing IDENTITY content"
+        );
         assert!(prompt.contains("### USER.md"), "missing USER.md");
         assert!(prompt.contains("### AGENTS.md"), "missing AGENTS.md");
         assert!(prompt.contains("### TOOLS.md"), "missing TOOLS.md");
@@ -1994,9 +2271,78 @@ mod tests {
             .await
             .unwrap();
 
-        let context = build_memory_context(&mem, "age").await;
+        let context = build_memory_context(&mem, "age", 0.0).await;
         assert!(context.contains("[Memory context]"));
         assert!(context.contains("Age is 45"));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_restores_per_sender_history_on_follow_ups() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let provider_impl = Arc::new(HistoryCaptureProvider::default());
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: provider_impl.clone(),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx.clone(),
+            traits::ChannelMessage {
+                id: "msg-a".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-1".to_string(),
+                content: "hello".to_string(),
+                channel: "test-channel".to_string(),
+                timestamp: 1,
+            },
+        )
+        .await;
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "msg-b".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-1".to_string(),
+                content: "follow up".to_string(),
+                channel: "test-channel".to_string(),
+                timestamp: 2,
+            },
+        )
+        .await;
+
+        let calls = provider_impl
+            .calls
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].len(), 2);
+        assert_eq!(calls[0][0].0, "system");
+        assert_eq!(calls[0][1].0, "user");
+        assert_eq!(calls[1].len(), 4);
+        assert_eq!(calls[1][0].0, "system");
+        assert_eq!(calls[1][1].0, "user");
+        assert_eq!(calls[1][2].0, "assistant");
+        assert_eq!(calls[1][3].0, "user");
+        assert!(calls[1][1].1.contains("hello"));
+        assert!(calls[1][2].1.contains("response-1"));
+        assert!(calls[1][3].1.contains("follow up"));
     }
 
     // ── AIEOS Identity Tests (Issue #168) ─────────────────────────

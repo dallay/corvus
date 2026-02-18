@@ -237,13 +237,7 @@ impl LucidMemory {
         args: &[String],
         timeout_window: Duration,
     ) -> anyhow::Result<String> {
-        let mut cmd = if lucid_cmd.ends_with(".sh") {
-            let mut shell = Command::new("bash");
-            shell.arg(lucid_cmd);
-            shell
-        } else {
-            Command::new(lucid_cmd)
-        };
+        let mut cmd = Command::new(lucid_cmd);
         cmd.args(args);
 
         let output = timeout(timeout_window, cmd.output()).await.map_err(|_| {
@@ -503,7 +497,7 @@ exit 1
             cmd,
             200,
             3,
-            Duration::from_secs(2),
+            Duration::from_millis(500),
             Duration::from_millis(400),
             Duration::from_secs(2),
         )
@@ -664,7 +658,7 @@ exit 1
             failing_cmd,
             200,
             99,
-            Duration::from_secs(2),
+            Duration::from_millis(500),
             Duration::from_millis(400),
             Duration::from_secs(5),
         );
