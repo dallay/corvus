@@ -18,8 +18,7 @@
     "@dallay/corvus-darwin-arm64": "0.1.2",
     "@dallay/corvus-linux-x64": "0.1.2",
     "@dallay/corvus-linux-arm64": "0.1.2",
-    "@dallay/corvus-windows-x64": "0.1.2",
-    "@dallay/corvus-windows-arm64": "0.1.2"
+    "@dallay/corvus-windows-x64": "0.1.2"
   },
   "engines": {
     "node": ">=18"
