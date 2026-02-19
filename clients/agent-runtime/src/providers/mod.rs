@@ -499,9 +499,7 @@ pub fn create_provider_with_url(
         "cohere" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Cohere", "https://api.cohere.com/compatibility", key, AuthStyle::Bearer,
         ))),
-        "copilot" | "github-copilot" => {
-            Ok(Box::new(copilot::CopilotProvider::new(api_key)))
-        },
+        "copilot" | "github-copilot" => Ok(Box::new(copilot::CopilotProvider::new(key))),
         "lmstudio" | "lm-studio" => {
             let lm_studio_key = api_key
                 .map(str::trim)
