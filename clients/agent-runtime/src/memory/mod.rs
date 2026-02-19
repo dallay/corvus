@@ -8,6 +8,8 @@ pub mod none;
 pub mod response_cache;
 pub mod snapshot;
 pub mod sqlite;
+#[cfg(feature = "memory-surreal")]
+pub mod surreal;
 pub mod traits;
 pub mod vector;
 
@@ -21,6 +23,8 @@ pub use markdown::MarkdownMemory;
 pub use none::NoneMemory;
 pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
+#[cfg(feature = "memory-surreal")]
+pub use surreal::SurrealMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
 pub use traits::{MemoryCategory, MemoryEntry};
@@ -29,30 +33,29 @@ use crate::config::MemoryConfig;
 use std::path::Path;
 use std::sync::Arc;
 
-fn create_memory_with_sqlite_builder<F>(
-    backend_name: &str,
+fn build_sqlite_memory(
+    config: &MemoryConfig,
     workspace_dir: &Path,
-    mut sqlite_builder: F,
-    unknown_context: &str,
-) -> anyhow::Result<Box<dyn Memory>>
-where
-    F: FnMut() -> anyhow::Result<SqliteMemory>,
-{
-    match classify_memory_backend(backend_name) {
-        MemoryBackendKind::Sqlite => Ok(Box::new(sqlite_builder()?)),
-        MemoryBackendKind::Lucid => {
-            let local = sqlite_builder()?;
-            Ok(Box::new(LucidMemory::new(workspace_dir, local)))
-        }
-        MemoryBackendKind::Markdown => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
-        MemoryBackendKind::None => Ok(Box::new(NoneMemory::new())),
-        MemoryBackendKind::Unknown => {
-            tracing::warn!(
-                "Unknown memory backend '{backend_name}'{unknown_context}, falling back to markdown"
-            );
-            Ok(Box::new(MarkdownMemory::new(workspace_dir)))
-        }
-    }
+    api_key: Option<&str>,
+) -> anyhow::Result<SqliteMemory> {
+    let embedder: Arc<dyn embeddings::EmbeddingProvider> =
+        Arc::from(embeddings::create_embedding_provider(
+            &config.embedding_provider,
+            api_key,
+            &config.embedding_model,
+            config.embedding_dimensions,
+        ));
+
+    #[allow(clippy::cast_possible_truncation)]
+    let mem = SqliteMemory::with_embedder(
+        workspace_dir,
+        embedder,
+        config.vector_weight as f32,
+        config.keyword_weight as f32,
+        config.embedding_cache_size,
+        config.sqlite_open_timeout_secs,
+    )?;
+    Ok(mem)
 }
 
 /// Factory: create the right memory backend from config
@@ -95,37 +98,54 @@ pub fn create_memory(
         }
     }
 
-    fn build_sqlite_memory(
-        config: &MemoryConfig,
-        workspace_dir: &Path,
-        api_key: Option<&str>,
-    ) -> anyhow::Result<SqliteMemory> {
-        let embedder: Arc<dyn embeddings::EmbeddingProvider> =
-            Arc::from(embeddings::create_embedding_provider(
-                &config.embedding_provider,
-                api_key,
-                &config.embedding_model,
-                config.embedding_dimensions,
-            ));
-
-        #[allow(clippy::cast_possible_truncation)]
-        let mem = SqliteMemory::with_embedder(
+    match classify_memory_backend(&config.backend) {
+        MemoryBackendKind::Sqlite => Ok(Box::new(build_sqlite_memory(
+            config,
             workspace_dir,
-            embedder,
-            config.vector_weight as f32,
-            config.keyword_weight as f32,
-            config.embedding_cache_size,
-            config.sqlite_open_timeout_secs,
-        )?;
-        Ok(mem)
+            api_key,
+        )?)),
+        MemoryBackendKind::Lucid => {
+            let local = build_sqlite_memory(config, workspace_dir, api_key)?;
+            Ok(Box::new(LucidMemory::new(workspace_dir, local)))
+        }
+        MemoryBackendKind::Surreal => {
+            #[cfg(feature = "memory-surreal")]
+            {
+                let embedder: Arc<dyn embeddings::EmbeddingProvider> =
+                    Arc::from(embeddings::create_embedding_provider(
+                        &config.embedding_provider,
+                        api_key,
+                        &config.embedding_model,
+                        config.embedding_dimensions,
+                    ));
+                #[allow(clippy::cast_possible_truncation)]
+                return Ok(Box::new(SurrealMemory::new(
+                    workspace_dir,
+                    config,
+                    embedder,
+                    config.vector_weight as f32,
+                    config.keyword_weight as f32,
+                )?));
+            }
+            #[cfg(not(feature = "memory-surreal"))]
+            {
+                tracing::warn!(
+                    "Memory backend 'surreal' requested but binary was built without \
+                     feature 'memory-surreal'; falling back to markdown"
+                );
+                Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+            }
+        }
+        MemoryBackendKind::Markdown => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
+        MemoryBackendKind::None => Ok(Box::new(NoneMemory::new())),
+        MemoryBackendKind::Unknown => {
+            tracing::warn!(
+                "Unknown memory backend '{}', falling back to markdown",
+                config.backend
+            );
+            Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+        }
     }
-
-    create_memory_with_sqlite_builder(
-        &config.backend,
-        workspace_dir,
-        || build_sqlite_memory(config, workspace_dir, api_key),
-        "",
-    )
 }
 
 pub fn create_memory_for_migration(
@@ -134,16 +154,46 @@ pub fn create_memory_for_migration(
 ) -> anyhow::Result<Box<dyn Memory>> {
     if matches!(classify_memory_backend(backend), MemoryBackendKind::None) {
         anyhow::bail!(
-            "memory backend 'none' disables persistence; choose sqlite, lucid, or markdown before migration"
+            "memory backend 'none' disables persistence; choose sqlite, lucid, surreal, or markdown before migration"
         );
     }
 
-    create_memory_with_sqlite_builder(
-        backend,
-        workspace_dir,
-        || SqliteMemory::new(workspace_dir),
-        " during migration",
-    )
+    match classify_memory_backend(backend) {
+        MemoryBackendKind::Sqlite => Ok(Box::new(SqliteMemory::new(workspace_dir)?)),
+        MemoryBackendKind::Lucid => {
+            let local = SqliteMemory::new(workspace_dir)?;
+            Ok(Box::new(LucidMemory::new(workspace_dir, local)))
+        }
+        MemoryBackendKind::Surreal => {
+            #[cfg(feature = "memory-surreal")]
+            #[allow(clippy::cast_possible_truncation)]
+            {
+                let config = MemoryConfig {
+                    backend: "surreal".to_string(),
+                    ..MemoryConfig::default()
+                };
+                let embedder: Arc<dyn embeddings::EmbeddingProvider> =
+                    Arc::new(embeddings::NoopEmbedding);
+                return Ok(Box::new(SurrealMemory::new(
+                    workspace_dir,
+                    &config,
+                    embedder,
+                    config.vector_weight as f32,
+                    config.keyword_weight as f32,
+                )?));
+            }
+            #[cfg(not(feature = "memory-surreal"))]
+            {
+                anyhow::bail!(
+                    "backend 'surreal' requires the binary to be built with feature 'memory-surreal'"
+                );
+            }
+        }
+        MemoryBackendKind::Markdown | MemoryBackendKind::Unknown => {
+            Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+        }
+        MemoryBackendKind::None => unreachable!("checked above"),
+    }
 }
 
 /// Factory: create an optional response cache from config.
@@ -232,6 +282,30 @@ mod tests {
         assert_eq!(mem.name(), "markdown");
     }
 
+    #[cfg(not(feature = "memory-surreal"))]
+    #[test]
+    fn factory_surreal_without_feature_falls_back_to_markdown() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            backend: "surreal".into(),
+            ..MemoryConfig::default()
+        };
+        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
+        assert_eq!(mem.name(), "markdown");
+    }
+
+    #[cfg(feature = "memory-surreal")]
+    #[test]
+    fn factory_surreal_with_feature_uses_surreal_backend() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            backend: "surreal".into(),
+            ..MemoryConfig::default()
+        };
+        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
+        assert_eq!(mem.name(), "surreal");
+    }
+
     #[test]
     fn migration_factory_lucid() {
         let tmp = TempDir::new().unwrap();
@@ -246,5 +320,15 @@ mod tests {
             .err()
             .expect("backend=none should be rejected for migration");
         assert!(error.to_string().contains("disables persistence"));
+    }
+
+    #[cfg(not(feature = "memory-surreal"))]
+    #[test]
+    fn migration_surreal_requires_feature() {
+        let tmp = TempDir::new().unwrap();
+        let error = create_memory_for_migration("surreal", tmp.path())
+            .err()
+            .expect("surreal should require memory-surreal feature");
+        assert!(error.to_string().contains("memory-surreal"));
     }
 }
