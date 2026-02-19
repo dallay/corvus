@@ -303,6 +303,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "anthropic" => vec!["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
         "openrouter" => vec!["OPENROUTER_API_KEY"],
         "openai" => vec!["OPENAI_API_KEY"],
+        "copilot" | "github-copilot" => vec!["GITHUB_TOKEN", "GH_TOKEN"],
         "ollama" => vec!["OLLAMA_API_KEY"],
         "venice" => vec!["VENICE_API_KEY"],
         "groq" => vec!["GROQ_API_KEY"],
@@ -498,9 +499,7 @@ pub fn create_provider_with_url(
         "cohere" => Ok(Box::new(OpenAiCompatibleProvider::new(
             "Cohere", "https://api.cohere.com/compatibility", key, AuthStyle::Bearer,
         ))),
-        "copilot" | "github-copilot" => {
-            Ok(Box::new(copilot::CopilotProvider::new(api_key)))
-        },
+        "copilot" | "github-copilot" => Ok(Box::new(copilot::CopilotProvider::new(key))),
         "lmstudio" | "lm-studio" => {
             let lm_studio_key = api_key
                 .map(str::trim)
