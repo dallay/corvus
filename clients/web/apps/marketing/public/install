@@ -16,6 +16,7 @@ NC='\033[0m'
 INSTALL_METHOD=""
 RESOLVED_DOWNLOAD_URL=""
 RESOLVED_CHECKSUM_URL=""
+RESOLVED_ASSET_NAME=""
 
 has_cmd() {
   command -v "$1" >/dev/null 2>&1
@@ -139,30 +140,44 @@ normalize_release_tag() {
 
 download_binary_from_releases() {
   local release_tag="$1"
-  local asset="$2"
+  local asset_base="$2"
   local target_path="$3"
   local repo_slug=""
+  local candidate_asset=""
+  local candidate_assets=()
   local candidate_url=""
   local candidate_checksum_url=""
+  local downloaded=0
 
   RESOLVED_DOWNLOAD_URL=""
   RESOLVED_CHECKSUM_URL=""
+  RESOLVED_ASSET_NAME=""
+
+  candidate_assets=(
+    "${asset_base}.tar.gz"
+    "${asset_base}"
+  )
 
   for repo_slug in "$PRIMARY_REPO_SLUG" "$LEGACY_REPO_SLUG"; do
-    if [ "$release_tag" = "latest" ]; then
-      candidate_url="https://github.com/${repo_slug}/releases/latest/download/${asset}"
-    else
-      candidate_url="https://github.com/${repo_slug}/releases/download/${release_tag}/${asset}"
-    fi
-    candidate_checksum_url="${candidate_url}.sha256"
+    for candidate_asset in "${candidate_assets[@]}"; do
+      if [ "$release_tag" = "latest" ]; then
+        candidate_url="https://github.com/${repo_slug}/releases/latest/download/${candidate_asset}"
+      else
+        candidate_url="https://github.com/${repo_slug}/releases/download/${release_tag}/${candidate_asset}"
+      fi
+      candidate_checksum_url="${candidate_url}.sha256"
 
-    print_info "Downloading ${candidate_url}"
-    if curl --proto '=https' --tlsv1.2 -fsSL "$candidate_url" -o "$target_path"; then
-      RESOLVED_DOWNLOAD_URL="$candidate_url"
-      RESOLVED_CHECKSUM_URL="$candidate_checksum_url"
-      break
-    fi
+      print_info "Downloading ${candidate_url}"
+      if curl --proto '=https' --tlsv1.2 -fsSL "$candidate_url" -o "$target_path"; then
+        RESOLVED_DOWNLOAD_URL="$candidate_url"
+        RESOLVED_CHECKSUM_URL="$candidate_checksum_url"
+        RESOLVED_ASSET_NAME="$candidate_asset"
+        downloaded=1
+        break
+      fi
+    done
 
+    [ "$downloaded" -eq 1 ] && break
     print_warn "Download failed for ${repo_slug}. Trying next source..."
   done
 
@@ -184,6 +199,8 @@ install_via_binary() {
   local checksum_url=""
   local expected_checksum=""
   local computed_checksum=""
+  local download_path=""
+  local extract_dir=""
 
   asset="$(detect_binary_asset)"
   release_tag="${CORVUS_VERSION:-latest}"
@@ -195,7 +212,11 @@ install_via_binary() {
   mkdir -p "$install_dir"
 
   target_path="${install_dir}/corvus"
-  download_binary_from_releases "$normalized_release_tag" "$asset" "$target_path"
+  download_path="$(mktemp "${TMPDIR:-/tmp}/corvus-download.XXXXXX")"
+  extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/corvus-extract.XXXXXX")"
+  trap "rm -f '$download_path'; rm -rf '$extract_dir'; trap - RETURN" RETURN
+
+  download_binary_from_releases "$normalized_release_tag" "$asset" "$download_path"
   download_url="$RESOLVED_DOWNLOAD_URL"
   checksum_url="$RESOLVED_CHECKSUM_URL"
 
@@ -205,19 +226,40 @@ install_via_binary() {
     print_warn "Could not download checksum file. Skipping verification."
     print_warn "For production use, consider verifying the binary manually."
   elif [ -n "$expected_checksum" ]; then
-    if ! has_cmd sha256sum; then
-      print_warn "sha256sum not available. Skipping checksum verification."
+    if has_cmd sha256sum; then
+      computed_checksum="$(sha256sum "$download_path" | awk '{print $1}')"
+    elif has_cmd shasum; then
+      computed_checksum="$(shasum -a 256 "$download_path" | awk '{print $1}')"
     else
-      computed_checksum="$(sha256sum "$target_path" | awk '{print $1}')"
-      if [ "$computed_checksum" != "$expected_checksum" ]; then
-        print_error "Checksum verification failed!"
-        print_error "Expected: $expected_checksum"
-        print_error "Computed: $computed_checksum"
-        rm -f "$target_path"
-        return 1
-      fi
+      print_warn "No SHA-256 tool available (sha256sum/shasum). Skipping checksum verification."
+    fi
+
+    if [ -n "$computed_checksum" ] && [ "$computed_checksum" != "$expected_checksum" ]; then
+      print_error "Checksum verification failed!"
+      print_error "Expected: $expected_checksum"
+      print_error "Computed: $computed_checksum"
+      rm -f "$target_path"
+      return 1
+    fi
+
+    if [ -n "$computed_checksum" ]; then
       print_success "Checksum verified successfully"
     fi
+  fi
+
+  if [[ "$download_url" == *.tar.gz ]]; then
+    if ! has_cmd tar; then
+      print_error "tar is required to extract ${RESOLVED_ASSET_NAME}"
+      return 1
+    fi
+    tar -xzf "$download_path" -C "$extract_dir"
+    if [ ! -f "${extract_dir}/${asset}" ]; then
+      print_error "Expected binary '${asset}' was not found in archive ${RESOLVED_ASSET_NAME}"
+      return 1
+    fi
+    cp "${extract_dir}/${asset}" "$target_path"
+  else
+    cp "$download_path" "$target_path"
   fi
 
   chmod 755 "$target_path"
