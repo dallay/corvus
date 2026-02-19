@@ -438,12 +438,21 @@ impl Memory for SurrealMemory {
             return Ok(Vec::new());
         }
 
-        let filtered = self.recall_rows(&query_lower, session_id).await?;
+        let keyword_candidates = self.recall_rows(&query_lower, session_id).await?;
+        let vector_candidates = self.list_rows(None, session_id, 500).await?;
+        let mut candidate_by_id: HashMap<String, EntryRow> =
+            HashMap::with_capacity(keyword_candidates.len() + vector_candidates.len());
+        for row in keyword_candidates.into_iter().chain(vector_candidates) {
+            let id = row.id.to_string();
+            candidate_by_id.entry(id).or_insert(row);
+        }
 
         let mut vector_results: Vec<(String, f32)> = Vec::new();
         let mut keyword_results: Vec<(String, f32)> = Vec::new();
-        let mut row_by_id: HashMap<String, EntryRow> = HashMap::with_capacity(filtered.len());
-        let mut searchable_by_id: HashMap<String, String> = HashMap::with_capacity(filtered.len());
+        let mut row_by_id: HashMap<String, EntryRow> =
+            HashMap::with_capacity(candidate_by_id.len());
+        let mut searchable_by_id: HashMap<String, String> =
+            HashMap::with_capacity(candidate_by_id.len());
 
         let query_embedding = if self.embedder.dimensions() > 0 {
             Some(
@@ -456,7 +465,7 @@ impl Memory for SurrealMemory {
             None
         };
 
-        for row in filtered {
+        for mut row in candidate_by_id.into_values() {
             let id = row.id.to_string();
             let searchable = format!("{} {}", row.key.to_lowercase(), row.content.to_lowercase());
 
@@ -473,10 +482,25 @@ impl Memory for SurrealMemory {
                 keyword_results.push((id.clone(), score));
             }
 
-            if let (Some(ref qv), Some(ref ev)) = (&query_embedding, &row.embedding) {
-                let sim = vector::cosine_similarity(qv, ev);
-                if sim > 0.0 {
-                    vector_results.push((id.clone(), sim));
+            if let Some(ref qv) = query_embedding {
+                if row.embedding.is_none() {
+                    match self.embedder.embed_one(&row.content).await {
+                        Ok(generated) => {
+                            row.embedding = Some(generated);
+                        }
+                        Err(error) => {
+                            tracing::debug!(
+                                "failed generating candidate embedding in surreal recall for key '{}': {error}",
+                                row.key
+                            );
+                        }
+                    }
+                }
+                if let Some(ev) = row.embedding.as_ref() {
+                    let sim = vector::cosine_similarity(qv, ev);
+                    if sim > 0.0 {
+                        vector_results.push((id.clone(), sim));
+                    }
                 }
             }
 

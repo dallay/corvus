@@ -825,7 +825,7 @@ impl fmt::Debug for SurrealMemoryConfig {
             .field("url", &self.url)
             .field("namespace", &self.namespace)
             .field("database", &self.database)
-            .field("username", &self.username)
+            .field("username", &self.username.as_ref().map(|_| "<redacted>"))
             .field("password", &self.password.as_ref().map(|_| "<redacted>"))
             .field("token", &self.token.as_ref().map(|_| "<redacted>"))
             .field("allow_http_loopback", &self.allow_http_loopback)
@@ -2267,9 +2267,20 @@ impl Config {
         if let Ok(backend) =
             std::env::var("CORVUS_MEMORY_BACKEND").or_else(|_| std::env::var("MEMORY_BACKEND"))
         {
-            let backend = backend.trim();
-            if !backend.is_empty() {
-                self.memory.backend = backend.to_string();
+            let backend_raw = backend.trim();
+            if !backend_raw.is_empty() {
+                let backend = backend_raw.to_ascii_lowercase();
+                if matches!(
+                    backend.as_str(),
+                    "sqlite" | "lucid" | "markdown" | "surreal" | "none"
+                ) {
+                    self.memory.backend = backend;
+                } else {
+                    tracing::warn!(
+                        "ignoring unknown memory backend override '{}'; allowed: sqlite, lucid, markdown, surreal, none",
+                        backend_raw
+                    );
+                }
             }
         }
 
@@ -2627,6 +2638,7 @@ default_temperature = 0.7
         };
         let rendered = format!("{cfg:?}");
         assert!(rendered.contains("<redacted>"));
+        assert!(!rendered.contains("svc-user"));
         assert!(!rendered.contains("secret-pass"));
         assert!(!rendered.contains("secret-token"));
     }
@@ -3770,6 +3782,33 @@ default_temperature = 0.7
         std::env::set_var("CORVUS_MEMORY_BACKEND", "surreal");
         config.apply_env_overrides();
         assert_eq!(config.memory.backend, "surreal");
+
+        std::env::remove_var("CORVUS_MEMORY_BACKEND");
+    }
+
+    #[test]
+    fn env_override_memory_backend_fallback() {
+        let _env_guard = env_override_test_guard();
+        let mut config = Config::default();
+        assert_eq!(config.memory.backend, "sqlite");
+
+        std::env::remove_var("CORVUS_MEMORY_BACKEND");
+        std::env::set_var("MEMORY_BACKEND", "markdown");
+        config.apply_env_overrides();
+        assert_eq!(config.memory.backend, "markdown");
+
+        std::env::remove_var("MEMORY_BACKEND");
+    }
+
+    #[test]
+    fn env_override_memory_backend_invalid_ignored() {
+        let _env_guard = env_override_test_guard();
+        let mut config = Config::default();
+        assert_eq!(config.memory.backend, "sqlite");
+
+        std::env::set_var("CORVUS_MEMORY_BACKEND", "unsupported");
+        config.apply_env_overrides();
+        assert_eq!(config.memory.backend, "sqlite");
 
         std::env::remove_var("CORVUS_MEMORY_BACKEND");
     }
