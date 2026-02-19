@@ -2139,22 +2139,7 @@ impl Config {
         fs::create_dir_all(&workspace_dir).context("Failed to create workspace directory")?;
 
         if config_path.exists() {
-            // Warn if config file is world-readable (may contain API keys)
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if let Ok(meta) = fs::metadata(&config_path) {
-                    if meta.permissions().mode() & 0o004 != 0 {
-                        tracing::warn!(
-                            "Config file {:?} is world-readable (mode {:o}). \
-                             Consider restricting with: chmod 600 {:?}",
-                            config_path,
-                            meta.permissions().mode() & 0o777,
-                            config_path,
-                        );
-                    }
-                }
-            }
+            enforce_secure_config_permissions(&config_path)?;
 
             let contents =
                 fs::read_to_string(&config_path).context("Failed to read config file")?;
@@ -2208,13 +2193,6 @@ impl Config {
             config.config_path = config_path.clone();
             config.workspace_dir = workspace_dir;
             config.save()?;
-
-            // Restrict permissions on newly created config file (may contain API keys)
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                let _ = fs::set_permissions(&config_path, fs::Permissions::from_mode(0o600));
-            }
 
             config.apply_env_overrides();
             Ok(config)
@@ -2461,16 +2439,19 @@ impl Config {
         let temp_path = parent_dir.join(format!(".{file_name}.tmp-{}", uuid::Uuid::new_v4()));
         let backup_path = parent_dir.join(format!("{file_name}.bak"));
 
-        let mut temp_file = OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp_path)
-            .with_context(|| {
-                format!(
-                    "Failed to create temporary config file: {}",
-                    temp_path.display()
-                )
-            })?;
+        let mut open_options = OpenOptions::new();
+        open_options.create_new(true).write(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            open_options.mode(0o600);
+        }
+        let mut temp_file = open_options.open(&temp_path).with_context(|| {
+            format!(
+                "Failed to create temporary config file: {}",
+                temp_path.display()
+            )
+        })?;
         temp_file
             .write_all(toml_str.as_bytes())
             .context("Failed to write temporary config contents")?;
@@ -2487,6 +2468,7 @@ impl Config {
                     backup_path.display()
                 )
             })?;
+            enforce_secure_config_permissions(&backup_path)?;
         }
 
         if let Err(e) = fs::rename(&temp_path, &self.config_path) {
@@ -2497,6 +2479,7 @@ impl Config {
             anyhow::bail!("Failed to atomically replace config file: {e}");
         }
 
+        enforce_secure_config_permissions(&self.config_path)?;
         sync_directory(parent_dir)?;
 
         if had_existing_config {
@@ -2505,6 +2488,37 @@ impl Config {
 
         Ok(())
     }
+}
+
+fn enforce_secure_config_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let meta = fs::metadata(path)
+            .with_context(|| format!("Failed to read config file metadata: {}", path.display()))?;
+        let mode = meta.permissions().mode() & 0o777;
+        if mode != 0o600 {
+            fs::set_permissions(path, fs::Permissions::from_mode(0o600)).with_context(|| {
+                format!(
+                    "Failed to restrict config file permissions to 600: {}",
+                    path.display()
+                )
+            })?;
+            tracing::warn!(
+                "Config file {:?} had insecure permissions (mode {:o}); restricted to 600",
+                path,
+                mode,
+            );
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+
+    Ok(())
 }
 
 #[cfg(unix)]
@@ -4361,6 +4375,28 @@ default_model = "legacy-model"
         assert!(
             mode & 0o004 != 0,
             "Test setup: file should be world-readable (mode {mode:o})"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn save_restricts_permissions_even_if_config_became_insecure() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config_path = tmp.path().join("config.toml");
+
+        let mut config = Config::default();
+        config.config_path = config_path.clone();
+        config.save().unwrap();
+
+        std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        config.save().unwrap();
+
+        let mode = std::fs::metadata(&config_path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(
+            mode, 0o600,
+            "Save should enforce owner-only config permissions, got {mode:o}"
         );
     }
 }
