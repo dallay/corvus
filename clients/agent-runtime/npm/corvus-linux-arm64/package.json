@@ -1,0 +1,17 @@
+{
+  "name": "@dallay/corvus-linux-arm64",
+  "version": "0.1.2",
+  "description": "Corvus runtime CLI for Linux ARM64",
+  "license": "Apache-2.0",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dallay/corvus.git",
+    "directory": "clients/agent-runtime/npm/corvus-linux-arm64"
+  },
+  "files": ["corvus"],
+  "engines": {
+    "node": ">=18"
+  }
+}

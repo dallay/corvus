@@ -129,12 +129,12 @@ jobs:
           expected_version="${TAG_VERSION#v}"
           gradle_version="$(awk -F= '/^VERSION=/{print $2}' gradle.properties)"
           cargo_version="$(awk -F' = ' '/^version = /{gsub(/\"/, "", $2); print $2; exit}' clients/agent-runtime/Cargo.toml)"
-          npm_version="$(awk -F'"' '/"version"/{print $4; exit}' clients/agent-runtime/npm/corvus-cli/package.json)"
+          npm_version="$(awk -F'"' '/"version"/{print $4; exit}' clients/agent-runtime/npm/corvus/package.json)"
 
           for item in \
             "gradle.properties:$gradle_version" \
             "clients/agent-runtime/Cargo.toml:$cargo_version" \
-            "clients/agent-runtime/npm/corvus-cli/package.json:$npm_version"; do
+            "clients/agent-runtime/npm/corvus/package.json:$npm_version"; do
             file="${item%%:*}"
             actual="${item#*:}"
             if [[ "$actual" != "$expected_version" ]]; then
@@ -215,33 +215,6 @@ jobs:
           cd clients/agent-runtime
           cargo publish --locked
 
-      - name: 📦 Publish npm package
-        if: ${{ inputs.release }}
-        env:
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: |
-          set -euo pipefail
-          if [ -z "${{ secrets.NPM_TOKEN }}" ]; then
-            echo "⚠️ Skipping npm publish - NPM_TOKEN not configured"
-            exit 0
-          fi
-
-          npm config set //registry.npmjs.org/:_authToken "${NPM_TOKEN}"
-          npm config set registry "https://registry.npmjs.org/"
-
-          cd clients/agent-runtime/npm/corvus-cli
-
-          package_name="$(node -p "require('./package.json').name")"
-          package_version="$(node -p "require('./package.json').version")"
-
-          if npm view "${package_name}@${package_version}" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
-            echo "ℹ️ ${package_name}@${package_version} is already published, skipping"
-            exit 0
-          fi
-
-          npm whoami --registry=https://registry.npmjs.org/
-          npm publish --access public
-
   build-native-binaries:
     if: ${{ inputs.release }}
     needs: publish
@@ -315,6 +288,121 @@ jobs:
           push: true
           tags: ${{ steps.docker-meta.outputs.tags }}
           labels: ${{ steps.docker-meta.outputs.labels }}
+
+  publish-npm-platforms:
+    if: ${{ inputs.release }}
+    needs: build-native-binaries
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - pkg: corvus-darwin-x64
+            artifact: corvus-darwin-x64
+            binary: corvus
+          - pkg: corvus-darwin-arm64
+            artifact: corvus-darwin-arm64
+            binary: corvus
+          - pkg: corvus-linux-x64
+            artifact: corvus-linux-x64
+            binary: corvus
+          - pkg: corvus-linux-arm64
+            artifact: corvus-linux-arm64
+            binary: corvus
+          - pkg: corvus-windows-x64
+            artifact: corvus-windows-x64
+            binary: corvus.exe
+          - pkg: corvus-windows-arm64
+            artifact: corvus-windows-arm64
+            binary: corvus.exe
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: ⬇ Download artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          name: ${{ matrix.artifact }}
+          path: /tmp/artifact
+
+      - name: 📦 Extract binary
+        run: |
+          set -euo pipefail
+          cd /tmp/artifact
+          archive=$(ls *.tar.gz *.zip 2>/dev/null | head -1)
+          if [[ "$archive" == *.tar.gz ]]; then
+            tar -xzf "$archive"
+          else
+            unzip -o "$archive"
+          fi
+          find . -name "${{ matrix.binary }}" -type f -exec chmod +x {} \;
+
+      - name: 🚀 Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "⚠️ Skipping npm publish - NPM_TOKEN not configured"
+            exit 0
+          fi
+
+          cd clients/agent-runtime/npm/${{ matrix.pkg }}
+
+          # Copy binary to package
+          cp /tmp/artifact/${{ matrix.binary }} .
+
+          package_name="@dallay/${{ matrix.pkg }}"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if npm view "${package_name}@${package_version}" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "ℹ️ ${package_name}@${package_version} is already published, skipping"
+            exit 0
+          fi
+
+          npm publish --access public
+
+  publish-npm-base:
+    if: ${{ inputs.release }}
+    needs: publish-npm-platforms
+    runs-on: ubuntu-latest
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: 🚀 Publish base package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "⚠️ Skipping npm publish - NPM_TOKEN not configured"
+            exit 0
+          fi
+
+          cd clients/agent-runtime/npm/corvus
+
+          package_name="@dallay/corvus"
+          package_version="$(node -p "require('./package.json').version")"
+
+          if npm view "${package_name}@${package_version}" version --registry=https://registry.npmjs.org/ >/dev/null 2>&1; then
+            echo "ℹ️ ${package_name}@${package_version} is already published, skipping"
+            exit 0
+          fi
+
+          npm publish --access public
 
   release-assets:
     if: ${{ inputs.release }}
