@@ -352,8 +352,14 @@ jobs:
 
           cd clients/agent-runtime/npm/${{ matrix.pkg }}
 
-          # Copy binary to package
-          cp /tmp/artifact/${{ matrix.binary }} .
+          # Find and copy the binary from extracted archive
+          binary_path=$(find /tmp/artifact -name "${{ matrix.binary }}" -type f | head -1)
+          if [ -z "$binary_path" ]; then
+            echo "Binary not found!"
+            exit 1
+          fi
+          echo "Copying binary from: $binary_path"
+          cp "$binary_path" ./${{ matrix.binary }}
 
           package_name="@dallay/${{ matrix.pkg }}"
           package_version="$(node -p "require('./package.json').version")"
