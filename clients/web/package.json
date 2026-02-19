@@ -1,6 +1,6 @@
 {
   "name": "@corvus/web-monorepo",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Corvus Web Apps Monorepo - Marketing, Docs, Dashboard",
   "type": "module",
