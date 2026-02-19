@@ -55,7 +55,7 @@ services:
 
   # Optional local SurrealDB for memory backend testing/development
   surrealdb:
-    image: surrealdb/surrealdb:latest
+    image: surrealdb/surrealdb:v2.3
     command: start --log info --user ${SURREALDB_USER:-corvus} --pass ${SURREALDB_PASS:-corvus-pass} memory
     profiles: ["surreal"]
     ports:

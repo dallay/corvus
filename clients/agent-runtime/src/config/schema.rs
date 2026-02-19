@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -771,7 +772,7 @@ impl Default for WebSearchConfig {
 
 // ── Memory ───────────────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 pub struct SurrealMemoryConfig {
     /// SurrealDB endpoint URL, e.g. "http://127.0.0.1:8000" or "ws://127.0.0.1:8000/rpc"
     #[serde(default)]
@@ -818,10 +819,24 @@ impl Default for SurrealMemoryConfig {
     }
 }
 
+impl fmt::Debug for SurrealMemoryConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("SurrealMemoryConfig")
+            .field("url", &self.url)
+            .field("namespace", &self.namespace)
+            .field("database", &self.database)
+            .field("username", &self.username)
+            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
+            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
+            .field("allow_http_loopback", &self.allow_http_loopback)
+            .finish()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MemoryConfig {
-    /// "sqlite" | "lucid" | "markdown" | "none" (`none` = explicit no-op memory)
+    /// "sqlite" | "lucid" | "markdown" | "surreal" | "none" (`none` = explicit no-op memory)
     pub backend: String,
     /// Auto-save conversation context to memory
     pub auto_save: bool,
@@ -2093,6 +2108,15 @@ fn encrypt_optional_secret(
     Ok(())
 }
 
+fn env_override_optional(var_name: &str, target: &mut Option<String>) {
+    if let Ok(raw) = std::env::var(var_name) {
+        let trimmed = raw.trim();
+        if !trimmed.is_empty() {
+            *target = Some(trimmed.to_string());
+        }
+    }
+}
+
 impl Config {
     pub fn load_or_init() -> Result<Self> {
         let (default_corvus_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
@@ -2157,21 +2181,6 @@ impl Config {
                 &store,
                 &mut config.web_search.brave_api_key,
                 "config.web_search.brave_api_key",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.memory.surreal.url,
-                "config.memory.surreal.url",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.memory.surreal.namespace,
-                "config.memory.surreal.namespace",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.memory.surreal.database,
-                "config.memory.surreal.database",
             )?;
             decrypt_optional_secret(
                 &store,
@@ -2352,47 +2361,24 @@ impl Config {
             }
         }
 
-        if let Ok(url) = std::env::var("CORVUS_SURREALDB_URL") {
-            let value = url.trim();
-            if !value.is_empty() {
-                self.memory.surreal.url = Some(value.to_string());
-            }
-        }
-
-        if let Ok(namespace) = std::env::var("CORVUS_SURREALDB_NAMESPACE") {
-            let value = namespace.trim();
-            if !value.is_empty() {
-                self.memory.surreal.namespace = Some(value.to_string());
-            }
-        }
-
-        if let Ok(database) = std::env::var("CORVUS_SURREALDB_DATABASE") {
-            let value = database.trim();
-            if !value.is_empty() {
-                self.memory.surreal.database = Some(value.to_string());
-            }
-        }
-
-        if let Ok(username) = std::env::var("CORVUS_SURREALDB_USERNAME") {
-            let value = username.trim();
-            if !value.is_empty() {
-                self.memory.surreal.username = Some(value.to_string());
-            }
-        }
-
-        if let Ok(password) = std::env::var("CORVUS_SURREALDB_PASSWORD") {
-            let value = password.trim();
-            if !value.is_empty() {
-                self.memory.surreal.password = Some(value.to_string());
-            }
-        }
-
-        if let Ok(token) = std::env::var("CORVUS_SURREALDB_TOKEN") {
-            let value = token.trim();
-            if !value.is_empty() {
-                self.memory.surreal.token = Some(value.to_string());
-            }
-        }
+        env_override_optional("CORVUS_SURREALDB_URL", &mut self.memory.surreal.url);
+        env_override_optional(
+            "CORVUS_SURREALDB_NAMESPACE",
+            &mut self.memory.surreal.namespace,
+        );
+        env_override_optional(
+            "CORVUS_SURREALDB_DATABASE",
+            &mut self.memory.surreal.database,
+        );
+        env_override_optional(
+            "CORVUS_SURREALDB_USERNAME",
+            &mut self.memory.surreal.username,
+        );
+        env_override_optional(
+            "CORVUS_SURREALDB_PASSWORD",
+            &mut self.memory.surreal.password,
+        );
+        env_override_optional("CORVUS_SURREALDB_TOKEN", &mut self.memory.surreal.token);
     }
 
     pub fn save(&self) -> Result<()> {
@@ -2421,21 +2407,6 @@ impl Config {
             &store,
             &mut config_to_save.web_search.brave_api_key,
             "config.web_search.brave_api_key",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.memory.surreal.url,
-            "config.memory.surreal.url",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.memory.surreal.namespace,
-            "config.memory.surreal.namespace",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.memory.surreal.database,
-            "config.memory.surreal.database",
         )?;
         encrypt_optional_secret(
             &store,
@@ -2641,6 +2612,23 @@ default_temperature = 0.7
         assert_eq!(m.surreal.namespace.as_deref(), Some("corvus"));
         assert_eq!(m.surreal.database.as_deref(), Some("memory"));
         assert!(m.surreal.allow_http_loopback);
+    }
+
+    #[test]
+    fn surreal_memory_config_debug_redacts_sensitive_fields() {
+        let cfg = SurrealMemoryConfig {
+            url: Some("http://127.0.0.1:8000".into()),
+            namespace: Some("corvus".into()),
+            database: Some("memory".into()),
+            username: Some("svc-user".into()),
+            password: Some("secret-pass".into()),
+            token: Some("secret-token".into()),
+            allow_http_loopback: true,
+        };
+        let rendered = format!("{cfg:?}");
+        assert!(rendered.contains("<redacted>"));
+        assert!(!rendered.contains("secret-pass"));
+        assert!(!rendered.contains("secret-token"));
     }
 
     #[test]
@@ -2930,14 +2918,21 @@ tool_dispatcher = "xml"
             "brave-credential"
         );
 
-        let surreal_url_encrypted = stored.memory.surreal.url.as_deref().unwrap();
-        assert!(crate::security::SecretStore::is_encrypted(
-            surreal_url_encrypted
+        let surreal_url = stored.memory.surreal.url.as_deref().unwrap();
+        assert!(!crate::security::SecretStore::is_encrypted(surreal_url));
+        assert_eq!(surreal_url, "http://127.0.0.1:8000");
+
+        let surreal_namespace = stored.memory.surreal.namespace.as_deref().unwrap();
+        assert!(!crate::security::SecretStore::is_encrypted(
+            surreal_namespace
         ));
-        assert_eq!(
-            store.decrypt(surreal_url_encrypted).unwrap(),
-            "http://127.0.0.1:8000"
-        );
+        assert_eq!(surreal_namespace, "test-ns");
+
+        let surreal_database = stored.memory.surreal.database.as_deref().unwrap();
+        assert!(!crate::security::SecretStore::is_encrypted(
+            surreal_database
+        ));
+        assert_eq!(surreal_database, "test-db");
 
         let surreal_user_encrypted = stored.memory.surreal.username.as_deref().unwrap();
         assert!(crate::security::SecretStore::is_encrypted(

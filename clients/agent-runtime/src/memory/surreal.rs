@@ -100,39 +100,41 @@ impl SurrealMemory {
     }
 
     async fn client(&self) -> Result<&Surreal<Client>> {
-        let ws_endpoint = self.ws_endpoint.clone();
-        let namespace = self.namespace.clone();
-        let database = self.database.clone();
-        let username = self.username.clone();
-        let password = self.password.clone();
-        let token = self.token.clone();
-
         self.client
-            .get_or_try_init(|| async move {
-                let db = Surreal::new::<Ws>(ws_endpoint.as_str())
-                    .await
-                    .context("failed to connect to SurrealDB")?;
+            .get_or_try_init(|| {
+                let ws_endpoint = self.ws_endpoint.clone();
+                let namespace = self.namespace.clone();
+                let database = self.database.clone();
+                let username = self.username.clone();
+                let password = self.password.clone();
+                let token = self.token.clone();
 
-                if let Some(jwt) = token {
-                    db.authenticate(jwt)
+                async move {
+                    let db = Surreal::new::<Ws>(ws_endpoint.as_str())
                         .await
-                        .context("failed SurrealDB token authentication")?;
-                } else if let (Some(user), Some(pass)) = (username, password) {
-                    db.signin(Root {
-                        username: &user,
-                        password: &pass,
-                    })
-                    .await
-                    .context("failed SurrealDB username/password authentication")?;
+                        .context("failed to connect to SurrealDB")?;
+
+                    if let Some(jwt) = token {
+                        db.authenticate(jwt)
+                            .await
+                            .context("failed SurrealDB token authentication")?;
+                    } else if let (Some(user), Some(pass)) = (username, password) {
+                        db.signin(Root {
+                            username: &user,
+                            password: &pass,
+                        })
+                        .await
+                        .context("failed SurrealDB username/password authentication")?;
+                    }
+
+                    db.use_ns(namespace)
+                        .use_db(database)
+                        .await
+                        .context("failed selecting SurrealDB namespace/database")?;
+
+                    Self::ensure_schema(&db).await?;
+                    Ok(db)
                 }
-
-                db.use_ns(namespace)
-                    .use_db(database)
-                    .await
-                    .context("failed selecting SurrealDB namespace/database")?;
-
-                Self::ensure_schema(&db).await?;
-                Ok(db)
             })
             .await
     }
@@ -150,7 +152,13 @@ impl SurrealMemory {
 
         for statement in statements {
             if let Err(error) = db.query(statement).await {
-                tracing::debug!("SurrealDB schema statement skipped: {error}");
+                let message = error.to_string();
+                if message.to_ascii_lowercase().contains("already exists") {
+                    tracing::debug!("SurrealDB schema statement already exists: {statement}");
+                    continue;
+                }
+                tracing::warn!("SurrealDB schema statement failed: {statement}; error: {message}");
+                return Err(error).context("failed applying SurrealDB schema");
             }
         }
 
@@ -192,17 +200,85 @@ impl SurrealMemory {
         }
     }
 
-    async fn fetch_all_entries(&self) -> Result<Vec<EntryRow>> {
+    async fn list_rows(
+        &self,
+        category: Option<&MemoryCategory>,
+        session_id: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<EntryRow>> {
         let db = self.client().await?;
-        let mut response = db
-            .query("SELECT * FROM memory_entries ORDER BY updated_at DESC;")
-            .await
-            .context("failed to list SurrealDB entries")?;
+        let mut query = "SELECT * FROM memory_entries".to_string();
+        let mut clauses = Vec::new();
+        if category.is_some() {
+            clauses.push("category = $category");
+        }
+        if session_id.is_some() {
+            clauses.push("session_id = $session_id");
+        }
+        if !clauses.is_empty() {
+            query.push_str(" WHERE ");
+            query.push_str(&clauses.join(" AND "));
+        }
+        query.push_str(" ORDER BY updated_at DESC LIMIT $limit;");
 
+        let mut request = db.query(query).bind(("limit", limit));
+        if let Some(value) = category {
+            request = request.bind(("category", Self::category_to_str(value)));
+        }
+        if let Some(sid) = session_id {
+            request = request.bind(("session_id", sid.to_string()));
+        }
+
+        let mut response = request.await.context("failed to list SurrealDB entries")?;
         let rows: Vec<EntryRow> = response
             .take(0)
             .context("failed to decode SurrealDB entries")?;
         Ok(rows)
+    }
+
+    async fn recall_rows(
+        &self,
+        query_lower: &str,
+        session_id: Option<&str>,
+    ) -> Result<Vec<EntryRow>> {
+        let db = self.client().await?;
+        let mut request = db.query(
+            "SELECT * FROM memory_entries
+             WHERE (
+                string::contains(string::lowercase(key), $query)
+                OR string::contains(string::lowercase(content), $query)
+             )
+             AND ($session_id = NONE OR session_id = $session_id)
+             ORDER BY updated_at DESC
+             LIMIT 500;",
+        );
+        request = request.bind(("query", query_lower.to_string()));
+        request = request.bind(("session_id", session_id.map(str::to_string)));
+
+        let mut response = request
+            .await
+            .context("failed to recall SurrealDB entries")?;
+        let rows: Vec<EntryRow> = response
+            .take(0)
+            .context("failed to decode SurrealDB recall entries")?;
+        Ok(rows)
+    }
+
+    async fn count_rows(&self) -> Result<usize> {
+        #[derive(Debug, Deserialize)]
+        struct CountRow {
+            count: usize,
+        }
+
+        let db = self.client().await?;
+        let mut response = db
+            .query("SELECT count() AS count FROM memory_entries GROUP ALL;")
+            .await
+            .context("failed to count SurrealDB entries")?;
+        let rows: Vec<CountRow> = response
+            .take(0)
+            .context("failed to decode SurrealDB count result")?;
+        Ok(rows.first().map_or(0, |row| row.count))
     }
 
     async fn log_event(
@@ -234,33 +310,6 @@ impl SurrealMemory {
         .context("failed to log SurrealDB episodic event")?;
         Ok(())
     }
-
-    async fn log_relation(
-        &self,
-        relation_type: &str,
-        from_entry_id: &str,
-        to_node_id: &str,
-        session_id: Option<&str>,
-    ) -> Result<()> {
-        let db = self.client().await?;
-        db.query(
-            "CREATE memory_relations CONTENT {
-                relation_type: $relation_type,
-                from_entry_id: $from_entry_id,
-                to_node_id: $to_node_id,
-                session_id: $session_id,
-                at: $at
-            };",
-        )
-        .bind(("relation_type", relation_type.to_string()))
-        .bind(("from_entry_id", from_entry_id.to_string()))
-        .bind(("to_node_id", to_node_id.to_string()))
-        .bind(("session_id", session_id.map(str::to_string)))
-        .bind(("at", Local::now().to_rfc3339()))
-        .await
-        .context("failed to write SurrealDB graph relation")?;
-        Ok(())
-    }
 }
 
 #[async_trait]
@@ -284,7 +333,6 @@ impl Memory for SurrealMemory {
         }
 
         let record_id = Self::record_id_for_key(key);
-        let previous = self.get(key).await?;
         let db = self.client().await?;
 
         let embedding = if self.embedder.dimensions() > 0 {
@@ -309,53 +357,63 @@ impl Memory for SurrealMemory {
             updated_at: now,
         };
 
-        let _: Option<serde_json::Value> = db
-            .upsert(("memory_entries", record_id.as_str()))
-            .content(payload)
-            .await
-            .context("failed upserting SurrealDB memory entry")?;
+        let category_value = Self::category_to_str(&category);
+        let category_node = format!("category:{category_value}");
+        let session_node = session_id.map(|sid| format!("session:{sid}"));
 
-        let action = if previous.is_some() {
-            "update"
-        } else {
-            "store"
-        };
-        self.log_event(action, &record_id, key, &category, session_id)
-            .await?;
-        self.log_relation(
-            "entry_category",
-            &record_id,
-            &format!("category:{}", Self::category_to_str(&category)),
-            session_id,
-        )
-        .await?;
-
-        if let Some(session) = session_id {
-            self.log_relation(
-                "entry_session",
-                &record_id,
-                &format!("session:{session}"),
-                Some(session),
-            )
-            .await?;
-
-            let mut session_entries: Vec<MemoryEntry> = self
-                .list(None, Some(session))
-                .await?
-                .into_iter()
-                .filter(|entry| entry.key != key)
-                .collect();
-            session_entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-            if let Some(previous_entry) = session_entries.first() {
-                self.log_relation(
-                    "entry_previous",
-                    &record_id,
-                    &format!("entry:{}", previous_entry.id),
-                    Some(session),
-                )
-                .await?;
-            }
-        }
+        let mut tx = db.query(
+            "BEGIN TRANSACTION;
+             LET $existing = SELECT id FROM memory_entries WHERE key = $key LIMIT 1;
+             LET $action = IF array::len($existing) > 0 THEN \"update\" ELSE \"store\" END;
+             UPSERT type::thing(\"memory_entries\", $record_id) CONTENT $payload;
+             CREATE memory_events CONTENT {
+                action: $action,
+                entry_id: $record_id,
+                key: $key,
+                category: $category,
+                session_id: $session_id,
+                at: $at
+             };
+             CREATE memory_relations CONTENT {
+                relation_type: \"entry_category\",
+                from_entry_id: $record_id,
+                to_node_id: $category_node,
+                session_id: $session_id,
+                at: $at
+             };
+             IF $session_id != NONE THEN (
+                CREATE memory_relations CONTENT {
+                   relation_type: \"entry_session\",
+                   from_entry_id: $record_id,
+                   to_node_id: $session_node,
+                   session_id: $session_id,
+                   at: $at
+                };
+                LET $previous = SELECT id FROM memory_entries
+                                WHERE session_id = $session_id AND key != $key
+                                ORDER BY updated_at DESC
+                                LIMIT 1;
+                IF array::len($previous) > 0 THEN (
+                   CREATE memory_relations CONTENT {
+                      relation_type: \"entry_previous\",
+                      from_entry_id: $record_id,
+                      to_node_id: string::concat(\"entry:\", <string>$previous[0].id),
+                      session_id: $session_id,
+                      at: $at
+                   };
+                );
+             );
+             COMMIT TRANSACTION;",
+        );
+        tx = tx.bind(("key", key.to_string()));
+        tx = tx.bind(("record_id", record_id.clone()));
+        tx = tx.bind(("payload", payload));
+        tx = tx.bind(("category", category_value));
+        tx = tx.bind(("session_id", session_id.map(str::to_string)));
+        tx = tx.bind(("at", Local::now().to_rfc3339()));
+        tx = tx.bind(("category_node", category_node));
+        tx = tx.bind(("session_node", session_node));
+        tx.await.context("failed transactional SurrealDB store")?;
 
         Ok(())
     }
@@ -380,15 +438,12 @@ impl Memory for SurrealMemory {
             return Ok(Vec::new());
         }
 
-        let all_entries = self.fetch_all_entries().await?;
-        let filtered: Vec<EntryRow> = all_entries
-            .into_iter()
-            .filter(|entry| session_id.is_none_or(|sid| entry.session_id.as_deref() == Some(sid)))
-            .collect();
+        let filtered = self.recall_rows(&query_lower, session_id).await?;
 
         let mut vector_results: Vec<(String, f32)> = Vec::new();
         let mut keyword_results: Vec<(String, f32)> = Vec::new();
         let mut row_by_id: HashMap<String, EntryRow> = HashMap::with_capacity(filtered.len());
+        let mut searchable_by_id: HashMap<String, String> = HashMap::with_capacity(filtered.len());
 
         let query_embedding = if self.embedder.dimensions() > 0 {
             Some(
@@ -425,6 +480,7 @@ impl Memory for SurrealMemory {
                 }
             }
 
+            searchable_by_id.insert(id.clone(), searchable);
             row_by_id.insert(id, row);
         }
 
@@ -437,16 +493,18 @@ impl Memory for SurrealMemory {
         );
 
         if merged.is_empty() {
-            let fallback = row_by_id
-                .into_values()
-                .filter(|row| {
-                    let searchable =
-                        format!("{} {}", row.key.to_lowercase(), row.content.to_lowercase());
-                    searchable.contains(&query_lower)
-                })
-                .take(limit)
-                .map(|row| Self::row_to_entry(row, Some(1.0)))
-                .collect();
+            let mut fallback = Vec::new();
+            for (id, row) in row_by_id {
+                if searchable_by_id
+                    .get(&id)
+                    .is_some_and(|searchable| searchable.contains(&query_lower))
+                {
+                    fallback.push(Self::row_to_entry(row, Some(1.0)));
+                    if fallback.len() >= limit {
+                        break;
+                    }
+                }
+            }
             return Ok(fallback);
         }
 
@@ -475,15 +533,10 @@ impl Memory for SurrealMemory {
         category: Option<&MemoryCategory>,
         session_id: Option<&str>,
     ) -> Result<Vec<MemoryEntry>> {
-        let rows = self.fetch_all_entries().await?;
+        let rows = self.list_rows(category, session_id, 1_000).await?;
         let entries = rows
             .into_iter()
-            .filter(|row| {
-                category.is_none_or(|expected| Self::str_to_category(&row.category) == *expected)
-            })
-            .filter(|row| session_id.is_none_or(|sid| row.session_id.as_deref() == Some(sid)))
             .map(|row| Self::row_to_entry(row, None))
-            .take(1_000)
             .collect();
         Ok(entries)
     }
@@ -512,7 +565,7 @@ impl Memory for SurrealMemory {
     }
 
     async fn count(&self) -> Result<usize> {
-        Ok(self.fetch_all_entries().await?.len())
+        self.count_rows().await
     }
 
     async fn health_check(&self) -> bool {
@@ -561,17 +614,17 @@ fn validate_endpoint_security(endpoint: &Url, allow_http_loopback: bool) -> Resu
     let host = endpoint.host_str().unwrap_or_default();
 
     match scheme {
-        "https" | "wss" | "ws" => Ok(()),
-        "http" => {
+        "https" | "wss" => Ok(()),
+        "http" | "ws" => {
             if !allow_http_loopback {
                 anyhow::bail!(
-                    "refusing insecure SurrealDB URL: http is disabled (set \
+                    "refusing insecure SurrealDB URL: {scheme} is disabled (set \
                      memory.surreal.allow_http_loopback=true for localhost only)"
                 );
             }
             if !is_loopback_host(host) {
                 anyhow::bail!(
-                    "refusing insecure SurrealDB URL over http for non-loopback host '{host}'"
+                    "refusing insecure SurrealDB URL over {scheme} for non-loopback host '{host}'"
                 );
             }
             Ok(())
@@ -627,6 +680,13 @@ mod tests {
     #[test]
     fn reject_plain_http_non_loopback() {
         let endpoint = parse_endpoint("http://10.0.0.7:8000").unwrap();
+        let err = validate_endpoint_security(&endpoint, true).unwrap_err();
+        assert!(err.to_string().contains("non-loopback"));
+    }
+
+    #[test]
+    fn reject_plain_ws_non_loopback() {
+        let endpoint = parse_endpoint("ws://10.0.0.7:8000/rpc").unwrap();
         let err = validate_endpoint_security(&endpoint, true).unwrap_err();
         assert!(err.to_string().contains("non-loopback"));
     }

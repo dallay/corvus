@@ -7,7 +7,7 @@ default_model = "llama3.2"
 default_temperature = 0.7
 
 [memory]
-backend = "surreal"
+backend = "sqlite" # default_memory_backend_key() default; set to "surreal" to use the block below
 auto_save = true
 
 [memory.surreal]

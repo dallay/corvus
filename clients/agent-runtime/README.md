@@ -350,7 +350,7 @@ export CORVUS_SURREALDB_URL=http://127.0.0.1:8000
 export CORVUS_SURREALDB_NAMESPACE=corvus
 export CORVUS_SURREALDB_DATABASE=memory
 export CORVUS_SURREALDB_USERNAME=corvus
-export CORVUS_SURREALDB_PASSWORD=corvus-pass
+export CORVUS_SURREALDB_PASSWORD=your-password-here
 # optional:
 export CORVUS_SURREALDB_TOKEN=...
 ```

@@ -166,6 +166,7 @@ pub fn create_memory_for_migration(
         }
         MemoryBackendKind::Surreal => {
             #[cfg(feature = "memory-surreal")]
+            #[allow(clippy::cast_possible_truncation)]
             {
                 let config = MemoryConfig {
                     backend: "surreal".to_string(),

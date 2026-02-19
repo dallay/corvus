@@ -2437,15 +2437,21 @@ fn scaffold_surreal_docker_files() -> Result<PathBuf> {
 
     let compose_contents = r#"services:
   surrealdb:
-    image: surrealdb/surrealdb:latest
-    command: start --log info --user ${SURREALDB_USER:-corvus} --pass ${SURREALDB_PASS:-corvus-pass} memory
+    image: surrealdb/surrealdb:v2.3
+    # Do not use the in-memory backend ("memory") in production; it is non-persistent.
+    command: start --log info --user ${SURREALDB_USER:-corvus} --pass ${SURREALDB_PASS:-corvus-pass} surrealkv://data/corvus.db
     ports:
       - "8000:8000"
+    volumes:
+      - surrealdb-data:/data
     healthcheck:
       test: ["CMD", "surreal", "is-ready", "--conn", "http://127.0.0.1:8000"]
       interval: 10s
       timeout: 5s
       retries: 10
+
+volumes:
+  surrealdb-data:
 "#;
 
     let env_contents = r#"# Copy to .env and adjust values.
