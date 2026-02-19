@@ -2468,6 +2468,7 @@ impl Config {
                     backup_path.display()
                 )
             })?;
+            enforce_secure_config_permissions(&backup_path)?;
         }
 
         if let Err(e) = fs::rename(&temp_path, &self.config_path) {
