@@ -12,7 +12,7 @@ use crate::providers::{
     canonical_china_provider_name, is_glm_alias, is_glm_cn_alias, is_minimax_alias,
     is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_zai_alias, is_zai_cn_alias,
 };
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use console::style;
 use dialoguer::{Confirm, Input, Password, Select};
 use directories::UserDirs;
@@ -471,6 +471,7 @@ fn canonical_provider_name(provider_name: &str) -> &str {
     }
 
     match provider_name {
+        "github-copilot" => "copilot",
         "grok" => "xai",
         "together" => "together-ai",
         "google" | "google-gemini" => "gemini",
@@ -498,6 +499,7 @@ fn default_model_for_provider(provider: &str) -> String {
         "groq" => "llama-3.3-70b-versatile".into(),
         "deepseek" => "deepseek-chat".into(),
         "gemini" => "gemini-2.5-pro".into(),
+        "copilot" => "gpt-4o".into(),
         _ => "anthropic/claude-sonnet-4.5".into(),
     }
 }
@@ -768,6 +770,20 @@ fn curated_models_for_provider(provider_name: &str) -> Vec<(String, String)> {
             (
                 "gemini-2.5-flash-lite".to_string(),
                 "Gemini 2.5 Flash-Lite (lowest cost)".to_string(),
+            ),
+        ],
+        "copilot" => vec![
+            (
+                "gpt-4o".to_string(),
+                "GPT-4o (stable default for Copilot)".to_string(),
+            ),
+            (
+                "claude-3.5-sonnet".to_string(),
+                "Claude 3.5 Sonnet (strong coding quality)".to_string(),
+            ),
+            (
+                "o3-mini".to_string(),
+                "o3-mini (fast reasoning fallback)".to_string(),
             ),
         ],
         _ => vec![("default".to_string(), "Default model".to_string())],
@@ -1378,7 +1394,7 @@ fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
 fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Option<String>)> {
     // ── Tier selection ──
     let tiers = vec![
-        "⭐ Recommended (OpenRouter, Venice, Anthropic, OpenAI, Gemini)",
+        "⭐ Recommended (OpenRouter, Venice, Anthropic, OpenAI, Gemini, GitHub Copilot)",
         "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
         "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Amazon Bedrock)",
         "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qwen/DashScope, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
@@ -1404,6 +1420,10 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             (
                 "openai-codex",
                 "OpenAI Codex (ChatGPT subscription OAuth, no API key)",
+            ),
+            (
+                "copilot",
+                "GitHub Copilot — GitHub subscription OAuth (no API key required)",
             ),
             ("deepseek", "DeepSeek — V3 & R1 (affordable)"),
             ("mistral", "Mistral — Large & Codestral"),
@@ -1638,6 +1658,25 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
 
             key
         }
+    } else if canonical_provider_name(provider_name) == "copilot" {
+        if std::env::var("GITHUB_TOKEN").is_ok() || std::env::var("GH_TOKEN").is_ok() {
+            print_bullet(&format!(
+                "{} GitHub token environment variable detected!",
+                style("✓").green().bold()
+            ));
+            String::new()
+        } else {
+            print_bullet(
+                "Corvus can authenticate with GitHub Copilot automatically via device code.",
+            );
+            print_bullet("Optional: paste a GitHub token now to skip browser login.");
+            println!();
+
+            Input::new()
+                .with_prompt("  Paste GitHub token (or press Enter to use OAuth device login)")
+                .allow_empty(true)
+                .interact_text()?
+        }
     } else {
         let key_url = if is_moonshot_alias(provider_name) {
             "https://platform.moonshot.cn/console/api-keys"
@@ -1834,6 +1873,14 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             ),
             ("gemini-1.5-pro", "Gemini 1.5 Pro (best quality)"),
             ("gemini-1.5-flash", "Gemini 1.5 Flash (balanced)"),
+        ],
+        "copilot" => vec![
+            ("gpt-4o", "GPT-4o (stable default for Copilot)"),
+            (
+                "claude-3.5-sonnet",
+                "Claude 3.5 Sonnet (strong coding quality)",
+            ),
+            ("o3-mini", "o3-mini (fast reasoning fallback)"),
         ],
         "astrai" => vec![
             ("auto", "Auto — Astrai best execution routing (recommended)"),
@@ -2041,6 +2088,7 @@ fn provider_env_var(name: &str) -> &'static str {
         "cloudflare" | "cloudflare-ai" => "CLOUDFLARE_API_KEY",
         "bedrock" | "aws-bedrock" => "AWS_ACCESS_KEY_ID",
         "gemini" => "GEMINI_API_KEY",
+        "copilot" => "GITHUB_TOKEN",
         "nvidia" | "nvidia-nim" | "build.nvidia.com" => "NVIDIA_API_KEY",
         "astrai" => "ASTRAI_API_KEY",
         _ => "API_KEY",
@@ -4279,6 +4327,19 @@ fn print_summary(config: &Config) {
                 "       {}",
                 style("corvus auth login --provider openai-codex --device-code").yellow()
             );
+        } else if provider == "copilot" {
+            println!(
+                "    {} Authenticate GitHub Copilot:",
+                style(format!("{step}.")).cyan().bold()
+            );
+            println!(
+                "       {}",
+                style("corvus agent -m \"hello\"   # follow the device-code prompt").yellow()
+            );
+            println!(
+                "       {}",
+                style("or: export GITHUB_TOKEN=\"ghp_...\"").yellow()
+            );
         } else if provider == "anthropic" {
             println!(
                 "    {} Configure Anthropic auth:",
@@ -4793,6 +4854,8 @@ mod tests {
             default_model_for_provider("google-gemini"),
             "gemini-2.5-pro"
         );
+        assert_eq!(default_model_for_provider("copilot"), "gpt-4o");
+        assert_eq!(default_model_for_provider("github-copilot"), "gpt-4o");
     }
 
     #[test]
@@ -4806,6 +4869,7 @@ mod tests {
         assert_eq!(canonical_provider_name("minimax-cn"), "minimax");
         assert_eq!(canonical_provider_name("zai-cn"), "zai");
         assert_eq!(canonical_provider_name("z.ai-global"), "zai");
+        assert_eq!(canonical_provider_name("github-copilot"), "copilot");
     }
 
     #[test]
@@ -4875,6 +4939,10 @@ mod tests {
         assert_eq!(
             curated_models_for_provider("zai"),
             curated_models_for_provider("zai-cn")
+        );
+        assert_eq!(
+            curated_models_for_provider("copilot"),
+            curated_models_for_provider("github-copilot")
         );
     }
 
@@ -5011,9 +5079,10 @@ mod tests {
         };
 
         let err = run_models_refresh(&config, None, true).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("does not support live model discovery"));
+        assert!(
+            err.to_string()
+                .contains("does not support live model discovery")
+        );
     }
 
     // ── provider_env_var ────────────────────────────────────────
@@ -5031,6 +5100,8 @@ mod tests {
         assert_eq!(provider_env_var("google"), "GEMINI_API_KEY"); // alias
         assert_eq!(provider_env_var("google-gemini"), "GEMINI_API_KEY"); // alias
         assert_eq!(provider_env_var("gemini"), "GEMINI_API_KEY");
+        assert_eq!(provider_env_var("copilot"), "GITHUB_TOKEN");
+        assert_eq!(provider_env_var("github-copilot"), "GITHUB_TOKEN"); // alias
         assert_eq!(provider_env_var("qwen"), "DASHSCOPE_API_KEY");
         assert_eq!(provider_env_var("qwen-intl"), "DASHSCOPE_API_KEY");
         assert_eq!(provider_env_var("dashscope-us"), "DASHSCOPE_API_KEY");

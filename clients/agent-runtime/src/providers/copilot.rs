@@ -31,6 +31,7 @@ const GITHUB_DEVICE_CODE_URL: &str = "https://github.com/login/device/code";
 const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_token";
 const GITHUB_API_KEY_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 const DEFAULT_API: &str = "https://api.githubcopilot.com";
+const OAUTH_POLLING_SAFETY_MARGIN_MS: u64 = 3000;
 
 // ── Token types ──────────────────────────────────────────────────
 
@@ -57,6 +58,12 @@ fn default_expires_in() -> u64 {
 struct AccessTokenResponse {
     access_token: Option<String>,
     error: Option<String>,
+    interval: Option<u64>,
+}
+
+fn oauth_poll_delay_secs(interval_secs: u64) -> Duration {
+    Duration::from_secs(interval_secs)
+        .saturating_add(Duration::from_millis(OAUTH_POLLING_SAFETY_MARGIN_MS))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -440,7 +447,9 @@ impl CopilotProvider {
         let response: DeviceCodeResponse = self
             .http
             .post(GITHUB_DEVICE_CODE_URL)
+            .header("User-Agent", "corvus/agent-runtime")
             .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
             .json(&serde_json::json!({
                 "client_id": GITHUB_CLIENT_ID,
                 "scope": "read:user"
@@ -451,7 +460,7 @@ impl CopilotProvider {
             .json()
             .await?;
 
-        let mut poll_interval = Duration::from_secs(response.interval.max(5));
+        let mut poll_interval_secs = response.interval.max(5);
         let expires_in = response.expires_in.max(1);
         let expires_at = tokio::time::Instant::now() + Duration::from_secs(expires_in);
 
@@ -464,12 +473,14 @@ impl CopilotProvider {
         );
 
         while tokio::time::Instant::now() < expires_at {
-            tokio::time::sleep(poll_interval).await;
+            tokio::time::sleep(oauth_poll_delay_secs(poll_interval_secs)).await;
 
             let token_response: AccessTokenResponse = self
                 .http
                 .post(GITHUB_ACCESS_TOKEN_URL)
+                .header("User-Agent", "corvus/agent-runtime")
                 .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
                 .json(&serde_json::json!({
                     "client_id": GITHUB_CLIENT_ID,
                     "device_code": response.device_code,
@@ -487,7 +498,10 @@ impl CopilotProvider {
 
             match token_response.error.as_deref() {
                 Some("slow_down") => {
-                    poll_interval += Duration::from_secs(5);
+                    poll_interval_secs = token_response
+                        .interval
+                        .filter(|secs| *secs > 0)
+                        .unwrap_or_else(|| poll_interval_secs.saturating_add(5));
                 }
                 Some("authorization_pending") | None => {}
                 Some("expired_token") => {
@@ -682,12 +696,16 @@ mod tests {
     #[test]
     fn copilot_headers_include_required_fields() {
         let headers = CopilotProvider::COPILOT_HEADERS;
-        assert!(headers
-            .iter()
-            .any(|(header, _)| *header == "Editor-Version"));
-        assert!(headers
-            .iter()
-            .any(|(header, _)| *header == "Editor-Plugin-Version"));
+        assert!(
+            headers
+                .iter()
+                .any(|(header, _)| *header == "Editor-Version")
+        );
+        assert!(
+            headers
+                .iter()
+                .any(|(header, _)| *header == "Editor-Plugin-Version")
+        );
         assert!(headers.iter().any(|(header, _)| *header == "User-Agent"));
     }
 
@@ -698,8 +716,99 @@ mod tests {
     }
 
     #[test]
+    fn oauth_poll_delay_applies_safety_margin() {
+        let delay = oauth_poll_delay_secs(5);
+        assert_eq!(delay, Duration::from_millis(8000));
+    }
+
+    #[test]
     fn supports_native_tools() {
         let provider = CopilotProvider::new(None);
         assert!(provider.supports_native_tools());
+    }
+
+    #[test]
+    fn convert_tools_maps_function_specs() {
+        let tools = vec![ToolSpec {
+            name: "sum".to_string(),
+            description: "adds two numbers".to_string(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "a": { "type": "number" },
+                    "b": { "type": "number" }
+                },
+                "required": ["a", "b"]
+            }),
+        }];
+
+        let native = CopilotProvider::convert_tools(Some(&tools)).expect("tools must map");
+        assert_eq!(native.len(), 1);
+        assert_eq!(native[0].kind, "function");
+        assert_eq!(native[0].function.name, "sum");
+        assert_eq!(native[0].function.description, "adds two numbers");
+    }
+
+    #[test]
+    fn convert_messages_parses_assistant_tool_calls_payload() {
+        let assistant_payload = serde_json::json!({
+            "content": "Working on it",
+            "tool_calls": [
+                {
+                    "id": "call_1",
+                    "name": "sum",
+                    "arguments": "{\"a\":1,\"b\":2}"
+                }
+            ]
+        })
+        .to_string();
+
+        let messages = vec![ChatMessage {
+            role: "assistant".to_string(),
+            content: assistant_payload,
+        }];
+
+        let converted = CopilotProvider::convert_messages(&messages);
+        assert_eq!(converted.len(), 1);
+        let tool_calls = converted[0]
+            .tool_calls
+            .as_ref()
+            .expect("tool calls expected");
+        assert_eq!(tool_calls.len(), 1);
+        assert_eq!(tool_calls[0].id.as_deref(), Some("call_1"));
+        assert_eq!(tool_calls[0].function.name, "sum");
+    }
+
+    #[test]
+    fn convert_messages_parses_tool_role_payload() {
+        let tool_payload = serde_json::json!({
+            "tool_call_id": "call_42",
+            "content": "{\"result\":3}"
+        })
+        .to_string();
+        let messages = vec![ChatMessage {
+            role: "tool".to_string(),
+            content: tool_payload,
+        }];
+
+        let converted = CopilotProvider::convert_messages(&messages);
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].role, "tool");
+        assert_eq!(converted[0].tool_call_id.as_deref(), Some("call_42"));
+        assert_eq!(converted[0].content.as_deref(), Some("{\"result\":3}"));
+    }
+
+    #[test]
+    fn convert_messages_falls_back_for_invalid_json() {
+        let messages = vec![ChatMessage {
+            role: "assistant".to_string(),
+            content: "not-json".to_string(),
+        }];
+
+        let converted = CopilotProvider::convert_messages(&messages);
+        assert_eq!(converted.len(), 1);
+        assert_eq!(converted[0].role, "assistant");
+        assert_eq!(converted[0].content.as_deref(), Some("not-json"));
+        assert!(converted[0].tool_calls.is_none());
     }
 }
