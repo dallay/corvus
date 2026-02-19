@@ -300,21 +300,23 @@ jobs:
           - pkg: corvus-darwin-x64
             artifact: corvus-darwin-x64
             binary: corvus
+            source_binary: corvus-darwin-x64
           - pkg: corvus-darwin-arm64
             artifact: corvus-darwin-arm64
             binary: corvus
+            source_binary: corvus-darwin-arm64
           - pkg: corvus-linux-x64
             artifact: corvus-linux-x64
             binary: corvus
+            source_binary: corvus-linux-x64
           - pkg: corvus-linux-arm64
             artifact: corvus-linux-arm64
             binary: corvus
+            source_binary: corvus-linux-arm64
           - pkg: corvus-windows-x64
             artifact: corvus-windows-x64
             binary: corvus.exe
-          - pkg: corvus-windows-arm64
-            artifact: corvus-windows-arm64
-            binary: corvus.exe
+            source_binary: corvus-windows-x64.exe
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -335,13 +337,26 @@ jobs:
         run: |
           set -euo pipefail
           cd /tmp/artifact
-          archive=$(ls *.tar.gz *.zip 2>/dev/null | head -1)
+          # List contents for debugging
+          echo "Contents of /tmp/artifact:"
+          ls -la
+          # Find and extract the archive
+          archive=$(find . -name "*.tar.gz" -o -name "*.zip" | head -1)
+          if [ -z "$archive" ]; then
+            echo "No archive found!"
+            exit 1
+          fi
+          echo "Found archive: $archive"
           if [[ "$archive" == *.tar.gz ]]; then
             tar -xzf "$archive"
           else
             unzip -o "$archive"
           fi
-          find . -name "${{ matrix.binary }}" -type f -exec chmod +x {} \;
+          # Show extracted contents
+          echo "After extraction:"
+          ls -la
+          # Find the packaged binary and make it executable
+          find . -name "${{ matrix.source_binary }}" -type f -exec chmod +x {} \; -print
 
       - name: 🚀 Publish to npm
         env:
@@ -355,8 +370,14 @@ jobs:
 
           cd clients/agent-runtime/npm/${{ matrix.pkg }}
 
-          # Copy binary to package
-          cp /tmp/artifact/${{ matrix.binary }} .
+          # Find and copy the binary from extracted archive
+          binary_path=$(find /tmp/artifact -name "${{ matrix.source_binary }}" -type f | head -1)
+          if [ -z "$binary_path" ]; then
+            echo "Binary not found!"
+            exit 1
+          fi
+          echo "Copying binary from: $binary_path"
+          cp "$binary_path" ./${{ matrix.binary }}
 
           package_name="@dallay/${{ matrix.pkg }}"
           package_version="$(node -p "require('./package.json').version")"
