@@ -17,7 +17,7 @@ Before you can publish, ensure you have:
    - `MAVEN_CENTRAL_PASSWORD`: Maven Central password
 3. **Release channel secrets** for non-Gradle artifacts:
    - `CARGO_REGISTRY_TOKEN`: crates.io publishing token for `clients/agent-runtime`
-   - `NPM_TOKEN`: npm token for `@corvus/cli`
+   - `NPM_TOKEN`: npm token for `@dallay/corvus`
    - `DOCKERHUB_USERNAME`: Docker Hub account username
    - `DOCKERHUB_TOKEN`: Docker Hub access token
 4. **Write permissions**: You must be a maintainer of the repository

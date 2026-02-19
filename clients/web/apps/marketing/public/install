@@ -2,7 +2,7 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-readonly CLI_PACKAGE="@corvus/cli"
+readonly CLI_PACKAGE="@dallay/corvus"
 readonly PRIMARY_REPO_SLUG="profiletailors/corvus"
 readonly LEGACY_REPO_SLUG="dallay/corvus"
 readonly DEFAULT_INSTALL_DIR="$HOME/.local/bin"

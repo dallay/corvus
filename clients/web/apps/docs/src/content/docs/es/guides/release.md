@@ -17,7 +17,7 @@ Antes de poder publicar, asegúrate de tener:
    - `MAVEN_CENTRAL_PASSWORD`: Contraseña de Maven Central
 3. **Secrets de canales de release** para artefactos no-Gradle:
    - `CARGO_REGISTRY_TOKEN`: token de publicación en crates.io para `clients/agent-runtime`
-   - `NPM_TOKEN`: token de npm para `@corvus/cli`
+   - `NPM_TOKEN`: token de npm para `@dallay/corvus`
    - `DOCKERHUB_USERNAME`: usuario de Docker Hub
    - `DOCKERHUB_TOKEN`: token de acceso de Docker Hub
 4. **Permisos de escritura**: Debes ser mantenedor del repositorio

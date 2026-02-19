@@ -218,7 +218,7 @@ Calls the reusable `_publish.yml` workflow with:
 2. 🌿 Generates changelog (if enabled) using `release-changelog-builder-action`
 3. 👻 Publishes to Maven Central using Gradle
 4. 🦀 Publishes Rust crate to crates.io (release only)
-5. 📦 Publishes npm package `@corvus/cli` to npm (release only)
+5. 📦 Publishes npm package `@dallay/corvus` to npm (release only)
 6. 🐳 Builds and publishes multi-arch Docker image to Docker Hub + GHCR (release only)
 7. 🚀 Creates GitHub release (if enabled)
 

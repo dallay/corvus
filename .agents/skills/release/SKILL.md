@@ -26,7 +26,7 @@ Before publishing, ensure the user has:
 3. **Release channel secrets** (required for stable release tags):
 
 - `CARGO_REGISTRY_TOKEN`: crates.io token
-- `NPM_TOKEN`: npm token for `@corvus/cli`
+- `NPM_TOKEN`: npm token for `@dallay/corvus`
 - `DOCKERHUB_USERNAME`: Docker Hub username
 - `DOCKERHUB_TOKEN`: Docker Hub token
 

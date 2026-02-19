@@ -1,23 +1,23 @@
-# @corvus/cli
+# @dallay/corvus
 
 Node.js launcher for the native Corvus Rust binary.
 
 ## Usage
 
 ```bash
-npx @corvus/cli --help
-pnpm dlx @corvus/cli status
-yarn dlx @corvus/cli agent -m "Hola"
-bunx @corvus/cli doctor
+npx @dallay/corvus --help
+pnpm dlx @dallay/corvus status
+yarn dlx @dallay/corvus agent -m "Hola"
+bunx @dallay/corvus doctor
 ```
 
 ## Install globally
 
 ```bash
-npm i -g @corvus/cli
-pnpm add -g @corvus/cli
-yarn global add @corvus/cli
-bun add -g @corvus/cli
+npm i -g @dallay/corvus
+pnpm add -g @dallay/corvus
+yarn global add @dallay/corvus
+bun add -g @dallay/corvus
 ```
 
 Then run:
