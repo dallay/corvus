@@ -331,17 +331,14 @@ jobs:
           name: ${{ matrix.artifact }}
           path: /tmp/artifact
 
-      - name: 📦 Extract binary
+      - name: 📦 Prepare binary
         run: |
           set -euo pipefail
           cd /tmp/artifact
-          archive=$(ls *.tar.gz *.zip 2>/dev/null | head -1)
-          if [[ "$archive" == *.tar.gz ]]; then
-            tar -xzf "$archive"
-          else
-            unzip -o "$archive"
-          fi
+          # Artifact is already extracted by download-artifact action
+          # Just find and make the binary executable
           find . -name "${{ matrix.binary }}" -type f -exec chmod +x {} \;
+          ls -la
 
       - name: 🚀 Publish to npm
         env:
