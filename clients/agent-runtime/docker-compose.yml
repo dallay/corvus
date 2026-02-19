@@ -27,6 +27,15 @@ services:
       
       # Optional: Model override
       # - CORVUS_MODEL=anthropic/claude-sonnet-4-20250514
+
+      # Optional: Memory backend override
+      # - CORVUS_MEMORY_BACKEND=surreal
+      # - CORVUS_SURREALDB_URL=http://surrealdb:8000
+      # - CORVUS_SURREALDB_NAMESPACE=corvus
+      # - CORVUS_SURREALDB_DATABASE=memory
+      # - CORVUS_SURREALDB_USERNAME=corvus
+      # - CORVUS_SURREALDB_PASSWORD=corvus-pass
+      # - CORVUS_SURREALDB_TOKEN=
       
     volumes:
       # Persist workspace and config
@@ -43,6 +52,14 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  # Optional local SurrealDB for memory backend testing/development
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    command: start --log info --user ${SURREALDB_USER:-corvus} --pass ${SURREALDB_PASS:-corvus-pass} memory
+    profiles: ["surreal"]
+    ports:
+      - "8000:8000"
 
 volumes:
   corvus-data:

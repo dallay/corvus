@@ -772,6 +772,53 @@ impl Default for WebSearchConfig {
 // ── Memory ───────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurrealMemoryConfig {
+    /// SurrealDB endpoint URL, e.g. "http://127.0.0.1:8000" or "ws://127.0.0.1:8000/rpc"
+    #[serde(default)]
+    pub url: Option<String>,
+    /// SurrealDB namespace
+    #[serde(default = "default_surreal_namespace")]
+    pub namespace: Option<String>,
+    /// SurrealDB database
+    #[serde(default = "default_surreal_database")]
+    pub database: Option<String>,
+    /// SurrealDB username (ignored if token is provided)
+    #[serde(default)]
+    pub username: Option<String>,
+    /// SurrealDB password (ignored if token is provided)
+    #[serde(default)]
+    pub password: Option<String>,
+    /// SurrealDB auth token (preferred over username/password)
+    #[serde(default)]
+    pub token: Option<String>,
+    /// Allow plain HTTP for loopback addresses only.
+    #[serde(default = "default_true")]
+    pub allow_http_loopback: bool,
+}
+
+fn default_surreal_namespace() -> Option<String> {
+    Some("corvus".to_string())
+}
+
+fn default_surreal_database() -> Option<String> {
+    Some("memory".to_string())
+}
+
+impl Default for SurrealMemoryConfig {
+    fn default() -> Self {
+        Self {
+            url: None,
+            namespace: default_surreal_namespace(),
+            database: default_surreal_database(),
+            username: None,
+            password: None,
+            token: None,
+            allow_http_loopback: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MemoryConfig {
     /// "sqlite" | "lucid" | "markdown" | "none" (`none` = explicit no-op memory)
@@ -844,6 +891,10 @@ pub struct MemoryConfig {
     /// None = wait indefinitely (default). Recommended max: 300.
     #[serde(default)]
     pub sqlite_open_timeout_secs: Option<u64>,
+
+    /// SurrealDB backend settings.
+    #[serde(default)]
+    pub surreal: SurrealMemoryConfig,
 }
 
 fn default_embedding_provider() -> String {
@@ -913,6 +964,7 @@ impl Default for MemoryConfig {
             snapshot_on_hygiene: false,
             auto_hydrate: true,
             sqlite_open_timeout_secs: None,
+            surreal: SurrealMemoryConfig::default(),
         }
     }
 }
@@ -1987,9 +2039,7 @@ fn resolve_config_dir_for_workspace(workspace_dir: &Path) -> (PathBuf, PathBuf) 
         );
     }
 
-    let legacy_config_dir = workspace_dir
-        .parent()
-        .map(|parent| parent.join(".corvus"));
+    let legacy_config_dir = workspace_dir.parent().map(|parent| parent.join(".corvus"));
     if let Some(legacy_dir) = legacy_config_dir {
         if legacy_dir.join("config.toml").exists() {
             return (legacy_dir, workspace_config_dir);
@@ -2108,6 +2158,36 @@ impl Config {
                 &mut config.web_search.brave_api_key,
                 "config.web_search.brave_api_key",
             )?;
+            decrypt_optional_secret(
+                &store,
+                &mut config.memory.surreal.url,
+                "config.memory.surreal.url",
+            )?;
+            decrypt_optional_secret(
+                &store,
+                &mut config.memory.surreal.namespace,
+                "config.memory.surreal.namespace",
+            )?;
+            decrypt_optional_secret(
+                &store,
+                &mut config.memory.surreal.database,
+                "config.memory.surreal.database",
+            )?;
+            decrypt_optional_secret(
+                &store,
+                &mut config.memory.surreal.username,
+                "config.memory.surreal.username",
+            )?;
+            decrypt_optional_secret(
+                &store,
+                &mut config.memory.surreal.password,
+                "config.memory.surreal.password",
+            )?;
+            decrypt_optional_secret(
+                &store,
+                &mut config.memory.surreal.token,
+                "config.memory.surreal.token",
+            )?;
 
             for agent in config.agents.values_mut() {
                 decrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
@@ -2174,6 +2254,16 @@ impl Config {
             }
         }
 
+        // Memory backend: CORVUS_MEMORY_BACKEND or MEMORY_BACKEND
+        if let Ok(backend) =
+            std::env::var("CORVUS_MEMORY_BACKEND").or_else(|_| std::env::var("MEMORY_BACKEND"))
+        {
+            let backend = backend.trim();
+            if !backend.is_empty() {
+                self.memory.backend = backend.to_string();
+            }
+        }
+
         // Workspace directory: CORVUS_WORKSPACE
         if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
             if !workspace.is_empty() {
@@ -2193,8 +2283,7 @@ impl Config {
         }
 
         // Gateway host: CORVUS_GATEWAY_HOST or HOST
-        if let Ok(host) = std::env::var("CORVUS_GATEWAY_HOST").or_else(|_| std::env::var("HOST"))
-        {
+        if let Ok(host) = std::env::var("CORVUS_GATEWAY_HOST").or_else(|_| std::env::var("HOST")) {
             if !host.is_empty() {
                 self.gateway.host = host;
             }
@@ -2262,6 +2351,48 @@ impl Config {
                 }
             }
         }
+
+        if let Ok(url) = std::env::var("CORVUS_SURREALDB_URL") {
+            let value = url.trim();
+            if !value.is_empty() {
+                self.memory.surreal.url = Some(value.to_string());
+            }
+        }
+
+        if let Ok(namespace) = std::env::var("CORVUS_SURREALDB_NAMESPACE") {
+            let value = namespace.trim();
+            if !value.is_empty() {
+                self.memory.surreal.namespace = Some(value.to_string());
+            }
+        }
+
+        if let Ok(database) = std::env::var("CORVUS_SURREALDB_DATABASE") {
+            let value = database.trim();
+            if !value.is_empty() {
+                self.memory.surreal.database = Some(value.to_string());
+            }
+        }
+
+        if let Ok(username) = std::env::var("CORVUS_SURREALDB_USERNAME") {
+            let value = username.trim();
+            if !value.is_empty() {
+                self.memory.surreal.username = Some(value.to_string());
+            }
+        }
+
+        if let Ok(password) = std::env::var("CORVUS_SURREALDB_PASSWORD") {
+            let value = password.trim();
+            if !value.is_empty() {
+                self.memory.surreal.password = Some(value.to_string());
+            }
+        }
+
+        if let Ok(token) = std::env::var("CORVUS_SURREALDB_TOKEN") {
+            let value = token.trim();
+            if !value.is_empty() {
+                self.memory.surreal.token = Some(value.to_string());
+            }
+        }
     }
 
     pub fn save(&self) -> Result<()> {
@@ -2290,6 +2421,36 @@ impl Config {
             &store,
             &mut config_to_save.web_search.brave_api_key,
             "config.web_search.brave_api_key",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.memory.surreal.url,
+            "config.memory.surreal.url",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.memory.surreal.namespace,
+            "config.memory.surreal.namespace",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.memory.surreal.database,
+            "config.memory.surreal.database",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.memory.surreal.username,
+            "config.memory.surreal.username",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.memory.surreal.password,
+            "config.memory.surreal.password",
+        )?;
+        encrypt_optional_secret(
+            &store,
+            &mut config_to_save.memory.surreal.token,
+            "config.memory.surreal.token",
         )?;
 
         for agent in config_to_save.agents.values_mut() {
@@ -2477,6 +2638,9 @@ default_temperature = 0.7
         assert_eq!(m.purge_after_days, 30);
         assert_eq!(m.conversation_retention_days, 30);
         assert!(m.sqlite_open_timeout_secs.is_none());
+        assert_eq!(m.surreal.namespace.as_deref(), Some("corvus"));
+        assert_eq!(m.surreal.database.as_deref(), Some("memory"));
+        assert!(m.surreal.allow_http_loopback);
     }
 
     #[test]
@@ -2710,6 +2874,12 @@ tool_dispatcher = "xml"
         config.composio.api_key = Some("composio-credential".into());
         config.browser.computer_use.api_key = Some("browser-credential".into());
         config.web_search.brave_api_key = Some("brave-credential".into());
+        config.memory.surreal.url = Some("http://127.0.0.1:8000".into());
+        config.memory.surreal.namespace = Some("test-ns".into());
+        config.memory.surreal.database = Some("test-db".into());
+        config.memory.surreal.username = Some("test-user".into());
+        config.memory.surreal.password = Some("test-pass".into());
+        config.memory.surreal.token = Some("test-token".into());
 
         config.agents.insert(
             "worker".into(),
@@ -2760,6 +2930,36 @@ tool_dispatcher = "xml"
             "brave-credential"
         );
 
+        let surreal_url_encrypted = stored.memory.surreal.url.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(
+            surreal_url_encrypted
+        ));
+        assert_eq!(
+            store.decrypt(surreal_url_encrypted).unwrap(),
+            "http://127.0.0.1:8000"
+        );
+
+        let surreal_user_encrypted = stored.memory.surreal.username.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(
+            surreal_user_encrypted
+        ));
+        assert_eq!(store.decrypt(surreal_user_encrypted).unwrap(), "test-user");
+
+        let surreal_pass_encrypted = stored.memory.surreal.password.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(
+            surreal_pass_encrypted
+        ));
+        assert_eq!(store.decrypt(surreal_pass_encrypted).unwrap(), "test-pass");
+
+        let surreal_token_encrypted = stored.memory.surreal.token.as_deref().unwrap();
+        assert!(crate::security::SecretStore::is_encrypted(
+            surreal_token_encrypted
+        ));
+        assert_eq!(
+            store.decrypt(surreal_token_encrypted).unwrap(),
+            "test-token"
+        );
+
         let worker = stored.agents.get("worker").unwrap();
         let worker_encrypted = worker.api_key.as_deref().unwrap();
         assert!(crate::security::SecretStore::is_encrypted(worker_encrypted));
@@ -2770,8 +2970,7 @@ tool_dispatcher = "xml"
 
     #[test]
     fn config_save_atomic_cleanup() {
-        let dir =
-            std::env::temp_dir().join(format!("corvus_test_config_{}", uuid::Uuid::new_v4()));
+        let dir = std::env::temp_dir().join(format!("corvus_test_config_{}", uuid::Uuid::new_v4()));
         fs::create_dir_all(&dir).unwrap();
 
         let config_path = dir.join("config.toml");
@@ -3568,6 +3767,19 @@ default_temperature = 0.7
     }
 
     #[test]
+    fn env_override_memory_backend() {
+        let _env_guard = env_override_test_guard();
+        let mut config = Config::default();
+        assert_eq!(config.memory.backend, "sqlite");
+
+        std::env::set_var("CORVUS_MEMORY_BACKEND", "surreal");
+        config.apply_env_overrides();
+        assert_eq!(config.memory.backend, "surreal");
+
+        std::env::remove_var("CORVUS_MEMORY_BACKEND");
+    }
+
+    #[test]
     fn env_override_workspace() {
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
@@ -3919,6 +4131,38 @@ default_model = "legacy-model"
 
         std::env::remove_var("WEB_SEARCH_MAX_RESULTS");
         std::env::remove_var("WEB_SEARCH_TIMEOUT_SECS");
+    }
+
+    #[test]
+    fn env_override_surreal_memory_config() {
+        let _env_guard = env_override_test_guard();
+        let mut config = Config::default();
+
+        std::env::set_var("CORVUS_SURREALDB_URL", "https://db.example.com");
+        std::env::set_var("CORVUS_SURREALDB_NAMESPACE", "prod-ns");
+        std::env::set_var("CORVUS_SURREALDB_DATABASE", "prod-db");
+        std::env::set_var("CORVUS_SURREALDB_USERNAME", "svc-user");
+        std::env::set_var("CORVUS_SURREALDB_PASSWORD", "svc-pass");
+        std::env::set_var("CORVUS_SURREALDB_TOKEN", "svc-token");
+
+        config.apply_env_overrides();
+
+        assert_eq!(
+            config.memory.surreal.url.as_deref(),
+            Some("https://db.example.com")
+        );
+        assert_eq!(config.memory.surreal.namespace.as_deref(), Some("prod-ns"));
+        assert_eq!(config.memory.surreal.database.as_deref(), Some("prod-db"));
+        assert_eq!(config.memory.surreal.username.as_deref(), Some("svc-user"));
+        assert_eq!(config.memory.surreal.password.as_deref(), Some("svc-pass"));
+        assert_eq!(config.memory.surreal.token.as_deref(), Some("svc-token"));
+
+        std::env::remove_var("CORVUS_SURREALDB_URL");
+        std::env::remove_var("CORVUS_SURREALDB_NAMESPACE");
+        std::env::remove_var("CORVUS_SURREALDB_DATABASE");
+        std::env::remove_var("CORVUS_SURREALDB_USERNAME");
+        std::env::remove_var("CORVUS_SURREALDB_PASSWORD");
+        std::env::remove_var("CORVUS_SURREALDB_TOKEN");
     }
 
     #[test]

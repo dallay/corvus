@@ -82,6 +82,7 @@ prost = { version = "0.14", default-features = false }
 
 # Memory / persistence
 rusqlite = { version = "0.38", features = ["bundled"] }
+surrealdb = { version = "2.3", optional = true, default-features = false, features = ["protocol-ws", "rustls"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
 cron = "0.15"
@@ -151,6 +152,8 @@ landlock = ["sandbox-landlock"]
 probe = ["dep:probe-rs"]
 # rag-pdf = PDF ingestion for datasheet RAG
 rag-pdf = ["dep:pdf-extract"]
+# memory-surreal = SurrealDB-backed memory backend
+memory-surreal = ["dep:surrealdb"]
 [profile.release]
 opt-level = "z"      # Optimize for size
 lto = "thin"         # Lower memory use during release builds

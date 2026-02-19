@@ -73,6 +73,9 @@ cd corvus
 cargo build --release
 cargo install --path . --force
 
+# Enable SurrealDB memory backend support
+cargo build --release --features memory-surreal
+
 # Quick setup (no prompts)
 corvus onboard --api-key sk-... --provider openrouter
 
@@ -131,7 +134,7 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 |-------------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
 | **AI Models**     | `Provider`       | 22+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
 | **Channels**      | `Channel`        | CLI, Telegram, Discord, Slack, iMessage, Matrix, WhatsApp, Webhook                                                                                  | Any messaging API                                         |
-| **Memory**        | `Memory`         | SQLite with hybrid search (FTS5 + vector cosine similarity), Markdown                                                                               | Any persistence backend                                   |
+| **Memory**        | `Memory`         | SQLite (hybrid search), SurrealDB (feature: `memory-surreal`), Markdown                                                                              | Any persistence backend                                   |
 | **Tools**         | `Tool`           | shell, file_read, file_write, memory_store, memory_recall, memory_forget, browser_open (Brave + allowlist), composio (optional)                     | Any capability                                            |
 | **Observability** | `Observer`       | Noop, Log, Multi                                                                                                                                    | Prometheus, OTel                                          |
 | **Runtime**       | `RuntimeAdapter` | Native, Docker (sandboxed)                                                                                                                          | WASM (planned; unsupported kinds fail fast)               |
@@ -168,11 +171,17 @@ The agent automatically recalls, saves, and manages memory via tools.
 
 ```toml
 [memory]
-backend = "sqlite"          # "sqlite", "markdown", "none"
+backend = "sqlite"          # "sqlite", "lucid", "surreal", "markdown", "none"
 auto_save = true
 embedding_provider = "openai"
 vector_weight = 0.7
 keyword_weight = 0.3
+
+[memory.surreal]
+url = "http://127.0.0.1:8000"
+namespace = "corvus"
+database = "memory"
+allow_http_loopback = true
 ```
 
 ## Security
@@ -263,7 +272,8 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
 
 ## Configuration
 
-Config: `~/.corvus/config.toml` (created by `onboard`)
+Config: `~/.corvus/config.toml` (created by `onboard`; wizard now includes SurrealDB prompts when
+available)
 
 ```toml
 api_key = "sk-..."
@@ -272,11 +282,20 @@ default_model = "anthropic/claude-sonnet-4-20250514"
 default_temperature = 0.7
 
 [memory]
-backend = "sqlite"              # "sqlite", "markdown", "none"
+backend = "sqlite"              # "sqlite", "lucid", "surreal", "markdown", "none"
 auto_save = true
 embedding_provider = "openai"   # "openai", "noop"
 vector_weight = 0.7
 keyword_weight = 0.3
+
+[memory.surreal]
+url = "http://127.0.0.1:8000"
+namespace = "corvus"
+database = "memory"
+# username = "corvus"
+# password = "corvus-pass"
+# token = "..."                  # preferred over username/password when set
+allow_http_loopback = true
 
 [gateway]
 require_pairing = true          # require pairing code on first connect
@@ -321,6 +340,19 @@ enabled = false                 # opt-in: 1000+ OAuth apps via composio.dev
 format = "openclaw"             # "openclaw" (default, markdown files) or "aieos" (JSON)
 # aieos_path = "identity.json"  # path to AIEOS JSON file (relative to workspace or absolute)
 # aieos_inline = '{"identity":{"names":{"first":"Nova"}}}'  # inline AIEOS JSON
+```
+
+SurrealDB environment overrides (env-first):
+
+```bash
+export CORVUS_MEMORY_BACKEND=surreal
+export CORVUS_SURREALDB_URL=http://127.0.0.1:8000
+export CORVUS_SURREALDB_NAMESPACE=corvus
+export CORVUS_SURREALDB_DATABASE=memory
+export CORVUS_SURREALDB_USERNAME=corvus
+export CORVUS_SURREALDB_PASSWORD=corvus-pass
+# optional:
+export CORVUS_SURREALDB_TOKEN=...
 ```
 
 ## Identity System (AIEOS Support)
@@ -408,7 +440,7 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 | Command                                       | Description                                             |
 |-----------------------------------------------|---------------------------------------------------------|
 | `onboard`                                     | Quick setup (default)                                   |
-| `onboard --interactive`                       | Full interactive 7-step wizard                          |
+| `onboard --interactive`                       | Full interactive 7-step wizard (includes memory backend + Surreal options) |
 | `onboard --channels-only`                     | Reconfigure channels/allowlists only (fast repair flow) |
 | `agent -m "..."`                              | Single message mode                                     |
 | `agent`                                       | Interactive chat mode                                   |

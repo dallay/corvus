@@ -6,6 +6,18 @@ default_provider = "ollama"
 default_model = "llama3.2"
 default_temperature = 0.7
 
+[memory]
+backend = "surreal"
+auto_save = true
+
+[memory.surreal]
+url = "http://127.0.0.1:8000"
+namespace = "corvus"
+database = "memory"
+username = "corvus"
+password = "corvus-pass"
+allow_http_loopback = true
+
 [gateway]
 port = 3000
 host = "127.0.0.1"
