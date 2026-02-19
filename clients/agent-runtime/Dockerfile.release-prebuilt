@@ -1,0 +1,48 @@
+# syntax=docker/dockerfile:1
+
+FROM busybox:latest AS prep
+
+ARG TARGETARCH
+
+RUN mkdir -p /corvus-data/.corvus /corvus-data/workspace
+
+RUN cat > /corvus-data/.corvus/config.toml << 'EOF'
+workspace_dir = "/corvus-data/workspace"
+config_path = "/corvus-data/.corvus/config.toml"
+api_key = ""
+default_provider = "openrouter"
+default_model = "anthropic/claude-sonnet-4-20250514"
+default_temperature = 0.7
+
+[gateway]
+port = 3000
+host = "127.0.0.1"
+EOF
+
+COPY clients/agent-runtime/dist/corvus-linux-x64 /tmp/corvus-linux-x64
+COPY clients/agent-runtime/dist/corvus-linux-arm64 /tmp/corvus-linux-arm64
+
+RUN case "$TARGETARCH" in \
+  amd64) cp /tmp/corvus-linux-x64 /tmp/corvus ;; \
+  arm64) cp /tmp/corvus-linux-arm64 /tmp/corvus ;; \
+  *) echo "Unsupported TARGETARCH=$TARGETARCH" && exit 1 ;; \
+esac
+
+RUN chmod +x /tmp/corvus && chown -R 65532:65532 /corvus-data
+
+FROM gcr.io/distroless/cc-debian13:nonroot AS release
+
+COPY --from=prep /tmp/corvus /usr/local/bin/corvus
+COPY --from=prep /corvus-data /corvus-data
+
+ENV CORVUS_WORKSPACE=/corvus-data/workspace
+ENV HOME=/corvus-data
+ENV PROVIDER="openrouter"
+ENV CORVUS_MODEL="anthropic/claude-sonnet-4-20250514"
+ENV CORVUS_GATEWAY_PORT=3000
+
+WORKDIR /corvus-data
+USER 65532:65532
+EXPOSE 3000
+ENTRYPOINT ["corvus"]
+CMD ["gateway", "--port", "3000", "--host", "127.0.0.1"]

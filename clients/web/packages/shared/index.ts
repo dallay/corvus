@@ -13,4 +13,4 @@
 // export type { User, Config } from './types';
 
 // Placeholder export
-export const version = '0.1.0';
+export const version = '0.1.2';

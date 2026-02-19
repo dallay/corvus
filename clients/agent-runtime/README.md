@@ -50,19 +50,19 @@ ls -lh target/release/corvus
 Use Corvus without compiling Rust locally:
 
 ```bash
-npx @corvus/cli --help
-pnpm dlx @corvus/cli status
-yarn dlx @corvus/cli agent -m "Hello, Corvus!"
-bunx @corvus/cli doctor
+npx @dallay/corvus --help
+pnpm dlx @dallay/corvus status
+yarn dlx @dallay/corvus agent -m "Hello, Corvus!"
+bunx @dallay/corvus doctor
 ```
 
 Or install globally via your package manager:
 
 ```bash
-npm i -g @corvus/cli
-pnpm add -g @corvus/cli
-yarn global add @corvus/cli
-bun add -g @corvus/cli
+npm i -g @dallay/corvus
+pnpm add -g @dallay/corvus
+yarn global add @dallay/corvus
+bun add -g @dallay/corvus
 ```
 
 Build from source (Rust toolchain):
