@@ -55,6 +55,10 @@ is_interactive() {
   [ -t 0 ] && [ -t 1 ]
 }
 
+has_tty() {
+  [ -t 1 ] && [ -r /dev/tty ]
+}
+
 confirm() {
   local prompt="$1"
   local default_answer="${2:-y}"
@@ -272,6 +276,7 @@ download_binary_from_releases() {
   local candidate_assets=()
   local candidate_url=""
   local candidate_checksum_url=""
+  local selected_repo=""
   local downloaded=0
 
   RESOLVED_DOWNLOAD_URL=""
@@ -292,18 +297,17 @@ download_binary_from_releases() {
       fi
       candidate_checksum_url="${candidate_url}.sha256"
 
-      print_info "Downloading ${candidate_url}"
-      if curl --proto '=https' --tlsv1.2 -fsSL "$candidate_url" -o "$target_path"; then
+      if curl --proto '=https' --tlsv1.2 -fsSL "$candidate_url" -o "$target_path" 2>/dev/null; then
         RESOLVED_DOWNLOAD_URL="$candidate_url"
         RESOLVED_CHECKSUM_URL="$candidate_checksum_url"
         RESOLVED_ASSET_NAME="$candidate_asset"
+        selected_repo="$repo_slug"
         downloaded=1
         break
       fi
     done
 
     [ "$downloaded" -eq 1 ] && break
-    print_warn "Download failed for ${repo_slug}. Trying next source..."
   done
 
   if [ -z "$RESOLVED_DOWNLOAD_URL" ]; then
@@ -311,6 +315,11 @@ download_binary_from_releases() {
     print_error "Tried: ${PRIMARY_REPO_SLUG} and ${LEGACY_REPO_SLUG}"
     print_error "You can force a version with CORVUS_VERSION=<version>."
     return 1
+  fi
+
+  print_info "Downloading ${RESOLVED_DOWNLOAD_URL}"
+  if [ "$selected_repo" != "$PRIMARY_REPO_SLUG" ]; then
+    print_warn "Primary release source unavailable, using ${selected_repo}."
   fi
 }
 
@@ -511,10 +520,12 @@ post_install_steps() {
     return
   fi
 
-  if is_interactive && confirm "Run interactive onboarding now?" "y"; then
-    "$resolved_cmd" onboard --interactive || print_warn "Onboarding exited with a non-zero status."
+  if has_tty; then
+    print_info "Launching interactive onboarding..."
+    "$resolved_cmd" onboard --interactive </dev/tty || print_warn "Onboarding exited with a non-zero status."
   else
-    print_info "You can run onboarding later with: corvus onboard --interactive"
+    print_warn "No TTY available to run interactive onboarding automatically."
+    print_info "Run it later with: corvus onboard --interactive"
   fi
 }
 
