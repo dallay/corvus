@@ -1019,7 +1019,7 @@ fn default_plugin_revocation_refresh_minutes() -> u64 {
 }
 
 fn default_plugin_revocation_sources() -> Vec<String> {
-    vec!["https://plugins.corvus.ai/revocations.json".to_string()]
+    vec!["https://corvus.profiletailors.com/revocations.json".to_string()]
 }
 
 impl Default for PluginRevocationConfig {
@@ -1063,7 +1063,7 @@ fn default_plugin_allow_publishers() -> Vec<String> {
 fn default_plugin_sources() -> Vec<PluginSourceConfig> {
     vec![PluginSourceConfig {
         name: "official".to_string(),
-        url: "https://plugins.corvus.ai/catalog.json".to_string(),
+        url: "https://corvus.profiletailors.com/catalog.json".to_string(),
     }]
 }
 
