@@ -725,7 +725,7 @@ fn create_secure_dir_windows(path: &Path) -> std::io::Result<()> {
     let created = unsafe { CreateDirectoryW(path_wide.as_ptr(), &mut security_attributes) };
 
     unsafe {
-        LocalFree(security_descriptor as isize);
+      LocalFree(security_descriptor);
     }
 
     if created == 0 {
@@ -825,12 +825,12 @@ fn create_secure_file_windows(path: &Path) -> std::io::Result<std::fs::File> {
             &mut security_attributes,
             CREATE_ALWAYS,
             FILE_ATTRIBUTE_NORMAL,
-            0,
+            null_mut(),
         )
     };
 
     unsafe {
-        LocalFree(security_descriptor as isize);
+        LocalFree(security_descriptor);
     }
 
     if handle == INVALID_HANDLE_VALUE {
