@@ -15,6 +15,7 @@ use crate::providers::traits::{
     ChatMessage, ChatRequest as ProviderChatRequest, ChatResponse as ProviderChatResponse,
     Provider, ToolCall as ProviderToolCall,
 };
+use crate::security::SecretStore;
 use crate::tools::ToolSpec;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -169,13 +170,14 @@ pub struct CopilotProvider {
     /// preventing duplicate device flow prompts or redundant API calls.
     refresh_lock: Arc<Mutex<Option<CachedApiKey>>>,
     http: Client,
+    secret_store: SecretStore,
     token_dir: PathBuf,
 }
 
 impl CopilotProvider {
     pub fn new(github_token: Option<&str>) -> Self {
-        let token_dir = directories::ProjectDirs::from("", "", "corvus")
-            .map(|dir| dir.config_dir().join("copilot"))
+        let corvus_dir = directories::ProjectDirs::from("", "", "corvus")
+            .map(|dir| dir.config_dir().to_path_buf())
             .unwrap_or_else(|| {
                 // Fall back to a user-specific temp directory to avoid
                 // shared-directory symlink attacks.
@@ -184,6 +186,7 @@ impl CopilotProvider {
                     .unwrap_or_else(|_| "unknown".to_string());
                 std::env::temp_dir().join(format!("corvus-copilot-{user}"))
             });
+        let token_dir = corvus_dir.join("copilot");
 
         if let Err(err) = std::fs::create_dir_all(&token_dir) {
             warn!(
@@ -216,7 +219,54 @@ impl CopilotProvider {
                 .connect_timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
+            secret_store: SecretStore::new(&corvus_dir, true),
             token_dir,
+        }
+    }
+
+    async fn read_token_file_secure(&self, path: &Path) -> Option<String> {
+        let data = tokio::fs::read_to_string(path).await.ok()?;
+        let value = data.trim();
+        if value.is_empty() {
+            return None;
+        }
+
+        match self.secret_store.decrypt(value) {
+            Ok(decrypted) => {
+                let token = decrypted.trim();
+                if token.is_empty() {
+                    None
+                } else {
+                    Some(token.to_string())
+                }
+            }
+            Err(err) => {
+                warn!("Failed to decrypt Copilot token file {:?}: {err}", path);
+                None
+            }
+        }
+    }
+
+    async fn write_token_file_secure(&self, path: &Path, content: &str) {
+        let path = path.to_path_buf();
+        let write_path = path.clone();
+        let content = content.to_string();
+        let secret_store = self.secret_store.clone();
+
+        let result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let encrypted = secret_store.encrypt(&content)?;
+            write_file_secure_blocking(&write_path, &encrypted)?;
+            Ok(())
+        })
+        .await;
+
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => warn!(
+                "Failed to write secure Copilot token file {:?}: {err}",
+                path
+            ),
+            Err(err) => warn!("Failed to spawn token write task for {:?}: {err}", path),
         }
     }
 
@@ -430,15 +480,13 @@ impl CopilotProvider {
         }
 
         let access_token_path = self.token_dir.join("access-token");
-        if let Ok(cached) = tokio::fs::read_to_string(&access_token_path).await {
-            let token = cached.trim();
-            if !token.is_empty() {
-                return Ok(token.to_string());
-            }
+        if let Some(token) = self.read_token_file_secure(&access_token_path).await {
+            return Ok(token);
         }
 
         let token = self.device_code_login().await?;
-        write_file_secure(&access_token_path, &token).await;
+        self.write_token_file_secure(&access_token_path, &token)
+            .await;
         Ok(token)
     }
 
@@ -546,53 +594,41 @@ impl CopilotProvider {
 
     async fn load_api_key_from_disk(&self) -> Option<ApiKeyInfo> {
         let path = self.token_dir.join("api-key.json");
-        let data = tokio::fs::read_to_string(&path).await.ok()?;
+        let data = self.read_token_file_secure(&path).await?;
         serde_json::from_str(&data).ok()
     }
 
     async fn save_api_key_to_disk(&self, info: &ApiKeyInfo) {
         let path = self.token_dir.join("api-key.json");
         if let Ok(json) = serde_json::to_string_pretty(info) {
-            write_file_secure(&path, &json).await;
+            self.write_token_file_secure(&path, &json).await;
         }
     }
 }
 
 /// Write a file with 0600 permissions (owner read/write only).
 /// Uses `spawn_blocking` to avoid blocking the async runtime.
-async fn write_file_secure(path: &Path, content: &str) {
-    let path = path.to_path_buf();
-    let content = content.to_string();
+fn write_file_secure_blocking(path: &Path, content: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 
-    let result = tokio::task::spawn_blocking(move || {
-        #[cfg(unix)]
-        {
-            use std::io::Write;
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(content.as_bytes())?;
 
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&path)?;
-            file.write_all(content.as_bytes())?;
-
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-            Ok::<(), std::io::Error>(())
-        }
-        #[cfg(not(unix))]
-        {
-            std::fs::write(&path, &content)?;
-            Ok::<(), std::io::Error>(())
-        }
-    })
-    .await;
-
-    match result {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => warn!("Failed to write secure file: {err}"),
-        Err(err) => warn!("Failed to spawn blocking write: {err}"),
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+        Ok(())
+    }
+    #[cfg(not(unix))]
+    {
+        std::fs::write(path, content)?;
+        Ok(())
     }
 }
 
@@ -696,16 +732,12 @@ mod tests {
     #[test]
     fn copilot_headers_include_required_fields() {
         let headers = CopilotProvider::COPILOT_HEADERS;
-        assert!(
-            headers
-                .iter()
-                .any(|(header, _)| *header == "Editor-Version")
-        );
-        assert!(
-            headers
-                .iter()
-                .any(|(header, _)| *header == "Editor-Plugin-Version")
-        );
+        assert!(headers
+            .iter()
+            .any(|(header, _)| *header == "Editor-Version"));
+        assert!(headers
+            .iter()
+            .any(|(header, _)| *header == "Editor-Plugin-Version"));
         assert!(headers.iter().any(|(header, _)| *header == "User-Agent"));
     }
 
