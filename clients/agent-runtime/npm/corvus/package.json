@@ -1,6 +1,6 @@
 {
   "name": "@dallay/corvus",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Corvus runtime CLI - Cross-platform binary distribution",
   "license": "Apache-2.0",
   "repository": {
@@ -14,11 +14,11 @@
   "files": ["bin"],
   "scripts": {},
   "optionalDependencies": {
-    "@dallay/corvus-darwin-x64": "0.1.4",
-    "@dallay/corvus-darwin-arm64": "0.1.4",
-    "@dallay/corvus-linux-x64": "0.1.4",
-    "@dallay/corvus-linux-arm64": "0.1.4",
-    "@dallay/corvus-windows-x64": "0.1.4"
+    "@dallay/corvus-darwin-x64": "0.1.5",
+    "@dallay/corvus-darwin-arm64": "0.1.5",
+    "@dallay/corvus-linux-x64": "0.1.5",
+    "@dallay/corvus-linux-arm64": "0.1.5",
+    "@dallay/corvus-windows-x64": "0.1.5"
   },
   "engines": {
     "node": ">=18"
