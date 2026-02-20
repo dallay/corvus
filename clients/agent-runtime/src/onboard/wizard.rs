@@ -2708,6 +2708,10 @@ fn trim_non_empty(value: String) -> Option<String> {
     }
 }
 
+fn requires_surreal_memory_setup(backend: &str) -> bool {
+    matches!(backend, "surreal" | "surreal-graphs")
+}
+
 fn setup_memory() -> Result<MemoryConfig> {
     print_bullet("Choose how Corvus stores and searches memories.");
     print_bullet("You can always change this later in config.toml.");
@@ -2743,7 +2747,7 @@ fn setup_memory() -> Result<MemoryConfig> {
     let mut config = memory_config_defaults_for_backend(backend);
     config.auto_save = auto_save;
 
-    if backend == "surreal" {
+    if requires_surreal_memory_setup(backend) {
         setup_surreal_memory_options(&mut config)?;
     }
 
@@ -5246,5 +5250,12 @@ mod tests {
     fn trim_non_empty_returns_none_for_blank() {
         assert_eq!(trim_non_empty("   ".into()), None);
         assert_eq!(trim_non_empty("value".into()), Some("value".into()));
+    }
+
+    #[test]
+    fn requires_surreal_memory_setup_accepts_plugin_backend() {
+        assert!(requires_surreal_memory_setup("surreal"));
+        assert!(requires_surreal_memory_setup("surreal-graphs"));
+        assert!(!requires_surreal_memory_setup("sqlite"));
     }
 }

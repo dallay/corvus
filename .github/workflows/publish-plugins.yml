@@ -126,7 +126,22 @@ jobs:
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          curl -sSfL https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-amd64 -o cosign
+          COSIGN_VERSION="v2.4.1"
+          COSIGN_BINARY="cosign-linux-amd64"
+          COSIGN_BASE_URL="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}"
+
+          curl -sSfL "${COSIGN_BASE_URL}/${COSIGN_BINARY}" -o "${COSIGN_BINARY}"
+          curl -sSfL "${COSIGN_BASE_URL}/cosign_checksums.txt" -o cosign_checksums.txt
+
+          cosign_checksum_line="$(grep -E "[[:space:]]${COSIGN_BINARY}$" cosign_checksums.txt || true)"
+          if [ -z "${cosign_checksum_line}" ]; then
+            echo "Could not find checksum for ${COSIGN_BINARY}"
+            exit 1
+          fi
+          printf '%s\n' "${cosign_checksum_line}" > cosign.sha256
+          sha256sum --check --strict cosign.sha256
+
+          mv "${COSIGN_BINARY}" cosign
           chmod +x cosign
           ./cosign sign-blob \
             --yes \
@@ -142,8 +157,22 @@ jobs:
           OCI_PASSWORD: ${{ secrets.OCI_PASSWORD }}
         run: |
           set -euo pipefail
-          curl -sSfL https://github.com/oras-project/oras/releases/download/v1.2.3/oras_1.2.3_linux_amd64.tar.gz -o oras.tar.gz
-          tar -xzf oras.tar.gz oras
+          ORAS_VERSION="1.2.3"
+          ORAS_TARBALL="oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+          ORAS_BASE_URL="https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}"
+
+          curl -sSfL "${ORAS_BASE_URL}/${ORAS_TARBALL}" -o "${ORAS_TARBALL}"
+          curl -sSfL "${ORAS_BASE_URL}/oras_${ORAS_VERSION}_checksums.txt" -o oras_checksums.txt
+
+          oras_checksum_line="$(grep -E "[[:space:]]${ORAS_TARBALL}$" oras_checksums.txt || true)"
+          if [ -z "${oras_checksum_line}" ]; then
+            echo "Could not find checksum for ${ORAS_TARBALL}"
+            exit 1
+          fi
+          printf '%s\n' "${oras_checksum_line}" > oras.sha256
+          sha256sum --check --strict oras.sha256
+
+          tar -xzf "${ORAS_TARBALL}" oras
           chmod +x oras
 
           if [ -n "${OCI_USERNAME:-}" ] && [ -n "${OCI_PASSWORD:-}" ]; then
