@@ -109,6 +109,13 @@ export default defineConfig({
                 es: 'Proceso de Release',
               },
             },
+            {
+              label: 'Runtime Plugins',
+              slug: 'guides/plugins',
+              translations: {
+                es: 'Plugins del Runtime',
+              },
+            },
           ],
         },
         {
