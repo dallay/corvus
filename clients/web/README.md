@@ -40,7 +40,7 @@ clients/web/
 
 Requisitos mínimos:
 
-- Node.js 20.19+ (recomendado 22+)
+- Node.js 22.0.0+
 - pnpm 10.30+
 
 ```bash

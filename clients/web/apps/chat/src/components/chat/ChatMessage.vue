@@ -1,4 +1,7 @@
 <script setup lang="ts">
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import IconLogo from "@/components/icons/IconLogo.vue";
+
 defineProps<{
   role: "assistant" | "user";
   content: string;
@@ -12,12 +15,8 @@ defineProps<{
     :class="['message-row', role === 'user' ? 'message-row--user' : 'message-row--assistant']"
   >
     <!-- Assistant Avatar -->
-    <div v-if="role === 'assistant'" class="avatar avatar--assistant">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M12 2L2 7l10 5 10-5-10-5z" />
-        <path d="M2 17l10 5 10-5" />
-        <path d="M2 12l10 5 10-5" />
-      </svg>
+    <div v-if="role === 'assistant'" class="avatar avatar--assistant" aria-hidden="true">
+      <IconLogo :size="16" />
     </div>
 
     <!-- Bubble -->
@@ -26,8 +25,8 @@ defineProps<{
     </div>
 
     <!-- User Avatar -->
-    <div v-if="role === 'user'" class="avatar avatar--user">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <div v-if="role === 'user'" class="avatar avatar--user" aria-hidden="true">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
         <circle cx="12" cy="7" r="4" />
       </svg>
@@ -97,16 +96,5 @@ defineProps<{
 .bubble-text {
   margin: 0;
   white-space: pre-wrap;
-}
-
-@keyframes fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 </style>

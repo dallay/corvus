@@ -5,6 +5,10 @@ import { useI18n } from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ChatMessage from "@/components/chat/ChatMessage.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import IconGear from "@/components/icons/IconGear.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import IconLogo from "@/components/icons/IconLogo.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import Button from "@/components/ui/button/Button.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import Input from "@/components/ui/input/Input.vue";
@@ -18,6 +22,8 @@ interface Message {
 }
 
 type SecretField = "pairingCode" | "bearerToken" | "webhookSecret";
+
+const ALLOWED_LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 const MAX_PROMPT_LENGTH = 500;
 const modelName = "Corvus Agent";
@@ -69,6 +75,24 @@ function resetSaveStatus(): void {
   saveStatus.value = "idle";
 }
 
+/**
+ * Returns true when the URL is safe to send secrets to:
+ * - HTTPS is always allowed
+ * - HTTP is only allowed for local hosts (localhost, 127.0.0.1, [::1])
+ */
+function isUrlSafeForSecrets(rawUrl: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  if (parsed.protocol === "https:") {
+    return true;
+  }
+  return parsed.protocol === "http:" && ALLOWED_LOCAL_HOSTS.has(parsed.hostname);
+}
+
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function captureSecretInput(field: SecretField, value: string): void {
   resetSaveStatus();
@@ -90,6 +114,14 @@ async function saveGatewayConfig(): Promise<void> {
   saveErrorMessage.value = "";
 
   const gatewayBaseUrl = baseUrl.value.replace(/\/$/, "");
+  const hasSecrets = !!(pairingCodeInput || bearerTokenInput || webhookSecretInput);
+
+  if (hasSecrets && !isUrlSafeForSecrets(gatewayBaseUrl)) {
+    saveStatus.value = "error";
+    saveErrorMessage.value = t("form.insecureUrlError");
+    return;
+  }
+
   const controller = new AbortController();
   requestTimeoutId = setTimeout(() => controller.abort(), 10000);
 
@@ -156,19 +188,73 @@ async function sendMessage(): Promise<void> {
   }
 
   const normalizedText = text.slice(0, MAX_PROMPT_LENGTH);
+  const gatewayBaseUrl = baseUrl.value.replace(/\/$/, "");
 
   messages.value.push({ id: nextMessageId(), role: "user", content: normalizedText });
+
+  const assistantMessageId = nextMessageId();
   messages.value.push({
-    id: nextMessageId(),
+    id: assistantMessageId,
     role: "assistant",
     content: t("chat.processing", {
       text: normalizedText,
       modelName,
-      gateway: baseUrl.value,
+      gateway: gatewayBaseUrl,
     }),
   });
 
   prompt.value = "";
+  await nextTick();
+  scrollChatToBottom();
+
+  try {
+    const endpoint = new URL("/web/chat/message", gatewayBaseUrl);
+    const response = await fetch(endpoint.toString(), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        gatewayId: "default",
+        prompt: normalizedText,
+        model: modelName,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const data = (await response.json()) as {
+      response?: string;
+      message?: string;
+      text?: string;
+    };
+    const assistantText = data.response ?? data.message ?? data.text ?? t("chat.emptyResponse");
+
+    const messageIndex = messages.value.findIndex((item) => item.id === assistantMessageId);
+    if (messageIndex >= 0) {
+      messages.value[messageIndex] = {
+        id: assistantMessageId,
+        role: "assistant",
+        content: assistantText,
+      };
+    }
+  } catch (error) {
+    console.error("Error sending chat message", error);
+    const messageIndex = messages.value.findIndex((item) => item.id === assistantMessageId);
+    if (messageIndex >= 0) {
+      messages.value[messageIndex] = {
+        id: assistantMessageId,
+        role: "assistant",
+        content: t("chat.requestError", {
+          text: normalizedText,
+          modelName,
+        }),
+      };
+    }
+  }
+
   await nextTick();
   scrollChatToBottom();
 }
@@ -186,11 +272,7 @@ onUnmounted(() => {
       <!-- Sidebar Header -->
       <div class="sidebar-header">
         <div class="logo-icon animate-pulse-glow">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2L2 7l10 5 10-5-10-5z" />
-            <path d="M2 17l10 5 10-5" />
-            <path d="M2 12l10 5 10-5" />
-          </svg>
+          <IconLogo :size="20" />
         </div>
         <div>
           <h1 class="sidebar-title">Corvus AI</h1>
@@ -201,7 +283,7 @@ onUnmounted(() => {
       <!-- Nav Items -->
       <nav class="sidebar-nav">
         <button class="nav-item nav-item--active">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
           </svg>
           {{ t("chat.newChat") }}
@@ -215,10 +297,7 @@ onUnmounted(() => {
           class="nav-item"
           @click="showConfig = !showConfig"
         >
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
+          <IconGear :size="16" />
           {{ showConfig ? t("app.backToChat") : t("app.config") }}
         </button>
       </div>
@@ -230,11 +309,7 @@ onUnmounted(() => {
       <header class="mobile-header">
         <div class="mobile-header-left">
           <div class="logo-icon logo-icon--sm">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 2L2 7l10 5 10-5-10-5z" />
-              <path d="M2 17l10 5 10-5" />
-              <path d="M2 12l10 5 10-5" />
-            </svg>
+            <IconLogo :size="16" />
           </div>
           <span class="mobile-title">Corvus AI</span>
         </div>
@@ -243,10 +318,7 @@ onUnmounted(() => {
           class="icon-btn"
           @click="showConfig = !showConfig"
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="3" />
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-          </svg>
+          <IconGear :size="20" />
         </button>
       </header>
 
@@ -255,10 +327,7 @@ onUnmounted(() => {
         <form class="config-card animate-slide-up" @submit.prevent="saveGatewayConfig">
           <div class="config-header">
             <div class="config-header-icon">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="3" />
-                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
-              </svg>
+              <IconGear :size="20" />
             </div>
             <div>
               <h2 class="config-title">{{ t("app.gatewayConfig") }}</h2>
@@ -312,14 +381,14 @@ onUnmounted(() => {
           </div>
 
           <div v-if="saveStatus === 'success'" class="alert alert--success animate-fade-in">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <path d="M20 6L9 17l-5-5" />
             </svg>
             {{ t("form.saveSuccess") }}
           </div>
 
           <div v-if="saveStatus === 'error'" class="alert alert--error animate-fade-in">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <circle cx="12" cy="12" r="10" />
               <line x1="15" y1="9" x2="9" y2="15" />
               <line x1="9" y1="9" x2="15" y2="15" />
@@ -335,11 +404,7 @@ onUnmounted(() => {
         <div v-if="messages.length <= 1" class="hero-state">
           <div class="hero-content animate-slide-up">
             <div class="hero-icon animate-pulse-glow">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <path d="M12 2L2 7l10 5 10-5-10-5z" />
-                <path d="M2 17l10 5 10-5" />
-                <path d="M2 12l10 5 10-5" />
-              </svg>
+              <IconLogo :size="32" />
             </div>
             <h2 class="hero-title">{{ modelName }}</h2>
             <p class="hero-subtitle">{{ t("chat.welcome", { modelName }) }}</p>
@@ -363,13 +428,15 @@ onUnmounted(() => {
           <form class="input-bar-inner" @submit.prevent="sendMessage">
             <div class="input-wrapper">
               <input
+                id="chat-prompt-input"
                 v-model="prompt"
+                :aria-label="t('chat.inputPlaceholder')"
                 :placeholder="t('chat.inputPlaceholder')"
                 class="chat-input"
               />
             </div>
-            <button type="submit" :disabled="!canSend" class="send-btn">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <button type="submit" :disabled="!canSend" class="send-btn" :aria-label="t('chat.send')">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
                 <line x1="22" y1="2" x2="11" y2="13" />
                 <polygon points="22 2 15 22 11 13 2 9 22 2" />
               </svg>

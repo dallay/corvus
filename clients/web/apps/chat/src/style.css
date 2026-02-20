@@ -1,5 +1,4 @@
 @import "tailwindcss";
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap");
 
 /* ── Design Tokens ──────────────────────────────────────────── */
 
@@ -37,8 +36,8 @@
   --color-error: #ef4444;
   --color-success: #10b981;
 
-  --font-sans: "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  --font-sans:
+    "Inter Variable", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 /* ── Base Reset ─────────────────────────────────────────────── */
@@ -104,7 +103,9 @@ svg {
     box-shadow: 0 0 12px var(--color-accent-glow);
   }
   50% {
-    box-shadow: 0 0 24px var(--color-accent-glow), 0 0 48px rgba(16, 185, 129, 0.1);
+    box-shadow:
+      0 0 24px var(--color-accent-glow),
+      0 0 48px rgba(16, 185, 129, 0.1);
   }
 }
 

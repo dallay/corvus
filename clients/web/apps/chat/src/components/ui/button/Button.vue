@@ -1,6 +1,8 @@
 <script setup lang="ts">
+defineOptions({ inheritAttrs: false });
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const props = defineProps<{
-  class?: string;
   variant?: "default" | "ghost" | "outline";
   size?: "default" | "sm" | "lg" | "icon";
   type?: "button" | "submit" | "reset";
@@ -9,12 +11,13 @@ const props = defineProps<{
 
 <template>
   <button
+    v-bind="$attrs"
     :type="type ?? 'button'"
     :class="[
       'btn',
       `btn--${props.variant ?? 'default'}`,
-      `btn--${props.size ?? 'default'}`,
-      props.class,
+      `btn-size--${props.size ?? 'default'}`,
+      ($attrs.class as string),
     ]"
   >
     <slot />
@@ -88,32 +91,26 @@ const props = defineProps<{
 
 /* Sizes */
 
-.btn--default-size,
-.btn--default:not(.btn--sm):not(.btn--lg):not(.btn--icon) {
+.btn-size--default {
   height: 40px;
   padding: 0 20px;
 }
 
-.btn--sm {
+.btn-size--sm {
   height: 32px;
   padding: 0 12px;
   font-size: 12px;
 }
 
-.btn--lg {
+.btn-size--lg {
   height: 48px;
   padding: 0 24px;
   font-size: 16px;
 }
 
-.btn--icon {
+.btn-size--icon {
   height: 36px;
   width: 36px;
   padding: 0;
-}
-
-/* Utility */
-.w-full {
-  width: 100%;
 }
 </style>

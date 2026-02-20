@@ -1,23 +1,26 @@
 <script setup lang="ts">
+defineOptions({ inheritAttrs: false });
+
 defineProps<{
-  class?: string;
   modelValue?: string;
   placeholder?: string;
   type?: string;
 }>();
 
-const _emit = defineEmits<{
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const emit = defineEmits<{
   "update:modelValue": [value: string];
 }>();
 </script>
 
 <template>
   <input
-    :class="['form-input', $props.class]"
+    v-bind="$attrs"
+    :class="['form-input', ($attrs.class as string)]"
     :type="type ?? 'text'"
     :value="modelValue"
     :placeholder="placeholder"
-    @input="_emit('update:modelValue', ($event.target as HTMLInputElement).value)"
+    @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
   />
 </template>
 
