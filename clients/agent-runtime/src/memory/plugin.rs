@@ -104,4 +104,113 @@ mod tests {
         let recalled = memory.recall("graph", 5, None).await.unwrap();
         assert!(!recalled.is_empty());
     }
+
+    #[tokio::test]
+    async fn plugin_memory_delegates_get() {
+        let tmp = TempDir::new().unwrap();
+        let memory = PluginBackedMemory::new("memory.test.plugin".to_string(), tmp.path());
+
+        memory
+            .store("key1", "value1", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+
+        let result = memory.get("key1").await.unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().key, "key1");
+    }
+
+    #[tokio::test]
+    async fn plugin_memory_delegates_list() {
+        let tmp = TempDir::new().unwrap();
+        let memory = PluginBackedMemory::new("memory.test.plugin".to_string(), tmp.path());
+
+        memory
+            .store("key1", "value1", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        memory
+            .store("key2", "value2", MemoryCategory::Session, None)
+            .await
+            .unwrap();
+
+        let all = memory.list(None, None).await.unwrap();
+        assert!(all.len() >= 2);
+
+        let core_only = memory.list(Some(&MemoryCategory::Core), None).await.unwrap();
+        assert!(!core_only.is_empty());
+    }
+
+    #[tokio::test]
+    async fn plugin_memory_delegates_forget() {
+        let tmp = TempDir::new().unwrap();
+        let memory = PluginBackedMemory::new("memory.test.plugin".to_string(), tmp.path());
+
+        memory
+            .store("key1", "value1", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+
+        let forgotten = memory.forget("key1").await.unwrap();
+        assert!(forgotten);
+
+        let result = memory.get("key1").await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn plugin_memory_delegates_count() {
+        let tmp = TempDir::new().unwrap();
+        let memory = PluginBackedMemory::new("memory.test.plugin".to_string(), tmp.path());
+
+        let initial_count = memory.count().await.unwrap();
+
+        memory
+            .store("key1", "value1", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        memory
+            .store("key2", "value2", MemoryCategory::Session, None)
+            .await
+            .unwrap();
+
+        let new_count = memory.count().await.unwrap();
+        assert!(new_count >= initial_count + 2);
+    }
+
+    #[tokio::test]
+    async fn plugin_memory_delegates_health_check() {
+        let tmp = TempDir::new().unwrap();
+        let memory = PluginBackedMemory::new("memory.test.plugin".to_string(), tmp.path());
+
+        let healthy = memory.health_check().await;
+        assert!(healthy);
+    }
+
+    #[tokio::test]
+    async fn plugin_memory_supports_session_filtering() {
+        let tmp = TempDir::new().unwrap();
+        let memory = PluginBackedMemory::new("memory.test.plugin".to_string(), tmp.path());
+
+        memory
+            .store("key1", "value1", MemoryCategory::Session, Some("session-a"))
+            .await
+            .unwrap();
+        memory
+            .store("key2", "value2", MemoryCategory::Session, Some("session-b"))
+            .await
+            .unwrap();
+
+        let session_a = memory.list(None, Some("session-a")).await.unwrap();
+        assert!(!session_a.is_empty());
+    }
+
+    #[tokio::test]
+    async fn plugin_memory_forget_returns_false_for_nonexistent_key() {
+        let tmp = TempDir::new().unwrap();
+        let memory = PluginBackedMemory::new("memory.test.plugin".to_string(), tmp.path());
+
+        let forgotten = memory.forget("nonexistent-key").await.unwrap();
+        assert!(!forgotten);
+    }
 }

@@ -376,4 +376,116 @@ mod tests {
             .expect("surreal should require memory-surreal feature");
         assert!(error.to_string().contains("memory-surreal"));
     }
+
+    #[test]
+    fn factory_creates_correct_backend_types() {
+        let tmp = TempDir::new().unwrap();
+
+        for backend_key in ["sqlite", "lucid", "markdown", "none"] {
+            let cfg = MemoryConfig {
+                backend: backend_key.into(),
+                ..MemoryConfig::default()
+            };
+            let mem = create_memory(&cfg, tmp.path(), None).unwrap();
+
+            // Verify backend name matches expected
+            match backend_key {
+                "sqlite" => assert_eq!(mem.name(), "sqlite"),
+                "lucid" => assert_eq!(mem.name(), "lucid"),
+                "markdown" => assert_eq!(mem.name(), "markdown"),
+                "none" => assert_eq!(mem.name(), "none"),
+                _ => panic!("unexpected backend"),
+            }
+        }
+    }
+
+    #[test]
+    fn factory_surreal_graphs_fallback_when_plugin_missing() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            backend: "surreal-graphs".into(),
+            ..MemoryConfig::default()
+        };
+        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
+        // Should fall back to markdown when plugin not installed
+        assert_eq!(mem.name(), "markdown");
+    }
+
+    #[test]
+    fn response_cache_factory_disabled_by_default() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            response_cache_enabled: false,
+            ..MemoryConfig::default()
+        };
+        let cache = create_response_cache(&cfg, tmp.path());
+        assert!(cache.is_none());
+    }
+
+    #[test]
+    fn response_cache_factory_creates_cache_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            response_cache_enabled: true,
+            response_cache_ttl_minutes: 60,
+            response_cache_max_entries: 100,
+            ..MemoryConfig::default()
+        };
+        let cache = create_response_cache(&cfg, tmp.path());
+        assert!(cache.is_some());
+    }
+
+    #[test]
+    fn migration_factory_rejects_surreal_graphs() {
+        let tmp = TempDir::new().unwrap();
+        let error = create_memory_for_migration("surreal-graphs", tmp.path())
+            .err()
+            .expect("surreal-graphs should be rejected for migration");
+        assert!(error.to_string().contains("plugin-backed"));
+    }
+
+    #[test]
+    fn migration_factory_accepts_markdown() {
+        let tmp = TempDir::new().unwrap();
+        let mem = create_memory_for_migration("markdown", tmp.path()).unwrap();
+        assert_eq!(mem.name(), "markdown");
+    }
+
+    #[test]
+    fn migration_factory_accepts_sqlite() {
+        let tmp = TempDir::new().unwrap();
+        let mem = create_memory_for_migration("sqlite", tmp.path()).unwrap();
+        assert_eq!(mem.name(), "sqlite");
+    }
+
+    #[test]
+    fn factory_handles_unknown_backend_gracefully() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            backend: "future-backend-2030".into(),
+            ..MemoryConfig::default()
+        };
+        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
+        // Unknown backends should fall back to markdown
+        assert_eq!(mem.name(), "markdown");
+    }
+
+    #[test]
+    fn factory_with_api_key_passes_to_embedding_provider() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            backend: "sqlite".into(),
+            embedding_provider: "openai".into(),
+            ..MemoryConfig::default()
+        };
+        // Should not panic even with fake API key
+        let _mem = create_memory(&cfg, tmp.path(), Some("sk-fake-key"));
+    }
+
+    #[test]
+    fn migration_factory_with_unknown_backend_uses_markdown() {
+        let tmp = TempDir::new().unwrap();
+        let mem = create_memory_for_migration("redis", tmp.path()).unwrap();
+        assert_eq!(mem.name(), "markdown");
+    }
 }

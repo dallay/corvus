@@ -19,6 +19,8 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.3.15",
-    "astro-vtbot": "2.1.11"
+    "astro-vtbot": "2.1.11",
+    "@astrojs/check": "latest",
+    "typescript": "latest"
   }
 }

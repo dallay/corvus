@@ -4590,4 +4590,167 @@ default_model = "legacy-model"
             "Save should enforce owner-only config permissions, got {mode:o}"
         );
     }
+
+    #[test]
+    fn hardware_config_default_values() {
+        let hw = HardwareConfig::default();
+        assert!(!hw.enabled);
+        assert_eq!(hw.transport, HardwareTransport::None);
+        assert_eq!(hw.baud_rate, 115_200);
+        assert!(hw.serial_port.is_none());
+        assert!(hw.probe_target.is_none());
+        assert!(!hw.workspace_datasheets);
+    }
+
+    #[test]
+    fn hardware_transport_display() {
+        assert_eq!(HardwareTransport::None.to_string(), "none");
+        assert_eq!(HardwareTransport::Native.to_string(), "native");
+        assert_eq!(HardwareTransport::Serial.to_string(), "serial");
+        assert_eq!(HardwareTransport::Probe.to_string(), "probe");
+    }
+
+    #[test]
+    fn hardware_config_transport_mode() {
+        let mut hw = HardwareConfig::default();
+        hw.transport = HardwareTransport::Serial;
+        assert_eq!(hw.transport_mode(), HardwareTransport::Serial);
+    }
+
+    #[test]
+    fn delegate_agent_config_default_max_depth() {
+        let delegate = DelegateAgentConfig {
+            provider: "openrouter".to_string(),
+            model: "claude-3-5-sonnet".to_string(),
+            system_prompt: None,
+            api_key: None,
+            temperature: None,
+            max_depth: default_max_depth(),
+        };
+        assert_eq!(delegate.max_depth, 3);
+    }
+
+    #[test]
+    fn identity_config_default_format() {
+        let identity = IdentityConfig::default();
+        assert_eq!(identity.format, "openclaw");
+        assert!(identity.aieos_path.is_none());
+        assert!(identity.aieos_inline.is_none());
+    }
+
+    #[test]
+    fn agent_config_default_values() {
+        let agent = AgentConfig::default();
+        assert!(!agent.compact_context);
+        assert_eq!(agent.max_tool_iterations, 10);
+        assert_eq!(agent.max_history_messages, 50);
+        assert!(!agent.parallel_tools);
+        assert_eq!(agent.tool_dispatcher, "auto");
+    }
+
+    #[test]
+    fn model_route_config_can_override_api_key() {
+        let route = ModelRouteConfig {
+            hint: "reasoning".to_string(),
+            provider: "openrouter".to_string(),
+            model: "claude-opus-4".to_string(),
+            api_key: Some("sk-override".to_string()),
+        };
+        assert_eq!(route.api_key, Some("sk-override".to_string()));
+    }
+
+    #[test]
+    fn query_classification_config_default_disabled() {
+        let qc = QueryClassificationConfig::default();
+        assert!(!qc.enabled);
+        assert!(qc.rules.is_empty());
+    }
+
+    #[test]
+    fn classification_rule_length_constraints() {
+        let rule = ClassificationRule {
+            hint: "code".to_string(),
+            keywords: vec!["rust".to_string(), "cargo".to_string()],
+            patterns: vec!["fn ".to_string(), "impl ".to_string()],
+            min_length: Some(10),
+            max_length: Some(1000),
+            priority: 10,
+        };
+        assert_eq!(rule.min_length, Some(10));
+        assert_eq!(rule.max_length, Some(1000));
+        assert_eq!(rule.priority, 10);
+    }
+
+    #[test]
+    fn hardware_transport_serde_roundtrip() {
+        for transport in [
+            HardwareTransport::None,
+            HardwareTransport::Native,
+            HardwareTransport::Serial,
+            HardwareTransport::Probe,
+        ] {
+            let json = serde_json::to_string(&transport).unwrap();
+            let parsed: HardwareTransport = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, transport);
+        }
+    }
+
+    #[test]
+    fn hardware_config_serde_with_serial_port() {
+        let hw = HardwareConfig {
+            enabled: true,
+            transport: HardwareTransport::Serial,
+            serial_port: Some("/dev/ttyACM0".to_string()),
+            baud_rate: 115_200,
+            probe_target: None,
+            workspace_datasheets: true,
+        };
+        let json = serde_json::to_string(&hw).unwrap();
+        let parsed: HardwareConfig = serde_json::from_str(&json).unwrap();
+        assert!(parsed.enabled);
+        assert_eq!(parsed.transport, HardwareTransport::Serial);
+        assert_eq!(parsed.serial_port, Some("/dev/ttyACM0".to_string()));
+        assert!(parsed.workspace_datasheets);
+    }
+
+    #[test]
+    fn delegate_agent_config_serde_roundtrip() {
+        let delegate = DelegateAgentConfig {
+            provider: "openrouter".to_string(),
+            model: "claude-3-5-sonnet".to_string(),
+            system_prompt: Some("You are a helpful assistant".to_string()),
+            api_key: Some("sk-test".to_string()),
+            temperature: Some(0.5),
+            max_depth: 2,
+        };
+        let json = serde_json::to_string(&delegate).unwrap();
+        let parsed: DelegateAgentConfig = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.provider, "openrouter");
+        assert_eq!(parsed.model, "claude-3-5-sonnet");
+        assert_eq!(parsed.system_prompt, Some("You are a helpful assistant".to_string()));
+        assert_eq!(parsed.max_depth, 2);
+    }
+
+    #[test]
+    fn identity_config_supports_both_path_and_inline() {
+        let identity = IdentityConfig {
+            format: "aieos".to_string(),
+            aieos_path: Some("identity.json".to_string()),
+            aieos_inline: Some(r#"{"name":"Agent"}"#.to_string()),
+        };
+        assert_eq!(identity.format, "aieos");
+        assert!(identity.aieos_path.is_some());
+        assert!(identity.aieos_inline.is_some());
+    }
+
+    #[test]
+    fn classification_rule_default_values() {
+        let rule = ClassificationRule::default();
+        assert!(rule.hint.is_empty());
+        assert!(rule.keywords.is_empty());
+        assert!(rule.patterns.is_empty());
+        assert_eq!(rule.min_length, None);
+        assert_eq!(rule.max_length, None);
+        assert_eq!(rule.priority, 0);
+    }
 }

@@ -1327,4 +1327,124 @@ mod tests {
     fn cli_definition_has_no_flag_conflicts() {
         Cli::command().debug_assert();
     }
+
+    #[test]
+    fn format_expiry_shows_expired() {
+        use chrono::{Duration, Utc};
+        use crate::auth::profiles::{AuthProfile, AuthProfileKind, TokenSet};
+
+        let past = Utc::now() - Duration::hours(1);
+        let token_set = TokenSet {
+            access_token: "token".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            expires_at: Some(past),
+        };
+        let profile = AuthProfile {
+            provider: "openai-codex".to_string(),
+            profile_name: "default".to_string(),
+            kind: AuthProfileKind::OAuth,
+            token_set: Some(token_set),
+            account_id: None,
+            created_at: Utc::now().to_rfc3339(),
+            updated_at: Utc::now().to_rfc3339(),
+        };
+
+        let formatted = format_expiry(&profile);
+        assert!(formatted.contains("expired"));
+    }
+
+    #[test]
+    fn format_expiry_shows_expires_in() {
+        use chrono::{Duration, Utc};
+        use crate::auth::profiles::{AuthProfile, AuthProfileKind, TokenSet};
+
+        let future = Utc::now() + Duration::hours(2);
+        let token_set = TokenSet {
+            access_token: "token".to_string(),
+            refresh_token: Some("refresh".to_string()),
+            expires_at: Some(future),
+        };
+        let profile = AuthProfile {
+            provider: "openai-codex".to_string(),
+            profile_name: "default".to_string(),
+            kind: AuthProfileKind::OAuth,
+            token_set: Some(token_set),
+            account_id: None,
+            created_at: Utc::now().to_rfc3339(),
+            updated_at: Utc::now().to_rfc3339(),
+        };
+
+        let formatted = format_expiry(&profile);
+        assert!(formatted.contains("expires in"));
+    }
+
+    #[test]
+    fn format_expiry_shows_na_when_no_token_set() {
+        use crate::auth::profiles::{AuthProfile, AuthProfileKind};
+        use chrono::Utc;
+
+        let profile = AuthProfile {
+            provider: "anthropic".to_string(),
+            profile_name: "default".to_string(),
+            kind: AuthProfileKind::ApiKey,
+            token_set: None,
+            account_id: None,
+            created_at: Utc::now().to_rfc3339(),
+            updated_at: Utc::now().to_rfc3339(),
+        };
+
+        let formatted = format_expiry(&profile);
+        assert_eq!(formatted, "n/a");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn set_owner_only_permissions_sets_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        use tempfile::NamedTempFile;
+
+        let tmp = NamedTempFile::new().unwrap();
+        set_owner_only_permissions(tmp.path()).unwrap();
+
+        let mode = std::fs::metadata(tmp.path())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+    }
+
+    #[test]
+    fn pending_openai_login_serde_roundtrip() {
+        let pending = PendingOpenAiLogin {
+            profile: "default".to_string(),
+            code_verifier: "test-verifier".to_string(),
+            state: "test-state".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&pending).unwrap();
+        let parsed: PendingOpenAiLogin = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.profile, "default");
+        assert_eq!(parsed.code_verifier, "test-verifier");
+        assert_eq!(parsed.state, "test-state");
+    }
+
+    #[test]
+    fn pending_openai_login_file_supports_encrypted_verifier() {
+        let file = PendingOpenAiLoginFile {
+            profile: "default".to_string(),
+            code_verifier: None,
+            encrypted_code_verifier: Some("encrypted-data".to_string()),
+            state: "test-state".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+
+        let json = serde_json::to_string(&file).unwrap();
+        let parsed: PendingOpenAiLoginFile = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.encrypted_code_verifier, Some("encrypted-data".to_string()));
+        assert!(parsed.code_verifier.is_none());
+    }
 }
