@@ -1,5 +1,5 @@
 # 🐦‍⬛ Corvus
-
+![corvus-ai.png](assets/corvus.png)
 **A reactive, always-on agent platform for long-running orchestration workloads.**
 
 Corvus is a highly extensible, multi-interface agentic platform designed to bridge the gap between AI autonomy and human supervision. Built with a robust Kotlin Multiplatform foundation and powered by a high-performance Rust runtime, Corvus provides a secure, sandboxed environment for AI agents to perform complex, multi-step tasks.
