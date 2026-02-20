@@ -3,6 +3,7 @@
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.io.IOException
 
 plugins {
   id("com.profiletailors.check.format-base")
@@ -18,8 +19,16 @@ if (!Files.exists(docsSymlink)) {
     try {
       Files.createSymbolicLink(docsSymlink, docsTarget)
       logger.lifecycle("🔗 Symlink creado: docs → clients/web/apps/docs/src/content/docs")
-    } catch (e: Exception) {
-      logger.warn("⚠️ No se pudo crear symlink de docs: ${e.message}")
+    } catch (e: IOException) {
+      logger.warn("⚠️ No se pudo crear symlink de docs ($docsSymlink -> $docsTarget): ${e.message}", e)
+      logger.lifecycle("📁 Creando directorio docs como fallback...")
+      docsSymlink.toFile().mkdirs()
+    } catch (e: SecurityException) {
+      logger.warn("⚠️ No se pudo crear symlink de docs ($docsSymlink -> $docsTarget): ${e.message}", e)
+      logger.lifecycle("📁 Creando directorio docs como fallback...")
+      docsSymlink.toFile().mkdirs()
+    } catch (e: UnsupportedOperationException) {
+      logger.warn("⚠️ No se pudo crear symlink de docs ($docsSymlink -> $docsTarget): ${e.message}", e)
       // Fallback: crear directorio vacío o copiar contenido
       logger.lifecycle("📁 Creando directorio docs como fallback...")
       docsSymlink.toFile().mkdirs()
@@ -63,7 +72,7 @@ data class WebAppConfig(
 val appConfigs = mapOf(
   "docs" to WebAppConfig("docs", "dist", 4321),
   "marketing" to WebAppConfig("marketing", "dist", 9988),
-  "dashboard" to WebAppConfig("dashboard", "dist", 4323),
+  "chat" to WebAppConfig("chat", "dist", 4323),
 )
 
 // Root workspace install task

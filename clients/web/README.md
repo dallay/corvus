@@ -1,6 +1,6 @@
 # Corvus Web Monorepo
 
-Monorepo para apps web de Corvus, incluyendo docs, marketing y futuros frontends.
+Monorepo para apps web de Corvus, incluyendo docs, marketing y chat.
 
 ## 📁 Estructura
 
@@ -9,9 +9,10 @@ clients/web/
 ├── apps/
 │   ├── docs/           # Documentación (Astro + Starlight)
 │   ├── marketing/      # Landing y páginas de marketing (Astro)
-│   └── dashboard/      # Dashboard web (Vue 3 + Vite)
+│   └── chat/           # Chat conversacional estilo ChatGPT (Vue 3 + Vite)
 ├── packages/
 │   └── shared/         # Utilidades compartidas
+├── biome.json          # Configuración única de Biome para todo el monorepo
 ├── package.json
 └── pnpm-workspace.yaml
 ```
@@ -29,16 +30,17 @@ clients/web/
 - URL configurable con `MARKETING_URL` (dev default: `http://localhost:9988`)
 - Incluye script público de instalación en `/install`
 
-### dashboard
+### chat
 
 - Framework: Vue 3 + Vite + Tailwind + shadcn-vue style components
 - Puerto por defecto: 4323
+- Interfaz de chat conversacional estilo ChatGPT
 
 ## 🛠️ Comandos
 
 Requisitos mínimos:
 
-- Node.js 20.19+ (recomendado 22+)
+- Node.js 22.0.0+
 - pnpm 10.30+
 
 ```bash
@@ -51,7 +53,7 @@ pnpm build
 # Build individual
 pnpm build:docs
 pnpm build:marketing
-pnpm build:dashboard
+pnpm build:chat
 
 # Compatibilidad (alias antiguo)
 pnpm build:landing
@@ -59,7 +61,7 @@ pnpm build:landing
 # Development
 pnpm dev
 pnpm dev:marketing
-pnpm dev:dashboard
+pnpm dev:chat
 
 # Compatibilidad (alias antiguo)
 pnpm dev:landing
@@ -68,8 +70,14 @@ pnpm dev:landing
 pnpm format
 pnpm check
 pnpm test
-pnpm test:dashboard
+pnpm test:chat
 ```
+
+## 🧹 Biome (Linter & Formatter)
+
+La configuración de Biome es **única** y vive en `clients/web/biome.json`.
+Todas las apps y packages heredan esta configuración automáticamente.
+No se necesitan archivos `biome.json` locales en cada app.
 
 ## 📦 Añadir más proyectos web
 

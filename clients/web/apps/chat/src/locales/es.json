@@ -2,7 +2,7 @@
   "app": {
     "simpleChat": "Chat simple de IA",
     "gatewayConfig": "Configuración del gateway",
-    "config": "Config",
+    "config": "Configuración",
     "backToChat": "Volver al chat"
   },
   "form": {
@@ -17,12 +17,18 @@
     "save": "Guardar configuración",
     "saveSuccess": "Configuración guardada correctamente",
     "saveError": "No se pudo guardar la configuración",
-    "timeoutError": "Tiempo de espera agotado"
+    "timeoutError": "Tiempo de espera agotado",
+    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
+    "configSubtitle": "Conecta con tu gateway de Corvus"
   },
   "chat": {
     "welcome": "Hola, soy {modelName}. ¿En qué puedo ayudarte?",
     "processing": "Procesando \"{text}\" con {modelName}. Gateway: {gateway}",
+    "requestError": "No se pudo obtener respuesta para \"{text}\". Verifica el gateway e inténtalo de nuevo.",
+    "emptyResponse": "El gateway no devolvió contenido.",
     "inputPlaceholder": "Escribe un mensaje...",
-    "send": "Enviar"
+    "send": "Enviar",
+    "newChat": "Nuevo chat",
+    "disclaimer": "Corvus Agent puede cometer errores. Verifica la información importante."
   }
 }
