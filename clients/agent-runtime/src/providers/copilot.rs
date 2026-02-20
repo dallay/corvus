@@ -83,7 +83,7 @@ struct ApiEndpoints {
 }
 
 struct CachedApiKey {
-    token: String,
+    token: Zeroizing<String>,
     api_endpoint: String,
     expires_at: i64,
 }
@@ -251,7 +251,7 @@ impl CopilotProvider {
         }
     }
 
-    async fn read_token_file_secure(&self, path: &Path) -> Option<String> {
+    async fn read_token_file_secure(&self, path: &Path) -> Option<Zeroizing<String>> {
         let data = tokio::fs::read_to_string(path).await.ok()?;
         let value = data.trim();
         if value.is_empty() {
@@ -260,11 +260,12 @@ impl CopilotProvider {
 
         match self.secret_store.decrypt(value) {
             Ok(decrypted) => {
+                let decrypted = Zeroizing::new(decrypted);
                 let token = decrypted.trim();
                 if token.is_empty() {
                     None
                 } else {
-                    Some(token.to_string())
+                    Some(Zeroizing::new(token.to_string()))
                 }
             }
             Err(err) => {
@@ -464,7 +465,10 @@ impl CopilotProvider {
 
         if let Some(cached_key) = cached.as_ref() {
             if chrono::Utc::now().timestamp() + 120 < cached_key.expires_at {
-                return Ok((cached_key.token.clone(), cached_key.api_endpoint.clone()));
+                return Ok((
+                    cached_key.token.as_str().to_string(),
+                    cached_key.api_endpoint.clone(),
+                ));
             }
         }
 
@@ -475,19 +479,20 @@ impl CopilotProvider {
                     .as_ref()
                     .and_then(|e| e.api.clone())
                     .unwrap_or_else(|| DEFAULT_API.to_string());
-                let token = info.token;
+                let token = Zeroizing::new(info.token);
+                let token_out = token.as_str().to_string();
 
                 *cached = Some(CachedApiKey {
-                    token: token.clone(),
+                    token,
                     api_endpoint: endpoint.clone(),
                     expires_at: info.expires_at,
                 });
-                return Ok((token, endpoint));
+                return Ok((token_out, endpoint));
             }
         }
 
-        let access_token = self.get_github_access_token().await?;
-        let api_key_info = self.exchange_for_api_key(&access_token).await?;
+        let access_token = Zeroizing::new(self.get_github_access_token().await?);
+        let api_key_info = self.exchange_for_api_key(access_token.as_ref()).await?;
         self.save_api_key_to_disk(&api_key_info).await;
 
         let endpoint = api_key_info
@@ -496,13 +501,15 @@ impl CopilotProvider {
             .and_then(|e| e.api.clone())
             .unwrap_or_else(|| DEFAULT_API.to_string());
 
+        let api_token = Zeroizing::new(api_key_info.token);
+        let api_token_out = api_token.as_str().to_string();
         *cached = Some(CachedApiKey {
-            token: api_key_info.token.clone(),
+            token: api_token,
             api_endpoint: endpoint.clone(),
             expires_at: api_key_info.expires_at,
         });
 
-        Ok((api_key_info.token, endpoint))
+        Ok((api_token_out, endpoint))
     }
 
     /// Get a GitHub access token from config, cache, or device flow.
@@ -513,13 +520,13 @@ impl CopilotProvider {
 
         let access_token_path = self.token_dir.join("access-token");
         if let Some(token) = self.read_token_file_secure(&access_token_path).await {
-            return Ok(token);
+            return Ok(token.as_str().to_string());
         }
 
-        let token = self.device_code_login().await?;
-        self.write_token_file_secure(&access_token_path, &token)
+        let token = Zeroizing::new(self.device_code_login().await?);
+        self.write_token_file_secure(&access_token_path, token.as_ref())
             .await;
-        Ok(token)
+        Ok(token.as_str().to_string())
     }
 
     /// Run GitHub OAuth device code flow.
@@ -627,13 +634,13 @@ impl CopilotProvider {
     async fn load_api_key_from_disk(&self) -> Option<ApiKeyInfo> {
         let path = self.token_dir.join("api-key.json");
         let data = self.read_token_file_secure(&path).await?;
-        serde_json::from_str(&data).ok()
+        serde_json::from_str(data.as_ref()).ok()
     }
 
     async fn save_api_key_to_disk(&self, info: &ApiKeyInfo) {
         let path = self.token_dir.join("api-key.json");
-        if let Ok(json) = serde_json::to_string_pretty(info) {
-            self.write_token_file_secure(&path, &json).await;
+        if let Ok(json) = serde_json::to_string_pretty(info).map(Zeroizing::new) {
+            self.write_token_file_secure(&path, json.as_ref()).await;
         }
     }
 }
@@ -750,7 +757,7 @@ fn create_secure_file_windows(path: &Path) -> std::io::Result<std::fs::File> {
 }
 
 /// Write a file with restrictive owner-only permissions.
-/// Uses `spawn_blocking` to avoid blocking the async runtime.
+/// This is synchronous and intended to run inside `spawn_blocking`.
 fn write_file_secure_blocking(path: &Path, content: &str) -> std::io::Result<()> {
     #[cfg(unix)]
     {

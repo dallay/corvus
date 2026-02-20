@@ -1,6 +1,6 @@
 use crate::channels::traits::{Channel, ChannelMessage, SendMessage};
 use async_trait::async_trait;
-use base64::Engine;
+use base64::{engine::general_purpose, Engine as _};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -13,7 +13,8 @@ use tokio_rustls::rustls;
 /// connection is considered dead. IRC servers typically PING every 60-120s.
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
-/// Setup timeout for TCP connect + TLS handshake.
+/// Per-phase timeout applied independently to TCP connect and TLS handshake.
+/// Total setup wait can be up to 2x this value.
 const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Monotonic counter to ensure unique message IDs under burst traffic.
@@ -120,7 +121,27 @@ impl IrcMessage {
 /// Encode SASL PLAIN credentials: base64(\0nick\0password).
 fn encode_sasl_plain(nick: &str, password: &str) -> String {
     let input = format!("\0{nick}\0{password}");
-    base64::engine::general_purpose::STANDARD.encode(input)
+    general_purpose::STANDARD.encode(input)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaslCapAction {
+    StartAuthenticatePlain,
+    EndCapAndDisable,
+}
+
+fn sasl_cap_action(msg: &IrcMessage, sasl_pending: bool) -> Option<SaslCapAction> {
+    if !sasl_pending || msg.command != "CAP" || !msg.params.iter().any(|p| p == "sasl") {
+        return None;
+    }
+
+    if msg.params.iter().any(|p| p == "ACK") {
+        Some(SaslCapAction::StartAuthenticatePlain)
+    } else if msg.params.iter().any(|p| p == "NAK") {
+        Some(SaslCapAction::EndCapAndDisable)
+    } else {
+        None
+    }
 }
 
 /// Split a base64 SASL payload into RFC-compliant IRCv3 AUTHENTICATE chunks.
@@ -129,6 +150,8 @@ fn encode_sasl_plain(nick: &str, password: &str) -> String {
 /// 400, send a final `+` marker to terminate the exchange.
 fn split_sasl_authenticate_payload(encoded: &str) -> Vec<String> {
     const SASL_CHUNK_MAX: usize = 400;
+    // `encode_sasl_plain` produces base64 ASCII, so byte slicing is safe here.
+    debug_assert!(encoded.is_ascii());
 
     let mut chunks = Vec::new();
     let mut start = 0;
@@ -435,22 +458,15 @@ impl Channel for IrcChannel {
 
                 // CAP responses for SASL
                 "CAP" => {
-                    if sasl_pending && msg.params.iter().any(|p| p.contains("sasl")) {
-                        if msg
-                            .params
-                            .iter()
-                            .any(|p| p.trim_start_matches(':') == "ACK")
-                        {
-                            // CAP * ACK :sasl — server accepted, start SASL auth
+                    match sasl_cap_action(&msg, sasl_pending) {
+                        Some(SaslCapAction::StartAuthenticatePlain) => {
+                            // CAP * ACK :sasl — server accepted, start SASL auth.
                             let mut guard = self.writer.lock().await;
                             if let Some(ref mut w) = *guard {
                                 Self::send_raw(w, "AUTHENTICATE PLAIN").await?;
                             }
-                        } else if msg
-                            .params
-                            .iter()
-                            .any(|p| p.trim_start_matches(':') == "NAK")
-                        {
+                        }
+                        Some(SaslCapAction::EndCapAndDisable) => {
                             // CAP * NAK :sasl — server rejected SASL, proceed without it
                             tracing::warn!(
                                 "IRC server does not support SASL, continuing without it"
@@ -461,6 +477,7 @@ impl Channel for IrcChannel {
                                 Self::send_raw(w, "CAP END").await?;
                             }
                         }
+                        None => {}
                     }
                 }
 
@@ -710,6 +727,23 @@ mod tests {
         let msg = IrcMessage::parse("AUTHENTICATE +").unwrap();
         assert_eq!(msg.command, "AUTHENTICATE");
         assert_eq!(msg.params, vec!["+"]);
+    }
+
+    #[test]
+    fn parse_cap_nak_with_sasl() {
+        let msg = IrcMessage::parse(":server CAP * NAK :sasl").unwrap();
+        assert_eq!(msg.command, "CAP");
+        assert!(msg.params.iter().any(|p| p == "NAK"));
+        assert!(msg.params.iter().any(|p| p == "sasl"));
+    }
+
+    #[test]
+    fn sasl_cap_action_nak_ends_sasl_negotiation() {
+        let msg = IrcMessage::parse(":server CAP * NAK :sasl").unwrap();
+        assert_eq!(
+            sasl_cap_action(&msg, true),
+            Some(SaslCapAction::EndCapAndDisable)
+        );
     }
 
     // ── SASL PLAIN encoding ─────────────────────────────────
