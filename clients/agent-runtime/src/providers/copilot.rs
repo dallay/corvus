@@ -15,6 +15,7 @@ use crate::providers::traits::{
     ChatMessage, ChatRequest as ProviderChatRequest, ChatResponse as ProviderChatResponse,
     Provider, ToolCall as ProviderToolCall,
 };
+use crate::security::SecretStore;
 use crate::tools::ToolSpec;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -24,6 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::warn;
+use zeroize::Zeroizing;
 
 /// GitHub OAuth client ID for Copilot (VS Code extension).
 const GITHUB_CLIENT_ID: &str = "Iv1.b507a08c87ecfe98";
@@ -32,6 +34,7 @@ const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_tok
 const GITHUB_API_KEY_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 const DEFAULT_API: &str = "https://api.githubcopilot.com";
 const OAUTH_POLLING_SAFETY_MARGIN_MS: u64 = 3000;
+const TOKEN_STORE_ENCRYPTION_ENABLED: bool = true;
 
 // ── Token types ──────────────────────────────────────────────────
 
@@ -80,7 +83,7 @@ struct ApiEndpoints {
 }
 
 struct CachedApiKey {
-    token: String,
+    token: Zeroizing<String>,
     api_endpoint: String,
     expires_at: i64,
 }
@@ -169,13 +172,14 @@ pub struct CopilotProvider {
     /// preventing duplicate device flow prompts or redundant API calls.
     refresh_lock: Arc<Mutex<Option<CachedApiKey>>>,
     http: Client,
+    secret_store: SecretStore,
     token_dir: PathBuf,
 }
 
 impl CopilotProvider {
     pub fn new(github_token: Option<&str>) -> Self {
-        let token_dir = directories::ProjectDirs::from("", "", "corvus")
-            .map(|dir| dir.config_dir().join("copilot"))
+        let corvus_dir = directories::ProjectDirs::from("", "", "corvus")
+            .map(|dir| dir.config_dir().to_path_buf())
             .unwrap_or_else(|| {
                 // Fall back to a user-specific temp directory to avoid
                 // shared-directory symlink attacks.
@@ -184,8 +188,14 @@ impl CopilotProvider {
                     .unwrap_or_else(|_| "unknown".to_string());
                 std::env::temp_dir().join(format!("corvus-copilot-{user}"))
             });
+        let token_dir = corvus_dir.join("copilot");
 
-        if let Err(err) = std::fs::create_dir_all(&token_dir) {
+        #[cfg(windows)]
+        let create_result = create_secure_dir_windows(&token_dir);
+        #[cfg(not(windows))]
+        let create_result = std::fs::create_dir_all(&token_dir);
+
+        if let Err(err) = create_result {
             warn!(
                 "Failed to create Copilot token directory {:?}: {err}. Token caching is disabled.",
                 token_dir
@@ -196,10 +206,35 @@ impl CopilotProvider {
                 use std::os::unix::fs::PermissionsExt;
 
                 if let Err(err) =
+                    std::fs::set_permissions(&corvus_dir, std::fs::Permissions::from_mode(0o700))
+                {
+                    warn!(
+                        "Failed to set Corvus config directory permissions on {:?}: {err}",
+                        corvus_dir
+                    );
+                }
+
+                if let Err(err) =
                     std::fs::set_permissions(&token_dir, std::fs::Permissions::from_mode(0o700))
                 {
                     warn!(
                         "Failed to set Copilot token directory permissions on {:?}: {err}",
+                        token_dir
+                    );
+                }
+            }
+
+            #[cfg(windows)]
+            {
+                if let Err(err) = harden_windows_acl(&corvus_dir, true) {
+                    warn!(
+                        "Failed to harden Corvus config directory ACL on {:?}: {err}",
+                        corvus_dir
+                    );
+                }
+                if let Err(err) = harden_windows_acl(&token_dir, true) {
+                    warn!(
+                        "Failed to harden Copilot token directory ACL on {:?}: {err}",
                         token_dir
                     );
                 }
@@ -216,7 +251,73 @@ impl CopilotProvider {
                 .connect_timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
+            secret_store: SecretStore::new(&corvus_dir, TOKEN_STORE_ENCRYPTION_ENABLED),
             token_dir,
+        }
+    }
+
+    async fn read_token_file_secure(&self, path: &Path) -> Option<Zeroizing<String>> {
+        let data = tokio::fs::read_to_string(path).await.ok()?;
+        let value = data.trim();
+        if value.is_empty() {
+            return None;
+        }
+
+        let secret_store = self.secret_store.clone();
+        let encrypted_value = value.to_string();
+        let path_display = path.display().to_string();
+        let decrypt_result =
+            tokio::task::spawn_blocking(move || match secret_store.decrypt(&encrypted_value) {
+                Ok(decrypted) => Some(decrypted),
+                Err(err) => {
+                    warn!(
+                        "Failed to decrypt Copilot token file {}: {err}",
+                        path_display
+                    );
+                    None
+                }
+            })
+            .await;
+
+        if let Err(err) = &decrypt_result {
+            warn!("Failed to spawn token decrypt task for {:?}: {err}", path);
+        }
+
+        let decrypted = decrypt_result.ok().flatten()?;
+        let decrypted = Zeroizing::new(decrypted);
+        let token = decrypted.trim();
+        if token.is_empty() {
+            return None;
+        }
+
+        Some(Zeroizing::new(token.to_string()))
+    }
+
+    async fn write_token_file_secure(&self, path: &Path, content: &str) {
+        let path = path.to_path_buf();
+        let path_display = path.display().to_string();
+        let content = Zeroizing::new(content.to_string());
+        let secret_store = self.secret_store.clone();
+
+        let result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let encrypted = secret_store.encrypt(content.as_str())?;
+            write_file_secure_blocking(&path, &encrypted)?;
+            Ok(())
+        })
+        .await;
+
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(err)) => {
+                warn!(
+                    "Failed to write secure Copilot token file {}: {err}",
+                    path_display
+                )
+            }
+            Err(err) => warn!(
+                "Failed to spawn token write task for {}: {err}",
+                path_display
+            ),
         }
     }
 
@@ -382,7 +483,10 @@ impl CopilotProvider {
 
         if let Some(cached_key) = cached.as_ref() {
             if chrono::Utc::now().timestamp() + 120 < cached_key.expires_at {
-                return Ok((cached_key.token.clone(), cached_key.api_endpoint.clone()));
+                return Ok((
+                    cached_key.token.as_str().to_string(),
+                    cached_key.api_endpoint.clone(),
+                ));
             }
         }
 
@@ -393,19 +497,20 @@ impl CopilotProvider {
                     .as_ref()
                     .and_then(|e| e.api.clone())
                     .unwrap_or_else(|| DEFAULT_API.to_string());
-                let token = info.token;
+                let token = Zeroizing::new(info.token);
+                let token_out = token.as_str().to_string();
 
                 *cached = Some(CachedApiKey {
-                    token: token.clone(),
+                    token,
                     api_endpoint: endpoint.clone(),
                     expires_at: info.expires_at,
                 });
-                return Ok((token, endpoint));
+                return Ok((token_out, endpoint));
             }
         }
 
-        let access_token = self.get_github_access_token().await?;
-        let api_key_info = self.exchange_for_api_key(&access_token).await?;
+        let access_token = Zeroizing::new(self.get_github_access_token().await?);
+        let api_key_info = self.exchange_for_api_key(access_token.as_ref()).await?;
         self.save_api_key_to_disk(&api_key_info).await;
 
         let endpoint = api_key_info
@@ -414,13 +519,15 @@ impl CopilotProvider {
             .and_then(|e| e.api.clone())
             .unwrap_or_else(|| DEFAULT_API.to_string());
 
+        let api_token = Zeroizing::new(api_key_info.token);
+        let api_token_out = api_token.as_str().to_string();
         *cached = Some(CachedApiKey {
-            token: api_key_info.token.clone(),
+            token: api_token,
             api_endpoint: endpoint.clone(),
             expires_at: api_key_info.expires_at,
         });
 
-        Ok((api_key_info.token, endpoint))
+        Ok((api_token_out, endpoint))
     }
 
     /// Get a GitHub access token from config, cache, or device flow.
@@ -430,16 +537,14 @@ impl CopilotProvider {
         }
 
         let access_token_path = self.token_dir.join("access-token");
-        if let Ok(cached) = tokio::fs::read_to_string(&access_token_path).await {
-            let token = cached.trim();
-            if !token.is_empty() {
-                return Ok(token.to_string());
-            }
+        if let Some(token) = self.read_token_file_secure(&access_token_path).await {
+            return Ok(token.as_str().to_string());
         }
 
-        let token = self.device_code_login().await?;
-        write_file_secure(&access_token_path, &token).await;
-        Ok(token)
+        let token = Zeroizing::new(self.device_code_login().await?);
+        self.write_token_file_secure(&access_token_path, token.as_ref())
+            .await;
+        Ok(token.as_str().to_string())
     }
 
     /// Run GitHub OAuth device code flow.
@@ -546,53 +651,228 @@ impl CopilotProvider {
 
     async fn load_api_key_from_disk(&self) -> Option<ApiKeyInfo> {
         let path = self.token_dir.join("api-key.json");
-        let data = tokio::fs::read_to_string(&path).await.ok()?;
-        serde_json::from_str(&data).ok()
+        let data = self.read_token_file_secure(&path).await?;
+        serde_json::from_str(data.as_ref()).ok()
     }
 
     async fn save_api_key_to_disk(&self, info: &ApiKeyInfo) {
         let path = self.token_dir.join("api-key.json");
-        if let Ok(json) = serde_json::to_string_pretty(info) {
-            write_file_secure(&path, &json).await;
+        if let Ok(json) = serde_json::to_string_pretty(info).map(Zeroizing::new) {
+            self.write_token_file_secure(&path, json.as_ref()).await;
         }
     }
 }
 
-/// Write a file with 0600 permissions (owner read/write only).
-/// Uses `spawn_blocking` to avoid blocking the async runtime.
-async fn write_file_secure(path: &Path, content: &str) {
-    let path = path.to_path_buf();
-    let content = content.to_string();
+#[cfg(windows)]
+fn windows_icacls_path() -> PathBuf {
+    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+    PathBuf::from(system_root)
+        .join("System32")
+        .join("icacls.exe")
+}
 
-    let result = tokio::task::spawn_blocking(move || {
-        #[cfg(unix)]
-        {
-            use std::io::Write;
-            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+#[cfg(windows)]
+fn create_secure_dir_windows(path: &Path) -> std::io::Result<()> {
+    use std::iter;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{LocalFree, ERROR_ALREADY_EXISTS};
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
 
-            let mut file = std::fs::OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o600)
-                .open(&path)?;
-            file.write_all(content.as_bytes())?;
+    if path.exists() {
+        return Ok(());
+    }
 
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
-            Ok::<(), std::io::Error>(())
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            create_secure_dir_windows(parent)?;
         }
-        #[cfg(not(unix))]
-        {
-            std::fs::write(&path, &content)?;
-            Ok::<(), std::io::Error>(())
-        }
-    })
-    .await;
+    }
 
-    match result {
-        Ok(Ok(())) => {}
-        Ok(Err(err)) => warn!("Failed to write secure file: {err}"),
-        Err(err) => warn!("Failed to spawn blocking write: {err}"),
+    let path_wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+    let sddl: Vec<u16> = "D:P(A;;GA;;;OW)"
+        .encode_utf16()
+        .chain(iter::once(0))
+        .collect();
+
+    let mut security_descriptor = null_mut();
+    let ok = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1 as u32,
+            &mut security_descriptor,
+            null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let mut security_attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: security_descriptor,
+        bInheritHandle: 0,
+    };
+
+    let created = unsafe { CreateDirectoryW(path_wide.as_ptr(), &mut security_attributes) };
+
+    unsafe {
+        LocalFree(security_descriptor as isize);
+    }
+
+    if created == 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() != Some(ERROR_ALREADY_EXISTS as i32) {
+            return Err(err);
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn harden_windows_acl(path: &Path, is_directory: bool) -> std::io::Result<()> {
+    let username = std::env::var("USERNAME").map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "USERNAME is unset; cannot harden ACL",
+        )
+    })?;
+    let grant = if is_directory {
+        format!("{username}:(OI)(CI)F")
+    } else {
+        format!("{username}:(R,W)")
+    };
+
+    let output = std::process::Command::new(windows_icacls_path())
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r"])
+        .arg(grant)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "failed to harden ACL via icacls (exit code {:?})",
+                output.status.code()
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn create_secure_file_windows(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::ffi::OsStr;
+    use std::iter;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::FromRawHandle;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{LocalFree, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+    };
+
+    const GENERIC_WRITE: u32 = 0x40000000;
+    let path_wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+    let sddl: Vec<u16> = OsStr::new("D:P(A;;GA;;;OW)")
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+
+    let mut security_descriptor = null_mut();
+    let ok = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1 as u32,
+            &mut security_descriptor,
+            null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let mut security_attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: security_descriptor,
+        bInheritHandle: 0,
+    };
+
+    let handle = unsafe {
+        CreateFileW(
+            path_wide.as_ptr(),
+            GENERIC_WRITE,
+            0,
+            &mut security_attributes,
+            CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            0,
+        )
+    };
+
+    unsafe {
+        LocalFree(security_descriptor as isize);
+    }
+
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let file = unsafe { std::fs::File::from_raw_handle(handle as *mut _) };
+    Ok(file)
+}
+
+/// Write a file with restrictive owner-only permissions.
+/// This is synchronous and intended to run inside `spawn_blocking`.
+fn write_file_secure_blocking(path: &Path, content: &str) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(content.as_bytes())?;
+        Ok(())
+    }
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+
+        let mut file = create_secure_file_windows(path)?;
+        file.write_all(content.as_bytes())?;
+        Ok(())
+    }
+    #[cfg(all(not(unix), not(windows)))]
+    {
+        let _ = (path, content);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "secure token file permissions are not implemented for this platform",
+        ))
     }
 }
 
@@ -696,17 +976,22 @@ mod tests {
     #[test]
     fn copilot_headers_include_required_fields() {
         let headers = CopilotProvider::COPILOT_HEADERS;
-        assert!(
-            headers
-                .iter()
-                .any(|(header, _)| *header == "Editor-Version")
-        );
-        assert!(
-            headers
-                .iter()
-                .any(|(header, _)| *header == "Editor-Plugin-Version")
-        );
-        assert!(headers.iter().any(|(header, _)| *header == "User-Agent"));
+        let editor_version = headers
+            .iter()
+            .find(|(header, _)| *header == "Editor-Version")
+            .map(|(_, value)| *value);
+        let plugin_version = headers
+            .iter()
+            .find(|(header, _)| *header == "Editor-Plugin-Version")
+            .map(|(_, value)| *value);
+        let user_agent = headers
+            .iter()
+            .find(|(header, _)| *header == "User-Agent")
+            .map(|(_, value)| *value);
+
+        assert_eq!(editor_version, Some("vscode/1.85.1"));
+        assert_eq!(plugin_version, Some("copilot/1.155.0"));
+        assert_eq!(user_agent, Some("GithubCopilot/1.155.0"));
     }
 
     #[test]

@@ -1,9 +1,11 @@
 use crate::channels::traits::{Channel, ChannelMessage, SendMessage};
 use async_trait::async_trait;
+use base64::{engine::general_purpose, Engine as _};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Mutex};
+use zeroize::Zeroizing;
 
 // Use tokio_rustls's re-export of rustls types
 use tokio_rustls::rustls;
@@ -11,6 +13,10 @@ use tokio_rustls::rustls;
 /// Read timeout for IRC — if no data arrives within this duration, the
 /// connection is considered dead. IRC servers typically PING every 60-120s.
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// Per-phase timeout applied independently to TCP connect and TLS handshake.
+/// Total setup wait can be up to 2x this value.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 /// Monotonic counter to ensure unique message IDs under burst traffic.
 static MSG_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -115,37 +121,52 @@ impl IrcMessage {
 
 /// Encode SASL PLAIN credentials: base64(\0nick\0password).
 fn encode_sasl_plain(nick: &str, password: &str) -> String {
-    // Simple base64 encoder — avoids adding a base64 crate dependency.
-    // The project's Discord channel uses a similar inline approach.
-    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let input = Zeroizing::new(format!("\0{nick}\0{password}"));
+    general_purpose::STANDARD.encode(input.as_bytes())
+}
 
-    let input = format!("\0{nick}\0{password}");
-    let bytes = input.as_bytes();
-    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaslCapAction {
+    StartAuthenticatePlain,
+    EndCapAndDisable,
+}
 
-    for chunk in bytes.chunks(3) {
-        let b0 = u32::from(chunk[0]);
-        let b1 = u32::from(chunk.get(1).copied().unwrap_or(0));
-        let b2 = u32::from(chunk.get(2).copied().unwrap_or(0));
-        let triple = (b0 << 16) | (b1 << 8) | b2;
-
-        out.push(CHARS[(triple >> 18 & 0x3F) as usize] as char);
-        out.push(CHARS[(triple >> 12 & 0x3F) as usize] as char);
-
-        if chunk.len() > 1 {
-            out.push(CHARS[(triple >> 6 & 0x3F) as usize] as char);
-        } else {
-            out.push('=');
-        }
-
-        if chunk.len() > 2 {
-            out.push(CHARS[(triple & 0x3F) as usize] as char);
-        } else {
-            out.push('=');
-        }
+fn sasl_cap_action(msg: &IrcMessage, sasl_pending: bool) -> Option<SaslCapAction> {
+    if !sasl_pending || msg.command != "CAP" || !msg.params.iter().any(|p| p == "sasl") {
+        return None;
     }
 
-    out
+    if msg.params.iter().any(|p| p == "ACK") {
+        Some(SaslCapAction::StartAuthenticatePlain)
+    } else if msg.params.iter().any(|p| p == "NAK") {
+        Some(SaslCapAction::EndCapAndDisable)
+    } else {
+        None
+    }
+}
+
+/// Split a base64 SASL payload into RFC-compliant IRCv3 AUTHENTICATE chunks.
+///
+/// Each chunk must be <= 400 bytes. If payload length is an exact multiple of
+/// 400, send a final `+` marker to terminate the exchange.
+fn split_sasl_authenticate_payload(encoded: &str) -> Vec<String> {
+    const SASL_CHUNK_MAX: usize = 400;
+    // `encode_sasl_plain` produces base64 ASCII, so byte slicing is safe here.
+    debug_assert!(encoded.is_ascii());
+
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < encoded.len() {
+        let end = (start + SASL_CHUNK_MAX).min(encoded.len());
+        chunks.push(encoded[start..end].to_string());
+        start = end;
+    }
+
+    if encoded.is_empty() || encoded.len() % SASL_CHUNK_MAX == 0 {
+        chunks.push("+".to_string());
+    }
+
+    chunks
 }
 
 /// Split a message into lines safe for IRC transmission.
@@ -266,7 +287,11 @@ impl IrcChannel {
         &self,
     ) -> anyhow::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
         let addr = format!("{}:{}", self.server, self.port);
-        let tcp = tokio::net::TcpStream::connect(&addr).await?;
+        let tcp = tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::TcpStream::connect(&addr))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!("IRC TCP connect timed out after {CONNECT_TIMEOUT:?} to {addr}")
+            })??;
 
         let tls_config = if self.verify_tls {
             let root_store: rustls::RootCertStore =
@@ -283,7 +308,14 @@ impl IrcChannel {
 
         let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
         let domain = rustls::pki_types::ServerName::try_from(self.server.clone())?;
-        let tls = connector.connect(domain, tcp).await?;
+        let tls = tokio::time::timeout(CONNECT_TIMEOUT, connector.connect(domain, tcp))
+            .await
+            .map_err(|_| {
+                anyhow::anyhow!(
+                    "IRC TLS handshake timed out after {CONNECT_TIMEOUT:?} with {}",
+                    self.server
+                )
+            })??;
 
         Ok(tls)
     }
@@ -388,11 +420,7 @@ impl Channel for IrcChannel {
 
         // --- Nick/User registration ---
         Self::send_raw(&mut writer, &format!("NICK {current_nick}")).await?;
-        Self::send_raw(
-            &mut writer,
-            &format!("USER {} 0 * :Corvus", self.username),
-        )
-        .await?;
+        Self::send_raw(&mut writer, &format!("USER {} 0 * :Corvus", self.username)).await?;
 
         // Store writer for send()
         {
@@ -431,14 +459,15 @@ impl Channel for IrcChannel {
 
                 // CAP responses for SASL
                 "CAP" => {
-                    if sasl_pending && msg.params.iter().any(|p| p.contains("sasl")) {
-                        if msg.params.iter().any(|p| p.contains("ACK")) {
-                            // CAP * ACK :sasl — server accepted, start SASL auth
+                    match sasl_cap_action(&msg, sasl_pending) {
+                        Some(SaslCapAction::StartAuthenticatePlain) => {
+                            // CAP * ACK :sasl — server accepted, start SASL auth.
                             let mut guard = self.writer.lock().await;
                             if let Some(ref mut w) = *guard {
                                 Self::send_raw(w, "AUTHENTICATE PLAIN").await?;
                             }
-                        } else if msg.params.iter().any(|p| p.contains("NAK")) {
+                        }
+                        Some(SaslCapAction::EndCapAndDisable) => {
                             // CAP * NAK :sasl — server rejected SASL, proceed without it
                             tracing::warn!(
                                 "IRC server does not support SASL, continuing without it"
@@ -449,6 +478,7 @@ impl Channel for IrcChannel {
                                 Self::send_raw(w, "CAP END").await?;
                             }
                         }
+                        None => {}
                     }
                 }
 
@@ -459,7 +489,9 @@ impl Channel for IrcChannel {
                             let encoded = encode_sasl_plain(&current_nick, password);
                             let mut guard = self.writer.lock().await;
                             if let Some(ref mut w) = *guard {
-                                Self::send_raw(w, &format!("AUTHENTICATE {encoded}")).await?;
+                                for chunk in split_sasl_authenticate_payload(&encoded) {
+                                    Self::send_raw(w, &format!("AUTHENTICATE {chunk}")).await?;
+                                }
                             }
                         } else {
                             // SASL was requested but no password is configured; abort SASL
@@ -698,6 +730,23 @@ mod tests {
         assert_eq!(msg.params, vec!["+"]);
     }
 
+    #[test]
+    fn parse_cap_nak_with_sasl() {
+        let msg = IrcMessage::parse(":server CAP * NAK :sasl").unwrap();
+        assert_eq!(msg.command, "CAP");
+        assert!(msg.params.iter().any(|p| p == "NAK"));
+        assert!(msg.params.iter().any(|p| p == "sasl"));
+    }
+
+    #[test]
+    fn sasl_cap_action_nak_ends_sasl_negotiation() {
+        let msg = IrcMessage::parse(":server CAP * NAK :sasl").unwrap();
+        assert_eq!(
+            sasl_cap_action(&msg, true),
+            Some(SaslCapAction::EndCapAndDisable)
+        );
+    }
+
     // ── SASL PLAIN encoding ─────────────────────────────────
 
     #[test]
@@ -712,6 +761,38 @@ mod tests {
         let encoded = encode_sasl_plain("nick", "");
         // \0nick\0 → base64
         assert_eq!(encoded, "AG5pY2sA");
+    }
+
+    #[test]
+    fn sasl_payload_chunks_include_terminator_for_exact_boundary() {
+        let payload = "a".repeat(800);
+        let chunks = split_sasl_authenticate_payload(&payload);
+        assert_eq!(chunks.len(), 3);
+        assert_eq!(chunks[0].len(), 400);
+        assert_eq!(chunks[1].len(), 400);
+        assert_eq!(chunks[2], "+");
+    }
+
+    #[test]
+    fn sasl_payload_chunks_without_terminator_for_partial_tail() {
+        let payload = "a".repeat(401);
+        let chunks = split_sasl_authenticate_payload(&payload);
+        assert_eq!(chunks.len(), 2);
+        assert_eq!(chunks[0].len(), 400);
+        assert_eq!(chunks[1].len(), 1);
+    }
+
+    #[test]
+    fn sasl_payload_chunks_empty_payload_returns_plus() {
+        let chunks = split_sasl_authenticate_payload("");
+        assert_eq!(chunks, vec!["+"]);
+    }
+
+    #[test]
+    fn sasl_payload_chunks_exact_single_chunk_has_terminator() {
+        let payload = "a".repeat(400);
+        let chunks = split_sasl_authenticate_payload(&payload);
+        assert_eq!(chunks, vec![payload, "+".to_string()]);
     }
 
     // ── Message splitting ───────────────────────────────────
