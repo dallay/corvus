@@ -25,6 +25,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
 use tracing::warn;
+use zeroize::Zeroizing;
 
 /// GitHub OAuth client ID for Copilot (VS Code extension).
 const GITHUB_CLIENT_ID: &str = "Iv1.b507a08c87ecfe98";
@@ -33,6 +34,7 @@ const GITHUB_ACCESS_TOKEN_URL: &str = "https://github.com/login/oauth/access_tok
 const GITHUB_API_KEY_URL: &str = "https://api.github.com/copilot_internal/v2/token";
 const DEFAULT_API: &str = "https://api.githubcopilot.com";
 const OAUTH_POLLING_SAFETY_MARGIN_MS: u64 = 3000;
+const TOKEN_STORE_ENCRYPTION_ENABLED: bool = true;
 
 // ── Token types ──────────────────────────────────────────────────
 
@@ -216,6 +218,22 @@ impl CopilotProvider {
                     );
                 }
             }
+
+            #[cfg(windows)]
+            {
+                if let Err(err) = harden_windows_acl(&corvus_dir, true) {
+                    warn!(
+                        "Failed to harden Corvus config directory ACL on {:?}: {err}",
+                        corvus_dir
+                    );
+                }
+                if let Err(err) = harden_windows_acl(&token_dir, true) {
+                    warn!(
+                        "Failed to harden Copilot token directory ACL on {:?}: {err}",
+                        token_dir
+                    );
+                }
+            }
         }
 
         Self {
@@ -228,7 +246,7 @@ impl CopilotProvider {
                 .connect_timeout(Duration::from_secs(10))
                 .build()
                 .unwrap_or_else(|_| Client::new()),
-            secret_store: SecretStore::new(&corvus_dir, true),
+            secret_store: SecretStore::new(&corvus_dir, TOKEN_STORE_ENCRYPTION_ENABLED),
             token_dir,
         }
     }
@@ -259,11 +277,11 @@ impl CopilotProvider {
     async fn write_token_file_secure(&self, path: &Path, content: &str) {
         let path = path.to_path_buf();
         let path_display = path.display().to_string();
-        let content = content.to_string();
+        let content = Zeroizing::new(content.to_string());
         let secret_store = self.secret_store.clone();
 
         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
-            let encrypted = secret_store.encrypt(&content)?;
+            let encrypted = secret_store.encrypt(content.as_str())?;
             write_file_secure_blocking(&path, &encrypted)?;
             Ok(())
         })
@@ -620,7 +638,118 @@ impl CopilotProvider {
     }
 }
 
-/// Write a file with 0600 permissions (owner read/write only).
+#[cfg(windows)]
+fn windows_icacls_path() -> PathBuf {
+    let system_root = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
+    PathBuf::from(system_root)
+        .join("System32")
+        .join("icacls.exe")
+}
+
+#[cfg(windows)]
+fn harden_windows_acl(path: &Path, is_directory: bool) -> std::io::Result<()> {
+    let username = std::env::var("USERNAME").map_err(|_| {
+        std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "USERNAME is unset; cannot harden ACL",
+        )
+    })?;
+    let grant = if is_directory {
+        format!("{username}:(OI)(CI)F")
+    } else {
+        format!("{username}:(R,W)")
+    };
+
+    let output = std::process::Command::new(windows_icacls_path())
+        .arg(path)
+        .args(["/inheritance:r", "/grant:r"])
+        .arg(grant)
+        .output()?;
+
+    if !output.status.success() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            format!(
+                "failed to harden ACL via icacls (exit code {:?})",
+                output.status.code()
+            ),
+        ));
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn create_secure_file_windows(path: &Path) -> std::io::Result<std::fs::File> {
+    use std::ffi::OsStr;
+    use std::iter;
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::io::FromRawHandle;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{LocalFree, INVALID_HANDLE_VALUE};
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::{
+        CreateFileW, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+    };
+
+    const GENERIC_WRITE: u32 = 0x40000000;
+    let path_wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+    let sddl: Vec<u16> = OsStr::new("D:P(A;;GA;;;OW)")
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+
+    let mut security_descriptor = null_mut();
+    let ok = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1 as u32,
+            &mut security_descriptor,
+            null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let mut security_attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: security_descriptor,
+        bInheritHandle: 0,
+    };
+
+    let handle = unsafe {
+        CreateFileW(
+            path_wide.as_ptr(),
+            GENERIC_WRITE,
+            0,
+            &mut security_attributes,
+            CREATE_ALWAYS,
+            FILE_ATTRIBUTE_NORMAL,
+            0,
+        )
+    };
+
+    unsafe {
+        LocalFree(security_descriptor as isize);
+    }
+
+    if handle == INVALID_HANDLE_VALUE {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let file = unsafe { std::fs::File::from_raw_handle(handle as *mut _) };
+    Ok(file)
+}
+
+/// Write a file with restrictive owner-only permissions.
 /// Uses `spawn_blocking` to avoid blocking the async runtime.
 fn write_file_secure_blocking(path: &Path, content: &str) -> std::io::Result<()> {
     #[cfg(unix)]
@@ -640,38 +769,9 @@ fn write_file_secure_blocking(path: &Path, content: &str) -> std::io::Result<()>
     #[cfg(windows)]
     {
         use std::io::Write;
-        use std::os::windows::fs::OpenOptionsExt;
 
-        const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .attributes(FILE_ATTRIBUTE_NORMAL)
-            .open(path)?;
+        let mut file = create_secure_file_windows(path)?;
         file.write_all(content.as_bytes())?;
-
-        let username = std::env::var("USERNAME").map_err(|_| {
-            std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "USERNAME is unset; cannot secure Copilot token ACL",
-            )
-        })?;
-        let grant_arg = format!("{username}:(R,W)");
-        let output = std::process::Command::new("icacls")
-            .arg(path)
-            .args(["/inheritance:r", "/grant:r"])
-            .arg(grant_arg)
-            .output()?;
-        if !output.status.success() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                format!(
-                    "failed to secure Copilot token ACL via icacls (exit code {:?})",
-                    output.status.code()
-                ),
-            ));
-        }
         Ok(())
     }
     #[cfg(all(not(unix), not(windows)))]

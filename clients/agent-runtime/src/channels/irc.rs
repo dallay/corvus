@@ -13,6 +13,9 @@ use tokio_rustls::rustls;
 /// connection is considered dead. IRC servers typically PING every 60-120s.
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
+/// Setup timeout for TCP connect + TLS handshake.
+const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
+
 /// Monotonic counter to ensure unique message IDs under burst traffic.
 static MSG_SEQ: AtomicU64 = AtomicU64::new(0);
 
@@ -260,10 +263,10 @@ impl IrcChannel {
         &self,
     ) -> anyhow::Result<tokio_rustls::client::TlsStream<tokio::net::TcpStream>> {
         let addr = format!("{}:{}", self.server, self.port);
-        let tcp = tokio::time::timeout(READ_TIMEOUT, tokio::net::TcpStream::connect(&addr))
+        let tcp = tokio::time::timeout(CONNECT_TIMEOUT, tokio::net::TcpStream::connect(&addr))
             .await
             .map_err(|_| {
-                anyhow::anyhow!("IRC TCP connect timed out after {READ_TIMEOUT:?} to {addr}")
+                anyhow::anyhow!("IRC TCP connect timed out after {CONNECT_TIMEOUT:?} to {addr}")
             })??;
 
         let tls_config = if self.verify_tls {
@@ -281,11 +284,11 @@ impl IrcChannel {
 
         let connector = tokio_rustls::TlsConnector::from(Arc::new(tls_config));
         let domain = rustls::pki_types::ServerName::try_from(self.server.clone())?;
-        let tls = tokio::time::timeout(READ_TIMEOUT, connector.connect(domain, tcp))
+        let tls = tokio::time::timeout(CONNECT_TIMEOUT, connector.connect(domain, tcp))
             .await
             .map_err(|_| {
                 anyhow::anyhow!(
-                    "IRC TLS handshake timed out after {READ_TIMEOUT:?} with {}",
+                    "IRC TLS handshake timed out after {CONNECT_TIMEOUT:?} with {}",
                     self.server
                 )
             })??;
@@ -742,6 +745,19 @@ mod tests {
         assert_eq!(chunks.len(), 2);
         assert_eq!(chunks[0].len(), 400);
         assert_eq!(chunks[1].len(), 1);
+    }
+
+    #[test]
+    fn sasl_payload_chunks_empty_payload_returns_plus() {
+        let chunks = split_sasl_authenticate_payload("");
+        assert_eq!(chunks, vec!["+"]);
+    }
+
+    #[test]
+    fn sasl_payload_chunks_exact_single_chunk_has_terminator() {
+        let payload = "a".repeat(400);
+        let chunks = split_sasl_authenticate_payload(&payload);
+        assert_eq!(chunks, vec![payload, "+".to_string()]);
     }
 
     // ── Message splitting ───────────────────────────────────
