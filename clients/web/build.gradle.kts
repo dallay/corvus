@@ -63,7 +63,7 @@ data class WebAppConfig(
 val appConfigs = mapOf(
   "docs" to WebAppConfig("docs", "dist", 4321),
   "marketing" to WebAppConfig("marketing", "dist", 9988),
-  "dashboard" to WebAppConfig("dashboard", "dist", 4323),
+  "chat" to WebAppConfig("chat", "dist", 4323),
 )
 
 // Root workspace install task

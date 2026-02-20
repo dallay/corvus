@@ -1,8 +1,8 @@
 {
-  "name": "@corvus/dashboard",
+  "name": "@corvus/chat",
   "version": "0.1.4",
   "private": true,
-  "description": "Corvus Web Dashboard",
+  "description": "Corvus Chat — conversational AI interface",
   "type": "module",
   "engines": {
     "node": ">=20.19.0"
@@ -23,7 +23,6 @@
     "vue-i18n": "^11.2.8"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.3.15",
     "@tailwindcss/postcss": "4.1.18",
     "@tsconfig/node22": "22.0.5",
     "@types/node": "24.10.13",

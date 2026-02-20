@@ -19,14 +19,16 @@ describe("App", () => {
   it("agrega mensajes y limpia el prompt al enviar", async () => {
     const wrapper = mountApp();
 
-    const initialMessages = wrapper.findAll('[data-testid="chat-message"]').length;
+    // In the new design, the empty state (hero) is shown when there's only the welcome message.
+    // The input is still visible at the bottom.
     const input = wrapper.get('input[placeholder="Escribe un mensaje..."]');
     await input.setValue('Hola <script>alert("x")</script>');
     await wrapper.get("form").trigger("submit.prevent");
 
+    // After sending, messages.length > 1, so all messages render (welcome + user + assistant = 3)
     const chatMessages = wrapper.findAll('[data-testid="chat-message"]');
     const lastMessage = chatMessages[chatMessages.length - 1];
-    expect(chatMessages).toHaveLength(initialMessages + 2);
+    expect(chatMessages).toHaveLength(3);
     // Contract: ChatMessage renders with text interpolation (never v-html).
     expect(lastMessage?.html()).toContain("&lt;script&gt;alert");
     expect(lastMessage?.find("script").exists()).toBe(false);
@@ -39,6 +41,7 @@ describe("App", () => {
 
     expect(wrapper.find('input[placeholder="Escribe un mensaje..."]').exists()).toBe(true);
 
+    // Find the first toggle-config button (could be sidebar or mobile header)
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
 
     expect(wrapper.find('input[placeholder="http://127.0.0.1:3000"]').exists()).toBe(true);

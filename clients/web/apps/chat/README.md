@@ -1,10 +1,10 @@
-# Dashboard
+# Chat
 
-Corvus web dashboard implemented with Vue 3 + Vite and shadcn-vue style components.
+Corvus conversational AI interface built with Vue 3 + Vite and shadcn-vue style components.
 
 ## Features
 
-- Basic chat workspace aligned with the Corvus system design:
+- ChatGPT-style conversational workspace aligned with the Corvus system design:
   - Header with model name
   - Chat panel with user/assistant bubbles
   - Gateway config panel (base URL, pairing code, bearer token, webhook secret)
@@ -17,7 +17,7 @@ Corvus web dashboard implemented with Vue 3 + Vite and shadcn-vue style componen
 ```bash
 # From clients/web
 pnpm install
-pnpm dev:dashboard
+pnpm dev:chat
 ```
 
-Dashboard runs on <http://localhost:4323>.
+Chat runs on <http://localhost:4323>.

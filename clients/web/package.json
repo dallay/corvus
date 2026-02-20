@@ -2,23 +2,23 @@
   "name": "@corvus/web-monorepo",
   "version": "0.1.4",
   "private": true,
-  "description": "Corvus Web Apps Monorepo - Marketing, Docs, Dashboard",
+  "description": "Corvus Web Apps Monorepo - Marketing, Docs, Chat",
   "type": "module",
   "scripts": {
     "build": "pnpm -r run build",
     "build:docs": "pnpm --filter @corvus/docs run build",
     "build:marketing": "pnpm --filter @corvus/marketing run build",
     "build:landing": "pnpm run build:marketing",
-    "build:dashboard": "pnpm --filter @corvus/dashboard run build",
+    "build:chat": "pnpm --filter @corvus/chat run build",
     "dev": "pnpm --filter @corvus/docs run dev",
     "dev:marketing": "pnpm --filter @corvus/marketing run dev",
     "dev:landing": "pnpm run dev:marketing",
-    "dev:dashboard": "pnpm --filter @corvus/dashboard run dev",
+    "dev:chat": "pnpm --filter @corvus/chat run dev",
     "format": "pnpm -r run format",
     "check": "pnpm -r run check",
     "clean": "pnpm -r run clean",
     "test": "pnpm -r run test",
-    "test:dashboard": "pnpm --filter @corvus/dashboard run test"
+    "test:chat": "pnpm --filter @corvus/chat run test"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
