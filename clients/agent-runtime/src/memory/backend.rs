@@ -2,6 +2,7 @@
 pub enum MemoryBackendKind {
     Sqlite,
     Lucid,
+    SurrealGraphs,
     Surreal,
     Markdown,
     None,
@@ -55,6 +56,15 @@ const SURREAL_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
     optional_dependency: true,
 };
 
+const SURREAL_GRAPHS_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
+    key: "surreal-graphs",
+    label: "Surreal Graphs (plugin) — signed WASM extension with secure fallback",
+    auto_save_default: true,
+    uses_sqlite_hygiene: false,
+    sqlite_based: false,
+    optional_dependency: true,
+};
+
 const NONE_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
     key: "none",
     label: "None — disable persistent memory",
@@ -73,19 +83,10 @@ const CUSTOM_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
     optional_dependency: false,
 };
 
-#[cfg(feature = "memory-surreal")]
 const SELECTABLE_MEMORY_BACKENDS: [MemoryBackendProfile; 5] = [
     SQLITE_PROFILE,
     LUCID_PROFILE,
-    SURREAL_PROFILE,
-    MARKDOWN_PROFILE,
-    NONE_PROFILE,
-];
-
-#[cfg(not(feature = "memory-surreal"))]
-const SELECTABLE_MEMORY_BACKENDS: [MemoryBackendProfile; 4] = [
-    SQLITE_PROFILE,
-    LUCID_PROFILE,
+    SURREAL_GRAPHS_PROFILE,
     MARKDOWN_PROFILE,
     NONE_PROFILE,
 ];
@@ -102,6 +103,7 @@ pub fn classify_memory_backend(backend: &str) -> MemoryBackendKind {
     match backend {
         "sqlite" => MemoryBackendKind::Sqlite,
         "lucid" => MemoryBackendKind::Lucid,
+        "surreal-graphs" => MemoryBackendKind::SurrealGraphs,
         "surreal" => MemoryBackendKind::Surreal,
         "markdown" => MemoryBackendKind::Markdown,
         "none" => MemoryBackendKind::None,
@@ -113,6 +115,7 @@ pub fn memory_backend_profile(backend: &str) -> MemoryBackendProfile {
     match classify_memory_backend(backend) {
         MemoryBackendKind::Sqlite => SQLITE_PROFILE,
         MemoryBackendKind::Lucid => LUCID_PROFILE,
+        MemoryBackendKind::SurrealGraphs => SURREAL_GRAPHS_PROFILE,
         MemoryBackendKind::Surreal => SURREAL_PROFILE,
         MemoryBackendKind::Markdown => MARKDOWN_PROFILE,
         MemoryBackendKind::None => NONE_PROFILE,
@@ -128,6 +131,10 @@ mod tests {
     fn classify_known_backends() {
         assert_eq!(classify_memory_backend("sqlite"), MemoryBackendKind::Sqlite);
         assert_eq!(classify_memory_backend("lucid"), MemoryBackendKind::Lucid);
+        assert_eq!(
+            classify_memory_backend("surreal-graphs"),
+            MemoryBackendKind::SurrealGraphs
+        );
         assert_eq!(
             classify_memory_backend("surreal"),
             MemoryBackendKind::Surreal
@@ -147,23 +154,12 @@ mod tests {
     #[test]
     fn selectable_backends_are_ordered_for_onboarding() {
         let backends = selectable_memory_backends();
-        #[cfg(feature = "memory-surreal")]
         assert_eq!(backends.len(), 5);
-        #[cfg(not(feature = "memory-surreal"))]
-        assert_eq!(backends.len(), 4);
         assert_eq!(backends[0].key, "sqlite");
         assert_eq!(backends[1].key, "lucid");
-        #[cfg(feature = "memory-surreal")]
-        {
-            assert_eq!(backends[2].key, "surreal");
-            assert_eq!(backends[3].key, "markdown");
-            assert_eq!(backends[4].key, "none");
-        }
-        #[cfg(not(feature = "memory-surreal"))]
-        {
-            assert_eq!(backends[2].key, "markdown");
-            assert_eq!(backends[3].key, "none");
-        }
+        assert_eq!(backends[2].key, "surreal-graphs");
+        assert_eq!(backends[3].key, "markdown");
+        assert_eq!(backends[4].key, "none");
     }
 
     #[test]
@@ -180,6 +176,14 @@ mod tests {
         assert!(!profile.sqlite_based);
         assert!(profile.optional_dependency);
         assert!(profile.uses_sqlite_hygiene);
+    }
+
+    #[test]
+    fn surreal_graphs_profile_is_optional_backend() {
+        let profile = memory_backend_profile("surreal-graphs");
+        assert!(!profile.sqlite_based);
+        assert!(profile.optional_dependency);
+        assert!(!profile.uses_sqlite_hygiene);
     }
 
     #[test]

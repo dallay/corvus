@@ -65,6 +65,9 @@ pub struct Config {
     pub memory: MemoryConfig,
 
     #[serde(default)]
+    pub plugins: PluginsConfig,
+
+    #[serde(default)]
     pub tunnel: TunnelConfig,
 
     #[serde(default)]
@@ -836,7 +839,7 @@ impl fmt::Debug for SurrealMemoryConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MemoryConfig {
-    /// "sqlite" | "lucid" | "markdown" | "surreal" | "none" (`none` = explicit no-op memory)
+    /// "sqlite" | "lucid" | "surreal-graphs" | "markdown" | "surreal" | "none" (`none` = explicit no-op memory)
     pub backend: String,
     /// Auto-save conversation context to memory
     pub auto_save: bool,
@@ -980,6 +983,98 @@ impl Default for MemoryConfig {
             auto_hydrate: true,
             sqlite_open_timeout_secs: None,
             surreal: SurrealMemoryConfig::default(),
+        }
+    }
+}
+
+// ── Plugins ─────────────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginSourceConfig {
+    /// Human-readable source name (for lockfile provenance and CLI filters).
+    pub name: String,
+    /// Catalog endpoint URL or local file path.
+    /// Supported forms: `https://...`, `http://localhost...`, `file:///...`, `/abs/path`, `relative/path`.
+    pub url: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginRevocationConfig {
+    /// Enable revocation checks for installed plugins.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Enforce revocations strictly (fail startup and plugin load on sync/verification errors).
+    #[serde(default = "default_true")]
+    pub enforced: bool,
+    /// URLs for revocation lists (JSON/TOML).
+    #[serde(default = "default_plugin_revocation_sources")]
+    pub source_urls: Vec<String>,
+    /// Advisory refresh cadence for revocation sync.
+    #[serde(default = "default_plugin_revocation_refresh_minutes")]
+    pub refresh_interval_minutes: u64,
+}
+
+fn default_plugin_revocation_refresh_minutes() -> u64 {
+    15
+}
+
+fn default_plugin_revocation_sources() -> Vec<String> {
+    vec!["https://plugins.corvus.ai/revocations.json".to_string()]
+}
+
+impl Default for PluginRevocationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            enforced: true,
+            source_urls: default_plugin_revocation_sources(),
+            refresh_interval_minutes: default_plugin_revocation_refresh_minutes(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginsConfig {
+    /// Enable runtime plugin system.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    /// Catalog sources used for plugin discovery and installation.
+    #[serde(default = "default_plugin_sources")]
+    pub sources: Vec<PluginSourceConfig>,
+    /// Allowed plugin publishers.
+    #[serde(default = "default_plugin_allow_publishers")]
+    pub allow_publishers: Vec<String>,
+    /// Revocation policy.
+    #[serde(default)]
+    pub revocation: PluginRevocationConfig,
+    /// Installation policy (`pin-manual` only).
+    #[serde(default = "default_plugin_install_policy")]
+    pub install_policy: String,
+}
+
+fn default_plugin_install_policy() -> String {
+    "pin-manual".to_string()
+}
+
+fn default_plugin_allow_publishers() -> Vec<String> {
+    vec!["corvus-official".to_string()]
+}
+
+fn default_plugin_sources() -> Vec<PluginSourceConfig> {
+    vec![PluginSourceConfig {
+        name: "official".to_string(),
+        url: "https://plugins.corvus.ai/catalog.json".to_string(),
+    }]
+}
+
+impl Default for PluginsConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            sources: default_plugin_sources(),
+            allow_publishers: default_plugin_allow_publishers(),
+            revocation: PluginRevocationConfig::default(),
+            install_policy: default_plugin_install_policy(),
         }
     }
 }
@@ -1907,6 +2002,7 @@ impl Default for Config {
             cron: CronConfig::default(),
             channels_config: ChannelsConfig::default(),
             memory: MemoryConfig::default(),
+            plugins: PluginsConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
@@ -2250,12 +2346,12 @@ impl Config {
                 let backend = backend_raw.to_ascii_lowercase();
                 if matches!(
                     backend.as_str(),
-                    "sqlite" | "lucid" | "markdown" | "surreal" | "none"
+                    "sqlite" | "lucid" | "surreal-graphs" | "markdown" | "surreal" | "none"
                 ) {
                     self.memory.backend = backend;
                 } else {
                     tracing::warn!(
-                        "ignoring unknown memory backend override '{}'; allowed: sqlite, lucid, markdown, surreal, none",
+                        "ignoring unknown memory backend override '{}'; allowed: sqlite, lucid, surreal-graphs, markdown, surreal, none",
                         backend_raw
                     );
                 }
@@ -2368,6 +2464,77 @@ impl Config {
             &mut self.memory.surreal.password,
         );
         env_override_optional("CORVUS_SURREALDB_TOKEN", &mut self.memory.surreal.token);
+
+        // Plugins enabled: CORVUS_PLUGINS_ENABLED
+        if let Ok(enabled) = std::env::var("CORVUS_PLUGINS_ENABLED") {
+            self.plugins.enabled = enabled == "1" || enabled.eq_ignore_ascii_case("true");
+        }
+
+        // Plugin allowlist: CORVUS_PLUGIN_ALLOW_PUBLISHERS="publisher-a,publisher-b"
+        if let Ok(publishers) = std::env::var("CORVUS_PLUGIN_ALLOW_PUBLISHERS") {
+            let parsed: Vec<String> = publishers
+                .split(',')
+                .map(str::trim)
+                .filter(|publisher| !publisher.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+            if !parsed.is_empty() {
+                self.plugins.allow_publishers = parsed;
+            }
+        }
+
+        // Plugin catalog sources:
+        // CORVUS_PLUGIN_SOURCES="official=https://plugins.example/catalog.json,mirror=file:///tmp/catalog.json"
+        // OR "https://plugins.example/catalog.json,file:///tmp/catalog.json"
+        if let Ok(sources_raw) = std::env::var("CORVUS_PLUGIN_SOURCES") {
+            let mut anonymous_index = 0usize;
+            let parsed: Vec<PluginSourceConfig> = sources_raw
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .filter_map(|entry| {
+                    if let Some((name, url)) = entry.split_once('=') {
+                        let name = name.trim();
+                        let url = url.trim();
+                        if name.is_empty() || url.is_empty() {
+                            return None;
+                        }
+                        return Some(PluginSourceConfig {
+                            name: name.to_string(),
+                            url: url.to_string(),
+                        });
+                    }
+                    anonymous_index = anonymous_index.saturating_add(1);
+                    Some(PluginSourceConfig {
+                        name: format!("env-source-{anonymous_index}"),
+                        url: entry.to_string(),
+                    })
+                })
+                .collect();
+
+            if !parsed.is_empty() {
+                self.plugins.sources = parsed;
+            }
+        }
+
+        // Revocation sources: CORVUS_PLUGIN_REVOCATION_SOURCES="https://.../revocations.json,file:///..."
+        if let Ok(revocation_sources_raw) = std::env::var("CORVUS_PLUGIN_REVOCATION_SOURCES") {
+            let parsed: Vec<String> = revocation_sources_raw
+                .split(',')
+                .map(str::trim)
+                .filter(|entry| !entry.is_empty())
+                .map(ToOwned::to_owned)
+                .collect();
+            if !parsed.is_empty() {
+                self.plugins.revocation.source_urls = parsed;
+            }
+        }
+
+        // Revocation enforced: CORVUS_PLUGIN_REVOCATION_ENFORCED
+        if let Ok(enforced) = std::env::var("CORVUS_PLUGIN_REVOCATION_ENFORCED") {
+            self.plugins.revocation.enforced =
+                enforced == "1" || enforced.eq_ignore_ascii_case("true");
+        }
     }
 
     pub fn save(&self) -> Result<()> {
@@ -2640,6 +2807,19 @@ default_temperature = 0.7
     }
 
     #[test]
+    fn plugins_config_defaults_are_secure() {
+        let plugins = PluginsConfig::default();
+        assert!(plugins.enabled);
+        assert_eq!(plugins.install_policy, "pin-manual");
+        assert!(plugins.revocation.enabled);
+        assert!(plugins.revocation.enforced);
+        assert!(!plugins.sources.is_empty());
+        assert!(plugins
+            .allow_publishers
+            .contains(&"corvus-official".to_string()));
+    }
+
+    #[test]
     fn surreal_memory_config_debug_redacts_sensitive_fields() {
         let cfg = SurrealMemoryConfig {
             url: Some("http://127.0.0.1:8000".into()),
@@ -2729,6 +2909,7 @@ default_temperature = 0.7
                 qq: None,
             },
             memory: MemoryConfig::default(),
+            plugins: PluginsConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
@@ -2762,6 +2943,8 @@ default_temperature = 0.7
             parsed.channels_config.telegram.unwrap().bot_token,
             "123:ABC"
         );
+        assert!(parsed.plugins.enabled);
+        assert_eq!(parsed.plugins.install_policy, "pin-manual");
     }
 
     #[test]
@@ -2783,6 +2966,9 @@ default_temperature = 0.7
         assert_eq!(parsed.memory.archive_after_days, 7);
         assert_eq!(parsed.memory.purge_after_days, 30);
         assert_eq!(parsed.memory.conversation_retention_days, 30);
+        assert!(parsed.plugins.enabled);
+        assert_eq!(parsed.plugins.install_policy, "pin-manual");
+        assert!(parsed.plugins.revocation.enforced);
     }
 
     #[test]
@@ -2840,6 +3026,7 @@ tool_dispatcher = "xml"
             cron: CronConfig::default(),
             channels_config: ChannelsConfig::default(),
             memory: MemoryConfig::default(),
+            plugins: PluginsConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
@@ -4393,7 +4580,11 @@ default_model = "legacy-model"
         std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o644)).unwrap();
         config.save().unwrap();
 
-        let mode = std::fs::metadata(&config_path).unwrap().permissions().mode() & 0o777;
+        let mode = std::fs::metadata(&config_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(
             mode, 0o600,
             "Save should enforce owner-only config permissions, got {mode:o}"

@@ -5,6 +5,7 @@ pub mod hygiene;
 pub mod lucid;
 pub mod markdown;
 pub mod none;
+pub mod plugin;
 pub mod response_cache;
 pub mod snapshot;
 pub mod sqlite;
@@ -21,6 +22,7 @@ pub use backend::{
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
 pub use none::NoneMemory;
+pub use plugin::PluginBackedMemory;
 pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
 #[cfg(feature = "memory-surreal")]
@@ -108,6 +110,33 @@ pub fn create_memory(
             let local = build_sqlite_memory(config, workspace_dir, api_key)?;
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
+        MemoryBackendKind::SurrealGraphs => match crate::plugins::resolve_memory_plugin(
+            workspace_dir,
+            crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
+        ) {
+            Ok(Some(plugin)) => {
+                tracing::info!(
+                    "Using plugin-backed memory backend '{}' (version {})",
+                    plugin.id,
+                    plugin.version
+                );
+                Ok(Box::new(PluginBackedMemory::new(plugin.id, workspace_dir)))
+            }
+            Ok(None) => {
+                tracing::warn!(
+                    "Memory backend 'surreal-graphs' selected but plugin '{}' is not installed or not trusted; falling back to markdown",
+                    crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID
+                );
+                Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+            }
+            Err(error) => {
+                tracing::warn!(
+                    "Memory plugin '{}' verification failed: {error}. Falling back to markdown",
+                    crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID
+                );
+                Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+            }
+        },
         MemoryBackendKind::Surreal => {
             #[cfg(feature = "memory-surreal")]
             {
@@ -163,6 +192,11 @@ pub fn create_memory_for_migration(
         MemoryBackendKind::Lucid => {
             let local = SqliteMemory::new(workspace_dir)?;
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
+        }
+        MemoryBackendKind::SurrealGraphs => {
+            anyhow::bail!(
+                "backend 'surreal-graphs' is plugin-backed and does not support direct migration yet"
+            );
         }
         MemoryBackendKind::Surreal => {
             #[cfg(feature = "memory-surreal")]
@@ -269,6 +303,17 @@ mod tests {
         };
         let mem = create_memory(&cfg, tmp.path(), None).unwrap();
         assert_eq!(mem.name(), "none");
+    }
+
+    #[test]
+    fn factory_surreal_graphs_without_installed_plugin_falls_back_to_markdown() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = MemoryConfig {
+            backend: "surreal-graphs".into(),
+            ..MemoryConfig::default()
+        };
+        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
+        assert_eq!(mem.name(), "markdown");
     }
 
     #[test]

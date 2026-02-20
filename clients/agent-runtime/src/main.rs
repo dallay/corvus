@@ -61,6 +61,7 @@ mod migration;
 mod observability;
 mod onboard;
 mod peripherals;
+mod plugins;
 mod providers;
 mod runtime;
 mod security;
@@ -121,7 +122,7 @@ enum Commands {
         #[arg(long)]
         provider: Option<String>,
 
-        /// Memory backend (sqlite, lucid, surreal, markdown, none) - used in quick mode (default: sqlite)
+        /// Memory backend (sqlite, lucid, surreal-graphs, surreal, markdown, none) - used in quick mode (default: sqlite)
         #[arg(long)]
         memory: Option<String>,
     },
@@ -208,6 +209,12 @@ enum Commands {
     Integrations {
         #[command(subcommand)]
         integration_command: IntegrationCommands,
+    },
+
+    /// Manage signed runtime plugins
+    Plugins {
+        #[command(subcommand)]
+        plugin_command: PluginCommands,
     },
 
     /// Manage skills (user-defined capabilities)
@@ -456,6 +463,53 @@ enum IntegrationCommands {
     },
 }
 
+#[derive(Subcommand, Debug)]
+enum RevocationCommands {
+    /// Download and cache the latest plugin revocation list
+    Sync,
+}
+
+#[derive(Subcommand, Debug)]
+enum PluginCommands {
+    /// List installed plugins from plugins.lock
+    List,
+    /// Install a plugin from configured catalog sources
+    Install {
+        /// Plugin ID (example: memory.surreal.graphs)
+        id: String,
+        /// Optional explicit version to install (defaults to latest in catalog)
+        #[arg(long)]
+        version: Option<String>,
+        /// Optional source name filter matching [plugins].sources[].name
+        #[arg(long)]
+        source: Option<String>,
+    },
+    /// Verify installed plugin integrity, allowlist, and revocation policy
+    Verify {
+        /// Optional plugin ID filter
+        #[arg(long)]
+        id: Option<String>,
+    },
+    /// Pin an installed plugin to prevent unintended upgrades
+    Pin {
+        /// Plugin ID
+        id: String,
+        /// Optional specific version to pin
+        #[arg(long)]
+        version: Option<String>,
+    },
+    /// Remove an installed plugin
+    Remove {
+        /// Plugin ID
+        id: String,
+    },
+    /// Manage plugin revocation data
+    Revocations {
+        #[command(subcommand)]
+        revocation_command: RevocationCommands,
+    },
+}
+
 #[tokio::main]
 #[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
@@ -523,6 +577,11 @@ async fn main() -> Result<()> {
     let mut config = Config::load_or_init()?;
     config.apply_env_overrides();
 
+    let plugins_command = matches!(&cli.command, Commands::Plugins { .. });
+    if !plugins_command {
+        plugins::enforce_runtime_policy(&config)?;
+    }
+
     match cli.command {
         Commands::Onboard { .. } => unreachable!(),
 
@@ -589,6 +648,22 @@ async fn main() -> Result<()> {
                 config.memory.backend,
                 if config.memory.auto_save { "on" } else { "off" }
             );
+            match plugins::list_installed(&config) {
+                Ok(installed_plugins) => {
+                    let enabled_plugins = installed_plugins
+                        .iter()
+                        .filter(|plugin| plugin.enabled)
+                        .count();
+                    println!(
+                        "🧩 Plugins:        {} installed ({} enabled)",
+                        installed_plugins.len(),
+                        enabled_plugins
+                    );
+                }
+                Err(error) => {
+                    println!("🧩 Plugins:        status unavailable ({error})");
+                }
+            }
 
             println!();
             println!("Security:");
@@ -692,6 +767,99 @@ async fn main() -> Result<()> {
         Commands::Integrations {
             integration_command,
         } => integrations::handle_command(integration_command, &config),
+
+        Commands::Plugins { plugin_command } => match plugin_command {
+            PluginCommands::List => {
+                let installed = plugins::list_installed(&config)?;
+                if installed.is_empty() {
+                    println!("No plugins installed.");
+                    return Ok(());
+                }
+
+                println!("Installed plugins ({}):", installed.len());
+                for plugin in &installed {
+                    let enabled = if plugin.enabled {
+                        "enabled"
+                    } else {
+                        "disabled"
+                    };
+                    let pinned = if plugin.pinned { "pinned" } else { "unpinned" };
+                    println!(
+                        "- {} {} [{} | {}] source={} publisher={}",
+                        plugin.id, plugin.version, enabled, pinned, plugin.source, plugin.publisher
+                    );
+                }
+
+                let by_source = plugins::summarize_by_source(&installed);
+                if !by_source.is_empty() {
+                    println!();
+                    println!("By source:");
+                    for (source, count) in by_source {
+                        println!("- {source}: {count}");
+                    }
+                }
+                Ok(())
+            }
+            PluginCommands::Install {
+                id,
+                version,
+                source,
+            } => {
+                let installed =
+                    plugins::install_plugin(&config, &id, version.as_deref(), source.as_deref())?;
+                println!(
+                    "Installed plugin {} {} from {}",
+                    installed.id, installed.version, installed.source
+                );
+                Ok(())
+            }
+            PluginCommands::Verify { id } => {
+                let results = plugins::verify_plugins(&config, id.as_deref())?;
+                let mut failed = 0usize;
+                for result in &results {
+                    let status = if result.ok { "ok" } else { "failed" };
+                    println!(
+                        "- {} {}: {} ({})",
+                        result.id, result.version, status, result.message
+                    );
+                    if !result.ok {
+                        failed = failed.saturating_add(1);
+                    }
+                }
+                if failed > 0 {
+                    bail!("{failed} plugin(s) failed verification");
+                }
+                println!("All checked plugins verified successfully.");
+                Ok(())
+            }
+            PluginCommands::Pin { id, version } => {
+                plugins::pin_plugin(&config, &id, version.as_deref())?;
+                if let Some(version) = version {
+                    println!("Pinned plugin {id} version {version}");
+                } else {
+                    println!("Pinned all installed versions for plugin {id}");
+                }
+                Ok(())
+            }
+            PluginCommands::Remove { id } => {
+                if plugins::remove_plugin(&config, &id)? {
+                    println!("Removed plugin {id}");
+                } else {
+                    println!("Plugin {id} is not installed");
+                }
+                Ok(())
+            }
+            PluginCommands::Revocations { revocation_command } => match revocation_command {
+                RevocationCommands::Sync => {
+                    let revocations = plugins::sync_revocations(&config)?;
+                    println!(
+                        "Revocation list synced: {} entries",
+                        revocations.revoked.len()
+                    );
+                    Ok(())
+                }
+            },
+        },
 
         Commands::Skills { skill_command } => {
             skills::handle_command(skill_command, &config.workspace_dir)

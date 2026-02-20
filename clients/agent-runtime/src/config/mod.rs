@@ -7,10 +7,11 @@ pub use schema::{
     DelegateAgentConfig, DiscordConfig, DockerRuntimeConfig, GatewayConfig, HardwareConfig,
     HardwareTransport, HeartbeatConfig, HttpRequestConfig, IMessageConfig, IdentityConfig,
     LarkConfig, MatrixConfig, MemoryConfig, ModelRouteConfig, ObservabilityConfig,
-    PeripheralBoardConfig, PeripheralsConfig, QueryClassificationConfig, ReliabilityConfig,
-    ResourceLimitsConfig, RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig,
-    SecretsConfig, SecurityConfig, SlackConfig, StreamMode, SurrealMemoryConfig, TelegramConfig,
-    TunnelConfig, WebSearchConfig, WebhookConfig,
+    PeripheralBoardConfig, PeripheralsConfig, PluginRevocationConfig, PluginSourceConfig,
+    PluginsConfig, QueryClassificationConfig, ReliabilityConfig, ResourceLimitsConfig,
+    RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig, SecretsConfig, SecurityConfig,
+    SlackConfig, StreamMode, SurrealMemoryConfig, TelegramConfig, TunnelConfig, WebSearchConfig,
+    WebhookConfig,
 };
 
 #[cfg(test)]

@@ -2,7 +2,8 @@ use crate::config::schema::{DingTalkConfig, IrcConfig, QQConfig, StreamMode, Wha
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
     HeartbeatConfig, IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
-    RuntimeConfig, SecretsConfig, SlackConfig, SurrealMemoryConfig, TelegramConfig, WebhookConfig,
+    PluginsConfig, RuntimeConfig, SecretsConfig, SlackConfig, SurrealMemoryConfig, TelegramConfig,
+    WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
@@ -12,7 +13,7 @@ use crate::providers::{
     canonical_china_provider_name, is_glm_alias, is_glm_cn_alias, is_minimax_alias,
     is_moonshot_alias, is_qianfan_alias, is_qwen_alias, is_zai_alias, is_zai_cn_alias,
 };
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use console::style;
 use dialoguer::{Confirm, Input, Password, Select};
 use directories::UserDirs;
@@ -103,7 +104,7 @@ pub fn run_wizard() -> Result<Config> {
 
     // ── Build config ──
     // Defaults: SQLite memory, supervised autonomy, workspace-scoped, native runtime
-    let config = Config {
+    let mut config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
         api_key: if api_key.is_empty() {
@@ -126,6 +127,7 @@ pub fn run_wizard() -> Result<Config> {
         cron: crate::config::CronConfig::default(),
         channels_config,
         memory: memory_config, // User-selected memory backend
+        plugins: PluginsConfig::default(),
         tunnel: tunnel_config,
         gateway: crate::config::GatewayConfig::default(),
         composio: composio_config,
@@ -140,6 +142,40 @@ pub fn run_wizard() -> Result<Config> {
         hardware: hardware_config,
         query_classification: crate::config::QueryClassificationConfig::default(),
     };
+
+    if config.memory.backend == "surreal-graphs" {
+        println!();
+        println!(
+            "  {} Installing plugin `{}`...",
+            style("⬇").cyan(),
+            style(crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID)
+                .white()
+                .bold()
+        );
+
+        match crate::plugins::install_official_surreal_graphs(&config) {
+            Ok(plugin) => {
+                println!(
+                    "  {} Plugin installed: {} {}",
+                    style("✓").green().bold(),
+                    style(plugin.id).green(),
+                    style(plugin.version).dim(),
+                );
+            }
+            Err(error) => {
+                println!(
+                    "  {} Surreal graphs plugin install failed: {}",
+                    style("⚠").yellow().bold(),
+                    style(error.to_string()).yellow(),
+                );
+                println!(
+                    "  {} Falling back to core markdown memory backend.",
+                    style("→").dim()
+                );
+                config.memory = memory_config_defaults_for_backend("markdown");
+            }
+        }
+    }
 
     println!(
         "  {} Security: {} | workspace-scoped",
@@ -257,7 +293,7 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
 
 /// Non-interactive setup: generates a sensible default config instantly.
 /// Use `corvus onboard` or
-/// `corvus onboard --api-key sk-... --provider openrouter --memory sqlite|lucid|surreal`.
+/// `corvus onboard --api-key sk-... --provider openrouter --memory sqlite|lucid|surreal-graphs`.
 /// Use `corvus onboard --interactive` for the full wizard.
 fn backend_key_from_choice(choice: usize) -> &'static str {
     selectable_memory_backends()
@@ -335,7 +371,7 @@ pub fn run_quick_setup(
     // Create memory config based on backend choice
     let memory_config = memory_config_defaults_for_backend(&memory_backend_name);
 
-    let config = Config {
+    let mut config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
         api_key: credential_override.map(String::from),
@@ -354,6 +390,7 @@ pub fn run_quick_setup(
         cron: crate::config::CronConfig::default(),
         channels_config: ChannelsConfig::default(),
         memory: memory_config,
+        plugins: PluginsConfig::default(),
         tunnel: crate::config::TunnelConfig::default(),
         gateway: crate::config::GatewayConfig::default(),
         composio: ComposioConfig::default(),
@@ -368,6 +405,31 @@ pub fn run_quick_setup(
         hardware: crate::config::HardwareConfig::default(),
         query_classification: crate::config::QueryClassificationConfig::default(),
     };
+
+    if memory_backend_name == "surreal-graphs" {
+        match crate::plugins::install_official_surreal_graphs(&config) {
+            Ok(plugin) => {
+                println!(
+                    "  {} Plugin installed: {} {}",
+                    style("✓").green().bold(),
+                    style(plugin.id).green(),
+                    style(plugin.version).dim()
+                );
+            }
+            Err(error) => {
+                println!(
+                    "  {} Could not install surreal-graphs plugin in quick setup: {}",
+                    style("⚠").yellow().bold(),
+                    style(error.to_string()).yellow(),
+                );
+                println!(
+                    "  {} Falling back to `markdown` memory backend.",
+                    style("→").dim()
+                );
+                config.memory = memory_config_defaults_for_backend("markdown");
+            }
+        }
+    }
 
     config.save()?;
     persist_workspace_selection(&config.config_path)?;
@@ -415,8 +477,8 @@ pub fn run_quick_setup(
     println!(
         "  {} Memory:     {} (auto-save: {})",
         style("✓").green().bold(),
-        style(&memory_backend_name).green(),
-        if memory_backend_name == "none" {
+        style(&config.memory.backend).green(),
+        if config.memory.backend == "none" {
             "off"
         } else {
             "on"
@@ -5079,10 +5141,9 @@ mod tests {
         };
 
         let err = run_models_refresh(&config, None, true).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("does not support live model discovery")
-        );
+        assert!(err
+            .to_string()
+            .contains("does not support live model discovery"));
     }
 
     // ── provider_env_var ────────────────────────────────────────
@@ -5124,17 +5185,9 @@ mod tests {
     fn backend_key_from_choice_maps_supported_backends() {
         assert_eq!(backend_key_from_choice(0), "sqlite");
         assert_eq!(backend_key_from_choice(1), "lucid");
-        #[cfg(feature = "memory-surreal")]
-        {
-            assert_eq!(backend_key_from_choice(2), "surreal");
-            assert_eq!(backend_key_from_choice(3), "markdown");
-            assert_eq!(backend_key_from_choice(4), "none");
-        }
-        #[cfg(not(feature = "memory-surreal"))]
-        {
-            assert_eq!(backend_key_from_choice(2), "markdown");
-            assert_eq!(backend_key_from_choice(3), "none");
-        }
+        assert_eq!(backend_key_from_choice(2), "surreal-graphs");
+        assert_eq!(backend_key_from_choice(3), "markdown");
+        assert_eq!(backend_key_from_choice(4), "none");
         assert_eq!(backend_key_from_choice(999), "sqlite");
     }
 
