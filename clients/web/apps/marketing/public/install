@@ -363,9 +363,20 @@ extract_or_copy_binary() {
   local archive_entry=""
   local staged_path=""
   local source_path=""
+  local previous_return_trap=""
 
-  staged_path="${target_path}.tmp.$$"
-  rm -f "$staged_path"
+  staged_path="$(mktemp "${target_path}.tmp.XXXXXX")"
+  previous_return_trap="$(trap -p RETURN || true)"
+  trap '
+    if [ -n "${staged_path:-}" ] && [ -e "$staged_path" ]; then
+      rm -f "$staged_path"
+    fi
+    if [ -n "${previous_return_trap:-}" ]; then
+      eval "$previous_return_trap"
+    else
+      trap - RETURN
+    fi
+  ' RETURN
 
   if [[ "$RESOLVED_ASSET_NAME" == *.tar.gz ]]; then
     has_cmd tar || die "tar is required to extract ${RESOLVED_ASSET_NAME}"
@@ -386,6 +397,13 @@ extract_or_copy_binary() {
     chmod 755 "$staged_path"
   fi
   mv -f "$staged_path" "$target_path"
+  staged_path=""
+
+  if [ -n "$previous_return_trap" ]; then
+    eval "$previous_return_trap"
+  else
+    trap - RETURN
+  fi
 }
 
 install_via_binary() {
