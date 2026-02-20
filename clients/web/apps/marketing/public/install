@@ -361,6 +361,11 @@ extract_or_copy_binary() {
   local target_path="$3"
   local extract_dir="$4"
   local archive_entry=""
+  local staged_path=""
+  local source_path=""
+
+  staged_path="${target_path}.tmp.$$"
+  rm -f "$staged_path"
 
   if [[ "$RESOLVED_ASSET_NAME" == *.tar.gz ]]; then
     has_cmd tar || die "tar is required to extract ${RESOLVED_ASSET_NAME}"
@@ -369,11 +374,18 @@ extract_or_copy_binary() {
     [ -n "$archive_entry" ] || die "Archive does not contain expected binary: ${asset_base}"
 
     tar -xzf "$download_path" -C "$extract_dir" "$archive_entry"
-    cp "${extract_dir}/${archive_entry#./}" "$target_path"
-    return
+    source_path="${extract_dir}/${archive_entry#./}"
+  else
+    source_path="$download_path"
   fi
 
-  cp "$download_path" "$target_path"
+  if has_cmd install; then
+    install -m 755 "$source_path" "$staged_path"
+  else
+    cp "$source_path" "$staged_path"
+    chmod 755 "$staged_path"
+  fi
+  mv -f "$staged_path" "$target_path"
 }
 
 install_via_binary() {
@@ -404,7 +416,6 @@ install_via_binary() {
   verify_checksum "$download_path" "$RESOLVED_CHECKSUM_URL"
   extract_or_copy_binary "$download_path" "$asset" "$target_path" "$extract_dir"
 
-  chmod 755 "$target_path"
   INSTALLED_BINARY_PATH="$target_path"
 
   print_success "Corvus binary installed at ${target_path}"
