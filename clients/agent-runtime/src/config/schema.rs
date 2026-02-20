@@ -4393,7 +4393,11 @@ default_model = "legacy-model"
         std::fs::set_permissions(&config_path, std::fs::Permissions::from_mode(0o644)).unwrap();
         config.save().unwrap();
 
-        let mode = std::fs::metadata(&config_path).unwrap().permissions().mode() & 0o777;
+        let mode = std::fs::metadata(&config_path)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
         assert_eq!(
             mode, 0o600,
             "Save should enforce owner-only config permissions, got {mode:o}"

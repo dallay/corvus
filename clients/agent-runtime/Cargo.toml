@@ -44,6 +44,9 @@ prometheus = { version = "0.14", default-features = false }
 # Base64 encoding (screenshots, image data)
 base64 = "0.22"
 
+# Securely zero sensitive plaintext buffers on drop
+zeroize = "1.8"
+
 # URL encoding for web search
 urlencoding = "2.1"
 
@@ -134,6 +137,14 @@ pdf-extract = { version = "0.10", optional = true }
 [target.'cfg(target_os = "linux")'.dependencies]
 rppal = { version = "0.22", optional = true }
 landlock = { version = "0.4", optional = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = [
+  "Win32_Foundation",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
+] }
 
 [features]
 default = ["hardware"]

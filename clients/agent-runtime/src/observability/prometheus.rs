@@ -86,11 +86,9 @@ impl PrometheusObserver {
         )
         .expect("valid metric");
 
-        let tokens_used = prometheus::IntGauge::new(
-            "corvus_tokens_used_last",
-            "Tokens used in the last request",
-        )
-        .expect("valid metric");
+        let tokens_used =
+            prometheus::IntGauge::new("corvus_tokens_used_last", "Tokens used in the last request")
+                .expect("valid metric");
 
         let active_sessions = GaugeVec::new(
             prometheus::Opts::new("corvus_active_sessions", "Number of active sessions"),
