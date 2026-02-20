@@ -9,8 +9,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 const CODEX_RESPONSES_URL: &str = "https://chatgpt.com/backend-api/codex/responses";
-const DEFAULT_CODEX_INSTRUCTIONS: &str =
-    "You are Corvus, a concise and helpful coding assistant.";
+const DEFAULT_CODEX_INSTRUCTIONS: &str = "You are Corvus, a concise and helpful coding assistant.";
 
 pub struct OpenAiCodexProvider {
     auth: AuthService,

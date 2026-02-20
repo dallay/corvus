@@ -9,8 +9,6 @@
 
 use anyhow::Result;
 use async_trait::async_trait;
-use serde_json::json;
-use std::sync::{Arc, Mutex};
 use corvus::agent::agent::Agent;
 use corvus::agent::dispatcher::{NativeToolDispatcher, XmlToolDispatcher};
 use corvus::config::MemoryConfig;
@@ -19,6 +17,8 @@ use corvus::memory::Memory;
 use corvus::observability::{NoopObserver, Observer};
 use corvus::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
 use corvus::tools::{Tool, ToolResult};
+use serde_json::json;
+use std::sync::{Arc, Mutex};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock infrastructure
