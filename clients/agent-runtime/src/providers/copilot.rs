@@ -190,7 +190,12 @@ impl CopilotProvider {
             });
         let token_dir = corvus_dir.join("copilot");
 
-        if let Err(err) = std::fs::create_dir_all(&token_dir) {
+        #[cfg(windows)]
+        let create_result = create_secure_dir_windows(&token_dir);
+        #[cfg(not(windows))]
+        let create_result = std::fs::create_dir_all(&token_dir);
+
+        if let Err(err) = create_result {
             warn!(
                 "Failed to create Copilot token directory {:?}: {err}. Token caching is disabled.",
                 token_dir
@@ -258,21 +263,34 @@ impl CopilotProvider {
             return None;
         }
 
-        match self.secret_store.decrypt(value) {
-            Ok(decrypted) => {
-                let decrypted = Zeroizing::new(decrypted);
-                let token = decrypted.trim();
-                if token.is_empty() {
+        let secret_store = self.secret_store.clone();
+        let encrypted_value = value.to_string();
+        let path_display = path.display().to_string();
+        let decrypt_result =
+            tokio::task::spawn_blocking(move || match secret_store.decrypt(&encrypted_value) {
+                Ok(decrypted) => Some(decrypted),
+                Err(err) => {
+                    warn!(
+                        "Failed to decrypt Copilot token file {}: {err}",
+                        path_display
+                    );
                     None
-                } else {
-                    Some(Zeroizing::new(token.to_string()))
                 }
-            }
-            Err(err) => {
-                warn!("Failed to decrypt Copilot token file {:?}: {err}", path);
-                None
-            }
+            })
+            .await;
+
+        if let Err(err) = &decrypt_result {
+            warn!("Failed to spawn token decrypt task for {:?}: {err}", path);
         }
+
+        let decrypted = decrypt_result.ok().flatten()?;
+        let decrypted = Zeroizing::new(decrypted);
+        let token = decrypted.trim();
+        if token.is_empty() {
+            return None;
+        }
+
+        Some(Zeroizing::new(token.to_string()))
     }
 
     async fn write_token_file_secure(&self, path: &Path, content: &str) {
@@ -651,6 +669,73 @@ fn windows_icacls_path() -> PathBuf {
     PathBuf::from(system_root)
         .join("System32")
         .join("icacls.exe")
+}
+
+#[cfg(windows)]
+fn create_secure_dir_windows(path: &Path) -> std::io::Result<()> {
+    use std::iter;
+    use std::os::windows::ffi::OsStrExt;
+    use std::ptr::null_mut;
+    use windows_sys::Win32::Foundation::{LocalFree, ERROR_ALREADY_EXISTS};
+    use windows_sys::Win32::Security::Authorization::{
+        ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    };
+    use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
+    use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
+
+    if path.exists() {
+        return Ok(());
+    }
+
+    if let Some(parent) = path.parent() {
+        if !parent.exists() {
+            create_secure_dir_windows(parent)?;
+        }
+    }
+
+    let path_wide: Vec<u16> = path
+        .as_os_str()
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect();
+    let sddl: Vec<u16> = "D:P(A;;GA;;;OW)"
+        .encode_utf16()
+        .chain(iter::once(0))
+        .collect();
+
+    let mut security_descriptor = null_mut();
+    let ok = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1 as u32,
+            &mut security_descriptor,
+            null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+
+    let mut security_attributes = SECURITY_ATTRIBUTES {
+        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
+        lpSecurityDescriptor: security_descriptor,
+        bInheritHandle: 0,
+    };
+
+    let created = unsafe { CreateDirectoryW(path_wide.as_ptr(), &mut security_attributes) };
+
+    unsafe {
+        LocalFree(security_descriptor as isize);
+    }
+
+    if created == 0 {
+        let err = std::io::Error::last_os_error();
+        if err.raw_os_error() != Some(ERROR_ALREADY_EXISTS as i32) {
+            return Err(err);
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(windows)]

@@ -5,6 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::{mpsc, Mutex};
+use zeroize::Zeroizing;
 
 // Use tokio_rustls's re-export of rustls types
 use tokio_rustls::rustls;
@@ -120,8 +121,8 @@ impl IrcMessage {
 
 /// Encode SASL PLAIN credentials: base64(\0nick\0password).
 fn encode_sasl_plain(nick: &str, password: &str) -> String {
-    let input = format!("\0{nick}\0{password}");
-    general_purpose::STANDARD.encode(input)
+    let input = Zeroizing::new(format!("\0{nick}\0{password}"));
+    general_purpose::STANDARD.encode(input.as_bytes())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
