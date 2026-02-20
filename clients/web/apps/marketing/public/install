@@ -360,19 +360,18 @@ extract_or_copy_binary() {
   local asset_base="$2"
   local target_path="$3"
   local extract_dir="$4"
+  local parent_return_trap="$5"
   local archive_entry=""
   local staged_path=""
   local source_path=""
-  local previous_return_trap=""
 
   staged_path="$(mktemp "${target_path}.tmp.XXXXXX")"
-  previous_return_trap="$(trap -p RETURN || true)"
   trap '
     if [ -n "${staged_path:-}" ] && [ -e "$staged_path" ]; then
       rm -f "$staged_path"
     fi
-    if [ -n "${previous_return_trap:-}" ]; then
-      eval "$previous_return_trap"
+    if [ -n "${parent_return_trap:-}" ]; then
+      trap "$parent_return_trap" RETURN
     else
       trap - RETURN
     fi
@@ -398,12 +397,6 @@ extract_or_copy_binary() {
   fi
   mv -f "$staged_path" "$target_path"
   staged_path=""
-
-  if [ -n "$previous_return_trap" ]; then
-    eval "$previous_return_trap"
-  else
-    trap - RETURN
-  fi
 }
 
 install_via_binary() {
@@ -414,6 +407,7 @@ install_via_binary() {
   local target_path=""
   local download_path=""
   local extract_dir=""
+  local install_cleanup_trap=""
 
   asset="$(detect_binary_asset)"
   release_tag="$REQUESTED_VERSION"
@@ -428,11 +422,12 @@ install_via_binary() {
   target_path="${install_dir}/corvus"
   download_path="$(mktemp "${TMPDIR:-/tmp}/corvus-download.XXXXXX")"
   extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/corvus-extract.XXXXXX")"
-  trap "rm -f '$download_path'; rm -rf '$extract_dir'; trap - RETURN" RETURN
+  install_cleanup_trap="rm -f '$download_path'; rm -rf '$extract_dir'; trap - RETURN"
+  trap "$install_cleanup_trap" RETURN
 
   download_binary_from_releases "$normalized_release_tag" "$asset" "$download_path"
   verify_checksum "$download_path" "$RESOLVED_CHECKSUM_URL"
-  extract_or_copy_binary "$download_path" "$asset" "$target_path" "$extract_dir"
+  extract_or_copy_binary "$download_path" "$asset" "$target_path" "$extract_dir" "$install_cleanup_trap"
 
   INSTALLED_BINARY_PATH="$target_path"
 
