@@ -144,37 +144,7 @@ pub fn run_wizard() -> Result<Config> {
     };
 
     if config.memory.backend == "surreal-graphs" {
-        println!();
-        println!(
-            "  {} Installing plugin `{}`...",
-            style("⬇").cyan(),
-            style(crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID)
-                .white()
-                .bold()
-        );
-
-        match crate::plugins::install_official_surreal_graphs(&config) {
-            Ok(plugin) => {
-                println!(
-                    "  {} Plugin installed: {} {}",
-                    style("✓").green().bold(),
-                    style(plugin.id).green(),
-                    style(plugin.version).dim(),
-                );
-            }
-            Err(error) => {
-                println!(
-                    "  {} Surreal graphs plugin install failed: {}",
-                    style("⚠").yellow().bold(),
-                    style(error.to_string()).yellow(),
-                );
-                println!(
-                    "  {} Falling back to core markdown memory backend.",
-                    style("→").dim()
-                );
-                config.memory = memory_config_defaults_for_backend("markdown");
-            }
-        }
+        install_and_handle_surreal_graphs(&mut config, true)?;
     }
 
     println!(
@@ -407,28 +377,7 @@ pub fn run_quick_setup(
     };
 
     if memory_backend_name == "surreal-graphs" {
-        match crate::plugins::install_official_surreal_graphs(&config) {
-            Ok(plugin) => {
-                println!(
-                    "  {} Plugin installed: {} {}",
-                    style("✓").green().bold(),
-                    style(plugin.id).green(),
-                    style(plugin.version).dim()
-                );
-            }
-            Err(error) => {
-                println!(
-                    "  {} Could not install surreal-graphs plugin in quick setup: {}",
-                    style("⚠").yellow().bold(),
-                    style(error.to_string()).yellow(),
-                );
-                println!(
-                    "  {} Falling back to `markdown` memory backend.",
-                    style("→").dim()
-                );
-                config.memory = memory_config_defaults_for_backend("markdown");
-            }
-        }
+        install_and_handle_surreal_graphs(&mut config, true)?;
     }
 
     config.save()?;
@@ -2708,6 +2657,73 @@ fn trim_non_empty(value: String) -> Option<String> {
     }
 }
 
+fn plugin_bootstrap_config(memory_backend: &str) -> Result<Config> {
+    let home = UserDirs::new()
+        .map(|dirs| dirs.home_dir().to_path_buf())
+        .context("Could not determine home directory for plugin setup")?;
+    let corvus_dir = home.join(".corvus");
+    let workspace_dir = corvus_dir.join("workspace");
+    fs::create_dir_all(&workspace_dir).with_context(|| {
+        format!(
+            "Failed to create workspace directory: {}",
+            workspace_dir.display()
+        )
+    })?;
+
+    Ok(Config {
+        workspace_dir,
+        config_path: corvus_dir.join("config.toml"),
+        memory: memory_config_defaults_for_backend(memory_backend),
+        plugins: PluginsConfig::default(),
+        ..Config::default()
+    })
+}
+
+fn install_and_handle_surreal_graphs(
+    config: &mut Config,
+    fallback_to_markdown: bool,
+) -> Result<()> {
+    println!();
+    println!(
+        "  {} Installing plugin `{}`...",
+        style("⬇").cyan(),
+        style(crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID)
+            .white()
+            .bold()
+    );
+
+    match crate::plugins::install_official_surreal_graphs(config) {
+        Ok(plugin) => {
+            println!(
+                "  {} Plugin installed: {} {}",
+                style("✓").green().bold(),
+                style(plugin.id).green(),
+                style(plugin.version).dim(),
+            );
+            Ok(())
+        }
+        Err(error) if fallback_to_markdown => {
+            println!(
+                "  {} Surreal graphs plugin install failed: {}",
+                style("⚠").yellow().bold(),
+                style(error.to_string()).yellow(),
+            );
+            println!(
+                "  {} Falling back to core markdown memory backend.",
+                style("→").dim()
+            );
+            config.memory = memory_config_defaults_for_backend("markdown");
+            Ok(())
+        }
+        Err(error) => {
+            bail!(
+                "Surreal Graphs plugin installation failed: {error}. \
+                 Select another memory backend or configure plugins first."
+            )
+        }
+    }
+}
+
 fn requires_surreal_memory_setup(backend: &str) -> bool {
     matches!(backend, "surreal" | "surreal-graphs")
 }
@@ -2746,6 +2762,15 @@ fn setup_memory() -> Result<MemoryConfig> {
 
     let mut config = memory_config_defaults_for_backend(backend);
     config.auto_save = auto_save;
+
+    if backend == "surreal-graphs" {
+        println!(
+            "  {} `surreal-graphs` requires a runtime plugin and will be installed now.",
+            style("ℹ").cyan()
+        );
+        let mut bootstrap = plugin_bootstrap_config(backend)?;
+        install_and_handle_surreal_graphs(&mut bootstrap, false)?;
+    }
 
     if requires_surreal_memory_setup(backend) {
         setup_surreal_memory_options(&mut config)?;
