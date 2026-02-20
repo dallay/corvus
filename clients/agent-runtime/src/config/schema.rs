@@ -2213,6 +2213,38 @@ fn env_override_optional(var_name: &str, target: &mut Option<String>) {
     }
 }
 
+fn migrate_deprecated_plugin_registry_urls(config: &mut Config) -> bool {
+    const OLD_PLUGIN_HOST: &str = "plugins.corvus.ai";
+    const NEW_PLUGIN_HOST: &str = "corvus.profiletailors.com";
+
+    let mut changed = false;
+
+    for source in &mut config.plugins.sources {
+        if source.url.contains(OLD_PLUGIN_HOST) {
+            source.url = source.url.replace(OLD_PLUGIN_HOST, NEW_PLUGIN_HOST);
+            changed = true;
+        }
+    }
+
+    for source_url in &mut config.plugins.revocation.source_urls {
+        if source_url.contains(OLD_PLUGIN_HOST) {
+            *source_url = source_url.replace(OLD_PLUGIN_HOST, NEW_PLUGIN_HOST);
+            changed = true;
+        }
+    }
+
+    if changed {
+        let mut seen = std::collections::HashSet::new();
+        config
+            .plugins
+            .revocation
+            .source_urls
+            .retain(|url| seen.insert(url.clone()));
+    }
+
+    changed
+}
+
 impl Config {
     pub fn load_or_init() -> Result<Self> {
         let (default_corvus_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
@@ -2282,6 +2314,15 @@ impl Config {
             for agent in config.agents.values_mut() {
                 decrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
             }
+
+            if migrate_deprecated_plugin_registry_urls(&mut config) {
+                tracing::warn!(
+                    "Migrated deprecated plugin registry host 'plugins.corvus.ai' to \
+                     'corvus.profiletailors.com' in config sources"
+                );
+                config.save()?;
+            }
+
             config.apply_env_overrides();
             Ok(config)
         } else {
@@ -2814,9 +2855,59 @@ default_temperature = 0.7
         assert!(plugins.revocation.enabled);
         assert!(plugins.revocation.enforced);
         assert!(!plugins.sources.is_empty());
+        assert_eq!(
+            plugins.sources[0].url,
+            "https://corvus.profiletailors.com/catalog.json"
+        );
+        assert_eq!(
+            plugins.revocation.source_urls,
+            vec!["https://corvus.profiletailors.com/revocations.json".to_string()]
+        );
+        assert_eq!(
+            default_plugin_sources()[0].url,
+            "https://corvus.profiletailors.com/catalog.json"
+        );
+        assert_eq!(
+            default_plugin_revocation_sources(),
+            vec!["https://corvus.profiletailors.com/revocations.json".to_string()]
+        );
         assert!(plugins
             .allow_publishers
             .contains(&"corvus-official".to_string()));
+    }
+
+    #[test]
+    fn migrate_deprecated_plugin_registry_urls_rewrites_and_deduplicates() {
+        let mut config = Config::default();
+        config.plugins.sources = vec![
+            PluginSourceConfig {
+                name: "official".to_string(),
+                url: "https://plugins.corvus.ai/catalog.json".to_string(),
+            },
+            PluginSourceConfig {
+                name: "mirror".to_string(),
+                url: "https://mirror.example/catalog.json".to_string(),
+            },
+        ];
+        config.plugins.revocation.source_urls = vec![
+            "https://plugins.corvus.ai/revocations.json".to_string(),
+            "https://corvus.profiletailors.com/revocations.json".to_string(),
+        ];
+
+        let changed = migrate_deprecated_plugin_registry_urls(&mut config);
+        assert!(changed);
+        assert_eq!(
+            config.plugins.sources[0].url,
+            "https://corvus.profiletailors.com/catalog.json"
+        );
+        assert_eq!(
+            config.plugins.sources[1].url,
+            "https://mirror.example/catalog.json"
+        );
+        assert_eq!(
+            config.plugins.revocation.source_urls,
+            vec!["https://corvus.profiletailors.com/revocations.json".to_string()]
+        );
     }
 
     #[test]
