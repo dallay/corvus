@@ -360,7 +360,22 @@ extract_or_copy_binary() {
   local asset_base="$2"
   local target_path="$3"
   local extract_dir="$4"
+  local parent_return_trap="$5"
   local archive_entry=""
+  local staged_path=""
+  local source_path=""
+
+  staged_path="$(mktemp "${target_path}.tmp.XXXXXX")"
+  trap '
+    if [ -n "${staged_path:-}" ] && [ -e "$staged_path" ]; then
+      rm -f "$staged_path"
+    fi
+    if [ -n "${parent_return_trap:-}" ]; then
+      trap "$parent_return_trap" RETURN
+    else
+      trap - RETURN
+    fi
+  ' RETURN
 
   if [[ "$RESOLVED_ASSET_NAME" == *.tar.gz ]]; then
     has_cmd tar || die "tar is required to extract ${RESOLVED_ASSET_NAME}"
@@ -369,11 +384,19 @@ extract_or_copy_binary() {
     [ -n "$archive_entry" ] || die "Archive does not contain expected binary: ${asset_base}"
 
     tar -xzf "$download_path" -C "$extract_dir" "$archive_entry"
-    cp "${extract_dir}/${archive_entry#./}" "$target_path"
-    return
+    source_path="${extract_dir}/${archive_entry#./}"
+  else
+    source_path="$download_path"
   fi
 
-  cp "$download_path" "$target_path"
+  if has_cmd install; then
+    install -m 755 "$source_path" "$staged_path"
+  else
+    cp "$source_path" "$staged_path"
+    chmod 755 "$staged_path"
+  fi
+  mv -f "$staged_path" "$target_path"
+  staged_path=""
 }
 
 install_via_binary() {
@@ -384,6 +407,7 @@ install_via_binary() {
   local target_path=""
   local download_path=""
   local extract_dir=""
+  local install_cleanup_trap=""
 
   asset="$(detect_binary_asset)"
   release_tag="$REQUESTED_VERSION"
@@ -398,13 +422,13 @@ install_via_binary() {
   target_path="${install_dir}/corvus"
   download_path="$(mktemp "${TMPDIR:-/tmp}/corvus-download.XXXXXX")"
   extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/corvus-extract.XXXXXX")"
-  trap "rm -f '$download_path'; rm -rf '$extract_dir'; trap - RETURN" RETURN
+  install_cleanup_trap="rm -f '$download_path'; rm -rf '$extract_dir'; trap - RETURN"
+  trap "$install_cleanup_trap" RETURN
 
   download_binary_from_releases "$normalized_release_tag" "$asset" "$download_path"
   verify_checksum "$download_path" "$RESOLVED_CHECKSUM_URL"
-  extract_or_copy_binary "$download_path" "$asset" "$target_path" "$extract_dir"
+  extract_or_copy_binary "$download_path" "$asset" "$target_path" "$extract_dir" "$install_cleanup_trap"
 
-  chmod 755 "$target_path"
   INSTALLED_BINARY_PATH="$target_path"
 
   print_success "Corvus binary installed at ${target_path}"
