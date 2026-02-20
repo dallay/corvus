@@ -2,7 +2,8 @@ use crate::config::schema::{DingTalkConfig, IrcConfig, QQConfig, StreamMode, Wha
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
     HeartbeatConfig, IMessageConfig, MatrixConfig, MemoryConfig, ObservabilityConfig,
-    RuntimeConfig, SecretsConfig, SlackConfig, SurrealMemoryConfig, TelegramConfig, WebhookConfig,
+    PluginsConfig, RuntimeConfig, SecretsConfig, SlackConfig, SurrealMemoryConfig, TelegramConfig,
+    WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
@@ -103,7 +104,7 @@ pub fn run_wizard() -> Result<Config> {
 
     // ── Build config ──
     // Defaults: SQLite memory, supervised autonomy, workspace-scoped, native runtime
-    let config = Config {
+    let mut config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
         api_key: if api_key.is_empty() {
@@ -126,6 +127,7 @@ pub fn run_wizard() -> Result<Config> {
         cron: crate::config::CronConfig::default(),
         channels_config,
         memory: memory_config, // User-selected memory backend
+        plugins: PluginsConfig::default(),
         tunnel: tunnel_config,
         gateway: crate::config::GatewayConfig::default(),
         composio: composio_config,
@@ -140,6 +142,10 @@ pub fn run_wizard() -> Result<Config> {
         hardware: hardware_config,
         query_classification: crate::config::QueryClassificationConfig::default(),
     };
+
+    if config.memory.backend == "surreal-graphs" {
+        install_and_handle_surreal_graphs(&mut config, true)?;
+    }
 
     println!(
         "  {} Security: {} | workspace-scoped",
@@ -257,7 +263,7 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
 
 /// Non-interactive setup: generates a sensible default config instantly.
 /// Use `corvus onboard` or
-/// `corvus onboard --api-key sk-... --provider openrouter --memory sqlite|lucid|surreal`.
+/// `corvus onboard --api-key sk-... --provider openrouter --memory sqlite|lucid|surreal-graphs`.
 /// Use `corvus onboard --interactive` for the full wizard.
 fn backend_key_from_choice(choice: usize) -> &'static str {
     selectable_memory_backends()
@@ -335,7 +341,7 @@ pub fn run_quick_setup(
     // Create memory config based on backend choice
     let memory_config = memory_config_defaults_for_backend(&memory_backend_name);
 
-    let config = Config {
+    let mut config = Config {
         workspace_dir: workspace_dir.clone(),
         config_path: config_path.clone(),
         api_key: credential_override.map(String::from),
@@ -354,6 +360,7 @@ pub fn run_quick_setup(
         cron: crate::config::CronConfig::default(),
         channels_config: ChannelsConfig::default(),
         memory: memory_config,
+        plugins: PluginsConfig::default(),
         tunnel: crate::config::TunnelConfig::default(),
         gateway: crate::config::GatewayConfig::default(),
         composio: ComposioConfig::default(),
@@ -368,6 +375,10 @@ pub fn run_quick_setup(
         hardware: crate::config::HardwareConfig::default(),
         query_classification: crate::config::QueryClassificationConfig::default(),
     };
+
+    if memory_backend_name == "surreal-graphs" {
+        install_and_handle_surreal_graphs(&mut config, true)?;
+    }
 
     config.save()?;
     persist_workspace_selection(&config.config_path)?;
@@ -415,8 +426,8 @@ pub fn run_quick_setup(
     println!(
         "  {} Memory:     {} (auto-save: {})",
         style("✓").green().bold(),
-        style(&memory_backend_name).green(),
-        if memory_backend_name == "none" {
+        style(&config.memory.backend).green(),
+        if config.memory.backend == "none" {
             "off"
         } else {
             "on"
@@ -2646,6 +2657,77 @@ fn trim_non_empty(value: String) -> Option<String> {
     }
 }
 
+fn plugin_bootstrap_config(memory_backend: &str) -> Result<Config> {
+    let home = UserDirs::new()
+        .map(|dirs| dirs.home_dir().to_path_buf())
+        .context("Could not determine home directory for plugin setup")?;
+    let corvus_dir = home.join(".corvus");
+    let workspace_dir = corvus_dir.join("workspace");
+    fs::create_dir_all(&workspace_dir).with_context(|| {
+        format!(
+            "Failed to create workspace directory: {}",
+            workspace_dir.display()
+        )
+    })?;
+
+    Ok(Config {
+        workspace_dir,
+        config_path: corvus_dir.join("config.toml"),
+        memory: memory_config_defaults_for_backend(memory_backend),
+        plugins: PluginsConfig::default(),
+        ..Config::default()
+    })
+}
+
+fn install_and_handle_surreal_graphs(
+    config: &mut Config,
+    fallback_to_markdown: bool,
+) -> Result<()> {
+    println!();
+    println!(
+        "  {} Installing plugin `{}`...",
+        style("⬇").cyan(),
+        style(crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID)
+            .white()
+            .bold()
+    );
+
+    match crate::plugins::install_official_surreal_graphs(config) {
+        Ok(plugin) => {
+            println!(
+                "  {} Plugin installed: {} {}",
+                style("✓").green().bold(),
+                style(plugin.id).green(),
+                style(plugin.version).dim(),
+            );
+            Ok(())
+        }
+        Err(error) if fallback_to_markdown => {
+            println!(
+                "  {} Surreal graphs plugin install failed: {}",
+                style("⚠").yellow().bold(),
+                style(error.to_string()).yellow(),
+            );
+            println!(
+                "  {} Falling back to core markdown memory backend.",
+                style("→").dim()
+            );
+            config.memory = memory_config_defaults_for_backend("markdown");
+            Ok(())
+        }
+        Err(error) => {
+            bail!(
+                "Surreal Graphs plugin installation failed: {error}. \
+                 Select another memory backend or configure plugins first."
+            )
+        }
+    }
+}
+
+fn requires_surreal_memory_setup(backend: &str) -> bool {
+    matches!(backend, "surreal" | "surreal-graphs")
+}
+
 fn setup_memory() -> Result<MemoryConfig> {
     print_bullet("Choose how Corvus stores and searches memories.");
     print_bullet("You can always change this later in config.toml.");
@@ -2681,7 +2763,16 @@ fn setup_memory() -> Result<MemoryConfig> {
     let mut config = memory_config_defaults_for_backend(backend);
     config.auto_save = auto_save;
 
-    if backend == "surreal" {
+    if backend == "surreal-graphs" {
+        println!(
+            "  {} `surreal-graphs` requires a runtime plugin and will be installed now.",
+            style("ℹ").cyan()
+        );
+        let mut bootstrap = plugin_bootstrap_config(backend)?;
+        install_and_handle_surreal_graphs(&mut bootstrap, false)?;
+    }
+
+    if requires_surreal_memory_setup(backend) {
         setup_surreal_memory_options(&mut config)?;
     }
 
@@ -5123,17 +5214,9 @@ mod tests {
     fn backend_key_from_choice_maps_supported_backends() {
         assert_eq!(backend_key_from_choice(0), "sqlite");
         assert_eq!(backend_key_from_choice(1), "lucid");
-        #[cfg(feature = "memory-surreal")]
-        {
-            assert_eq!(backend_key_from_choice(2), "surreal");
-            assert_eq!(backend_key_from_choice(3), "markdown");
-            assert_eq!(backend_key_from_choice(4), "none");
-        }
-        #[cfg(not(feature = "memory-surreal"))]
-        {
-            assert_eq!(backend_key_from_choice(2), "markdown");
-            assert_eq!(backend_key_from_choice(3), "none");
-        }
+        assert_eq!(backend_key_from_choice(2), "surreal-graphs");
+        assert_eq!(backend_key_from_choice(3), "markdown");
+        assert_eq!(backend_key_from_choice(4), "none");
         assert_eq!(backend_key_from_choice(999), "sqlite");
     }
 
@@ -5192,5 +5275,12 @@ mod tests {
     fn trim_non_empty_returns_none_for_blank() {
         assert_eq!(trim_non_empty("   ".into()), None);
         assert_eq!(trim_non_empty("value".into()), Some("value".into()));
+    }
+
+    #[test]
+    fn requires_surreal_memory_setup_accepts_plugin_backend() {
+        assert!(requires_surreal_memory_setup("surreal"));
+        assert!(requires_surreal_memory_setup("surreal-graphs"));
+        assert!(!requires_surreal_memory_setup("sqlite"));
     }
 }

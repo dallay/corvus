@@ -1,0 +1,37 @@
+package corvus:plugin;
+
+interface memory {
+  record memory-entry {
+    id: string,
+    key: string,
+    content: string,
+    category: string,
+    timestamp: string,
+    session-id: option<string>,
+    score: option<f64>,
+  }
+
+  store: func(key: string, content: string, category: string, session-id: option<string>) -> result<_, string>;
+  recall: func(query: string, limit: u32, session-id: option<string>) -> result<list<memory-entry>, string>;
+  get: func(key: string) -> result<option<memory-entry>, string>;
+  list: func(category: option<string>, session-id: option<string>) -> result<list<memory-entry>, string>;
+  forget: func(key: string) -> result<bool, string>;
+  count: func() -> result<u64, string>;
+}
+
+interface health {
+  health-check: func() -> bool;
+}
+
+interface capabilities {
+  name: func() -> string;
+  version: func() -> string;
+  publisher: func() -> string;
+  capabilities: func() -> list<string>;
+}
+
+world corvus-plugin {
+  export memory;
+  export health;
+  export capabilities;
+}

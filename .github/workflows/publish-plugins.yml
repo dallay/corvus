@@ -1,0 +1,200 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: publish-plugins
+
+on:
+  workflow_dispatch:
+    inputs:
+      plugin_version:
+        description: "Plugin version (semver)"
+        required: true
+        default: "0.1.0"
+      oci_repository:
+        description: "OCI repository (example: ghcr.io/org/corvus-plugins/memory-surreal-graphs)"
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build-and-publish-plugin:
+    runs-on: ubuntu-latest
+    env:
+      PLUGIN_ID: memory.surreal.graphs
+      PLUGIN_DIR: clients/agent-runtime/plugins/memory-surreal-graphs
+      DIST_DIR: clients/agent-runtime/dist/plugins
+      OCI_REPOSITORY: ${{ inputs.oci_repository }}
+      PLUGIN_VERSION: ${{ inputs.plugin_version }}
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: 🦀 Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@f7ccc83f9ed1e5b9c81d8a67d7ad1a747e22a561
+        with:
+          toolchain: stable
+          targets: wasm32-wasip1
+
+      - name: 🔨 Build WASM plugin artifact
+        run: |
+          set -euo pipefail
+          cargo build \
+            --manifest-path "$PLUGIN_DIR/Cargo.toml" \
+            --target wasm32-wasip1 \
+            --release
+
+      - name: 📦 Assemble plugin bundle
+        run: |
+          set -euo pipefail
+          mkdir -p "$DIST_DIR"
+          wasm_source="$PLUGIN_DIR/target/wasm32-wasip1/release/memory_surreal_graphs_plugin.wasm"
+          wasm_target="$DIST_DIR/$PLUGIN_ID.wasm"
+          cp "$wasm_source" "$wasm_target"
+
+          digest="sha256:$(sha256sum "$wasm_target" | awk '{print $1}')"
+
+          cat > "$DIST_DIR/plugin-manifest.json" <<JSON
+          {
+            "id": "$PLUGIN_ID",
+            "version": "$PLUGIN_VERSION",
+            "digest": "$digest",
+            "publisher": "corvus-official",
+            "runtime_api": "corvus-plugin/v1",
+            "min_agent_version": "0.1.4",
+            "capabilities": ["memory"],
+            "entrypoints": {
+              "memory": "memory_v1",
+              "health": "health_v1",
+              "tools": []
+            },
+            "limits": {
+              "memory_mb": 256,
+              "fuel": 1000000,
+              "timeout_ms": 10000,
+              "max_output_bytes": 262144
+            },
+            "artifact": {
+              "url": "$PLUGIN_ID.wasm",
+              "digest": "$digest"
+            }
+          }
+          JSON
+
+          cat > "$DIST_DIR/catalog.json" <<JSON
+          {
+            "plugins": [
+              {
+                "id": "$PLUGIN_ID",
+                "version": "$PLUGIN_VERSION",
+                "digest": "$digest",
+                "publisher": "corvus-official",
+                "runtime_api": "corvus-plugin/v1",
+                "min_agent_version": "0.1.4",
+                "capabilities": ["memory"],
+                "entrypoints": {
+                  "memory": "memory_v1",
+                  "health": "health_v1",
+                  "tools": []
+                },
+                "limits": {
+                  "memory_mb": 256,
+                  "fuel": 1000000,
+                  "timeout_ms": 10000,
+                  "max_output_bytes": 262144
+                },
+                "artifact": {
+                  "url": "$PLUGIN_ID.wasm",
+                  "digest": "$digest"
+                }
+              }
+            ]
+          }
+          JSON
+
+          cat > "$DIST_DIR/revocations.json" <<JSON
+          {
+            "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "revoked": []
+          }
+          JSON
+
+      - name: 🔐 Optional sign plugin bundle with cosign key
+        if: ${{ secrets.COSIGN_PRIVATE_KEY != '' }}
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          COSIGN_VERSION="v2.4.1"
+          COSIGN_BINARY="cosign-linux-amd64"
+          COSIGN_BASE_URL="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}"
+
+          curl -sSfL "${COSIGN_BASE_URL}/${COSIGN_BINARY}" -o "${COSIGN_BINARY}"
+          curl -sSfL "${COSIGN_BASE_URL}/cosign_checksums.txt" -o cosign_checksums.txt
+
+          cosign_checksum_line="$(grep -E "[[:space:]]${COSIGN_BINARY}$" cosign_checksums.txt || true)"
+          if [ -z "${cosign_checksum_line}" ]; then
+            echo "Could not find checksum for ${COSIGN_BINARY}"
+            exit 1
+          fi
+          printf '%s\n' "${cosign_checksum_line}" > cosign.sha256
+          sha256sum --check --strict cosign.sha256
+
+          mv "${COSIGN_BINARY}" cosign
+          chmod +x cosign
+          ./cosign sign-blob \
+            --yes \
+            --key env://COSIGN_PRIVATE_KEY \
+            --output-signature "$DIST_DIR/$PLUGIN_ID.wasm.sig" \
+            --output-certificate "$DIST_DIR/$PLUGIN_ID.wasm.pem" \
+            "$DIST_DIR/$PLUGIN_ID.wasm"
+
+      - name: 🚀 Optional publish plugin artifact to OCI
+        if: ${{ env.OCI_REPOSITORY != '' }}
+        env:
+          OCI_USERNAME: ${{ secrets.OCI_USERNAME }}
+          OCI_PASSWORD: ${{ secrets.OCI_PASSWORD }}
+        run: |
+          set -euo pipefail
+          ORAS_VERSION="1.2.3"
+          ORAS_TARBALL="oras_${ORAS_VERSION}_linux_amd64.tar.gz"
+          ORAS_BASE_URL="https://github.com/oras-project/oras/releases/download/v${ORAS_VERSION}"
+
+          curl -sSfL "${ORAS_BASE_URL}/${ORAS_TARBALL}" -o "${ORAS_TARBALL}"
+          curl -sSfL "${ORAS_BASE_URL}/oras_${ORAS_VERSION}_checksums.txt" -o oras_checksums.txt
+
+          oras_checksum_line="$(grep -E "[[:space:]]${ORAS_TARBALL}$" oras_checksums.txt || true)"
+          if [ -z "${oras_checksum_line}" ]; then
+            echo "Could not find checksum for ${ORAS_TARBALL}"
+            exit 1
+          fi
+          printf '%s\n' "${oras_checksum_line}" > oras.sha256
+          sha256sum --check --strict oras.sha256
+
+          tar -xzf "${ORAS_TARBALL}" oras
+          chmod +x oras
+
+          if [ -n "${OCI_USERNAME:-}" ] && [ -n "${OCI_PASSWORD:-}" ]; then
+            registry="${OCI_REPOSITORY%%/*}"
+            ./oras login "$registry" -u "$OCI_USERNAME" -p "$OCI_PASSWORD"
+          fi
+
+          ./oras push "$OCI_REPOSITORY:$PLUGIN_VERSION" \
+            "$DIST_DIR/$PLUGIN_ID.wasm:application/wasm" \
+            "$DIST_DIR/plugin-manifest.json:application/json" \
+            "$DIST_DIR/catalog.json:application/json" \
+            "$DIST_DIR/revocations.json:application/json"
+
+      - name: ⬆ Upload plugin bundle artifacts
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: plugin-bundle-${{ env.PLUGIN_ID }}-${{ env.PLUGIN_VERSION }}
+          path: |
+            clients/agent-runtime/dist/plugins/${{ env.PLUGIN_ID }}.wasm
+            clients/agent-runtime/dist/plugins/plugin-manifest.json
+            clients/agent-runtime/dist/plugins/catalog.json
+            clients/agent-runtime/dist/plugins/revocations.json
+            clients/agent-runtime/dist/plugins/${{ env.PLUGIN_ID }}.wasm.sig
+            clients/agent-runtime/dist/plugins/${{ env.PLUGIN_ID }}.wasm.pem
+          if-no-files-found: ignore

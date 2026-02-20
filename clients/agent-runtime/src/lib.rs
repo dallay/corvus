@@ -58,6 +58,7 @@ pub mod migration;
 pub mod observability;
 pub mod onboard;
 pub mod peripherals;
+pub mod plugins;
 pub mod providers;
 pub mod rag;
 pub mod runtime;
