@@ -1,4 +1,4 @@
-# 🦅 Corvus
+# 🐦‍⬛ Corvus
 
 **A reactive, always-on agent platform for long-running orchestration workloads.**
 
