@@ -199,6 +199,15 @@ impl CopilotProvider {
                 use std::os::unix::fs::PermissionsExt;
 
                 if let Err(err) =
+                    std::fs::set_permissions(&corvus_dir, std::fs::Permissions::from_mode(0o700))
+                {
+                    warn!(
+                        "Failed to set Corvus config directory permissions on {:?}: {err}",
+                        corvus_dir
+                    );
+                }
+
+                if let Err(err) =
                     std::fs::set_permissions(&token_dir, std::fs::Permissions::from_mode(0o700))
                 {
                     warn!(
@@ -249,24 +258,29 @@ impl CopilotProvider {
 
     async fn write_token_file_secure(&self, path: &Path, content: &str) {
         let path = path.to_path_buf();
-        let write_path = path.clone();
+        let path_display = path.display().to_string();
         let content = content.to_string();
         let secret_store = self.secret_store.clone();
 
         let result = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
             let encrypted = secret_store.encrypt(&content)?;
-            write_file_secure_blocking(&write_path, &encrypted)?;
+            write_file_secure_blocking(&path, &encrypted)?;
             Ok(())
         })
         .await;
 
         match result {
             Ok(Ok(())) => {}
-            Ok(Err(err)) => warn!(
-                "Failed to write secure Copilot token file {:?}: {err}",
-                path
+            Ok(Err(err)) => {
+                warn!(
+                    "Failed to write secure Copilot token file {}: {err}",
+                    path_display
+                )
+            }
+            Err(err) => warn!(
+                "Failed to spawn token write task for {}: {err}",
+                path_display
             ),
-            Err(err) => warn!("Failed to spawn token write task for {:?}: {err}", path),
         }
     }
 
@@ -612,7 +626,7 @@ fn write_file_secure_blocking(path: &Path, content: &str) -> std::io::Result<()>
     #[cfg(unix)]
     {
         use std::io::Write;
-        use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+        use std::os::unix::fs::OpenOptionsExt;
 
         let mut file = std::fs::OpenOptions::new()
             .write(true)
@@ -621,14 +635,52 @@ fn write_file_secure_blocking(path: &Path, content: &str) -> std::io::Result<()>
             .mode(0o600)
             .open(path)?;
         file.write_all(content.as_bytes())?;
-
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
         Ok(())
     }
-    #[cfg(not(unix))]
+    #[cfg(windows)]
     {
-        std::fs::write(path, content)?;
+        use std::io::Write;
+        use std::os::windows::fs::OpenOptionsExt;
+
+        const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .attributes(FILE_ATTRIBUTE_NORMAL)
+            .open(path)?;
+        file.write_all(content.as_bytes())?;
+
+        let username = std::env::var("USERNAME").map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "USERNAME is unset; cannot secure Copilot token ACL",
+            )
+        })?;
+        let grant_arg = format!("{username}:(R,W)");
+        let output = std::process::Command::new("icacls")
+            .arg(path)
+            .args(["/inheritance:r", "/grant:r"])
+            .arg(grant_arg)
+            .output()?;
+        if !output.status.success() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                format!(
+                    "failed to secure Copilot token ACL via icacls (exit code {:?})",
+                    output.status.code()
+                ),
+            ));
+        }
         Ok(())
+    }
+    #[cfg(all(not(unix), not(windows)))]
+    {
+        let _ = (path, content);
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "secure token file permissions are not implemented for this platform",
+        ))
     }
 }
 
@@ -732,13 +784,22 @@ mod tests {
     #[test]
     fn copilot_headers_include_required_fields() {
         let headers = CopilotProvider::COPILOT_HEADERS;
-        assert!(headers
+        let editor_version = headers
             .iter()
-            .any(|(header, _)| *header == "Editor-Version"));
-        assert!(headers
+            .find(|(header, _)| *header == "Editor-Version")
+            .map(|(_, value)| *value);
+        let plugin_version = headers
             .iter()
-            .any(|(header, _)| *header == "Editor-Plugin-Version"));
-        assert!(headers.iter().any(|(header, _)| *header == "User-Agent"));
+            .find(|(header, _)| *header == "Editor-Plugin-Version")
+            .map(|(_, value)| *value);
+        let user_agent = headers
+            .iter()
+            .find(|(header, _)| *header == "User-Agent")
+            .map(|(_, value)| *value);
+
+        assert_eq!(editor_version, Some("vscode/1.85.1"));
+        assert_eq!(plugin_version, Some("copilot/1.155.0"));
+        assert_eq!(user_agent, Some("GithubCopilot/1.155.0"));
     }
 
     #[test]
