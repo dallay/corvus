@@ -2,6 +2,7 @@
 pub enum MemoryBackendKind {
     Sqlite,
     Lucid,
+    SurrealGraphs,
     Surreal,
     Markdown,
     None,
@@ -55,6 +56,15 @@ const SURREAL_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
     optional_dependency: true,
 };
 
+const SURREAL_GRAPHS_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
+    key: "surreal-graphs",
+    label: "Surreal Graphs (plugin) — signed WASM extension with secure fallback",
+    auto_save_default: true,
+    uses_sqlite_hygiene: false,
+    sqlite_based: false,
+    optional_dependency: true,
+};
+
 const NONE_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
     key: "none",
     label: "None — disable persistent memory",
@@ -73,19 +83,10 @@ const CUSTOM_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
     optional_dependency: false,
 };
 
-#[cfg(feature = "memory-surreal")]
 const SELECTABLE_MEMORY_BACKENDS: [MemoryBackendProfile; 5] = [
     SQLITE_PROFILE,
     LUCID_PROFILE,
-    SURREAL_PROFILE,
-    MARKDOWN_PROFILE,
-    NONE_PROFILE,
-];
-
-#[cfg(not(feature = "memory-surreal"))]
-const SELECTABLE_MEMORY_BACKENDS: [MemoryBackendProfile; 4] = [
-    SQLITE_PROFILE,
-    LUCID_PROFILE,
+    SURREAL_GRAPHS_PROFILE,
     MARKDOWN_PROFILE,
     NONE_PROFILE,
 ];
@@ -102,6 +103,7 @@ pub fn classify_memory_backend(backend: &str) -> MemoryBackendKind {
     match backend {
         "sqlite" => MemoryBackendKind::Sqlite,
         "lucid" => MemoryBackendKind::Lucid,
+        "surreal-graphs" => MemoryBackendKind::SurrealGraphs,
         "surreal" => MemoryBackendKind::Surreal,
         "markdown" => MemoryBackendKind::Markdown,
         "none" => MemoryBackendKind::None,
@@ -113,6 +115,7 @@ pub fn memory_backend_profile(backend: &str) -> MemoryBackendProfile {
     match classify_memory_backend(backend) {
         MemoryBackendKind::Sqlite => SQLITE_PROFILE,
         MemoryBackendKind::Lucid => LUCID_PROFILE,
+        MemoryBackendKind::SurrealGraphs => SURREAL_GRAPHS_PROFILE,
         MemoryBackendKind::Surreal => SURREAL_PROFILE,
         MemoryBackendKind::Markdown => MARKDOWN_PROFILE,
         MemoryBackendKind::None => NONE_PROFILE,
@@ -128,6 +131,10 @@ mod tests {
     fn classify_known_backends() {
         assert_eq!(classify_memory_backend("sqlite"), MemoryBackendKind::Sqlite);
         assert_eq!(classify_memory_backend("lucid"), MemoryBackendKind::Lucid);
+        assert_eq!(
+            classify_memory_backend("surreal-graphs"),
+            MemoryBackendKind::SurrealGraphs
+        );
         assert_eq!(
             classify_memory_backend("surreal"),
             MemoryBackendKind::Surreal
@@ -147,23 +154,12 @@ mod tests {
     #[test]
     fn selectable_backends_are_ordered_for_onboarding() {
         let backends = selectable_memory_backends();
-        #[cfg(feature = "memory-surreal")]
         assert_eq!(backends.len(), 5);
-        #[cfg(not(feature = "memory-surreal"))]
-        assert_eq!(backends.len(), 4);
         assert_eq!(backends[0].key, "sqlite");
         assert_eq!(backends[1].key, "lucid");
-        #[cfg(feature = "memory-surreal")]
-        {
-            assert_eq!(backends[2].key, "surreal");
-            assert_eq!(backends[3].key, "markdown");
-            assert_eq!(backends[4].key, "none");
-        }
-        #[cfg(not(feature = "memory-surreal"))]
-        {
-            assert_eq!(backends[2].key, "markdown");
-            assert_eq!(backends[3].key, "none");
-        }
+        assert_eq!(backends[2].key, "surreal-graphs");
+        assert_eq!(backends[3].key, "markdown");
+        assert_eq!(backends[4].key, "none");
     }
 
     #[test]
@@ -183,10 +179,102 @@ mod tests {
     }
 
     #[test]
+    fn surreal_graphs_profile_is_optional_backend() {
+        let profile = memory_backend_profile("surreal-graphs");
+        assert!(!profile.sqlite_based);
+        assert!(profile.optional_dependency);
+        assert!(!profile.uses_sqlite_hygiene);
+    }
+
+    #[test]
     fn unknown_profile_preserves_extensibility_defaults() {
         let profile = memory_backend_profile("custom-memory");
         assert_eq!(profile.key, "custom");
         assert!(profile.auto_save_default);
         assert!(!profile.uses_sqlite_hygiene);
+    }
+
+    #[test]
+    fn default_backend_key_is_sqlite() {
+        assert_eq!(default_memory_backend_key(), "sqlite");
+    }
+
+    #[test]
+    fn selectable_backends_has_expected_count() {
+        let backends = selectable_memory_backends();
+        assert_eq!(backends.len(), 5);
+    }
+
+    #[test]
+    fn selectable_backends_order_matches_priority() {
+        let backends = selectable_memory_backends();
+        assert_eq!(backends[0].key, "sqlite");
+        assert_eq!(backends[1].key, "lucid");
+        assert_eq!(backends[2].key, "surreal-graphs");
+        assert_eq!(backends[3].key, "markdown");
+        assert_eq!(backends[4].key, "none");
+    }
+
+    #[test]
+    fn sqlite_profile_has_correct_flags() {
+        let profile = memory_backend_profile("sqlite");
+        assert_eq!(profile.key, "sqlite");
+        assert!(profile.auto_save_default);
+        assert!(profile.uses_sqlite_hygiene);
+        assert!(profile.sqlite_based);
+        assert!(!profile.optional_dependency);
+    }
+
+    #[test]
+    fn markdown_profile_is_simple_backend() {
+        let profile = memory_backend_profile("markdown");
+        assert_eq!(profile.key, "markdown");
+        assert!(profile.auto_save_default);
+        assert!(!profile.uses_sqlite_hygiene);
+        assert!(!profile.sqlite_based);
+        assert!(!profile.optional_dependency);
+    }
+
+    #[test]
+    fn none_backend_has_auto_save_disabled() {
+        let profile = memory_backend_profile("none");
+        assert!(!profile.auto_save_default);
+        assert!(!profile.uses_sqlite_hygiene);
+    }
+
+    #[test]
+    fn classify_empty_string_returns_unknown() {
+        assert_eq!(classify_memory_backend(""), MemoryBackendKind::Unknown);
+    }
+
+    #[test]
+    fn classify_whitespace_only_returns_unknown() {
+        assert_eq!(classify_memory_backend("   "), MemoryBackendKind::Unknown);
+    }
+
+    #[test]
+    fn classify_case_sensitive() {
+        assert_eq!(classify_memory_backend("SQLite"), MemoryBackendKind::Unknown);
+        assert_eq!(classify_memory_backend("SQLITE"), MemoryBackendKind::Unknown);
+    }
+
+    #[test]
+    fn all_backend_kinds_are_classifiable() {
+        assert_eq!(classify_memory_backend("sqlite"), MemoryBackendKind::Sqlite);
+        assert_eq!(classify_memory_backend("lucid"), MemoryBackendKind::Lucid);
+        assert_eq!(classify_memory_backend("surreal-graphs"), MemoryBackendKind::SurrealGraphs);
+        assert_eq!(classify_memory_backend("surreal"), MemoryBackendKind::Surreal);
+        assert_eq!(classify_memory_backend("markdown"), MemoryBackendKind::Markdown);
+        assert_eq!(classify_memory_backend("none"), MemoryBackendKind::None);
+    }
+
+    #[test]
+    fn backend_profile_round_trips_through_classify() {
+        for backend_key in ["sqlite", "lucid", "surreal-graphs", "surreal", "markdown", "none"] {
+            let kind = classify_memory_backend(backend_key);
+            let profile = memory_backend_profile(backend_key);
+            assert_eq!(profile.key, backend_key);
+            assert_ne!(kind, MemoryBackendKind::Unknown);
+        }
     }
 }
