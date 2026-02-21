@@ -115,46 +115,23 @@ Archivo de workflow:
 
 Comportamiento actual del workflow:
 
-1. Se dispara automáticamente con tags de release: `plugin/<plugin-id>/v<semver>`.
-2. Resuelve dinámicamente la carpeta del plugin usando `package.metadata.corvus.plugin_id` en
-   cada `Cargo.toml`.
-3. Hace build del artefacto WASM para `wasm32-wasip1`.
-4. Ensambla bundle inmutable con artefactos/metadatos:
-   - `artifacts/<plugin-id>/<version>/<plugin-id>.wasm`
-   - `artifacts/<plugin-id>/<version>/plugin-manifest.json`
-   - `catalog.json` raíz (upsert del plugin, preservando los demás)
-   - `revocations.json` raíz (preserva la lista, actualiza `updated_at`)
-5. Firma el artefacto con cosign (con clave cuando existe `COSIGN_PRIVATE_KEY`, o bien keyless
-   OIDC si no existe).
-6. Verifica la firma en CI.
-7. Push opcional del bundle a OCI (`oci_repository`).
-8. Hace build de la app de catálogo y deploy a Cloudflare Pages (habilitado por defecto para tags de
-   release).
-9. Sube artefactos del build y del bundle para trazabilidad.
+1. Build del artefacto WASM del plugin.
+2. Ensamblar metadatos del bundle:
+  - `plugin-manifest.json`
+  - `catalog.json`
+  - `revocations.json`
+3. Opcionalmente firmar con clave cosign (si el secret está presente).
+4. Opcionalmente push a OCI (si el input `oci_repository` es proporcionado).
+5. Upload de artefactos del bundle.
 
 :::important
-Para integrar un nuevo plugin al release automático:
+Este workflow está actualmente configurado para `memory.surreal.graphs` en los defaults de env del
+job. Para un nuevo plugin, ya sea:
 
-1. Créalo en `clients/agent-runtime/plugins/<carpeta-plugin>/`.
-2. Agrega `package.metadata.corvus.plugin_id` en su `Cargo.toml`.
-3. Define límites/capacidades en `package.metadata.corvus`.
-4. Crea un tag de release: `plugin/<plugin-id>/v<version>`.
-
-Con metadata correcta, no hace falta cambiar el workflow para plugins nuevos.
-:::
-
-Ejemplo de release:
-
-```bash
-git tag plugin/memory.surreal.graphs/v0.1.0
-git push origin plugin/memory.surreal.graphs/v0.1.0
-```
-
-Configuración de Cloudflare esperada por el workflow:
-
-- Secret: `CLOUDFLARE_API_TOKEN`
-- Secret: `CLOUDFLARE_ACCOUNT_ID`
-- Variable de repositorio: `CLOUDFLARE_PAGES_PROJECT_NAME`
+1. Adaptar los valores de env para el nuevo plugin, o
+2. Generalizar los inputs/matrix del workflow para que plugin ID/folder/nombre de artefacto sean
+   parámetros.
+   :::
 
 ## 6. Comandos de Operador (Runtime)
 

@@ -114,45 +114,22 @@ Workflow file:
 
 Current workflow behavior:
 
-1. Trigger automatically on plugin release tags: `plugin/<plugin-id>/v<semver>`.
-2. Resolve plugin directory dynamically from `package.metadata.corvus.plugin_id` in each
-   plugin `Cargo.toml`.
-3. Build WASM plugin artifact for `wasm32-wasip1`.
-4. Assemble immutable bundle metadata and artifacts:
-   - `artifacts/<plugin-id>/<version>/<plugin-id>.wasm`
-   - `artifacts/<plugin-id>/<version>/plugin-manifest.json`
-   - root `catalog.json` (upsert plugin entry, keep others)
-   - root `revocations.json` (preserve list, refresh `updated_at`)
-5. Sign artifact with cosign (key-based when `COSIGN_PRIVATE_KEY` is set, otherwise keyless
-   OIDC).
-6. Verify signature in CI.
-7. Optionally push artifact bundle to OCI (`oci_repository`).
-8. Build plugins catalog app and deploy to Cloudflare Pages (enabled by default for release tags).
-9. Upload build + bundle artifacts as workflow artifacts for traceability.
+1. Build WASM plugin artifact.
+2. Assemble bundle metadata:
+  - `plugin-manifest.json`
+  - `catalog.json`
+  - `revocations.json`
+3. Optionally sign with cosign key (if secret is present).
+4. Optionally push to OCI (if `oci_repository` input is provided).
+5. Upload bundle artifacts.
 
 :::important
-To onboard a new plugin into automated releases:
+This workflow is currently configured for `memory.surreal.graphs` in job env defaults. For a new
+plugin, either:
 
-1. Create it under `clients/agent-runtime/plugins/<plugin-folder>/`.
-2. Add `package.metadata.corvus.plugin_id` to its `Cargo.toml`.
-3. Set plugin limits/capabilities in `package.metadata.corvus`.
-4. Create a release tag: `plugin/<plugin-id>/v<version>`.
-
-No workflow code changes are required for new plugins when metadata is present.
-:::
-
-Release example:
-
-```bash
-git tag plugin/memory.surreal.graphs/v0.1.0
-git push origin plugin/memory.surreal.graphs/v0.1.0
-```
-
-Cloudflare deployment configuration expected by the workflow:
-
-- Secret: `CLOUDFLARE_API_TOKEN`
-- Secret: `CLOUDFLARE_ACCOUNT_ID`
-- Repository variable: `CLOUDFLARE_PAGES_PROJECT_NAME`
+1. Adapt env values for the new plugin, or
+2. Generalize workflow inputs/matrix so plugin ID/folder/artifact name are parameters.
+   :::
 
 ## 6. Operator Commands (Runtime)
 

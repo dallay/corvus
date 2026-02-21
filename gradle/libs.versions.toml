@@ -6,18 +6,18 @@
 [versions]
 latest = "latest.release"
 # https://services.gradle.org/versions
-gradle = "9.5.0-milestone-1"
-kotlin = "2.3.0"
+gradle = "9.5.0-milestone-2"
+kotlin = "2.3.10"
 jdk = "21"
 node = "22.13.0"
 agp = "8.12.0"
 android-compileSdk = "36"
 android-minSdk = "24"
 android-targetSdk = "36"
-androidx-activity = "1.12.2"
+androidx-activity = "1.12.4"
 androidx-lifecycle = "2.9.6"
 compose-hot-reload = "1.0.0"
-compose-multiplatform = "1.10.0"
+compose-multiplatform = "1.10.1"
 kotlinx-coroutines = "1.10.2"
 material3 = "1.10.0-alpha05"
 

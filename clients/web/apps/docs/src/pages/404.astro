@@ -1,0 +1,273 @@
+---
+// biome-ignore lint/correctness/noUnusedImports: Used in Astro template below.
+import StarlightPage from '@astrojs/starlight/components/StarlightPage.astro'
+// biome-ignore lint/correctness/noUnusedImports: Used in Astro template below.
+import { Icon } from '@astrojs/starlight/components'
+
+const baseUrl = import.meta.env.BASE_URL
+// biome-ignore lint/correctness/noUnusedVariables: Used in Astro template below.
+const normalizedBaseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
+
+// Detect locale from pathname (e.g., /corvus/es/...)
+const pathname = Astro.url.pathname
+const isEs = pathname.includes('/es/')
+const locale = isEs ? 'es' : 'en'
+
+const t = {
+  en: {
+    title: '404',
+    tagline: "The page you're looking for has disappeared from the repository.",
+    home: 'Back to Home',
+    repo: 'View Repository',
+    gettingStarted: 'Getting Started',
+    structure: 'Project Structure',
+  },
+  es: {
+    title: '404',
+    tagline: 'La página que buscas ha desaparecido en el repositorio.',
+    home: 'Volver al inicio',
+    repo: 'Ver Repositorio',
+    gettingStarted: 'Primeros pasos',
+    structure: 'Estructura',
+  },
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Astro template below.
+const labels = t[locale]
+---
+
+<StarlightPage frontmatter={{ title: labels.title, template: 'splash', editUrl: false }}>
+  <div class="error-container">
+    <div class="error-content">
+      <div class="glitch-wrapper">
+        <h1 class="glitch" data-text="404">404</h1>
+      </div>
+      <p class="tagline">{labels.tagline}</p>
+
+      <div class="actions">
+        <a href={`${normalizedBaseUrl}${locale}/`} class="primary-button">
+          <Icon name="right-arrow" />
+          <span>{labels.home}</span>
+        </a>
+        <a href="https://github.com/dallay/corvus" class="secondary-button">
+          <Icon name="github" />
+          <span>{labels.repo}</span>
+        </a>
+      </div>
+
+      <div class="links-grid">
+        <a href={`${normalizedBaseUrl}${locale}/guides/getting-started/`} class="link-card">
+          <Icon name="rocket" />
+          <span>{labels.gettingStarted}</span>
+        </a>
+        <a href={`${normalizedBaseUrl}${locale}/guides/structure/`} class="link-card">
+          <Icon name="puzzle" />
+          <span>{labels.structure}</span>
+        </a>
+      </div>
+    </div>
+  </div>
+</StarlightPage>
+
+<style>
+  .error-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 70vh;
+    padding: 1rem;
+    text-align: center;
+    background: var(--gradient-hero);
+    border-radius: 24px;
+    border: 1px solid var(--glass-border);
+    position: relative;
+    overflow: hidden;
+    margin-top: 1rem;
+  }
+
+  .error-container::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(circle at 50% 50%, rgba(56, 189, 248, 0.1) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  .error-content {
+    max-width: 650px;
+    width: 100%;
+    position: relative;
+    z-index: 1;
+    padding: 2rem;
+  }
+
+  /* Glitch Effect */
+  .glitch-wrapper {
+    margin-bottom: 1rem;
+  }
+
+  .glitch {
+    position: relative;
+    font-size: clamp(5rem, 15vw, 9rem);
+    font-weight: 900;
+    line-height: 1;
+    color: var(--sl-color-white);
+    letter-spacing: -0.05em;
+    background: linear-gradient(135deg, #ffffff 0%, #38bdf8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glitch::before,
+  .glitch::after {
+    content: attr(data-text);
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: inherit;
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .glitch::before {
+    left: 2px;
+    text-shadow: -2px 0 var(--sl-color-accent);
+    clip: rect(44px, 450px, 56px, 0);
+    animation: glitch-anim 5s infinite linear alternate-reverse;
+  }
+
+  .glitch::after {
+    left: -2px;
+    text-shadow: -2px 0 #ff00c1, 2px 2px var(--sl-color-accent);
+    animation: glitch-anim2 1s infinite linear alternate-reverse;
+  }
+
+  @keyframes glitch-anim {
+    0% { clip: rect(31px, 9999px, 94px, 0); }
+    20% { clip: rect(62px, 9999px, 42px, 0); }
+    40% { clip: rect(16px, 9999px, 78px, 0); }
+    60% { clip: rect(58px, 9999px, 13px, 0); }
+    80% { clip: rect(23px, 9999px, 98px, 0); }
+    100% { clip: rect(44px, 9999px, 32px, 0); }
+  }
+
+  @keyframes glitch-anim2 {
+    0% { clip: rect(65px, 9999px, 100px, 0); }
+    20% { clip: rect(12px, 9999px, 56px, 0); }
+    40% { clip: rect(54px, 9999px, 21px, 0); }
+    60% { clip: rect(98px, 9999px, 87px, 0); }
+    80% { clip: rect(31px, 9999px, 44px, 0); }
+    100% { clip: rect(2px, 9999px, 12px, 0); }
+  }
+
+  .tagline {
+    font-size: clamp(1.1rem, 2vw, 1.3rem);
+    color: var(--sl-color-gray-2);
+    margin-bottom: 2.5rem;
+    line-height: 1.6;
+  }
+
+  .actions {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    margin-bottom: 3.5rem;
+  }
+
+  .primary-button, .secondary-button {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.8rem 1.8rem;
+    border-radius: 12px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .primary-button {
+    background: var(--gradient-brand);
+    color: white !important;
+    box-shadow: 0 4px 15px rgba(56, 189, 248, 0.2);
+  }
+
+  .primary-button:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px rgba(56, 189, 248, 0.35);
+  }
+
+  .secondary-button {
+    background: var(--glass-bg);
+    color: var(--sl-color-white) !important;
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(8px);
+  }
+
+  .secondary-button:hover {
+    background: rgba(56, 189, 248, 0.1);
+    border-color: var(--sl-color-accent);
+    transform: translateY(-2px);
+  }
+
+  .links-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.25rem;
+    border-top: 1px solid var(--glass-border);
+    padding-top: 2.5rem;
+  }
+
+  .link-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 1.75rem;
+    background: var(--glass-bg);
+    border: 1px solid var(--glass-border);
+    border-radius: 16px;
+    text-decoration: none;
+    color: var(--sl-color-gray-2);
+    transition: all 0.3s ease;
+    backdrop-filter: blur(12px);
+    box-shadow: var(--glass-shadow);
+  }
+
+  .link-card:hover {
+    transform: translateY(-4px);
+    border-color: var(--sl-color-accent);
+    background: var(--gradient-brand-subtle);
+    color: var(--sl-color-white);
+  }
+
+  .link-card span {
+    font-weight: 600;
+    font-size: 1.1rem;
+  }
+
+  .link-card :global(svg) {
+    width: 2.25rem;
+    height: 2.25rem;
+    color: var(--sl-color-accent);
+    background: var(--gradient-brand-subtle);
+    padding: 0.5rem;
+    border-radius: 10px;
+  }
+
+  @media (max-width: 600px) {
+    .actions {
+      flex-direction: column;
+    }
+    .links-grid {
+      grid-template-columns: 1fr;
+    }
+    .error-container {
+      min-height: auto;
+      padding: 3rem 1rem;
+    }
+  }
+</style>
