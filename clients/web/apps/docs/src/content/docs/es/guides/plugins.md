@@ -124,8 +124,7 @@ Comportamiento actual del workflow:
    - `artifacts/<plugin-id>/<version>/plugin-manifest.json`
    - `catalog.json` raíz (upsert del plugin, preservando los demás)
    - `revocations.json` raíz (preserva la lista, actualiza `updated_at`)
-5. Firma el artefacto con cosign (con clave cuando existe `COSIGN_PRIVATE_KEY`, o bien keyless
-   OIDC si no existe).
+5. Firma el artefacto con identidad OIDC keyless de cosign.
 6. Verifica la firma en CI.
 7. Push opcional del bundle a OCI (`oci_repository`).
 8. Hace build de la app de catálogo y deploy a Cloudflare Pages (habilitado por defecto para tags de
