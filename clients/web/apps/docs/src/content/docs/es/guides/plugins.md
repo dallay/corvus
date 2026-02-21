@@ -124,11 +124,11 @@ Comportamiento actual del workflow:
    - `artifacts/<plugin-id>/<version>/plugin-manifest.json`
    - `catalog.json` raíz (upsert del plugin, preservando los demás)
    - `revocations.json` raíz (preserva la lista, actualiza `updated_at`)
-5. Firma el artefacto con cosign (con clave cuando existe `COSIGN_PRIVATE_KEY`, si no keyless
-   OIDC).
+5. Firma el artefacto con cosign (con clave cuando existe `COSIGN_PRIVATE_KEY`, o bien keyless
+   OIDC si no existe).
 6. Verifica la firma en CI.
 7. Push opcional del bundle a OCI (`oci_repository`).
-8. Hace build del app de catálogo y deploy a Cloudflare Pages (habilitado por defecto para tags de
+8. Hace build de la app de catálogo y deploy a Cloudflare Pages (habilitado por defecto para tags de
    release).
 9. Sube artefactos del build y del bundle para trazabilidad.
 
@@ -137,7 +137,7 @@ Para integrar un nuevo plugin al release automático:
 
 1. Créalo en `clients/agent-runtime/plugins/<carpeta-plugin>/`.
 2. Agrega `package.metadata.corvus.plugin_id` en su `Cargo.toml`.
-3. Define límites/capabilities en `package.metadata.corvus`.
+3. Define límites/capacidades en `package.metadata.corvus`.
 4. Crea un tag de release: `plugin/<plugin-id>/v<version>`.
 
 Con metadata correcta, no hace falta cambiar el workflow para plugins nuevos.

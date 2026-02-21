@@ -22,6 +22,10 @@
       "artifact": {
         "url": "https://corvus.profiletailors.com/artifacts/memory.surreal.graphs/0.1.0/memory.surreal.graphs.wasm",
         "digest": "sha256:eb7bc57182fece32470868b953df8330e35e64adf3e73c51714bfc91c98a8a61"
+      },
+      "signature": {
+        "url": "https://corvus.profiletailors.com/artifacts/memory.surreal.graphs/0.1.0/memory.surreal.graphs.wasm.sig",
+        "certificate_url": "https://corvus.profiletailors.com/artifacts/memory.surreal.graphs/0.1.0/memory.surreal.graphs.wasm.pem"
       }
     }
   ]

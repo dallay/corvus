@@ -39,7 +39,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: plugins-publish-${{ github.ref }}
+  group: plugins-publish-global
   cancel-in-progress: true
 
 jobs:
@@ -279,6 +279,7 @@ jobs:
           TOOLS_ENTRYPOINTS_JSON: ${{ steps.meta.outputs.tools_entrypoints_json }}
           LIMITS_JSON: ${{ steps.meta.outputs.limits_json }}
           DIST_DIR: ${{ env.DIST_DIR }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
         shell: python
         run: |
           import datetime
@@ -330,11 +331,14 @@ jobs:
                   "url": os.environ["ARTIFACT_URL"],
                   "digest": digest_prefixed,
               },
-              "signature": {
-                  "url": os.environ["SIGNATURE_URL"],
-                  "certificate_url": os.environ["CERTIFICATE_URL"],
-              },
             }
+
+          signature = {
+              "url": os.environ["SIGNATURE_URL"],
+          }
+          if not os.environ.get("COSIGN_PRIVATE_KEY", ""):
+              signature["certificate_url"] = os.environ["CERTIFICATE_URL"]
+          plugin_entry["signature"] = signature
 
           manifest_target = dist_dir / manifest_relative_path
           manifest_target.parent.mkdir(parents=True, exist_ok=True)
@@ -410,6 +414,7 @@ jobs:
           chmod +x cosign
 
       - name: ✍️ Sign plugin artifact (keyed or keyless)
+        id: sign
         env:
           COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
@@ -427,14 +432,15 @@ jobs:
               --yes \
               --key env://COSIGN_PRIVATE_KEY \
               --output-signature "$signature_path" \
-              --output-certificate "$certificate_path" \
               "$artifact_path"
+            echo "has_certificate=false" >> "$GITHUB_OUTPUT"
           else
             ./cosign sign-blob \
               --yes \
               --output-signature "$signature_path" \
               --output-certificate "$certificate_path" \
               "$artifact_path"
+            echo "has_certificate=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: ✅ Verify plugin signature
@@ -500,13 +506,20 @@ jobs:
             ./oras login "$registry" -u "$OCI_USERNAME" -p "$OCI_PASSWORD"
           fi
 
-          ./oras push "$OCI_REPOSITORY:$PLUGIN_VERSION" \
-            "$DIST_DIR/$ARTIFACT_RELATIVE_PATH:application/wasm" \
-            "$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.sig:application/octet-stream" \
-            "$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.pem:application/x-pem-file" \
-            "$DIST_DIR/$MANIFEST_RELATIVE_PATH:application/json" \
-            "$DIST_DIR/catalog.json:application/json" \
+          oras_args=(
+            "$DIST_DIR/$ARTIFACT_RELATIVE_PATH:application/wasm"
+            "$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.sig:application/octet-stream"
+            "$DIST_DIR/$MANIFEST_RELATIVE_PATH:application/json"
+            "$DIST_DIR/catalog.json:application/json"
             "$DIST_DIR/revocations.json:application/json"
+          )
+
+          certificate_path="$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.pem"
+          if [ -f "$certificate_path" ]; then
+            oras_args+=("$certificate_path:application/x-pem-file")
+          fi
+
+          ./oras push "$OCI_REPOSITORY:$PLUGIN_VERSION" "${oras_args[@]}"
 
       - name: 📦 Setup pnpm
         uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
@@ -535,7 +548,9 @@ jobs:
           mkdir -p "$catalog_public/$(dirname "$ARTIFACT_RELATIVE_PATH")"
           cp "$DIST_DIR/$ARTIFACT_RELATIVE_PATH" "$catalog_public/$ARTIFACT_RELATIVE_PATH"
           cp "$DIST_DIR/$SIGNATURE_RELATIVE_PATH" "$catalog_public/$SIGNATURE_RELATIVE_PATH"
-          cp "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "$catalog_public/$CERTIFICATE_RELATIVE_PATH"
+          if [ -f "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" ]; then
+            cp "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "$catalog_public/$CERTIFICATE_RELATIVE_PATH"
+          fi
           cp "$DIST_DIR/$MANIFEST_RELATIVE_PATH" "$catalog_public/$MANIFEST_RELATIVE_PATH"
           cp "$DIST_DIR/catalog.json" "$catalog_public/catalog.json"
           cp "$DIST_DIR/revocations.json" "$catalog_public/revocations.json"
@@ -585,7 +600,7 @@ jobs:
           path: |
             clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.artifact_relative_path }}
             clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.signature_relative_path }}
-            clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.certificate_relative_path }}
+            clients/agent-runtime/dist/plugins/**/*.pem
             clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.manifest_relative_path }}
             clients/agent-runtime/dist/plugins/plugin-manifest.json
             clients/agent-runtime/dist/plugins/catalog.json
