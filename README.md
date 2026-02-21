@@ -72,7 +72,7 @@ corvus/
 
 ### Prerequisites
 
-- **JDK 17+** (for Kotlin/KMP)
+- **JDK 21+** (for Kotlin/KMP)
 - **Rust 1.75+** (for Agent Runtime)
 - **Node.js 22+** & **pnpm 10+** (for Web Apps)
 - **Docker** (optional, for Sandboxing)

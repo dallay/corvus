@@ -12,7 +12,7 @@ The `Makefile` provides a standardized way to interact with the project across d
 
 | Command | Description |
 |---------|-------------|
-| `make setup` | Initial setup (permissions, tool checks) |
+| `make setup` | Full bootstrap (tool/version checks, agent sync, web deps, Rust check) |
 | `make run` | Runs the main application |
 | `make build` | Full project build including tests |
 | `make test` | Runs all unit tests |

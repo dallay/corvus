@@ -166,10 +166,6 @@ build/spotless-prettier-node-modules-*/serve.js
 .codex/config.toml
 .codex/instructions.md
 .codex/skills
-.cursor/commands
-.cursor/mcp.json
-.cursor/skills
-.cursor/skills/
 .gemini/commands
 .gemini/commands/
 .gemini/settings.json

@@ -12,7 +12,7 @@ El `Makefile` proporciona una forma estandarizada de interactuar con el proyecto
 
 | Comando | Descripción |
 |---------|-------------|
-| `make setup` | Configuración inicial (permisos, comprobación de herramientas) |
+| `make setup` | Bootstrap completo (herramientas/versiones, sync de agentes, deps web, check Rust) |
 | `make run` | Ejecuta la aplicación principal |
 | `make build` | Construcción completa del proyecto, incluidas las pruebas |
 | `make test` | Ejecuta todas las pruebas unitarias |
