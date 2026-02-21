@@ -254,23 +254,45 @@ mod tests {
 
     #[test]
     fn classify_case_sensitive() {
-        assert_eq!(classify_memory_backend("SQLite"), MemoryBackendKind::Unknown);
-        assert_eq!(classify_memory_backend("SQLITE"), MemoryBackendKind::Unknown);
+        assert_eq!(
+            classify_memory_backend("SQLite"),
+            MemoryBackendKind::Unknown
+        );
+        assert_eq!(
+            classify_memory_backend("SQLITE"),
+            MemoryBackendKind::Unknown
+        );
     }
 
     #[test]
     fn all_backend_kinds_are_classifiable() {
         assert_eq!(classify_memory_backend("sqlite"), MemoryBackendKind::Sqlite);
         assert_eq!(classify_memory_backend("lucid"), MemoryBackendKind::Lucid);
-        assert_eq!(classify_memory_backend("surreal-graphs"), MemoryBackendKind::SurrealGraphs);
-        assert_eq!(classify_memory_backend("surreal"), MemoryBackendKind::Surreal);
-        assert_eq!(classify_memory_backend("markdown"), MemoryBackendKind::Markdown);
+        assert_eq!(
+            classify_memory_backend("surreal-graphs"),
+            MemoryBackendKind::SurrealGraphs
+        );
+        assert_eq!(
+            classify_memory_backend("surreal"),
+            MemoryBackendKind::Surreal
+        );
+        assert_eq!(
+            classify_memory_backend("markdown"),
+            MemoryBackendKind::Markdown
+        );
         assert_eq!(classify_memory_backend("none"), MemoryBackendKind::None);
     }
 
     #[test]
     fn backend_profile_round_trips_through_classify() {
-        for backend_key in ["sqlite", "lucid", "surreal-graphs", "surreal", "markdown", "none"] {
+        for backend_key in [
+            "sqlite",
+            "lucid",
+            "surreal-graphs",
+            "surreal",
+            "markdown",
+            "none",
+        ] {
             let kind = classify_memory_backend(backend_key);
             let profile = memory_backend_profile(backend_key);
             assert_eq!(profile.key, backend_key);

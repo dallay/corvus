@@ -70,6 +70,7 @@ mod tests {
         assert!(source.url.starts_with("https://"));
 
         let revocation = PluginRevocationConfig {
+            refresh_interval_minutes: 60,
             enabled: true,
             enforced: true,
             source_urls: vec!["https://example.com/revocations.json".to_string()],
@@ -100,6 +101,8 @@ mod tests {
             max_cost_per_day_cents: 100,
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
+            always_ask: vec![],
+            auto_approve: vec![],
         };
         assert_eq!(autonomy.max_actions_per_hour, 10);
         assert_eq!(autonomy.max_cost_per_day_cents, 100);
@@ -144,13 +147,11 @@ mod tests {
 
     #[test]
     fn stream_mode_variants() {
-        let full = StreamMode::Full;
-        let incremental = StreamMode::Incremental;
-        let final_only = StreamMode::FinalOnly;
+        let off = StreamMode::Off;
+        let partial = StreamMode::Partial;
 
-        // Just verify they're distinct
-        assert!(matches!(full, StreamMode::Full));
-        assert!(matches!(incremental, StreamMode::Incremental));
-        assert!(matches!(final_only, StreamMode::FinalOnly));
+        assert!(matches!(off, StreamMode::Off));
+        assert!(matches!(partial, StreamMode::Partial));
+        assert_ne!(off, partial);
     }
 }
