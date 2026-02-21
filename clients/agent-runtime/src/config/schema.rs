@@ -997,6 +997,9 @@ pub struct PluginSourceConfig {
     /// Catalog endpoint URL or local file path.
     /// Supported forms: `https://...`, `http://localhost...`, `file:///...`, `/abs/path`, `relative/path`.
     pub url: String,
+    /// Optional regex for expected cosign certificate identity when using a non-official remote source.
+    #[serde(default)]
+    pub plugin_identity_regex: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1065,6 +1068,7 @@ fn default_plugin_sources() -> Vec<PluginSourceConfig> {
     vec![PluginSourceConfig {
         name: "official".to_string(),
         url: "https://corvus.profiletailors.com/catalog.json".to_string(),
+        plugin_identity_regex: None,
     }]
 }
 
@@ -2547,7 +2551,7 @@ impl Config {
         }
 
         // Plugin catalog sources:
-        // CORVUS_PLUGIN_SOURCES="official=https://plugins.example/catalog.json,mirror=file:///tmp/catalog.json"
+        // CORVUS_PLUGIN_SOURCES="official=https://plugins.example/catalog.json,mirror=https://plugins.example/catalog.json|^https://ci\\.example\\.com/workflows/publish@.*$"
         // OR "https://plugins.example/catalog.json,file:///tmp/catalog.json"
         if let Ok(sources_raw) = std::env::var("CORVUS_PLUGIN_SOURCES") {
             let mut anonymous_index = 0usize;
@@ -2558,19 +2562,39 @@ impl Config {
                 .filter_map(|entry| {
                     if let Some((name, url)) = entry.split_once('=') {
                         let name = name.trim();
-                        let url = url.trim();
+                        let (url, plugin_identity_regex) = if let Some((url, regex)) =
+                            url.split_once('|')
+                        {
+                            (
+                                url.trim(),
+                                Some(regex.trim().to_string()).filter(|value| !value.is_empty()),
+                            )
+                        } else {
+                            (url.trim(), None)
+                        };
                         if name.is_empty() || url.is_empty() {
                             return None;
                         }
                         return Some(PluginSourceConfig {
                             name: name.to_string(),
                             url: url.to_string(),
+                            plugin_identity_regex,
                         });
                     }
                     anonymous_index = anonymous_index.saturating_add(1);
+                    let (url, plugin_identity_regex) =
+                        if let Some((url, regex)) = entry.split_once('|') {
+                            (
+                                url.trim().to_string(),
+                                Some(regex.trim().to_string()).filter(|value| !value.is_empty()),
+                            )
+                        } else {
+                            (entry.to_string(), None)
+                        };
                     Some(PluginSourceConfig {
                         name: format!("env-source-{anonymous_index}"),
-                        url: entry.to_string(),
+                        url,
+                        plugin_identity_regex,
                     })
                 })
                 .collect();
@@ -2905,10 +2929,12 @@ default_temperature = 0.7
             PluginSourceConfig {
                 name: "official".to_string(),
                 url: "https://plugins.corvus.ai/catalog.json".to_string(),
+                plugin_identity_regex: None,
             },
             PluginSourceConfig {
                 name: "mirror".to_string(),
                 url: "https://mirror.example/catalog.json".to_string(),
+                plugin_identity_regex: None,
             },
         ];
         config.plugins.revocation.source_urls = vec![

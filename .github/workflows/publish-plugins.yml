@@ -392,7 +392,7 @@ jobs:
       - name: 🔐 Install cosign securely
         run: |
           set -euo pipefail
-          COSIGN_VERSION="v2.4.1"
+          COSIGN_VERSION="v2.6.1"
           COSIGN_BINARY="cosign-linux-amd64"
           COSIGN_BASE_URL="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}"
 
@@ -444,7 +444,7 @@ jobs:
             --certificate "$certificate_path" \
             --signature "$signature_path" \
             --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-plugins.yml@.*" \
+            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/\\.github/workflows/publish-plugins.yml@.*" \
             "$artifact_path"
 
       - name: 🚀 Optional publish plugin artifact to OCI
@@ -492,9 +492,8 @@ jobs:
           )
 
           certificate_path="$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.pem"
-          if [ -f "$certificate_path" ]; then
-            oras_args+=("$certificate_path:application/x-pem-file")
-          fi
+          test -f "$certificate_path" || { echo "missing certificate: $certificate_path" >&2; exit 1; }
+          oras_args+=("$certificate_path:application/x-pem-file")
 
           ./oras push "$OCI_REPOSITORY:$PLUGIN_VERSION" "${oras_args[@]}"
 
@@ -525,9 +524,8 @@ jobs:
           mkdir -p "$catalog_public/$(dirname "$ARTIFACT_RELATIVE_PATH")"
           cp "$DIST_DIR/$ARTIFACT_RELATIVE_PATH" "$catalog_public/$ARTIFACT_RELATIVE_PATH"
           cp "$DIST_DIR/$SIGNATURE_RELATIVE_PATH" "$catalog_public/$SIGNATURE_RELATIVE_PATH"
-          if [ -f "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" ]; then
-            cp "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "$catalog_public/$CERTIFICATE_RELATIVE_PATH"
-          fi
+          test -f "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" || { echo "missing certificate: $DIST_DIR/$CERTIFICATE_RELATIVE_PATH" >&2; exit 1; }
+          cp "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "$catalog_public/$CERTIFICATE_RELATIVE_PATH"
           cp "$DIST_DIR/$MANIFEST_RELATIVE_PATH" "$catalog_public/$MANIFEST_RELATIVE_PATH"
           cp "$DIST_DIR/catalog.json" "$catalog_public/catalog.json"
           cp "$DIST_DIR/revocations.json" "$catalog_public/revocations.json"
