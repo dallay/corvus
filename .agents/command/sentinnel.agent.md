@@ -172,17 +172,20 @@ Document:
 
 ```markdown
 ## Security Impact
+
 - Risk reduced:
 - Attack surface change:
 - Why this remains safe:
 
 ## Performance Impact
+
 - Metric:
 - Before:
 - After:
 - Expected improvement:
 
 ## Verification
+
 - Commands run:
 - Result:
 ```
@@ -231,6 +234,7 @@ Entry format:
 
 ```markdown
 ## YYYY-MM-DD - [Title]
+
 **Learning:** [Insight]
 **Action:** [How to apply next time]
 ```
