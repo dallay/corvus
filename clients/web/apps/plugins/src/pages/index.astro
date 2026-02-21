@@ -24,8 +24,20 @@ import CatalogLayout from "../layouts/CatalogLayout.astro";
         <span class="ok">Revocations</span>
         <code>/revocations.json</code>
       </p>
+      <p class="endpoint">
+        <span class="ok">Immutable artifact</span>
+        <code>/artifacts/memory.surreal.graphs/0.1.0/memory.surreal.graphs.wasm</code>
+      </p>
+      <p class="endpoint">
+        <span class="ok">Immutable manifest</span>
+        <code>/artifacts/memory.surreal.graphs/0.1.0/plugin-manifest.json</code>
+      </p>
       <p>
         Runtime defaults point to these URLs and treat them as official metadata sources.
+      </p>
+      <p>
+        The artifact and manifest paths below are immutable versioned examples. For the latest
+        release metadata, always use <code>/catalog.json</code>.
       </p>
     </section>
 
@@ -35,6 +47,12 @@ import CatalogLayout from "../layouts/CatalogLayout.astro";
       <p class="endpoint"><code>curl -fsSL https://corvus.profiletailors.com/catalog.json</code></p>
       <p class="endpoint">
         <code>curl -fsSL https://corvus.profiletailors.com/revocations.json</code>
+      </p>
+      <p class="endpoint">
+        <code>curl -fsSL https://corvus.profiletailors.com/artifacts/memory.surreal.graphs/0.1.0/memory.surreal.graphs.wasm -o memory.surreal.graphs.wasm</code>
+      </p>
+      <p class="endpoint">
+        <code>curl -fsSL https://corvus.profiletailors.com/artifacts/memory.surreal.graphs/0.1.0/plugin-manifest.json</code>
       </p>
     </section>
 

@@ -2769,10 +2769,15 @@ fn setup_memory() -> Result<MemoryConfig> {
             style("ℹ").cyan()
         );
         let mut bootstrap = plugin_bootstrap_config(backend)?;
-        install_and_handle_surreal_graphs(&mut bootstrap, false)?;
+        install_and_handle_surreal_graphs(&mut bootstrap, true)?;
+        if bootstrap.memory.backend != backend {
+            let original_auto_save = config.auto_save;
+            config = bootstrap.memory;
+            config.auto_save = original_auto_save;
+        }
     }
 
-    if requires_surreal_memory_setup(backend) {
+    if requires_surreal_memory_setup(&config.backend) {
         setup_surreal_memory_options(&mut config)?;
     }
 

@@ -5,6 +5,19 @@ edition = "2021"
 license = "Apache-2.0"
 description = "Pilot WASM plugin artifact for Corvus surreal graph memory backend"
 
+[package.metadata.corvus]
+plugin_id = "memory.surreal.graphs"
+publisher = "corvus-official"
+runtime_api = "corvus-plugin/v1"
+capabilities = ["memory"]
+memory_entrypoint = "memory_v1"
+health_entrypoint = "health_v1"
+tools_entrypoints = []
+memory_mb = 256
+fuel = 1000000
+timeout_ms = 10000
+max_output_bytes = 262144
+
 [lib]
 crate-type = ["cdylib"]
 
