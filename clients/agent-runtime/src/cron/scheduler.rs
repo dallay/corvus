@@ -430,6 +430,8 @@ async fn run_job_command_with_timeout(
         .arg("-lc")
         .arg(&job.command)
         .current_dir(&config.workspace_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
     {

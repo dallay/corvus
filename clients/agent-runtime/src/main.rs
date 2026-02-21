@@ -1338,6 +1338,9 @@ mod tests {
             access_token: "token".to_string(),
             refresh_token: Some("refresh".to_string()),
             expires_at: Some(past),
+            id_token: None,
+            scope: None,
+            token_type: None,
         };
         let profile = AuthProfile {
             provider: "openai-codex".to_string(),
@@ -1345,8 +1348,11 @@ mod tests {
             kind: AuthProfileKind::OAuth,
             token_set: Some(token_set),
             account_id: None,
-            created_at: Utc::now().to_rfc3339(),
-            updated_at: Utc::now().to_rfc3339(),
+            workspace_id: None,
+            token: None,
+            metadata: std::collections::BTreeMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
         let formatted = format_expiry(&profile);
@@ -1363,6 +1369,9 @@ mod tests {
             access_token: "token".to_string(),
             refresh_token: Some("refresh".to_string()),
             expires_at: Some(future),
+            id_token: None,
+            scope: None,
+            token_type: None,
         };
         let profile = AuthProfile {
             provider: "openai-codex".to_string(),
@@ -1370,8 +1379,11 @@ mod tests {
             kind: AuthProfileKind::OAuth,
             token_set: Some(token_set),
             account_id: None,
-            created_at: Utc::now().to_rfc3339(),
-            updated_at: Utc::now().to_rfc3339(),
+            workspace_id: None,
+            token: None,
+            metadata: std::collections::BTreeMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
         let formatted = format_expiry(&profile);
@@ -1386,11 +1398,14 @@ mod tests {
         let profile = AuthProfile {
             provider: "anthropic".to_string(),
             profile_name: "default".to_string(),
-            kind: AuthProfileKind::ApiKey,
+            kind: AuthProfileKind::Token,
             token_set: None,
             account_id: None,
-            created_at: Utc::now().to_rfc3339(),
-            updated_at: Utc::now().to_rfc3339(),
+            workspace_id: None,
+            token: None,
+            metadata: std::collections::BTreeMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
         let formatted = format_expiry(&profile);

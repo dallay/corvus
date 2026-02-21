@@ -83,10 +83,24 @@ impl MarkdownMemory {
             .map(|(i, line)| {
                 let trimmed = line.trim();
                 let clean = trimmed.strip_prefix("- ").unwrap_or(trimmed);
+
+                // Try to parse "**key**: content"
+                let (key, content) = if clean.starts_with("**") {
+                    if let Some(idx) = clean.find("**: ") {
+                        let k = &clean[2..idx];
+                        let c = &clean[idx + 4..];
+                        (k.to_string(), c.to_string())
+                    } else {
+                        (format!("{filename}:{i}"), clean.to_string())
+                    }
+                } else {
+                    (format!("{filename}:{i}"), clean.to_string())
+                };
+
                 MemoryEntry {
                     id: format!("{filename}:{i}"),
-                    key: format!("{filename}:{i}"),
-                    content: clean.to_string(),
+                    key,
+                    content,
                     category: category.clone(),
                     timestamp: filename.to_string(),
                     session_id: None,

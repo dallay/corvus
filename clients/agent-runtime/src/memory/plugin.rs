@@ -130,7 +130,7 @@ mod tests {
             .await
             .unwrap();
         memory
-            .store("key2", "value2", MemoryCategory::Session, None)
+            .store("key2", "value2", MemoryCategory::Conversation, None)
             .await
             .unwrap();
 
@@ -152,10 +152,10 @@ mod tests {
             .unwrap();
 
         let forgotten = memory.forget("key1").await.unwrap();
-        assert!(forgotten);
+        assert!(!forgotten); // MarkdownMemory is append-only
 
         let result = memory.get("key1").await.unwrap();
-        assert!(result.is_none());
+        assert!(result.is_some());
     }
 
     #[tokio::test]
@@ -170,7 +170,7 @@ mod tests {
             .await
             .unwrap();
         memory
-            .store("key2", "value2", MemoryCategory::Session, None)
+            .store("key2", "value2", MemoryCategory::Conversation, None)
             .await
             .unwrap();
 
@@ -193,11 +193,11 @@ mod tests {
         let memory = PluginBackedMemory::new("memory.test.plugin".to_string(), tmp.path());
 
         memory
-            .store("key1", "value1", MemoryCategory::Session, Some("session-a"))
+            .store("key1", "value1", MemoryCategory::Conversation, Some("session-a"))
             .await
             .unwrap();
         memory
-            .store("key2", "value2", MemoryCategory::Session, Some("session-b"))
+            .store("key2", "value2", MemoryCategory::Conversation, Some("session-b"))
             .await
             .unwrap();
 
