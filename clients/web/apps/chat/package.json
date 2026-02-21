@@ -23,7 +23,7 @@
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
     "@tailwindcss/postcss": "4.1.18",
-    "@tsconfig/node22": "22.0.5",
+    "@tsconfig/node24": "24.0.4",
     "@types/node": "24.10.13",
     "@vitejs/plugin-vue": "6.0.4",
     "@vue/test-utils": "2.4.6",
