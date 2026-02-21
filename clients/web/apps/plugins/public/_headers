@@ -1,0 +1,9 @@
+/catalog.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: public, max-age=300, stale-while-revalidate=60
+  X-Content-Type-Options: nosniff
+
+/revocations.json
+  Content-Type: application/json; charset=utf-8
+  Cache-Control: no-store, max-age=0
+  X-Content-Type-Options: nosniff

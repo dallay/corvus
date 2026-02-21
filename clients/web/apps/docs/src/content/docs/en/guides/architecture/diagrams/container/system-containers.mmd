@@ -5,64 +5,56 @@
 ---
 
 flowchart TB
-  %% External Actors
+%% External Actors
   actor(Developer):::person
   actor(EndUser):::person
-  
-  %% External Systems
+%% External Systems
   OPENAI["OpenAI API"]:::external
   ANTHROPIC["Anthropic API"]:::external
   NEO4J_EXT["Neo4j Cloud"]:::external
   WEB_SOURCES["Web Sources"]:::external
-  
-  %% Corvus System Containers
+%% Corvus System Containers
   subgraph CORVUS["Corvus Platform"]
     subgraph CLIENTS["Clients"]
       WEB_APP["Web Dashboard\nAstro + Vue"]:::container
       ANDROID_APP["Android App\nKotlin + Compose"]:::container
       IOS_APP["iOS App\nSwiftUI + KMP"]:::container
     end
-    
+
     subgraph RUNTIME["Runtime"]
       AGENT_RUNTIME["Agent Runtime\nKotlin + Spring Boot"]:::container
       RUST_SIDECAR["Rust Sidecar\nRust"]:::container
     end
-    
+
     subgraph DATA["Data"]
       GRAPH_DB["Graph DB\nNeo4j"]:::database
     end
-    
+
     subgraph SHARED["Shared"]
       CORE_KMP["Agent Core KMP\nKotlin Multiplatform"]:::container
       COMPOSE_UI["Compose UI\nCompose Multiplatform"]:::container
     end
   end
-  
-  %% Relationships
+
+%% Relationships
   Developer -->|Operates and monitors| WEB_APP
   EndUser -->|Uses| WEB_APP
   EndUser -->|Uses| ANDROID_APP
   EndUser -->|Uses| IOS_APP
-  
   WEB_APP -->|Sends commands| AGENT_RUNTIME
   ANDROID_APP -->|Uses| COMPOSE_UI
   IOS_APP -->|Uses| COMPOSE_UI
-  
   AGENT_RUNTIME -->|Uses| CORE_KMP
   COMPOSE_UI -->|Uses| CORE_KMP
-  
   AGENT_RUNTIME -->|Reads/Writes| GRAPH_DB
   AGENT_RUNTIME -->|Executes tasks| RUST_SIDECAR
-  
   AGENT_RUNTIME -->|Queries LLM| OPENAI
   AGENT_RUNTIME -->|Queries LLM| ANTHROPIC
   RUST_SIDECAR -->|Scrapes| WEB_SOURCES
-  
-  %% Styling
-  classDef person fill:#f9f,stroke:#333,stroke-width:2px
-  classDef container fill:#438dd5,stroke:#2e6299,stroke-width:2px,color:#fff
-  classDef database fill:#438dd5,stroke:#2e6299,stroke-width:2px,color:#fff,shape:cylinder
-  classDef external fill:#999,stroke:#666,stroke-width:2px,color:#fff
-  
-  class WEB_APP,ANDROID_APP,IOS_APP,AGENT_RUNTIME,RUST_SIDECAR,CORE_KMP,COMPOSE_UI container
+%% Styling
+  classDef person fill: #f9f, stroke: #333, stroke-width: 2px
+  classDef container fill: #438dd5, stroke: #2e6299, stroke-width: 2px, color: #fff
+  classDef database fill: #438dd5, stroke: #2e6299, stroke-width: 2px, color: #fff, shape: cylinder
+  classDef external fill: #999, stroke: #666, stroke-width: 2px, color: #fff
+  class WEB_APP, ANDROID_APP, IOS_APP, AGENT_RUNTIME, RUST_SIDECAR, CORE_KMP, COMPOSE_UI container
   class GRAPH_DB database

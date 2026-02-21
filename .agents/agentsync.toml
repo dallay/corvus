@@ -1,5 +1,6 @@
 # AgentSync Configuration
 # This file defines how AI agent configurations are synchronized via symbolic links.
+# Configuration reference: https://dallay.github.io/agentsync/reference/configuration
 #
 # Source directory (relative to this config file)
 source_dir = "."
@@ -58,6 +59,18 @@ source = "AGENTS.md"
 destination = "CLAUDE.md"
 type = "symlink"
 
+[agents.claude.targets.skills]
+source = "skills"
+destination = ".claude/skills"
+type = "symlink-contents"
+pattern = "*"
+
+[agents.claude.targets.commands]
+source = "command"
+destination = ".claude/commands"
+type = "symlink-contents"
+pattern = "*.md"
+
 # -----------------------------------------------------------------------------
 # GitHub Copilot
 # -----------------------------------------------------------------------------
@@ -70,12 +83,11 @@ source = "AGENTS.md"
 destination = ".github/copilot-instructions.md"
 type = "symlink"
 
-# -----------------------------------------------------------------------------
-# Cursor
-# -----------------------------------------------------------------------------
-[agents.cursor]
-enabled = true
-description = "Cursor - AI code editor and CLI"
+[agents.copilot.targets.agents]
+source = "command"
+destination = ".github/agents"
+type = "symlink-contents"
+pattern = "*.md"
 
 # -----------------------------------------------------------------------------
 # OpenAI Codex CLI
@@ -93,6 +105,13 @@ type = "symlink"
 source = "skills"
 destination = ".codex/skills"
 type = "symlink-contents"
+pattern = "*"
+
+[agents.codex.targets.commands]
+source = "command"
+destination = ".codex/commands"
+type = "symlink-contents"
+pattern = "*.md"
 
 # -----------------------------------------------------------------------------
 # Google Gemini
@@ -106,6 +125,18 @@ source = "AGENTS.md"
 destination = "GEMINI.md"
 type = "symlink"
 
+[agents.gemini.targets.skills]
+source = "skills"
+destination = ".gemini/skills"
+type = "symlink-contents"
+pattern = "*"
+
+[agents.gemini.targets.commands]
+source = "command"
+destination = ".gemini/commands"
+type = "symlink-contents"
+pattern = "*.md"
+
 # -----------------------------------------------------------------------------
 # OpenCode AI - Terminal-based AI coding assistant
 # -----------------------------------------------------------------------------
@@ -117,6 +148,7 @@ description = "OpenCode - Open source AI coding agent"
 source = "skills"
 destination = ".opencode/skill"
 type = "symlink-contents"
+pattern = "*"
 
 [agents.opencode.targets.commands]
 source = "command"
@@ -129,7 +161,7 @@ pattern = "*.md"
 # -----------------------------------------------------------------------------
 [agents.root]
 enabled = true
-description = "Root AGENTS.md for tools that look for it in repo root"
+description = "Root AGENTS.md for tools that look for it in repo root (e.g., Jules)"
 
 [agents.root.targets.agents]
 source = "AGENTS.md"

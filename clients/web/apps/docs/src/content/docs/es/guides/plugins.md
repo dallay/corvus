@@ -19,7 +19,8 @@ Los plugins de Corvus se distribuyen como artefactos WASM firmados más metadato
 - Artefacto: `<plugin-id>.wasm`
 - Metadatos: `plugin-manifest.json`, `catalog.json`, `revocations.json`
 - Distribución: OCI (opcional en el workflow), más artefactos subidos como bundle
-- Política del runtime: publishers en allowlist, verificación de digest, checks de revocación, pinning en lockfile
+- Política del runtime: publishers en allowlist, verificación de digest, checks de revocación,
+  pinning en lockfile
 
 Código clave del runtime:
 
@@ -59,7 +60,8 @@ Todos los plugins oficiales nuevos deben satisfacer:
 2. Allowlist de publishers confiables (`corvus-official` por defecto).
 3. Pinning de digest en lockfile después de la instalación.
 4. Soporte de revocación y checks de revocación enforceados.
-5. El runtime no debe fallar completamente al inicio por problemas de instalación/carga de plugins; el fallback core debe permanecer disponible cuando esté diseñado.
+5. El runtime no debe fallar completamente al inicio por problemas de instalación/carga de plugins;
+   el fallback core debe permanecer disponible cuando esté diseñado.
 
 Configuración por defecto relevante:
 
@@ -76,8 +78,8 @@ Ver:
 
 1. Agregar `plugins/<nuevo-plugin>/Cargo.toml`.
 2. Configurar:
-   - `edition = "2021"`
-   - `crate-type = ["cdylib"]`
+  - `edition = "2021"`
+  - `crate-type = ["cdylib"]`
 3. Agregar entrypoint(s) exportados mínimos alineados con el uso de tu contrato WIT.
 
 ### 4.2 Build local
@@ -101,7 +103,8 @@ Si el plugin es instalable vía flujo dedicado (como Surreal Graphs), agregar/ac
 Si el onboarding debe exponerlo:
 
 1. Agregar texto de opción en la selección de memoria/backend del wizard.
-2. Asegurar que el check de instalación del plugin corra antes de recolectar opciones backend-específicas que dependan de él.
+2. Asegurar que el check de instalación del plugin corra antes de recolectar opciones
+   backend-específicas que dependan de él.
 3. Asegurar que el path de falla sea explícito y seguro.
 
 ## 5. Workflow de Publicación
@@ -114,19 +117,21 @@ Comportamiento actual del workflow:
 
 1. Build del artefacto WASM del plugin.
 2. Ensamblar metadatos del bundle:
-   - `plugin-manifest.json`
-   - `catalog.json`
-   - `revocations.json`
+  - `plugin-manifest.json`
+  - `catalog.json`
+  - `revocations.json`
 3. Opcionalmente firmar con clave cosign (si el secret está presente).
 4. Opcionalmente push a OCI (si el input `oci_repository` es proporcionado).
 5. Upload de artefactos del bundle.
 
 :::important
-Este workflow está actualmente configurado para `memory.surreal.graphs` en los defaults de env del job. Para un nuevo plugin, ya sea:
+Este workflow está actualmente configurado para `memory.surreal.graphs` en los defaults de env del
+job. Para un nuevo plugin, ya sea:
 
 1. Adaptar los valores de env para el nuevo plugin, o
-2. Generalizar los inputs/matrix del workflow para que plugin ID/folder/nombre de artefacto sean parámetros.
-:::
+2. Generalizar los inputs/matrix del workflow para que plugin ID/folder/nombre de artefacto sean
+   parámetros.
+   :::
 
 ## 6. Comandos de Operador (Runtime)
 
@@ -182,7 +187,8 @@ Rollout recomendado para producción:
 
 - Ejecuta `corvus plugins revocations sync`.
 - Revisa los `[plugins.revocation].source_urls` configurados.
-- Si enforcement está habilitado, fuentes de revocación rotas pueden bloquear operaciones de plugin por diseño.
+- Si enforcement está habilitado, fuentes de revocación rotas pueden bloquear operaciones de plugin
+  por diseño.
 
 ### Migración del host de plugins antiguo
 

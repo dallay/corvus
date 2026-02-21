@@ -5,54 +5,48 @@
 ---
 
 flowchart TB
-  %% External Dependencies
+%% External Dependencies
   RUNTIME["Agent Runtime"]:::external
   COMPOSE["Compose UI"]:::external
   NEO4J["Neo4j"]:::external
   LLM["LLM Providers"]:::external
-  
-  %% Agent Core KMP Components
+%% Agent Core KMP Components
   subgraph CORE_KMP["Agent Core KMP"]
     subgraph DOMAIN["Domain Layer"]
       ENTITIES["Entities\nUser, Task, Agent, Session"]:::component
       VALUE_OBJECTS["Value Objects\nAgentId, TaskId, etc."]:::component
       DOMAIN_EVENTS["Domain Events\nTaskCreated, AgentTriggered"]:::component
     end
-    
+
     subgraph USE_CASES["Use Cases"]
       TASK_MGMT["Task Management\nCreate, Update, Execute"]:::component
       AGENT_ORCH["Agent Orchestration\nDispatch, Monitor"]:::component
       KNOWLEDGE["Knowledge Retrieval\nQuery, Store"]:::component
     end
-    
+
     subgraph INTERFACES["Interfaces"]
       REPOS["Repository Interfaces\nTaskRepository, etc."]:::component
       SERVICES["Service Interfaces\nLLMService, GraphService"]:::component
     end
-    
+
     subgraph INFRA["Infrastructure"]
       REPO_IMPL["Repository Implementations"]:::component
       SERVICE_IMPL["Service Implementations"]:::component
       DTOS["DTOs / Models"]:::component
     end
   end
-  
-  %% Relationships
+
+%% Relationships
   RUNTIME -->|Uses| USE_CASES
   COMPOSE -->|Observes| USE_CASES
-  
   USE_CASES -->|Operates on| DOMAIN
   USE_CASES -->|Depends on| INTERFACES
-  
   INFRA -->|Implements| INTERFACES
   INFRA -->|Uses| DOMAIN
-  
   REPO_IMPL -->|Persists to| NEO4J
   SERVICE_IMPL -->|Queries| LLM
-  
-  %% Styling
-  classDef external fill:#999,stroke:#666,stroke-width:2px,color:#fff
-  classDef component fill:#85bbf0,stroke:#5d8fc9,stroke-width:2px,color:#000
-  classDef domain fill:#85bbf0,stroke:#5d8fc9,stroke-width:2px,color:#000
-  
-  class ENTITIES,VALUE_OBJECTS,DOMAIN_EVENTS,TASK_MGMT,AGENT_ORCH,KNOWLEDGE,REPOS,SERVICES,REPO_IMPL,SERVICE_IMPL,DTOS component
+%% Styling
+  classDef external fill: #999, stroke: #666, stroke-width: 2px, color: #fff
+  classDef component fill: #85bbf0, stroke: #5d8fc9, stroke-width: 2px, color: #000
+  classDef domain fill: #85bbf0, stroke: #5d8fc9, stroke-width: 2px, color: #000
+  class ENTITIES, VALUE_OBJECTS, DOMAIN_EVENTS, TASK_MGMT, AGENT_ORCH, KNOWLEDGE, REPOS, SERVICES, REPO_IMPL, SERVICE_IMPL, DTOS component

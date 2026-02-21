@@ -1,69 +1,78 @@
 # Corvus Web Monorepo
 
-Monorepo para apps web de Corvus, incluyendo docs, marketing y chat.
+Monorepo for Corvus web apps, including docs, marketing, plugins catalog, and chat.
 
-## 📁 Estructura
+## Structure
 
 ```text
 clients/web/
 ├── apps/
-│   ├── docs/           # Documentación (Astro + Starlight)
-│   ├── marketing/      # Landing y páginas de marketing (Astro)
-│   └── chat/           # Chat conversacional estilo ChatGPT (Vue 3 + Vite)
+│   ├── docs/           # Documentation (Astro + Starlight)
+│   ├── marketing/      # Marketing landing and campaign pages (Astro)
+│   ├── plugins/        # Plugin catalog and revocations (Astro)
+│   └── chat/           # ChatGPT-style conversational chat (Vue 3 + Vite)
 ├── packages/
-│   └── shared/         # Utilidades compartidas
-├── biome.json          # Configuración única de Biome para todo el monorepo
+│   └── shared/         # Shared utilities
+├── biome.json          # Single Biome config for the whole monorepo
 ├── package.json
 └── pnpm-workspace.yaml
 ```
 
-## 🚀 Apps
+## Apps
 
 ### docs
 
 - Framework: Astro + Starlight
-- Puerto por defecto: 4321
+- Default port: 4321
 
 ### marketing
 
 - Framework: Astro
-- URL configurable con `MARKETING_URL` (dev default: `http://localhost:9988`)
-- Incluye script público de instalación en `/install`
+- URL configurable with `MARKETING_URL` (dev default: `http://localhost:9988`)
+- Includes public install script at `/install`
+
+### plugins
+
+- Framework: Astro
+- URL configurable with `PLUGINS_URL` (dev default: `http://localhost:9990`)
+- Publishes official plugin metadata at `/catalog.json` and `/revocations.json`
 
 ### chat
 
 - Framework: Vue 3 + Vite + Tailwind + shadcn-vue style components
-- Puerto por defecto: 4323
-- Interfaz de chat conversacional estilo ChatGPT
+- Default port: 4323
+- ChatGPT-style conversational interface
 
-## 🛠️ Comandos
+## Commands
 
-Requisitos mínimos:
+Minimum requirements:
 
 - Node.js 22.0.0+
 - pnpm 10.30+
 
 ```bash
-# Instalar dependencias workspace
+# Install workspace dependencies
 pnpm install
 
-# Build de todas las apps
+# Build all apps
 pnpm build
 
-# Build individual
+# Build individual apps
 pnpm build:docs
 pnpm build:marketing
+pnpm build:plugins
 pnpm build:chat
 
-# Compatibilidad (alias antiguo)
+# Compatibility (legacy alias)
 pnpm build:landing
 
 # Development
 pnpm dev
 pnpm dev:marketing
+pnpm dev:plugins
 pnpm dev:chat
 
-# Compatibilidad (alias antiguo)
+# Compatibility (legacy alias)
 pnpm dev:landing
 
 # Quality
@@ -73,15 +82,15 @@ pnpm test
 pnpm test:chat
 ```
 
-## 🧹 Biome (Linter & Formatter)
+## Biome (Linter & Formatter)
 
-La configuración de Biome es **única** y vive en `clients/web/biome.json`.
-Todas las apps y packages heredan esta configuración automáticamente.
-No se necesitan archivos `biome.json` locales en cada app.
+Biome configuration is centralized in `clients/web/biome.json`.
+All apps and packages inherit this config automatically.
+No app-local `biome.json` files are needed.
 
-## 📦 Añadir más proyectos web
+## Adding More Web Projects
 
-1. Crear `apps/<nombre>/` con su `package.json`
-2. Ejecutar `pnpm install` en `clients/web`
-3. Ajustar scripts en `clients/web/package.json` si aplica
-4. Confirmar que `clients/web/build.gradle.kts` tenga el puerto/config correspondiente
+1. Create `apps/<name>/` with its own `package.json`
+2. Run `pnpm install` in `clients/web`
+3. Update scripts in `clients/web/package.json` if needed
+4. Ensure `clients/web/build.gradle.kts` includes the app port/config

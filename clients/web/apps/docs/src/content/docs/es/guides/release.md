@@ -9,17 +9,18 @@ usando GitHub Actions.
 
 Antes de poder publicar, asegúrate de tener:
 
-1. **Clave GPG configurada**: Sigue la [Guía de Configuración GPG](./gpg-setup/) para crear y configurar tu clave de firma
+1. **Clave GPG configurada**: Sigue la [Guía de Configuración GPG](./gpg-setup/) para crear y
+   configurar tu clave de firma
 2. **Acceso a Maven Central**: Secrets del repositorio configurados:
-   - `SIGNING_IN_MEMORY_KEY`: Tu clave privada GPG
-   - `SIGNING_IN_MEMORY_KEY_PASSWORD`: Contraseña de la clave GPG
-   - `MAVEN_CENTRAL_USERNAME`: Usuario de Maven Central
-   - `MAVEN_CENTRAL_PASSWORD`: Contraseña de Maven Central
+  - `SIGNING_IN_MEMORY_KEY`: Tu clave privada GPG
+  - `SIGNING_IN_MEMORY_KEY_PASSWORD`: Contraseña de la clave GPG
+  - `MAVEN_CENTRAL_USERNAME`: Usuario de Maven Central
+  - `MAVEN_CENTRAL_PASSWORD`: Contraseña de Maven Central
 3. **Secrets de canales de release** para artefactos no-Gradle:
-   - `CARGO_REGISTRY_TOKEN`: token de publicación en crates.io para `clients/agent-runtime`
-   - `NPM_TOKEN`: token de npm para `@dallay/corvus`
-   - `DOCKERHUB_USERNAME`: usuario de Docker Hub
-   - `DOCKERHUB_TOKEN`: token de acceso de Docker Hub
+  - `CARGO_REGISTRY_TOKEN`: token de publicación en crates.io para `clients/agent-runtime`
+  - `NPM_TOKEN`: token de npm para `@dallay/corvus`
+  - `DOCKERHUB_USERNAME`: usuario de Docker Hub
+  - `DOCKERHUB_TOKEN`: token de acceso de Docker Hub
 4. **Permisos de escritura**: Debes ser mantenedor del repositorio
 
 ### Qué publica un release
@@ -44,13 +45,15 @@ Este proyecto usa un modelo de dos branches para los releases:
 - **`main`**: Releases estables. Los bug fixes y cambios no-breaking van aquí
 - **`minor`**: Desarrollo de la siguiente versión minor. Las features van aquí
 
-Consulta [MAINTENANCE.md](https://github.com/dallay/corvus/blob/main/.github/MAINTENANCE.md) para el flujo de trabajo completo.
+Consulta [MAINTENANCE.md](https://github.com/dallay/corvus/blob/main/.github/MAINTENANCE.md) para el
+flujo de trabajo completo.
 
 ## Publicar un Release
 
 ### Paso 1: Asegurar que todos los cambios estén mergeados
 
 Asegúrate de que todos los cambios que quieres publicar estén en el branch correcto:
+
 - **Patch release**: Los cambios deben estar en `main`
 - **Minor release**: Los cambios deben estar en `minor`
 
@@ -70,7 +73,8 @@ clients/agent-runtime/npm/corvus-cli/package.json
 
 ### Sincronizar la versión desde el tag Git automáticamente
 
-Puedes mantener la versión del proyecto en sincronía con el tag Git automáticamente con el script y el target Make incluidos en este repositorio.
+Puedes mantener la versión del proyecto en sincronía con el tag Git automáticamente con el script y
+el target Make incluidos en este repositorio.
 
 - `make sync-version` — ejecuta `./sync-version-with-tag.sh` y sincroniza la última versión
   semántica del tag Git (`vX.Y.Z`) en:
@@ -81,7 +85,10 @@ Puedes mantener la versión del proyecto en sincronía con el tag Git automátic
   - cada package compartido en `clients/web/packages/*/package.json` (`"version"`)
   - `clients/agent-runtime/Cargo.toml` (`version = "..."`)
   - `clients/agent-runtime/npm/corvus-cli/package.json` (`"version"`)
-- `./sync-version-with-tag.sh` — script shell que selecciona el tag semántico más reciente global usando `git tag --sort=-v:refname | grep -Em1 '^v[0-9]+\.[0-9]+\.[0-9]+$'` (no el tag más cercano desde `HEAD`), extrae la versión numérica (quita la `v` inicial) y actualiza todos los targets de versión listados arriba.
+- `./sync-version-with-tag.sh` — script shell que selecciona el tag semántico más reciente global
+  usando `git tag --sort=-v:refname | grep -Em1 '^v[0-9]+\.[0-9]+\.[0-9]+$'` (no el tag más cercano
+  desde `HEAD`), extrae la versión numérica (quita la `v` inicial) y actualiza todos los targets de
+  versión listados arriba.
 
 Flujos de uso (elige uno):
 
@@ -100,7 +107,8 @@ git push origin main
 git push origin v0.1.1
 ```
 
-2) Si creaste el tag primero (causa del fallo en CI), sincroniza el código con el tag localmente y commitea el cambio
+2) Si creaste el tag primero (causa del fallo en CI), sincroniza el código con el tag localmente y
+   commitea el cambio
 
 ```bash
 # Asegúrate de tener el tag localmente (o fetch)
@@ -116,9 +124,11 @@ git push origin main
 ```
 
 Notas y advertencias:
+
 - El CI de release exige que el tag Git (ej. `v0.1.1`) coincida con todos los archivos de
   versión controlados (Gradle + monorepo web + Cargo + npm). Si no coinciden, el build falla.
-- Es preferible crear el commit que actualiza la versión antes de crear el tag para evitar desajustes.
+- Es preferible crear el commit que actualiza la versión antes de crear el tag para evitar
+  desajustes.
 - El script solo reconoce tags que cumplen la expresión `^v[0-9]+\.[0-9]+\.[0-9]+$`.
 
 ### Paso 3: Crear y pushear un tag
@@ -146,11 +156,13 @@ git push origin v1.2.3
 3. Espera a que termine (usualmente 5-10 minutos)
 
 El workflow hará:
+
 - Build y publicación de artefactos Gradle/KMP en Maven Central
 - Publicación del crate de Rust en crates.io
 - Publicación del paquete npm CLI
 - Build y publicación de imágenes Docker (Docker Hub + GHCR)
-- Build de binarios nativos para Linux, macOS y Windows, generación de checksums SHA256 y adjunto al GitHub Release
+- Build de binarios nativos para Linux, macOS y Windows, generación de checksums SHA256 y adjunto al
+  GitHub Release
 - Generación de changelog y creación/actualización del GitHub Release
 
 Después de publicar el GitHub Release, `deploy-docs.yml` también puede desplegar docs en
@@ -183,22 +195,25 @@ releases estables `vX.Y.Z`.
 
 1. Revisa los logs del workflow en GitHub Actions
 2. Problemas comunes:
-   - **Firma fallida**: Verifica que los secrets GPG estén correctamente configurados
-   - **Autenticación Maven Central fallida**: Verifica que las credenciales no hayan expirado
-   - **Build fallido**: Asegúrate de que todos los tests pasen localmente con `./gradlew check`
-   - **Versiones desalineadas**: La versión del tag debe coincidir con archivos Gradle + monorepo web + Cargo + npm
-   - **Secret faltante de release**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
-     `DOCKERHUB_USERNAME` o `DOCKERHUB_TOKEN`
+  - **Firma fallida**: Verifica que los secrets GPG estén correctamente configurados
+  - **Autenticación Maven Central fallida**: Verifica que las credenciales no hayan expirado
+  - **Build fallido**: Asegúrate de que todos los tests pasen localmente con `./gradlew check`
+  - **Versiones desalineadas**: La versión del tag debe coincidir con archivos Gradle + monorepo
+    web + Cargo + npm
+  - **Secret faltante de release**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
+    `DOCKERHUB_USERNAME` o `DOCKERHUB_TOKEN`
 
 ### La versión ya existe
 
 Maven Central no permite sobrescribir releases. Si necesitas corregir algo:
+
 1. Usa una nueva versión de patch (ej., `v1.2.4` en lugar de `v1.2.3`)
 2. Nunca borres y recrees tags con la misma versión
 
 ### Snapshot no se actualiza
 
 Los snapshots pueden ser cacheados por Maven/Gradle. Fuerza una actualización:
+
 ```bash
 ./gradlew build --refresh-dependencies
 ```

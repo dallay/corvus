@@ -480,7 +480,8 @@ Create a Pull Request following **Conventional Commits**:
 
 -
 
-[Metric]: [Value]
+## [Metric]: [Value]
+
 -
 
 [Metric]: [Value]
@@ -489,7 +490,8 @@ Create a Pull Request following **Conventional Commits**:
 
 -
 
-[Metric]: [Value]
+## [Metric]: [Value]
+
 -
 
 [Metric]: [Value]

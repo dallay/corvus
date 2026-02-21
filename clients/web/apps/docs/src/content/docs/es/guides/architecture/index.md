@@ -5,7 +5,8 @@ description: Colección de diagramas C4 para el proyecto Corvus
 
 # Diagramas de Arquitectura
 
-Esta sección contiene los diagramas de arquitectura del proyecto Corvus, siguiendo el modelo C4 (Context, Container, Component, Code).
+Esta sección contiene los diagramas de arquitectura del proyecto Corvus, siguiendo el modelo C4 (
+Context, Container, Component, Code).
 
 ## Nivel 1: Contexto del Sistema
 
@@ -13,7 +14,8 @@ Muestra el sistema Corvus como una caja negra y sus interacciones con actores y 
 
 - **Archivo**: [`context/system-context.mmd`](./diagrams/context/system-context.mmd)
 - **Formato**: Mermaid
-- **Descripción**: Vista de alto nivel del sistema completo, incluyendo usuarios (Developer, End User) y sistemas externos (LLM Providers, Neo4j, Fuentes Web).
+- **Descripción**: Vista de alto nivel del sistema completo, incluyendo usuarios (Developer, End
+  User) y sistemas externos (LLM Providers, Neo4j, Fuentes Web).
 
 ## Nivel 2: Contenedores
 
@@ -22,7 +24,8 @@ Descompone el sistema en contenedores/aplicaciones principales y sus interaccion
 - **Archivos**:
   - [`container/system-containers.mmd`](./diagrams/container/system-containers.mmd) (Mermaid)
   - [`container/system-containers.puml`](./diagrams/container/system-containers.puml) (PlantUML)
-- **Descripción**: Muestra los contenedores principales: Web Dashboard, Android App, iOS App, Agent Runtime, Rust Sidecar, y Graph DB.
+- **Descripción**: Muestra los contenedores principales: Web Dashboard, Android App, iOS App, Agent
+  Runtime, Rust Sidecar, y Graph DB.
 
 ## Nivel 3: Componentes
 
@@ -31,7 +34,8 @@ Descompone contenedores individuales en sus componentes internos.
 ### Agent Core KMP
 
 - **Archivo**: [`component/agent-core-kmp.mmd`](./diagrams/component/agent-core-kmp.mmd)
-- **Descripción**: Componentes internos del módulo core: Dominio, Casos de Uso, Interfaces e Infraestructura.
+- **Descripción**: Componentes internos del módulo core: Dominio, Casos de Uso, Interfaces e
+  Infraestructura.
 
 ## Dependencias entre Módulos
 
@@ -43,12 +47,15 @@ Diagrama adicional mostrando las dependencias de Gradle entre módulos.
 ## Cómo Visualizar
 
 ### Opción 1: GitHub/GitLab
+
 Los archivos `.mmd` se renderizan automáticamente en GitHub y GitLab.
 
 ### Opción 2: VS Code
+
 Instala la extensión "Markdown Preview Mermaid Support" para ver los diagramas en VS Code.
 
 ### Opción 3: Mermaid CLI
+
 ```bash
 # Instalar mermaid-cli
 npm install -g @mermaid-js/mermaid-cli
@@ -58,7 +65,9 @@ mmdc -i diagrams/context/system-context.mmd -o context.png
 ```
 
 ### Opción 4: PlantUML
+
 Para los archivos `.puml`:
+
 ```bash
 # Usar PlantUML online o local
 plantuml -tpng diagrams/container/system-containers.puml

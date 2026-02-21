@@ -95,13 +95,13 @@ O:
 
 ### Comparativa de Modos
 
-| Aspecto | Edge-Native | Host-Mediated |
-| --- | --- | --- |
-| Dónde corre Corvus | Dispositivo (ESP32, RPi) | Host (macOS, Linux) |
-| Enlace hardware | Local (GPIO, I2C, SPI) | USB, J-Link, Aardvark |
-| LLM | En dispositivo o nube | En host (nube o local) |
-| Caso de uso | Producción, autónomo | Dev, debug, introspección |
-| Canales | WhatsApp, etc. (Wi-Fi) | Telegram, CLI, etc. |
+| Aspecto            | Edge-Native              | Host-Mediated             |
+|--------------------|--------------------------|---------------------------|
+| Dónde corre Corvus | Dispositivo (ESP32, RPi) | Host (macOS, Linux)       |
+| Enlace hardware    | Local (GPIO, I2C, SPI)   | USB, J-Link, Aardvark     |
+| LLM                | En dispositivo o nube    | En host (nube o local)    |
+| Caso de uso        | Producción, autónomo     | Dev, debug, introspección |
+| Canales            | WhatsApp, etc. (Wi-Fi)   | Telegram, CLI, etc.       |
 
 ## 3. Modos Legados / Simples (Antes de LLM en Edge)
 
@@ -117,13 +117,13 @@ Corvus en Raspberry Pi con GPIO vía `rppal` o `sysfs`. Sin firmware separado.
 
 ## 4. Requisitos Técnicos
 
-| Requisito | Descripción |
-| --- | --- |
-| Lenguaje | Rust puro. Usar `no_std` cuando aplique en embebidos. |
-| Comunicación | gRPC o nanoRPC ligero para baja latencia. |
-| Ejecución dinámica | Ejecutar lógica generada por LLM de forma segura (Wasm o enlace dinámico soportado). |
-| Recuperación documental | Pipeline RAG con datasheets, registros y pinouts en contexto del LLM. |
-| Descubrimiento hardware | Identificación USB por VID/PID y detección de arquitectura (ARM, RISC-V, etc.). |
+| Requisito               | Descripción                                                                          |
+|-------------------------|--------------------------------------------------------------------------------------|
+| Lenguaje                | Rust puro. Usar `no_std` cuando aplique en embebidos.                                |
+| Comunicación            | gRPC o nanoRPC ligero para baja latencia.                                            |
+| Ejecución dinámica      | Ejecutar lógica generada por LLM de forma segura (Wasm o enlace dinámico soportado). |
+| Recuperación documental | Pipeline RAG con datasheets, registros y pinouts en contexto del LLM.                |
+| Descubrimiento hardware | Identificación USB por VID/PID y detección de arquitectura (ARM, RISC-V, etc.).      |
 
 ### Pipeline RAG (Recuperación de Datasheets)
 
@@ -134,12 +134,12 @@ Corvus en Raspberry Pi con GPIO vía `rppal` o `sysfs`. Sin firmware separado.
 
 ### Opciones de Ejecución Dinámica
 
-| Opción | Ventajas | Contras |
-| --- | --- | --- |
-| Wasm | Aislado, portable, sin FFI directo | Sobrecarga; acceso HW limitado |
-| Enlace dinámico | Velocidad nativa, acceso total | Específico de plataforma; riesgos de seguridad |
-| DSL interpretado | Seguro, auditable | Más lento; menos expresivo |
-| Templates precompilados | Rápido, seguro | Menos flexible; mantenimiento de plantillas |
+| Opción                  | Ventajas                           | Contras                                        |
+|-------------------------|------------------------------------|------------------------------------------------|
+| Wasm                    | Aislado, portable, sin FFI directo | Sobrecarga; acceso HW limitado                 |
+| Enlace dinámico         | Velocidad nativa, acceso total     | Específico de plataforma; riesgos de seguridad |
+| DSL interpretado        | Seguro, auditable                  | Más lento; menos expresivo                     |
+| Templates precompilados | Rápido, seguro                     | Menos flexible; mantenimiento de plantillas    |
 
 **Recomendación:** comenzar con templates precompilados y parametrización. Evolucionar a Wasm
 cuando la lógica definida por usuario esté estable.
@@ -212,11 +212,11 @@ pub trait Peripheral: Send + Sync {
 
 ### Soporte de Placas
 
-| Placa | Transporte | Firmware / Driver | Herramientas |
-| --- | --- | --- | --- |
-| `nucleo-f401re` | serial | Zephyr / Embassy | `gpio_read`, `gpio_write`, `adc_read` |
-| `rpi-gpio` | nativo | `rppal` o `sysfs` | `gpio_read`, `gpio_write` |
-| `esp32` | serial/ws | ESP-IDF / Embassy | GPIO, Wi-Fi, MQTT |
+| Placa           | Transporte | Firmware / Driver | Herramientas                          |
+|-----------------|------------|-------------------|---------------------------------------|
+| `nucleo-f401re` | serial     | Zephyr / Embassy  | `gpio_read`, `gpio_write`, `adc_read` |
+| `rpi-gpio`      | nativo     | `rppal` o `sysfs` | `gpio_read`, `gpio_write`             |
+| `esp32`         | serial/ws  | ESP-IDF / Embassy | GPIO, Wi-Fi, MQTT                     |
 
 ## 7. Protocolos de Comunicación
 

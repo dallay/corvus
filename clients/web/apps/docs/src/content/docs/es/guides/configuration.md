@@ -6,7 +6,8 @@ El proyecto es altamente configurable a través de propiedades de Gradle y catá
 
 ## Catálogo de versiones (`libs.versions.toml`)
 
-Este archivo contiene las versiones de todas las herramientas y dependencias utilizadas en el proyecto.
+Este archivo contiene las versiones de todas las herramientas y dependencias utilizadas en el
+proyecto.
 
 ### Versiones clave
 
@@ -18,6 +19,7 @@ Este archivo contiene las versiones de todas las herramientas y dependencias uti
 ### Gestión de dependencias
 
 Las dependencias se agrupan en:
+
 - `versions`: Fuente única de verdad para los números de versión.
 - `libraries`: Definiciones de dependencias individuales.
 - `bundles`: Grupos de dependencias que a menudo se usan juntas.
@@ -25,8 +27,11 @@ Las dependencias se agrupan en:
 
 ## Propiedades de Gradle
 
-La configuración global de la construcción se encuentra en `gradle.properties`. Esto incluye la configuración del demonio de Gradle, la ejecución en paralelo y el almacenamiento en caché.
+La configuración global de la construcción se encuentra en `gradle.properties`. Esto incluye la
+configuración del demonio de Gradle, la ejecución en paralelo y el almacenamiento en caché.
 
 ## Variables de entorno
 
-Algunas funcionalidades pueden requerir variables de entorno, especialmente para CI/CD o tareas especializadas (por ejemplo, llaves GPG para la firma, credenciales de repositorio para la publicación).
+Algunas funcionalidades pueden requerir variables de entorno, especialmente para CI/CD o tareas
+especializadas (por ejemplo, llaves GPG para la firma, credenciales de repositorio para la
+publicación).

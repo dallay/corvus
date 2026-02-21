@@ -59,21 +59,69 @@ help: ## Show this help message
 # ------------------------------------------------------------------------------------
 
 check-tools: ## Verify required tools are installed
-	@echo "🔍 Checking required tools..."
-	@command -v java >/dev/null 2>&1 || { echo "❌ Error: 'java' is not installed. Please install JDK 21+"; exit 1; }
-	@command -v git >/dev/null 2>&1 || { echo "❌ Error: 'git' is not installed."; exit 1; }
-	@echo "✅ All required tools are available"
+	@echo "🔍 Checking required tools and versions..."
+	@bash -ec '\
+		require_cmd() { \
+			command -v "$$1" >/dev/null 2>&1 || { echo "❌ Error: '\''$$1'\'' is not installed."; exit 1; }; \
+		}; \
+		require_cmd java; \
+		require_cmd git; \
+		require_cmd node; \
+		require_cmd pnpm; \
+		require_cmd rustc; \
+		require_cmd cargo; \
+		java_major=$$(java -version 2>&1 | sed -nE '\''s/.*version "([0-9]+).*/\1/p'\'' | head -n1); \
+		node_major=$$(node -p "process.versions.node.split('\''.'\'')[0]"); \
+		pnpm_major=$$(pnpm --version | awk -F. '\''{print $$1}'\''); \
+		rust_ver=$$(rustc --version | awk '\''{print $$2}'\''); \
+		rust_major=$${rust_ver%%.*}; \
+		rust_minor_part=$${rust_ver#*.}; \
+		rust_minor=$${rust_minor_part%%.*}; \
+		if [ -z "$$java_major" ] || [ "$$java_major" -lt 21 ]; then \
+			echo "❌ Error: JDK 21+ required. Current java major: $${java_major:-unknown}"; \
+			exit 1; \
+		fi; \
+		if [ "$$node_major" -lt 22 ]; then \
+			echo "❌ Error: Node.js 22+ required. Current Node major: $$node_major"; \
+			exit 1; \
+		fi; \
+		if [ "$$pnpm_major" -lt 10 ]; then \
+			echo "❌ Error: pnpm 10+ required. Current pnpm major: $$pnpm_major"; \
+			exit 1; \
+		fi; \
+		if [ "$$rust_major" -lt 1 ] || { [ "$$rust_major" -eq 1 ] && [ "$$rust_minor" -lt 75 ]; }; then \
+			echo "❌ Error: Rust 1.75+ required. Current rustc: $$rust_ver"; \
+			exit 1; \
+		fi; \
+		if ! command -v docker >/dev/null 2>&1; then \
+			echo "⚠️  Docker is not installed (optional; required for sandbox/dev containers)."; \
+		fi; \
+		if [ "$$(uname -s 2>/dev/null || echo unknown)" = "Darwin" ]; then \
+			if ! command -v xcodebuild >/dev/null 2>&1; then \
+				echo "⚠️  Xcode CLI tools not found (optional; required for iOS development)."; \
+			fi; \
+		fi; \
+		echo "✅ Toolchain OK: java=$$java_major, node=$$node_major, pnpm=$$pnpm_major, rustc=$$rust_ver"; \
+	'
 
 setup: check-tools ## Initial project setup (chmod +x gradlew)
 	@echo "🔧 Setting up project..."
 	@chmod +x gradlew
-	@git update-index --chmod=+x gradlew
-	@$(GRADLEW) agentsyncApply || true
-	@echo "✅ Project setup complete"
+	@git update-index --chmod=+x gradlew || \
+		echo "⚠️  Could not update git index permissions for gradlew (continuing)."
+	@echo "📦 Initializing Gradle wrapper..."
+	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) --version >/dev/null
+	@echo "🤖 Synchronizing AI agents..."
+	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) agentsyncApply
+	@echo "📦 Installing web workspace dependencies..."
+	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) :web:workspaceInstall
+	@echo "🦀 Validating Rust workspace (agent runtime)..."
+	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) :agent-runtime:cargoCheck
+	@echo "✅ Project setup complete: tools validated, agents synced, web deps installed, Rust checked"
 
 sync-agents: check-tools ## Synchronize AI agent configurations (agentsync)
 	@echo "🤖 Synchronizing AI agents..."
-	@$(GRADLEW) agentsyncApply
+	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) agentsyncApply
 
 wrapper: ## Update Gradle wrapper
 	@$(GRADLEW) wrapper --gradle-version $(shell grep -E '^gradle\s*=' gradle/libs.versions.toml | sed 's/.*= "\(.*\)".*/\1/')

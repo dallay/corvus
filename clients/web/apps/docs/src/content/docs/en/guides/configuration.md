@@ -18,6 +18,7 @@ This file contains the versions of all tools and dependencies used in the projec
 ### Managing Dependencies
 
 Dependencies are grouped into:
+
 - `versions`: Single source of truth for version numbers.
 - `libraries`: Definitions of individual dependencies.
 - `bundles`: Groups of dependencies that are often used together.
@@ -25,8 +26,10 @@ Dependencies are grouped into:
 
 ## Gradle Properties
 
-Global build settings can be found in `gradle.properties`. This includes configuration for the Gradle daemon, parallel execution, and caching.
+Global build settings can be found in `gradle.properties`. This includes configuration for the
+Gradle daemon, parallel execution, and caching.
 
 ## Environment Variables
 
-Some features might require environment variables, especially for CI/CD or specialized tasks (e.g., GPG keys for signing, repository credentials for publishing).
+Some features might require environment variables, especially for CI/CD or specialized tasks (e.g.,
+GPG keys for signing, repository credentials for publishing).

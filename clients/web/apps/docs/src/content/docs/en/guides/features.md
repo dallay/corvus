@@ -2,11 +2,13 @@
 title: Features Checklist
 ---
 
-This page provides a comprehensive checklist of all functionalities, modules, and options available in this repository.
+This page provides a comprehensive checklist of all functionalities, modules, and options available
+in this repository.
 
 ## Modules
 
-- [x] **apps/composeApp**: Shared Kotlin Multiplatform Compose UI module (desktop + iOS + Android library target).
+- [x] **apps/composeApp**: Shared Kotlin Multiplatform Compose UI module (desktop + iOS + Android
+  library target).
 - [x] **apps/androidApp**: Native Android application host for the shared Compose UI.
 - [x] **apps/iosApp**: Native iOS host app for the shared Compose UI.
 - [x] **apps/docs**: Documentation website (Starlight/Astro).
@@ -28,14 +30,14 @@ This page provides a comprehensive checklist of all functionalities, modules, an
 
 - [x] **Code Formatting**: Automated formatting with Spotless.
 - [x] **Static Analysis**:
-    - [x] Detekt (Kotlin)
-    - [x] SpotBugs (Java)
-    - [x] PMD (Java)
-    - [x] Checkstyle (Java)
-    - [x] NullAway (Java)
+  - [x] Detekt (Kotlin)
+  - [x] SpotBugs (Java)
+  - [x] PMD (Java)
+  - [x] Checkstyle (Java)
+  - [x] NullAway (Java)
 - [x] **Testing**:
-    - [x] JUnit 5 support.
-    - [x] Code coverage with Kover.
+  - [x] JUnit 5 support.
+  - [x] Code coverage with Kover.
 - [x] **SBOM**: Software Bill of Materials generation.
 - [x] **Git Hooks**: Automated pre-commit checks.
 

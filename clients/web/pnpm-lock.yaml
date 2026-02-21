@@ -114,6 +114,25 @@ importers:
         specifier: 6.4.1
         version: 6.4.1(@types/node@24.10.13)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.8.2)
 
+  apps/plugins:
+    dependencies:
+      '@corvus/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      astro:
+        specifier: ^5.17.2
+        version: 5.17.2(@types/node@24.10.13)(jiti@2.6.1)(lightningcss@1.30.2)(rollup@4.57.1)(typescript@5.9.3)(yaml@2.8.2)
+      sharp:
+        specifier: ^0.34.5
+        version: 0.34.5
+    devDependencies:
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+      vite:
+        specifier: 6.4.1
+        version: 6.4.1(@types/node@24.10.13)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.8.2)
+
   packages/shared: {}
 
 packages:

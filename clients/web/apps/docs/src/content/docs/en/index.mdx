@@ -3,18 +3,19 @@ title: Corvus
 description: Reactive agent platform for always-on orchestration on the JVM.
 template: splash
 hero:
-  tagline: Build long-running, proactive agents with Kotlin, Spring Boot, Neo4j, Rust sidecars, and a transparent control panel.
-  actions:
-    - text: Get Started
-      link: guides/getting-started/
-      icon: right-arrow
-    - text: View on GitHub
-      link: https://github.com/dallay/corvus
-      icon: external
-      variant: minimal
+tagline: Build long-running, proactive agents with Kotlin, Spring Boot, Neo4j, Rust sidecars, and a transparent control panel.
+actions:
+- text: Get Started
+link: guides/getting-started/
+icon: right-arrow
+- text: View on GitHub
+link: https://github.com/dallay/corvus
+icon: external
+variant: minimal
 ---
 
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+import {Card, CardGrid, LinkCard} from '@astrojs/starlight/components';
 
 ## Why Corvus?
 
@@ -36,8 +37,13 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 ## Explore the Docs
 
 <CardGrid>
-  <LinkCard title="Project Structure" description="Understand module layout and where responsibilities live." href="guides/structure/" />
-  <LinkCard title="Features Checklist" description="Review enabled tooling and quality guardrails." href="guides/features/" />
-  <LinkCard title="Architecture" description="See core design decisions and runtime model." href="guides/architecture/" />
-  <LinkCard title="Development Workflow" description="Build, test, lint, and release procedures." href="guides/development/" />
+  <LinkCard title="Project Structure"
+            description="Understand module layout and where responsibilities live."
+            href="guides/structure/"/>
+  <LinkCard title="Features Checklist" description="Review enabled tooling and quality guardrails."
+            href="guides/features/"/>
+  <LinkCard title="Architecture" description="See core design decisions and runtime model."
+            href="guides/architecture/"/>
+  <LinkCard title="Development Workflow" description="Build, test, lint, and release procedures."
+            href="guides/development/"/>
 </CardGrid>
