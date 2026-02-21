@@ -4855,7 +4855,10 @@ default_model = "legacy-model"
         let parsed: DelegateAgentConfig = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.provider, "openrouter");
         assert_eq!(parsed.model, "claude-3-5-sonnet");
-        assert_eq!(parsed.system_prompt, Some("You are a helpful assistant".to_string()));
+        assert_eq!(
+            parsed.system_prompt,
+            Some("You are a helpful assistant".to_string())
+        );
         assert_eq!(parsed.max_depth, 2);
     }
 

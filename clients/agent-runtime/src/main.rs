@@ -1330,23 +1330,30 @@ mod tests {
 
     #[test]
     fn format_expiry_shows_expired() {
-        use chrono::{Duration, Utc};
         use crate::auth::profiles::{AuthProfile, AuthProfileKind, TokenSet};
+        use chrono::{Duration, Utc};
 
         let past = Utc::now() - Duration::hours(1);
         let token_set = TokenSet {
             access_token: "token".to_string(),
             refresh_token: Some("refresh".to_string()),
             expires_at: Some(past),
+            id_token: None,
+            scope: None,
+            token_type: None,
         };
         let profile = AuthProfile {
+            id: "uuid".to_string(),
             provider: "openai-codex".to_string(),
             profile_name: "default".to_string(),
             kind: AuthProfileKind::OAuth,
             token_set: Some(token_set),
             account_id: None,
-            created_at: Utc::now().to_rfc3339(),
-            updated_at: Utc::now().to_rfc3339(),
+            workspace_id: None,
+            token: None,
+            metadata: std::collections::BTreeMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
         let formatted = format_expiry(&profile);
@@ -1355,23 +1362,30 @@ mod tests {
 
     #[test]
     fn format_expiry_shows_expires_in() {
-        use chrono::{Duration, Utc};
         use crate::auth::profiles::{AuthProfile, AuthProfileKind, TokenSet};
+        use chrono::{Duration, Utc};
 
         let future = Utc::now() + Duration::hours(2);
         let token_set = TokenSet {
             access_token: "token".to_string(),
             refresh_token: Some("refresh".to_string()),
             expires_at: Some(future),
+            id_token: None,
+            scope: None,
+            token_type: None,
         };
         let profile = AuthProfile {
+            id: "uuid".to_string(),
             provider: "openai-codex".to_string(),
             profile_name: "default".to_string(),
             kind: AuthProfileKind::OAuth,
             token_set: Some(token_set),
             account_id: None,
-            created_at: Utc::now().to_rfc3339(),
-            updated_at: Utc::now().to_rfc3339(),
+            workspace_id: None,
+            token: None,
+            metadata: std::collections::BTreeMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
         let formatted = format_expiry(&profile);
@@ -1384,13 +1398,17 @@ mod tests {
         use chrono::Utc;
 
         let profile = AuthProfile {
+            id: "uuid".to_string(),
             provider: "anthropic".to_string(),
             profile_name: "default".to_string(),
-            kind: AuthProfileKind::ApiKey,
+            kind: AuthProfileKind::Token,
             token_set: None,
             account_id: None,
-            created_at: Utc::now().to_rfc3339(),
-            updated_at: Utc::now().to_rfc3339(),
+            workspace_id: None,
+            token: None,
+            metadata: std::collections::BTreeMap::new(),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
         };
 
         let formatted = format_expiry(&profile);
@@ -1406,11 +1424,7 @@ mod tests {
         let tmp = NamedTempFile::new().unwrap();
         set_owner_only_permissions(tmp.path()).unwrap();
 
-        let mode = std::fs::metadata(tmp.path())
-            .unwrap()
-            .permissions()
-            .mode()
-            & 0o777;
+        let mode = std::fs::metadata(tmp.path()).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode, 0o600);
     }
 
@@ -1444,7 +1458,10 @@ mod tests {
         let json = serde_json::to_string(&file).unwrap();
         let parsed: PendingOpenAiLoginFile = serde_json::from_str(&json).unwrap();
 
-        assert_eq!(parsed.encrypted_code_verifier, Some("encrypted-data".to_string()));
+        assert_eq!(
+            parsed.encrypted_code_verifier,
+            Some("encrypted-data".to_string())
+        );
         assert!(parsed.code_verifier.is_none());
     }
 }

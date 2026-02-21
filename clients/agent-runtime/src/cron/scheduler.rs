@@ -10,6 +10,7 @@ use crate::security::SecurityPolicy;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use futures_util::{stream, StreamExt};
+use regex::Regex;
 use std::sync::Arc;
 use tokio::process::Command;
 use tokio::time::{self, Duration};
@@ -430,6 +431,8 @@ async fn run_job_command_with_timeout(
         .arg("-lc")
         .arg(&job.command)
         .current_dir(&config.workspace_dir)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(true)
         .spawn()
     {
@@ -439,17 +442,40 @@ async fn run_job_command_with_timeout(
 
     match time::timeout(timeout, child.wait_with_output()).await {
         Ok(Ok(output)) => {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            const MAX_OUTPUT_BYTES: usize = 64 * 1024;
+            let mut stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            let mut stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+            if stdout.len() > MAX_OUTPUT_BYTES {
+                stdout.truncate(MAX_OUTPUT_BYTES);
+                stdout.push_str("... (truncated)");
+            }
+            if stderr.len() > MAX_OUTPUT_BYTES {
+                stderr.truncate(MAX_OUTPUT_BYTES);
+                stderr.push_str("... (truncated)");
+            }
+
+            // Simple redaction pass
+            let redact = |s: String| {
+                let re = Regex::new(
+                    r#"(?i)(token|api[_-]?key|password|secret|bearer|credential)\s*[:=]\s*(\S+)"#,
+                )
+                .unwrap();
+                re.replace_all(&s, "$1: [REDACTED]").to_string()
+            };
+
+            let stdout_redacted = redact(stdout);
+            let stderr_redacted = redact(stderr);
+
             let combined = format!(
                 "status={}\nstdout:\n{}\nstderr:\n{}",
                 output.status,
-                stdout.trim(),
-                stderr.trim()
+                stdout_redacted.trim(),
+                stderr_redacted.trim()
             );
             (output.status.success(), combined)
         }
-        Ok(Err(e)) => (false, format!("spawn error: {e}")),
+        Ok(Err(e)) => (false, format!("wait_with_output error: {e}")),
         Err(_) => (
             false,
             format!("job timed out after {}s", timeout.as_secs_f64()),
