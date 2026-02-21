@@ -158,16 +158,24 @@ build/spotless-prettier-node-modules-*/package-lock.json
 build/spotless-prettier-node-modules-*/serve.js
 .pnpm-store
 # START AI Agent Symlinks
+.claude/commands
 .claude/commands/
+.claude/skills
 .claude/skills/
+.codex/commands
 .codex/config.toml
 .codex/instructions.md
 .codex/skills
+.cursor/commands
 .cursor/mcp.json
+.cursor/skills
 .cursor/skills/
+.gemini/commands
 .gemini/commands/
 .gemini/settings.json
+.gemini/skills
 .gemini/skills/
+.github/agents
 .github/copilot-instructions.md
 .mcp.json
 .opencode/command

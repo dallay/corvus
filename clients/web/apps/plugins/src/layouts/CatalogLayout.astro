@@ -27,6 +27,7 @@ const canonical = new URL(Astro.url.pathname, Astro.site ?? "http://localhost:99
     <meta property="og:url" content={canonical} />
     <meta name="theme-color" content="#0f766e" />
     <link rel="canonical" href={canonical} />
+    <link rel="icon" href="data:," />
     <title>{title}</title>
   </head>
   <body>
