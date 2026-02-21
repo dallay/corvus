@@ -1495,13 +1495,12 @@ fn signature_policy_for_locked_plugin(plugin: &LockedPlugin) -> Result<Signature
         if plugin_identity_regex.is_none() && plugin.source != "official" {
             let resolved = resolve_source(source_url)?;
             if let ResolvedSource::Remote(url) = resolved {
-                tracing::warn!(
-                    "Plugin '{}' from source '{}' has remote source_url '{}' but no source_identity_regex; skipping signature verification for backward compatibility",
+                bail!(
+                    "Plugin '{}' from source '{}' has remote source_url '{}' but no source_identity_regex; refusing to skip signature verification",
                     plugin.id,
                     plugin.source,
                     url
                 );
-                return Ok(SignaturePolicy::NotRequired);
             }
         }
 
@@ -2114,7 +2113,7 @@ mod tests {
     }
 
     #[test]
-    fn signature_policy_for_locked_plugin_legacy_remote_without_identity_regex_is_not_required() {
+    fn signature_policy_for_locked_plugin_legacy_remote_without_identity_regex_fails() {
         let plugin = LockedPlugin {
             id: OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID.to_string(),
             version: "1.0.0".to_string(),
@@ -2132,9 +2131,9 @@ mod tests {
             capabilities: vec!["memory".to_string()],
         };
 
-        let policy = signature_policy_for_locked_plugin(&plugin)
-            .expect("locked plugin policy resolution should succeed");
-        assert!(matches!(policy, SignaturePolicy::NotRequired));
+        let error = signature_policy_for_locked_plugin(&plugin)
+            .expect_err("locked plugin policy resolution should fail");
+        assert!(error.to_string().contains("no source_identity_regex"));
     }
 
     #[test]
