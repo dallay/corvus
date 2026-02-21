@@ -132,9 +132,15 @@ impl PairingGuard {
         if !self.require_pairing {
             return true;
         }
-        let hashed = hash_token(token);
+
+        let normalized = token.trim();
+        if normalized.is_empty() || normalized.len() > 256 {
+            return false;
+        }
+
+        let hashed = hash_token(normalized);
         let tokens = self.paired_tokens.lock();
-        tokens.contains(&hashed)
+        tokens.iter().any(|stored| constant_time_eq(stored, &hashed))
     }
 
     /// Returns true if the gateway is already paired (has at least one token).
@@ -299,6 +305,22 @@ mod tests {
     fn is_authenticated_with_invalid_token() {
         let guard = PairingGuard::new(true, &["zc_valid".into()]);
         assert!(!guard.is_authenticated("zc_invalid"));
+    }
+
+
+    #[test]
+    fn is_authenticated_rejects_blank_and_whitespace_token() {
+        let guard = PairingGuard::new(true, &["zc_valid".into()]);
+        assert!(!guard.is_authenticated(""));
+        assert!(!guard.is_authenticated("   "));
+        assert!(guard.is_authenticated(" zc_valid "));
+    }
+
+    #[test]
+    fn is_authenticated_rejects_oversized_token() {
+        let guard = PairingGuard::new(true, &["zc_valid".into()]);
+        let oversized = "x".repeat(257);
+        assert!(!guard.is_authenticated(&oversized));
     }
 
     #[test]

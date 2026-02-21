@@ -248,6 +248,25 @@ fn client_key_from_request(
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
+    let auth = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())?
+        .trim();
+
+    let (scheme, token) = auth.split_once(char::is_whitespace)?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+
+    let token = token.trim();
+    if token.is_empty() || token.len() > 512 {
+        return None;
+    }
+
+    Some(token.to_string())
+}
+
 fn normalize_max_keys(configured: usize, fallback: usize) -> usize {
     if configured == 0 {
         fallback.max(1)
@@ -636,12 +655,8 @@ async fn handle_webhook(
 
     // ── Bearer token auth (pairing) ──
     if state.pairing.require_pairing() {
-        let auth = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-        let token = auth.strip_prefix("Bearer ").unwrap_or("");
-        if !state.pairing.is_authenticated(token) {
+        let token = extract_bearer_token(&headers).unwrap_or_default();
+        if !state.pairing.is_authenticated(&token) {
             tracing::warn!("Webhook: rejected — not paired / invalid bearer token");
             let err = serde_json::json!({
                 "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
@@ -1083,6 +1098,35 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let text = String::from_utf8(body.to_vec()).unwrap();
         assert!(text.contains("corvus_heartbeat_ticks_total 1"));
+    }
+
+
+    #[test]
+    fn extract_bearer_token_accepts_case_insensitive_scheme_and_trims() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("bEaReR   test-token   "),
+        );
+
+        let token = extract_bearer_token(&headers).unwrap();
+        assert_eq!(token, "test-token");
+    }
+
+    #[test]
+    fn extract_bearer_token_rejects_invalid_values() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Basic abc123"),
+        );
+        assert!(extract_bearer_token(&headers).is_none());
+
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer"));
+        assert!(extract_bearer_token(&headers).is_none());
+
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer   "));
+        assert!(extract_bearer_token(&headers).is_none());
     }
 
     #[test]
