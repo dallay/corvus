@@ -5,7 +5,7 @@
   "description": "Corvus Chat — conversational AI interface",
   "type": "module",
   "engines": {
-    "node": ">=22.0.0"
+    "node": ">=24.0.0"
   },
   "scripts": {
     "dev": "vite --port 4323",

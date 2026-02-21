@@ -4,12 +4,12 @@ FROM ubuntu:22.04
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install common development tools and runtimes
-# - Node.js: Install v20 (LTS) from NodeSource
+# - Node.js: Install v24 from NodeSource
 # - Core: curl, git, vim, build-essential (gcc, make)
 # - Python: python3, pip
 # - Network: ping, dnsutils
 RUN apt-get update && apt-get install -y curl && \
-    curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && \
+    curl -fsSL https://deb.nodesource.com/setup_24.x | bash - && \
     apt-get install -y \
     nodejs \
     wget git vim nano unzip zip \
