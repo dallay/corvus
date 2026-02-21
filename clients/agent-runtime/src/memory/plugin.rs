@@ -137,7 +137,10 @@ mod tests {
         let all = memory.list(None, None).await.unwrap();
         assert!(all.len() >= 2);
 
-        let core_only = memory.list(Some(&MemoryCategory::Core), None).await.unwrap();
+        let core_only = memory
+            .list(Some(&MemoryCategory::Core), None)
+            .await
+            .unwrap();
         assert!(!core_only.is_empty());
     }
 
@@ -193,16 +196,30 @@ mod tests {
         let memory = PluginBackedMemory::new("memory.test.plugin".to_string(), tmp.path());
 
         memory
-            .store("key1", "value1", MemoryCategory::Conversation, Some("session-a"))
+            .store(
+                "key1",
+                "value1",
+                MemoryCategory::Conversation,
+                Some("session-a"),
+            )
             .await
             .unwrap();
         memory
-            .store("key2", "value2", MemoryCategory::Conversation, Some("session-b"))
+            .store(
+                "key2",
+                "value2",
+                MemoryCategory::Conversation,
+                Some("session-b"),
+            )
             .await
             .unwrap();
 
         let session_a = memory.list(None, Some("session-a")).await.unwrap();
         assert!(!session_a.is_empty());
+        assert!(session_a
+            .iter()
+            .all(|e| e.session_id.as_deref() == Some("session-a")));
+        assert!(session_a.iter().all(|e| e.key != "key2"));
     }
 
     #[tokio::test]

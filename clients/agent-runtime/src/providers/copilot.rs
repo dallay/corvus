@@ -725,7 +725,7 @@ fn create_secure_dir_windows(path: &Path) -> std::io::Result<()> {
     let created = unsafe { CreateDirectoryW(path_wide.as_ptr(), &mut security_attributes) };
 
     unsafe {
-      LocalFree(security_descriptor);
+        LocalFree(security_descriptor);
     }
 
     if created == 0 {

@@ -97,13 +97,25 @@ impl MarkdownMemory {
                     (format!("{filename}:{i}"), clean.to_string())
                 };
 
+                // Try to parse "[session:id]" from the end of content
+                let (final_content, session_id) = if let Some(idx) = content.rfind(" [session:") {
+                    if content.ends_with(']') {
+                        let sid = &content[idx + 10..content.len() - 1];
+                        (content[..idx].to_string(), Some(sid.to_string()))
+                    } else {
+                        (content, None)
+                    }
+                } else {
+                    (content, None)
+                };
+
                 MemoryEntry {
                     id: format!("{filename}:{i}"),
                     key,
-                    content,
+                    content: final_content,
                     category: category.clone(),
                     timestamp: filename.to_string(),
-                    session_id: None,
+                    session_id,
                     score: None,
                 }
             })
@@ -157,9 +169,13 @@ impl Memory for MarkdownMemory {
         key: &str,
         content: &str,
         category: MemoryCategory,
-        _session_id: Option<&str>,
+        session_id: Option<&str>,
     ) -> anyhow::Result<()> {
-        let entry = format!("- **{key}**: {content}");
+        let entry = if let Some(sid) = session_id {
+            format!("- **{key}**: {content} [session:{sid}]")
+        } else {
+            format!("- **{key}**: {content}")
+        };
         let path = match category {
             MemoryCategory::Core => self.core_path(),
             _ => self.daily_path(),
@@ -180,11 +196,8 @@ impl Memory for MarkdownMemory {
         let mut scored: Vec<MemoryEntry> = all
             .into_iter()
             .filter_map(|mut entry| {
-                let content_lower = entry.content.to_lowercase();
-                let matched = keywords
-                    .iter()
-                    .filter(|kw| content_lower.contains(**kw))
-                    .count();
+                let combined = format!("{} {}", entry.key, entry.content).to_lowercase();
+                let matched = keywords.iter().filter(|kw| combined.contains(**kw)).count();
                 if matched > 0 {
                     #[allow(clippy::cast_precision_loss)]
                     let score = matched as f64 / keywords.len() as f64;
@@ -215,13 +228,24 @@ impl Memory for MarkdownMemory {
     async fn list(
         &self,
         category: Option<&MemoryCategory>,
-        _session_id: Option<&str>,
+        session_id: Option<&str>,
     ) -> anyhow::Result<Vec<MemoryEntry>> {
         let all = self.read_all_entries().await?;
-        match category {
-            Some(cat) => Ok(all.into_iter().filter(|e| &e.category == cat).collect()),
-            None => Ok(all),
-        }
+        let filtered = all
+            .into_iter()
+            .filter(|e| {
+                let cat_match = match category {
+                    Some(cat) => &e.category == cat,
+                    None => true,
+                };
+                let sess_match = match session_id {
+                    Some(sid) => e.session_id.as_deref() == Some(sid),
+                    None => true,
+                };
+                cat_match && sess_match
+            })
+            .collect();
+        Ok(filtered)
     }
 
     async fn forget(&self, _key: &str) -> anyhow::Result<bool> {

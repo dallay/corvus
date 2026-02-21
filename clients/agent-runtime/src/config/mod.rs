@@ -147,13 +147,11 @@ mod tests {
 
     #[test]
     fn stream_mode_variants() {
-        let full = StreamMode::Off;
-        let incremental = StreamMode::Partial;
-        let final_only = StreamMode::Off;
+        let off = StreamMode::Off;
+        let partial = StreamMode::Partial;
 
-        // Just verify they're distinct
-        assert!(matches!(full, StreamMode::Off));
-        assert!(matches!(incremental, StreamMode::Partial));
-        assert!(matches!(final_only, StreamMode::Off));
+        assert!(matches!(off, StreamMode::Off));
+        assert!(matches!(partial, StreamMode::Partial));
+        assert_ne!(off, partial);
     }
 }
