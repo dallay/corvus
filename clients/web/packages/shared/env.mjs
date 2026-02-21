@@ -148,6 +148,7 @@ export function getPortFromUrl(siteUrl, fallbackPort) {
 
 export const PORTS = {
   MARKETING: 9988,
+  PLUGINS: 9990,
   DOCS: 4321,
   CHAT: 4323,
 };
