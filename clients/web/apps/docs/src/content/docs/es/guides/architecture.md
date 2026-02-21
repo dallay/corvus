@@ -2,7 +2,8 @@
 title: Arquitectura
 ---
 
-El proyecto sigue una arquitectura modular con un fuerte énfasis en la lógica de construcción centralizada y separación clara entre clientes y módulos compartidos.
+El proyecto sigue una arquitectura modular con un fuerte énfasis en la lógica de construcción
+centralizada y separación clara entre clientes y módulos compartidos.
 
 ## Estructura del Proyecto
 
@@ -58,19 +59,25 @@ Corvus está diseñado como una plataforma de agentes reactivos con los siguient
 
 ## Lógica de Construcción (Plugins de Convención)
 
-En lugar de repetir la lógica de construcción en cada `build.gradle.kts`, utilizamos **Plugins de Convención** ubicados en `gradle/build-logic`.
+En lugar de repetir la lógica de construcción en cada `build.gradle.kts`, utilizamos **Plugins de
+Convención** ubicados en `gradle/build-logic`.
 
 ### Categorías de Plugins
 
-1. **Plugins Base**: Configuración fundamental como identidad, ciclo de vida y resolución de conflictos de JVM.
-2. **Plugins de Módulo**: Configuraciones específicas del lenguaje (`kotlin`, `java`, `spring-boot`, `compose`).
-3. **Plugins de Funcionalidad**: Funcionalidades opcionales como `publish-library`, `shadow`, `test-fixtures` y `git-hook`.
-4. **Plugins de Verificación**: Herramientas de calidad de código y formateo (`spotless`, `detekt`, `spotbugs`).
+1. **Plugins Base**: Configuración fundamental como identidad, ciclo de vida y resolución de
+   conflictos de JVM.
+2. **Plugins de Módulo**: Configuraciones específicas del lenguaje (`kotlin`, `java`, `spring-boot`,
+   `compose`).
+3. **Plugins de Funcionalidad**: Funcionalidades opcionales como `publish-library`, `shadow`,
+   `test-fixtures` y `git-hook`.
+4. **Plugins de Verificación**: Herramientas de calidad de código y formateo (`spotless`, `detekt`,
+   `spotbugs`).
 5. **Plugins de Reporte**: Reportes agregados para pruebas, cobertura y SBOM.
 
 ## Gestión de Dependencias
 
-Utilizamos los **Catálogos de Versiones de Gradle** (`libs.versions.toml`) para definir todas las dependencias y versiones en un solo lugar. Esto asegura la consistencia en todos los módulos.
+Utilizamos los **Catálogos de Versiones de Gradle** (`libs.versions.toml`) para definir todas las
+dependencias y versiones en un solo lugar. Esto asegura la consistencia en todos los módulos.
 
 ### Ejemplo de uso:
 
@@ -109,11 +116,12 @@ dependencies {
 
 Para una vista más detallada de la arquitectura, consulta los siguientes diagramas C4:
 
-| Nivel | Diagrama | Descripción | Archivo |
-|-------|----------|-------------|---------|
-| C1 - Contexto | [Sistema Completo](./architecture/diagrams/context/system-context.mmd) | Vista de alto nivel del sistema y actores externos | `context/system-context.mmd` |
-| C2 - Contenedores | [Contenedores Principales](./architecture/diagrams/container/system-containers.mmd) | Aplicaciones y servicios que componen Corvus | `container/system-containers.mmd` |
-| C3 - Componentes | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd) | Componentes internos del módulo core | `component/agent-core-kmp.mmd` |
-| - | [Dependencias entre Módulos](./architecture/diagrams/module-dependencies.mmd) | Relaciones de dependencia de Gradle | `module-dependencies.mmd` |
+| Nivel             | Diagrama                                                                            | Descripción                                        | Archivo                           |
+|-------------------|-------------------------------------------------------------------------------------|----------------------------------------------------|-----------------------------------|
+| C1 - Contexto     | [Sistema Completo](./architecture/diagrams/context/system-context.mmd)              | Vista de alto nivel del sistema y actores externos | `context/system-context.mmd`      |
+| C2 - Contenedores | [Contenedores Principales](./architecture/diagrams/container/system-containers.mmd) | Aplicaciones y servicios que componen Corvus       | `container/system-containers.mmd` |
+| C3 - Componentes  | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd)              | Componentes internos del módulo core               | `component/agent-core-kmp.mmd`    |
+| -                 | [Dependencias entre Módulos](./architecture/diagrams/module-dependencies.mmd)       | Relaciones de dependencia de Gradle                | `module-dependencies.mmd`         |
 
-Ver [Índice de Diagramas](./architecture/index.md) (en inglés) para más detalles sobre cómo visualizarlos.
+Ver [Índice de Diagramas](./architecture/index.md) (en inglés) para más detalles sobre cómo
+visualizarlos.

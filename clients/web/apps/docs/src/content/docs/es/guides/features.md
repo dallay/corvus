@@ -2,7 +2,8 @@
 title: Lista de Funcionalidades
 ---
 
-Esta página proporciona una lista completa de todas las funcionalidades, módulos y opciones disponibles en este repositorio.
+Esta página proporciona una lista completa de todas las funcionalidades, módulos y opciones
+disponibles en este repositorio.
 
 ## Módulos
 
@@ -20,7 +21,8 @@ Esta página proporciona una lista completa de todas las funcionalidades, módul
 
 - [x] **Plugins de Convención**: Lógica de construcción modular y reutilizable.
 - [x] **Catálogo de Versiones**: Gestión centralizada de dependencias en `libs.versions.toml`.
-- [x] **Análisis de Dependencias**: Herramientas para detectar dependencias no utilizadas o mal configuradas.
+- [x] **Análisis de Dependencias**: Herramientas para detectar dependencias no utilizadas o mal
+  configuradas.
 - [x] **Construcciones Reproducibles**: Bloqueo de dependencias con lockfiles de Gradle.
 - [x] **Soporte Multilenguaje**: Integración fluida para Java y Kotlin.
 
@@ -28,14 +30,14 @@ Esta página proporciona una lista completa de todas las funcionalidades, módul
 
 - [x] **Formateo de Código**: Formateo automático con Spotless.
 - [x] **Análisis Estático**:
-    - [x] Detekt (Kotlin)
-    - [x] SpotBugs (Java)
-    - [x] PMD (Java)
-    - [x] Checkstyle (Java)
-    - [x] NullAway (Java)
+  - [x] Detekt (Kotlin)
+  - [x] SpotBugs (Java)
+  - [x] PMD (Java)
+  - [x] Checkstyle (Java)
+  - [x] NullAway (Java)
 - [x] **Pruebas**:
-    - [x] Soporte para JUnit 5.
-    - [x] Cobertura de código con Kover.
+  - [x] Soporte para JUnit 5.
+  - [x] Cobertura de código con Kover.
 - [x] **SBOM**: Generación de Software Bill of Materials.
 - [x] **Git Hooks**: Comprobaciones automáticas de pre-commit.
 

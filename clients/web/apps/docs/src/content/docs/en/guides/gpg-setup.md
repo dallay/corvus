@@ -2,7 +2,8 @@
 title: GPG Key Setup for Maven Central Publishing
 ---
 
-This guide explains how to configure GPG keys for publishing artifacts to Maven Central via GitHub Actions.
+This guide explains how to configure GPG keys for publishing artifacts to Maven Central via GitHub
+Actions.
 
 ## Prerequisites
 
@@ -19,6 +20,7 @@ gpg --full-gen-key
 ```
 
 **Recommended configuration:**
+
 - **Key type:** RSA and RSA (default)
 - **Key size:** `4096` bits (minimum required by Maven Central)
 - **Validity:** `0` = no expiration (or your preferred duration)
@@ -125,14 +127,15 @@ gpg --keyserver keyserver.ubuntu.com --send-keys YOUR_KEY_ID
 
 ## Step 6: Configure GitHub Secrets
 
-Go to **GitHub → Repository → Settings → Secrets and variables → Actions** and create these 4 secrets:
+Go to **GitHub → Repository → Settings → Secrets and variables → Actions** and create these 4
+secrets:
 
-| Secret Name | Value |
-|-------------|-------|
-| `SIGNING_IN_MEMORY_KEY` | **ENTIRE** content of `private-subkey.asc` (including BEGIN and END lines) |
-| `SIGNING_IN_MEMORY_KEY_PASSWORD` | The passphrase you set when creating the key |
-| `MAVEN_CENTRAL_USERNAME` | Your Sonatype username |
-| `MAVEN_CENTRAL_PASSWORD` | **User Token** from Sonatype (NOT your password) |
+| Secret Name                      | Value                                                                      |
+|----------------------------------|----------------------------------------------------------------------------|
+| `SIGNING_IN_MEMORY_KEY`          | **ENTIRE** content of `private-subkey.asc` (including BEGIN and END lines) |
+| `SIGNING_IN_MEMORY_KEY_PASSWORD` | The passphrase you set when creating the key                               |
+| `MAVEN_CENTRAL_USERNAME`         | Your Sonatype username                                                     |
+| `MAVEN_CENTRAL_PASSWORD`         | **User Token** from Sonatype (NOT your password)                           |
 
 ---
 
@@ -143,8 +146,8 @@ Go to **GitHub → Repository → Settings → Secrets and variables → Actions
 3. Click on your avatar → **Profile**
 4. Find **User Token** or **Generate Token**
 5. Create a token and copy:
-   - **Username** → `MAVEN_CENTRAL_USERNAME`
-   - **Password** → `MAVEN_CENTRAL_PASSWORD`
+  - **Username** → `MAVEN_CENTRAL_USERNAME`
+  - **Password** → `MAVEN_CENTRAL_PASSWORD`
 
 **Important:** Never use a never-expiring token. User tokens should be rotated periodically.
 
@@ -188,11 +191,13 @@ export ORG_GRADLE_PROJECT_mavenCentralPassword="your_sonatype_token"
 
 ### "gpg: signing failed: Inappropriate ioctl for device"
 
-This happens in CI environments without a TTY. The configuration in this project uses in-memory keys, which should work around this issue.
+This happens in CI environments without a TTY. The configuration in this project uses in-memory
+keys, which should work around this issue.
 
 ### "No secret key" error
 
 Verify that:
+
 1. The key is exported with `--armor` flag (ASCII format)
 2. The secret includes `-----BEGIN PGP PRIVATE KEY BLOCK-----`
 3. The correct key ID is used (if using subkey)
@@ -200,6 +205,7 @@ Verify that:
 ### Key expired
 
 To extend expiration:
+
 ```bash
 gpg --edit-key YOUR_KEY_ID
 gpg> list

@@ -32,11 +32,15 @@ Contiene todas las aplicaciones cliente que consumen los módulos compartidos:
 
 ## El Directorio `gradle`
 
-- **`build-logic/`**: Contiene plugins de convención personalizados escritos en Kotlin. Es el "cerebro" del sistema de construcción.
+- **`build-logic/`**: Contiene plugins de convención personalizados escritos en Kotlin. Es el "
+  cerebro" del sistema de construcción.
 - **`libs.versions.toml`**: El catálogo de versiones central para gestionar las dependencias.
-- **`aggregation/`**: Módulo utilizado para agregar reportes de pruebas y cobertura de todos los submódulos.
-- **`versions/`**: Módulo dedicado a la gestión de versiones y comprobación de consistencia del catálogo.
-- **`wrapper/`**: Contiene los archivos del wrapper de Gradle, asegurando entornos de construcción consistentes.
+- **`aggregation/`**: Módulo utilizado para agregar reportes de pruebas y cobertura de todos los
+  submódulos.
+- **`versions/`**: Módulo dedicado a la gestión de versiones y comprobación de consistencia del
+  catálogo.
+- **`wrapper/`**: Contiene los archivos del wrapper de Gradle, asegurando entornos de construcción
+  consistentes.
 - **`configs/`**: Configuraciones adicionales de herramientas (Detekt, Spotless, etc.).
 
 ## El Directorio `docs`

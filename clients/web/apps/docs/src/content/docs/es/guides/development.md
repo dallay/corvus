@@ -6,19 +6,20 @@ Esta guía describe los procedimientos estándar para desarrollar y mantener est
 
 ## Uso del Makefile
 
-El `Makefile` proporciona una forma estandarizada de interactuar con el proyecto en diferentes sistemas operativos.
+El `Makefile` proporciona una forma estandarizada de interactuar con el proyecto en diferentes
+sistemas operativos.
 
 ### Comandos esenciales
 
-| Comando | Descripción |
-|---------|-------------|
-| `make setup` | Bootstrap completo (herramientas/versiones, sync de agentes, deps web, check Rust) |
-| `make run` | Ejecuta la aplicación principal |
-| `make build` | Construcción completa del proyecto, incluidas las pruebas |
-| `make test` | Ejecuta todas las pruebas unitarias |
-| `make check` | Ejecuta todas las comprobaciones de calidad (formato + lint + pruebas) |
-| `make format` | Corrige automáticamente el formateo del código |
-| `make clean` | Elimina los artefactos de construcción |
+| Comando       | Descripción                                                                        |
+|---------------|------------------------------------------------------------------------------------|
+| `make setup`  | Bootstrap completo (herramientas/versiones, sync de agentes, deps web, check Rust) |
+| `make run`    | Ejecuta la aplicación principal                                                    |
+| `make build`  | Construcción completa del proyecto, incluidas las pruebas                          |
+| `make test`   | Ejecuta todas las pruebas unitarias                                                |
+| `make check`  | Ejecuta todas las comprobaciones de calidad (formato + lint + pruebas)             |
+| `make format` | Corrige automáticamente el formateo del código                                     |
+| `make clean`  | Elimina los artefactos de construcción                                             |
 
 ### Comandos de documentación
 
@@ -31,12 +32,14 @@ El `Makefile` proporciona una forma estandarizada de interactuar con el proyecto
 1. **Configuración**: Ejecuta `make setup` una vez después de clonar.
 2. **Desarrollo**: Escribe código en `apps/` o `modules/`.
 3. **Formateo**: Ejecuta `make format` con frecuencia para mantener el código limpio.
-4. **Verificación**: Ejecuta `make check` antes de confirmar los cambios para asegurar que todo pase.
+4. **Verificación**: Ejecuta `make check` antes de confirmar los cambios para asegurar que todo
+   pase.
 5. **Pruebas**: Añade pruebas en `src/test` y ejecútalas con `make test`.
 
 ## Añadir dependencias
 
 Para añadir una nueva dependencia:
+
 1. Defínela en `gradle/libs.versions.toml`.
 2. Referénciala en el `build.gradle.kts` del módulo deseado usando `libs.<nombre>`.
 3. Ejecuta `make build` para verificar.

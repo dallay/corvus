@@ -6,19 +6,20 @@ This guide outlines the standard procedures for developing and maintaining this 
 
 ## Using the Makefile
 
-The `Makefile` provides a standardized way to interact with the project across different operating systems.
+The `Makefile` provides a standardized way to interact with the project across different operating
+systems.
 
 ### Essential Commands
 
-| Command | Description |
-|---------|-------------|
-| `make setup` | Full bootstrap (tool/version checks, agent sync, web deps, Rust check) |
-| `make run` | Runs the main application |
-| `make build` | Full project build including tests |
-| `make test` | Runs all unit tests |
-| `make check` | Runs all quality checks (format + lint + tests) |
-| `make format` | Automatically fixes code formatting |
-| `make clean` | Removes build artifacts |
+| Command       | Description                                                            |
+|---------------|------------------------------------------------------------------------|
+| `make setup`  | Full bootstrap (tool/version checks, agent sync, web deps, Rust check) |
+| `make run`    | Runs the main application                                              |
+| `make build`  | Full project build including tests                                     |
+| `make test`   | Runs all unit tests                                                    |
+| `make check`  | Runs all quality checks (format + lint + tests)                        |
+| `make format` | Automatically fixes code formatting                                    |
+| `make clean`  | Removes build artifacts                                                |
 
 ### Documentation Commands
 
@@ -37,6 +38,7 @@ The `Makefile` provides a standardized way to interact with the project across d
 ## Adding Dependencies
 
 To add a new dependency:
+
 1. Define it in `gradle/libs.versions.toml`.
 2. Reference it in the desired module's `build.gradle.kts` using `libs.<name>`.
 3. Run `make build` to verify.

@@ -32,7 +32,8 @@ Contains all client applications that consume the shared modules:
 
 ## The `gradle` Directory
 
-- **`build-logic/`**: Contains custom convention plugins written in Kotlin. This is the "brain" of the build system.
+- **`build-logic/`**: Contains custom convention plugins written in Kotlin. This is the "brain" of
+  the build system.
 - **`libs.versions.toml`**: The central version catalog for managing dependencies.
 - **`aggregation/`**: Module used to aggregate test and coverage reports from all submodules.
 - **`versions/`**: Module dedicated to version management and catalog consistency checks.

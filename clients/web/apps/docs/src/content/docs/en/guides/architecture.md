@@ -2,7 +2,8 @@
 title: Architecture
 ---
 
-The project follows a modular architecture with a strong emphasis on centralized build logic and clear separation between clients and shared modules.
+The project follows a modular architecture with a strong emphasis on centralized build logic and
+clear separation between clients and shared modules.
 
 ## Project Structure
 
@@ -58,19 +59,24 @@ Corvus is designed as a reactive agent platform with the following pillars:
 
 ## Build Logic (Convention Plugins)
 
-Instead of repeating build logic in every `build.gradle.kts`, we use **Convention Plugins** located in `gradle/build-logic`.
+Instead of repeating build logic in every `build.gradle.kts`, we use **Convention Plugins** located
+in `gradle/build-logic`.
 
 ### Plugin Categories
 
-1. **Base Plugins**: Fundamental configuration like identity, lifecycle, and JVM conflict resolution.
-2. **Module Plugins**: Language-specific configurations (`kotlin`, `java`, `spring-boot`, `compose`).
-3. **Feature Plugins**: Opt-in features like `publish-library`, `shadow`, `test-fixtures` and `git-hook`.
+1. **Base Plugins**: Fundamental configuration like identity, lifecycle, and JVM conflict
+   resolution.
+2. **Module Plugins**: Language-specific configurations (`kotlin`, `java`, `spring-boot`,
+   `compose`).
+3. **Feature Plugins**: Opt-in features like `publish-library`, `shadow`, `test-fixtures` and
+   `git-hook`.
 4. **Check Plugins**: Code quality and formatting tools (`spotless`, `detekt`, `spotbugs`).
 5. **Report Plugins**: Aggregated reports for testing, coverage, and SBOM.
 
 ## Dependency Management
 
-We use **Gradle Version Catalogs** (`libs.versions.toml`) to define all dependencies and versions in a single location. This ensures consistency across all modules.
+We use **Gradle Version Catalogs** (`libs.versions.toml`) to define all dependencies and versions in
+a single location. This ensures consistency across all modules.
 
 ### Example usage:
 
@@ -109,30 +115,34 @@ dependencies {
 
 For a more detailed view of the architecture, see the following C4 diagrams:
 
-| Level | Diagram | Description | File |
-|-------|---------|-------------|------|
-| C1 - Context | [System Context](./architecture/diagrams/context/system-context.mmd) | High-level view of the system and external actors | `context/system-context.mmd` |
-| C2 - Containers | [Main Containers](./architecture/diagrams/container/system-containers.mmd) | Applications and services that compose Corvus | `container/system-containers.mmd` |
-| C3 - Components | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd) | Internal components of the core module | `component/agent-core-kmp.mmd` |
-| - | [Module Dependencies](./architecture/diagrams/module-dependencies.mmd) | Gradle dependency relationships | `module-dependencies.mmd` |
+| Level           | Diagram                                                                    | Description                                       | File                              |
+|-----------------|----------------------------------------------------------------------------|---------------------------------------------------|-----------------------------------|
+| C1 - Context    | [System Context](./architecture/diagrams/context/system-context.mmd)       | High-level view of the system and external actors | `context/system-context.mmd`      |
+| C2 - Containers | [Main Containers](./architecture/diagrams/container/system-containers.mmd) | Applications and services that compose Corvus     | `container/system-containers.mmd` |
+| C3 - Components | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd)     | Internal components of the core module            | `component/agent-core-kmp.mmd`    |
+| -               | [Module Dependencies](./architecture/diagrams/module-dependencies.mmd)     | Gradle dependency relationships                   | `module-dependencies.mmd`         |
 
 See [Architecture Index](./architecture/index.md) for more details on how to visualize them.
 
 ## Build Logic (Convention Plugins)
 
-Instead of repeating build logic in every `build.gradle.kts`, we use **Convention Plugins** located in `gradle/build-logic`.
+Instead of repeating build logic in every `build.gradle.kts`, we use **Convention Plugins** located
+in `gradle/build-logic`.
 
 ### Plugin Categories
 
-1. **Base Plugins**: Fundamental configuration like identity, lifecycle, and JVM conflict resolution.
+1. **Base Plugins**: Fundamental configuration like identity, lifecycle, and JVM conflict
+   resolution.
 2. **Module Plugins**: Language-specific configurations (`kotlin`, `java`, `spring-boot`).
-3. **Feature Plugins**: Opt-in features like `publish-library`, `shadow`, `test-fixtures`, and `git-hook`.
+3. **Feature Plugins**: Opt-in features like `publish-library`, `shadow`, `test-fixtures`, and
+   `git-hook`.
 4. **Check Plugins**: Code quality and formatting tools (`spotless`, `detekt`, `spotbugs`).
 5. **Report Plugins**: Aggregated reports for testing, coverage, and SBOM.
 
 ## Dependency Management
 
-We use **Gradle Version Catalogs** (`libs.versions.toml`) to define all dependencies and versions in a single location. This ensures consistency across all modules.
+We use **Gradle Version Catalogs** (`libs.versions.toml`) to define all dependencies and versions in
+a single location. This ensures consistency across all modules.
 
 ### Example usage:
 

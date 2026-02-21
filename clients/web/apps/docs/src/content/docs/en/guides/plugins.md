@@ -59,7 +59,8 @@ All new official plugins must satisfy:
 2. Trusted publisher allowlist (`corvus-official` by default).
 3. Digest pinning in lockfile after installation.
 4. Revocation support and enforced revocation checks.
-5. No runtime startup hard-fail of the entire agent on plugin install/load issues; core fallback must remain available when designed.
+5. No runtime startup hard-fail of the entire agent on plugin install/load issues; core fallback
+   must remain available when designed.
 
 Relevant configuration defaults:
 
@@ -76,8 +77,8 @@ See:
 
 1. Add `plugins/<new-plugin>/Cargo.toml`.
 2. Set:
-   - `edition = "2021"`
-   - `crate-type = ["cdylib"]`
+  - `edition = "2021"`
+  - `crate-type = ["cdylib"]`
 3. Add minimal exported entrypoint(s) aligned with your WIT contract usage.
 
 ### 4.2 Build locally
@@ -101,7 +102,8 @@ If the plugin is installable via dedicated flow (like Surreal Graphs), add/updat
 If onboarding should expose it:
 
 1. Add option text in wizard memory/backend selection.
-2. Ensure plugin installation check runs before collecting backend-specific options that depend on it.
+2. Ensure plugin installation check runs before collecting backend-specific options that depend on
+   it.
 3. Ensure failure path is explicit and safe.
 
 ## 5. Publish Workflow
@@ -114,19 +116,20 @@ Current workflow behavior:
 
 1. Build WASM plugin artifact.
 2. Assemble bundle metadata:
-   - `plugin-manifest.json`
-   - `catalog.json`
-   - `revocations.json`
+  - `plugin-manifest.json`
+  - `catalog.json`
+  - `revocations.json`
 3. Optionally sign with cosign key (if secret is present).
 4. Optionally push to OCI (if `oci_repository` input is provided).
 5. Upload bundle artifacts.
 
 :::important
-This workflow is currently configured for `memory.surreal.graphs` in job env defaults. For a new plugin, either:
+This workflow is currently configured for `memory.surreal.graphs` in job env defaults. For a new
+plugin, either:
 
 1. Adapt env values for the new plugin, or
 2. Generalize workflow inputs/matrix so plugin ID/folder/artifact name are parameters.
-:::
+   :::
 
 ## 6. Operator Commands (Runtime)
 

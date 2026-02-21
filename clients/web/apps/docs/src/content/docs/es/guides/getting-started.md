@@ -2,7 +2,8 @@
 title: Primeros Pasos
 ---
 
-Bienvenido a **Corvus**. Esta guía te ayuda a ejecutar localmente la base personalizada del proyecto.
+Bienvenido a **Corvus**. Esta guía te ayuda a ejecutar localmente la base personalizada del
+proyecto.
 
 ## Requisitos Previos
 
