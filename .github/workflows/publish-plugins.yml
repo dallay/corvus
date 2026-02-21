@@ -2,30 +2,58 @@
 name: publish-plugins
 
 on:
+  push:
+    tags:
+      - "plugin/*/v*"
   workflow_dispatch:
     inputs:
+      plugin_id:
+        description: "Plugin ID (required for manual dispatch)"
+        required: false
+        default: ""
       plugin_version:
-        description: "Plugin version (semver)"
-        required: true
-        default: "0.1.0"
+        description: "Plugin version (required for manual dispatch; semver without 'v')"
+        required: false
+        default: ""
+      catalog_base_url:
+        description: "Catalog base URL for immutable artifact links"
+        required: false
+        default: "https://corvus.profiletailors.com"
       oci_repository:
         description: "OCI repository (example: ghcr.io/org/corvus-plugins/memory-surreal-graphs)"
         required: false
+        default: ""
+      deploy_cloudflare_pages:
+        description: "Deploy plugins catalog app to Cloudflare Pages"
+        required: false
+        type: boolean
+        default: true
+      cloudflare_project_name:
+        description: "Cloudflare Pages project name"
+        required: false
+        default: ""
 
 permissions:
   contents: read
   packages: write
   id-token: write
 
+concurrency:
+  group: plugins-publish-global
+  cancel-in-progress: true
+
 jobs:
-  build-and-publish-plugin:
+  build-sign-deploy:
     runs-on: ubuntu-latest
     env:
-      PLUGIN_ID: memory.surreal.graphs
-      PLUGIN_DIR: clients/agent-runtime/plugins/memory-surreal-graphs
       DIST_DIR: clients/agent-runtime/dist/plugins
-      OCI_REPOSITORY: ${{ inputs.oci_repository }}
-      PLUGIN_VERSION: ${{ inputs.plugin_version }}
+      INPUT_PLUGIN_ID: ${{ inputs.plugin_id }}
+      INPUT_PLUGIN_VERSION: ${{ inputs.plugin_version }}
+      INPUT_CATALOG_BASE_URL: ${{ inputs.catalog_base_url }}
+      INPUT_OCI_REPOSITORY: ${{ inputs.oci_repository }}
+      INPUT_DEPLOY_CF: ${{ inputs.deploy_cloudflare_pages }}
+      INPUT_CF_PROJECT_NAME: ${{ inputs.cloudflare_project_name }}
+      DEFAULT_CF_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -36,94 +64,334 @@ jobs:
           toolchain: stable
           targets: wasm32-wasip1
 
+      - name: 🧮 Resolve plugin release target
+        id: meta
+        shell: python
+        run: |
+          import json
+          import os
+          import pathlib
+          import re
+          import tomllib
+
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          ref_name = os.environ.get("GITHUB_REF_NAME", "")
+
+          input_plugin_id = os.environ.get("INPUT_PLUGIN_ID", "").strip()
+          input_plugin_version = os.environ.get("INPUT_PLUGIN_VERSION", "").strip()
+          input_catalog_base_url = (
+              os.environ.get("INPUT_CATALOG_BASE_URL", "https://corvus.profiletailors.com")
+              .strip()
+              .rstrip("/")
+          )
+          input_oci_repository = os.environ.get("INPUT_OCI_REPOSITORY", "").strip()
+          input_deploy_cf = os.environ.get("INPUT_DEPLOY_CF", "true").strip().lower()
+          input_cf_project_name = os.environ.get("INPUT_CF_PROJECT_NAME", "").strip()
+          default_cf_project_name = os.environ.get("DEFAULT_CF_PROJECT_NAME", "").strip()
+          effective_cf_project_name = input_cf_project_name or default_cf_project_name
+
+          if not input_catalog_base_url:
+              input_catalog_base_url = "https://corvus.profiletailors.com"
+
+          if not input_deploy_cf:
+              input_deploy_cf = "true"
+
+          if not input_catalog_base_url.startswith("https://"):
+              raise SystemExit("catalog_base_url must start with https://")
+
+          tag_plugin_id = ""
+          tag_version = ""
+          tag_match = re.fullmatch(r"plugin/(.+)/v([0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9_.-]+)?)", ref_name)
+          if tag_match:
+              tag_plugin_id = tag_match.group(1)
+              tag_version = tag_match.group(2)
+
+          if event_name == "push":
+              if not tag_match:
+                  raise SystemExit(
+                      "push trigger requires tag format plugin/<plugin-id>/v<semver>",
+                  )
+              plugin_id = tag_plugin_id
+              plugin_version = tag_version
+          else:
+              if not input_plugin_id or not input_plugin_version:
+                  raise SystemExit(
+                      "workflow_dispatch requires plugin_id and plugin_version inputs",
+                  )
+              plugin_id = input_plugin_id
+              plugin_version = input_plugin_version
+
+          if any(token in plugin_id for token in ["/", "\\", ".."]):
+              raise SystemExit(f"invalid plugin_id: {plugin_id!r}")
+
+          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9_.-]+)?", plugin_version):
+              raise SystemExit(
+                  "plugin_version must be semver without leading 'v'",
+              )
+
+          plugin_manifests = sorted(
+              pathlib.Path("clients/agent-runtime/plugins").glob("*/Cargo.toml"),
+          )
+          selected_plugin_manifest = None
+          selected_plugin_data = None
+
+          for manifest_path in plugin_manifests:
+              data = tomllib.loads(manifest_path.read_text(encoding="utf-8"))
+              metadata = data.get("package", {}).get("metadata", {}).get("corvus", {})
+              manifest_plugin_id = metadata.get("plugin_id", "").strip()
+              if manifest_plugin_id == plugin_id:
+                  selected_plugin_manifest = manifest_path
+                  selected_plugin_data = data
+                  break
+
+          if selected_plugin_manifest is None or selected_plugin_data is None:
+              raise SystemExit(
+                  f"plugin_id {plugin_id!r} not found. Ensure package.metadata.corvus.plugin_id is set.",
+              )
+
+          package = selected_plugin_data.get("package", {})
+          plugin_dir = selected_plugin_manifest.parent
+          manifest_version = str(package.get("version", "")).strip()
+          if not manifest_version:
+              raise SystemExit("plugin Cargo.toml missing package.version")
+          if manifest_version != plugin_version:
+              raise SystemExit(
+                  f"version mismatch: requested {plugin_version}, plugin Cargo.toml has {manifest_version}",
+              )
+
+          metadata = package.get("metadata", {}).get("corvus", {})
+          crate_name = str(package.get("name", "")).replace("-", "_")
+          if not crate_name:
+              raise SystemExit("plugin Cargo.toml missing package.name")
+
+          runtime_manifest = pathlib.Path("clients/agent-runtime/Cargo.toml")
+          runtime_data = tomllib.loads(runtime_manifest.read_text(encoding="utf-8"))
+          runtime_version = str(runtime_data.get("package", {}).get("version", "")).strip()
+          if not runtime_version:
+              raise SystemExit("clients/agent-runtime/Cargo.toml missing package.version")
+
+          publisher = str(metadata.get("publisher", "corvus-official")).strip() or "corvus-official"
+          runtime_api = str(metadata.get("runtime_api", "corvus-plugin/v1")).strip() or "corvus-plugin/v1"
+          capabilities = metadata.get("capabilities", ["memory"])
+          if not isinstance(capabilities, list) or not capabilities:
+              raise SystemExit("metadata.capabilities must be a non-empty array")
+          memory_entrypoint = str(metadata.get("memory_entrypoint", "memory_v1")).strip() or "memory_v1"
+          health_entrypoint = str(metadata.get("health_entrypoint", "health_v1")).strip() or "health_v1"
+          tools_entrypoints = metadata.get("tools_entrypoints", [])
+          if not isinstance(tools_entrypoints, list):
+              raise SystemExit("metadata.tools_entrypoints must be an array")
+          limits = {
+              "memory_mb": int(metadata.get("memory_mb", 256)),
+              "fuel": int(metadata.get("fuel", 1_000_000)),
+              "timeout_ms": int(metadata.get("timeout_ms", 10_000)),
+              "max_output_bytes": int(metadata.get("max_output_bytes", 262_144)),
+          }
+
+          artifact_relative_path = (
+              f"artifacts/{plugin_id}/{plugin_version}/{plugin_id}.wasm"
+          )
+          signature_relative_path = f"{artifact_relative_path}.sig"
+          certificate_relative_path = f"{artifact_relative_path}.pem"
+          manifest_relative_path = (
+              f"artifacts/{plugin_id}/{plugin_version}/plugin-manifest.json"
+          )
+          artifact_url = f"{input_catalog_base_url}/{artifact_relative_path}"
+          signature_url = f"{input_catalog_base_url}/{signature_relative_path}"
+          certificate_url = f"{input_catalog_base_url}/{certificate_relative_path}"
+          manifest_url = f"{input_catalog_base_url}/{manifest_relative_path}"
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as fh:
+              fh.write(f"plugin_id={plugin_id}\n")
+              fh.write(f"plugin_version={plugin_version}\n")
+              fh.write(f"plugin_dir={plugin_dir.as_posix()}\n")
+              fh.write(f"wasm_binary_name={crate_name}.wasm\n")
+              fh.write(f"runtime_version={runtime_version}\n")
+              fh.write(f"catalog_base_url={input_catalog_base_url}\n")
+              fh.write(f"oci_repository={input_oci_repository}\n")
+              fh.write(f"deploy_cloudflare_pages={input_deploy_cf}\n")
+              fh.write(f"cloudflare_project_name={effective_cf_project_name}\n")
+              fh.write(f"artifact_relative_path={artifact_relative_path}\n")
+              fh.write(f"signature_relative_path={signature_relative_path}\n")
+              fh.write(f"certificate_relative_path={certificate_relative_path}\n")
+              fh.write(f"manifest_relative_path={manifest_relative_path}\n")
+              fh.write(f"artifact_url={artifact_url}\n")
+              fh.write(f"signature_url={signature_url}\n")
+              fh.write(f"certificate_url={certificate_url}\n")
+              fh.write(f"manifest_url={manifest_url}\n")
+
+              fh.write(f"publisher={publisher}\n")
+              fh.write(f"runtime_api={runtime_api}\n")
+              fh.write(f"memory_entrypoint={memory_entrypoint}\n")
+              fh.write(f"health_entrypoint={health_entrypoint}\n")
+
+              fh.write("capabilities_json<<EOF\n")
+              fh.write(json.dumps(capabilities, separators=(",", ":")))
+              fh.write("\nEOF\n")
+
+              fh.write("tools_entrypoints_json<<EOF\n")
+              fh.write(json.dumps(tools_entrypoints, separators=(",", ":")))
+              fh.write("\nEOF\n")
+
+              fh.write("limits_json<<EOF\n")
+              fh.write(json.dumps(limits, separators=(",", ":")))
+              fh.write("\nEOF\n")
+
       - name: 🔨 Build WASM plugin artifact
+        env:
+          PLUGIN_DIR: ${{ steps.meta.outputs.plugin_dir }}
+          WASM_BINARY_NAME: ${{ steps.meta.outputs.wasm_binary_name }}
         run: |
           set -euo pipefail
+
           cargo build \
             --manifest-path "$PLUGIN_DIR/Cargo.toml" \
             --target wasm32-wasip1 \
             --release
 
-      - name: 📦 Assemble plugin bundle
-        run: |
-          set -euo pipefail
-          mkdir -p "$DIST_DIR"
-          wasm_source="$PLUGIN_DIR/target/wasm32-wasip1/release/memory_surreal_graphs_plugin.wasm"
-          wasm_target="$DIST_DIR/$PLUGIN_ID.wasm"
-          cp "$wasm_source" "$wasm_target"
+          wasm_source="$PLUGIN_DIR/target/wasm32-wasip1/release/$WASM_BINARY_NAME"
+          if [ ! -f "$wasm_source" ]; then
+            echo "WASM artifact not found: $wasm_source"
+            exit 1
+          fi
 
-          digest="sha256:$(sha256sum "$wasm_target" | awk '{print $1}')"
-
-          cat > "$DIST_DIR/plugin-manifest.json" <<JSON
-          {
-            "id": "$PLUGIN_ID",
-            "version": "$PLUGIN_VERSION",
-            "digest": "$digest",
-            "publisher": "corvus-official",
-            "runtime_api": "corvus-plugin/v1",
-            "min_agent_version": "0.1.4",
-            "capabilities": ["memory"],
-            "entrypoints": {
-              "memory": "memory_v1",
-              "health": "health_v1",
-              "tools": []
-            },
-            "limits": {
-              "memory_mb": 256,
-              "fuel": 1000000,
-              "timeout_ms": 10000,
-              "max_output_bytes": 262144
-            },
-            "artifact": {
-              "url": "$PLUGIN_ID.wasm",
-              "digest": "$digest"
-            }
-          }
-          JSON
-
-          cat > "$DIST_DIR/catalog.json" <<JSON
-          {
-            "plugins": [
-              {
-                "id": "$PLUGIN_ID",
-                "version": "$PLUGIN_VERSION",
-                "digest": "$digest",
-                "publisher": "corvus-official",
-                "runtime_api": "corvus-plugin/v1",
-                "min_agent_version": "0.1.4",
-                "capabilities": ["memory"],
-                "entrypoints": {
-                  "memory": "memory_v1",
-                  "health": "health_v1",
-                  "tools": []
-                },
-                "limits": {
-                  "memory_mb": 256,
-                  "fuel": 1000000,
-                  "timeout_ms": 10000,
-                  "max_output_bytes": 262144
-                },
-                "artifact": {
-                  "url": "$PLUGIN_ID.wasm",
-                  "digest": "$digest"
-                }
-              }
-            ]
-          }
-          JSON
-
-          cat > "$DIST_DIR/revocations.json" <<JSON
-          {
-            "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "revoked": []
-          }
-          JSON
-
-      - name: 🔐 Optional sign plugin bundle with cosign key
-        if: ${{ secrets.COSIGN_PRIVATE_KEY != '' }}
+      - name: 📦 Assemble immutable plugin bundle and upsert catalog
+        id: bundle
         env:
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          PLUGIN_ID: ${{ steps.meta.outputs.plugin_id }}
+          PLUGIN_VERSION: ${{ steps.meta.outputs.plugin_version }}
+          PLUGIN_DIR: ${{ steps.meta.outputs.plugin_dir }}
+          WASM_BINARY_NAME: ${{ steps.meta.outputs.wasm_binary_name }}
+          RUNTIME_VERSION: ${{ steps.meta.outputs.runtime_version }}
+          ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          SIGNATURE_RELATIVE_PATH: ${{ steps.meta.outputs.signature_relative_path }}
+          CERTIFICATE_RELATIVE_PATH: ${{ steps.meta.outputs.certificate_relative_path }}
+          MANIFEST_RELATIVE_PATH: ${{ steps.meta.outputs.manifest_relative_path }}
+          ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
+          SIGNATURE_URL: ${{ steps.meta.outputs.signature_url }}
+          CERTIFICATE_URL: ${{ steps.meta.outputs.certificate_url }}
+          MANIFEST_URL: ${{ steps.meta.outputs.manifest_url }}
+          PUBLISHER: ${{ steps.meta.outputs.publisher }}
+          RUNTIME_API: ${{ steps.meta.outputs.runtime_api }}
+          MEMORY_ENTRYPOINT: ${{ steps.meta.outputs.memory_entrypoint }}
+          HEALTH_ENTRYPOINT: ${{ steps.meta.outputs.health_entrypoint }}
+          CAPABILITIES_JSON: ${{ steps.meta.outputs.capabilities_json }}
+          TOOLS_ENTRYPOINTS_JSON: ${{ steps.meta.outputs.tools_entrypoints_json }}
+          LIMITS_JSON: ${{ steps.meta.outputs.limits_json }}
+          DIST_DIR: ${{ env.DIST_DIR }}
           COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+        shell: python
+        run: |
+          import datetime
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import shutil
+
+          dist_dir = pathlib.Path(os.environ["DIST_DIR"])
+          dist_dir.mkdir(parents=True, exist_ok=True)
+
+          plugin_dir = pathlib.Path(os.environ["PLUGIN_DIR"])
+          wasm_source = plugin_dir / "target" / "wasm32-wasip1" / "release" / os.environ["WASM_BINARY_NAME"]
+          if not wasm_source.exists():
+              raise SystemExit(f"WASM artifact not found: {wasm_source}")
+
+          artifact_relative_path = pathlib.Path(os.environ["ARTIFACT_RELATIVE_PATH"])
+          signature_relative_path = pathlib.Path(os.environ["SIGNATURE_RELATIVE_PATH"])
+          certificate_relative_path = pathlib.Path(os.environ["CERTIFICATE_RELATIVE_PATH"])
+          manifest_relative_path = pathlib.Path(os.environ["MANIFEST_RELATIVE_PATH"])
+
+          artifact_target = dist_dir / artifact_relative_path
+          artifact_target.parent.mkdir(parents=True, exist_ok=True)
+          shutil.copy2(wasm_source, artifact_target)
+
+          digest = hashlib.sha256(artifact_target.read_bytes()).hexdigest()
+          digest_prefixed = f"sha256:{digest}"
+
+          capabilities = json.loads(os.environ["CAPABILITIES_JSON"])
+          tools = json.loads(os.environ["TOOLS_ENTRYPOINTS_JSON"])
+          limits = json.loads(os.environ["LIMITS_JSON"])
+
+          plugin_entry = {
+              "id": os.environ["PLUGIN_ID"],
+              "version": os.environ["PLUGIN_VERSION"],
+              "digest": digest_prefixed,
+              "publisher": os.environ["PUBLISHER"],
+              "runtime_api": os.environ["RUNTIME_API"],
+              "min_agent_version": os.environ["RUNTIME_VERSION"],
+              "capabilities": capabilities,
+              "entrypoints": {
+                  "memory": os.environ["MEMORY_ENTRYPOINT"],
+                  "health": os.environ["HEALTH_ENTRYPOINT"],
+                  "tools": tools,
+              },
+              "limits": limits,
+              "artifact": {
+                  "url": os.environ["ARTIFACT_URL"],
+                  "digest": digest_prefixed,
+              },
+            }
+
+          signature = {
+              "url": os.environ["SIGNATURE_URL"],
+          }
+          if not os.environ.get("COSIGN_PRIVATE_KEY", ""):
+              signature["certificate_url"] = os.environ["CERTIFICATE_URL"]
+          plugin_entry["signature"] = signature
+
+          manifest_target = dist_dir / manifest_relative_path
+          manifest_target.parent.mkdir(parents=True, exist_ok=True)
+          manifest_target.write_text(json.dumps(plugin_entry, indent=2) + "\n", encoding="utf-8")
+          (dist_dir / "plugin-manifest.json").write_text(
+              json.dumps(plugin_entry, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          source_catalog = pathlib.Path("clients/web/apps/plugins/public/catalog.json")
+          if source_catalog.exists():
+              catalog_payload = json.loads(source_catalog.read_text(encoding="utf-8"))
+          else:
+              catalog_payload = {"plugins": []}
+
+          existing_plugins = catalog_payload.get("plugins", [])
+          if not isinstance(existing_plugins, list):
+              raise SystemExit("catalog.json malformed: plugins must be an array")
+
+          filtered = [plugin for plugin in existing_plugins if plugin.get("id") != plugin_entry["id"]]
+          filtered.append(plugin_entry)
+          filtered.sort(key=lambda plugin: plugin.get("id", ""))
+          catalog_out = {"plugins": filtered}
+          (dist_dir / "catalog.json").write_text(
+              json.dumps(catalog_out, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          source_revocations = pathlib.Path("clients/web/apps/plugins/public/revocations.json")
+          if source_revocations.exists():
+              revocations_payload = json.loads(source_revocations.read_text(encoding="utf-8"))
+          else:
+              revocations_payload = {"updated_at": None, "revoked": []}
+
+          revocations_payload["updated_at"] = (
+              datetime.datetime.now(datetime.timezone.utc)
+              .replace(microsecond=0)
+              .isoformat()
+              .replace("+00:00", "Z")
+          )
+          if not isinstance(revocations_payload.get("revoked"), list):
+              revocations_payload["revoked"] = []
+
+          (dist_dir / "revocations.json").write_text(
+              json.dumps(revocations_payload, indent=2) + "\n",
+              encoding="utf-8",
+          )
+
+          output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
+          with output.open("a", encoding="utf-8") as fh:
+              fh.write(f"artifact_digest={digest_prefixed}\n")
+
+      - name: 🔐 Install cosign securely
         run: |
           set -euo pipefail
           COSIGN_VERSION="v2.4.1"
@@ -138,23 +406,80 @@ jobs:
             echo "Could not find checksum for ${COSIGN_BINARY}"
             exit 1
           fi
+
           printf '%s\n' "${cosign_checksum_line}" > cosign.sha256
           sha256sum --check --strict cosign.sha256
 
           mv "${COSIGN_BINARY}" cosign
           chmod +x cosign
-          ./cosign sign-blob \
-            --yes \
-            --key env://COSIGN_PRIVATE_KEY \
-            --output-signature "$DIST_DIR/$PLUGIN_ID.wasm.sig" \
-            --output-certificate "$DIST_DIR/$PLUGIN_ID.wasm.pem" \
-            "$DIST_DIR/$PLUGIN_ID.wasm"
+
+      - name: ✍️ Sign plugin artifact (keyed or keyless)
+        id: sign
+        env:
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          DIST_DIR: ${{ env.DIST_DIR }}
+          ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+        run: |
+          set -euo pipefail
+
+          artifact_path="$DIST_DIR/$ARTIFACT_RELATIVE_PATH"
+          signature_path="${artifact_path}.sig"
+          certificate_path="${artifact_path}.pem"
+
+          if [ -n "${COSIGN_PRIVATE_KEY:-}" ]; then
+            ./cosign sign-blob \
+              --yes \
+              --key env://COSIGN_PRIVATE_KEY \
+              --output-signature "$signature_path" \
+              "$artifact_path"
+            echo "has_certificate=false" >> "$GITHUB_OUTPUT"
+          else
+            ./cosign sign-blob \
+              --yes \
+              --output-signature "$signature_path" \
+              --output-certificate "$certificate_path" \
+              "$artifact_path"
+            echo "has_certificate=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: ✅ Verify plugin signature
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          DIST_DIR: ${{ env.DIST_DIR }}
+          ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+        run: |
+          set -euo pipefail
+
+          artifact_path="$DIST_DIR/$ARTIFACT_RELATIVE_PATH"
+          signature_path="${artifact_path}.sig"
+          certificate_path="${artifact_path}.pem"
+
+          if [ -n "${COSIGN_PRIVATE_KEY:-}" ]; then
+            ./cosign public-key --key env://COSIGN_PRIVATE_KEY > cosign.pub
+            ./cosign verify-blob \
+              --key cosign.pub \
+              --signature "$signature_path" \
+              "$artifact_path"
+          else
+            ./cosign verify-blob \
+              --certificate "$certificate_path" \
+              --signature "$signature_path" \
+              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+              --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-plugins.yml@.*" \
+              "$artifact_path"
+          fi
 
       - name: 🚀 Optional publish plugin artifact to OCI
-        if: ${{ env.OCI_REPOSITORY != '' }}
+        if: ${{ steps.meta.outputs.oci_repository != '' }}
         env:
+          OCI_REPOSITORY: ${{ steps.meta.outputs.oci_repository }}
           OCI_USERNAME: ${{ secrets.OCI_USERNAME }}
           OCI_PASSWORD: ${{ secrets.OCI_PASSWORD }}
+          PLUGIN_VERSION: ${{ steps.meta.outputs.plugin_version }}
+          DIST_DIR: ${{ env.DIST_DIR }}
+          ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          MANIFEST_RELATIVE_PATH: ${{ steps.meta.outputs.manifest_relative_path }}
         run: |
           set -euo pipefail
           ORAS_VERSION="1.2.3"
@@ -169,6 +494,7 @@ jobs:
             echo "Could not find checksum for ${ORAS_TARBALL}"
             exit 1
           fi
+
           printf '%s\n' "${oras_checksum_line}" > oras.sha256
           sha256sum --check --strict oras.sha256
 
@@ -180,21 +506,134 @@ jobs:
             ./oras login "$registry" -u "$OCI_USERNAME" -p "$OCI_PASSWORD"
           fi
 
-          ./oras push "$OCI_REPOSITORY:$PLUGIN_VERSION" \
-            "$DIST_DIR/$PLUGIN_ID.wasm:application/wasm" \
-            "$DIST_DIR/plugin-manifest.json:application/json" \
-            "$DIST_DIR/catalog.json:application/json" \
+          oras_args=(
+            "$DIST_DIR/$ARTIFACT_RELATIVE_PATH:application/wasm"
+            "$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.sig:application/octet-stream"
+            "$DIST_DIR/$MANIFEST_RELATIVE_PATH:application/json"
+            "$DIST_DIR/catalog.json:application/json"
             "$DIST_DIR/revocations.json:application/json"
+          )
+
+          certificate_path="$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.pem"
+          if [ -f "$certificate_path" ]; then
+            oras_args+=("$certificate_path:application/x-pem-file")
+          fi
+
+          ./oras push "$OCI_REPOSITORY:$PLUGIN_VERSION" "${oras_args[@]}"
+
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: 10
+
+      - name: 📦 Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: 24
+          cache: "pnpm"
+          cache-dependency-path: clients/web/pnpm-lock.yaml
+
+      - name: 🧩 Stage generated catalog assets
+        env:
+          DIST_DIR: ${{ env.DIST_DIR }}
+          ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          SIGNATURE_RELATIVE_PATH: ${{ steps.meta.outputs.signature_relative_path }}
+          CERTIFICATE_RELATIVE_PATH: ${{ steps.meta.outputs.certificate_relative_path }}
+          MANIFEST_RELATIVE_PATH: ${{ steps.meta.outputs.manifest_relative_path }}
+        run: |
+          set -euo pipefail
+
+          catalog_public="clients/web/apps/plugins/public"
+
+          mkdir -p "$catalog_public/$(dirname "$ARTIFACT_RELATIVE_PATH")"
+          cp "$DIST_DIR/$ARTIFACT_RELATIVE_PATH" "$catalog_public/$ARTIFACT_RELATIVE_PATH"
+          cp "$DIST_DIR/$SIGNATURE_RELATIVE_PATH" "$catalog_public/$SIGNATURE_RELATIVE_PATH"
+          if [ -f "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" ]; then
+            cp "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "$catalog_public/$CERTIFICATE_RELATIVE_PATH"
+          fi
+          cp "$DIST_DIR/$MANIFEST_RELATIVE_PATH" "$catalog_public/$MANIFEST_RELATIVE_PATH"
+          cp "$DIST_DIR/catalog.json" "$catalog_public/catalog.json"
+          cp "$DIST_DIR/revocations.json" "$catalog_public/revocations.json"
+
+      - name: 📥 Install web dependencies
+        working-directory: clients/web
+        run: pnpm install --frozen-lockfile --filter @corvus/plugins-catalog...
+
+      - name: 🏗️ Build plugins catalog site
+        working-directory: clients/web
+        env:
+          PLUGINS_URL: ${{ steps.meta.outputs.catalog_base_url }}
+        run: pnpm run build:plugins
+
+      - name: 🚀 Optional deploy plugins catalog to Cloudflare Pages
+        if: ${{ steps.meta.outputs.deploy_cloudflare_pages == 'true' }}
+        working-directory: clients/web/apps/plugins
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_PROJECT_NAME: ${{ steps.meta.outputs.cloudflare_project_name }}
+          PLUGIN_ID: ${{ steps.meta.outputs.plugin_id }}
+          PLUGIN_VERSION: ${{ steps.meta.outputs.plugin_version }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "Missing required Cloudflare secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID"
+            exit 1
+          fi
+
+          if [ -z "${CLOUDFLARE_PROJECT_NAME:-}" ]; then
+            echo "Missing cloudflare_project_name input"
+            exit 1
+          fi
+
+          pnpm dlx wrangler@4.44.0 pages deploy ./dist \
+            --project-name "$CLOUDFLARE_PROJECT_NAME" \
+            --branch main \
+            --commit-hash "$GITHUB_SHA" \
+            --commit-message "publish plugin ${PLUGIN_ID} ${PLUGIN_VERSION}"
 
       - name: ⬆ Upload plugin bundle artifacts
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
-          name: plugin-bundle-${{ env.PLUGIN_ID }}-${{ env.PLUGIN_VERSION }}
+          name: plugin-bundle-${{ steps.meta.outputs.plugin_id }}-${{ steps.meta.outputs.plugin_version }}
           path: |
-            clients/agent-runtime/dist/plugins/${{ env.PLUGIN_ID }}.wasm
+            clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.artifact_relative_path }}
+            clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.signature_relative_path }}
+            clients/agent-runtime/dist/plugins/**/*.pem
+            clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.manifest_relative_path }}
             clients/agent-runtime/dist/plugins/plugin-manifest.json
             clients/agent-runtime/dist/plugins/catalog.json
             clients/agent-runtime/dist/plugins/revocations.json
-            clients/agent-runtime/dist/plugins/${{ env.PLUGIN_ID }}.wasm.sig
-            clients/agent-runtime/dist/plugins/${{ env.PLUGIN_ID }}.wasm.pem
-          if-no-files-found: ignore
+          if-no-files-found: error
+
+      - name: ⬆ Upload plugins catalog site artifact
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+        with:
+          name: plugins-catalog-site-${{ steps.meta.outputs.plugin_id }}-${{ steps.meta.outputs.plugin_version }}
+          path: clients/web/apps/plugins/dist
+          if-no-files-found: error
+
+      - name: 📝 Publish summary
+        env:
+          PLUGIN_ID: ${{ steps.meta.outputs.plugin_id }}
+          PLUGIN_VERSION: ${{ steps.meta.outputs.plugin_version }}
+          RUNTIME_VERSION: ${{ steps.meta.outputs.runtime_version }}
+          ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
+          MANIFEST_URL: ${{ steps.meta.outputs.manifest_url }}
+          CATALOG_URL: ${{ steps.meta.outputs.catalog_base_url }}/catalog.json
+          REVOCATIONS_URL: ${{ steps.meta.outputs.catalog_base_url }}/revocations.json
+          ARTIFACT_DIGEST: ${{ steps.bundle.outputs.artifact_digest }}
+        run: |
+          {
+            echo "## Plugin publish summary"
+            echo
+            echo "- Plugin ID: \`$PLUGIN_ID\`"
+            echo "- Plugin version: \`$PLUGIN_VERSION\`"
+            echo "- Min agent version: \`$RUNTIME_VERSION\`"
+            echo "- Artifact URL: \`$ARTIFACT_URL\`"
+            echo "- Manifest URL: \`$MANIFEST_URL\`"
+            echo "- Catalog URL: \`$CATALOG_URL\`"
+            echo "- Revocations URL: \`$REVOCATIONS_URL\`"
+            echo "- Artifact digest: \`$ARTIFACT_DIGEST\`"
+          } >> "$GITHUB_STEP_SUMMARY"
