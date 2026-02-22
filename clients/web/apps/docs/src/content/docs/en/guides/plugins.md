@@ -123,8 +123,7 @@ Current workflow behavior:
    - `artifacts/<plugin-id>/<version>/plugin-manifest.json`
    - root `catalog.json` (upsert plugin entry, keep others)
    - root `revocations.json` (preserve list, refresh `updated_at`)
-5. Sign artifact with cosign (key-based when `COSIGN_PRIVATE_KEY` is set, otherwise keyless
-   OIDC).
+5. Sign artifact with cosign keyless OIDC identity.
 6. Verify signature in CI.
 7. Optionally push artifact bundle to OCI (`oci_repository`).
 8. Build plugins catalog app and deploy to Cloudflare Pages (enabled by default for release tags).

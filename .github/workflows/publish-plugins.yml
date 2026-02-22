@@ -101,7 +101,8 @@ jobs:
 
           tag_plugin_id = ""
           tag_version = ""
-          tag_match = re.fullmatch(r"plugin/(.+)/v([0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9_.-]+)?)", ref_name)
+          semver_pattern = r"[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9_.-]+)?(?:\+[A-Za-z0-9_.-]+)?"
+          tag_match = re.fullmatch(rf"plugin/(.+)/v({semver_pattern})", ref_name)
           if tag_match:
               tag_plugin_id = tag_match.group(1)
               tag_version = tag_match.group(2)
@@ -124,7 +125,7 @@ jobs:
           if any(token in plugin_id for token in ["/", "\\", ".."]):
               raise SystemExit(f"invalid plugin_id: {plugin_id!r}")
 
-          if not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+(?:[-+][A-Za-z0-9_.-]+)?", plugin_version):
+          if not re.fullmatch(semver_pattern, plugin_version):
               raise SystemExit(
                   "plugin_version must be semver without leading 'v'",
               )
@@ -279,7 +280,6 @@ jobs:
           TOOLS_ENTRYPOINTS_JSON: ${{ steps.meta.outputs.tools_entrypoints_json }}
           LIMITS_JSON: ${{ steps.meta.outputs.limits_json }}
           DIST_DIR: ${{ env.DIST_DIR }}
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
         shell: python
         run: |
           import datetime
@@ -333,12 +333,10 @@ jobs:
               },
             }
 
-          signature = {
+          plugin_entry["signature"] = {
               "url": os.environ["SIGNATURE_URL"],
+              "certificate_url": os.environ["CERTIFICATE_URL"],
           }
-          if not os.environ.get("COSIGN_PRIVATE_KEY", ""):
-              signature["certificate_url"] = os.environ["CERTIFICATE_URL"]
-          plugin_entry["signature"] = signature
 
           manifest_target = dist_dir / manifest_relative_path
           manifest_target.parent.mkdir(parents=True, exist_ok=True)
@@ -394,7 +392,7 @@ jobs:
       - name: 🔐 Install cosign securely
         run: |
           set -euo pipefail
-          COSIGN_VERSION="v2.4.1"
+          COSIGN_VERSION="v2.6.1"
           COSIGN_BINARY="cosign-linux-amd64"
           COSIGN_BASE_URL="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}"
 
@@ -413,11 +411,9 @@ jobs:
           mv "${COSIGN_BINARY}" cosign
           chmod +x cosign
 
-      - name: ✍️ Sign plugin artifact (keyed or keyless)
+      - name: ✍️ Sign plugin artifact (keyless OIDC)
         id: sign
         env:
-          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
         run: |
@@ -427,25 +423,14 @@ jobs:
           signature_path="${artifact_path}.sig"
           certificate_path="${artifact_path}.pem"
 
-          if [ -n "${COSIGN_PRIVATE_KEY:-}" ]; then
-            ./cosign sign-blob \
-              --yes \
-              --key env://COSIGN_PRIVATE_KEY \
-              --output-signature "$signature_path" \
-              "$artifact_path"
-            echo "has_certificate=false" >> "$GITHUB_OUTPUT"
-          else
-            ./cosign sign-blob \
-              --yes \
-              --output-signature "$signature_path" \
-              --output-certificate "$certificate_path" \
-              "$artifact_path"
-            echo "has_certificate=true" >> "$GITHUB_OUTPUT"
-          fi
+          ./cosign sign-blob \
+            --yes \
+            --output-signature "$signature_path" \
+            --output-certificate "$certificate_path" \
+            "$artifact_path"
 
       - name: ✅ Verify plugin signature
         env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
         run: |
@@ -455,20 +440,12 @@ jobs:
           signature_path="${artifact_path}.sig"
           certificate_path="${artifact_path}.pem"
 
-          if [ -n "${COSIGN_PRIVATE_KEY:-}" ]; then
-            ./cosign public-key --key env://COSIGN_PRIVATE_KEY > cosign.pub
-            ./cosign verify-blob \
-              --key cosign.pub \
-              --signature "$signature_path" \
-              "$artifact_path"
-          else
-            ./cosign verify-blob \
-              --certificate "$certificate_path" \
-              --signature "$signature_path" \
-              --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-              --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/.github/workflows/publish-plugins.yml@.*" \
-              "$artifact_path"
-          fi
+          ./cosign verify-blob \
+            --certificate "$certificate_path" \
+            --signature "$signature_path" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/\\.github/workflows/publish-plugins.yml@.*" \
+            "$artifact_path"
 
       - name: 🚀 Optional publish plugin artifact to OCI
         if: ${{ steps.meta.outputs.oci_repository != '' }}
@@ -515,9 +492,8 @@ jobs:
           )
 
           certificate_path="$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.pem"
-          if [ -f "$certificate_path" ]; then
-            oras_args+=("$certificate_path:application/x-pem-file")
-          fi
+          test -f "$certificate_path" || { echo "missing certificate: $certificate_path" >&2; exit 1; }
+          oras_args+=("$certificate_path:application/x-pem-file")
 
           ./oras push "$OCI_REPOSITORY:$PLUGIN_VERSION" "${oras_args[@]}"
 
@@ -548,9 +524,8 @@ jobs:
           mkdir -p "$catalog_public/$(dirname "$ARTIFACT_RELATIVE_PATH")"
           cp "$DIST_DIR/$ARTIFACT_RELATIVE_PATH" "$catalog_public/$ARTIFACT_RELATIVE_PATH"
           cp "$DIST_DIR/$SIGNATURE_RELATIVE_PATH" "$catalog_public/$SIGNATURE_RELATIVE_PATH"
-          if [ -f "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" ]; then
-            cp "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "$catalog_public/$CERTIFICATE_RELATIVE_PATH"
-          fi
+          test -f "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" || { echo "missing certificate: $DIST_DIR/$CERTIFICATE_RELATIVE_PATH" >&2; exit 1; }
+          cp "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "$catalog_public/$CERTIFICATE_RELATIVE_PATH"
           cp "$DIST_DIR/$MANIFEST_RELATIVE_PATH" "$catalog_public/$MANIFEST_RELATIVE_PATH"
           cp "$DIST_DIR/catalog.json" "$catalog_public/catalog.json"
           cp "$DIST_DIR/revocations.json" "$catalog_public/revocations.json"
