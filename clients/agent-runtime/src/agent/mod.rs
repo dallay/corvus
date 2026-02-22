@@ -5,6 +5,7 @@ pub mod dispatcher;
 pub mod loop_;
 pub mod memory_loader;
 pub mod prompt;
+pub(crate) mod validation;
 
 #[cfg(test)]
 mod tests;

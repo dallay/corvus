@@ -209,6 +209,13 @@ pub struct LockedPlugin {
     pub capabilities: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct ResolvedMemoryPlugin {
+    pub locked: LockedPlugin,
+    pub wasm_path: PathBuf,
+    pub manifest: PluginManifest,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RevocationList {
     #[serde(default)]
@@ -1923,6 +1930,77 @@ pub fn resolve_memory_plugin(
     }
 
     Ok(Some(plugin))
+}
+
+pub fn resolve_memory_plugin_runtime(
+    workspace_dir: &Path,
+    plugin_id: &str,
+) -> Result<Option<ResolvedMemoryPlugin>> {
+    let Some(locked) = resolve_memory_plugin(workspace_dir, plugin_id)? else {
+        return Ok(None);
+    };
+
+    let corvus_dir = infer_corvus_dir_from_workspace(workspace_dir);
+    let wasm_path = safe_plugin_artifact_path(&corvus_dir, &locked.path)?;
+    if !wasm_path.exists() {
+        return Ok(None);
+    }
+
+    let install_dir = wasm_path.parent().ok_or_else(|| {
+        anyhow!(
+            "Plugin '{}' artifact path has no parent directory: {}",
+            locked.id,
+            wasm_path.display()
+        )
+    })?;
+    let manifest_path = install_dir.join(MANIFEST_FILE_NAME);
+    if !manifest_path.exists() {
+        return Ok(None);
+    }
+
+    let raw = fs::read_to_string(&manifest_path).with_context(|| {
+        format!(
+            "Failed to read plugin manifest metadata: {}",
+            manifest_path.display()
+        )
+    })?;
+
+    let manifest: PluginManifest = toml_or_json_deserialize(&raw)?;
+    validate_plugin_identifier(&manifest.id)?;
+    validate_plugin_version(&manifest.version)?;
+
+    if manifest.id != locked.id {
+        bail!(
+            "Plugin manifest id mismatch for '{}': lockfile='{}', manifest='{}'",
+            plugin_id,
+            locked.id,
+            manifest.id
+        );
+    }
+
+    if manifest.version != locked.version {
+        bail!(
+            "Plugin manifest version mismatch for '{}': lockfile='{}', manifest='{}'",
+            plugin_id,
+            locked.version,
+            manifest.version
+        );
+    }
+
+    if manifest.runtime_api != locked.runtime_api {
+        bail!(
+            "Plugin runtime_api mismatch for '{}': lockfile='{}', manifest='{}'",
+            plugin_id,
+            locked.runtime_api,
+            manifest.runtime_api
+        );
+    }
+
+    Ok(Some(ResolvedMemoryPlugin {
+        locked,
+        wasm_path,
+        manifest,
+    }))
 }
 
 pub fn install_official_surreal_graphs(config: &Config) -> Result<LockedPlugin> {

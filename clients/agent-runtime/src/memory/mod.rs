@@ -5,6 +5,7 @@ pub mod hygiene;
 pub mod lucid;
 pub mod markdown;
 pub mod none;
+#[cfg(feature = "memory-plugin")]
 pub mod plugin;
 pub mod response_cache;
 pub mod snapshot;
@@ -22,6 +23,7 @@ pub use backend::{
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
 pub use none::NoneMemory;
+#[cfg(feature = "memory-plugin")]
 pub use plugin::PluginBackedMemory;
 pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
@@ -29,7 +31,7 @@ pub use sqlite::SqliteMemory;
 pub use surreal::SurrealMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
-pub use traits::{MemoryCategory, MemoryEntry};
+pub use traits::{MemoryCategory, MemoryEntry, MemoryValidationResult};
 
 use crate::config::MemoryConfig;
 use std::path::Path;
@@ -110,33 +112,57 @@ pub fn create_memory(
             let local = build_sqlite_memory(config, workspace_dir, api_key)?;
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
-        MemoryBackendKind::SurrealGraphs => match crate::plugins::resolve_memory_plugin(
-            workspace_dir,
-            crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
-        ) {
-            Ok(Some(plugin)) => {
-                tracing::info!(
-                    "Using plugin-backed memory backend '{}' (version {})",
-                    plugin.id,
-                    plugin.version
-                );
-                Ok(Box::new(PluginBackedMemory::new(plugin.id, workspace_dir)))
+        MemoryBackendKind::SurrealGraphs => {
+            #[cfg(feature = "memory-plugin")]
+            {
+                match crate::plugins::resolve_memory_plugin_runtime(
+                    workspace_dir,
+                    crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
+                ) {
+                    Ok(Some(plugin_runtime)) => {
+                        tracing::info!(
+                            "Using plugin-backed memory backend '{}' (version {})",
+                            plugin_runtime.locked.id,
+                            plugin_runtime.locked.version
+                        );
+                        match PluginBackedMemory::new(plugin_runtime, config, workspace_dir) {
+                            Ok(memory) => Ok(Box::new(memory)),
+                            Err(error) => {
+                                tracing::error!(
+                                    plugin_id = crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
+                                    error = %error,
+                                    "surreal-graphs backend requested but plugin initialization failed; falling back to markdown (SurrealDB graph features and persistence are unavailable)"
+                                );
+                                Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+                            }
+                        }
+                    }
+                    Ok(None) => {
+                        tracing::error!(
+                            plugin_id = crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
+                            "memory backend 'surreal-graphs' selected but plugin is not installed or not trusted; falling back to markdown (SurrealDB graph features and persistence are unavailable). Install and trust this plugin id to restore surreal-graphs"
+                        );
+                        Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+                    }
+                    Err(error) => {
+                        tracing::error!(
+                            plugin_id = crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
+                            error = %error,
+                            "memory backend 'surreal-graphs' selected but plugin verification failed; falling back to markdown (SurrealDB graph features and persistence are unavailable). Install and trust this plugin id to restore surreal-graphs"
+                        );
+                        Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+                    }
+                }
             }
-            Ok(None) => {
+            #[cfg(not(feature = "memory-plugin"))]
+            {
                 tracing::warn!(
-                    "Memory backend 'surreal-graphs' selected but plugin '{}' is not installed or not trusted; falling back to markdown",
-                    crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID
+                    "Memory backend 'surreal-graphs' requested but binary was built without \
+                     feature 'memory-plugin'; falling back to markdown"
                 );
                 Ok(Box::new(MarkdownMemory::new(workspace_dir)))
             }
-            Err(error) => {
-                tracing::warn!(
-                    "Memory plugin '{}' verification failed: {error}. Falling back to markdown",
-                    crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID
-                );
-                Ok(Box::new(MarkdownMemory::new(workspace_dir)))
-            }
-        },
+        }
         MemoryBackendKind::Surreal => {
             #[cfg(feature = "memory-surreal")]
             {
@@ -397,18 +423,6 @@ mod tests {
                 _ => panic!("unexpected backend"),
             }
         }
-    }
-
-    #[test]
-    fn factory_surreal_graphs_fallback_when_plugin_missing() {
-        let tmp = TempDir::new().unwrap();
-        let cfg = MemoryConfig {
-            backend: "surreal-graphs".into(),
-            ..MemoryConfig::default()
-        };
-        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
-        // Should fall back to markdown when plugin not installed
-        assert_eq!(mem.name(), "markdown");
     }
 
     #[test]

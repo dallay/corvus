@@ -232,6 +232,35 @@ async fn build_context(mem: &dyn Memory, user_msg: &str, min_relevance_score: f6
     context
 }
 
+async fn enforce_strict_memory_validation(
+    mem: &dyn Memory,
+    provider: &dyn Provider,
+    model: &str,
+    temperature: f64,
+    user_query: &str,
+    candidate: String,
+) -> String {
+    crate::agent::validation::enforce_strict_validation(
+        mem,
+        provider,
+        model,
+        temperature,
+        user_query,
+        candidate,
+    )
+    .await
+}
+
+fn replace_last_assistant_message(history: &mut [ChatMessage], content: &str) {
+    if let Some(message) = history
+        .iter_mut()
+        .rev()
+        .find(|message| message.role == "assistant")
+    {
+        message.content = content.to_string();
+    }
+}
+
 /// Build hardware datasheet context from RAG when peripherals are enabled.
 /// Includes pin-alias lookup (e.g. "red_led" → 13) when query matches, plus retrieved chunks.
 fn build_hardware_context(
@@ -1431,6 +1460,16 @@ pub async fn run(
             None,
         )
         .await?;
+        let response = enforce_strict_memory_validation(
+            mem.as_ref(),
+            provider.as_ref(),
+            model_name,
+            temperature,
+            &msg,
+            response,
+        )
+        .await;
+        replace_last_assistant_message(&mut history, &response);
         final_output = response.clone();
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
@@ -1564,6 +1603,16 @@ pub async fn run(
                     continue;
                 }
             };
+            let response = enforce_strict_memory_validation(
+                mem.as_ref(),
+                provider.as_ref(),
+                model_name,
+                temperature,
+                &user_input,
+                response,
+            )
+            .await;
+            replace_last_assistant_message(&mut history, &response);
             final_output = response.clone();
             if let Err(e) = crate::channels::Channel::send(
                 &cli,
@@ -1763,7 +1812,7 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         ChatMessage::user(&enriched),
     ];
 
-    agent_turn(
+    let response = agent_turn(
         provider.as_ref(),
         &mut history,
         &tools_registry,
@@ -1774,7 +1823,17 @@ pub async fn process_message(config: Config, message: &str) -> Result<String> {
         true,
         config.agent.max_tool_iterations,
     )
-    .await
+    .await?;
+
+    Ok(enforce_strict_memory_validation(
+        mem.as_ref(),
+        provider.as_ref(),
+        &model_name,
+        config.default_temperature,
+        message,
+        response,
+    )
+    .await)
 }
 
 #[cfg(test)]

@@ -124,6 +124,25 @@ async fn build_memory_context(
     context
 }
 
+async fn enforce_strict_memory_validation(
+    mem: &dyn Memory,
+    provider: &dyn Provider,
+    model: &str,
+    temperature: f64,
+    user_query: &str,
+    candidate: String,
+) -> String {
+    crate::agent::validation::enforce_strict_validation(
+        mem,
+        provider,
+        model,
+        temperature,
+        user_query,
+        candidate,
+    )
+    .await
+}
+
 fn spawn_supervised_listener(
     ch: Arc<dyn Channel>,
     tx: tokio::sync::mpsc::Sender<traits::ChannelMessage>,
@@ -363,6 +382,16 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
 
     match llm_result {
         Ok(Ok(response)) => {
+            let response = enforce_strict_memory_validation(
+                ctx.memory.as_ref(),
+                ctx.provider.as_ref(),
+                ctx.model.as_str(),
+                ctx.temperature,
+                &msg.content,
+                response,
+            )
+            .await;
+
             // Save user + assistant turn to per-sender history
             {
                 let mut histories = ctx

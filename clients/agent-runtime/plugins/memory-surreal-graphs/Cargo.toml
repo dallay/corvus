@@ -21,6 +21,12 @@ max_output_bytes = 262144
 [lib]
 crate-type = ["cdylib"]
 
+[dependencies]
+hex = "0.4"
+serde = { version = "1.0", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
+sha2 = "0.10"
+
 [profile.release]
 opt-level = "z"
 lto = true

@@ -142,7 +142,10 @@ impl PairingGuard {
 
         let hashed = hash_token(normalized);
         let tokens = self.paired_tokens.lock();
-        tokens.iter().any(|stored| constant_time_eq(stored, &hashed))
+        tokens.iter().fold(false, |acc, stored| {
+            let equal = constant_time_eq(stored, &hashed);
+            acc | equal
+        })
     }
 
     /// Returns true if the gateway is already paired (has at least one token).
@@ -294,7 +297,6 @@ mod tests {
         let guard = PairingGuard::new(true, &["zc_valid".into()]);
         assert!(!guard.is_authenticated("zc_invalid"));
     }
-
 
     #[test]
     fn is_authenticated_rejects_blank_and_whitespace_token() {
