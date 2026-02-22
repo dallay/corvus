@@ -1,6 +1,19 @@
 use crate::memory::Memory;
 use crate::providers::Provider;
 
+const MAX_PROMPT_DRAFT_RESPONSE_CHARS: usize = 8_000;
+const MAX_PROMPT_VIOLATIONS_CHARS: usize = 2_000;
+
+fn truncate_for_prompt(text: &str, max_chars: usize) -> String {
+    let mut chars = text.chars();
+    let preview: String = chars.by_ref().take(max_chars).collect();
+    if chars.next().is_none() {
+        return preview;
+    }
+
+    format!("{preview}\n...[truncated for safety]...")
+}
+
 pub(crate) async fn enforce_strict_validation(
     mem: &dyn Memory,
     provider: &dyn Provider,
@@ -33,11 +46,14 @@ pub(crate) async fn enforce_strict_validation(
             .join("\n")
     };
 
+    let candidate_for_prompt = truncate_for_prompt(&candidate, MAX_PROMPT_DRAFT_RESPONSE_CHARS);
+    let violations_for_prompt = truncate_for_prompt(&violations_text, MAX_PROMPT_VIOLATIONS_CHARS);
+
     let correction_prompt = format!(
         "User query:\n{}\n\nDraft response:\n{}\n\nOntology violations:\n{}\n\nRewrite the draft response so all violations are fixed. Keep it concise and factual. Do not call tools.",
         user_query,
-        candidate,
-        violations_text,
+        candidate_for_prompt,
+        violations_for_prompt,
     );
 
     let corrected = match provider

@@ -72,7 +72,7 @@ impl Memory for PluginBackedMemory {
             json!({
                 "key": key,
                 "content": content,
-                "category": category_to_string(&category),
+                "category": category.to_string(),
                 "session_id": session_id,
             }),
         );
@@ -135,7 +135,7 @@ impl Memory for PluginBackedMemory {
         let request = Self::rpc_request(
             "list",
             json!({
-                "category": category.map(category_to_string),
+                "category": category.map(std::string::ToString::to_string),
                 "session_id": session_id,
             }),
         );
@@ -307,18 +307,18 @@ impl PluginWasmExecutor {
     }
 
     async fn invoke_memory(&self, request: PluginRpcRequest) -> Result<PluginRpcResponse> {
-        self.invoke_with_entrypoint(self.inner.memory_entrypoint.clone(), request)
+        self.invoke_with_entrypoint(PluginEntrypoint::Memory, request)
             .await
     }
 
     async fn invoke_health(&self, request: PluginRpcRequest) -> Result<PluginRpcResponse> {
-        self.invoke_with_entrypoint(self.inner.health_entrypoint.clone(), request)
+        self.invoke_with_entrypoint(PluginEntrypoint::Health, request)
             .await
     }
 
     async fn invoke_with_entrypoint(
         &self,
-        entrypoint: String,
+        entrypoint: PluginEntrypoint,
         request: PluginRpcRequest,
     ) -> Result<PluginRpcResponse> {
         let timeout = self.inner.timeout;
@@ -332,7 +332,7 @@ impl PluginWasmExecutor {
         let executor = self.clone();
         let join = tokio::task::spawn_blocking(move || {
             let _permit = permit;
-            executor.invoke_sync(&entrypoint, request)
+            executor.invoke_sync(entrypoint.name(&executor.inner), request)
         });
 
         let joined = tokio::time::timeout(timeout, join).await.map_err(|_| {
@@ -470,6 +470,21 @@ impl PluginWasmExecutor {
     }
 }
 
+#[derive(Clone, Copy)]
+enum PluginEntrypoint {
+    Memory,
+    Health,
+}
+
+impl PluginEntrypoint {
+    fn name<'a>(&self, inner: &'a PluginWasmExecutorInner) -> &'a str {
+        match self {
+            Self::Memory => inner.memory_entrypoint.as_str(),
+            Self::Health => inner.health_entrypoint.as_str(),
+        }
+    }
+}
+
 #[derive(Clone)]
 struct SurrealSqlClient {
     sql_url: Url,
@@ -554,13 +569,13 @@ impl SurrealSqlClient {
 
         let response = match request.body(payload.query).send() {
             Ok(resp) => resp,
-            Err(error) => {
+            Err(_) => {
                 return json!({
                     "ok": false,
                     "status": 0,
                     "error": {
                         "code": "TRANSPORT_ERROR",
-                        "message": error.to_string(),
+                        "message": "transport error",
                     }
                 });
             }
@@ -607,17 +622,14 @@ fn host_sql_v1(
 
     let output_bytes = match outcome {
         Ok(bytes) => bytes,
-        Err(error) => {
-            tracing::warn!(
-                error = %error,
-                "host_sql_v1 transport error contacting SurrealDB"
-            );
+        Err(_) => {
+            tracing::warn!("host_sql_v1 transport error contacting SurrealDB");
             let payload = json!({
                 "ok": false,
                 "status": 0,
                 "error": {
                     "code": "HOST_SQL_ERROR",
-                    "message": error.to_string(),
+                    "message": "internal server error",
                 }
             });
             serde_json::to_vec(&payload).unwrap_or_else(|_| b"{\"ok\":false}".to_vec())
@@ -753,15 +765,6 @@ fn parse_wire_entries(value: Option<&Value>) -> Result<Vec<MemoryEntry>> {
         .collect())
 }
 
-fn category_to_string(category: &MemoryCategory) -> String {
-    match category {
-        MemoryCategory::Core => "core".to_string(),
-        MemoryCategory::Daily => "daily".to_string(),
-        MemoryCategory::Conversation => "conversation".to_string(),
-        MemoryCategory::Custom(value) => value.clone(),
-    }
-}
-
 fn category_from_string(value: &str) -> MemoryCategory {
     match value {
         "core" => MemoryCategory::Core,
@@ -878,11 +881,21 @@ fn read_memory_bytes(
         bail!("negative memory pointer/length from plugin");
     }
 
+    let data_size = memory.data_size(store);
+
     #[allow(clippy::cast_sign_loss)]
-    let len_usize = len as usize;
+    let ptr_usize = ptr as usize;
+    if ptr_usize > data_size {
+        bail!("out-of-bounds memory access");
+    }
+
+    #[allow(clippy::cast_sign_loss)]
+    let requested_len = len as usize;
+    let available = data_size - ptr_usize;
+    let len_usize = requested_len.min(available);
     let mut bytes = vec![0u8; len_usize];
     memory
-        .read(store, ptr as usize, &mut bytes)
+        .read(store, ptr_usize, &mut bytes)
         .context("failed reading bytes from plugin memory")?;
     Ok(bytes)
 }
@@ -927,11 +940,21 @@ fn read_caller_memory_bytes(
     }
 
     let memory = caller_memory(caller)?;
+    let data_size = memory.data_size(&mut *caller);
+
     #[allow(clippy::cast_sign_loss)]
-    let len_usize = len as usize;
+    let ptr_usize = ptr as usize;
+    if ptr_usize > data_size {
+        bail!("request pointer out of bounds in host import");
+    }
+
+    #[allow(clippy::cast_sign_loss)]
+    let requested_len = len as usize;
+    let available = data_size - ptr_usize;
+    let len_usize = requested_len.min(available);
     let mut bytes = vec![0u8; len_usize];
     memory
-        .read(caller, ptr as usize, &mut bytes)
+        .read(caller, ptr_usize, &mut bytes)
         .context("failed reading request bytes from caller memory")?;
     Ok(bytes)
 }
@@ -979,7 +1002,7 @@ mod tests {
         ];
 
         for category in categories {
-            let serialized = category_to_string(&category);
+            let serialized = category.to_string();
             let parsed = category_from_string(&serialized);
             assert_eq!(category.to_string(), parsed.to_string());
         }

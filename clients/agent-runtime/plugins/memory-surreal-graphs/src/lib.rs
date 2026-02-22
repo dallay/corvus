@@ -83,6 +83,8 @@ struct ListArgs {
     category: Option<String>,
     #[serde(default)]
     session_id: Option<String>,
+    #[serde(default)]
+    limit: Option<usize>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -221,6 +223,13 @@ fn dispatch(req_ptr: i32, req_len: i32, resp_ptr_out: i32, resp_len_out: i32) ->
         std::ptr::copy_nonoverlapping(encoded.as_ptr(), resp_ptr as *mut u8, encoded.len());
     }
 
+    if validate_write_i32_slot(resp_ptr_out).is_err()
+        || validate_write_i32_slot(resp_len_out).is_err()
+    {
+        dealloc_v1(resp_ptr, resp_len_i32);
+        return 7;
+    }
+
     if write_i32(resp_ptr_out, resp_ptr).is_err() || write_i32(resp_len_out, resp_len_i32).is_err()
     {
         dealloc_v1(resp_ptr, resp_len_i32);
@@ -243,38 +252,41 @@ fn execute(
             format!("request JSON decode failed: {error}"),
         )
     })?;
+    let PluginRequest {
+        request_id,
+        op,
+        args,
+    } = request;
 
     if let Err(error) = ensure_schema() {
-        return Err((request.request_id, "SCHEMA_INIT_FAILED".to_string(), error));
+        return Err((request_id, "SCHEMA_INIT_FAILED".to_string(), error));
     }
 
-    let result = match request.op.as_str() {
+    let result = match op.as_str() {
         "store" => {
-            let args: StoreArgs =
-                serde_json::from_value(request.args.clone()).map_err(|error| {
-                    (
-                        request.request_id.clone(),
-                        "INVALID_ARGS".to_string(),
-                        format!("store args invalid: {error}"),
-                    )
-                })?;
+            let args: StoreArgs = serde_json::from_value(args).map_err(|error| {
+                (
+                    request_id.clone(),
+                    "INVALID_ARGS".to_string(),
+                    format!("store args invalid: {error}"),
+                )
+            })?;
             store_memory(args).map(|stored_id| json!({ "id": stored_id, "created": true }))
         }
         "recall" => {
-            let args: RecallArgs =
-                serde_json::from_value(request.args.clone()).map_err(|error| {
-                    (
-                        request.request_id.clone(),
-                        "INVALID_ARGS".to_string(),
-                        format!("recall args invalid: {error}"),
-                    )
-                })?;
+            let args: RecallArgs = serde_json::from_value(args).map_err(|error| {
+                (
+                    request_id.clone(),
+                    "INVALID_ARGS".to_string(),
+                    format!("recall args invalid: {error}"),
+                )
+            })?;
             recall_memory(args).map(|entries| json!({ "entries": entries }))
         }
         "get" => {
-            let args: GetArgs = serde_json::from_value(request.args.clone()).map_err(|error| {
+            let args: GetArgs = serde_json::from_value(args).map_err(|error| {
                 (
-                    request.request_id.clone(),
+                    request_id.clone(),
                     "INVALID_ARGS".to_string(),
                     format!("get args invalid: {error}"),
                 )
@@ -282,9 +294,9 @@ fn execute(
             get_memory(args).map(|entry| json!({ "item": entry }))
         }
         "list" => {
-            let args: ListArgs = serde_json::from_value(request.args.clone()).map_err(|error| {
+            let args: ListArgs = serde_json::from_value(args).map_err(|error| {
                 (
-                    request.request_id.clone(),
+                    request_id.clone(),
                     "INVALID_ARGS".to_string(),
                     format!("list args invalid: {error}"),
                 )
@@ -292,14 +304,13 @@ fn execute(
             list_memory(args).map(|entries| json!({ "entries": entries }))
         }
         "forget" => {
-            let args: ForgetArgs =
-                serde_json::from_value(request.args.clone()).map_err(|error| {
-                    (
-                        request.request_id.clone(),
-                        "INVALID_ARGS".to_string(),
-                        format!("forget args invalid: {error}"),
-                    )
-                })?;
+            let args: ForgetArgs = serde_json::from_value(args).map_err(|error| {
+                (
+                    request_id.clone(),
+                    "INVALID_ARGS".to_string(),
+                    format!("forget args invalid: {error}"),
+                )
+            })?;
             forget_memory(args).map(|deleted| json!({ "deleted": deleted }))
         }
         "count" => count_memory().map(|count| json!({ "count": count })),
@@ -319,14 +330,13 @@ fn execute(
             }
         }),
         "validate_response" => {
-            let args: ValidateResponseArgs =
-                serde_json::from_value(request.args.clone()).map_err(|error| {
-                    (
-                        request.request_id.clone(),
-                        "INVALID_ARGS".to_string(),
-                        format!("validate_response args invalid: {error}"),
-                    )
-                })?;
+            let args: ValidateResponseArgs = serde_json::from_value(args).map_err(|error| {
+                (
+                    request_id.clone(),
+                    "INVALID_ARGS".to_string(),
+                    format!("validate_response args invalid: {error}"),
+                )
+            })?;
             validate_response(args).map(|(valid, violations)| {
                 json!({
                     "valid": valid,
@@ -334,17 +344,17 @@ fn execute(
                 })
             })
         }
-        _ => Err(format!("unsupported memory operation '{}'", request.op)),
+        _ => Err(format!("unsupported memory operation '{op}'")),
     };
 
     match result {
         Ok(result_payload) => Ok(PluginResponse {
-            request_id: request.request_id,
+            request_id,
             ok: true,
             result: result_payload,
             error: None,
         }),
-        Err(message) => Err((request.request_id, "OPERATION_FAILED".to_string(), message)),
+        Err(message) => Err((request_id, "OPERATION_FAILED".to_string(), message)),
     }
 }
 
@@ -367,6 +377,13 @@ fn write_i32(ptr: i32, value: i32) -> std::result::Result<(), String> {
     let bytes = value.to_le_bytes();
     unsafe {
         std::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
+    }
+    Ok(())
+}
+
+fn validate_write_i32_slot(ptr: i32) -> std::result::Result<(), String> {
+    if ptr <= 0 {
+        return Err("invalid output slot pointer".to_string());
     }
     Ok(())
 }
@@ -597,8 +614,13 @@ fn list_memory(args: ListArgs) -> std::result::Result<Vec<EntryOut>, String> {
         format!(" WHERE {}", clauses.join(" AND "))
     };
 
-    let query =
-        format!("SELECT * FROM memory_entries{where_clause} ORDER BY updated_at DESC LIMIT 1000;");
+    let limit = args
+        .limit
+        .unwrap_or(MAX_RECALL_LIMIT)
+        .clamp(1, MAX_RECALL_LIMIT);
+    let query = format!(
+        "SELECT * FROM memory_entries{where_clause} ORDER BY updated_at DESC LIMIT {limit};"
+    );
     let rows = sql_rows(&query, None, Some(6_000))?;
     Ok(rows
         .into_iter()
@@ -628,13 +650,27 @@ fn forget_memory(args: ForgetArgs) -> std::result::Result<bool, String> {
         "DELETE type::thing(\"memory_entries\", {id});",
         id = surreal_string_literal(&key_hash),
     );
-    let _ = sql_query(&delete_entry_query, None, Some(4_000));
+    let delete_entry_payload = sql_query(&delete_entry_query, None, Some(4_000))?;
+    if !delete_entry_payload
+        .get("ok")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Ok(false);
+    }
 
     let delete_edges_query = format!(
         "DELETE memory_edges WHERE from_id = {id} OR to_id = {id};",
         id = surreal_string_literal(&entry_record_id),
     );
-    let _ = sql_query(&delete_edges_query, None, Some(4_000));
+    let delete_edges_payload = sql_query(&delete_edges_query, None, Some(4_000))?;
+    if !delete_edges_payload
+        .get("ok")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Ok(false);
+    }
 
     Ok(true)
 }

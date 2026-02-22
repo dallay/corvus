@@ -92,7 +92,8 @@ Then:
 Validate workflow artifacts and deployment:
 
 - immutable path published:
-  - `artifacts/<plugin-id>/<version>/<plugin-id>.wasm`
+  - `artifacts/<plugin-id>/<version>/<plugin-id>.wasm` (`<version>` is bare semver from `Cargo.toml`, not tag-form `v<semver>`)
+  - Example: `artifacts/memory.surreal.graphs/0.2.0/memory.surreal.graphs.wasm` (not `.../v0.2.0/...`)
 - signature produced:
   - `<plugin-id>.wasm.sig`
 - certificate produced for keyless signing:
