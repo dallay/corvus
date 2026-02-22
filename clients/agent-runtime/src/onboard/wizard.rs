@@ -1989,10 +1989,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
 
     if supports_live_model_fetch(provider_name) {
         let can_fetch_without_key = matches!(provider_name, "openrouter" | "ollama");
-        let has_api_key = !api_key.trim().is_empty()
-            || std::env::var(provider_env_var(provider_name))
-                .ok()
-                .is_some_and(|value| !value.trim().is_empty());
+        let has_api_key = resolve_live_model_api_key(provider_name, &api_key).is_some();
 
         if can_fetch_without_key || has_api_key {
             if let Some(cached) =
@@ -4598,6 +4595,30 @@ mod tests {
         LOCK.get_or_init(|| Mutex::new(()))
     }
 
+    struct EnvRestore {
+        key: &'static str,
+        value: Option<String>,
+    }
+
+    impl EnvRestore {
+        fn capture(key: &'static str) -> Self {
+            Self {
+                key,
+                value: std::env::var(key).ok(),
+            }
+        }
+    }
+
+    impl Drop for EnvRestore {
+        fn drop(&mut self) {
+            if let Some(value) = &self.value {
+                std::env::set_var(self.key, value);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
+
     // ── ProjectContext defaults ──────────────────────────────────
 
     #[test]
@@ -5309,28 +5330,15 @@ mod tests {
 
     #[test]
     fn resolve_live_model_api_key_uses_gh_token_for_copilot() {
-        let _guard = env_lock().lock().unwrap();
-
-        let previous_github_token = std::env::var("GITHUB_TOKEN").ok();
-        let previous_gh_token = std::env::var("GH_TOKEN").ok();
+        let _guard = env_lock().lock().unwrap_or_else(|error| error.into_inner());
+        let _restore_github_token = EnvRestore::capture("GITHUB_TOKEN");
+        let _restore_gh_token = EnvRestore::capture("GH_TOKEN");
 
         std::env::remove_var("GITHUB_TOKEN");
         std::env::set_var("GH_TOKEN", "  ghp-from-gh-cli  ");
 
         let resolved = resolve_live_model_api_key("copilot", "");
         assert_eq!(resolved.as_deref(), Some("ghp-from-gh-cli"));
-
-        if let Some(value) = previous_github_token {
-            std::env::set_var("GITHUB_TOKEN", value);
-        } else {
-            std::env::remove_var("GITHUB_TOKEN");
-        }
-
-        if let Some(value) = previous_gh_token {
-            std::env::set_var("GH_TOKEN", value);
-        } else {
-            std::env::remove_var("GH_TOKEN");
-        }
     }
 
     #[test]
