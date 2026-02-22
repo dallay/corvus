@@ -82,6 +82,9 @@ git push origin --delete plugin/<plugin-id>/vX.Y.Z
 
 Then:
 
+- if workflow already started for the wrong tag, inspect that GitHub Actions run first (`publish-plugins.yml`)
+- remove any wrong immutable artifact path from Cloudflare Pages (`artifacts/<plugin-id>/<wrong-version>/`) via Pages dashboard or Pages API
+- revert any `catalog.json` / `plugin-manifest.json` upsert that points to the wrong version before re-tagging
 - fix version in `clients/agent-runtime/plugins/<plugin-dir>/Cargo.toml`
 - commit the correction
 - re-run publish by creating the correct `plugin/<plugin-id>/vX.Y.Z` tag

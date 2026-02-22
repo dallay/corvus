@@ -331,7 +331,6 @@ impl PluginWasmExecutor {
             .map_err(|_| anyhow!("plugin invocation gate is closed"))?;
         let executor = self.clone();
         let join = tokio::task::spawn_blocking(move || {
-            let _permit = permit;
             executor.invoke_sync(entrypoint.name(&executor.inner), request)
         });
 
@@ -341,6 +340,7 @@ impl PluginWasmExecutor {
                 timeout.as_millis()
             )
         })?;
+        drop(permit);
 
         let response =
             joined.map_err(|join_error| anyhow!("plugin worker panicked: {join_error}"))??;
@@ -827,11 +827,11 @@ fn validate_endpoint_security(endpoint: &Url, allow_http_loopback: bool) -> Resu
         "ws" => {
             if !allow_http_loopback {
                 bail!(
-                    "refusing insecure SurrealDB URL: http is disabled (set memory.surreal.allow_http_loopback=true for localhost only)"
+                    "refusing insecure SurrealDB URL: ws is disabled (set memory.surreal.allow_http_loopback=true for localhost only)"
                 );
             }
             if !is_loopback_host(host) {
-                bail!("refusing insecure SurrealDB URL over http for non-loopback host '{host}'");
+                bail!("refusing insecure SurrealDB URL over ws for non-loopback host '{host}'");
             }
             Ok(())
         }

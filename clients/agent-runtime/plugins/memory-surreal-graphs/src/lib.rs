@@ -230,11 +230,8 @@ fn dispatch(req_ptr: i32, req_len: i32, resp_ptr_out: i32, resp_len_out: i32) ->
         return 7;
     }
 
-    if write_i32(resp_ptr_out, resp_ptr).is_err() || write_i32(resp_len_out, resp_len_i32).is_err()
-    {
-        dealloc_v1(resp_ptr, resp_len_i32);
-        return 7;
-    }
+    let _ = write_i32(resp_ptr_out, resp_ptr);
+    let _ = write_i32(resp_len_out, resp_len_i32);
 
     0
 }
@@ -359,7 +356,7 @@ fn execute(
 }
 
 fn read_input(req_ptr: i32, req_len: i32) -> std::result::Result<Vec<u8>, String> {
-    if req_ptr < 0 || req_len < 0 {
+    if req_ptr <= 0 || req_len < 0 {
         return Err("negative request pointer/length".to_string());
     }
 
@@ -405,7 +402,9 @@ fn ensure_schema() -> std::result::Result<(), String> {
 
             for statement in statements {
                 sql_query(statement, None, Some(3_000)).map_err(|error| {
-                    format!("schema bootstrap failed for statement '{statement}': {error}")
+                    format!(
+                        "schema bootstrap failed; this instance must be restarted/evicted. statement '{statement}': {error}"
+                    )
                 })?;
             }
 
@@ -455,8 +454,16 @@ fn store_memory(args: StoreArgs) -> std::result::Result<String, String> {
         );
         let _ = sql_query(&upsert_term_query, None, Some(4_000));
 
+        let edge_identity = format!(
+            "entry_term|{}|{}|{}",
+            entry_record_id,
+            term_record_id,
+            args.session_id.as_deref().unwrap_or("")
+        );
+        let edge_id_hash = sha256_hex(&edge_identity);
         let edge_query = format!(
-            "CREATE memory_edges CONTENT {{ relation_type: \"entry_term\", from_id: {from_id}, to_id: {to_id}, at: {at}, session_id: {session_id} }};",
+            "UPSERT type::thing(\"memory_edges\", {edge_id}) CONTENT {{ relation_type: \"entry_term\", from_id: {from_id}, to_id: {to_id}, at: {at}, session_id: {session_id} }};",
+            edge_id = surreal_string_literal(&edge_id_hash),
             from_id = surreal_string_literal(&entry_record_id),
             to_id = surreal_string_literal(&term_record_id),
             at = surreal_string_literal(&now),
@@ -501,8 +508,9 @@ fn recall_memory(args: RecallArgs) -> std::result::Result<Vec<EntryOut>, String>
         }
     }
 
+    let terms = extract_terms(query);
     let mut expanded_ids = HashSet::new();
-    for term in extract_terms(query) {
+    for term in &terms {
         let term_hash = sha256_hex(&term);
         let term_record_id = format!("ontology_terms:{term_hash}");
         let edge_lookup = format!(
@@ -525,8 +533,9 @@ fn recall_memory(args: RecallArgs) -> std::result::Result<Vec<EntryOut>, String>
             .join(", ");
 
         let expanded_query = format!(
-            "SELECT * FROM memory_entries WHERE id IN [{ids}] LIMIT {limit};",
+            "SELECT * FROM memory_entries WHERE id IN [{ids}]{session_filter} LIMIT {limit};",
             ids = id_list,
+            session_filter = session_filter,
             limit = limit * 2,
         );
         for row in sql_rows(&expanded_query, None, Some(6_000)).unwrap_or_default() {
@@ -542,7 +551,6 @@ fn recall_memory(args: RecallArgs) -> std::result::Result<Vec<EntryOut>, String>
         }
     }
 
-    let terms = extract_terms(query);
     let mut ranked: Vec<EntryOut> = candidates
         .into_values()
         .map(|candidate| {
@@ -698,11 +706,16 @@ fn validate_response(
     args: ValidateResponseArgs,
 ) -> std::result::Result<(bool, Vec<String>), String> {
     let mut violations = Vec::new();
-    let session_filter = args
+    let rules_scope = args
         .session_id
         .as_deref()
-        .map(|sid| format!(" AND session_id = {}", surreal_string_literal(sid)))
-        .unwrap_or_default();
+        .map(|sid| {
+            format!(
+                " AND (session_id IS NONE OR session_id = {})",
+                surreal_string_literal(sid)
+            )
+        })
+        .unwrap_or_else(|| " AND session_id IS NONE".to_string());
     let response_text = args.response_text.trim();
     if response_text.is_empty() {
         violations.push("response is empty".to_string());
@@ -712,7 +725,7 @@ fn validate_response(
     let response_lower = response_text.to_lowercase();
 
     let rules_query =
-        format!("SELECT * FROM ontology_rules WHERE enabled = true{session_filter} LIMIT 200;");
+        format!("SELECT * FROM ontology_rules WHERE enabled = true{rules_scope} LIMIT 200;");
     let rules = sql_rows(&rules_query, None, Some(5_000))
         .map_err(|error| format!("failed querying ontology_rules: {error}"))?;
 
@@ -856,10 +869,14 @@ fn sql_query(
                 return Ok(payload);
             }
             1 => {
-                if response_ptr > 0 {
+                if response_ptr > 0 && capacity > 0 {
                     dealloc_v1(response_ptr, i32::try_from(capacity).unwrap_or(i32::MAX));
                 }
-                capacity = len;
+                capacity = if len == 0 {
+                    capacity.saturating_add(1).max(1)
+                } else {
+                    len
+                };
                 continue;
             }
             2 => {
