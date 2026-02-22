@@ -81,7 +81,7 @@ parking_lot = "0.12"
 async-trait = "0.1"
 
 # WASM execution for plugin-backed memory backends
-wasmi = "0.40"
+wasmi = { version = "0.40", default-features = false, features = ["std"] }
 
 # HMAC-SHA256 (Zhipu/GLM JWT auth)
 ring = "0.17"
@@ -195,6 +195,7 @@ panic = "abort"
 [dev-dependencies]
 tempfile = "=3.25.0"
 criterion = { version = "=0.5.1", features = ["async_tokio"] }
+wat = "1"
 
 [[bench]]
 name = "agent_benchmarks"

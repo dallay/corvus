@@ -44,7 +44,7 @@ git log --oneline -10
 ### 2) Verify plugin manifest metadata
 
 ```bash
-bat clients/agent-runtime/plugins/<plugin-dir>/Cargo.toml
+cat clients/agent-runtime/plugins/<plugin-dir>/Cargo.toml
 ```
 
 Confirm:
@@ -67,6 +67,20 @@ cargo build \
 git tag -a plugin/<plugin-id>/vX.Y.Z -m "Release <plugin-id> vX.Y.Z"
 git push origin plugin/<plugin-id>/vX.Y.Z
 ```
+
+#### Recovery (if tag pushed with wrong version)
+
+```bash
+git tag -d plugin/<plugin-id>/vX.Y.Z
+git push origin --delete plugin/<plugin-id>/vX.Y.Z
+```
+
+Then:
+
+- fix version in `clients/agent-runtime/plugins/<plugin-dir>/Cargo.toml`
+- commit the correction
+- re-run publish by creating the correct `plugin/<plugin-id>/vX.Y.Z` tag
+- if needed, re-trigger `.github/workflows/publish-plugins.yml`
 
 This triggers `publish-plugins.yml`.
 
@@ -107,7 +121,7 @@ For static hosting compatibility:
 
 ## Common Failure Cases
 
-1. Tag/version mismatch:
+1. Tag/version mismatch (see Recovery section above):
    - Tag says `v0.2.0` but `Cargo.toml` still `0.1.0`.
 2. Missing `package.metadata.corvus.plugin_id`.
 3. Missing Cloudflare secrets.

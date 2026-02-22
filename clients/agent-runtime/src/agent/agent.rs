@@ -357,90 +357,15 @@ impl Agent {
         user_message: &str,
         candidate: String,
     ) -> String {
-        let validation = match self
-            .memory
-            .validate_response(user_message, &candidate, None)
-            .await
-        {
-            Ok(value) => value,
-            Err(error) => {
-                tracing::warn!("Agent memory validation failed: {error}");
-                return "I cannot provide a validated answer right now because ontology validation failed.".to_string();
-            }
-        };
-
-        if validation.valid {
-            return candidate;
-        }
-
-        let violations_text = if validation.violations.is_empty() {
-            "- unknown ontology violation".to_string()
-        } else {
-            validation
-                .violations
-                .iter()
-                .map(|item| format!("- {item}"))
-                .collect::<Vec<_>>()
-                .join("\n")
-        };
-
-        let correction_prompt = format!(
-            "User query:\n{}\n\nDraft response:\n{}\n\nOntology violations:\n{}\n\nRewrite the draft response so all violations are fixed. Keep it concise and factual. Do not call tools.",
+        crate::agent::validation::enforce_strict_validation(
+            self.memory.as_ref(),
+            self.provider.as_ref(),
+            &self.model_name,
+            self.temperature,
             user_message,
             candidate,
-            violations_text,
-        );
-
-        let corrected = match self
-            .provider
-            .chat_with_system(
-                Some(
-                    "You repair responses to satisfy strict domain ontology rules. Return only the corrected response text.",
-                ),
-                &correction_prompt,
-                &self.model_name,
-                self.temperature,
-            )
-            .await
-        {
-            Ok(value) => value,
-            Err(error) => {
-                tracing::warn!("Agent ontology correction pass failed: {error}");
-                return format!(
-                    "I cannot provide a validated answer because strict ontology checks failed:\n{}",
-                    violations_text
-                );
-            }
-        };
-
-        match self
-            .memory
-            .validate_response(user_message, &corrected, None)
-            .await
-        {
-            Ok(checked) if checked.valid => corrected,
-            Ok(checked) => {
-                let checked_violations = if checked.violations.is_empty() {
-                    violations_text
-                } else {
-                    checked
-                        .violations
-                        .iter()
-                        .map(|item| format!("- {item}"))
-                        .collect::<Vec<_>>()
-                        .join("\n")
-                };
-                format!(
-                    "I cannot provide a validated answer because strict ontology checks still fail:\n{}",
-                    checked_violations
-                )
-            }
-            Err(error) => {
-                tracing::warn!("Agent post-correction ontology validation failed: {error}");
-                "I cannot provide a validated answer because ontology checks are unavailable."
-                    .to_string()
-            }
-        }
+        )
+        .await
     }
 
     async fn execute_tool_call(&self, call: &ParsedToolCall) -> ToolExecutionResult {
@@ -765,6 +690,107 @@ mod tests {
         }
     }
 
+    struct ValidationProvider {
+        corrections: Mutex<Vec<anyhow::Result<String>>>,
+    }
+
+    #[async_trait]
+    impl Provider for ValidationProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<String> {
+            let mut guard = self.corrections.lock();
+            if guard.is_empty() {
+                return Ok("ok".to_string());
+            }
+            guard.remove(0)
+        }
+    }
+
+    struct ValidationMemory {
+        results: Mutex<Vec<anyhow::Result<crate::memory::MemoryValidationResult>>>,
+    }
+
+    #[async_trait]
+    impl Memory for ValidationMemory {
+        fn name(&self) -> &str {
+            "validation-memory"
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&MemoryCategory>,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+
+        async fn validate_response(
+            &self,
+            _user_query: &str,
+            _response: &str,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<crate::memory::MemoryValidationResult> {
+            let mut guard = self.results.lock();
+            if guard.is_empty() {
+                return Ok(crate::memory::MemoryValidationResult::default());
+            }
+            guard.remove(0)
+        }
+    }
+
+    fn build_validation_agent(provider: Box<dyn Provider>, memory: Arc<dyn Memory>) -> Agent {
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+        Agent::builder()
+            .provider(provider)
+            .tools(vec![Box::new(MockTool)])
+            .memory(memory)
+            .observer(observer)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .build()
+            .unwrap()
+    }
+
     #[tokio::test]
     async fn turn_without_tools_returns_text() {
         let provider = Box::new(MockProvider {
@@ -841,5 +867,129 @@ mod tests {
             .history()
             .iter()
             .any(|msg| matches!(msg, ConversationMessage::ToolResults(_))));
+    }
+
+    #[tokio::test]
+    async fn strict_validation_returns_corrected_text_when_second_pass_is_valid() {
+        let provider = Box::new(ValidationProvider {
+            corrections: Mutex::new(vec![Ok("corrected answer".to_string())]),
+        });
+        let memory: Arc<dyn Memory> = Arc::new(ValidationMemory {
+            results: Mutex::new(vec![
+                Ok(crate::memory::MemoryValidationResult {
+                    valid: false,
+                    violations: vec!["missing required domain term 'foo'".to_string()],
+                }),
+                Ok(crate::memory::MemoryValidationResult {
+                    valid: true,
+                    violations: Vec::new(),
+                }),
+            ]),
+        });
+
+        let agent = build_validation_agent(provider, memory);
+        let output = agent
+            .enforce_strict_memory_validation("what is foo", "draft".to_string())
+            .await;
+
+        assert_eq!(output, "corrected answer");
+    }
+
+    #[tokio::test]
+    async fn strict_validation_returns_violation_text_when_correction_call_fails() {
+        let provider = Box::new(ValidationProvider {
+            corrections: Mutex::new(vec![Err(anyhow::anyhow!("provider unavailable"))]),
+        });
+        let memory: Arc<dyn Memory> = Arc::new(ValidationMemory {
+            results: Mutex::new(vec![Ok(crate::memory::MemoryValidationResult {
+                valid: false,
+                violations: vec!["missing required domain term 'foo'".to_string()],
+            })]),
+        });
+
+        let agent = build_validation_agent(provider, memory);
+        let output = agent
+            .enforce_strict_memory_validation("what is foo", "draft".to_string())
+            .await;
+
+        assert_eq!(
+            output,
+            "I cannot provide a validated answer because strict ontology checks failed:\n- missing required domain term 'foo'"
+        );
+    }
+
+    #[tokio::test]
+    async fn strict_validation_returns_second_pass_violations_when_still_invalid() {
+        let provider = Box::new(ValidationProvider {
+            corrections: Mutex::new(vec![Ok("candidate two".to_string())]),
+        });
+        let memory: Arc<dyn Memory> = Arc::new(ValidationMemory {
+            results: Mutex::new(vec![
+                Ok(crate::memory::MemoryValidationResult {
+                    valid: false,
+                    violations: vec!["missing required domain term 'foo'".to_string()],
+                }),
+                Ok(crate::memory::MemoryValidationResult {
+                    valid: false,
+                    violations: vec!["response contains forbidden domain term 'bar'".to_string()],
+                }),
+            ]),
+        });
+
+        let agent = build_validation_agent(provider, memory);
+        let output = agent
+            .enforce_strict_memory_validation("what is foo", "draft".to_string())
+            .await;
+
+        assert_eq!(
+            output,
+            "I cannot provide a validated answer because strict ontology checks still fail:\n- response contains forbidden domain term 'bar'"
+        );
+    }
+
+    #[tokio::test]
+    async fn strict_validation_returns_ontology_failed_when_initial_validation_errors() {
+        let provider = Box::new(ValidationProvider {
+            corrections: Mutex::new(Vec::new()),
+        });
+        let memory: Arc<dyn Memory> = Arc::new(ValidationMemory {
+            results: Mutex::new(vec![Err(anyhow::anyhow!("validation backend down"))]),
+        });
+
+        let agent = build_validation_agent(provider, memory);
+        let output = agent
+            .enforce_strict_memory_validation("what is foo", "draft".to_string())
+            .await;
+
+        assert_eq!(
+            output,
+            "I cannot provide a validated answer right now because ontology validation failed."
+        );
+    }
+
+    #[tokio::test]
+    async fn strict_validation_returns_unavailable_when_second_validation_errors() {
+        let provider = Box::new(ValidationProvider {
+            corrections: Mutex::new(vec![Ok("candidate two".to_string())]),
+        });
+        let memory: Arc<dyn Memory> = Arc::new(ValidationMemory {
+            results: Mutex::new(vec![
+                Ok(crate::memory::MemoryValidationResult {
+                    valid: false,
+                    violations: vec!["missing required domain term 'foo'".to_string()],
+                }),
+                Err(anyhow::anyhow!("validation backend down")),
+            ]),
+        });
+
+        let agent = build_validation_agent(provider, memory);
+        let output = agent
+            .enforce_strict_memory_validation("what is foo", "draft".to_string())
+            .await;
+
+        assert_eq!(
+            output,
+            "I cannot provide a validated answer because ontology checks are unavailable."
+        );
     }
 }

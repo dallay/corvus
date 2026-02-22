@@ -3,10 +3,14 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::slice;
+use std::sync::OnceLock;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_TERMS: usize = 12;
 const MAX_RECALL_LIMIT: usize = 100;
+const MAX_OUTPUT_BYTES: usize = 262_144;
+
+static SCHEMA_INIT_RESULT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
 
 #[link(wasm_import_module = "corvus")]
 extern "C" {
@@ -170,6 +174,10 @@ fn dispatch(req_ptr: i32, req_len: i32, resp_ptr_out: i32, resp_len_out: i32) ->
     let encoded = serde_json::to_vec(&response).unwrap_or_else(|_| {
         br#"{"request_id":"unknown","ok":false,"result":{},"error":{"code":"ENCODE_ERROR","message":"failed to encode plugin response"}}"#.to_vec()
     });
+
+    if encoded.len() > MAX_OUTPUT_BYTES {
+        return 8;
+    }
 
     let resp_len_i32 = match i32::try_from(encoded.len()) {
         Ok(value) => value,
@@ -338,23 +346,29 @@ fn write_i32(ptr: i32, value: i32) -> std::result::Result<(), String> {
 }
 
 fn ensure_schema() -> std::result::Result<(), String> {
-    let statements = [
-        "DEFINE TABLE memory_entries SCHEMALESS;",
-        "DEFINE TABLE memory_edges SCHEMALESS;",
-        "DEFINE TABLE ontology_terms SCHEMALESS;",
-        "DEFINE TABLE ontology_rules SCHEMALESS;",
-        "DEFINE INDEX idx_memory_entries_key ON TABLE memory_entries COLUMNS key UNIQUE;",
-        "DEFINE INDEX idx_memory_entries_category ON TABLE memory_entries COLUMNS category;",
-        "DEFINE INDEX idx_memory_entries_session ON TABLE memory_entries COLUMNS session_id;",
-        "DEFINE INDEX idx_memory_edges_relation ON TABLE memory_edges COLUMNS relation_type;",
-        "DEFINE INDEX idx_memory_edges_to ON TABLE memory_edges COLUMNS to_id;",
-    ];
+    SCHEMA_INIT_RESULT
+        .get_or_init(|| {
+            let statements = [
+                "DEFINE TABLE memory_entries SCHEMALESS;",
+                "DEFINE TABLE memory_edges SCHEMALESS;",
+                "DEFINE TABLE ontology_terms SCHEMALESS;",
+                "DEFINE TABLE ontology_rules SCHEMALESS;",
+                "DEFINE INDEX idx_memory_entries_key ON TABLE memory_entries COLUMNS key UNIQUE;",
+                "DEFINE INDEX idx_memory_entries_category ON TABLE memory_entries COLUMNS category;",
+                "DEFINE INDEX idx_memory_entries_session ON TABLE memory_entries COLUMNS session_id;",
+                "DEFINE INDEX idx_memory_edges_relation ON TABLE memory_edges COLUMNS relation_type;",
+                "DEFINE INDEX idx_memory_edges_to ON TABLE memory_edges COLUMNS to_id;",
+            ];
 
-    for statement in statements {
-        let _ = sql_query(statement, None, Some(3_000));
-    }
+            for statement in statements {
+                sql_query(statement, None, Some(3_000)).map_err(|error| {
+                    format!("schema bootstrap failed for statement '{statement}': {error}")
+                })?;
+            }
 
-    Ok(())
+            Ok(())
+        })
+        .clone()
 }
 
 fn store_memory(args: StoreArgs) -> std::result::Result<String, String> {

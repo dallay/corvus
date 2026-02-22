@@ -17,7 +17,7 @@ const MAX_PLUGIN_REQUEST_BYTES: usize = 64 * 1024;
 const MAX_PLUGIN_RESPONSE_BYTES: usize = 1024 * 1024;
 const HOST_SQL_TIMEOUT_CAP_MS: u64 = 10_000;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct PluginBackedMemory {
     plugin_id: String,
     executor: PluginWasmExecutor,
@@ -226,15 +226,15 @@ impl Memory for PluginBackedMemory {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct PluginWasmExecutor {
     inner: Arc<PluginWasmExecutorInner>,
 }
 
-#[derive(Debug)]
 struct PluginWasmExecutorInner {
     wasm_path: PathBuf,
-    wasm_bytes: Vec<u8>,
+    engine: Engine,
+    module: Module,
     memory_entrypoint: String,
     health_entrypoint: String,
     fuel_limit: u64,
@@ -256,6 +256,12 @@ impl PluginWasmExecutor {
         if wasm_bytes.is_empty() {
             bail!("plugin wasm artifact is empty: {}", wasm_path.display());
         }
+
+        let mut engine_config = WasmiConfig::default();
+        engine_config.consume_fuel(true);
+        let engine = Engine::new(&engine_config);
+        let module = Module::new(&engine, &wasm_bytes)
+            .with_context(|| format!("failed to parse wasm module: {}", wasm_path.display()))?;
 
         let memory_entrypoint = plugin_runtime
             .manifest
@@ -283,7 +289,8 @@ impl PluginWasmExecutor {
         Ok(Self {
             inner: Arc::new(PluginWasmExecutorInner {
                 wasm_path,
-                wasm_bytes,
+                engine,
+                module,
                 memory_entrypoint,
                 health_entrypoint,
                 fuel_limit,
@@ -339,33 +346,23 @@ impl PluginWasmExecutor {
             );
         }
 
-        let mut engine_config = WasmiConfig::default();
-        engine_config.consume_fuel(true);
-        let engine = Engine::new(&engine_config);
-        let module = Module::new(&engine, &self.inner.wasm_bytes).with_context(|| {
-            format!(
-                "failed to parse wasm module: {}",
-                self.inner.wasm_path.display()
-            )
-        })?;
-
         let host_state = HostState {
             surreal: self.inner.surreal.clone(),
             max_output_bytes: self.inner.max_output_bytes,
         };
 
-        let mut store = Store::new(&engine, host_state);
+        let mut store = Store::new(&self.inner.engine, host_state);
         store
             .set_fuel(self.inner.fuel_limit)
             .context("failed to configure wasm fuel budget")?;
 
-        let mut linker = Linker::new(&engine);
+        let mut linker = Linker::new(&self.inner.engine);
         linker
             .func_wrap("corvus", "host_sql_v1", host_sql_v1)
             .context("failed to register host_sql_v1 import")?;
 
         let instance = linker
-            .instantiate(&mut store, &module)
+            .instantiate(&mut store, &self.inner.module)
             .and_then(|pre| pre.start(&mut store))
             .with_context(|| {
                 format!(
@@ -458,7 +455,7 @@ impl PluginWasmExecutor {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct SurrealSqlClient {
     sql_url: Url,
     namespace: String,
@@ -467,6 +464,19 @@ struct SurrealSqlClient {
     password: Option<String>,
     token: Option<String>,
     client: reqwest::blocking::Client,
+}
+
+impl std::fmt::Debug for SurrealSqlClient {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SurrealSqlClient")
+            .field("sql_url", &self.sql_url)
+            .field("namespace", &self.namespace)
+            .field("database", &self.database)
+            .field("username", &self.username)
+            .field("password", &"<redacted>")
+            .field("token", &"<redacted>")
+            .finish_non_exhaustive()
+    }
 }
 
 impl SurrealSqlClient {
@@ -583,6 +593,10 @@ fn host_sql_v1(
     let output_bytes = match outcome {
         Ok(bytes) => bytes,
         Err(error) => {
+            tracing::warn!(
+                error = %error,
+                "host_sql_v1 transport error contacting SurrealDB"
+            );
             let payload = json!({
                 "ok": false,
                 "status": 0,
@@ -792,7 +806,23 @@ fn validate_endpoint_security(endpoint: &Url, allow_http_loopback: bool) -> Resu
             }
             Ok(())
         }
-        "ws" | "wss" => Ok(()),
+        "ws" => {
+            if !allow_http_loopback {
+                bail!(
+                    "refusing insecure SurrealDB URL: http is disabled (set memory.surreal.allow_http_loopback=true for localhost only)"
+                );
+            }
+            if !is_loopback_host(host) {
+                bail!("refusing insecure SurrealDB URL over http for non-loopback host '{host}'");
+            }
+            Ok(())
+        }
+        "wss" => {
+            if !allow_http_loopback && !is_loopback_host(host) {
+                bail!("refusing insecure SurrealDB URL over http for non-loopback host '{host}'");
+            }
+            Ok(())
+        }
         other => {
             bail!("unsupported SurrealDB URL scheme '{other}', expected one of http/https/ws/wss")
         }
@@ -925,6 +955,9 @@ fn caller_memory(caller: &mut Caller<'_, HostState>) -> Result<wasmi::Memory> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use std::time::Duration;
 
     #[test]
     fn category_roundtrip_core_values() {
@@ -957,6 +990,13 @@ mod tests {
     }
 
     #[test]
+    fn reject_non_loopback_wss_when_http_loopback_is_disabled() {
+        let endpoint = parse_endpoint("wss://example.com/rpc").unwrap();
+        let error = validate_endpoint_security(&endpoint, false).unwrap_err();
+        assert!(error.to_string().contains("non-loopback"));
+    }
+
+    #[test]
     fn pack_status_len_roundtrips_values() {
         let packed = pack_host_status_len(1, 2048);
         let raw = u64::from_ne_bytes(packed.to_ne_bytes());
@@ -964,5 +1004,78 @@ mod tests {
         let len = (raw & 0xFFFF_FFFF) as u32;
         assert_eq!(status, 1);
         assert_eq!(len, 2048);
+    }
+
+    #[test]
+    fn invoke_sync_executes_wasm_roundtrip_successfully() {
+        let wasm_bytes = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1)
+                (global $heap (mut i32) (i32.const 1024))
+                (func (export "alloc_v1") (param $size i32) (result i32)
+                  (local $ptr i32)
+                  global.get $heap
+                  local.set $ptr
+                  global.get $heap
+                  local.get $size
+                  i32.add
+                  global.set $heap
+                  local.get $ptr
+                )
+                (func (export "dealloc_v1") (param i32 i32))
+                (func (export "memory_v1") (param $req_ptr i32) (param $req_len i32) (param $out_ptr_slot i32) (param $out_len_slot i32) (result i32)
+                  local.get $out_ptr_slot
+                  i32.const 1536
+                  i32.store
+                  local.get $out_len_slot
+                  i32.const 40
+                  i32.store
+                  i32.const 0
+                )
+                (data (i32.const 1536) "{\"request_id\":\"r\",\"ok\":true,\"result\":{}}")
+            )"#,
+        )
+        .unwrap();
+
+        let mut engine_config = WasmiConfig::default();
+        engine_config.consume_fuel(true);
+        let engine = Engine::new(&engine_config);
+        let module = Module::new(&engine, &wasm_bytes).unwrap();
+
+        let surreal = SurrealSqlClient {
+            sql_url: Url::parse("http://127.0.0.1:8000/sql").unwrap(),
+            namespace: "test".to_string(),
+            database: "test".to_string(),
+            username: None,
+            password: None,
+            token: None,
+            client: reqwest::blocking::Client::builder().build().unwrap(),
+        };
+
+        let executor = PluginWasmExecutor {
+            inner: Arc::new(PluginWasmExecutorInner {
+                wasm_path: PathBuf::from("inline-test.wasm"),
+                engine,
+                module,
+                memory_entrypoint: "memory_v1".to_string(),
+                health_entrypoint: "health_v1".to_string(),
+                fuel_limit: 100_000,
+                timeout: Duration::from_secs(1),
+                max_output_bytes: 1024,
+                surreal,
+            }),
+        };
+
+        let request = PluginRpcRequest {
+            request_id: "req-1".to_string(),
+            op: "health".to_string(),
+            args: json!({}),
+            meta: None,
+        };
+
+        let response = executor.invoke_sync("memory_v1", request).unwrap();
+        assert!(response.ok);
+        assert_eq!(response.request_id, "r");
+        assert_eq!(response.result, json!({}));
     }
 }

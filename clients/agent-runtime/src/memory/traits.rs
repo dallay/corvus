@@ -13,11 +13,20 @@ pub struct MemoryEntry {
     pub score: Option<f64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MemoryValidationResult {
     pub valid: bool,
     #[serde(default)]
     pub violations: Vec<String>,
+}
+
+impl Default for MemoryValidationResult {
+    fn default() -> Self {
+        Self {
+            valid: true,
+            violations: Vec::new(),
+        }
+    }
 }
 
 /// Memory categories for organization

@@ -1987,6 +1987,15 @@ pub fn resolve_memory_plugin_runtime(
         );
     }
 
+    if manifest.runtime_api != locked.runtime_api {
+        bail!(
+            "Plugin runtime_api mismatch for '{}': lockfile='{}', manifest='{}'",
+            plugin_id,
+            locked.runtime_api,
+            manifest.runtime_api
+        );
+    }
+
     Ok(Some(ResolvedMemoryPlugin {
         locked,
         wasm_path,

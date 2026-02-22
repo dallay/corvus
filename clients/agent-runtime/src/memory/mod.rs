@@ -123,24 +123,27 @@ pub fn create_memory(
                 match PluginBackedMemory::new(plugin_runtime, config, workspace_dir) {
                     Ok(memory) => Ok(Box::new(memory)),
                     Err(error) => {
-                        tracing::warn!(
-                            "Plugin-backed memory initialization failed: {error}. Falling back to markdown"
+                        tracing::error!(
+                            plugin_id = crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
+                            error = %error,
+                            "surreal-graphs backend requested but plugin initialization failed; falling back to markdown (SurrealDB graph features and persistence are unavailable)"
                         );
                         Ok(Box::new(MarkdownMemory::new(workspace_dir)))
                     }
                 }
             }
             Ok(None) => {
-                tracing::warn!(
-                    "Memory backend 'surreal-graphs' selected but plugin '{}' is not installed or not trusted; falling back to markdown",
-                    crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID
+                tracing::error!(
+                    plugin_id = crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
+                    "memory backend 'surreal-graphs' selected but plugin is not installed or not trusted; falling back to markdown (SurrealDB graph features and persistence are unavailable). Install and trust this plugin id to restore surreal-graphs"
                 );
                 Ok(Box::new(MarkdownMemory::new(workspace_dir)))
             }
             Err(error) => {
-                tracing::warn!(
-                    "Memory plugin '{}' verification failed: {error}. Falling back to markdown",
-                    crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID
+                tracing::error!(
+                    plugin_id = crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
+                    error = %error,
+                    "memory backend 'surreal-graphs' selected but plugin verification failed; falling back to markdown (SurrealDB graph features and persistence are unavailable). Install and trust this plugin id to restore surreal-graphs"
                 );
                 Ok(Box::new(MarkdownMemory::new(workspace_dir)))
             }
