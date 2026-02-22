@@ -6,6 +6,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// HTTP request tool for API interactions.
+
+const MAX_REQUEST_HEADERS: usize = 64;
+const MAX_HEADER_TOTAL_BYTES: usize = 8 * 1024;
+
 /// Supports GET, POST, PUT, DELETE methods with configurable security.
 pub struct HttpRequestTool {
     security: Arc<SecurityPolicy>,
@@ -76,16 +80,64 @@ impl HttpRequestTool {
         }
     }
 
-    fn parse_headers(&self, headers: &serde_json::Value) -> Vec<(String, String)> {
+    fn parse_headers(&self, headers: &serde_json::Value) -> anyhow::Result<Vec<(String, String)>> {
+        let obj = headers
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("headers must be an object"))?;
+
         let mut result = Vec::new();
-        if let Some(obj) = headers.as_object() {
+        let mut total_bytes = 0usize;
+
+        {
+            if obj.len() > MAX_REQUEST_HEADERS {
+                anyhow::bail!(
+                    "Too many headers: {} (max {})",
+                    obj.len(),
+                    MAX_REQUEST_HEADERS
+                );
+            }
+
             for (key, value) in obj {
-                if let Some(str_val) = value.as_str() {
-                    result.push((key.clone(), str_val.to_string()));
+                let value = value
+                    .as_str()
+                    .ok_or_else(|| anyhow::anyhow!("Header '{key}' value must be a string"))?;
+
+                if key.is_empty()
+                    || !key
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+                {
+                    anyhow::bail!("Invalid header name: {key}");
                 }
+
+                if key.eq_ignore_ascii_case("host")
+                    || key.eq_ignore_ascii_case("content-length")
+                    || key.eq_ignore_ascii_case("transfer-encoding")
+                    || key.eq_ignore_ascii_case("connection")
+                    || key.eq_ignore_ascii_case("proxy-authorization")
+                    || key.eq_ignore_ascii_case("proxy-connection")
+                {
+                    anyhow::bail!("Header '{key}' is not allowed");
+                }
+
+                if value.chars().any(|c| c.is_control() && c != '\t') {
+                    anyhow::bail!("Invalid control character in header '{key}'");
+                }
+
+                total_bytes = total_bytes
+                    .saturating_add(key.len())
+                    .saturating_add(value.len());
+                if total_bytes > MAX_HEADER_TOTAL_BYTES {
+                    anyhow::bail!(
+                        "Headers exceed max size of {} bytes",
+                        MAX_HEADER_TOTAL_BYTES
+                    );
+                }
+
+                result.push((key.clone(), value.to_string()));
             }
         }
-        result
+        Ok(result)
     }
 
     fn redact_headers_for_display(headers: &[(String, String)]) -> Vec<(String, String)> {
@@ -232,7 +284,16 @@ impl Tool for HttpRequestTool {
             }
         };
 
-        let request_headers = self.parse_headers(&headers_val);
+        let request_headers = match self.parse_headers(&headers_val) {
+            Ok(h) => h,
+            Err(e) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(e.to_string()),
+                })
+            }
+        };
 
         match self
             .execute_request(&url, method, request_headers, body)
@@ -707,7 +768,7 @@ mod tests {
             "Content-Type": "application/json",
             "X-API-Key": "my-key"
         });
-        let parsed = tool.parse_headers(&headers);
+        let parsed = tool.parse_headers(&headers).unwrap();
         assert_eq!(parsed.len(), 3);
         assert!(parsed
             .iter()
@@ -718,6 +779,67 @@ mod tests {
         assert!(parsed
             .iter()
             .any(|(k, v)| k == "Content-Type" && v == "application/json"));
+    }
+
+
+    #[test]
+    fn parse_headers_rejects_non_object_input() {
+        let tool = test_tool(vec!["example.com"]);
+        let err = tool.parse_headers(&json!(["bad"])).unwrap_err().to_string();
+        assert!(err.contains("headers must be an object"));
+    }
+
+    #[test]
+    fn parse_headers_rejects_too_many_headers() {
+        let tool = test_tool(vec!["example.com"]);
+        let mut map = serde_json::Map::new();
+        for i in 0..=MAX_REQUEST_HEADERS {
+            map.insert(format!("X-{i}"), json!("v"));
+        }
+        let err = tool
+            .parse_headers(&serde_json::Value::Object(map))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Too many headers"));
+    }
+
+    #[test]
+    fn parse_headers_rejects_oversized_headers() {
+        let tool = test_tool(vec!["example.com"]);
+        let headers = json!({
+            "X-Test": "x".repeat(MAX_HEADER_TOTAL_BYTES + 1)
+        });
+        let err = tool.parse_headers(&headers).unwrap_err().to_string();
+        assert!(err.contains("max size"));
+    }
+
+    #[test]
+    fn parse_headers_rejects_hop_by_hop_headers() {
+        let tool = test_tool(vec!["example.com"]);
+        let headers = json!({
+            "Host": "evil.example.com"
+        });
+
+        let err = tool.parse_headers(&headers).unwrap_err().to_string();
+        assert!(err.contains("not allowed"));
+
+        let proxy_headers = json!({
+            "Proxy-Authorization": "Basic abc"
+        });
+        let err = tool.parse_headers(&proxy_headers).unwrap_err().to_string();
+        assert!(err.contains("not allowed"));
+    }
+
+    #[test]
+    fn parse_headers_rejects_control_chars() {
+        let tool = test_tool(vec!["example.com"]);
+        let headers = json!({
+            "X-Test": "value
+malicious"
+        });
+
+        let err = tool.parse_headers(&headers).unwrap_err().to_string();
+        assert!(err.contains("control character"));
     }
 
     #[test]
