@@ -6,16 +6,26 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Component, Path, PathBuf};
-use std::time::Duration;
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 
 const LOCK_FILE_NAME: &str = "plugins.lock";
 const REVOCATIONS_CACHE_FILE_NAME: &str = "plugins.revocations.json";
 const MANIFEST_FILE_NAME: &str = "plugin-manifest.json";
 const WASM_ARTIFACT_FILE_NAME: &str = "plugin.wasm";
+const WASM_SIGNATURE_FILE_NAME: &str = "plugin.wasm.sig";
+const WASM_CERTIFICATE_FILE_NAME: &str = "plugin.wasm.pem";
 const MAX_ARTIFACT_BYTES: usize = 50 * 1024 * 1024;
+const MAX_SIGNATURE_BYTES: usize = 64 * 1024;
+const MAX_CERTIFICATE_BYTES: usize = 512 * 1024;
+const COSIGN_VERIFY_TIMEOUT: Duration = Duration::from_secs(30);
+const OFFICIAL_PLUGIN_CATALOG_HOST: &str = "corvus.profiletailors.com";
+const SIGSTORE_GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
+const OFFICIAL_PLUGIN_IDENTITY_REGEX: &str =
+    r"^https://github\.com/dallay/corvus/\.github/workflows/publish-plugins\.yml@.*$";
 
 pub const OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID: &str = "memory.surreal.graphs";
 
@@ -56,6 +66,9 @@ pub struct PluginManifest {
 
     #[serde(default)]
     pub artifact_url: Option<String>,
+
+    #[serde(default)]
+    pub signature: Option<PluginSignature>,
 }
 
 fn default_runtime_api() -> String {
@@ -68,6 +81,14 @@ pub struct PluginArtifact {
 
     #[serde(default)]
     pub digest: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct PluginSignature {
+    pub url: String,
+
+    #[serde(default)]
+    pub certificate_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -139,6 +160,20 @@ impl PluginManifest {
             .or(Some(self.digest.as_str()))
             .filter(|digest| !digest.trim().is_empty())
     }
+
+    fn resolved_signature_url(&self) -> Option<&str> {
+        self.signature
+            .as_ref()
+            .map(|signature| signature.url.as_str())
+            .filter(|url| !url.trim().is_empty())
+    }
+
+    fn resolved_signature_certificate_url(&self) -> Option<&str> {
+        self.signature
+            .as_ref()
+            .and_then(|signature| signature.certificate_url.as_deref())
+            .filter(|url| !url.trim().is_empty())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -156,6 +191,13 @@ pub struct LockedPlugin {
     pub version: String,
     pub digest: String,
     pub source: String,
+
+    #[serde(default)]
+    pub source_url: Option<String>,
+
+    #[serde(default)]
+    pub source_identity_regex: Option<String>,
+
     pub publisher: String,
     pub runtime_api: String,
     pub installed_at: String,
@@ -202,6 +244,12 @@ pub struct PluginVerificationResult {
 struct PluginCandidate {
     source: PluginSourceConfig,
     manifest: PluginManifest,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum SignaturePolicy {
+    NotRequired,
+    RequiredKeyless { identity_regex: String },
 }
 
 #[derive(Debug, Clone)]
@@ -341,7 +389,12 @@ impl PluginManager {
         Ok(self.plugins_config.sources.clone())
     }
 
-    fn validate_manifest(&self, manifest: &PluginManifest) -> Result<()> {
+    fn validate_manifest(
+        &self,
+        source: &PluginSourceConfig,
+        manifest: &PluginManifest,
+        signature_policy: &SignaturePolicy,
+    ) -> Result<()> {
         validate_plugin_identifier(&manifest.id)?;
         validate_plugin_version(&manifest.version)?;
 
@@ -396,7 +449,56 @@ impl PluginManager {
         let artifact_url = manifest
             .resolved_artifact_url()
             .ok_or_else(|| anyhow!("Plugin '{}' is missing artifact URL", manifest.id))?;
-        validate_fetch_source(artifact_url)?;
+        validate_manifest_asset_source(source, artifact_url, "artifact URL")?;
+
+        match signature_policy {
+            SignaturePolicy::NotRequired => {
+                if let Some(signature_url) = manifest.resolved_signature_url() {
+                    validate_manifest_asset_source(source, signature_url, "signature URL")?;
+                }
+                if let Some(certificate_url) = manifest.resolved_signature_certificate_url() {
+                    validate_manifest_asset_source(
+                        source,
+                        certificate_url,
+                        "signature certificate URL",
+                    )?;
+                }
+            }
+            SignaturePolicy::RequiredKeyless { .. } => {
+                let signature_url = manifest.resolved_signature_url().ok_or_else(|| {
+                    anyhow!(
+                        "Plugin '{}' from source '{}' is missing signature.url metadata",
+                        manifest.id,
+                        source.name
+                    )
+                })?;
+                validate_manifest_asset_source(source, signature_url, "signature URL")?;
+
+                let certificate_url =
+                    manifest
+                        .resolved_signature_certificate_url()
+                        .ok_or_else(|| {
+                            anyhow!(
+                                "Plugin '{}' from source '{}' is missing signature.certificate_url metadata",
+                                manifest.id,
+                                source.name
+                            )
+                        })?;
+                validate_manifest_asset_source(
+                    source,
+                    certificate_url,
+                    "signature certificate URL",
+                )?;
+            }
+        }
+
+        if is_official_source(source)? && manifest.publisher != "corvus-official" {
+            bail!(
+                "Official source plugin '{}' must be published by 'corvus-official', got '{}'",
+                manifest.id,
+                manifest.publisher
+            );
+        }
 
         Ok(())
     }
@@ -535,7 +637,90 @@ impl PluginManager {
             );
         }
 
+        self.verify_locked_plugin_signature(plugin, &plugin_path, &data)?;
+
         Ok(())
+    }
+
+    fn verify_locked_plugin_signature(
+        &self,
+        plugin: &LockedPlugin,
+        plugin_path: &Path,
+        artifact_bytes: &[u8],
+    ) -> Result<()> {
+        let signature_policy = signature_policy_for_locked_plugin(plugin)?;
+        let SignaturePolicy::RequiredKeyless { identity_regex } = &signature_policy else {
+            return Ok(());
+        };
+
+        let install_dir = plugin_path.parent().ok_or_else(|| {
+            anyhow!(
+                "Plugin '{}' artifact path has no parent directory: {}",
+                plugin.id,
+                plugin_path.display()
+            )
+        })?;
+
+        let signature_path = install_dir.join(WASM_SIGNATURE_FILE_NAME);
+        if !signature_path.exists() {
+            bail!(
+                "Plugin '{}' requires '{}' for signature verification",
+                plugin.id,
+                WASM_SIGNATURE_FILE_NAME
+            );
+        }
+
+        let certificate_path = install_dir.join(WASM_CERTIFICATE_FILE_NAME);
+        if !certificate_path.exists() {
+            bail!(
+                "Plugin '{}' requires '{}' for signature verification",
+                plugin.id,
+                WASM_CERTIFICATE_FILE_NAME
+            );
+        }
+
+        let signature_bytes = fs::read(&signature_path).with_context(|| {
+            format!(
+                "Failed to read plugin '{}' signature file: {}",
+                plugin.id,
+                signature_path.display()
+            )
+        })?;
+        if signature_bytes.is_empty() || signature_bytes.len() > MAX_SIGNATURE_BYTES {
+            bail!(
+                "Plugin '{}' signature file has invalid size ({} bytes)",
+                plugin.id,
+                signature_bytes.len()
+            );
+        }
+
+        let certificate_bytes = fs::read(&certificate_path).with_context(|| {
+            format!(
+                "Failed to read plugin '{}' certificate file: {}",
+                plugin.id,
+                certificate_path.display()
+            )
+        })?;
+        if certificate_bytes.is_empty() || certificate_bytes.len() > MAX_CERTIFICATE_BYTES {
+            bail!(
+                "Plugin '{}' certificate file has invalid size ({} bytes)",
+                plugin.id,
+                certificate_bytes.len()
+            );
+        }
+
+        verify_blob_with_cosign(
+            artifact_bytes,
+            &signature_bytes,
+            &certificate_bytes,
+            identity_regex.as_str(),
+        )
+        .with_context(|| {
+            format!(
+                "Plugin '{}' signature verification failed using local installation metadata",
+                plugin.id
+            )
+        })
     }
 
     fn resolve_locked_plugin_path(&self, plugin: &LockedPlugin) -> Result<PathBuf> {
@@ -563,7 +748,12 @@ impl PluginManager {
         }
 
         let candidate = self.resolve_candidate(plugin_id, version, source_name)?;
-        self.validate_manifest(&candidate.manifest)?;
+        let signature_policy = signature_policy_for_source(&candidate.source)?;
+        self.validate_manifest(&candidate.source, &candidate.manifest, &signature_policy)?;
+        let source_identity_regex = match &signature_policy {
+            SignaturePolicy::RequiredKeyless { identity_regex } => Some(identity_regex.clone()),
+            SignaturePolicy::NotRequired => None,
+        };
 
         let revocations = self.load_effective_revocations()?;
 
@@ -583,6 +773,8 @@ impl PluginManager {
             version: candidate.manifest.version.clone(),
             digest: expected_digest.clone(),
             source: candidate.source.name.clone(),
+            source_url: Some(candidate.source.url.clone()),
+            source_identity_regex: source_identity_regex.clone(),
             publisher: candidate.manifest.publisher.clone(),
             runtime_api: candidate.manifest.runtime_api.clone(),
             installed_at: Utc::now().to_rfc3339(),
@@ -634,6 +826,15 @@ impl PluginManager {
             );
         }
 
+        let verified_signature_bundle = self
+            .verify_candidate_signature_bundle(&candidate, &bytes, signature_policy)
+            .with_context(|| {
+                format!(
+                    "Plugin '{}' failed signature verification",
+                    candidate.manifest.id
+                )
+            })?;
+
         let install_dir = self
             .plugins_root()
             .join(&candidate.manifest.id)
@@ -648,6 +849,28 @@ impl PluginManager {
         let wasm_path = install_dir.join(WASM_ARTIFACT_FILE_NAME);
         fs::write(&wasm_path, &bytes)
             .with_context(|| format!("Failed to write plugin artifact: {}", wasm_path.display()))?;
+
+        if let Some(signature_bundle) = &verified_signature_bundle {
+            let signature_path = install_dir.join(WASM_SIGNATURE_FILE_NAME);
+            write_private_file(&signature_path, &signature_bundle.signature).with_context(
+                || {
+                    format!(
+                        "Failed to write plugin signature metadata: {}",
+                        signature_path.display()
+                    )
+                },
+            )?;
+
+            let certificate_path = install_dir.join(WASM_CERTIFICATE_FILE_NAME);
+            write_private_file(&certificate_path, &signature_bundle.certificate).with_context(
+                || {
+                    format!(
+                        "Failed to write plugin certificate metadata: {}",
+                        certificate_path.display()
+                    )
+                },
+            )?;
+        }
 
         let manifest_path = install_dir.join(MANIFEST_FILE_NAME);
         atomic_write_json(&manifest_path, &candidate.manifest)?;
@@ -666,6 +889,8 @@ impl PluginManager {
             version: candidate.manifest.version,
             digest: format!("sha256:{actual_digest}"),
             source: candidate.source.name,
+            source_url: Some(candidate.source.url),
+            source_identity_regex,
             publisher: candidate.manifest.publisher,
             runtime_api: candidate.manifest.runtime_api,
             installed_at: Utc::now().to_rfc3339(),
@@ -680,6 +905,83 @@ impl PluginManager {
         self.save_lock(&lock)?;
 
         Ok(locked)
+    }
+
+    fn verify_candidate_signature_bundle(
+        &self,
+        candidate: &PluginCandidate,
+        artifact_bytes: &[u8],
+        signature_policy: SignaturePolicy,
+    ) -> Result<Option<VerifiedSignatureBundle>> {
+        let SignaturePolicy::RequiredKeyless { identity_regex } = &signature_policy else {
+            return Ok(None);
+        };
+
+        let signature_url = candidate.manifest.resolved_signature_url().ok_or_else(|| {
+            anyhow!(
+                "Plugin '{}' from source '{}' is missing signature.url metadata",
+                candidate.manifest.id,
+                candidate.source.name
+            )
+        })?;
+        let certificate_url = candidate
+            .manifest
+            .resolved_signature_certificate_url()
+            .ok_or_else(|| {
+                anyhow!(
+                    "Plugin '{}' from source '{}' is missing signature.certificate_url metadata",
+                    candidate.manifest.id,
+                    candidate.source.name
+                )
+            })?;
+
+        let signature =
+            fetch_bytes_limited(signature_url, MAX_SIGNATURE_BYTES).with_context(|| {
+                format!(
+                    "Failed to download plugin '{}' signature from {signature_url}",
+                    candidate.manifest.id
+                )
+            })?;
+        if signature.is_empty() {
+            bail!(
+                "Plugin '{}' signature has invalid size ({} bytes)",
+                candidate.manifest.id,
+                signature.len()
+            );
+        }
+
+        let certificate = fetch_bytes_limited(certificate_url, MAX_CERTIFICATE_BYTES)
+            .with_context(|| {
+                format!(
+                    "Failed to download plugin '{}' signing certificate from {certificate_url}",
+                    candidate.manifest.id
+                )
+            })?;
+        if certificate.is_empty() {
+            bail!(
+                "Plugin '{}' signing certificate has invalid size ({} bytes)",
+                candidate.manifest.id,
+                certificate.len()
+            );
+        }
+
+        verify_blob_with_cosign(
+            artifact_bytes,
+            &signature,
+            &certificate,
+            identity_regex.as_str(),
+        )
+        .with_context(|| {
+            format!(
+                "Plugin '{}' cosign verification failed (source='{}')",
+                candidate.manifest.id, candidate.source.name
+            )
+        })?;
+
+        Ok(Some(VerifiedSignatureBundle {
+            signature,
+            certificate,
+        }))
     }
 
     fn list_installed(&self) -> Result<Vec<LockedPlugin>> {
@@ -1051,6 +1353,74 @@ fn fetch_bytes(source: &str) -> Result<Vec<u8>> {
     }
 }
 
+fn fetch_bytes_limited(source: &str, max_bytes: usize) -> Result<Vec<u8>> {
+    match resolve_source(source)? {
+        ResolvedSource::Local(path) => {
+            if let Ok(metadata) = fs::metadata(&path) {
+                if metadata.len() > max_bytes as u64 {
+                    bail!(
+                        "Local source exceeds size limit ({} > {} bytes): {}",
+                        metadata.len(),
+                        max_bytes,
+                        path.display()
+                    );
+                }
+            }
+
+            let bytes = fs::read(&path)
+                .with_context(|| format!("Failed to read local source: {}", path.display()))?;
+            if bytes.len() > max_bytes {
+                bail!(
+                    "Local source exceeds size limit ({} > {} bytes): {}",
+                    bytes.len(),
+                    max_bytes,
+                    path.display()
+                );
+            }
+            Ok(bytes)
+        }
+        ResolvedSource::Remote(url) => {
+            validate_fetch_source(&url)?;
+            let client = reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .context("Failed to initialize HTTP client")?;
+            let response = client
+                .get(&url)
+                .send()
+                .with_context(|| format!("Failed to fetch remote source: {url}"))?
+                .error_for_status()
+                .with_context(|| format!("Remote source returned error status: {url}"))?;
+
+            if let Some(content_length) = response.content_length() {
+                if content_length > max_bytes as u64 {
+                    bail!(
+                        "Remote source exceeds size limit ({} > {} bytes): {}",
+                        content_length,
+                        max_bytes,
+                        url
+                    );
+                }
+            }
+
+            let mut limited_reader = response.take((max_bytes as u64).saturating_add(1));
+            let mut bytes = Vec::new();
+            limited_reader
+                .read_to_end(&mut bytes)
+                .with_context(|| format!("Failed to read response body: {url}"))?;
+            if bytes.len() > max_bytes {
+                bail!(
+                    "Remote source exceeds size limit ({} > {} bytes): {}",
+                    bytes.len(),
+                    max_bytes,
+                    url
+                );
+            }
+            Ok(bytes)
+        }
+    }
+}
+
 fn host_is_loopback(url: &Url) -> bool {
     url.host_str().is_some_and(|host| {
         host.eq_ignore_ascii_case("localhost")
@@ -1061,6 +1431,296 @@ fn host_is_loopback(url: &Url) -> bool {
 enum ResolvedSource {
     Local(PathBuf),
     Remote(String),
+}
+
+struct VerifiedSignatureBundle {
+    signature: Vec<u8>,
+    certificate: Vec<u8>,
+}
+
+fn is_official_source(source: &PluginSourceConfig) -> Result<bool> {
+    let resolved = resolve_source(&source.url)?;
+    let ResolvedSource::Remote(url) = resolved else {
+        return Ok(false);
+    };
+    let parsed = Url::parse(&url).with_context(|| format!("Invalid source URL: {url}"))?;
+    Ok(parsed
+        .host_str()
+        .is_some_and(|host| host.eq_ignore_ascii_case(OFFICIAL_PLUGIN_CATALOG_HOST)))
+}
+
+fn signature_policy_for_source(source: &PluginSourceConfig) -> Result<SignaturePolicy> {
+    let resolved = resolve_source(&source.url)?;
+    let policy = match resolved {
+        ResolvedSource::Local(_) => SignaturePolicy::NotRequired,
+        ResolvedSource::Remote(url) => {
+            let parsed = Url::parse(&url).with_context(|| format!("Invalid source URL: {url}"))?;
+            if parsed.scheme() == "http" && host_is_loopback(&parsed) {
+                SignaturePolicy::NotRequired
+            } else if parsed
+                .host_str()
+                .is_some_and(|host| host.eq_ignore_ascii_case(OFFICIAL_PLUGIN_CATALOG_HOST))
+            {
+                SignaturePolicy::RequiredKeyless {
+                    identity_regex: OFFICIAL_PLUGIN_IDENTITY_REGEX.to_string(),
+                }
+            } else {
+                let identity_regex = source
+                    .plugin_identity_regex
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+                    .ok_or_else(|| {
+                        anyhow!(
+                            "Remote plugin source '{}' must set plugin_identity_regex for keyless signature verification",
+                            source.name
+                        )
+                    })?;
+                SignaturePolicy::RequiredKeyless {
+                    identity_regex: identity_regex.to_string(),
+                }
+            }
+        }
+    };
+    Ok(policy)
+}
+
+fn signature_policy_for_locked_plugin(plugin: &LockedPlugin) -> Result<SignaturePolicy> {
+    if let Some(source_url) = plugin.source_url.as_deref() {
+        let plugin_identity_regex = if plugin.source == "official" {
+            Some(OFFICIAL_PLUGIN_IDENTITY_REGEX.to_string())
+        } else {
+            plugin.source_identity_regex.clone()
+        };
+        if plugin_identity_regex.is_none() && plugin.source != "official" {
+            let resolved = resolve_source(source_url)?;
+            if let ResolvedSource::Remote(url) = resolved {
+                bail!(
+                    "Plugin '{}' from source '{}' has remote source_url '{}' but no source_identity_regex; refusing to skip signature verification",
+                    plugin.id,
+                    plugin.source,
+                    url
+                );
+            }
+        }
+
+        let source = PluginSourceConfig {
+            name: plugin.source.clone(),
+            url: source_url.to_string(),
+            plugin_identity_regex,
+        };
+        return signature_policy_for_source(&source);
+    }
+
+    if plugin.source == "official" {
+        return Ok(SignaturePolicy::RequiredKeyless {
+            identity_regex: OFFICIAL_PLUGIN_IDENTITY_REGEX.to_string(),
+        });
+    }
+
+    if plugin.source != "local" {
+        tracing::warn!(
+            "Plugin '{}' from source '{}' has no source_url in lockfile; skipping signature verification for backward compatibility",
+            plugin.id,
+            plugin.source
+        );
+    }
+
+    Ok(SignaturePolicy::NotRequired)
+}
+
+fn validate_manifest_asset_source(
+    catalog_source: &PluginSourceConfig,
+    asset_source: &str,
+    field_name: &str,
+) -> Result<()> {
+    validate_fetch_source(asset_source)?;
+
+    let catalog_resolved = resolve_source(&catalog_source.url)?;
+    let ResolvedSource::Remote(catalog_url) = catalog_resolved else {
+        return Ok(());
+    };
+
+    let asset_resolved = resolve_source(asset_source)?;
+    let ResolvedSource::Remote(asset_url) = asset_resolved else {
+        bail!(
+            "Plugin from remote source '{}' cannot use local {}",
+            catalog_source.name,
+            field_name
+        );
+    };
+
+    let catalog_parsed =
+        Url::parse(&catalog_url).with_context(|| format!("Invalid catalog URL: {catalog_url}"))?;
+    let asset_parsed =
+        Url::parse(&asset_url).with_context(|| format!("Invalid asset URL: {asset_url}"))?;
+
+    if asset_parsed.scheme() != "https" {
+        bail!(
+            "Plugin from remote source '{}' must use HTTPS for {}",
+            catalog_source.name,
+            field_name
+        );
+    }
+
+    if catalog_parsed
+        .host_str()
+        .is_some_and(|host| host.eq_ignore_ascii_case(OFFICIAL_PLUGIN_CATALOG_HOST))
+    {
+        let asset_host = asset_parsed
+            .host_str()
+            .ok_or_else(|| anyhow!("Asset URL is missing host: {}", asset_parsed))?;
+        if !asset_host.eq_ignore_ascii_case(OFFICIAL_PLUGIN_CATALOG_HOST) {
+            bail!(
+                "Official source plugin {} must be hosted on '{}', got '{}'",
+                field_name,
+                OFFICIAL_PLUGIN_CATALOG_HOST,
+                asset_host
+            );
+        }
+    }
+
+    Ok(())
+}
+
+fn verify_blob_with_cosign(
+    artifact: &[u8],
+    signature: &[u8],
+    certificate: &[u8],
+    identity_regex: &str,
+) -> Result<()> {
+    let temp_dir =
+        std::env::temp_dir().join(format!("corvus-plugin-verify-{}", uuid::Uuid::new_v4()));
+    fs::create_dir_all(&temp_dir).with_context(|| {
+        format!(
+            "Failed to create temporary directory for signature verification: {}",
+            temp_dir.display()
+        )
+    })?;
+
+    let artifact_path = temp_dir.join("plugin.wasm");
+    let signature_path = temp_dir.join("plugin.wasm.sig");
+    let certificate_path = temp_dir.join("plugin.wasm.pem");
+
+    let verify_result = (|| -> Result<()> {
+        write_private_file(&artifact_path, artifact)?;
+        write_private_file(&signature_path, signature)?;
+        write_private_file(&certificate_path, certificate)?;
+
+        let mut command = Command::new("cosign");
+        command
+            .arg("verify-blob")
+            .arg("--certificate")
+            .arg(&certificate_path)
+            .arg("--signature")
+            .arg(&signature_path)
+            .arg("--certificate-oidc-issuer")
+            .arg(SIGSTORE_GITHUB_OIDC_ISSUER)
+            .arg("--certificate-identity-regexp")
+            .arg(identity_regex);
+
+        command.arg(&artifact_path);
+
+        let output = run_command_with_timeout(command, COSIGN_VERIFY_TIMEOUT)?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let details = if !stderr.is_empty() {
+                stderr
+            } else if !stdout.is_empty() {
+                stdout
+            } else {
+                "cosign verify-blob exited with non-zero status".to_string()
+            };
+            bail!("cosign verify-blob failed: {details}");
+        }
+
+        Ok(())
+    })();
+
+    let _ = fs::remove_dir_all(&temp_dir);
+    verify_result
+}
+
+struct CommandOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn run_command_with_timeout(mut command: Command, timeout: Duration) -> Result<CommandOutput> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            anyhow!("cosign binary not found in PATH. Install cosign to verify plugin signatures.")
+        } else {
+            anyhow!("Failed to execute cosign verify-blob: {error}")
+        }
+    })?;
+
+    let start = Instant::now();
+    loop {
+        if let Some(status) = child
+            .try_wait()
+            .context("Failed to check cosign verify-blob process status")?
+        {
+            let mut stdout = Vec::new();
+            if let Some(mut handle) = child.stdout.take() {
+                handle
+                    .read_to_end(&mut stdout)
+                    .context("Failed to read cosign stdout")?;
+            }
+
+            let mut stderr = Vec::new();
+            if let Some(mut handle) = child.stderr.take() {
+                handle
+                    .read_to_end(&mut stderr)
+                    .context("Failed to read cosign stderr")?;
+            }
+
+            return Ok(CommandOutput {
+                status,
+                stdout,
+                stderr,
+            });
+        }
+
+        if start.elapsed() >= timeout {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!(
+                "cosign verify-blob timed out after {} seconds",
+                timeout.as_secs()
+            );
+        }
+
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+fn write_private_file(path: &Path, data: &[u8]) -> Result<()> {
+    let parent = path.parent().context("Path must have a parent directory")?;
+    fs::create_dir_all(parent)
+        .with_context(|| format!("Failed to create parent directory: {}", parent.display()))?;
+
+    let mut open_options = OpenOptions::new();
+    open_options.create(true).truncate(true).write(true);
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        open_options.mode(0o600);
+    }
+
+    let mut file = open_options
+        .open(path)
+        .with_context(|| format!("Failed to open file for writing: {}", path.display()))?;
+    file.write_all(data)
+        .with_context(|| format!("Failed to write file: {}", path.display()))?;
+    file.sync_all()
+        .with_context(|| format!("Failed to fsync file: {}", path.display()))?;
+    Ok(())
 }
 
 fn atomic_write_json<T>(path: &Path, value: &T) -> Result<()>
@@ -1308,6 +1968,7 @@ mod tests {
         config.plugins.sources = vec![PluginSourceConfig {
             name: "official".to_string(),
             url: format!("file://{}", catalog_path.display()),
+            plugin_identity_regex: None,
         }];
         config.plugins.allow_publishers = allow_publishers;
         config.plugins.install_policy = "pin-manual".to_string();
@@ -1320,6 +1981,159 @@ mod tests {
 
     fn wasm_sample() -> Vec<u8> {
         vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
+    }
+
+    #[test]
+    fn signature_policy_requires_keyless_for_official_remote_source() {
+        let source = PluginSourceConfig {
+            name: "official".to_string(),
+            url: "https://corvus.profiletailors.com/catalog.json".to_string(),
+            plugin_identity_regex: None,
+        };
+
+        let policy =
+            signature_policy_for_source(&source).expect("policy resolution should succeed");
+        assert!(matches!(
+            policy,
+            SignaturePolicy::RequiredKeyless { identity_regex }
+                if identity_regex == OFFICIAL_PLUGIN_IDENTITY_REGEX
+        ));
+    }
+
+    #[test]
+    fn signature_policy_requires_keyless_for_custom_remote_source_with_regex() {
+        let source = PluginSourceConfig {
+            name: "mirror".to_string(),
+            url: "https://plugins.example.com/catalog.json".to_string(),
+            plugin_identity_regex: Some(
+                "^https://ci\\.example\\.com/workflows/publish@.*$".to_string(),
+            ),
+        };
+
+        let policy =
+            signature_policy_for_source(&source).expect("policy resolution should succeed");
+        assert!(matches!(
+            policy,
+            SignaturePolicy::RequiredKeyless { identity_regex }
+                if identity_regex == "^https://ci\\.example\\.com/workflows/publish@.*$"
+        ));
+    }
+
+    #[test]
+    fn signature_policy_rejects_custom_remote_source_without_regex() {
+        let source = PluginSourceConfig {
+            name: "mirror".to_string(),
+            url: "https://plugins.example.com/catalog.json".to_string(),
+            plugin_identity_regex: None,
+        };
+
+        let error = signature_policy_for_source(&source)
+            .expect_err("policy resolution should fail without plugin_identity_regex");
+        assert!(error.to_string().contains("must set plugin_identity_regex"));
+    }
+
+    #[test]
+    fn signature_policy_not_required_for_loopback_http_source() {
+        let source = PluginSourceConfig {
+            name: "loopback".to_string(),
+            url: "http://127.0.0.1:8080/catalog.json".to_string(),
+            plugin_identity_regex: None,
+        };
+
+        let policy =
+            signature_policy_for_source(&source).expect("policy resolution should succeed");
+        assert!(matches!(policy, SignaturePolicy::NotRequired));
+    }
+
+    #[test]
+    fn signature_policy_not_required_for_local_catalog_sources() {
+        let source = PluginSourceConfig {
+            name: "local".to_string(),
+            url: "file:///tmp/catalog.json".to_string(),
+            plugin_identity_regex: None,
+        };
+
+        let policy =
+            signature_policy_for_source(&source).expect("policy resolution should succeed");
+        assert!(matches!(policy, SignaturePolicy::NotRequired));
+    }
+
+    #[test]
+    fn signature_policy_for_locked_plugin_uses_source_url_and_identity_regex() {
+        let plugin = LockedPlugin {
+            id: OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID.to_string(),
+            version: "1.0.0".to_string(),
+            digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .to_string(),
+            source: "mirror".to_string(),
+            source_url: Some("https://plugins.example.com/catalog.json".to_string()),
+            source_identity_regex: Some(
+                "^https://ci\\.example\\.com/workflows/publish@.*$".to_string(),
+            ),
+            publisher: "corvus-official".to_string(),
+            runtime_api: default_runtime_api(),
+            installed_at: Utc::now().to_rfc3339(),
+            pinned: true,
+            enabled: true,
+            path: "plugins/memory.surreal.graphs/1.0.0/plugin.wasm".to_string(),
+            capabilities: vec!["memory".to_string()],
+        };
+
+        let policy = signature_policy_for_locked_plugin(&plugin)
+            .expect("locked plugin policy resolution should succeed");
+        assert!(matches!(
+            policy,
+            SignaturePolicy::RequiredKeyless { identity_regex }
+                if identity_regex == "^https://ci\\.example\\.com/workflows/publish@.*$"
+        ));
+    }
+
+    #[test]
+    fn signature_policy_for_locked_plugin_legacy_source_without_url_is_not_required() {
+        let plugin = LockedPlugin {
+            id: OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID.to_string(),
+            version: "1.0.0".to_string(),
+            digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .to_string(),
+            source: "legacy-mirror".to_string(),
+            source_url: None,
+            source_identity_regex: None,
+            publisher: "corvus-official".to_string(),
+            runtime_api: default_runtime_api(),
+            installed_at: Utc::now().to_rfc3339(),
+            pinned: true,
+            enabled: true,
+            path: "plugins/memory.surreal.graphs/1.0.0/plugin.wasm".to_string(),
+            capabilities: vec!["memory".to_string()],
+        };
+
+        let policy = signature_policy_for_locked_plugin(&plugin)
+            .expect("locked plugin policy resolution should succeed");
+        assert!(matches!(policy, SignaturePolicy::NotRequired));
+    }
+
+    #[test]
+    fn signature_policy_for_locked_plugin_legacy_remote_without_identity_regex_fails() {
+        let plugin = LockedPlugin {
+            id: OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID.to_string(),
+            version: "1.0.0".to_string(),
+            digest: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                .to_string(),
+            source: "legacy-mirror".to_string(),
+            source_url: Some("https://plugins.example.com/catalog.json".to_string()),
+            source_identity_regex: None,
+            publisher: "corvus-official".to_string(),
+            runtime_api: default_runtime_api(),
+            installed_at: Utc::now().to_rfc3339(),
+            pinned: true,
+            enabled: true,
+            path: "plugins/memory.surreal.graphs/1.0.0/plugin.wasm".to_string(),
+            capabilities: vec!["memory".to_string()],
+        };
+
+        let error = signature_policy_for_locked_plugin(&plugin)
+            .expect_err("locked plugin policy resolution should fail");
+        assert!(error.to_string().contains("no source_identity_regex"));
     }
 
     #[test]
@@ -1351,6 +2165,7 @@ mod tests {
                     digest: Some(digest),
                 }),
                 artifact_url: None,
+                signature: None,
             }],
         };
 
@@ -1412,6 +2227,7 @@ mod tests {
                     digest: Some(digest),
                 }),
                 artifact_url: None,
+                signature: None,
             }],
         };
 
@@ -1468,6 +2284,7 @@ mod tests {
                     digest: Some(digest),
                 }),
                 artifact_url: None,
+                signature: None,
             }],
         };
 

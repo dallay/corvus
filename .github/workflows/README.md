@@ -205,7 +205,7 @@ Calls the reusable `_publish.yml` workflow with:
 2. Builds WASM artifact (`wasm32-wasip1`)
 3. Generates immutable artifact paths under `artifacts/<plugin-id>/<version>/`
 4. Upserts plugin entry into `catalog.json` and preserves existing entries
-5. Signs artifact with cosign (key-based or keyless)
+5. Signs artifact with cosign keyless OIDC identity
 6. Verifies signature in CI
 7. Builds plugins catalog site
 8. Deploys to Cloudflare Pages (configurable)

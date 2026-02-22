@@ -66,5 +66,4 @@ Required repository secrets/variables for Cloudflare deployment:
 
 Optional signing/publishing secrets:
 
-- `COSIGN_PRIVATE_KEY` and `COSIGN_PASSWORD` (key-based signing)
 - `OCI_USERNAME` and `OCI_PASSWORD` (when publishing to OCI)
