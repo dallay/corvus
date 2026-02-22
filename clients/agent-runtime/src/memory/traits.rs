@@ -13,6 +13,13 @@ pub struct MemoryEntry {
     pub score: Option<f64>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct MemoryValidationResult {
+    pub valid: bool,
+    #[serde(default)]
+    pub violations: Vec<String>,
+}
+
 /// Memory categories for organization
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -79,6 +86,22 @@ pub trait Memory: Send + Sync {
 
     /// Health check
     async fn health_check(&self) -> bool;
+
+    /// Validate an AI response against memory-backed domain rules.
+    ///
+    /// Backends that do not provide ontology/rule validation should rely on
+    /// the default permissive implementation.
+    async fn validate_response(
+        &self,
+        _user_query: &str,
+        _response: &str,
+        _session_id: Option<&str>,
+    ) -> anyhow::Result<MemoryValidationResult> {
+        Ok(MemoryValidationResult {
+            valid: true,
+            violations: Vec::new(),
+        })
+    }
 }
 
 #[cfg(test)]

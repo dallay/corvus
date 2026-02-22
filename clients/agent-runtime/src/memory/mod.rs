@@ -29,7 +29,7 @@ pub use sqlite::SqliteMemory;
 pub use surreal::SurrealMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
-pub use traits::{MemoryCategory, MemoryEntry};
+pub use traits::{MemoryCategory, MemoryEntry, MemoryValidationResult};
 
 use crate::config::MemoryConfig;
 use std::path::Path;
@@ -110,17 +110,25 @@ pub fn create_memory(
             let local = build_sqlite_memory(config, workspace_dir, api_key)?;
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
-        MemoryBackendKind::SurrealGraphs => match crate::plugins::resolve_memory_plugin(
+        MemoryBackendKind::SurrealGraphs => match crate::plugins::resolve_memory_plugin_runtime(
             workspace_dir,
             crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
         ) {
-            Ok(Some(plugin)) => {
+            Ok(Some(plugin_runtime)) => {
                 tracing::info!(
                     "Using plugin-backed memory backend '{}' (version {})",
-                    plugin.id,
-                    plugin.version
+                    plugin_runtime.locked.id,
+                    plugin_runtime.locked.version
                 );
-                Ok(Box::new(PluginBackedMemory::new(plugin.id, workspace_dir)))
+                match PluginBackedMemory::new(plugin_runtime, config, workspace_dir) {
+                    Ok(memory) => Ok(Box::new(memory)),
+                    Err(error) => {
+                        tracing::warn!(
+                            "Plugin-backed memory initialization failed: {error}. Falling back to markdown"
+                        );
+                        Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+                    }
+                }
             }
             Ok(None) => {
                 tracing::warn!(

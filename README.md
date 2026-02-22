@@ -41,7 +41,7 @@ Corvus is a highly extensible, multi-interface agentic platform designed to brid
 - **Core Logic**: [Kotlin Multiplatform (KMP)](https://kotlinlang.org/docs/multiplatform.html)
 - **Agent Runtime**: [Rust](https://www.rust-lang.org/) (High-performance sidecars and CLI)
 - **Desktop UI**: [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)
-- **Web Stack**: [Astro](https://astro.build/), [Vue 3](https://vuejs.org/), and [Tailwind CSS](https://tailwindcss.com/)
+- **Web Stack**: [Astro](https://astro.build/), [Vue 3](https://vuejs.org/), and [Tailwind CSS](https://tailwindcss.com/docs)
 - **Documentation**: [Starlight](https://starlight.astro.build/)
 - **Build System**: [Gradle](https://gradle.org/) & [Makefile](https://www.gnu.org/software/make/)
 

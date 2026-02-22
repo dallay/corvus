@@ -80,6 +80,9 @@ parking_lot = "0.12"
 # Async traits
 async-trait = "0.1"
 
+# WASM execution for plugin-backed memory backends
+wasmi = "0.40"
+
 # HMAC-SHA256 (Zhipu/GLM JWT auth)
 ring = "0.17"
 
