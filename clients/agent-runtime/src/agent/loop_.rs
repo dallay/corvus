@@ -251,6 +251,16 @@ async fn enforce_strict_memory_validation(
     .await
 }
 
+fn replace_last_assistant_message(history: &mut [ChatMessage], content: &str) {
+    if let Some(message) = history
+        .iter_mut()
+        .rev()
+        .find(|message| message.role == "assistant")
+    {
+        message.content = content.to_string();
+    }
+}
+
 /// Build hardware datasheet context from RAG when peripherals are enabled.
 /// Includes pin-alias lookup (e.g. "red_led" → 13) when query matches, plus retrieved chunks.
 fn build_hardware_context(
@@ -1459,6 +1469,7 @@ pub async fn run(
             response,
         )
         .await;
+        replace_last_assistant_message(&mut history, &response);
         final_output = response.clone();
         println!("{response}");
         observer.record_event(&ObserverEvent::TurnComplete);
@@ -1601,6 +1612,7 @@ pub async fn run(
                 response,
             )
             .await;
+            replace_last_assistant_message(&mut history, &response);
             final_output = response.clone();
             if let Err(e) = crate::channels::Channel::send(
                 &cli,

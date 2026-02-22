@@ -3,7 +3,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::slice;
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAX_TERMS: usize = 12;
@@ -11,6 +11,11 @@ const MAX_RECALL_LIMIT: usize = 100;
 const MAX_OUTPUT_BYTES: usize = 262_144;
 
 static SCHEMA_INIT_RESULT: OnceLock<std::result::Result<(), String>> = OnceLock::new();
+static ALLOCATION_CAPS: OnceLock<Mutex<HashMap<usize, usize>>> = OnceLock::new();
+
+fn allocation_caps() -> &'static Mutex<HashMap<usize, usize>> {
+    ALLOCATION_CAPS.get_or_init(|| Mutex::new(HashMap::new()))
+}
 
 #[link(wasm_import_module = "corvus")]
 extern "C" {
@@ -113,6 +118,10 @@ struct CandidateEntry {
 }
 
 #[no_mangle]
+/// Allocates a host-call response buffer with capacity `size` bytes.
+///
+/// The returned pointer must later be released with `dealloc_v1(ptr, cap)`
+/// using the same capacity value that was passed to `alloc_v1`.
 pub extern "C" fn alloc_v1(size: i32) -> i32 {
     if size <= 0 {
         return 0;
@@ -120,18 +129,35 @@ pub extern "C" fn alloc_v1(size: i32) -> i32 {
 
     let mut buffer = Vec::<u8>::with_capacity(size as usize);
     let ptr = buffer.as_mut_ptr();
+    if let Ok(mut allocations) = allocation_caps().lock() {
+        allocations.insert(ptr as usize, size as usize);
+    }
     std::mem::forget(buffer);
     ptr as i32
 }
 
 #[no_mangle]
-pub extern "C" fn dealloc_v1(ptr: i32, len: i32) {
-    if ptr <= 0 || len <= 0 {
+/// Deallocates a pointer returned by `alloc_v1`.
+///
+/// `cap` must exactly match the original allocation capacity passed to `alloc_v1`.
+pub extern "C" fn dealloc_v1(ptr: i32, cap: i32) {
+    if ptr <= 0 || cap <= 0 {
+        return;
+    }
+
+    let ptr_usize = ptr as usize;
+    let cap_usize = cap as usize;
+    let expected_cap = allocation_caps()
+        .lock()
+        .ok()
+        .and_then(|mut allocations| allocations.remove(&ptr_usize));
+
+    if expected_cap != Some(cap_usize) {
         return;
     }
 
     unsafe {
-        let _ = Vec::<u8>::from_raw_parts(ptr as *mut u8, 0, len as usize);
+        let _ = Vec::<u8>::from_raw_parts(ptr as *mut u8, 0, cap_usize);
     }
 }
 
@@ -475,15 +501,14 @@ fn recall_memory(args: RecallArgs) -> std::result::Result<Vec<EntryOut>, String>
     }
 
     if !expanded_ids.is_empty() {
-        let id_list = Value::Array(
-            expanded_ids
-                .iter()
-                .map(|id| Value::String(id.clone()))
-                .collect(),
-        );
+        let id_list = expanded_ids
+            .iter()
+            .map(|id| surreal_record_literal(id))
+            .collect::<Vec<_>>()
+            .join(", ");
 
         let expanded_query = format!(
-            "SELECT * FROM memory_entries WHERE id IN {ids} LIMIT {limit};",
+            "SELECT * FROM memory_entries WHERE id IN [{ids}] LIMIT {limit};",
             ids = id_list,
             limit = limit * 2,
         );
@@ -652,7 +677,8 @@ fn validate_response(
 
     let rules_query =
         format!("SELECT * FROM ontology_rules WHERE enabled = true{session_filter} LIMIT 200;");
-    let rules = sql_rows(&rules_query, None, Some(5_000)).unwrap_or_default();
+    let rules = sql_rows(&rules_query, None, Some(5_000))
+        .map_err(|error| format!("failed querying ontology_rules: {error}"))?;
 
     for rule in rules {
         let Some(rule_type) = rule.get("rule_type").and_then(Value::as_str) else {
@@ -771,6 +797,15 @@ fn sql_query(
                         "status": 200,
                         "result": [],
                     }));
+                }
+
+                if response_ptr <= 0 {
+                    return Err("host sql returned invalid response pointer".to_string());
+                }
+
+                if len > capacity {
+                    dealloc_v1(response_ptr, i32::try_from(capacity).unwrap_or(i32::MAX));
+                    return Err("host sql response length exceeds capacity".to_string());
                 }
 
                 let bytes =
@@ -908,6 +943,17 @@ fn as_record_id_string(value: &Value) -> Option<String> {
 
 fn surreal_string_literal(value: &str) -> String {
     serde_json::to_string(value).unwrap_or_else(|_| "\"\"".to_string())
+}
+
+fn surreal_record_literal(record_id: &str) -> String {
+    if let Some((table, id)) = record_id.split_once(':') {
+        return format!(
+            "type::thing({}, {})",
+            surreal_string_literal(table),
+            surreal_string_literal(id)
+        );
+    }
+    surreal_string_literal(record_id)
 }
 
 fn option_literal(value: Option<&str>) -> String {

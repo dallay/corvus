@@ -209,7 +209,10 @@ impl Memory for PluginBackedMemory {
         let rpc_response = self.executor.invoke_memory(request).await?;
         let result = rpc_response.ensure_ok()?;
 
-        let valid = result.get("valid").and_then(Value::as_bool).unwrap_or(true);
+        let valid = result
+            .get("valid")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
         let violations = result
             .get("violations")
             .and_then(Value::as_array)
@@ -240,6 +243,7 @@ struct PluginWasmExecutorInner {
     fuel_limit: u64,
     timeout: Duration,
     max_output_bytes: usize,
+    invocation_gate: Arc<tokio::sync::Semaphore>,
     surreal: SurrealSqlClient,
 }
 
@@ -296,6 +300,7 @@ impl PluginWasmExecutor {
                 fuel_limit,
                 timeout,
                 max_output_bytes,
+                invocation_gate: Arc::new(tokio::sync::Semaphore::new(1)),
                 surreal,
             }),
         })
@@ -317,8 +322,18 @@ impl PluginWasmExecutor {
         request: PluginRpcRequest,
     ) -> Result<PluginRpcResponse> {
         let timeout = self.inner.timeout;
+        let permit = self
+            .inner
+            .invocation_gate
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|_| anyhow!("plugin invocation gate is closed"))?;
         let executor = self.clone();
-        let join = tokio::task::spawn_blocking(move || executor.invoke_sync(&entrypoint, request));
+        let join = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            executor.invoke_sync(&entrypoint, request)
+        });
 
         let joined = tokio::time::timeout(timeout, join).await.map_err(|_| {
             anyhow!(
@@ -472,7 +487,7 @@ impl std::fmt::Debug for SurrealSqlClient {
             .field("sql_url", &self.sql_url)
             .field("namespace", &self.namespace)
             .field("database", &self.database)
-            .field("username", &self.username)
+            .field("username", &"<redacted>")
             .field("password", &"<redacted>")
             .field("token", &"<redacted>")
             .finish_non_exhaustive()
@@ -817,12 +832,7 @@ fn validate_endpoint_security(endpoint: &Url, allow_http_loopback: bool) -> Resu
             }
             Ok(())
         }
-        "wss" => {
-            if !allow_http_loopback && !is_loopback_host(host) {
-                bail!("refusing insecure SurrealDB URL over http for non-loopback host '{host}'");
-            }
-            Ok(())
-        }
+        "wss" => Ok(()),
         other => {
             bail!("unsupported SurrealDB URL scheme '{other}', expected one of http/https/ws/wss")
         }
@@ -990,10 +1000,9 @@ mod tests {
     }
 
     #[test]
-    fn reject_non_loopback_wss_when_http_loopback_is_disabled() {
+    fn allow_non_loopback_wss_when_http_loopback_is_disabled() {
         let endpoint = parse_endpoint("wss://example.com/rpc").unwrap();
-        let error = validate_endpoint_security(&endpoint, false).unwrap_err();
-        assert!(error.to_string().contains("non-loopback"));
+        validate_endpoint_security(&endpoint, false).unwrap();
     }
 
     #[test]
@@ -1062,6 +1071,7 @@ mod tests {
                 fuel_limit: 100_000,
                 timeout: Duration::from_secs(1),
                 max_output_bytes: 1024,
+                invocation_gate: Arc::new(tokio::sync::Semaphore::new(1)),
                 surreal,
             }),
         };

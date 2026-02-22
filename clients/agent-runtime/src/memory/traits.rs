@@ -106,10 +106,7 @@ pub trait Memory: Send + Sync {
         _response: &str,
         _session_id: Option<&str>,
     ) -> anyhow::Result<MemoryValidationResult> {
-        Ok(MemoryValidationResult {
-            valid: true,
-            violations: Vec::new(),
-        })
+        Ok(MemoryValidationResult::default())
     }
 }
 

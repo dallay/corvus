@@ -27,7 +27,8 @@ Before tagging a release, verify:
    - `runtime_api`, `capabilities`, `memory_entrypoint`, `health_entrypoint`
 2. Plugin version in `Cargo.toml` matches tag semver.
 3. Plugin builds for `wasm32-wasip1`.
-4. Catalog deployment secrets are configured in GitHub:
+4. Git working tree is clean (no staged or unstaged changes).
+5. Catalog deployment secrets are configured in GitHub:
    - `CLOUDFLARE_API_TOKEN`
    - `CLOUDFLARE_ACCOUNT_ID`
    - `CLOUDFLARE_PAGES_PROJECT_NAME`
@@ -40,6 +41,8 @@ Before tagging a release, verify:
 git status
 git log --oneline -10
 ```
+
+Stop if `git status` reports any uncommitted or staged changes (see Preconditions).
 
 ### 2) Verify plugin manifest metadata
 
@@ -68,6 +71,8 @@ git tag -a plugin/<plugin-id>/vX.Y.Z -m "Release <plugin-id> vX.Y.Z"
 git push origin plugin/<plugin-id>/vX.Y.Z
 ```
 
+This triggers `publish-plugins.yml`.
+
 #### Recovery (if tag pushed with wrong version)
 
 ```bash
@@ -81,8 +86,6 @@ Then:
 - commit the correction
 - re-run publish by creating the correct `plugin/<plugin-id>/vX.Y.Z` tag
 - if needed, re-trigger `.github/workflows/publish-plugins.yml`
-
-This triggers `publish-plugins.yml`.
 
 ### 5) Monitor workflow and verify outputs
 
@@ -133,5 +136,5 @@ For static hosting compatibility:
 - [ ] Workflow succeeded in GitHub Actions
 - [ ] Artifact is reachable at immutable URL
 - [ ] Catalog entry points to new immutable URL
-- [ ] Runtime can install plugin via `corvus plugins install <plugin-id>`
-- [ ] Runtime verification passes for the installed plugin
+- [ ] Runtime can install plugin via `corvus plugins install <plugin-id>`; run `corvus plugins install <plugin-id>` and require exit code 0.
+- [ ] Runtime verification passes for the installed plugin; run `corvus plugins verify <plugin-id>` (or equivalent runtime verification command), require exit code 0, and assert signature verification succeeded in the output.

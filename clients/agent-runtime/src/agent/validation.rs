@@ -11,8 +11,8 @@ pub(crate) async fn enforce_strict_validation(
 ) -> String {
     let validation = match mem.validate_response(user_query, &candidate, None).await {
         Ok(value) => value,
-        Err(error) => {
-            tracing::warn!("Memory validation failed: {error}");
+        Err(_) => {
+            tracing::warn!("Memory validation failed");
             return "I cannot provide a validated answer right now because ontology validation failed."
                 .to_string();
         }
@@ -52,8 +52,8 @@ pub(crate) async fn enforce_strict_validation(
         .await
     {
         Ok(value) => value,
-        Err(error) => {
-            tracing::warn!("Ontology correction pass failed: {error}");
+        Err(_) => {
+            tracing::warn!("Ontology correction pass failed");
             return format!(
                 "I cannot provide a validated answer because strict ontology checks failed:\n{}",
                 violations_text
@@ -79,8 +79,8 @@ pub(crate) async fn enforce_strict_validation(
                 checked_violations
             )
         }
-        Err(error) => {
-            tracing::warn!("Post-correction ontology validation failed: {error}");
+        Err(_) => {
+            tracing::warn!("Post-correction ontology validation failed");
             "I cannot provide a validated answer because ontology checks are unavailable."
                 .to_string()
         }
