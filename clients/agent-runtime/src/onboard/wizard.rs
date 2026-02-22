@@ -72,7 +72,7 @@ struct CopilotApiEndpoints {
     api: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Deserialize)]
 struct CopilotApiKeyInfo {
     token: String,
     #[serde(default)]
@@ -1023,6 +1023,28 @@ fn fetch_ollama_models() -> Result<Vec<String>> {
     Ok(parse_ollama_model_ids(&payload))
 }
 
+fn resolve_live_model_api_key(provider_name: &str, api_key: &str) -> Option<String> {
+    if !api_key.trim().is_empty() {
+        return Some(api_key.trim().to_string());
+    }
+
+    std::env::var(provider_env_var(provider_name))
+        .ok()
+        .or_else(|| {
+            // Anthropic also accepts OAuth setup-tokens via ANTHROPIC_OAUTH_TOKEN
+            if provider_name == "anthropic" {
+                std::env::var("ANTHROPIC_OAUTH_TOKEN").ok()
+            } else if provider_name == "copilot" {
+                // GitHub CLI commonly exposes GH_TOKEN
+                std::env::var("GH_TOKEN").ok()
+            } else {
+                None
+            }
+        })
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
 fn fetch_copilot_models(api_key: Option<&str>) -> Result<Vec<String>> {
     let github_token = api_key
         .map(str::trim)
@@ -1070,22 +1092,7 @@ fn fetch_copilot_models(api_key: Option<&str>) -> Result<Vec<String>> {
 
 fn fetch_live_models_for_provider(provider_name: &str, api_key: &str) -> Result<Vec<String>> {
     let provider_name = canonical_provider_name(provider_name);
-    let api_key = if api_key.trim().is_empty() {
-        std::env::var(provider_env_var(provider_name))
-            .ok()
-            .or_else(|| {
-                // Anthropic also accepts OAuth setup-tokens via ANTHROPIC_OAUTH_TOKEN
-                if provider_name == "anthropic" {
-                    std::env::var("ANTHROPIC_OAUTH_TOKEN").ok()
-                } else {
-                    None
-                }
-            })
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-    } else {
-        Some(api_key.trim().to_string())
-    };
+    let api_key = resolve_live_model_api_key(provider_name, api_key);
 
     let models = match provider_name {
         "openrouter" => fetch_openrouter_models(api_key.as_deref())?,
@@ -4583,7 +4590,13 @@ fn print_summary(config: &Config) {
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::TempDir;
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
 
     // ── ProjectContext defaults ──────────────────────────────────
 
@@ -5292,6 +5305,32 @@ mod tests {
     #[test]
     fn provider_env_var_unknown_falls_back() {
         assert_eq!(provider_env_var("some-new-provider"), "API_KEY");
+    }
+
+    #[test]
+    fn resolve_live_model_api_key_uses_gh_token_for_copilot() {
+        let _guard = env_lock().lock().unwrap();
+
+        let previous_github_token = std::env::var("GITHUB_TOKEN").ok();
+        let previous_gh_token = std::env::var("GH_TOKEN").ok();
+
+        std::env::remove_var("GITHUB_TOKEN");
+        std::env::set_var("GH_TOKEN", "  ghp-from-gh-cli  ");
+
+        let resolved = resolve_live_model_api_key("copilot", "");
+        assert_eq!(resolved.as_deref(), Some("ghp-from-gh-cli"));
+
+        if let Some(value) = previous_github_token {
+            std::env::set_var("GITHUB_TOKEN", value);
+        } else {
+            std::env::remove_var("GITHUB_TOKEN");
+        }
+
+        if let Some(value) = previous_gh_token {
+            std::env::set_var("GH_TOKEN", value);
+        } else {
+            std::env::remove_var("GH_TOKEN");
+        }
     }
 
     #[test]
