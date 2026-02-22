@@ -110,6 +110,8 @@ impl HttpRequestTool {
                     || key.eq_ignore_ascii_case("content-length")
                     || key.eq_ignore_ascii_case("transfer-encoding")
                     || key.eq_ignore_ascii_case("connection")
+                    || key.eq_ignore_ascii_case("cookie")
+                    || key.eq_ignore_ascii_case("set-cookie")
                 {
                     anyhow::bail!("Header '{key}' is not allowed");
                 }
@@ -785,6 +787,19 @@ mod tests {
 
         let err = tool.parse_headers(&headers).unwrap_err().to_string();
         assert!(err.contains("not allowed"));
+    }
+
+    #[test]
+    fn parse_headers_rejects_cookie_headers() {
+        let tool = test_tool(vec!["example.com"]);
+
+        for headers in [
+            json!({ "Cookie": "session=abc" }),
+            json!({ "Set-Cookie": "session=abc; HttpOnly" }),
+        ] {
+            let err = tool.parse_headers(&headers).unwrap_err().to_string();
+            assert!(err.contains("not allowed"));
+        }
     }
 
     #[test]
