@@ -57,6 +57,27 @@ const MODEL_PREVIEW_LIMIT: usize = 20;
 const MODEL_CACHE_FILE: &str = "models_cache.json";
 const MODEL_CACHE_TTL_SECS: u64 = 12 * 60 * 60;
 const CUSTOM_MODEL_SENTINEL: &str = "__custom_model__";
+const COPILOT_TOKEN_URL: &str = "https://api.github.com/copilot_internal/v2/token";
+const COPILOT_DEFAULT_API: &str = "https://api.githubcopilot.com";
+
+const COPILOT_DISCOVERY_HEADERS: [(&str, &str); 4] = [
+    ("Editor-Version", "vscode/1.85.1"),
+    ("Editor-Plugin-Version", "copilot/1.155.0"),
+    ("User-Agent", "GithubCopilot/1.155.0"),
+    ("Accept", "application/json"),
+];
+
+#[derive(Debug, Deserialize)]
+struct CopilotApiEndpoints {
+    api: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CopilotApiKeyInfo {
+    token: String,
+    #[serde(default)]
+    endpoints: Option<CopilotApiEndpoints>,
+}
 
 // ── Main wizard entry point ──────────────────────────────────────
 
@@ -814,6 +835,7 @@ fn supports_live_model_fetch(provider_name: &str) -> bool {
             | "together-ai"
             | "gemini"
             | "ollama"
+            | "copilot"
             | "astrai"
     )
 }
@@ -1001,6 +1023,51 @@ fn fetch_ollama_models() -> Result<Vec<String>> {
     Ok(parse_ollama_model_ids(&payload))
 }
 
+fn fetch_copilot_models(api_key: Option<&str>) -> Result<Vec<String>> {
+    let github_token = api_key
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("GitHub token is required for Copilot model discovery"))?;
+
+    let client = build_model_fetch_client()?;
+
+    let mut token_request = client
+        .get(COPILOT_TOKEN_URL)
+        .header("Authorization", format!("token {github_token}"));
+    for (header, value) in COPILOT_DISCOVERY_HEADERS {
+        token_request = token_request.header(header, value);
+    }
+
+    let api_key_info: CopilotApiKeyInfo = token_request
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context("model fetch failed: GET Copilot API token")?
+        .json()
+        .context("failed to parse Copilot API token response")?;
+
+    let endpoint = api_key_info
+        .endpoints
+        .and_then(|endpoints| endpoints.api)
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| COPILOT_DEFAULT_API.to_string());
+
+    let mut model_request = client
+        .get(format!("{}/models", endpoint.trim_end_matches('/')))
+        .header("Authorization", format!("Bearer {}", api_key_info.token));
+    for (header, value) in COPILOT_DISCOVERY_HEADERS {
+        model_request = model_request.header(header, value);
+    }
+
+    let payload: Value = model_request
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+        .context("model fetch failed: GET Copilot models")?
+        .json()
+        .context("failed to parse Copilot model list response")?;
+
+    Ok(parse_openai_compatible_model_ids(&payload))
+}
+
 fn fetch_live_models_for_provider(provider_name: &str, api_key: &str) -> Result<Vec<String>> {
     let provider_name = canonical_provider_name(provider_name);
     let api_key = if api_key.trim().is_empty() {
@@ -1065,6 +1132,7 @@ fn fetch_live_models_for_provider(provider_name: &str, api_key: &str) -> Result<
         "astrai" => {
             fetch_openai_compatible_models("https://as-trai.com/v1/models", api_key.as_deref())?
         }
+        "copilot" => fetch_copilot_models(api_key.as_deref())?,
         _ => Vec::new(),
     };
 
@@ -4998,8 +5066,19 @@ mod tests {
         assert!(supports_live_model_fetch("grok"));
         assert!(supports_live_model_fetch("together"));
         assert!(supports_live_model_fetch("ollama"));
+        assert!(supports_live_model_fetch("copilot"));
+        assert!(supports_live_model_fetch("github-copilot"));
         assert!(supports_live_model_fetch("astrai"));
         assert!(!supports_live_model_fetch("venice"));
+    }
+
+    #[test]
+    fn fetch_copilot_models_requires_non_empty_token() {
+        let missing = fetch_copilot_models(None).unwrap_err().to_string();
+        assert!(missing.contains("GitHub token is required"));
+
+        let empty = fetch_copilot_models(Some("   ")).unwrap_err().to_string();
+        assert!(empty.contains("GitHub token is required"));
     }
 
     #[test]
