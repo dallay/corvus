@@ -17,6 +17,8 @@ use std::time::Instant;
 const MAX_PAIR_ATTEMPTS: u32 = 5;
 /// Lockout duration after too many failed pairing attempts.
 const PAIR_LOCKOUT_SECS: u64 = 300; // 5 minutes
+/// Maximum bearer token length accepted by gateway + pairing checks.
+pub const TOKEN_MAX_LEN: usize = 512;
 
 /// Manages pairing state for the gateway.
 ///
@@ -134,7 +136,7 @@ impl PairingGuard {
         }
 
         let normalized = token.trim();
-        if normalized.is_empty() || normalized.len() > 256 {
+        if normalized.is_empty() || normalized.len() > TOKEN_MAX_LEN {
             return false;
         }
 
@@ -206,25 +208,11 @@ fn is_token_hash(value: &str) -> bool {
 
 /// Constant-time string comparison to prevent timing attacks.
 ///
-/// Does not short-circuit on length mismatch — always iterates over the
-/// longer input to avoid leaking length information via timing.
+/// Uses audited primitives from the `subtle` crate.
 pub fn constant_time_eq(a: &str, b: &str) -> bool {
-    let a = a.as_bytes();
-    let b = b.as_bytes();
+    use subtle::ConstantTimeEq;
 
-    // Track length mismatch as a usize (non-zero = different lengths)
-    let len_diff = a.len() ^ b.len();
-
-    // XOR each byte, padding the shorter input with zeros.
-    // Iterates over max(a.len(), b.len()) to avoid timing differences.
-    let max_len = a.len().max(b.len());
-    let mut byte_diff = 0u8;
-    for i in 0..max_len {
-        let x = *a.get(i).unwrap_or(&0);
-        let y = *b.get(i).unwrap_or(&0);
-        byte_diff |= x ^ y;
-    }
-    (len_diff == 0) & (byte_diff == 0)
+    a.as_bytes().ct_eq(b.as_bytes()).into()
 }
 
 /// Check if a host string represents a non-localhost bind address.
@@ -319,7 +307,7 @@ mod tests {
     #[test]
     fn is_authenticated_rejects_oversized_token() {
         let guard = PairingGuard::new(true, &["zc_valid".into()]);
-        let oversized = "x".repeat(257);
+        let oversized = "x".repeat(TOKEN_MAX_LEN + 1);
         assert!(!guard.is_authenticated(&oversized));
     }
 

@@ -12,7 +12,7 @@ use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
 use crate::providers::{self, Provider};
 use crate::runtime;
-use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard};
+use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard, TOKEN_MAX_LEN};
 use crate::security::SecurityPolicy;
 use crate::tools;
 use crate::util::truncate_with_ellipsis;
@@ -260,7 +260,7 @@ fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
     }
 
     let token = token.trim();
-    if token.is_empty() || token.len() > 512 {
+    if token.is_empty() || token.len() > TOKEN_MAX_LEN {
         return None;
     }
 
@@ -1111,6 +1111,19 @@ mod tests {
 
         let token = extract_bearer_token(&headers).unwrap();
         assert_eq!(token, "test-token");
+    }
+
+    #[test]
+    fn extract_bearer_token_rejects_too_long_token() {
+        let mut headers = HeaderMap::new();
+        let oversized = "x".repeat(TOKEN_MAX_LEN + 1);
+        let auth = format!("Bearer {oversized}");
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_str(&auth).unwrap(),
+        );
+
+        assert!(extract_bearer_token(&headers).is_none());
     }
 
     #[test]
