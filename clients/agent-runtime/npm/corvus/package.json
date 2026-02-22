@@ -1,6 +1,6 @@
 {
   "name": "@dallay/corvus",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Corvus runtime CLI - Cross-platform binary distribution",
   "license": "Apache-2.0",
   "repository": {
@@ -11,7 +11,9 @@
   "bin": {
     "corvus": "bin/corvus.js"
   },
-  "files": ["bin"],
+  "files": [
+    "bin"
+  ],
   "scripts": {},
   "optionalDependencies": {
     "@dallay/corvus-darwin-x64": "0.1.5",
@@ -23,5 +25,11 @@
   "engines": {
     "node": ">=18"
   },
-  "keywords": ["corvus", "ai", "agent", "cli", "rust"]
+  "keywords": [
+    "corvus",
+    "ai",
+    "agent",
+    "cli",
+    "rust"
+  ]
 }

@@ -1,16 +1,22 @@
 {
   "name": "@dallay/corvus-linux-x64",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Corvus runtime CLI for Linux x64",
   "license": "Apache-2.0",
-  "os": ["linux"],
-  "cpu": ["x64"],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dallay/corvus.git",
     "directory": "clients/agent-runtime/npm/corvus-linux-x64"
   },
-  "files": ["corvus"],
+  "files": [
+    "corvus"
+  ],
   "engines": {
     "node": ">=18"
   }

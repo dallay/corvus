@@ -1,16 +1,22 @@
 {
   "name": "@dallay/corvus-darwin-arm64",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Corvus runtime CLI for macOS Apple Silicon (ARM64)",
   "license": "Apache-2.0",
-  "os": ["darwin"],
-  "cpu": ["arm64"],
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "arm64"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/dallay/corvus.git",
     "directory": "clients/agent-runtime/npm/corvus-darwin-arm64"
   },
-  "files": ["corvus"],
+  "files": [
+    "corvus"
+  ],
   "engines": {
     "node": ">=18"
   }
