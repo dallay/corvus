@@ -98,9 +98,9 @@ Validate workflow artifacts and deployment:
   - `artifacts/<plugin-id>/<version>/<plugin-id>.wasm` (`<version>` is bare semver from `Cargo.toml`, not tag-form `v<semver>`)
   - Example: `artifacts/memory.surreal.graphs/0.2.0/memory.surreal.graphs.wasm` (not `.../v0.2.0/...`)
 - signature produced:
-  - `<plugin-id>.wasm.sig`
+  - `artifacts/<plugin-id>/<version>/<plugin-id>.wasm.sig`
 - certificate produced for keyless signing:
-  - `<plugin-id>.wasm.pem`
+  - `artifacts/<plugin-id>/<version>/<plugin-id>.wasm.pem`
 - `plugin-manifest.json` updated for this version
 - `catalog.json` upserted without breaking other plugin entries
 
