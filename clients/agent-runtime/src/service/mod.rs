@@ -27,8 +27,8 @@ fn install(config: &Config, linger: crate::ServiceLingerMode) -> Result<()> {
         maybe_warn_unsupported_linger_mode(linger);
         install_macos(config)
     } else if cfg!(target_os = "linux") {
-        apply_linux_linger_mode(linger)?;
-        install_linux(config)
+        install_linux(config)?;
+        apply_linux_linger_mode(linger)
     } else if cfg!(target_os = "windows") {
         maybe_warn_unsupported_linger_mode(linger);
         install_windows(config)
@@ -211,14 +211,20 @@ fn linux_linger_state() -> Result<Option<bool>> {
     }
 
     let user = current_username()?;
-    let out = run_capture(Command::new("loginctl").args([
-        "show-user",
-        &user,
-        "-p",
-        "Linger",
-        "--value",
-    ]))?;
-    let value = out.trim();
+    let output = Command::new("loginctl")
+        .args(["show-user", &user, "-p", "Linger"])
+        .output()
+        .context("Failed to spawn command")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Command failed: {}", stderr.trim());
+    }
+
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let value = raw
+        .trim()
+        .split_once('=')
+        .map_or(raw.trim(), |(_, rhs)| rhs.trim());
     if value.is_empty() {
         return Ok(None);
     }
@@ -442,6 +448,19 @@ fn xml_escape(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn set_env(key: &str, value: &str) {
+        // SAFETY: tests take ENV_LOCK to serialize process-wide env mutation.
+        unsafe { std::env::set_var(key, value) };
+    }
+
+    fn remove_env(key: &str) {
+        // SAFETY: tests take ENV_LOCK to serialize process-wide env mutation.
+        unsafe { std::env::remove_var(key) };
+    }
 
     #[test]
     fn xml_escape_escapes_reserved_chars() {
@@ -484,6 +503,70 @@ mod tests {
     #[test]
     fn windows_task_name_is_constant() {
         assert_eq!(windows_task_name(), "Corvus Daemon");
+    }
+
+    #[test]
+    fn current_username_prefers_user_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old_user = std::env::var("USER").ok();
+        let old_logname = std::env::var("LOGNAME").ok();
+
+        set_env("USER", "testuser");
+        set_env("LOGNAME", "loguser");
+
+        let result = current_username().unwrap();
+
+        if let Some(value) = old_user {
+            set_env("USER", &value);
+        } else {
+            remove_env("USER");
+        }
+        if let Some(value) = old_logname {
+            set_env("LOGNAME", &value);
+        } else {
+            remove_env("LOGNAME");
+        }
+
+        assert_eq!(result, "testuser");
+    }
+
+    #[test]
+    fn current_username_uses_logname_when_user_missing() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let old_user = std::env::var("USER").ok();
+        let old_logname = std::env::var("LOGNAME").ok();
+
+        remove_env("USER");
+        set_env("LOGNAME", "loguser");
+
+        let result = current_username().unwrap();
+
+        if let Some(value) = old_user {
+            set_env("USER", &value);
+        } else {
+            remove_env("USER");
+        }
+        if let Some(value) = old_logname {
+            set_env("LOGNAME", &value);
+        } else {
+            remove_env("LOGNAME");
+        }
+
+        assert_eq!(result, "loguser");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_helpers_compile_and_are_callable() {
+        let _ = apply_linux_linger_mode(crate::ServiceLingerMode::Keep);
+        let _ = linux_linger_state();
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn linux_helpers_compile_on_non_linux() {
+        let _apply: fn(crate::ServiceLingerMode) -> Result<()> = apply_linux_linger_mode;
+        let _state: fn() -> Result<Option<bool>> = linux_linger_state;
     }
 
     #[cfg(target_os = "windows")]

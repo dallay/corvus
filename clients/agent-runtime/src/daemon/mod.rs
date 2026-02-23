@@ -161,7 +161,7 @@ where
                 }
                 Err(e) => {
                     let err_str = e.to_string();
-                    crate::health::mark_component_error(name, err_str.clone());
+                    crate::health::mark_component_error(name, &err_str);
                     tracing::error!("Daemon component '{name}' failed: {err_str}");
                     if name == "gateway" && err_str.contains("Address already in use") {
                         tracing::warn!(

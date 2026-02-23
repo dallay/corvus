@@ -36,6 +36,7 @@ use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -581,10 +582,7 @@ async fn main() -> Result<()> {
             temperature,
             peripheral,
         } => {
-            let update_config = config.clone();
-            tokio::spawn(async move {
-                update::maybe_print_update_notice(&update_config).await;
-            });
+            maybe_print_update_notice_bounded(&config).await;
             agent::run(config, message, provider, model, temperature, peripheral)
                 .await
                 .map(|_| ())
@@ -602,7 +600,10 @@ async fn main() -> Result<()> {
         }
 
         Commands::Daemon { port, host } => {
-            update::maybe_print_update_notice(&config).await;
+            let update_config = config.clone();
+            tokio::spawn(async move {
+                update::maybe_print_update_notice(&update_config).await;
+            });
             let port = port.unwrap_or(config.gateway.port);
             let host = host.unwrap_or_else(|| config.gateway.host.clone());
             if port == 0 {
@@ -614,7 +615,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Status => {
-            update::maybe_print_update_notice(&config).await;
+            maybe_print_update_notice_bounded(&config).await;
             println!("🦀 Corvus Status");
             println!();
             println!("Version:     {}", env!("CARGO_PKG_VERSION"));
@@ -875,6 +876,18 @@ async fn main() -> Result<()> {
         Commands::Peripheral { peripheral_command } => {
             peripherals::handle_command(peripheral_command.clone(), &config)
         }
+    }
+}
+
+async fn maybe_print_update_notice_bounded(config: &Config) {
+    if tokio::time::timeout(
+        Duration::from_millis(500),
+        update::maybe_print_update_notice(config),
+    )
+    .await
+    .is_err()
+    {
+        tracing::debug!("Update notice check timed out after 500ms");
     }
 }
 
