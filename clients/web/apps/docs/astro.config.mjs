@@ -116,6 +116,13 @@ export default defineConfig({
                 es: "Plugins del Runtime",
               },
             },
+            {
+              label: "CLI Reference",
+              slug: "guides/cli-reference",
+              translations: {
+                es: "Referencia de la CLI",
+              },
+            },
           ],
         },
         {
