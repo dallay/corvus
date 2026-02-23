@@ -149,6 +149,7 @@ where
     tokio::spawn(async move {
         let mut backoff = initial_backoff_secs.max(1);
         let max_backoff = max_backoff_secs.max(backoff);
+        let mut gateway_port_conflict_logged = false;
 
         loop {
             crate::health::mark_component_ok(name);
@@ -160,10 +161,13 @@ where
                     backoff = initial_backoff_secs.max(1);
                 }
                 Err(e) => {
+                    let is_gateway_addr_in_use =
+                        name == "gateway" && is_addr_in_use_error(&e);
                     let err_str = e.to_string();
                     crate::health::mark_component_error(name, &err_str);
                     tracing::error!("Daemon component '{name}' failed: {err_str}");
-                    if name == "gateway" && err_str.contains("Address already in use") {
+                    if is_gateway_addr_in_use && !gateway_port_conflict_logged {
+                        gateway_port_conflict_logged = true;
                         tracing::warn!(
                             "Gateway port is already in use. This usually means another daemon/gateway instance is already running. If this happened after an upgrade, run `corvus service restart` instead of starting a second daemon process."
                         );
@@ -177,6 +181,13 @@ where
             backoff = backoff.saturating_mul(2).min(max_backoff);
         }
     })
+}
+
+fn is_addr_in_use_error(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .filter_map(|cause| cause.downcast_ref::<std::io::Error>())
+        .any(|io_error| io_error.kind() == std::io::ErrorKind::AddrInUse)
 }
 
 async fn run_heartbeat_worker(config: Config) -> Result<()> {
@@ -288,6 +299,29 @@ mod tests {
             .as_str()
             .unwrap_or("")
             .contains("component exited unexpectedly"));
+    }
+
+    #[tokio::test]
+    async fn supervisor_logs_hint_on_gateway_addr_in_use() {
+        let handle = spawn_component_supervisor("gateway", 1, 1, || async {
+            Err(anyhow::Error::new(std::io::Error::new(
+                std::io::ErrorKind::AddrInUse,
+                "Address already in use",
+            )))
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        handle.abort();
+        let _ = handle.await;
+
+        let snapshot = crate::health::snapshot_json();
+        let component = &snapshot["components"]["gateway"];
+        assert_eq!(component["status"], "error");
+        assert!(component["restart_count"].as_u64().unwrap_or(0) >= 1);
+        assert!(component["last_error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("Address already in use"));
     }
 
     #[test]

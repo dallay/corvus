@@ -189,15 +189,16 @@ fn current_username() -> Result<String> {
 }
 
 fn apply_linux_linger_mode(linger: crate::ServiceLingerMode) -> Result<()> {
-    let user = current_username()?;
     match linger {
         crate::ServiceLingerMode::Keep => Ok(()),
         crate::ServiceLingerMode::On => {
+            let user = current_username()?;
             run_checked(Command::new("loginctl").args(["enable-linger", &user]))?;
             println!("✅ Enabled linger for user '{user}'");
             Ok(())
         }
         crate::ServiceLingerMode::Off => {
+            let user = current_username()?;
             run_checked(Command::new("loginctl").args(["disable-linger", &user]))?;
             println!("✅ Disabled linger for user '{user}'");
             Ok(())
