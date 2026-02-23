@@ -112,12 +112,17 @@ corvus integrations info Telegram
 
 # Manage background service
 corvus service install
+corvus service install --linger on   # Linux: keep running after logout/reboot (user service + linger)
+corvus service restart               # useful after binary updates
 corvus service status
 
 # Migrate memory from OpenClaw (safe preview first)
 corvus migrate openclaw --dry-run
 corvus migrate openclaw
 ```
+
+Corvus also checks for newer releases in `agent`, `daemon`, and `status` commands.
+Set `CORVUS_DISABLE_UPDATE_CHECK=1` to disable update notifications.
 
 > **Dev fallback (no global install):** prefix commands with `cargo run --release --` (example:
 `cargo run --release -- status`).
@@ -447,7 +452,7 @@ See [aieos.org](https://aieos.org) for the full schema and live examples.
 | `gateway`                                     | Start webhook server (default: `127.0.0.1:8080`)        |
 | `gateway --port 0`                            | Random port mode                                        |
 | `daemon`                                      | Start long-running autonomous runtime                   |
-| `service install/start/stop/status/uninstall` | Manage user-level background service                    |
+| `service install/start/restart/stop/status/uninstall` | Manage background service lifecycle                 |
 | `doctor`                                      | Diagnose daemon/scheduler/channel freshness             |
 | `status`                                      | Show full system status                                 |
 | `channel doctor`                              | Run health checks for configured channels               |

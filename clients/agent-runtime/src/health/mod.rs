@@ -82,6 +82,11 @@ pub fn bump_component_restart(component: &str) {
     });
 }
 
+pub fn clear_component(component: &str) {
+    let mut map = registry().components.lock();
+    map.remove(component);
+}
+
 pub fn snapshot() -> HealthSnapshot {
     let components = registry().components.lock().clone();
 

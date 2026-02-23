@@ -36,6 +36,7 @@ use anyhow::{bail, Result};
 use clap::{Parser, Subcommand};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -70,12 +71,15 @@ mod skillforge;
 mod skills;
 mod tools;
 mod tunnel;
+mod update;
 mod util;
 
 use config::Config;
 
-// Re-export so binary's hardware/peripherals modules can use crate::HardwareCommands etc.
-pub use corvus::{HardwareCommands, PeripheralCommands};
+// Re-export so binary modules can use crate::...Commands from the library crate.
+pub use corvus::{
+    HardwareCommands, PeripheralCommands, ServiceCommands, ServiceLingerMode,
+};
 
 /// `Corvus` - Zero overhead. Zero compromise. 100% Rust.
 #[derive(Parser, Debug)]
@@ -86,20 +90,6 @@ pub use corvus::{HardwareCommands, PeripheralCommands};
 struct Cli {
     #[command(subcommand)]
     command: Commands,
-}
-
-#[derive(Subcommand, Debug)]
-enum ServiceCommands {
-    /// Install daemon service unit for auto-start and restart
-    Install,
-    /// Start daemon service
-    Start,
-    /// Stop daemon service
-    Stop,
-    /// Check daemon service status
-    Status,
-    /// Uninstall daemon service unit
-    Uninstall,
 }
 
 #[derive(Subcommand, Debug)]
@@ -591,9 +581,12 @@ async fn main() -> Result<()> {
             model,
             temperature,
             peripheral,
-        } => agent::run(config, message, provider, model, temperature, peripheral)
-            .await
-            .map(|_| ()),
+        } => {
+            maybe_print_update_notice_bounded(&config).await;
+            agent::run(config, message, provider, model, temperature, peripheral)
+                .await
+                .map(|_| ())
+        }
 
         Commands::Gateway { port, host } => {
             let port = port.unwrap_or(config.gateway.port);
@@ -607,6 +600,10 @@ async fn main() -> Result<()> {
         }
 
         Commands::Daemon { port, host } => {
+            let update_config = config.clone();
+            tokio::spawn(async move {
+                update::maybe_print_update_notice(&update_config).await;
+            });
             let port = port.unwrap_or(config.gateway.port);
             let host = host.unwrap_or_else(|| config.gateway.host.clone());
             if port == 0 {
@@ -618,6 +615,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Status => {
+            maybe_print_update_notice_bounded(&config).await;
             println!("🦀 Corvus Status");
             println!();
             println!("Version:     {}", env!("CARGO_PKG_VERSION"));
@@ -878,6 +876,18 @@ async fn main() -> Result<()> {
         Commands::Peripheral { peripheral_command } => {
             peripherals::handle_command(peripheral_command.clone(), &config)
         }
+    }
+}
+
+async fn maybe_print_update_notice_bounded(config: &Config) {
+    if tokio::time::timeout(
+        Duration::from_millis(500),
+        update::maybe_print_update_notice(config),
+    )
+    .await
+    .is_err()
+    {
+        tracing::debug!("Update notice check timed out after 500ms");
     }
 }
 

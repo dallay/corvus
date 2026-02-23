@@ -13,24 +13,42 @@ fn windows_task_name() -> &'static str {
 
 pub fn handle_command(command: &crate::ServiceCommands, config: &Config) -> Result<()> {
     match command {
-        crate::ServiceCommands::Install => install(config),
+        crate::ServiceCommands::Install { linger } => install(config, *linger),
         crate::ServiceCommands::Start => start(config),
+        crate::ServiceCommands::Restart => restart(config),
         crate::ServiceCommands::Stop => stop(config),
         crate::ServiceCommands::Status => status(config),
         crate::ServiceCommands::Uninstall => uninstall(config),
     }
 }
 
-fn install(config: &Config) -> Result<()> {
+fn install(config: &Config, linger: crate::ServiceLingerMode) -> Result<()> {
     if cfg!(target_os = "macos") {
+        maybe_warn_unsupported_linger_mode(linger);
         install_macos(config)
     } else if cfg!(target_os = "linux") {
-        install_linux(config)
+        install_linux(config)?;
+        apply_linux_linger_mode(linger)
     } else if cfg!(target_os = "windows") {
+        maybe_warn_unsupported_linger_mode(linger);
         install_windows(config)
     } else {
         anyhow::bail!("Service management is supported on macOS and Linux only");
     }
+}
+
+fn restart(config: &Config) -> Result<()> {
+    if cfg!(target_os = "linux") {
+        if run_checked(Command::new("systemctl").args(["--user", "restart", "corvus.service"]))
+            .is_ok()
+        {
+            println!("✅ Service restarted");
+            return Ok(());
+        }
+    }
+
+    stop(config)?;
+    start(config)
 }
 
 fn start(config: &Config) -> Result<()> {
@@ -105,6 +123,18 @@ fn status(config: &Config) -> Result<()> {
             run_capture(Command::new("systemctl").args(["--user", "is-active", "corvus.service"]))
                 .unwrap_or_else(|_| "unknown".into());
         println!("Service state: {}", out.trim());
+        match linux_linger_state() {
+            Ok(Some(enabled)) => println!(
+                "Linger: {}",
+                if enabled {
+                    "enabled (keeps service alive without login)"
+                } else {
+                    "disabled (service starts after user login)"
+                }
+            ),
+            Ok(None) => println!("Linger: unknown"),
+            Err(e) => println!("Linger: unavailable ({e})"),
+        }
         println!("Unit: {}", linux_service_file(config)?.display());
         return Ok(());
     }
@@ -135,6 +165,81 @@ fn status(config: &Config) -> Result<()> {
     }
 
     anyhow::bail!("Service management is supported on macOS and Linux only")
+}
+
+fn maybe_warn_unsupported_linger_mode(linger: crate::ServiceLingerMode) {
+    if !matches!(linger, crate::ServiceLingerMode::Keep) {
+        eprintln!(
+            "⚠️  --linger applies only to Linux user services; ignoring requested mode on this OS."
+        );
+    }
+}
+
+fn current_username() -> Result<String> {
+    let env_username = std::env::var("USER")
+        .ok()
+        .or_else(|| std::env::var("LOGNAME").ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(username) = env_username {
+        return Ok(username);
+    }
+
+    let fallback_username = Command::new("whoami")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    fallback_username.context("Could not resolve current username (USER/LOGNAME)")
+}
+
+fn apply_linux_linger_mode(linger: crate::ServiceLingerMode) -> Result<()> {
+    match linger {
+        crate::ServiceLingerMode::Keep => Ok(()),
+        crate::ServiceLingerMode::On => {
+            let user = current_username()?;
+            run_checked(Command::new("loginctl").args(["enable-linger", &user]))?;
+            println!("✅ Enabled linger for user '{user}'");
+            Ok(())
+        }
+        crate::ServiceLingerMode::Off => {
+            let user = current_username()?;
+            run_checked(Command::new("loginctl").args(["disable-linger", &user]))?;
+            println!("✅ Disabled linger for user '{user}'");
+            Ok(())
+        }
+    }
+}
+
+fn linux_linger_state() -> Result<Option<bool>> {
+    if !cfg!(target_os = "linux") {
+        return Ok(None);
+    }
+
+    let user = current_username()?;
+    let output = Command::new("loginctl")
+        .args(["show-user", &user, "-p", "Linger"])
+        .output()
+        .context("Failed to spawn command")?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Command failed: {}", stderr.trim());
+    }
+
+    let raw = String::from_utf8_lossy(&output.stdout);
+    let value = raw
+        .trim()
+        .split_once('=')
+        .map_or(raw.trim(), |(_, rhs)| rhs.trim());
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(value.eq_ignore_ascii_case("yes")))
 }
 
 fn uninstall(config: &Config) -> Result<()> {
@@ -353,6 +458,48 @@ fn xml_escape(raw: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    fn set_env(key: &str, value: &str) {
+        // SAFETY: tests take ENV_LOCK to serialize process-wide env mutation.
+        unsafe { std::env::set_var(key, value) };
+    }
+
+    fn remove_env(key: &str) {
+        // SAFETY: tests take ENV_LOCK to serialize process-wide env mutation.
+        unsafe { std::env::remove_var(key) };
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = std::env::var(key).ok();
+            set_env(key, value);
+            Self { key, original }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let original = std::env::var(key).ok();
+            remove_env(key);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                set_env(self.key, value);
+            } else {
+                remove_env(self.key);
+            }
+        }
+    }
 
     #[test]
     fn xml_escape_escapes_reserved_chars() {
@@ -395,6 +542,42 @@ mod tests {
     #[test]
     fn windows_task_name_is_constant() {
         assert_eq!(windows_task_name(), "Corvus Daemon");
+    }
+
+    #[test]
+    fn current_username_prefers_user_env() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _user = EnvGuard::set("USER", "testuser");
+        let _logname = EnvGuard::set("LOGNAME", "loguser");
+
+        let result = current_username().unwrap();
+
+        assert_eq!(result, "testuser");
+    }
+
+    #[test]
+    fn current_username_uses_logname_when_user_missing() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        let _user = EnvGuard::remove("USER");
+        let _logname = EnvGuard::set("LOGNAME", "loguser");
+
+        let result = current_username().unwrap();
+
+        assert_eq!(result, "loguser");
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_helpers_compile_and_are_callable() {
+        let _ = apply_linux_linger_mode(crate::ServiceLingerMode::Keep);
+        let _ = linux_linger_state();
+    }
+
+    #[cfg(not(target_os = "linux"))]
+    #[test]
+    fn linux_helpers_compile_on_non_linux() {
+        let _apply: fn(crate::ServiceLingerMode) -> Result<()> = apply_linux_linger_mode;
+        let _state: fn() -> Result<Option<bool>> = linux_linger_state;
     }
 
     #[cfg(target_os = "windows")]
