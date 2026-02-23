@@ -1,7 +1,6 @@
 use crate::config::Config;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -59,19 +58,13 @@ pub async fn maybe_print_update_notice(config: &Config) {
 async fn check_for_update(config: &Config, current_version: &str) -> Option<UpdateNotice> {
     let current = normalize_version(current_version)?;
     let state_path = version_check_path(&config.workspace_dir);
-    let cached_state = load_state(&state_path).ok().flatten();
+    let cached_state = load_state(&state_path).await.ok().flatten();
 
     if let Some(cached) = cached_state.as_ref().filter(|state| !is_stale(state)) {
         return notice_from_state(current.clone(), cached);
     }
 
-    let fetched = tokio::time::timeout(
-        Duration::from_secs(VERSION_CHECK_TIMEOUT_SECS),
-        fetch_latest_release_version(),
-    )
-    .await
-    .ok()
-    .and_then(Result::ok);
+    let fetched = fetch_latest_release_version().await.ok();
 
     if let Some(latest_version) = fetched {
         let update_available =
@@ -82,7 +75,7 @@ async fn check_for_update(config: &Config, current_version: &str) -> Option<Upda
             update_available,
         };
 
-        let _ = save_state(&state_path, &state);
+        let _ = save_state(&state_path, &state).await;
         return notice_from_state(current, &state);
     }
 
@@ -133,21 +126,25 @@ fn is_stale(state: &VersionCheckState) -> bool {
     now_unix_secs().saturating_sub(state.checked_at_unix) > VERSION_CHECK_TTL_SECS
 }
 
-fn load_state(path: &Path) -> Result<Option<VersionCheckState>> {
-    if !path.exists() {
+async fn load_state(path: &Path) -> Result<Option<VersionCheckState>> {
+    if !tokio::fs::try_exists(path)
+        .await
+        .with_context(|| format!("failed to check version check state at {}", path.display()))?
+    {
         return Ok(None);
     }
 
-    let raw = fs::read_to_string(path)
+    let raw = tokio::fs::read_to_string(path)
+        .await
         .with_context(|| format!("failed to read version check state at {}", path.display()))?;
     let state = serde_json::from_str::<VersionCheckState>(&raw)
         .context("failed to parse version check state")?;
     Ok(Some(state))
 }
 
-fn save_state(path: &Path, state: &VersionCheckState) -> Result<()> {
+async fn save_state(path: &Path, state: &VersionCheckState) -> Result<()> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).with_context(|| {
+        tokio::fs::create_dir_all(parent).await.with_context(|| {
             format!(
                 "failed to create version check state directory {}",
                 parent.display()
@@ -156,7 +153,8 @@ fn save_state(path: &Path, state: &VersionCheckState) -> Result<()> {
     }
 
     let body = serde_json::to_vec_pretty(state).context("failed to serialize version state")?;
-    fs::write(path, body)
+    tokio::fs::write(path, body)
+        .await
         .with_context(|| format!("failed to write version check state at {}", path.display()))
 }
 
@@ -213,15 +211,69 @@ fn normalize_version(raw: &str) -> Option<String> {
 fn compare_semverish(left: &str, right: &str) -> Option<std::cmp::Ordering> {
     let left_parsed = parse_semverish(left)?;
     let right_parsed = parse_semverish(right)?;
-    Some(left_parsed.cmp(&right_parsed))
+
+    let core_ordering = left_parsed
+        .0
+        .cmp(&right_parsed.0)
+        .then(left_parsed.1.cmp(&right_parsed.1))
+        .then(left_parsed.2.cmp(&right_parsed.2));
+    if !core_ordering.is_eq() {
+        return Some(core_ordering);
+    }
+
+    Some(compare_prerelease(
+        left_parsed.3.as_deref(),
+        right_parsed.3.as_deref(),
+    ))
 }
 
-fn parse_semverish(version: &str) -> Option<(u64, u64, u64)> {
-    let core = version
-        .split(['-', '+'])
-        .next()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
+fn compare_prerelease(left: Option<&str>, right: Option<&str>) -> std::cmp::Ordering {
+    match (left, right) {
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (Some(left), Some(right)) => {
+            let left_parts: Vec<&str> = left.split('.').collect();
+            let right_parts: Vec<&str> = right.split('.').collect();
+
+            for (l, r) in left_parts.iter().zip(right_parts.iter()) {
+                let left_numeric = l.parse::<u64>();
+                let right_numeric = r.parse::<u64>();
+
+                let ordering = match (left_numeric, right_numeric) {
+                    (Ok(a), Ok(b)) => a.cmp(&b),
+                    (Ok(_), Err(_)) => std::cmp::Ordering::Less,
+                    (Err(_), Ok(_)) => std::cmp::Ordering::Greater,
+                    (Err(_), Err(_)) => l.cmp(r),
+                };
+
+                if !ordering.is_eq() {
+                    return ordering;
+                }
+            }
+
+            left_parts.len().cmp(&right_parts.len())
+        }
+    }
+}
+
+fn parse_semverish(version: &str) -> Option<(u64, u64, u64, Option<String>)> {
+    let version = version.trim();
+    if version.is_empty() {
+        return None;
+    }
+
+    let without_build = version.split_once('+').map_or(version, |(core, _)| core);
+    let (core, prerelease_raw) = without_build
+        .split_once('-')
+        .map_or((without_build, None), |(core, prerelease)| {
+            (core, Some(prerelease.trim()))
+        });
+
+    let core = core.trim();
+    if core.is_empty() {
+        return None;
+    }
 
     let mut parts = core.split('.');
 
@@ -232,7 +284,11 @@ fn parse_semverish(version: &str) -> Option<(u64, u64, u64)> {
         return None;
     }
 
-    Some((major, minor, patch))
+    let prerelease = prerelease_raw
+        .filter(|value| !value.is_empty())
+        .map(ToString::to_string);
+
+    Some((major, minor, patch, prerelease))
 }
 
 #[cfg(test)]
@@ -271,7 +327,22 @@ mod tests {
 
     #[test]
     fn parse_semverish_accepts_pre_release_patch_suffix() {
-        assert_eq!(parse_semverish("1.2.3-beta.1"), Some((1, 2, 3)));
+        assert_eq!(
+            parse_semverish("1.2.3-beta.1"),
+            Some((1, 2, 3, Some("beta.1".to_string())))
+        );
+    }
+
+    #[test]
+    fn compare_semverish_treats_prerelease_as_lower_precedence() {
+        assert_eq!(
+            compare_semverish("1.0.0", "1.0.0-beta.1"),
+            Some(std::cmp::Ordering::Greater)
+        );
+        assert_eq!(
+            compare_semverish("1.0.0-beta.1", "1.0.0"),
+            Some(std::cmp::Ordering::Less)
+        );
     }
 
     #[test]
@@ -315,8 +386,8 @@ mod tests {
         assert!(notice_from_state("0.1.7".into(), &no_update_flag).is_none());
     }
 
-    #[test]
-    fn save_and_load_state_round_trip() {
+    #[tokio::test]
+    async fn save_and_load_state_round_trip() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("state").join("version_check.json");
         let state = VersionCheckState {
@@ -325,8 +396,8 @@ mod tests {
             update_available: true,
         };
 
-        save_state(&path, &state).unwrap();
-        let loaded = load_state(&path).unwrap().unwrap();
+        save_state(&path, &state).await.unwrap();
+        let loaded = load_state(&path).await.unwrap().unwrap();
 
         assert_eq!(loaded.latest_version, "0.1.9");
         assert_eq!(loaded.checked_at_unix, 123);

@@ -167,9 +167,25 @@ fn maybe_warn_unsupported_linger_mode(linger: crate::ServiceLingerMode) {
 }
 
 fn current_username() -> Result<String> {
-    std::env::var("USER")
-        .or_else(|_| std::env::var("LOGNAME"))
-        .context("Could not resolve current username (USER/LOGNAME)")
+    let env_username = std::env::var("USER")
+        .ok()
+        .or_else(|| std::env::var("LOGNAME").ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    if let Some(username) = env_username {
+        return Ok(username);
+    }
+
+    let fallback_username = Command::new("whoami")
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .and_then(|output| String::from_utf8(output.stdout).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty());
+
+    fallback_username.context("Could not resolve current username (USER/LOGNAME)")
 }
 
 fn apply_linux_linger_mode(linger: crate::ServiceLingerMode) -> Result<()> {

@@ -33,7 +33,7 @@
 )]
 
 use anyhow::{bail, Result};
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -75,8 +75,10 @@ mod util;
 
 use config::Config;
 
-// Re-export so binary's hardware/peripherals modules can use crate::HardwareCommands etc.
-pub use corvus::{HardwareCommands, PeripheralCommands};
+// Re-export so binary modules can use crate::...Commands from the library crate.
+pub use corvus::{
+    HardwareCommands, PeripheralCommands, ServiceCommands, ServiceLingerMode,
+};
 
 /// `Corvus` - Zero overhead. Zero compromise. 100% Rust.
 #[derive(Parser, Debug)]
@@ -87,33 +89,6 @@ pub use corvus::{HardwareCommands, PeripheralCommands};
 struct Cli {
     #[command(subcommand)]
     command: Commands,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
-enum ServiceLingerMode {
-    Keep,
-    On,
-    Off,
-}
-
-#[derive(Subcommand, Debug)]
-enum ServiceCommands {
-    /// Install daemon service unit for auto-start and restart
-    Install {
-        /// Linux only: keep user service active without an interactive session
-        #[arg(long, value_enum, default_value_t = ServiceLingerMode::Keep)]
-        linger: ServiceLingerMode,
-    },
-    /// Start daemon service
-    Start,
-    /// Restart daemon service
-    Restart,
-    /// Stop daemon service
-    Stop,
-    /// Check daemon service status
-    Status,
-    /// Uninstall daemon service unit
-    Uninstall,
 }
 
 #[derive(Subcommand, Debug)]
@@ -606,7 +581,10 @@ async fn main() -> Result<()> {
             temperature,
             peripheral,
         } => {
-            update::maybe_print_update_notice(&config).await;
+            let update_config = config.clone();
+            tokio::spawn(async move {
+                update::maybe_print_update_notice(&update_config).await;
+            });
             agent::run(config, message, provider, model, temperature, peripheral)
                 .await
                 .map(|_| ())

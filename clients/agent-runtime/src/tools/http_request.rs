@@ -302,12 +302,12 @@ impl Tool for HttpRequestTool {
                 // Get response headers (redact sensitive ones)
                 let response_headers = response.headers().iter();
                 let headers_text = response_headers
-                    .map(|(k, _)| {
+                    .map(|(k, v)| {
                         let is_sensitive = k.as_str().to_lowercase().contains("set-cookie");
                         if is_sensitive {
                             format!("{}: ***REDACTED***", k.as_str())
                         } else {
-                            format!("{}: {:?}", k.as_str(), k.as_str())
+                            format!("{}: {:?}", k.as_str(), v)
                         }
                     })
                     .collect::<Vec<_>>()
