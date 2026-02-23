@@ -38,6 +38,15 @@ fn install(config: &Config, linger: crate::ServiceLingerMode) -> Result<()> {
 }
 
 fn restart(config: &Config) -> Result<()> {
+    if cfg!(target_os = "linux") {
+        if run_checked(Command::new("systemctl").args(["--user", "restart", "corvus.service"]))
+            .is_ok()
+        {
+            println!("✅ Service restarted");
+            return Ok(());
+        }
+    }
+
     stop(config)?;
     start(config)
 }
@@ -160,7 +169,7 @@ fn status(config: &Config) -> Result<()> {
 
 fn maybe_warn_unsupported_linger_mode(linger: crate::ServiceLingerMode) {
     if !matches!(linger, crate::ServiceLingerMode::Keep) {
-        println!(
+        eprintln!(
             "⚠️  --linger applies only to Linux user services; ignoring requested mode on this OS."
         );
     }
@@ -463,6 +472,35 @@ mod tests {
         unsafe { std::env::remove_var(key) };
     }
 
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<String>,
+    }
+
+    impl EnvGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let original = std::env::var(key).ok();
+            set_env(key, value);
+            Self { key, original }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let original = std::env::var(key).ok();
+            remove_env(key);
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                set_env(self.key, value);
+            } else {
+                remove_env(self.key);
+            }
+        }
+    }
+
     #[test]
     fn xml_escape_escapes_reserved_chars() {
         let escaped = xml_escape("<&>\"' and text");
@@ -509,24 +547,10 @@ mod tests {
     #[test]
     fn current_username_prefers_user_env() {
         let _guard = ENV_LOCK.lock().unwrap();
-        let old_user = std::env::var("USER").ok();
-        let old_logname = std::env::var("LOGNAME").ok();
-
-        set_env("USER", "testuser");
-        set_env("LOGNAME", "loguser");
+        let _user = EnvGuard::set("USER", "testuser");
+        let _logname = EnvGuard::set("LOGNAME", "loguser");
 
         let result = current_username().unwrap();
-
-        if let Some(value) = old_user {
-            set_env("USER", &value);
-        } else {
-            remove_env("USER");
-        }
-        if let Some(value) = old_logname {
-            set_env("LOGNAME", &value);
-        } else {
-            remove_env("LOGNAME");
-        }
 
         assert_eq!(result, "testuser");
     }
@@ -534,24 +558,10 @@ mod tests {
     #[test]
     fn current_username_uses_logname_when_user_missing() {
         let _guard = ENV_LOCK.lock().unwrap();
-        let old_user = std::env::var("USER").ok();
-        let old_logname = std::env::var("LOGNAME").ok();
-
-        remove_env("USER");
-        set_env("LOGNAME", "loguser");
+        let _user = EnvGuard::remove("USER");
+        let _logname = EnvGuard::set("LOGNAME", "loguser");
 
         let result = current_username().unwrap();
-
-        if let Some(value) = old_user {
-            set_env("USER", &value);
-        } else {
-            remove_env("USER");
-        }
-        if let Some(value) = old_logname {
-            set_env("LOGNAME", &value);
-        } else {
-            remove_env("LOGNAME");
-        }
 
         assert_eq!(result, "loguser");
     }

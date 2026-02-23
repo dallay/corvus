@@ -244,6 +244,23 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
+    struct HealthComponentGuard {
+        name: &'static str,
+    }
+
+    impl HealthComponentGuard {
+        fn new(name: &'static str) -> Self {
+            crate::health::clear_component(name);
+            Self { name }
+        }
+    }
+
+    impl Drop for HealthComponentGuard {
+        fn drop(&mut self) {
+            crate::health::clear_component(self.name);
+        }
+    }
+
     fn test_config(tmp: &TempDir) -> Config {
         let config = Config {
             workspace_dir: tmp.path().join("workspace"),
@@ -303,6 +320,7 @@ mod tests {
 
     #[tokio::test]
     async fn supervisor_logs_hint_on_gateway_addr_in_use() {
+        let _health_guard = HealthComponentGuard::new("gateway");
         let handle = spawn_component_supervisor("gateway", 1, 1, || async {
             Err(anyhow::Error::new(std::io::Error::new(
                 std::io::ErrorKind::AddrInUse,
