@@ -1,6 +1,6 @@
 ---
 // This page handles the redirect from the base root to the default locale
-const baseUrl = import.meta.env.BASE_URL
-const destination = baseUrl.endsWith('/') ? `${baseUrl}en/` : `${baseUrl}/en/`
-return Astro.redirect(destination)
+const baseUrl = import.meta.env.BASE_URL;
+const destination = baseUrl.endsWith("/") ? `${baseUrl}en/` : `${baseUrl}/en/`;
+return Astro.redirect(destination);
 ---
