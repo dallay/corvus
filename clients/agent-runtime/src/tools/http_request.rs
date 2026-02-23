@@ -777,7 +777,6 @@ mod tests {
             .any(|(k, v)| k == "Content-Type" && v == "application/json"));
     }
 
-
     #[test]
     fn parse_headers_rejects_hop_by_hop_headers() {
         let tool = test_tool(vec!["example.com"]);
@@ -807,7 +806,7 @@ mod tests {
         let tool = test_tool(vec!["example.com"]);
         let headers = json!({
             "X-Test": "value
-malicious"
+        malicious"
         });
 
         let err = tool.parse_headers(&headers).unwrap_err().to_string();

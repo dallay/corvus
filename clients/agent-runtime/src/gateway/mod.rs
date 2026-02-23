@@ -1100,7 +1100,6 @@ mod tests {
         assert!(text.contains("corvus_heartbeat_ticks_total 1"));
     }
 
-
     #[test]
     fn extract_bearer_token_accepts_case_insensitive_scheme_and_trims() {
         let mut headers = HeaderMap::new();
@@ -1118,10 +1117,7 @@ mod tests {
         let mut headers = HeaderMap::new();
         let oversized = "x".repeat(TOKEN_MAX_LEN + 1);
         let auth = format!("Bearer {oversized}");
-        headers.insert(
-            header::AUTHORIZATION,
-            HeaderValue::from_str(&auth).unwrap(),
-        );
+        headers.insert(header::AUTHORIZATION, HeaderValue::from_str(&auth).unwrap());
 
         assert!(extract_bearer_token(&headers).is_none());
     }

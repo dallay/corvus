@@ -162,6 +162,11 @@ where
                 Err(e) => {
                     crate::health::mark_component_error(name, e.to_string());
                     tracing::error!("Daemon component '{name}' failed: {e}");
+                    if name == "gateway" && e.to_string().contains("Address already in use") {
+                        tracing::warn!(
+                            "Gateway port is already in use. This usually means another daemon/gateway instance is already running. If this happened after an upgrade, run `corvus service restart` instead of starting a second daemon process."
+                        );
+                    }
                 }
             }
 

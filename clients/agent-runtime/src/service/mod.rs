@@ -13,24 +13,33 @@ fn windows_task_name() -> &'static str {
 
 pub fn handle_command(command: &crate::ServiceCommands, config: &Config) -> Result<()> {
     match command {
-        crate::ServiceCommands::Install => install(config),
+        crate::ServiceCommands::Install { linger } => install(config, *linger),
         crate::ServiceCommands::Start => start(config),
+        crate::ServiceCommands::Restart => restart(config),
         crate::ServiceCommands::Stop => stop(config),
         crate::ServiceCommands::Status => status(config),
         crate::ServiceCommands::Uninstall => uninstall(config),
     }
 }
 
-fn install(config: &Config) -> Result<()> {
+fn install(config: &Config, linger: crate::ServiceLingerMode) -> Result<()> {
     if cfg!(target_os = "macos") {
+        maybe_warn_unsupported_linger_mode(linger);
         install_macos(config)
     } else if cfg!(target_os = "linux") {
+        apply_linux_linger_mode(linger)?;
         install_linux(config)
     } else if cfg!(target_os = "windows") {
+        maybe_warn_unsupported_linger_mode(linger);
         install_windows(config)
     } else {
         anyhow::bail!("Service management is supported on macOS and Linux only");
     }
+}
+
+fn restart(config: &Config) -> Result<()> {
+    stop(config)?;
+    start(config)
 }
 
 fn start(config: &Config) -> Result<()> {
@@ -105,6 +114,18 @@ fn status(config: &Config) -> Result<()> {
             run_capture(Command::new("systemctl").args(["--user", "is-active", "corvus.service"]))
                 .unwrap_or_else(|_| "unknown".into());
         println!("Service state: {}", out.trim());
+        match linux_linger_state() {
+            Ok(Some(enabled)) => println!(
+                "Linger: {}",
+                if enabled {
+                    "enabled (keeps service alive without login)"
+                } else {
+                    "disabled (service starts after user login)"
+                }
+            ),
+            Ok(None) => println!("Linger: unknown"),
+            Err(e) => println!("Linger: unavailable ({e})"),
+        }
         println!("Unit: {}", linux_service_file(config)?.display());
         return Ok(());
     }
@@ -135,6 +156,58 @@ fn status(config: &Config) -> Result<()> {
     }
 
     anyhow::bail!("Service management is supported on macOS and Linux only")
+}
+
+fn maybe_warn_unsupported_linger_mode(linger: crate::ServiceLingerMode) {
+    if !matches!(linger, crate::ServiceLingerMode::Keep) {
+        println!(
+            "⚠️  --linger applies only to Linux user services; ignoring requested mode on this OS."
+        );
+    }
+}
+
+fn current_username() -> Result<String> {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("LOGNAME"))
+        .context("Could not resolve current username (USER/LOGNAME)")
+}
+
+fn apply_linux_linger_mode(linger: crate::ServiceLingerMode) -> Result<()> {
+    let user = current_username()?;
+    match linger {
+        crate::ServiceLingerMode::Keep => Ok(()),
+        crate::ServiceLingerMode::On => {
+            run_checked(Command::new("loginctl").args(["enable-linger", &user]))?;
+            println!("✅ Enabled linger for user '{user}'");
+            Ok(())
+        }
+        crate::ServiceLingerMode::Off => {
+            run_checked(Command::new("loginctl").args(["disable-linger", &user]))?;
+            println!("✅ Disabled linger for user '{user}'");
+            Ok(())
+        }
+    }
+}
+
+fn linux_linger_state() -> Result<Option<bool>> {
+    if !cfg!(target_os = "linux") {
+        return Ok(None);
+    }
+
+    let user = current_username()?;
+    let out = run_capture(Command::new("loginctl").args([
+        "show-user",
+        &user,
+        "-p",
+        "Linger",
+        "--value",
+    ]))?;
+    let value = out.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    Ok(Some(value.eq_ignore_ascii_case("yes")))
 }
 
 fn uninstall(config: &Config) -> Result<()> {

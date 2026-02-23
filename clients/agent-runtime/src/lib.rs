@@ -35,7 +35,7 @@
     dead_code
 )]
 
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 
 pub mod agent;
@@ -71,13 +71,26 @@ pub mod util;
 
 pub use config::Config;
 
+#[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ServiceLingerMode {
+    Keep,
+    On,
+    Off,
+}
+
 /// Service management subcommands
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ServiceCommands {
     /// Install daemon service unit for auto-start and restart
-    Install,
+    Install {
+        /// Linux only: keep user service active without an interactive session
+        #[arg(long, value_enum, default_value_t = ServiceLingerMode::Keep)]
+        linger: ServiceLingerMode,
+    },
     /// Start daemon service
     Start,
+    /// Restart daemon service
+    Restart,
     /// Stop daemon service
     Stop,
     /// Check daemon service status

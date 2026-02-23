@@ -33,7 +33,7 @@
 )]
 
 use anyhow::{bail, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
 use tracing::{info, warn};
@@ -70,6 +70,7 @@ mod skillforge;
 mod skills;
 mod tools;
 mod tunnel;
+mod update;
 mod util;
 
 use config::Config;
@@ -88,12 +89,25 @@ struct Cli {
     command: Commands,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
+enum ServiceLingerMode {
+    Keep,
+    On,
+    Off,
+}
+
 #[derive(Subcommand, Debug)]
 enum ServiceCommands {
     /// Install daemon service unit for auto-start and restart
-    Install,
+    Install {
+        /// Linux only: keep user service active without an interactive session
+        #[arg(long, value_enum, default_value_t = ServiceLingerMode::Keep)]
+        linger: ServiceLingerMode,
+    },
     /// Start daemon service
     Start,
+    /// Restart daemon service
+    Restart,
     /// Stop daemon service
     Stop,
     /// Check daemon service status
@@ -591,9 +605,12 @@ async fn main() -> Result<()> {
             model,
             temperature,
             peripheral,
-        } => agent::run(config, message, provider, model, temperature, peripheral)
-            .await
-            .map(|_| ()),
+        } => {
+            update::maybe_print_update_notice(&config).await;
+            agent::run(config, message, provider, model, temperature, peripheral)
+                .await
+                .map(|_| ())
+        }
 
         Commands::Gateway { port, host } => {
             let port = port.unwrap_or(config.gateway.port);
@@ -607,6 +624,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Daemon { port, host } => {
+            update::maybe_print_update_notice(&config).await;
             let port = port.unwrap_or(config.gateway.port);
             let host = host.unwrap_or_else(|| config.gateway.host.clone());
             if port == 0 {
@@ -618,6 +636,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Status => {
+            update::maybe_print_update_notice(&config).await;
             println!("🦀 Corvus Status");
             println!();
             println!("Version:     {}", env!("CARGO_PKG_VERSION"));
