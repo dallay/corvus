@@ -41,7 +41,7 @@ For `publish-release.yml` (tag `vX.Y.Z`), expect:
 - Gradle/KMP artifacts to Maven Central
 - Build logic plugin publication to Maven Central (release mode)
 - Rust crate publication from `clients/agent-runtime` to crates.io
-- npm CLI publication from `clients/agent-runtime/npm/corvus-cli`
+- npm runtime publication for `@dallay/corvus` and platform packages under `clients/agent-runtime/npm/*`
 - Docker image publication to Docker Hub and GHCR
 - Native binaries (Linux, macOS, Windows) + SHA256 checksums attached to GitHub Release
 
@@ -100,7 +100,16 @@ The user has two options for version management:
    - `clients/web/apps/*/package.json`
    - `clients/web/packages/*/package.json`
 4. Update `clients/agent-runtime/Cargo.toml` `version` field
-5. Update `clients/agent-runtime/npm/corvus-cli/package.json` `version` field
+5. Update runtime npm package versions:
+   - `clients/agent-runtime/npm/corvus-cli/package.json`
+   - `clients/agent-runtime/npm/corvus/package.json`
+   - `clients/agent-runtime/npm/corvus-darwin-arm64/package.json`
+   - `clients/agent-runtime/npm/corvus-darwin-x64/package.json`
+   - `clients/agent-runtime/npm/corvus-linux-arm64/package.json`
+   - `clients/agent-runtime/npm/corvus-linux-x64/package.json`
+   - `clients/agent-runtime/npm/corvus-windows-arm64/package.json`
+   - `clients/agent-runtime/npm/corvus-windows-x64/package.json`
+6. In `clients/agent-runtime/npm/corvus/package.json`, keep `optionalDependencies` versions aligned with the same release version
 
 **Option B - Sync from Git tag (if tag exists first):**
 
@@ -109,7 +118,7 @@ The user has two options for version management:
 make sync-version
 
 # Review changes
-git diff gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json
+git diff gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json clients/agent-runtime/npm/corvus/package.json clients/agent-runtime/npm/corvus-*/package.json
 ```
 
 The `make sync-version` command runs `./sync-version-with-tag.sh` which:
@@ -170,7 +179,7 @@ Snapshots use version with `-SNAPSHOT` suffix (e.g., `1.2.3-SNAPSHOT`).
 - **Signing failed**: GPG secrets not configured correctly
 - **Maven Central auth failed**: Credentials expired
 - **Build failed**: Run `./gradlew check` locally first
-- **Version mismatch**: Git tag must match Gradle, web monorepo, Cargo, and npm versions
+- **Version mismatch**: Git tag must match Gradle, web monorepo, Cargo, and all runtime npm package versions (`clients/agent-runtime/npm/*`)
 - **Missing release secret**: cargo/npm/docker secrets missing for release workflow
 
 ### Version already exists
@@ -193,7 +202,7 @@ Snapshots can be cached. Force update:
 Before publishing, verify:
 
 - [ ] All tests pass locally (`./gradlew check`)
-- [ ] Version updated in all release targets (Gradle, web monorepo, Cargo, npm)
+- [ ] Version updated in all release targets (Gradle, web monorepo, Cargo, runtime npm package matrix)
 - [ ] CHANGELOG.md updated (if maintained)
 - [ ] GPG key valid and not expired
 - [ ] Maven Central credentials current

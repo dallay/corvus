@@ -10,6 +10,13 @@ readonly BASE_TARGETS=(
   "properties:gradle/build-logic/gradle.properties:VERSION"
   "toml:clients/agent-runtime/Cargo.toml:version"
   "json:clients/agent-runtime/npm/corvus-cli/package.json:version"
+  "json:clients/agent-runtime/npm/corvus/package.json:version"
+  "json:clients/agent-runtime/npm/corvus-darwin-arm64/package.json:version"
+  "json:clients/agent-runtime/npm/corvus-darwin-x64/package.json:version"
+  "json:clients/agent-runtime/npm/corvus-linux-arm64/package.json:version"
+  "json:clients/agent-runtime/npm/corvus-linux-x64/package.json:version"
+  "json:clients/agent-runtime/npm/corvus-windows-arm64/package.json:version"
+  "json:clients/agent-runtime/npm/corvus-windows-x64/package.json:version"
 )
 
 declare -a TARGETS=("${BASE_TARGETS[@]}")
@@ -110,7 +117,7 @@ update_toml_string_key() {
       line = $0
       pattern = "^[[:space:]]*" key "[[:space:]]*=[[:space:]]*\"[^\"]*\"[[:space:]]*$"
       if (!updated && line ~ pattern) {
-        sub("^([[:space:]]*" key "[[:space:]]*=[[:space:]]*)\"[^\"]*\"", "\\1\"" value "\"", line)
+        sub(/"[^"]*"/, "\"" value "\"", line)
         updated = 1
       }
       print line
@@ -144,7 +151,7 @@ update_json_string_key() {
       line = $0
       pattern = "^[[:space:]]*\"" key "\"[[:space:]]*:[[:space:]]*\"[^\"]*\"[[:space:]]*,?[[:space:]]*$"
       if (!updated && line ~ pattern) {
-        sub("^([[:space:]]*\"" key "\"[[:space:]]*:[[:space:]]*)\"[^\"]*\"", "\\1\"" value "\"", line)
+        sub("\"" key "\"[[:space:]]*:[[:space:]]*\"[^\"]*\"", "\"" key "\": \"" value "\"", line)
         updated = 1
       }
       print line
@@ -211,15 +218,20 @@ else
 fi
 
 # Helpful next-steps message
-diff_files="${CHANGED_FILES[*]}"
+diff_files="${CHANGED_FILES[*]-}"
 if [[ ${#CHANGED_FILES[@]} -eq 0 ]]; then
-  declare -A seen_files=()
   declare -a target_files=()
   for target in "${TARGETS[@]}"; do
     IFS=: read -r _ file _ <<< "$target"
-    if [[ -z "${seen_files[$file]:-}" ]]; then
+    already_added=false
+    for added_file in "${target_files[@]-}"; do
+      if [[ "$added_file" == "$file" ]]; then
+        already_added=true
+        break
+      fi
+    done
+    if [[ "$already_added" == false ]]; then
       target_files+=("$file")
-      seen_files["$file"]=1
     fi
   done
   diff_files="${target_files[*]}"
@@ -232,5 +244,5 @@ Next steps (recommended):
   3) Push your branch and tag as appropriate.
       If tag v$version already exists but points at the wrong commit, prefer creating a new patch version.
       Only force-update a tag after confirming no one else depends on it and with explicit confirmation.
-     See "Version already exists" troubleshooting guidance in clients/web/apps/docs/src/content/docs/guides/release.md.
+      See "Version already exists" troubleshooting guidance in clients/web/apps/docs/src/content/docs/en/guides/release.md.
 NEXT_STEPS

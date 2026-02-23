@@ -30,7 +30,8 @@ When `publish-release.yml` runs from a `vX.Y.Z` tag, it publishes:
 - **KMP/Gradle artifacts** to Maven Central (`publishToMavenCentral`)
 - **Build logic plugin artifacts** to Maven Central on stable release tags
 - **Rust crate** (`clients/agent-runtime`) to crates.io
-- **npm CLI package** (`clients/agent-runtime/npm/corvus-cli`) to npm
+- **npm runtime packages** (`clients/agent-runtime/npm/*`) to npm, including
+  `@dallay/corvus` plus platform-specific packages
 - **Container images** to Docker Hub and GHCR
 - **Native binaries + checksums** attached to the GitHub Release
 
@@ -69,6 +70,13 @@ clients/web/apps/*/package.json
 clients/web/packages/*/package.json
 clients/agent-runtime/Cargo.toml
 clients/agent-runtime/npm/corvus-cli/package.json
+clients/agent-runtime/npm/corvus/package.json
+clients/agent-runtime/npm/corvus-darwin-arm64/package.json
+clients/agent-runtime/npm/corvus-darwin-x64/package.json
+clients/agent-runtime/npm/corvus-linux-arm64/package.json
+clients/agent-runtime/npm/corvus-linux-x64/package.json
+clients/agent-runtime/npm/corvus-windows-arm64/package.json
+clients/agent-runtime/npm/corvus-windows-x64/package.json
 ```
 
 ### Automating version sync from Git tag
@@ -85,6 +93,13 @@ Make target included in this repository.
   - every web shared package in `clients/web/packages/*/package.json` (`"version"`)
   - `clients/agent-runtime/Cargo.toml` (`version = "..."`)
   - `clients/agent-runtime/npm/corvus-cli/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-darwin-arm64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-darwin-x64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-linux-arm64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-linux-x64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-windows-arm64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-windows-x64/package.json` (`"version"`)
 - `./sync-version-with-tag.sh` — shell script that selects the globally latest semantic tag using
   `git tag --sort=-v:refname | grep -Em1 '^v[0-9]+\.[0-9]+\.[0-9]+$'` (not the nearest tag from
   `HEAD`), extracts the numeric version (drops the leading `v`), and updates all version targets
@@ -117,7 +132,7 @@ git fetch --tags
 # Sync version files to the latest tag
 make sync-version
 # Review and commit the change
-git add gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json
+git add gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json clients/agent-runtime/npm/corvus/package.json clients/agent-runtime/npm/corvus-*/package.json
 git commit -m "chore: sync version to $(awk -F= '/^VERSION=/{print $2; exit}' gradle.properties)"
 # Push the commit (no need to recreate the tag)
 git push origin main
@@ -126,7 +141,10 @@ git push origin main
 Notes and caveats:
 
 - The release CI enforces that the Git tag (e.g. `v0.1.1`) matches all tracked version files
-  (Gradle + web monorepo + Cargo + npm). If they do not match, the build fails.
+  (Gradle + web monorepo + Cargo + runtime npm package matrix). If they do not match, the build
+  fails.
+- In `clients/agent-runtime/npm/corvus/package.json`, keep `optionalDependencies` versions aligned
+  with the same release version.
 - Prefer creating the commit that updates the version before creating the tag to avoid mismatches.
 - The script only recognizes tags matching the regex `^v[0-9]+\.[0-9]+\.[0-9]+$`.
 
@@ -194,7 +212,7 @@ stable `vX.Y.Z` releases.
   - **Signing failed**: Check GPG secrets are correctly configured
   - **Maven Central auth failed**: Verify credentials haven't expired
   - **Build failed**: Ensure all tests pass locally with `./gradlew check`
-  - **Version mismatch**: Tag version must match Gradle + web monorepo + Cargo + npm version files
+  - **Version mismatch**: Tag version must match Gradle + web monorepo + Cargo + runtime npm package versions (`clients/agent-runtime/npm/*`)
   - **Missing release secret**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
     `DOCKERHUB_USERNAME`, or `DOCKERHUB_TOKEN`
 
@@ -218,7 +236,7 @@ Snapshots can be cached by Maven/Gradle. Force an update:
 Use this checklist before publishing:
 
 - [ ] All tests pass locally (`./gradlew check`)
-- [ ] Version is synced in all targets (Gradle, web monorepo, Cargo, npm)
+- [ ] Version is synced in all targets (Gradle, web monorepo, Cargo, runtime npm package matrix)
 - [ ] CHANGELOG.md is updated (if maintained manually)
 - [ ] GPG key is valid and not expired
 - [ ] Maven Central credentials are current

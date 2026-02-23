@@ -30,7 +30,8 @@ Cuando `publish-release.yml` corre por un tag `vX.Y.Z`, publica:
 - **Artefactos KMP/Gradle** a Maven Central (`publishToMavenCentral`)
 - **Artefactos del plugin de build logic** a Maven Central en tags estables
 - **Crate de Rust** (`clients/agent-runtime`) a crates.io
-- **Paquete npm CLI** (`clients/agent-runtime/npm/corvus-cli`) a npm
+- **Paquetes npm del runtime** (`clients/agent-runtime/npm/*`) a npm, incluyendo
+  `@dallay/corvus` y los paquetes específicos por plataforma
 - **Imágenes de contenedor** a Docker Hub y GHCR
 - **Binarios nativos + checksums** adjuntos al GitHub Release
 
@@ -69,6 +70,13 @@ clients/web/apps/*/package.json
 clients/web/packages/*/package.json
 clients/agent-runtime/Cargo.toml
 clients/agent-runtime/npm/corvus-cli/package.json
+clients/agent-runtime/npm/corvus/package.json
+clients/agent-runtime/npm/corvus-darwin-arm64/package.json
+clients/agent-runtime/npm/corvus-darwin-x64/package.json
+clients/agent-runtime/npm/corvus-linux-arm64/package.json
+clients/agent-runtime/npm/corvus-linux-x64/package.json
+clients/agent-runtime/npm/corvus-windows-arm64/package.json
+clients/agent-runtime/npm/corvus-windows-x64/package.json
 ```
 
 ### Sincronizar la versión desde el tag Git automáticamente
@@ -85,6 +93,13 @@ el target Make incluidos en este repositorio.
   - cada package compartido en `clients/web/packages/*/package.json` (`"version"`)
   - `clients/agent-runtime/Cargo.toml` (`version = "..."`)
   - `clients/agent-runtime/npm/corvus-cli/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-darwin-arm64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-darwin-x64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-linux-arm64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-linux-x64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-windows-arm64/package.json` (`"version"`)
+  - `clients/agent-runtime/npm/corvus-windows-x64/package.json` (`"version"`)
 - `./sync-version-with-tag.sh` — script shell que selecciona el tag semántico más reciente global
   usando `git tag --sort=-v:refname | grep -Em1 '^v[0-9]+\.[0-9]+\.[0-9]+$'` (no el tag más cercano
   desde `HEAD`), extrae la versión numérica (quita la `v` inicial) y actualiza todos los targets de
@@ -117,7 +132,7 @@ git fetch --tags
 # Sincronizar los archivos de versión con el último tag
 make sync-version
 # Revisar y commitear el cambio
-git add gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json
+git add gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json clients/agent-runtime/npm/corvus/package.json clients/agent-runtime/npm/corvus-*/package.json
 git commit -m "chore: sync version to $(awk -F= '/^VERSION=/{print $2; exit}' gradle.properties)"
 # Pushear el commit (no es necesario recrear el tag)
 git push origin main
@@ -126,7 +141,10 @@ git push origin main
 Notas y advertencias:
 
 - El CI de release exige que el tag Git (ej. `v0.1.1`) coincida con todos los archivos de
-  versión controlados (Gradle + monorepo web + Cargo + npm). Si no coinciden, el build falla.
+  versión controlados (Gradle + monorepo web + Cargo + matriz de paquetes npm del runtime). Si no
+  coinciden, el build falla.
+- En `clients/agent-runtime/npm/corvus/package.json`, mantén las versiones de
+  `optionalDependencies` alineadas con la misma versión del release.
 - Es preferible crear el commit que actualiza la versión antes de crear el tag para evitar
   desajustes.
 - El script solo reconoce tags que cumplen la expresión `^v[0-9]+\.[0-9]+\.[0-9]+$`.
@@ -198,8 +216,8 @@ releases estables `vX.Y.Z`.
   - **Firma fallida**: Verifica que los secrets GPG estén correctamente configurados
   - **Autenticación Maven Central fallida**: Verifica que las credenciales no hayan expirado
   - **Build fallido**: Asegúrate de que todos los tests pasen localmente con `./gradlew check`
-  - **Versiones desalineadas**: La versión del tag debe coincidir con archivos Gradle + monorepo
-    web + Cargo + npm
+  - **Versiones desalineadas**: La versión del tag debe coincidir con Gradle + monorepo web + Cargo
+    + versiones de paquetes npm del runtime (`clients/agent-runtime/npm/*`)
   - **Secret faltante de release**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
     `DOCKERHUB_USERNAME` o `DOCKERHUB_TOKEN`
 
@@ -223,7 +241,7 @@ Los snapshots pueden ser cacheados por Maven/Gradle. Fuerza una actualización:
 Usa este checklist antes de publicar:
 
 - [ ] Todos los tests pasan localmente (`./gradlew check`)
-- [ ] La versión está sincronizada en todos los targets (Gradle, monorepo web, Cargo, npm)
+- [ ] La versión está sincronizada en todos los targets (Gradle, monorepo web, Cargo, matriz de paquetes npm del runtime)
 - [ ] CHANGELOG.md está actualizado (si se mantiene manualmente)
 - [ ] La clave GPG es válida y no ha expirado
 - [ ] Las credenciales de Maven Central son actuales
