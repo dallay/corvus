@@ -501,11 +501,13 @@ jobs:
         run: |
           import os
           import pathlib
+          import re
           import subprocess
 
           artifact_path = pathlib.Path(os.environ["DIST_DIR"]) / os.environ["ARTIFACT_RELATIVE_PATH"]
-          signature_path = artifact_path.with_suffix(artifact_path.suffix + ".sig")
-          certificate_path = artifact_path.with_suffix(artifact_path.suffix + ".pem")
+          signature_path = artifact_path.with_name(artifact_path.name + ".sig")
+          certificate_path = artifact_path.with_name(artifact_path.name + ".pem")
+          repository_pattern = re.escape(os.environ["GITHUB_REPOSITORY"])
 
           certificate = certificate_path.read_text(encoding="utf-8")
           if "-----BEGIN CERTIFICATE-----" not in certificate or "-----END CERTIFICATE-----" not in certificate:
@@ -513,22 +515,26 @@ jobs:
                   "cosign certificate output is not PEM text; refusing to publish wrapped certificate payload",
               )
 
-          subprocess.run(
-              [
-                  "./cosign",
-                  "verify-blob",
-                  "--certificate",
-                  str(certificate_path),
-                  "--signature",
-                  str(signature_path),
-                  "--certificate-oidc-issuer",
-                  "https://token.actions.githubusercontent.com",
-                  "--certificate-identity-regexp",
-                  f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/\\.github/workflows/publish-plugins.yml@.*",
-                  str(artifact_path),
-              ],
-              check=True,
-          )
+          try:
+              subprocess.run(
+                  [
+                      "./cosign",
+                      "verify-blob",
+                      "--certificate",
+                      str(certificate_path),
+                      "--signature",
+                      str(signature_path),
+                      "--certificate-oidc-issuer",
+                      "https://token.actions.githubusercontent.com",
+                      "--certificate-identity-regexp",
+                      f"https://github.com/{repository_pattern}/\\.github/workflows/publish-plugins\\.yml@.*",
+                      str(artifact_path),
+                  ],
+                  check=True,
+                  timeout=30,
+              )
+          except subprocess.TimeoutExpired as error:
+              raise SystemExit("cosign verify-blob timed out after 30 seconds") from error
 
       - name: 🚀 Optional publish plugin artifact to OCI
         if: ${{ steps.meta.outputs.oci_repository != '' }}

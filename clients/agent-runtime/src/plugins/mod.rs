@@ -717,6 +717,30 @@ impl PluginManager {
             );
         }
 
+        let (signature_bytes, certificate_bytes) =
+            normalize_signature_bundle(&signature_bytes, &certificate_bytes).with_context(|| {
+                format!(
+                    "Plugin '{}' signature bundle normalization failed using local installation metadata",
+                    plugin.id
+                )
+            })?;
+
+        if signature_bytes.is_empty() || signature_bytes.len() > MAX_SIGNATURE_BYTES {
+            bail!(
+                "Plugin '{}' signature file has invalid size after normalization ({} bytes)",
+                plugin.id,
+                signature_bytes.len()
+            );
+        }
+
+        if certificate_bytes.is_empty() || certificate_bytes.len() > MAX_CERTIFICATE_BYTES {
+            bail!(
+                "Plugin '{}' certificate file has invalid size after normalization ({} bytes)",
+                plugin.id,
+                certificate_bytes.len()
+            );
+        }
+
         verify_blob_with_cosign(
             artifact_bytes,
             &signature_bytes,
@@ -1615,16 +1639,16 @@ fn validate_manifest_asset_source(
     Ok(())
 }
 
+/// Verifies a plugin artifact with cosign.
+///
+/// Callers must pass a normalized signature/certificate payload (for example,
+/// already handled for base64 wrappers and PEM normalization).
 fn verify_blob_with_cosign(
     artifact: &[u8],
     signature: &[u8],
     certificate: &[u8],
     identity_regex: &str,
 ) -> Result<()> {
-    let (normalized_signature, normalized_certificate) =
-        normalize_signature_bundle(signature, certificate)
-            .context("Failed to normalize plugin signature bundle")?;
-
     let temp_dir =
         std::env::temp_dir().join(format!("corvus-plugin-verify-{}", uuid::Uuid::new_v4()));
     fs::create_dir_all(&temp_dir).with_context(|| {
@@ -1640,8 +1664,8 @@ fn verify_blob_with_cosign(
 
     let verify_result = (|| -> Result<()> {
         write_private_file(&artifact_path, artifact)?;
-        write_private_file(&signature_path, &normalized_signature)?;
-        write_private_file(&certificate_path, &normalized_certificate)?;
+        write_private_file(&signature_path, signature)?;
+        write_private_file(&certificate_path, certificate)?;
 
         let mut command = Command::new("cosign");
         command
@@ -1738,7 +1762,22 @@ fn contains_pem_certificate_markers(payload: &[u8]) -> bool {
         return false;
     };
     let trimmed = text.trim();
-    trimmed.contains("-----BEGIN CERTIFICATE-----") && trimmed.contains("-----END CERTIFICATE-----")
+    let begin_marker = "-----BEGIN CERTIFICATE-----";
+    let end_marker = "-----END CERTIFICATE-----";
+
+    let Some(begin_index) = trimmed.find(begin_marker) else {
+        return false;
+    };
+    let Some(end_index) = trimmed.find(end_marker) else {
+        return false;
+    };
+
+    if begin_index >= end_index {
+        return false;
+    }
+
+    let content_start = begin_index + begin_marker.len();
+    content_start < end_index
 }
 
 fn looks_like_cosign_signature_text(payload: &str) -> bool {

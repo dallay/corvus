@@ -20,6 +20,7 @@ REQUESTED_INSTALL_DIR="${CORVUS_INSTALL_DIR:-}"
 AUTO_APPROVE="${CORVUS_YES:-0}"
 RUN_ONBOARD="${CORVUS_NO_ONBOARD:-0}"
 SKIP_CHECKSUM="${CORVUS_SKIP_CHECKSUM:-0}"
+COSIGN_AVAILABLE="1"
 
 OS_TYPE=""
 LINUX_DISTRO=""
@@ -126,10 +127,6 @@ require_supported_shell() {
   [ -n "${BASH_VERSION:-}" ] || die "This installer requires bash."
 }
 
-require_dependencies() {
-  has_cmd curl || die "curl is required. Please install curl and retry."
-}
-
 detect_platform() {
   local uname_s=""
 
@@ -212,11 +209,28 @@ can_auto_install_dependency() {
       esac
       ;;
     apt-get|dnf|yum|pacman)
+      if [ "$dep" = "cosign" ]; then
+        return 1
+      fi
       return 0
       ;;
   esac
 
   return 1
+}
+
+run_privileged() {
+  if [ "${1:-}" = "--no-sudo" ]; then
+    shift
+    "$@"
+    return
+  fi
+
+  if [ "$(id -u)" -eq 0 ]; then
+    "$@"
+  else
+    sudo "$@"
+  fi
 }
 
 install_dep_with_pkg_mgr() {
@@ -226,10 +240,10 @@ install_dep_with_pkg_mgr() {
     brew)
       case "$dep" in
         curl)
-          brew install curl
+          run_privileged --no-sudo brew install curl
           ;;
         cosign)
-          brew install cosign
+          run_privileged --no-sudo brew install cosign
           ;;
         *)
           return 1
@@ -239,76 +253,42 @@ install_dep_with_pkg_mgr() {
     apt-get)
       case "$dep" in
         sha256)
-          if [ "$(id -u)" -eq 0 ]; then
-            apt-get update -qq
-            apt-get install -y -qq coreutils
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq coreutils
-          fi
+          run_privileged apt-get update -qq
+          run_privileged apt-get install -y -qq coreutils
           ;;
         *)
-          if [ "$(id -u)" -eq 0 ]; then
-            apt-get update -qq
-            apt-get install -y -qq "$dep"
-          else
-            sudo apt-get update -qq
-            sudo apt-get install -y -qq "$dep"
-          fi
+          run_privileged apt-get update -qq
+          run_privileged apt-get install -y -qq "$dep"
           ;;
       esac
       ;;
     dnf)
       case "$dep" in
         sha256)
-          if [ "$(id -u)" -eq 0 ]; then
-            dnf install -y -q coreutils
-          else
-            sudo dnf install -y -q coreutils
-          fi
+          run_privileged dnf install -y -q coreutils
           ;;
         *)
-          if [ "$(id -u)" -eq 0 ]; then
-            dnf install -y -q "$dep"
-          else
-            sudo dnf install -y -q "$dep"
-          fi
+          run_privileged dnf install -y -q "$dep"
           ;;
       esac
       ;;
     yum)
       case "$dep" in
         sha256)
-          if [ "$(id -u)" -eq 0 ]; then
-            yum install -y -q coreutils
-          else
-            sudo yum install -y -q coreutils
-          fi
+          run_privileged yum install -y -q coreutils
           ;;
         *)
-          if [ "$(id -u)" -eq 0 ]; then
-            yum install -y -q "$dep"
-          else
-            sudo yum install -y -q "$dep"
-          fi
+          run_privileged yum install -y -q "$dep"
           ;;
       esac
       ;;
     pacman)
       case "$dep" in
         sha256)
-          if [ "$(id -u)" -eq 0 ]; then
-            pacman -Sy --noconfirm coreutils
-          else
-            sudo pacman -Sy --noconfirm coreutils
-          fi
+          run_privileged pacman -S --noconfirm coreutils
           ;;
         *)
-          if [ "$(id -u)" -eq 0 ]; then
-            pacman -Sy --noconfirm "$dep"
-          else
-            sudo pacman -Sy --noconfirm "$dep"
-          fi
+          run_privileged pacman -S --noconfirm "$dep"
           ;;
       esac
       ;;
@@ -364,7 +344,7 @@ ensure_dependency() {
 
   print_warn "Missing required dependency: ${human_name}"
 
-  if ! detect_package_manager; then
+  if [ -z "$PKG_MGR" ] && ! detect_package_manager; then
     print_error "No compatible package manager detected for this system."
     print_dependency_manual_help "$dep"
     return 1
@@ -441,7 +421,10 @@ preflight_dependencies() {
   ensure_dependency "curl" "curl" || return 1
   ensure_dependency "tar" "tar" || return 1
   ensure_dependency "sha256" "sha256sum or shasum" || return 1
-  ensure_dependency "cosign" "cosign" || return 1
+  if ! ensure_dependency "cosign" "cosign"; then
+    COSIGN_AVAILABLE="0"
+    print_warn "cosign is not available. Corvus installation can continue, but plugin signature verification will fail until cosign is installed."
+  fi
 }
 
 parse_args() {
