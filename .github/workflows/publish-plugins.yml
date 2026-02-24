@@ -613,6 +613,7 @@ jobs:
             local content_type="$3"
             test -f "$file" || { echo "missing file: $file" >&2; exit 1; }
             wrangler r2 object put "${CLOUDFLARE_R2_BUCKET}/${key}" \
+              --remote \
               --file "$file" \
               --content-type "$content_type"
           }
@@ -646,8 +647,8 @@ jobs:
           catalog_path="$tmp_dir/catalog.json"
           revocations_path="$tmp_dir/revocations.json"
 
-          wrangler r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/catalog.json" --file "$catalog_path"
-          wrangler r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/revocations.json" --file "$revocations_path"
+          wrangler r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/catalog.json" --remote --file "$catalog_path"
+          wrangler r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/revocations.json" --remote --file "$revocations_path"
 
           export TMP_CATALOG_PATH="$catalog_path"
           export TMP_REVOCATIONS_PATH="$revocations_path"
@@ -712,7 +713,6 @@ jobs:
 
       - name: 🚀 Deploy plugin edge worker
         if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
-        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -742,6 +742,7 @@ jobs:
 
           check_url() {
             local url="$1"
+            local allow_catalog_fallback="$2"
             local attempts=0
             local max_attempts=20
             local sleep_seconds=3
@@ -752,7 +753,7 @@ jobs:
                 return 0
               fi
 
-              if [ "$status_code" = "403" ] && [ "${ALLOW_LOCAL_CATALOG_FALLBACK:-false}" = "true" ]; then
+              if [ "$status_code" = "403" ] && [ "$allow_catalog_fallback" = "true" ] && [ "${ALLOW_LOCAL_CATALOG_FALLBACK:-false}" = "true" ]; then
                 echo "HTTP 403 for $url, but fallback is enabled; continuing"
                 return 0
               fi
@@ -766,11 +767,11 @@ jobs:
             return 1
           }
 
-          check_url "$CATALOG_URL"
-          check_url "$REVOCATIONS_URL"
-          check_url "$ARTIFACT_URL"
-          check_url "$SIGNATURE_URL"
-          check_url "$CERTIFICATE_URL"
+          check_url "$CATALOG_URL" "true"
+          check_url "$REVOCATIONS_URL" "true"
+          check_url "$ARTIFACT_URL" "false"
+          check_url "$SIGNATURE_URL" "false"
+          check_url "$CERTIFICATE_URL" "false"
 
       - name: 🧩 Stage generated catalog assets
         if: ${{ steps.meta.outputs.deploy_cloudflare_pages == 'true' }}
