@@ -5,10 +5,6 @@ import { useI18n } from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ChatMessage from "@/components/chat/ChatMessage.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import IconGear from "@/components/icons/IconGear.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import IconLogo from "@/components/icons/IconLogo.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import Button from "@/components/ui/button/Button.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import Input from "@/components/ui/input/Input.vue";
@@ -45,6 +41,14 @@ let messageIdCounter = 1;
 let pairingCodeInput = "";
 let bearerTokenInput = "";
 let webhookSecretInput = "";
+
+function createIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
 
 const messages = ref<Message[]>([
   {
@@ -122,34 +126,48 @@ async function saveGatewayConfig(): Promise<void> {
     return;
   }
 
+  if (!pairingCodeInput.trim()) {
+    saveStatus.value = "success";
+    saveStatusTimeoutId = setTimeout(() => {
+      saveStatus.value = "idle";
+    }, 3000);
+    return;
+  }
+
   const controller = new AbortController();
   requestTimeoutId = setTimeout(() => controller.abort(), 10000);
 
   try {
-    const payload: Record<string, string> = {
-      gatewayId: "default",
-      baseUrl: gatewayBaseUrl,
-    };
-
-    if (pairingCodeInput) payload.pairingCode = pairingCodeInput;
-    if (bearerTokenInput) payload.bearerToken = bearerTokenInput;
-    if (webhookSecretInput) payload.webhookSecret = webhookSecretInput;
-
-    const response = await fetch(`${gatewayBaseUrl}/web/chat/config`, {
+    const pairEndpoint = new URL("/pair", gatewayBaseUrl);
+    const response = await fetch(pairEndpoint.toString(), {
       method: "POST",
       headers: {
-        "Content-Type": "application/json",
+        "X-Pairing-Code": pairingCodeInput.trim(),
       },
-      body: JSON.stringify(payload),
       signal: controller.signal,
     });
 
     if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error(t("form.pairingInvalidError"));
+      }
+      if (response.status === 429) {
+        throw new Error(t("form.pairingRateLimitError"));
+      }
       throw new Error(`HTTP ${response.status}`);
     }
 
+    const pairResult = (await response.json()) as {
+      token?: string;
+      paired?: boolean;
+    };
+    if (!pairResult.paired || !pairResult.token) {
+      throw new Error(t("form.pairingMissingTokenError"));
+    }
+
+    bearerTokenInput = pairResult.token;
+
     pairingCodeInput = "";
-    bearerTokenInput = "";
     webhookSecretInput = "";
     secretInputNonce.value += 1;
     saveStatus.value = "success";
@@ -161,6 +179,8 @@ async function saveGatewayConfig(): Promise<void> {
     saveStatus.value = "error";
     if (error instanceof Error && error.name === "AbortError") {
       saveErrorMessage.value = t("form.timeoutError") || "Request timeout";
+    } else if (error instanceof Error && error.message) {
+      saveErrorMessage.value = error.message;
     } else {
       saveErrorMessage.value = t("form.saveError");
     }
@@ -207,21 +227,39 @@ async function sendMessage(): Promise<void> {
   await nextTick();
   scrollChatToBottom();
 
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000);
+
   try {
-    const endpoint = new URL("/web/chat/message", gatewayBaseUrl);
+    const endpoint = new URL("/webhook", gatewayBaseUrl);
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-Idempotency-Key": createIdempotencyKey(),
+    };
+
+    if (bearerTokenInput.trim()) {
+      headers.Authorization = `Bearer ${bearerTokenInput.trim()}`;
+    }
+    if (webhookSecretInput.trim()) {
+      headers["X-Webhook-Secret"] = webhookSecretInput.trim();
+    }
+
     const response = await fetch(endpoint.toString(), {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
+      headers,
       body: JSON.stringify({
-        gatewayId: "default",
-        prompt: normalizedText,
-        model: modelName,
+        message: normalizedText,
       }),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
+      if (response.status === 401) {
+        throw new Error(t("chat.unauthorizedError"));
+      }
+      if (response.status === 429) {
+        throw new Error(t("chat.rateLimitError"));
+      }
       throw new Error(`HTTP ${response.status}`);
     }
 
@@ -243,16 +281,24 @@ async function sendMessage(): Promise<void> {
   } catch (error) {
     console.error("Error sending chat message", error);
     const messageIndex = messages.value.findIndex((item) => item.id === assistantMessageId);
+    let errorMessage = t("chat.requestError", {
+      text: normalizedText,
+      modelName,
+    });
+    if (error instanceof Error && error.name === "AbortError") {
+      errorMessage = t("chat.timeoutError");
+    } else if (error instanceof Error && error.message) {
+      errorMessage = error.message;
+    }
     if (messageIndex >= 0) {
       messages.value[messageIndex] = {
         id: assistantMessageId,
         role: "assistant",
-        content: t("chat.requestError", {
-          text: normalizedText,
-          modelName,
-        }),
+        content: errorMessage,
       };
     }
+  } finally {
+    clearTimeout(timeoutId);
   }
 
   await nextTick();
@@ -272,7 +318,12 @@ onUnmounted(() => {
       <!-- Sidebar Header -->
       <div class="sidebar-header">
         <div class="logo-icon animate-pulse-glow">
-          <IconLogo :size="20" />
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M12 3 4.5 7.5V16.5L12 21 19.5 16.5V7.5L12 3Z" />
+            <path d="M12 12 19.5 7.5" />
+            <path d="M12 12V21" />
+            <path d="M12 12 4.5 7.5" />
+          </svg>
         </div>
         <div>
           <h1 class="sidebar-title">Corvus AI</h1>
@@ -297,7 +348,10 @@ onUnmounted(() => {
           class="nav-item"
           @click="showConfig = !showConfig"
         >
-          <IconGear :size="16" />
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.23.5.8.83 1.4.83H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09c-.6 0-1.17.33-1.51.83Z" />
+          </svg>
           {{ showConfig ? t("app.backToChat") : t("app.config") }}
         </button>
       </div>
@@ -309,7 +363,12 @@ onUnmounted(() => {
       <header class="mobile-header">
         <div class="mobile-header-left">
           <div class="logo-icon logo-icon--sm">
-            <IconLogo :size="16" />
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 3 4.5 7.5V16.5L12 21 19.5 16.5V7.5L12 3Z" />
+              <path d="M12 12 19.5 7.5" />
+              <path d="M12 12V21" />
+              <path d="M12 12 4.5 7.5" />
+            </svg>
           </div>
           <span class="mobile-title">Corvus AI</span>
         </div>
@@ -318,7 +377,10 @@ onUnmounted(() => {
           class="icon-btn"
           @click="showConfig = !showConfig"
         >
-          <IconGear :size="20" />
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.23.5.8.83 1.4.83H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09c-.6 0-1.17.33-1.51.83Z" />
+          </svg>
         </button>
       </header>
 
@@ -327,7 +389,10 @@ onUnmounted(() => {
         <form class="config-card animate-slide-up" @submit.prevent="saveGatewayConfig">
           <div class="config-header">
             <div class="config-header-icon">
-              <IconGear :size="20" />
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09A1.65 1.65 0 0 0 15 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9c.23.5.8.83 1.4.83H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09c-.6 0-1.17.33-1.51.83Z" />
+              </svg>
             </div>
             <div>
               <h2 class="config-title">{{ t("app.gatewayConfig") }}</h2>
@@ -404,7 +469,12 @@ onUnmounted(() => {
         <div v-if="messages.length <= 1" class="hero-state">
           <div class="hero-content animate-slide-up">
             <div class="hero-icon animate-pulse-glow">
-              <IconLogo :size="32" />
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M12 3 4.5 7.5V16.5L12 21 19.5 16.5V7.5L12 3Z" />
+                <path d="M12 12 19.5 7.5" />
+                <path d="M12 12V21" />
+                <path d="M12 12 4.5 7.5" />
+              </svg>
             </div>
             <h2 class="hero-title">{{ modelName }}</h2>
             <p class="hero-subtitle">{{ t("chat.welcome", { modelName }) }}</p>
