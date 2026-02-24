@@ -27,9 +27,13 @@ on:
         description: "Deploy plugins catalog app to Cloudflare Pages"
         required: false
         type: boolean
-        default: true
+        default: false
       cloudflare_project_name:
         description: "Cloudflare Pages project name"
+        required: false
+        default: ""
+      cloudflare_r2_bucket_name:
+        description: "Cloudflare R2 bucket for plugin distribution assets"
         required: false
         default: ""
 
@@ -54,6 +58,8 @@ jobs:
       INPUT_DEPLOY_CF: ${{ inputs.deploy_cloudflare_pages }}
       INPUT_CF_PROJECT_NAME: ${{ inputs.cloudflare_project_name }}
       DEFAULT_CF_PROJECT_NAME: ${{ vars.CLOUDFLARE_PAGES_PROJECT_NAME }}
+      INPUT_CF_R2_BUCKET_NAME: ${{ inputs.cloudflare_r2_bucket_name }}
+      DEFAULT_CF_R2_BUCKET_NAME: ${{ vars.CLOUDFLARE_R2_BUCKET_NAME }}
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
@@ -88,16 +94,25 @@ jobs:
               .rstrip("/")
           )
           input_oci_repository = os.environ.get("INPUT_OCI_REPOSITORY", "").strip()
-          input_deploy_cf = os.environ.get("INPUT_DEPLOY_CF", "true").strip().lower()
+          input_deploy_cf = os.environ.get("INPUT_DEPLOY_CF", "false").strip().lower()
           input_cf_project_name = os.environ.get("INPUT_CF_PROJECT_NAME", "").strip()
           default_cf_project_name = os.environ.get("DEFAULT_CF_PROJECT_NAME", "").strip()
           effective_cf_project_name = input_cf_project_name or default_cf_project_name
+          input_cf_r2_bucket_name = os.environ.get("INPUT_CF_R2_BUCKET_NAME", "").strip()
+          default_cf_r2_bucket_name = os.environ.get("DEFAULT_CF_R2_BUCKET_NAME", "").strip()
+          effective_cf_r2_bucket_name = input_cf_r2_bucket_name or default_cf_r2_bucket_name
 
           if not input_catalog_base_url:
               input_catalog_base_url = "https://plugins.corvus.profiletailors.com"
 
-          if not input_deploy_cf:
-              input_deploy_cf = "true"
+          if input_deploy_cf not in {"true", "false"}:
+              input_deploy_cf = "false"
+
+          if not effective_cf_r2_bucket_name:
+              raise SystemExit(
+                  "Missing Cloudflare R2 bucket name. Set workflow input cloudflare_r2_bucket_name "
+                  "or repository variable CLOUDFLARE_R2_BUCKET_NAME.",
+              )
 
           if not input_catalog_base_url.startswith("https://"):
               raise SystemExit("catalog_base_url must start with https://")
@@ -215,6 +230,7 @@ jobs:
               fh.write(f"oci_repository={input_oci_repository}\n")
               fh.write(f"deploy_cloudflare_pages={input_deploy_cf}\n")
               fh.write(f"cloudflare_project_name={effective_cf_project_name}\n")
+              fh.write(f"cloudflare_r2_bucket_name={effective_cf_r2_bucket_name}\n")
               fh.write(f"artifact_relative_path={artifact_relative_path}\n")
               fh.write(f"signature_relative_path={signature_relative_path}\n")
               fh.write(f"certificate_relative_path={certificate_relative_path}\n")
@@ -512,7 +528,146 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: clients/web/pnpm-lock.yaml
 
+      - name: ⬆ Upload plugin bundle and metadata to Cloudflare R2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_R2_BUCKET: ${{ steps.meta.outputs.cloudflare_r2_bucket_name }}
+          DIST_DIR: ${{ env.DIST_DIR }}
+          ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          SIGNATURE_RELATIVE_PATH: ${{ steps.meta.outputs.signature_relative_path }}
+          CERTIFICATE_RELATIVE_PATH: ${{ steps.meta.outputs.certificate_relative_path }}
+          MANIFEST_RELATIVE_PATH: ${{ steps.meta.outputs.manifest_relative_path }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "Missing required Cloudflare secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID"
+            exit 1
+          fi
+
+          if [ -z "${CLOUDFLARE_R2_BUCKET:-}" ]; then
+            echo "Missing Cloudflare R2 bucket name"
+            exit 1
+          fi
+
+          wrangler_put() {
+            local key="$1"
+            local file="$2"
+            local content_type="$3"
+            test -f "$file" || { echo "missing file: $file" >&2; exit 1; }
+            pnpm dlx wrangler@4.44.0 r2 object put "${CLOUDFLARE_R2_BUCKET}/${key}" \
+              --file "$file" \
+              --content-type "$content_type"
+          }
+
+          # Upload immutable artifacts first
+          wrangler_put "$ARTIFACT_RELATIVE_PATH" "$DIST_DIR/$ARTIFACT_RELATIVE_PATH" "application/wasm"
+          wrangler_put "$SIGNATURE_RELATIVE_PATH" "$DIST_DIR/$SIGNATURE_RELATIVE_PATH" "application/octet-stream"
+          wrangler_put "$CERTIFICATE_RELATIVE_PATH" "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "application/x-pem-file"
+          wrangler_put "$MANIFEST_RELATIVE_PATH" "$DIST_DIR/$MANIFEST_RELATIVE_PATH" "application/json"
+
+          # Upload mutable metadata last for an atomic catalog view
+          wrangler_put "catalog/catalog.json" "$DIST_DIR/catalog.json" "application/json"
+          wrangler_put "catalog/revocations.json" "$DIST_DIR/revocations.json" "application/json"
+
+      - name: ✅ Verify R2 objects and catalog integrity
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_R2_BUCKET: ${{ steps.meta.outputs.cloudflare_r2_bucket_name }}
+          PLUGIN_ID: ${{ steps.meta.outputs.plugin_id }}
+          PLUGIN_VERSION: ${{ steps.meta.outputs.plugin_version }}
+          ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
+          SIGNATURE_URL: ${{ steps.meta.outputs.signature_url }}
+          CERTIFICATE_URL: ${{ steps.meta.outputs.certificate_url }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          tmp_dir="$(mktemp -d)"
+          trap 'rm -rf "$tmp_dir"' EXIT
+          catalog_path="$tmp_dir/catalog.json"
+
+          pnpm dlx wrangler@4.44.0 r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/catalog.json" --file "$catalog_path"
+          pnpm dlx wrangler@4.44.0 r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/revocations.json" --file "$tmp_dir/revocations.json"
+
+          export TMP_CATALOG_PATH="$catalog_path"
+
+          python - <<'PY'
+          import json
+          import os
+          import pathlib
+
+          plugin_id = os.environ["PLUGIN_ID"]
+          plugin_version = os.environ["PLUGIN_VERSION"]
+          artifact_url = os.environ["ARTIFACT_URL"]
+          signature_url = os.environ["SIGNATURE_URL"]
+          certificate_url = os.environ["CERTIFICATE_URL"]
+          catalog = json.loads(pathlib.Path(os.environ["TMP_CATALOG_PATH"]).read_text(encoding="utf-8"))
+
+          plugins = catalog.get("plugins", [])
+          if not isinstance(plugins, list):
+              raise SystemExit("catalog/plugins must be a list")
+
+          entry = None
+          for item in plugins:
+              if item.get("id") == plugin_id:
+                  entry = item
+                  break
+
+          if entry is None:
+              raise SystemExit(f"catalog missing plugin entry for {plugin_id}")
+          if entry.get("version") != plugin_version:
+              raise SystemExit(
+                  f"catalog version mismatch: expected {plugin_version}, found {entry.get('version')}",
+              )
+
+          artifact = entry.get("artifact", {})
+          if artifact.get("url") != artifact_url:
+              raise SystemExit("catalog artifact.url mismatch")
+
+          signature = entry.get("signature", {})
+          if signature.get("url") != signature_url:
+              raise SystemExit("catalog signature.url mismatch")
+          if signature.get("certificate_url") != certificate_url:
+              raise SystemExit("catalog signature.certificate_url mismatch")
+
+          print("Catalog entry integrity check passed")
+          PY
+
+      - name: 🌐 Smoke check public worker endpoints
+        env:
+          CATALOG_URL: ${{ steps.meta.outputs.catalog_base_url }}/catalog.json
+          REVOCATIONS_URL: ${{ steps.meta.outputs.catalog_base_url }}/revocations.json
+          ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
+          SIGNATURE_URL: ${{ steps.meta.outputs.signature_url }}
+          CERTIFICATE_URL: ${{ steps.meta.outputs.certificate_url }}
+        run: |
+          set -euo pipefail
+
+          check_url() {
+            local url="$1"
+            local attempts=0
+            until [ "$attempts" -ge 5 ]; do
+              if curl -fsSIL "$url" >/dev/null 2>&1; then
+                return 0
+              fi
+              attempts=$((attempts + 1))
+              sleep 2
+            done
+            echo "Public URL check failed: $url" >&2
+            return 1
+          }
+
+          check_url "$CATALOG_URL"
+          check_url "$REVOCATIONS_URL"
+          check_url "$ARTIFACT_URL"
+          check_url "$SIGNATURE_URL"
+          check_url "$CERTIFICATE_URL"
+
       - name: 🧩 Stage generated catalog assets
+        if: ${{ steps.meta.outputs.deploy_cloudflare_pages == 'true' }}
         env:
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
@@ -534,10 +689,12 @@ jobs:
           cp "$DIST_DIR/revocations.json" "$catalog_public/revocations.json"
 
       - name: 📥 Install web dependencies
+        if: ${{ steps.meta.outputs.deploy_cloudflare_pages == 'true' }}
         working-directory: clients/web
         run: pnpm install --frozen-lockfile --filter @corvus/plugins-catalog...
 
       - name: 🏗️ Build plugins catalog site
+        if: ${{ steps.meta.outputs.deploy_cloudflare_pages == 'true' }}
         working-directory: clients/web
         env:
           PLUGINS_URL: ${{ steps.meta.outputs.catalog_base_url }}
@@ -586,6 +743,7 @@ jobs:
           if-no-files-found: error
 
       - name: ⬆ Upload plugins catalog site artifact
+        if: ${{ steps.meta.outputs.deploy_cloudflare_pages == 'true' }}
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: plugins-catalog-site-${{ steps.meta.outputs.plugin_id }}-${{ steps.meta.outputs.plugin_version }}
