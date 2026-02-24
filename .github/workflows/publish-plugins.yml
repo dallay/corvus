@@ -280,6 +280,7 @@ jobs:
         env:
           PLUGIN_ID: ${{ steps.meta.outputs.plugin_id }}
           PLUGIN_VERSION: ${{ steps.meta.outputs.plugin_version }}
+          CATALOG_BASE_URL: ${{ steps.meta.outputs.catalog_base_url }}
           PLUGIN_DIR: ${{ steps.meta.outputs.plugin_dir }}
           WASM_BINARY_NAME: ${{ steps.meta.outputs.wasm_binary_name }}
           RUNTIME_VERSION: ${{ steps.meta.outputs.runtime_version }}
@@ -307,6 +308,8 @@ jobs:
           import os
           import pathlib
           import shutil
+          import urllib.error
+          import urllib.request
 
           dist_dir = pathlib.Path(os.environ["DIST_DIR"])
           dist_dir.mkdir(parents=True, exist_ok=True)
@@ -366,9 +369,24 @@ jobs:
           )
 
           source_catalog = pathlib.Path("clients/web/apps/plugins/public/catalog.json")
-          if source_catalog.exists():
-              catalog_payload = json.loads(source_catalog.read_text(encoding="utf-8"))
-          else:
+          catalog_payload = None
+
+          catalog_base_url = os.environ.get("CATALOG_BASE_URL", "").strip().rstrip("/")
+          if catalog_base_url:
+              remote_catalog_url = f"{catalog_base_url}/catalog.json"
+              try:
+                  with urllib.request.urlopen(remote_catalog_url, timeout=10) as response:
+                      catalog_payload = json.loads(response.read().decode("utf-8"))
+              except (urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError):
+                  catalog_payload = None
+
+          if catalog_payload is None and source_catalog.exists():
+              try:
+                  catalog_payload = json.loads(source_catalog.read_text(encoding="utf-8"))
+              except json.JSONDecodeError:
+                  catalog_payload = None
+
+          if catalog_payload is None:
               catalog_payload = {"plugins": []}
 
           existing_plugins = catalog_payload.get("plugins", [])
@@ -528,6 +546,12 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: clients/web/pnpm-lock.yaml
 
+      - name: 🧰 Install Wrangler CLI
+        run: |
+          set -euo pipefail
+          npm install --global wrangler@4.65.0
+          wrangler --version
+
       - name: ⬆ Upload plugin bundle and metadata to Cloudflare R2
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -556,7 +580,7 @@ jobs:
             local file="$2"
             local content_type="$3"
             test -f "$file" || { echo "missing file: $file" >&2; exit 1; }
-            pnpm dlx wrangler@4.44.0 r2 object put "${CLOUDFLARE_R2_BUCKET}/${key}" \
+            wrangler r2 object put "${CLOUDFLARE_R2_BUCKET}/${key}" \
               --file "$file" \
               --content-type "$content_type"
           }
@@ -588,11 +612,13 @@ jobs:
           tmp_dir="$(mktemp -d)"
           trap 'rm -rf "$tmp_dir"' EXIT
           catalog_path="$tmp_dir/catalog.json"
+          revocations_path="$tmp_dir/revocations.json"
 
-          pnpm dlx wrangler@4.44.0 r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/catalog.json" --file "$catalog_path"
-          pnpm dlx wrangler@4.44.0 r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/revocations.json" --file "$tmp_dir/revocations.json"
+          wrangler r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/catalog.json" --file "$catalog_path"
+          wrangler r2 object get "${CLOUDFLARE_R2_BUCKET}/catalog/revocations.json" --file "$revocations_path"
 
           export TMP_CATALOG_PATH="$catalog_path"
+          export TMP_REVOCATIONS_PATH="$revocations_path"
 
           python - <<'PY'
           import json
@@ -605,6 +631,7 @@ jobs:
           signature_url = os.environ["SIGNATURE_URL"]
           certificate_url = os.environ["CERTIFICATE_URL"]
           catalog = json.loads(pathlib.Path(os.environ["TMP_CATALOG_PATH"]).read_text(encoding="utf-8"))
+          revocations = json.loads(pathlib.Path(os.environ["TMP_REVOCATIONS_PATH"]).read_text(encoding="utf-8"))
 
           plugins = catalog.get("plugins", [])
           if not isinstance(plugins, list):
@@ -632,6 +659,13 @@ jobs:
               raise SystemExit("catalog signature.url mismatch")
           if signature.get("certificate_url") != certificate_url:
               raise SystemExit("catalog signature.certificate_url mismatch")
+
+          if not isinstance(revocations, dict):
+              raise SystemExit("revocations payload must be a JSON object")
+          if "revoked" not in revocations:
+              raise SystemExit("revocations payload missing required key: revoked")
+          if not isinstance(revocations.get("revoked"), list):
+              raise SystemExit("revocations/revoked must be a list")
 
           print("Catalog entry integrity check passed")
           PY
@@ -722,7 +756,7 @@ jobs:
             exit 1
           fi
 
-          pnpm dlx wrangler@4.44.0 pages deploy ./dist \
+          wrangler pages deploy ./dist \
             --project-name "$CLOUDFLARE_PROJECT_NAME" \
             --branch main \
             --commit-hash "$GITHUB_SHA" \
