@@ -1,9 +1,11 @@
 use crate::config::{Config, PluginSourceConfig, PluginsConfig};
 use anyhow::{anyhow, bail, Context, Result};
+use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
@@ -716,10 +718,34 @@ impl PluginManager {
             );
         }
 
+        let (signature_bytes, certificate_bytes) =
+            normalize_signature_bundle(&signature_bytes, &certificate_bytes).with_context(|| {
+                format!(
+                    "Plugin '{}' signature bundle normalization failed using local installation metadata",
+                    plugin.id
+                )
+            })?;
+
+        if signature_bytes.is_empty() || signature_bytes.len() > MAX_SIGNATURE_BYTES {
+            bail!(
+                "Plugin '{}' signature file has invalid size after normalization ({} bytes)",
+                plugin.id,
+                signature_bytes.len()
+            );
+        }
+
+        if certificate_bytes.is_empty() || certificate_bytes.len() > MAX_CERTIFICATE_BYTES {
+            bail!(
+                "Plugin '{}' certificate file has invalid size after normalization ({} bytes)",
+                plugin.id,
+                certificate_bytes.len()
+            );
+        }
+
         verify_blob_with_cosign(
             artifact_bytes,
             &signature_bytes,
-            &certificate_bytes,
+            certificate_bytes.as_ref(),
             identity_regex.as_str(),
         )
         .with_context(|| {
@@ -972,10 +998,34 @@ impl PluginManager {
             );
         }
 
+        let (signature, certificate) = normalize_signature_bundle(&signature, &certificate)
+            .with_context(|| {
+                format!(
+                    "Plugin '{}' signature bundle normalization failed",
+                    candidate.manifest.id
+                )
+            })?;
+
+        if signature.is_empty() || signature.len() > MAX_SIGNATURE_BYTES {
+            bail!(
+                "Plugin '{}' signature has invalid size after normalization ({} bytes)",
+                candidate.manifest.id,
+                signature.len()
+            );
+        }
+
+        if certificate.is_empty() || certificate.len() > MAX_CERTIFICATE_BYTES {
+            bail!(
+                "Plugin '{}' signing certificate has invalid size after normalization ({} bytes)",
+                candidate.manifest.id,
+                certificate.len()
+            );
+        }
+
         verify_blob_with_cosign(
             artifact_bytes,
             &signature,
-            &certificate,
+            certificate.as_ref(),
             identity_regex.as_str(),
         )
         .with_context(|| {
@@ -987,7 +1037,7 @@ impl PluginManager {
 
         Ok(Some(VerifiedSignatureBundle {
             signature,
-            certificate,
+            certificate: certificate.into_owned(),
         }))
     }
 
@@ -1590,6 +1640,10 @@ fn validate_manifest_asset_source(
     Ok(())
 }
 
+/// Verifies a plugin artifact with cosign.
+///
+/// Callers must pass a normalized signature/certificate payload (for example,
+/// already handled for base64 wrappers and PEM normalization).
 fn verify_blob_with_cosign(
     artifact: &[u8],
     signature: &[u8],
@@ -1648,6 +1702,116 @@ fn verify_blob_with_cosign(
 
     let _ = fs::remove_dir_all(&temp_dir);
     verify_result
+}
+
+fn normalize_signature_bundle<'a>(
+    signature: &'a [u8],
+    certificate: &'a [u8],
+) -> Result<(Vec<u8>, Cow<'a, [u8]>)> {
+    let normalized_signature = normalize_signature_payload(signature);
+    let normalized_certificate = normalize_certificate_payload(certificate)?;
+    Ok((normalized_signature, normalized_certificate))
+}
+
+fn normalize_certificate_payload(certificate: &[u8]) -> Result<Cow<'_, [u8]>> {
+    if contains_pem_certificate_markers(certificate) {
+        return Ok(Cow::Borrowed(certificate));
+    }
+
+    let as_text = std::str::from_utf8(certificate).context(
+        "Certificate payload is not valid UTF-8 and does not contain PEM certificate markers",
+    )?;
+    let trimmed = as_text.trim();
+    if trimmed.is_empty() {
+        bail!("Certificate payload is empty");
+    }
+
+    let decoded = decode_base64_text(trimmed).ok_or_else(|| {
+        anyhow!("Certificate payload is neither PEM text nor base64-encoded PEM text",)
+    })?;
+
+    if !contains_pem_certificate_markers(&decoded) {
+        bail!("Decoded certificate payload is missing PEM certificate markers");
+    }
+
+    Ok(Cow::Owned(decoded))
+}
+
+fn normalize_signature_payload(signature: &[u8]) -> Vec<u8> {
+    let Ok(signature_text) = std::str::from_utf8(signature) else {
+        return signature.to_vec();
+    };
+    let trimmed_signature = signature_text.trim();
+    if !looks_like_cosign_signature_text(trimmed_signature) {
+        return signature.to_vec();
+    }
+
+    let Some(decoded_outer) = decode_base64_text(trimmed_signature) else {
+        return signature.to_vec();
+    };
+    let Ok(decoded_outer_text) = std::str::from_utf8(&decoded_outer) else {
+        return signature.to_vec();
+    };
+
+    let inner_signature = decoded_outer_text.trim();
+    if !looks_like_cosign_signature_text(inner_signature) {
+        return signature.to_vec();
+    }
+
+    inner_signature.as_bytes().to_vec()
+}
+
+fn contains_pem_certificate_markers(payload: &[u8]) -> bool {
+    let Ok(text) = std::str::from_utf8(payload) else {
+        return false;
+    };
+    let trimmed = text.trim();
+    let begin_marker = "-----BEGIN CERTIFICATE-----";
+    let end_marker = "-----END CERTIFICATE-----";
+
+    let Some(begin_index) = trimmed.find(begin_marker) else {
+        return false;
+    };
+    let Some(end_index) = trimmed.find(end_marker) else {
+        return false;
+    };
+
+    if begin_index >= end_index {
+        return false;
+    }
+
+    let content_start = begin_index + begin_marker.len();
+    content_start < end_index
+}
+
+fn looks_like_cosign_signature_text(payload: &str) -> bool {
+    if payload.is_empty() || payload.contains('\n') {
+        return false;
+    }
+
+    payload.chars().all(|character| {
+        character.is_ascii_alphanumeric() || matches!(character, '+' | '/' | '=' | '-' | '_')
+    })
+}
+
+fn decode_base64_text(payload: &str) -> Option<Vec<u8>> {
+    let compact: String = payload
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .collect();
+    if compact.is_empty() {
+        return None;
+    }
+
+    general_purpose::STANDARD
+        .decode(compact.as_bytes())
+        .ok()
+        .or_else(|| general_purpose::URL_SAFE.decode(compact.as_bytes()).ok())
+        .or_else(|| {
+            general_purpose::URL_SAFE_NO_PAD
+                .decode(compact.as_bytes())
+                .ok()
+        })
 }
 
 struct CommandOutput {
@@ -2382,5 +2546,58 @@ mod tests {
         let error = install_plugin(&config, OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID, None, None)
             .expect_err("install should fail when publisher is not allowlisted");
         assert!(error.to_string().contains("allowlisted"));
+    }
+
+    #[test]
+    fn normalize_certificate_payload_accepts_plain_pem() {
+        let pem = b"-----BEGIN CERTIFICATE-----\nZm9v\n-----END CERTIFICATE-----\n";
+        let normalized = normalize_certificate_payload(pem).expect("plain PEM should be accepted");
+        assert_eq!(normalized.as_ref(), pem);
+    }
+
+    #[test]
+    fn normalize_certificate_payload_decodes_base64_wrapped_pem() {
+        let pem = "-----BEGIN CERTIFICATE-----\nZm9v\n-----END CERTIFICATE-----\n";
+        let wrapped = general_purpose::STANDARD.encode(pem.as_bytes());
+
+        let normalized = normalize_certificate_payload(wrapped.as_bytes())
+            .expect("base64 wrapped PEM should be normalized");
+        assert_eq!(normalized.as_ref(), pem.as_bytes());
+    }
+
+    #[test]
+    fn normalize_certificate_payload_rejects_non_pem_payload() {
+        let error = normalize_certificate_payload(b"not-a-certificate")
+            .expect_err("non-PEM certificate payload must be rejected");
+        assert!(error
+            .to_string()
+            .contains("neither PEM text nor base64-encoded PEM text"));
+    }
+
+    #[test]
+    fn normalize_signature_payload_keeps_direct_cosign_signature() {
+        let signature = b"MEUCIQDxEXAMPLEaBcdEfghIjklMNOPqrsTuvWxyZ0123456789ab==\n";
+        let normalized = normalize_signature_payload(signature);
+        assert_eq!(normalized, signature);
+    }
+
+    #[test]
+    fn normalize_signature_payload_decodes_base64_wrapped_signature_text() {
+        let inner = "MEUCIQDxEXAMPLEaBcdEfghIjklMNOPqrsTuvWxyZ0123456789ab==";
+        let wrapped = general_purpose::STANDARD.encode(inner.as_bytes());
+
+        let normalized = normalize_signature_payload(wrapped.as_bytes());
+        assert_eq!(normalized, inner.as_bytes());
+    }
+
+    #[test]
+    fn normalize_signature_bundle_rejects_invalid_certificate_payload() {
+        let signature = b"MEUCIQDxEXAMPLEaBcdEfghIjklMNOPqrsTuvWxyZ0123456789ab==";
+        let error = normalize_signature_bundle(signature, b"totally-invalid-cert")
+            .expect_err("invalid certificate must fail normalization");
+        assert!(error
+            .to_string()
+            .to_ascii_lowercase()
+            .contains("certificate"));
     }
 }
