@@ -38,9 +38,7 @@ const CACHE_POLICIES = {
   artifact: "public, max-age=31536000, immutable",
 } as const;
 
-const METHOD_NOT_ALLOWED_HEADERS = {
-  Allow: "GET, HEAD, OPTIONS",
-};
+const ALLOW_METHODS_VALUE = "GET, HEAD, OPTIONS";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -52,9 +50,11 @@ export default {
     }
 
     if (!isSupportedMethod(request.method)) {
+      const headers = corsHeaders();
+      headers.set("Allow", ALLOW_METHODS_VALUE);
       return new Response("Method Not Allowed", {
         status: 405,
-        headers: METHOD_NOT_ALLOWED_HEADERS,
+        headers,
       });
     }
 
@@ -68,7 +68,7 @@ export default {
         env.CATALOG_OBJECT_KEY || DEFAULT_CATALOG_KEY,
         "application/json; charset=utf-8",
         CACHE_POLICIES.catalog,
-        false
+        true
       );
     }
 
@@ -79,7 +79,7 @@ export default {
         env.REVOCATIONS_OBJECT_KEY || DEFAULT_REVOCATIONS_KEY,
         "application/json; charset=utf-8",
         CACHE_POLICIES.revocations,
-        false
+        true
       );
     }
 
@@ -112,8 +112,15 @@ function normalizePathname(pathname: string): string {
     return "/";
   }
 
-  const decoded = decodeURIComponent(pathname);
-  return decoded.replace(/\/{2,}/g, "/");
+  try {
+    const decoded = decodeURIComponent(pathname);
+    return decoded.replace(/\/{2,}/g, "/");
+  } catch (error) {
+    if (error instanceof URIError) {
+      return pathname.replace(/\/{2,}/g, "/");
+    }
+    throw error;
+  }
 }
 
 function safeArtifactKey(pathname: string): string | null {
@@ -173,9 +180,12 @@ async function serveObject(
 
   const ifNoneMatch = request.headers.get("If-None-Match");
   if (ifNoneMatch && object.httpEtag && ifNoneMatch === object.httpEtag) {
+    const responseHeaders = new Headers(headers);
+    responseHeaders.delete(RESPONSE_HEADERS.contentLength);
+    responseHeaders.delete(RESPONSE_HEADERS.contentType);
     return new Response(null, {
       status: 304,
-      headers,
+      headers: responseHeaders,
     });
   }
 

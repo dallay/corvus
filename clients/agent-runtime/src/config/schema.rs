@@ -2220,12 +2220,20 @@ fn env_override_optional(var_name: &str, target: &mut Option<String>) {
 
 fn migrate_deprecated_plugin_registry_urls(config: &mut Config) -> bool {
     const OLD_PLUGIN_HOST: &str = "plugins.corvus.ai";
+    const LEGACY_PLUGIN_HOST: &str = "corvus.profiletailors.com";
     const NEW_PLUGIN_HOST: &str = "plugins.corvus.profiletailors.com";
 
-    fn migrate_url_host(raw_url: &str, old_host: &str, new_host: &str) -> Option<String> {
+    fn host_matches(candidate: &str, host: &str) -> bool {
+        candidate == host || candidate.ends_with(&format!(".{host}"))
+    }
+
+    fn migrate_url_host(raw_url: &str, old_hosts: &[&str], new_host: &str) -> Option<String> {
         let mut parsed = Url::parse(raw_url).ok()?;
         let host = parsed.host_str()?;
-        if host == old_host || host.ends_with(&format!(".{old_host}")) {
+        if old_hosts
+            .iter()
+            .any(|old_host| host_matches(host, old_host))
+        {
             parsed.set_host(Some(new_host)).ok()?;
             return Some(parsed.to_string());
         }
@@ -2234,18 +2242,17 @@ fn migrate_deprecated_plugin_registry_urls(config: &mut Config) -> bool {
 
     let mut changed = false;
     let mut revocation_changed = false;
+    let old_hosts = [OLD_PLUGIN_HOST, LEGACY_PLUGIN_HOST];
 
     for source in &mut config.plugins.sources {
-        if let Some(migrated) = migrate_url_host(&source.url, OLD_PLUGIN_HOST, NEW_PLUGIN_HOST) {
+        if let Some(migrated) = migrate_url_host(&source.url, &old_hosts, NEW_PLUGIN_HOST) {
             source.url = migrated;
             changed = true;
         }
     }
 
     for source_url in &mut config.plugins.revocation.source_urls {
-        if let Some(migrated) =
-            migrate_url_host(source_url.as_str(), OLD_PLUGIN_HOST, NEW_PLUGIN_HOST)
-        {
+        if let Some(migrated) = migrate_url_host(source_url.as_str(), &old_hosts, NEW_PLUGIN_HOST) {
             *source_url = migrated;
             changed = true;
             revocation_changed = true;
@@ -2336,8 +2343,9 @@ impl Config {
 
             if migrate_deprecated_plugin_registry_urls(&mut config) {
                 tracing::warn!(
-                    "Migrated deprecated plugin registry host entries from 'plugins.corvus.ai' \
-                     to 'plugins.corvus.profiletailors.com' in plugins.sources and \
+                    "Migrated deprecated plugin registry host entries from \
+                     'plugins.corvus.ai' and 'corvus.profiletailors.com' to \
+                     'plugins.corvus.profiletailors.com' in plugins.sources and \
                      plugins.revocation.source_urls"
                 );
                 if let Err(error) = config.save() {
@@ -2963,6 +2971,29 @@ default_temperature = 0.7
         let mut config = Config::default();
         let changed = migrate_deprecated_plugin_registry_urls(&mut config);
         assert!(!changed);
+        assert_eq!(
+            config.plugins.sources[0].url,
+            "https://plugins.corvus.profiletailors.com/catalog.json"
+        );
+        assert_eq!(
+            config.plugins.revocation.source_urls,
+            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
+        );
+    }
+
+    #[test]
+    fn migrate_deprecated_plugin_registry_urls_rewrites_legacy_profiletailors_host() {
+        let mut config = Config::default();
+        config.plugins.sources = vec![PluginSourceConfig {
+            name: "official".to_string(),
+            url: "https://corvus.profiletailors.com/catalog.json".to_string(),
+            plugin_identity_regex: None,
+        }];
+        config.plugins.revocation.source_urls =
+            vec!["https://corvus.profiletailors.com/revocations.json".to_string()];
+
+        let changed = migrate_deprecated_plugin_registry_urls(&mut config);
+        assert!(changed);
         assert_eq!(
             config.plugins.sources[0].url,
             "https://plugins.corvus.profiletailors.com/catalog.json"

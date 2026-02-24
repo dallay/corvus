@@ -41,7 +41,7 @@ pnpm --filter @corvus/plugins-edge run deploy
 
 1. Create R2 bucket (example: `corvus-plugins-catalog-prod`).
 2. Bind R2 bucket to worker as `PLUGINS_BUCKET`.
-3. Configure custom domain route for this worker (`corvus.profiletailors.com`).
+3. Configure custom domain route for this worker (`plugins.corvus.profiletailors.com`).
 4. Upload objects into R2 using these keys:
    - `catalog/catalog.json`
    - `catalog/revocations.json`
