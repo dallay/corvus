@@ -229,6 +229,8 @@ jobs:
               fh.write(f"catalog_base_url={input_catalog_base_url}\n")
               fh.write(f"oci_repository={input_oci_repository}\n")
               fh.write(f"deploy_cloudflare_pages={input_deploy_cf}\n")
+              # Deploy to R2 if we have a valid bucket name
+              fh.write(f"deploy_to_r2={'true' if effective_cf_r2_bucket_name else 'false'}\n")
               fh.write(f"cloudflare_project_name={effective_cf_project_name}\n")
               fh.write(f"cloudflare_r2_bucket_name={effective_cf_r2_bucket_name}\n")
               fh.write(f"artifact_relative_path={artifact_relative_path}\n")
@@ -721,6 +723,7 @@ jobs:
           wrangler deploy --yes
 
       - name: 🌐 Smoke check public worker endpoints
+        if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
         env:
           CATALOG_URL: ${{ steps.meta.outputs.catalog_base_url }}/catalog.json
           REVOCATIONS_URL: ${{ steps.meta.outputs.catalog_base_url }}/revocations.json
