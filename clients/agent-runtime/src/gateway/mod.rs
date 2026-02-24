@@ -365,6 +365,75 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
         }
     }
 
+    if let Some(memory_backend) = patch.memory_backend.as_ref() {
+        let backend = memory_backend.trim().to_ascii_lowercase();
+        if backend != cfg.memory.backend {
+            fields.push("memory_backend");
+        }
+    }
+
+    if let Some(observability) = patch.observability.as_ref() {
+        if let Some(backend) = observability.backend.as_ref() {
+            let backend = backend.trim().to_ascii_lowercase();
+            if backend != cfg.observability.backend {
+                fields.push("observability.backend");
+            }
+        }
+
+        if let Some(endpoint) = observability.otel_endpoint.as_ref() {
+            let endpoint = endpoint.trim();
+            let next = (!endpoint.is_empty()).then_some(endpoint);
+            let current = cfg.observability.otel_endpoint.as_deref();
+            if next != current {
+                fields.push("observability.otel_endpoint");
+            }
+        }
+
+        if let Some(service_name) = observability.otel_service_name.as_ref() {
+            let service_name = service_name.trim();
+            let next = (!service_name.is_empty()).then_some(service_name);
+            let current = cfg.observability.otel_service_name.as_deref();
+            if next != current {
+                fields.push("observability.otel_service_name");
+            }
+        }
+    }
+
+    if let Some(runtime) = patch.runtime.as_ref() {
+        if let Some(kind) = runtime.kind.as_ref() {
+            let kind = kind.trim().to_ascii_lowercase();
+            if kind != cfg.runtime.kind {
+                fields.push("runtime.kind");
+            }
+        }
+    }
+
+    if let Some(autonomy) = patch.autonomy.as_ref() {
+        if let Some(level) = autonomy.level {
+            if level != cfg.autonomy.level {
+                fields.push("autonomy.level");
+            }
+        }
+
+        if let Some(workspace_only) = autonomy.workspace_only {
+            if workspace_only != cfg.autonomy.workspace_only {
+                fields.push("autonomy.workspace_only");
+            }
+        }
+
+        if let Some(max_actions_per_hour) = autonomy.max_actions_per_hour {
+            if max_actions_per_hour != cfg.autonomy.max_actions_per_hour {
+                fields.push("autonomy.max_actions_per_hour");
+            }
+        }
+
+        if let Some(max_cost_per_day_cents) = autonomy.max_cost_per_day_cents {
+            if max_cost_per_day_cents != cfg.autonomy.max_cost_per_day_cents {
+                fields.push("autonomy.max_cost_per_day_cents");
+            }
+        }
+    }
+
     if let Some(gateway) = patch.gateway.as_ref() {
         if let Some(port) = gateway.port {
             if port != cfg.gateway.port {
@@ -402,17 +471,24 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
             }
         }
         if let Some(max_keys) = gateway.rate_limit_max_keys {
-            if max_keys.max(1) != cfg.gateway.rate_limit_max_keys {
+            let normalized = normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
+            if normalized != cfg.gateway.rate_limit_max_keys {
                 fields.push("gateway.rate_limit_max_keys");
             }
         }
         if let Some(ttl) = gateway.idempotency_ttl_secs {
-            if ttl.max(1) != cfg.gateway.idempotency_ttl_secs {
+            let normalized_ttl = if ttl == 0 {
+                cfg.gateway.idempotency_ttl_secs.max(1)
+            } else {
+                ttl
+            };
+            if normalized_ttl != cfg.gateway.idempotency_ttl_secs {
                 fields.push("gateway.idempotency_ttl_secs");
             }
         }
         if let Some(max_keys) = gateway.idempotency_max_keys {
-            if max_keys.max(1) != cfg.gateway.idempotency_max_keys {
+            let normalized = normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
+            if normalized != cfg.gateway.idempotency_max_keys {
                 fields.push("gateway.idempotency_max_keys");
             }
         }
@@ -1378,13 +1454,17 @@ async fn handle_admin_update_config(
             cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
         }
         if let Some(max_keys) = gateway_patch.rate_limit_max_keys {
-            cfg.gateway.rate_limit_max_keys = max_keys.max(1);
+            cfg.gateway.rate_limit_max_keys =
+                normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
         }
         if let Some(ttl_secs) = gateway_patch.idempotency_ttl_secs {
-            cfg.gateway.idempotency_ttl_secs = ttl_secs.max(1);
+            if ttl_secs != 0 {
+                cfg.gateway.idempotency_ttl_secs = ttl_secs;
+            }
         }
         if let Some(max_keys) = gateway_patch.idempotency_max_keys {
-            cfg.gateway.idempotency_max_keys = max_keys.max(1);
+            cfg.gateway.idempotency_max_keys =
+                normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
         }
     }
 
@@ -2414,19 +2494,6 @@ mod tests {
         };
 
         let payload = serde_json::json!({
-            "memory_backend": "sqlite",
-            "observability": {
-                "backend": "prometheus"
-            },
-            "runtime": {
-                "kind": "docker"
-            },
-            "autonomy": {
-                "level": "supervised",
-                "workspace_only": true,
-                "max_actions_per_hour": 25,
-                "max_cost_per_day_cents": 700
-            },
             "scheduler": {
                 "enabled": true,
                 "max_tasks": 96,
@@ -2455,14 +2522,75 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let cfg_guard = shared_cfg.lock();
-        assert_eq!(cfg_guard.observability.backend, "prometheus");
-        assert_eq!(cfg_guard.runtime.kind, "docker");
-        assert_eq!(cfg_guard.autonomy.max_actions_per_hour, 25);
         assert_eq!(cfg_guard.scheduler.max_tasks, 96);
+        assert!(cfg_guard.plugins.enabled);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(result["updated"], true);
+    }
+
+    #[tokio::test]
+    async fn admin_config_update_zeros_do_not_trigger_restart_or_change_limits() {
+        let cfg = temp_config();
+        cfg.save().unwrap();
+
+        let shared_cfg = Arc::new(Mutex::new(cfg));
+        let state = AppState {
+            config: shared_cfg.clone(),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let before = {
+            let cfg_guard = shared_cfg.lock();
+            (
+                cfg_guard.gateway.rate_limit_max_keys,
+                cfg_guard.gateway.idempotency_ttl_secs,
+                cfg_guard.gateway.idempotency_max_keys,
+            )
+        };
+
+        let payload = serde_json::json!({
+            "gateway": {
+                "rate_limit_max_keys": 0,
+                "idempotency_ttl_secs": 0,
+                "idempotency_max_keys": 0
+            }
+        });
+
+        let response = handle_admin_update_config(
+            State(state),
+            HeaderMap::new(),
+            Ok(Json(
+                serde_json::from_value::<AdminConfigUpdateRequest>(payload).unwrap(),
+            )),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let after = {
+            let cfg_guard = shared_cfg.lock();
+            (
+                cfg_guard.gateway.rate_limit_max_keys,
+                cfg_guard.gateway.idempotency_ttl_secs,
+                cfg_guard.gateway.idempotency_max_keys,
+            )
+        };
+        assert_eq!(before, after);
     }
 
     #[tokio::test]

@@ -313,9 +313,16 @@ async function saveConfig(): Promise<void> {
     return;
   }
 
+  const trimmedWebhookSecretValue = webhookSecretValue.value.trim();
+  if (webhookSecretMode.value === "replace" && !trimmedWebhookSecretValue) {
+    errorMessage.value = t("auth.emptyWebhookSecret");
+    saving.value = false;
+    return;
+  }
+
   const secretPayload =
     webhookSecretMode.value === "replace"
-      ? { mode: "replace", value: webhookSecretValue.value }
+      ? { mode: "replace", value: trimmedWebhookSecretValue }
       : webhookSecretMode.value === "clear"
         ? { mode: "clear" }
         : { mode: "unchanged" };

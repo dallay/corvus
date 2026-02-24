@@ -21,6 +21,7 @@
     "pairSuccess": "Pairing exitoso. Token cargado.",
     "connected": "Conectado correctamente.",
     "loadError": "No se pudo cargar la configuración admin.",
+    "emptyWebhookSecret": "El webhook secret no puede estar vacío. Usa 'Limpiar' si deseas removerlo.",
     "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
     "unauthorized": "No autorizado. Haz pairing y vuelve a intentar."
   },
