@@ -573,6 +573,11 @@ jobs:
           cache: "pnpm"
           cache-dependency-path: clients/web/pnpm-lock.yaml
 
+      - name: 🗂 Ensure pnpm cache directory exists
+        run: |
+          set -euo pipefail
+          mkdir -p "$(pnpm store path)"
+
       - name: 🧰 Install Wrangler CLI
         run: |
           set -euo pipefail
