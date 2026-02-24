@@ -22,7 +22,7 @@ const MAX_ARTIFACT_BYTES: usize = 50 * 1024 * 1024;
 const MAX_SIGNATURE_BYTES: usize = 64 * 1024;
 const MAX_CERTIFICATE_BYTES: usize = 512 * 1024;
 const COSIGN_VERIFY_TIMEOUT: Duration = Duration::from_secs(30);
-const OFFICIAL_PLUGIN_CATALOG_HOST: &str = "corvus.profiletailors.com";
+const OFFICIAL_PLUGIN_CATALOG_HOST: &str = "plugins.corvus.profiletailors.com";
 const SIGSTORE_GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
 const OFFICIAL_PLUGIN_IDENTITY_REGEX: &str =
     r"^https://github\.com/dallay/corvus/\.github/workflows/publish-plugins\.yml@.*$";
@@ -2065,7 +2065,7 @@ mod tests {
     fn signature_policy_requires_keyless_for_official_remote_source() {
         let source = PluginSourceConfig {
             name: "official".to_string(),
-            url: "https://corvus.profiletailors.com/catalog.json".to_string(),
+            url: "https://plugins.corvus.profiletailors.com/catalog.json".to_string(),
             plugin_identity_regex: None,
         };
 

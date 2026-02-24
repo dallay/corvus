@@ -64,8 +64,8 @@ All new official plugins must satisfy:
 
 Relevant configuration defaults:
 
-- Catalog: `https://corvus.profiletailors.com/catalog.json`
-- Revocations: `https://corvus.profiletailors.com/revocations.json`
+- Catalog: `https://plugins.corvus.profiletailors.com/catalog.json`
+- Revocations: `https://plugins.corvus.profiletailors.com/revocations.json`
 
 See:
 
@@ -212,4 +212,4 @@ Recommended production rollout:
 ### Migration from old plugin host
 
 On config load, Corvus migrates old `plugins.corvus.ai` host references to
-`corvus.profiletailors.com` for both catalog and revocation source URLs.
+`plugins.corvus.profiletailors.com` for both catalog and revocation source URLs.

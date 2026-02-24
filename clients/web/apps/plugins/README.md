@@ -11,6 +11,9 @@ Dedicated site for publishing official runtime plugin metadata:
 Keep plugin metadata infrastructure separate from the marketing site so deployment,
 caching, and security controls remain independent.
 
+Production runtime distribution is moving to `apps/plugins-edge` (Cloudflare Worker + R2)
+to guarantee atomic publication of catalog and artifact assets.
+
 ## Development
 
 ```bash

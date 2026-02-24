@@ -1,0 +1,34 @@
+{
+  "plugins": [
+    {
+      "id": "memory.surreal.graphs",
+      "version": "0.1.0",
+      "digest": "sha256:12d2c48ef81c40b0bf180964beb192a74ffbbf8d05932919cef01d0a8cf5544f",
+      "publisher": "corvus-official",
+      "runtime_api": "corvus-plugin/v1",
+      "min_agent_version": "0.1.6",
+      "capabilities": [
+        "memory"
+      ],
+      "entrypoints": {
+        "memory": "memory_v1",
+        "health": "health_v1",
+        "tools": []
+      },
+      "limits": {
+        "memory_mb": 256,
+        "fuel": 1000000,
+        "timeout_ms": 10000,
+        "max_output_bytes": 262144
+      },
+      "artifact": {
+        "url": "https://corvus.profiletailors.com/artifacts/memory.surreal.graphs/0.1.0/memory.surreal.graphs.wasm",
+        "digest": "sha256:12d2c48ef81c40b0bf180964beb192a74ffbbf8d05932919cef01d0a8cf5544f"
+      },
+      "signature": {
+        "url": "https://corvus.profiletailors.com/artifacts/memory.surreal.graphs/0.1.0/memory.surreal.graphs.wasm.sig",
+        "certificate_url": "https://corvus.profiletailors.com/artifacts/memory.surreal.graphs/0.1.0/memory.surreal.graphs.wasm.pem"
+      }
+    }
+  ]
+}

@@ -9,18 +9,21 @@
     "build:docs": "pnpm --filter @corvus/docs run build",
     "build:marketing": "pnpm --filter @corvus/marketing run build",
     "build:plugins": "pnpm --filter @corvus/plugins-catalog run build",
+    "build:plugins-edge": "pnpm --filter @corvus/plugins-edge run typecheck",
     "build:landing": "pnpm run build:marketing",
     "build:chat": "pnpm --filter @corvus/chat run build",
     "dev": "pnpm --filter @corvus/docs run dev",
     "dev:marketing": "pnpm --filter @corvus/marketing run dev",
     "dev:plugins": "pnpm --filter @corvus/plugins-catalog run dev",
+    "dev:plugins-edge": "pnpm --filter @corvus/plugins-edge run dev",
     "dev:landing": "pnpm run dev:marketing",
     "dev:chat": "pnpm --filter @corvus/chat run dev",
     "format": "pnpm -r run format",
     "check": "pnpm -r run check",
     "clean": "pnpm -r run clean",
     "test": "pnpm -r run test",
-    "test:chat": "pnpm --filter @corvus/chat run test"
+    "test:chat": "pnpm --filter @corvus/chat run test",
+    "deploy:plugins-edge": "pnpm --filter @corvus/plugins-edge run deploy"
   },
   "devDependencies": {
     "@biomejs/biome": "2.4.2",
