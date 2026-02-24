@@ -1,0 +1,19 @@
+{
+  "name": "@corvus/plugins-edge",
+  "version": "0.1.8",
+  "private": true,
+  "description": "Corvus plugins catalog edge API (Cloudflare Worker + R2)",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && mkdir -p dist",
+    "dev": "wrangler dev --local --port 9797",
+    "deploy": "wrangler deploy",
+    "format": "biome format --write src package.json wrangler.toml tsconfig.json README.md",
+    "check": "biome check src package.json wrangler.toml tsconfig.json README.md",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3",
+    "wrangler": "4.67.0"
+  }
+}

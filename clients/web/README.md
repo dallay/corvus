@@ -10,6 +10,7 @@ clients/web/
 │   ├── docs/           # Documentation (Astro + Starlight)
 │   ├── marketing/      # Marketing landing and campaign pages (Astro)
 │   ├── plugins/        # Plugin catalog and revocations (Astro)
+│   ├── plugins-edge/   # Plugin distribution API (Cloudflare Worker + R2)
 │   └── chat/           # ChatGPT-style conversational chat (Vue 3 + Vite)
 ├── packages/
 │   └── shared/         # Shared utilities
@@ -37,6 +38,12 @@ clients/web/
 - URL configurable with `PLUGINS_URL` (dev default: `http://localhost:9990`)
 - Publishes official plugin metadata at `/catalog.json` and `/revocations.json`
 
+### plugins-edge
+
+- Runtime metadata/artifact API served from Cloudflare Worker + R2
+- Intended production source for `/catalog.json`, `/revocations.json`, and `/artifacts/*`
+- Default local port: 9797
+
 ### chat
 
 - Framework: Vue 3 + Vite + Tailwind + shadcn-vue style components
@@ -61,6 +68,7 @@ pnpm build
 pnpm build:docs
 pnpm build:marketing
 pnpm build:plugins
+pnpm build:plugins-edge
 pnpm build:chat
 
 # Compatibility (legacy alias)
@@ -70,6 +78,7 @@ pnpm build:landing
 pnpm dev
 pnpm dev:marketing
 pnpm dev:plugins
+pnpm dev:plugins-edge
 pnpm dev:chat
 
 # Compatibility (legacy alias)
@@ -80,6 +89,9 @@ pnpm format
 pnpm check
 pnpm test
 pnpm test:chat
+
+# Deploy plugins edge worker
+pnpm deploy:plugins-edge
 ```
 
 ## Biome (Linter & Formatter)

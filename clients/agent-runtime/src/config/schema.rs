@@ -1023,7 +1023,7 @@ fn default_plugin_revocation_refresh_minutes() -> u64 {
 }
 
 fn default_plugin_revocation_sources() -> Vec<String> {
-    vec!["https://corvus.profiletailors.com/revocations.json".to_string()]
+    vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
 }
 
 impl Default for PluginRevocationConfig {
@@ -1067,7 +1067,7 @@ fn default_plugin_allow_publishers() -> Vec<String> {
 fn default_plugin_sources() -> Vec<PluginSourceConfig> {
     vec![PluginSourceConfig {
         name: "official".to_string(),
-        url: "https://corvus.profiletailors.com/catalog.json".to_string(),
+        url: "https://plugins.corvus.profiletailors.com/catalog.json".to_string(),
         plugin_identity_regex: None,
     }]
 }
@@ -2220,12 +2220,20 @@ fn env_override_optional(var_name: &str, target: &mut Option<String>) {
 
 fn migrate_deprecated_plugin_registry_urls(config: &mut Config) -> bool {
     const OLD_PLUGIN_HOST: &str = "plugins.corvus.ai";
-    const NEW_PLUGIN_HOST: &str = "corvus.profiletailors.com";
+    const LEGACY_PLUGIN_HOST: &str = "corvus.profiletailors.com";
+    const NEW_PLUGIN_HOST: &str = "plugins.corvus.profiletailors.com";
 
-    fn migrate_url_host(raw_url: &str, old_host: &str, new_host: &str) -> Option<String> {
+    fn host_matches(candidate: &str, host: &str) -> bool {
+        candidate == host || candidate.ends_with(&format!(".{host}"))
+    }
+
+    fn migrate_url_host(raw_url: &str, old_hosts: &[&str], new_host: &str) -> Option<String> {
         let mut parsed = Url::parse(raw_url).ok()?;
         let host = parsed.host_str()?;
-        if host == old_host || host.ends_with(&format!(".{old_host}")) {
+        if old_hosts
+            .iter()
+            .any(|old_host| host_matches(host, old_host))
+        {
             parsed.set_host(Some(new_host)).ok()?;
             return Some(parsed.to_string());
         }
@@ -2234,18 +2242,17 @@ fn migrate_deprecated_plugin_registry_urls(config: &mut Config) -> bool {
 
     let mut changed = false;
     let mut revocation_changed = false;
+    let old_hosts = [OLD_PLUGIN_HOST, LEGACY_PLUGIN_HOST];
 
     for source in &mut config.plugins.sources {
-        if let Some(migrated) = migrate_url_host(&source.url, OLD_PLUGIN_HOST, NEW_PLUGIN_HOST) {
+        if let Some(migrated) = migrate_url_host(&source.url, &old_hosts, NEW_PLUGIN_HOST) {
             source.url = migrated;
             changed = true;
         }
     }
 
     for source_url in &mut config.plugins.revocation.source_urls {
-        if let Some(migrated) =
-            migrate_url_host(source_url.as_str(), OLD_PLUGIN_HOST, NEW_PLUGIN_HOST)
-        {
+        if let Some(migrated) = migrate_url_host(source_url.as_str(), &old_hosts, NEW_PLUGIN_HOST) {
             *source_url = migrated;
             changed = true;
             revocation_changed = true;
@@ -2336,8 +2343,9 @@ impl Config {
 
             if migrate_deprecated_plugin_registry_urls(&mut config) {
                 tracing::warn!(
-                    "Migrated deprecated plugin registry host entries from 'plugins.corvus.ai' \
-                     to 'corvus.profiletailors.com' in plugins.sources and \
+                    "Migrated deprecated plugin registry host entries from \
+                     'plugins.corvus.ai' and 'corvus.profiletailors.com' to \
+                     'plugins.corvus.profiletailors.com' in plugins.sources and \
                      plugins.revocation.source_urls"
                 );
                 if let Err(error) = config.save() {
@@ -2903,19 +2911,19 @@ default_temperature = 0.7
         assert!(!plugins.sources.is_empty());
         assert_eq!(
             plugins.sources[0].url,
-            "https://corvus.profiletailors.com/catalog.json"
+            "https://plugins.corvus.profiletailors.com/catalog.json"
         );
         assert_eq!(
             plugins.revocation.source_urls,
-            vec!["https://corvus.profiletailors.com/revocations.json".to_string()]
+            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
         );
         assert_eq!(
             default_plugin_sources()[0].url,
-            "https://corvus.profiletailors.com/catalog.json"
+            "https://plugins.corvus.profiletailors.com/catalog.json"
         );
         assert_eq!(
             default_plugin_revocation_sources(),
-            vec!["https://corvus.profiletailors.com/revocations.json".to_string()]
+            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
         );
         assert!(plugins
             .allow_publishers
@@ -2939,14 +2947,14 @@ default_temperature = 0.7
         ];
         config.plugins.revocation.source_urls = vec![
             "https://plugins.corvus.ai/revocations.json".to_string(),
-            "https://corvus.profiletailors.com/revocations.json".to_string(),
+            "https://plugins.corvus.profiletailors.com/revocations.json".to_string(),
         ];
 
         let changed = migrate_deprecated_plugin_registry_urls(&mut config);
         assert!(changed);
         assert_eq!(
             config.plugins.sources[0].url,
-            "https://corvus.profiletailors.com/catalog.json"
+            "https://plugins.corvus.profiletailors.com/catalog.json"
         );
         assert_eq!(
             config.plugins.sources[1].url,
@@ -2954,7 +2962,7 @@ default_temperature = 0.7
         );
         assert_eq!(
             config.plugins.revocation.source_urls,
-            vec!["https://corvus.profiletailors.com/revocations.json".to_string()]
+            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
         );
     }
 
@@ -2965,11 +2973,34 @@ default_temperature = 0.7
         assert!(!changed);
         assert_eq!(
             config.plugins.sources[0].url,
-            "https://corvus.profiletailors.com/catalog.json"
+            "https://plugins.corvus.profiletailors.com/catalog.json"
         );
         assert_eq!(
             config.plugins.revocation.source_urls,
-            vec!["https://corvus.profiletailors.com/revocations.json".to_string()]
+            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
+        );
+    }
+
+    #[test]
+    fn migrate_deprecated_plugin_registry_urls_rewrites_legacy_profiletailors_host() {
+        let mut config = Config::default();
+        config.plugins.sources = vec![PluginSourceConfig {
+            name: "official".to_string(),
+            url: "https://corvus.profiletailors.com/catalog.json".to_string(),
+            plugin_identity_regex: None,
+        }];
+        config.plugins.revocation.source_urls =
+            vec!["https://corvus.profiletailors.com/revocations.json".to_string()];
+
+        let changed = migrate_deprecated_plugin_registry_urls(&mut config);
+        assert!(changed);
+        assert_eq!(
+            config.plugins.sources[0].url,
+            "https://plugins.corvus.profiletailors.com/catalog.json"
+        );
+        assert_eq!(
+            config.plugins.revocation.source_urls,
+            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
         );
     }
 

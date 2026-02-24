@@ -18,7 +18,7 @@ on:
       catalog_base_url:
         description: "Catalog base URL for immutable artifact links"
         required: false
-        default: "https://corvus.profiletailors.com"
+        default: "https://plugins.corvus.profiletailors.com"
       oci_repository:
         description: "OCI repository (example: ghcr.io/org/corvus-plugins/memory-surreal-graphs)"
         required: false
@@ -80,7 +80,10 @@ jobs:
           input_plugin_id = os.environ.get("INPUT_PLUGIN_ID", "").strip()
           input_plugin_version = os.environ.get("INPUT_PLUGIN_VERSION", "").strip()
           input_catalog_base_url = (
-              os.environ.get("INPUT_CATALOG_BASE_URL", "https://corvus.profiletailors.com")
+              os.environ.get(
+                  "INPUT_CATALOG_BASE_URL",
+                  "https://plugins.corvus.profiletailors.com",
+              )
               .strip()
               .rstrip("/")
           )
@@ -91,7 +94,7 @@ jobs:
           effective_cf_project_name = input_cf_project_name or default_cf_project_name
 
           if not input_catalog_base_url:
-              input_catalog_base_url = "https://corvus.profiletailors.com"
+              input_catalog_base_url = "https://plugins.corvus.profiletailors.com"
 
           if not input_deploy_cf:
               input_deploy_cf = "true"

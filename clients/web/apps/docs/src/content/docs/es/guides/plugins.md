@@ -65,8 +65,8 @@ Todos los plugins oficiales nuevos deben satisfacer:
 
 Configuración por defecto relevante:
 
-- Catálogo: `https://corvus.profiletailors.com/catalog.json`
-- Revocaciones: `https://corvus.profiletailors.com/revocations.json`
+- Catálogo: `https://plugins.corvus.profiletailors.com/catalog.json`
+- Revocaciones: `https://plugins.corvus.profiletailors.com/revocations.json`
 
 Ver:
 
@@ -215,4 +215,4 @@ Rollout recomendado para producción:
 ### Migración del host de plugins antiguo
 
 Al cargar config, Corvus migra referencias antiguas del host `plugins.corvus.ai` a
-`corvus.profiletailors.com` para ambas URLs de fuente de catálogo y revocación.
+`plugins.corvus.profiletailors.com` para ambas URLs de fuente de catálogo y revocación.
