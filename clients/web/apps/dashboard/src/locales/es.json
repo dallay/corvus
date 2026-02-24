@@ -21,6 +21,7 @@
     "pairSuccess": "Pairing exitoso. Token cargado.",
     "connected": "Conectado correctamente.",
     "loadError": "No se pudo cargar la configuración admin.",
+    "networkError": "No se pudo conectar con el gateway. Verifica red, URL y que el servicio esté activo.",
     "emptyWebhookSecret": "El webhook secret no puede estar vacío. Usa 'Limpiar' si deseas removerlo.",
     "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
     "unauthorized": "No autorizado. Haz pairing y vuelve a intentar."
@@ -29,6 +30,9 @@
     "save": "Guardar cambios",
     "saveSuccess": "Configuración guardada.",
     "saveError": "No se pudo guardar la configuración.",
+    "noChanges": "No hay cambios para guardar.",
+    "connectBeforeSave": "Conéctate primero al gateway para cargar la configuración actual.",
+    "restartRequired": "Estos cambios requieren reiniciar el gateway para aplicar: {fields}",
     "provider": "Provider por defecto",
     "model": "Modelo por defecto",
     "temperature": "Temperatura",

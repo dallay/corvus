@@ -80,6 +80,10 @@ describe("Dashboard App", () => {
     await flushPromises();
     await buttons[1]?.trigger("click");
     await flushPromises();
+
+    const modelInput = wrapper.get('input[value="anthropic/claude-sonnet-4"]');
+    await modelInput.setValue("anthropic/claude-sonnet-4.1");
+
     await buttons[2]?.trigger("click");
     await flushPromises();
 

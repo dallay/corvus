@@ -22,7 +22,7 @@ use axum::{
     extract::{ConnectInfo, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Json},
-    routing::{get, post, put},
+    routing::{get, post},
     Router,
 };
 use parking_lot::Mutex;
@@ -482,7 +482,7 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
         }
         if let Some(ttl) = gateway.idempotency_ttl_secs {
             let normalized_ttl = if ttl == 0 {
-                cfg.gateway.idempotency_ttl_secs.max(1)
+                cfg.gateway.idempotency_ttl_secs
             } else {
                 ttl
             };
@@ -494,6 +494,40 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
             let normalized = normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
             if normalized != cfg.gateway.idempotency_max_keys {
                 fields.push("gateway.idempotency_max_keys");
+            }
+        }
+    }
+
+    if let Some(scheduler) = patch.scheduler.as_ref() {
+        if let Some(enabled) = scheduler.enabled {
+            if enabled != cfg.scheduler.enabled {
+                fields.push("scheduler.enabled");
+            }
+        }
+
+        if let Some(max_tasks) = scheduler.max_tasks {
+            if max_tasks.max(1) != cfg.scheduler.max_tasks {
+                fields.push("scheduler.max_tasks");
+            }
+        }
+
+        if let Some(max_concurrent) = scheduler.max_concurrent {
+            if max_concurrent.max(1) != cfg.scheduler.max_concurrent {
+                fields.push("scheduler.max_concurrent");
+            }
+        }
+    }
+
+    if let Some(plugins) = patch.plugins.as_ref() {
+        if let Some(enabled) = plugins.enabled {
+            if enabled != cfg.plugins.enabled {
+                fields.push("plugins.enabled");
+            }
+        }
+
+        if let Some(install_policy) = plugins.install_policy.as_ref() {
+            if install_policy.trim() != cfg.plugins.install_policy {
+                fields.push("plugins.install_policy");
             }
         }
     }
@@ -1074,8 +1108,10 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/metrics", get(handle_metrics))
         .route("/pair", post(handle_pair))
         .route("/webhook", post(handle_webhook))
-        .route("/web/admin/config", get(handle_admin_get_config))
-        .route("/web/admin/config", put(handle_admin_update_config))
+        .route(
+            "/web/admin/config",
+            get(handle_admin_get_config).put(handle_admin_update_config),
+        )
         .route("/web/admin/options", get(handle_admin_options))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
@@ -1293,9 +1329,8 @@ async fn handle_admin_update_config(
         }
     };
 
-    let mut cfg = state.config.lock();
-
-    let restart_required_fields = restart_required_updates(&cfg, &patch);
+    let current_cfg = state.config.lock().clone();
+    let restart_required_fields = restart_required_updates(&current_cfg, &patch);
     if !restart_required_fields.is_empty() {
         return (
             StatusCode::CONFLICT,
@@ -1306,6 +1341,8 @@ async fn handle_admin_update_config(
             })),
         );
     }
+
+    let mut cfg = current_cfg;
 
     if let Some(provider) = patch.default_provider {
         let provider = provider.trim();
@@ -1511,7 +1548,11 @@ async fn handle_admin_update_config(
     let updated_view = admin_config_view(&cfg);
     match cfg.save() {
         Ok(()) => (
-            StatusCode::OK,
+            {
+                let mut shared_cfg = state.config.lock();
+                *shared_cfg = cfg;
+                StatusCode::OK
+            },
             Json(serde_json::json!({"updated": true, "config": updated_view})),
         ),
         Err(error) => {
@@ -2481,7 +2522,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_config_update_persists_and_keeps_secret_hidden() {
+    async fn admin_config_update_persists_noop_patch() {
         let cfg = temp_config();
         cfg.save().unwrap();
 
@@ -2509,15 +2550,6 @@ mod tests {
         );
 
         let payload = serde_json::json!({
-            "scheduler": {
-                "enabled": true,
-                "max_tasks": 96,
-                "max_concurrent": 6
-            },
-            "plugins": {
-                "enabled": true,
-                "install_policy": "pin-manual"
-            },
             "webhook": {
                 "secret": {
                     "mode": "unchanged"
@@ -2535,10 +2567,6 @@ mod tests {
         .await
         .into_response();
         assert_eq!(response.status(), StatusCode::OK);
-
-        let cfg_guard = shared_cfg.lock();
-        assert_eq!(cfg_guard.scheduler.max_tasks, 96);
-        assert!(cfg_guard.plugins.enabled);
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
@@ -2643,6 +2671,12 @@ mod tests {
 
         let payload = serde_json::json!({
             "default_model": "anthropic/claude-3-5-sonnet",
+            "scheduler": {
+                "max_tasks": 12
+            },
+            "plugins": {
+                "enabled": false
+            },
             "gateway": {
                 "require_pairing": false,
                 "webhook_rate_limit_per_minute": 120
@@ -2672,6 +2706,8 @@ mod tests {
         assert_eq!(result["restart_required"], true);
         assert!(result["fields"].to_string().contains("default_model"));
         assert!(result["fields"].to_string().contains("gateway.require_pairing"));
+        assert!(result["fields"].to_string().contains("scheduler.max_tasks"));
+        assert!(result["fields"].to_string().contains("plugins.enabled"));
         assert!(result["fields"].to_string().contains("webhook.secret"));
     }
 

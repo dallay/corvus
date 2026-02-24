@@ -60,6 +60,31 @@ interface AdminConfigResponse {
   };
 }
 
+interface InitialConfigSnapshot {
+  default_provider: string;
+  default_model: string;
+  default_temperature: number;
+  memory_backend: string;
+  observability_backend: string;
+  otel_endpoint: string;
+  otel_service_name: string;
+  runtime_kind: string;
+  autonomy_level: string;
+  autonomy_workspace_only: boolean;
+  autonomy_max_actions_per_hour: number;
+  autonomy_max_cost_per_day_cents: number;
+  scheduler_enabled: boolean;
+  scheduler_max_tasks: number;
+  scheduler_max_concurrent: number;
+  plugins_enabled: boolean;
+  plugins_install_policy: string;
+  gateway_port: number;
+  gateway_host: string;
+  gateway_require_pairing: boolean;
+  gateway_allow_public_bind: boolean;
+  webhook_port: number;
+}
+
 const { t } = useI18n();
 
 const baseUrl = ref("http://127.0.0.1:3000");
@@ -113,6 +138,7 @@ const loading = ref(false);
 const saving = ref(false);
 const statusMessage = ref("");
 const errorMessage = ref("");
+const initialConfig = ref<InitialConfigSnapshot | null>(null);
 
 const canSave = computed(() => !loading.value && !saving.value && !!bearerToken.value.trim());
 
@@ -186,7 +212,7 @@ async function pairGateway(): Promise<void> {
       },
     });
     if (!response.ok) {
-      throw new Error(`${response.status}`);
+      throw new Error(`HTTP_${response.status}`);
     }
 
     const data = (await response.json()) as { token?: string };
@@ -198,13 +224,20 @@ async function pairGateway(): Promise<void> {
     statusMessage.value = t("auth.pairSuccess");
   } catch (err) {
     console.error("pairGateway failed", err);
-    errorMessage.value = t("auth.unauthorized");
+    if (err instanceof TypeError || (err instanceof Error && err.name === "AbortError")) {
+      errorMessage.value = t("auth.networkError");
+    } else if (err instanceof Error && err.message.startsWith("HTTP_")) {
+      const status = Number.parseInt(err.message.replace("HTTP_", ""), 10);
+      errorMessage.value =
+        status === 401 || status === 403 ? t("auth.unauthorized") : t("auth.loadError");
+    } else {
+      errorMessage.value = t("auth.loadError");
+    }
   } finally {
     loading.value = false;
   }
 }
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function connectGateway(): Promise<void> {
   loading.value = true;
   errorMessage.value = "";
@@ -287,6 +320,31 @@ async function connectGateway(): Promise<void> {
 
     webhookPort.value = `${cfg.channels?.webhook_port ?? 3001}`;
     webhookSecretExists.value = cfg.channels?.webhook_has_secret ?? false;
+
+    initialConfig.value = {
+      default_provider: cfg.default_provider ?? "",
+      default_model: cfg.default_model ?? "",
+      default_temperature: cfg.default_temperature ?? 0.7,
+      memory_backend: cfg.memory_backend ?? "sqlite",
+      observability_backend: cfg.observability?.backend ?? "none",
+      otel_endpoint: cfg.observability?.otel_endpoint ?? "",
+      otel_service_name: cfg.observability?.otel_service_name ?? "",
+      runtime_kind: cfg.runtime?.kind ?? "native",
+      autonomy_level: cfg.autonomy?.level ?? "supervised",
+      autonomy_workspace_only: cfg.autonomy?.workspace_only ?? true,
+      autonomy_max_actions_per_hour: cfg.autonomy?.max_actions_per_hour ?? 20,
+      autonomy_max_cost_per_day_cents: cfg.autonomy?.max_cost_per_day_cents ?? 500,
+      scheduler_enabled: cfg.scheduler?.enabled ?? true,
+      scheduler_max_tasks: cfg.scheduler?.max_tasks ?? 64,
+      scheduler_max_concurrent: cfg.scheduler?.max_concurrent ?? 4,
+      plugins_enabled: cfg.plugins?.enabled ?? true,
+      plugins_install_policy: cfg.plugins?.install_policy ?? "pin-manual",
+      gateway_port: cfg.gateway?.port ?? 3000,
+      gateway_host: cfg.gateway?.host ?? "127.0.0.1",
+      gateway_require_pairing: cfg.gateway?.require_pairing ?? true,
+      gateway_allow_public_bind: cfg.gateway?.allow_public_bind ?? false,
+      webhook_port: cfg.channels?.webhook_port ?? 3001,
+    };
     statusMessage.value = t("auth.connected");
   } catch (err) {
     console.error("connectGateway failed", err);
@@ -335,47 +393,130 @@ async function saveConfig(): Promise<void> {
   const parsedGatewayPort = parseIntSafe(gatewayPort.value);
   const parsedWebhookPort = parseIntSafe(webhookPort.value);
 
-  const payload = {
-    default_provider: provider.value,
-    default_model: model.value,
-    ...(parsedTemperature !== undefined ? { default_temperature: parsedTemperature } : {}),
-    memory_backend: memoryBackend.value,
-    observability: {
-      backend: observabilityBackend.value,
-      otel_endpoint: otelEndpoint.value,
-      otel_service_name: otelServiceName.value,
-    },
-    runtime: {
-      kind: runtimeKind.value,
-    },
-    autonomy: {
-      level: autonomyLevel.value,
-      workspace_only: workspaceOnly.value,
-      ...(parsedMaxActions !== undefined ? { max_actions_per_hour: parsedMaxActions } : {}),
-      ...(parsedMaxCost !== undefined ? { max_cost_per_day_cents: parsedMaxCost } : {}),
-    },
-    scheduler: {
-      enabled: schedulerEnabled.value,
-      ...(parsedSchedulerMaxTasks !== undefined ? { max_tasks: parsedSchedulerMaxTasks } : {}),
-      ...(parsedSchedulerMaxConcurrent !== undefined
-        ? { max_concurrent: parsedSchedulerMaxConcurrent }
-        : {}),
-    },
-    plugins: {
-      enabled: pluginsEnabled.value,
-      install_policy: pluginsInstallPolicy.value,
-    },
-    gateway: {
-      ...(parsedGatewayPort !== undefined ? { port: parsedGatewayPort } : {}),
-      host: gatewayHost.value,
-      require_pairing: requirePairing.value,
-      allow_public_bind: allowPublicBind.value,
-    },
-    webhook: {
-      ...(parsedWebhookPort !== undefined ? { port: parsedWebhookPort } : {}),
-      secret: secretPayload,
-    },
-  };
+  if (!initialConfig.value) {
+    errorMessage.value = t("form.connectBeforeSave");
+    saving.value = false;
+    return;
+  }
+
+  const snapshot = initialConfig.value;
+  const payload: Record<string, unknown> = {};
+
+  if (provider.value !== snapshot.default_provider) {
+    payload.default_provider = provider.value;
+  }
+  if (model.value !== snapshot.default_model) {
+    payload.default_model = model.value;
+  }
+  if (parsedTemperature !== undefined && parsedTemperature !== snapshot.default_temperature) {
+    payload.default_temperature = parsedTemperature;
+  }
+  if (memoryBackend.value !== snapshot.memory_backend) {
+    payload.memory_backend = memoryBackend.value;
+  }
+
+  const observabilityPayload: Record<string, unknown> = {};
+  if (observabilityBackend.value !== snapshot.observability_backend) {
+    observabilityPayload.backend = observabilityBackend.value;
+  }
+  if (otelEndpoint.value !== snapshot.otel_endpoint) {
+    observabilityPayload.otel_endpoint = otelEndpoint.value;
+  }
+  if (otelServiceName.value !== snapshot.otel_service_name) {
+    observabilityPayload.otel_service_name = otelServiceName.value;
+  }
+  if (Object.keys(observabilityPayload).length > 0) {
+    payload.observability = observabilityPayload;
+  }
+
+  if (runtimeKind.value !== snapshot.runtime_kind) {
+    payload.runtime = { kind: runtimeKind.value };
+  }
+
+  const autonomyPayload: Record<string, unknown> = {};
+  if (autonomyLevel.value !== snapshot.autonomy_level) {
+    autonomyPayload.level = autonomyLevel.value;
+  }
+  if (workspaceOnly.value !== snapshot.autonomy_workspace_only) {
+    autonomyPayload.workspace_only = workspaceOnly.value;
+  }
+  if (
+    parsedMaxActions !== undefined &&
+    parsedMaxActions !== snapshot.autonomy_max_actions_per_hour
+  ) {
+    autonomyPayload.max_actions_per_hour = parsedMaxActions;
+  }
+  if (parsedMaxCost !== undefined && parsedMaxCost !== snapshot.autonomy_max_cost_per_day_cents) {
+    autonomyPayload.max_cost_per_day_cents = parsedMaxCost;
+  }
+  if (Object.keys(autonomyPayload).length > 0) {
+    payload.autonomy = autonomyPayload;
+  }
+
+  const schedulerPayload: Record<string, unknown> = {};
+  if (schedulerEnabled.value !== snapshot.scheduler_enabled) {
+    schedulerPayload.enabled = schedulerEnabled.value;
+  }
+  if (
+    parsedSchedulerMaxTasks !== undefined &&
+    parsedSchedulerMaxTasks !== snapshot.scheduler_max_tasks
+  ) {
+    schedulerPayload.max_tasks = parsedSchedulerMaxTasks;
+  }
+  if (
+    parsedSchedulerMaxConcurrent !== undefined &&
+    parsedSchedulerMaxConcurrent !== snapshot.scheduler_max_concurrent
+  ) {
+    schedulerPayload.max_concurrent = parsedSchedulerMaxConcurrent;
+  }
+  if (Object.keys(schedulerPayload).length > 0) {
+    payload.scheduler = schedulerPayload;
+  }
+
+  const pluginsPayload: Record<string, unknown> = {};
+  if (pluginsEnabled.value !== snapshot.plugins_enabled) {
+    pluginsPayload.enabled = pluginsEnabled.value;
+  }
+  if (pluginsInstallPolicy.value !== snapshot.plugins_install_policy) {
+    pluginsPayload.install_policy = pluginsInstallPolicy.value;
+  }
+  if (Object.keys(pluginsPayload).length > 0) {
+    payload.plugins = pluginsPayload;
+  }
+
+  const gatewayPayload: Record<string, unknown> = {};
+  if (parsedGatewayPort !== undefined && parsedGatewayPort !== snapshot.gateway_port) {
+    gatewayPayload.port = parsedGatewayPort;
+  }
+  if (gatewayHost.value !== snapshot.gateway_host) {
+    gatewayPayload.host = gatewayHost.value;
+  }
+  if (requirePairing.value !== snapshot.gateway_require_pairing) {
+    gatewayPayload.require_pairing = requirePairing.value;
+  }
+  if (allowPublicBind.value !== snapshot.gateway_allow_public_bind) {
+    gatewayPayload.allow_public_bind = allowPublicBind.value;
+  }
+  if (Object.keys(gatewayPayload).length > 0) {
+    payload.gateway = gatewayPayload;
+  }
+
+  const webhookPayload: Record<string, unknown> = {};
+  if (parsedWebhookPort !== undefined && parsedWebhookPort !== snapshot.webhook_port) {
+    webhookPayload.port = parsedWebhookPort;
+  }
+  if (webhookSecretMode.value !== "unchanged") {
+    webhookPayload.secret = secretPayload;
+  }
+  if (Object.keys(webhookPayload).length > 0) {
+    payload.webhook = webhookPayload;
+  }
+
+  if (Object.keys(payload).length === 0) {
+    statusMessage.value = t("form.noChanges");
+    saving.value = false;
+    return;
+  }
 
   try {
     const response = await fetch(new URL("/web/admin/config", gatewayBaseUrl).toString(), {
@@ -384,6 +525,18 @@ async function saveConfig(): Promise<void> {
       body: JSON.stringify(payload),
     });
     if (!response.ok) {
+      if (response.status === 409) {
+        const conflict = (await response.json()) as {
+          restart_required?: boolean;
+          fields?: string[];
+        };
+        const fields = Array.isArray(conflict.fields) ? conflict.fields.join(", ") : "";
+        const restartMessage = t("form.restartRequired", { fields });
+        await connectGateway();
+        statusMessage.value = "";
+        errorMessage.value = restartMessage;
+        return;
+      }
       throw new Error(`${response.status}`);
     }
     statusMessage.value = t("form.saveSuccess");
