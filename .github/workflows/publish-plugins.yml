@@ -712,6 +712,7 @@ jobs:
           PY
 
       - name: 🚀 Deploy plugin edge worker
+        id: deploy_worker
         if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -726,23 +727,41 @@ jobs:
           fi
 
           echo "Deploying Worker to Cloudflare..."
-          wrangler deploy
+          deploy_log="$(mktemp)"
+          wrangler deploy 2>&1 | tee "$deploy_log"
 
-      - name: 🌐 Smoke check public worker endpoints
+          workers_dev_url="$(python -c 'import pathlib,re,sys;text=pathlib.Path(sys.argv[1]).read_text(encoding="utf-8",errors="ignore");matches=re.findall(r"https://[a-zA-Z0-9.-]+\\.workers\\.dev",text);print(matches[-1] if matches else "")' "$deploy_log")"
+
+          if [ -z "$workers_dev_url" ]; then
+            echo "Could not detect workers.dev URL from Wrangler deploy output" >&2
+            exit 1
+          fi
+
+          echo "workers_dev_url=$workers_dev_url" >> "$GITHUB_OUTPUT"
+
+      - name: 🌐 Smoke check workers.dev endpoints
         if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
         env:
-          ALLOW_LOCAL_CATALOG_FALLBACK: ${{ vars.ALLOW_LOCAL_CATALOG_FALLBACK }}
-          CATALOG_URL: ${{ steps.meta.outputs.catalog_base_url }}/catalog.json
-          REVOCATIONS_URL: ${{ steps.meta.outputs.catalog_base_url }}/revocations.json
-          ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
-          SIGNATURE_URL: ${{ steps.meta.outputs.signature_url }}
-          CERTIFICATE_URL: ${{ steps.meta.outputs.certificate_url }}
+          WORKERS_DEV_BASE_URL: ${{ steps.deploy_worker.outputs.workers_dev_url }}
+          ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          SIGNATURE_RELATIVE_PATH: ${{ steps.meta.outputs.signature_relative_path }}
+          CERTIFICATE_RELATIVE_PATH: ${{ steps.meta.outputs.certificate_relative_path }}
         run: |
           set -euo pipefail
 
+          if [ -z "${WORKERS_DEV_BASE_URL:-}" ]; then
+            echo "Missing workers.dev base URL from deploy step" >&2
+            exit 1
+          fi
+
+          CATALOG_URL="${WORKERS_DEV_BASE_URL}/catalog.json"
+          REVOCATIONS_URL="${WORKERS_DEV_BASE_URL}/revocations.json"
+          ARTIFACT_URL="${WORKERS_DEV_BASE_URL}/${ARTIFACT_RELATIVE_PATH}"
+          SIGNATURE_URL="${WORKERS_DEV_BASE_URL}/${SIGNATURE_RELATIVE_PATH}"
+          CERTIFICATE_URL="${WORKERS_DEV_BASE_URL}/${CERTIFICATE_RELATIVE_PATH}"
+
           check_url() {
             local url="$1"
-            local allow_catalog_fallback="$2"
             local attempts=0
             local max_attempts=20
             local sleep_seconds=3
@@ -750,11 +769,6 @@ jobs:
             until [ "$attempts" -ge "$max_attempts" ]; do
               status_code="$(curl -sS -o /dev/null -w "%{http_code}" "$url" || true)"
               if [ "$status_code" = "200" ]; then
-                return 0
-              fi
-
-              if [ "$status_code" = "403" ] && [ "$allow_catalog_fallback" = "true" ] && [ "${ALLOW_LOCAL_CATALOG_FALLBACK:-false}" = "true" ]; then
-                echo "HTTP 403 for $url, but fallback is enabled; continuing"
                 return 0
               fi
 
@@ -767,11 +781,47 @@ jobs:
             return 1
           }
 
-          check_url "$CATALOG_URL" "true"
-          check_url "$REVOCATIONS_URL" "true"
-          check_url "$ARTIFACT_URL" "false"
-          check_url "$SIGNATURE_URL" "false"
-          check_url "$CERTIFICATE_URL" "false"
+          check_url "$CATALOG_URL"
+          check_url "$REVOCATIONS_URL"
+          check_url "$ARTIFACT_URL"
+          check_url "$SIGNATURE_URL"
+          check_url "$CERTIFICATE_URL"
+
+      - name: 🌐 Smoke check custom-domain endpoints (informational)
+        if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
+        env:
+          ALLOW_LOCAL_CATALOG_FALLBACK: ${{ vars.ALLOW_LOCAL_CATALOG_FALLBACK }}
+          CATALOG_URL: ${{ steps.meta.outputs.catalog_base_url }}/catalog.json
+          REVOCATIONS_URL: ${{ steps.meta.outputs.catalog_base_url }}/revocations.json
+          ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
+          SIGNATURE_URL: ${{ steps.meta.outputs.signature_url }}
+          CERTIFICATE_URL: ${{ steps.meta.outputs.certificate_url }}
+        run: |
+          set -euo pipefail
+
+          report_status() {
+            local url="$1"
+            local status_code
+            status_code="$(curl -sS -o /dev/null -w "%{http_code}" "$url" || true)"
+
+            if [ "$status_code" = "200" ]; then
+              echo "custom-domain OK: $url"
+              return
+            fi
+
+            if [ "$status_code" = "403" ] && [ "${ALLOW_LOCAL_CATALOG_FALLBACK:-false}" = "true" ]; then
+              echo "custom-domain fallback (HTTP 403): $url"
+              return
+            fi
+
+            echo "custom-domain warning (HTTP $status_code): $url"
+          }
+
+          report_status "$CATALOG_URL"
+          report_status "$REVOCATIONS_URL"
+          report_status "$ARTIFACT_URL"
+          report_status "$SIGNATURE_URL"
+          report_status "$CERTIFICATE_URL"
 
       - name: 🧩 Stage generated catalog assets
         if: ${{ steps.meta.outputs.deploy_cloudflare_pages == 'true' }}
