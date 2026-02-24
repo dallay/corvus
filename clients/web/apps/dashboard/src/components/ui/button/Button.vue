@@ -12,7 +12,7 @@ const props = defineProps<{
   <button
     v-bind="$attrs"
     :type="type ?? 'button'"
-    :class="['btn', `btn--${props.variant ?? 'default'}`, ($attrs.class as string)]"
+    :class="['btn', `btn--${props.variant ?? 'default'}`]"
   >
     <slot />
   </button>

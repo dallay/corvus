@@ -28,7 +28,7 @@
     "welcome": "Hola, soy {modelName}. ¿En qué puedo ayudarte?",
     "processing": "Procesando \"{text}\" con {modelName}. Gateway: {gateway}",
     "requestError": "No se pudo obtener respuesta para \"{text}\". Verifica el gateway e inténtalo de nuevo.",
-    "unauthorizedError": "No autorizado. Haz pairing con /pair y usa el token bearer.",
+    "unauthorizedError": "No autorizado. Realiza el emparejamiento con /pair y usa el token bearer.",
     "rateLimitError": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
     "timeoutError": "El gateway tardó demasiado en responder.",
     "emptyResponse": "El gateway no devolvió contenido.",

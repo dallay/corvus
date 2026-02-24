@@ -56,6 +56,10 @@ clients/web/
 - Framework: Vue 3 + Vite
 - Default port: 4324
 - Secure admin panel for `GET/PUT /web/admin/config`
+- `GET/PUT /web/admin/config` require auth when pairing is enabled (`[gateway] require_pairing = true` in `clients/agent-runtime/config.toml`)
+- Supported mechanism: bearer token (`Authorization: Bearer <token>`)
+- Obtain token by calling `POST /pair` with header `X-Pairing-Code`; the dashboard exposes this in its Auth section for local development
+- Token persistence and pairing policy are configured in `config.toml` under `[gateway]` (`paired_tokens`, `require_pairing`); no extra role/scope model is required today
 
 ## Commands
 

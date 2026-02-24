@@ -104,7 +104,7 @@ const gatewayHost = ref("127.0.0.1");
 const requirePairing = ref(true);
 const allowPublicBind = ref(false);
 
-const webhookPort = ref("3000");
+const webhookPort = ref("3001");
 const webhookSecretMode = ref<SecretMode>("unchanged");
 const webhookSecretValue = ref("");
 const webhookSecretExists = ref(false);
@@ -114,7 +114,12 @@ const saving = ref(false);
 const statusMessage = ref("");
 const errorMessage = ref("");
 
-const canSave = computed(() => !saving.value && !!bearerToken.value.trim());
+const canSave = computed(() => !loading.value && !saving.value && !!bearerToken.value.trim());
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const webhookSecretStatusLabel = computed(() =>
+  webhookSecretExists.value ? t("webhook.statusConfigured") : t("webhook.statusNotConfigured")
+);
 
 function isUrlSafeForSecrets(rawUrl: string): boolean {
   let parsed: URL;
@@ -141,6 +146,19 @@ function authHeaders(): Record<string, string> {
     headers.Authorization = `Bearer ${bearerToken.value.trim()}`;
   }
   return headers;
+}
+
+function parseFloatSafe(value: string): number | undefined {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseIntSafe(value: string): number | undefined {
+  if (!value.trim()) {
+    return undefined;
+  }
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -178,7 +196,8 @@ async function pairGateway(): Promise<void> {
     bearerToken.value = data.token;
     pairingCode.value = "";
     statusMessage.value = t("auth.pairSuccess");
-  } catch {
+  } catch (err) {
+    console.error("pairGateway failed", err);
     errorMessage.value = t("auth.unauthorized");
   } finally {
     loading.value = false;
@@ -191,11 +210,19 @@ async function connectGateway(): Promise<void> {
   errorMessage.value = "";
   statusMessage.value = "";
   const gatewayBaseUrl = normalizeBaseUrl();
+  const safeForSecrets = isUrlSafeForSecrets(gatewayBaseUrl);
+  const headers = safeForSecrets ? authHeaders() : { "Content-Type": "application/json" };
+
+  if (!safeForSecrets && bearerToken.value.trim()) {
+    errorMessage.value = t("auth.insecureUrlError");
+    loading.value = false;
+    return;
+  }
 
   try {
     const optionsResponse = await fetch(new URL("/web/admin/options", gatewayBaseUrl).toString(), {
       method: "GET",
-      headers: authHeaders(),
+      headers,
     });
     if (!optionsResponse.ok) {
       throw new Error(`options-${optionsResponse.status}`);
@@ -219,7 +246,7 @@ async function connectGateway(): Promise<void> {
 
     const configResponse = await fetch(new URL("/web/admin/config", gatewayBaseUrl).toString(), {
       method: "GET",
-      headers: authHeaders(),
+      headers,
     });
     if (!configResponse.ok) {
       throw new Error(`config-${configResponse.status}`);
@@ -258,10 +285,11 @@ async function connectGateway(): Promise<void> {
     requirePairing.value = cfg.gateway?.require_pairing ?? true;
     allowPublicBind.value = cfg.gateway?.allow_public_bind ?? false;
 
-    webhookPort.value = `${cfg.channels?.webhook_port ?? 3000}`;
+    webhookPort.value = `${cfg.channels?.webhook_port ?? 3001}`;
     webhookSecretExists.value = cfg.channels?.webhook_has_secret ?? false;
-    statusMessage.value = "OK";
-  } catch {
+    statusMessage.value = t("auth.connected");
+  } catch (err) {
+    console.error("connectGateway failed", err);
     errorMessage.value = t("auth.loadError");
   } finally {
     loading.value = false;
@@ -279,7 +307,7 @@ async function saveConfig(): Promise<void> {
   saving.value = true;
 
   const gatewayBaseUrl = normalizeBaseUrl();
-  if (webhookSecretMode.value === "replace" && !isUrlSafeForSecrets(gatewayBaseUrl)) {
+  if (webhookSecretMode.value !== "clear" && !isUrlSafeForSecrets(gatewayBaseUrl)) {
     errorMessage.value = t("auth.insecureUrlError");
     saving.value = false;
     return;
@@ -292,10 +320,18 @@ async function saveConfig(): Promise<void> {
         ? { mode: "clear" }
         : { mode: "unchanged" };
 
+  const parsedTemperature = parseFloatSafe(temperature.value);
+  const parsedMaxActions = parseIntSafe(maxActionsPerHour.value);
+  const parsedMaxCost = parseIntSafe(maxCostPerDayCents.value);
+  const parsedSchedulerMaxTasks = parseIntSafe(schedulerMaxTasks.value);
+  const parsedSchedulerMaxConcurrent = parseIntSafe(schedulerMaxConcurrent.value);
+  const parsedGatewayPort = parseIntSafe(gatewayPort.value);
+  const parsedWebhookPort = parseIntSafe(webhookPort.value);
+
   const payload = {
     default_provider: provider.value,
     default_model: model.value,
-    default_temperature: Number.parseFloat(temperature.value),
+    ...(parsedTemperature !== undefined ? { default_temperature: parsedTemperature } : {}),
     memory_backend: memoryBackend.value,
     observability: {
       backend: observabilityBackend.value,
@@ -308,26 +344,28 @@ async function saveConfig(): Promise<void> {
     autonomy: {
       level: autonomyLevel.value,
       workspace_only: workspaceOnly.value,
-      max_actions_per_hour: Number.parseInt(maxActionsPerHour.value, 10),
-      max_cost_per_day_cents: Number.parseInt(maxCostPerDayCents.value, 10),
+      ...(parsedMaxActions !== undefined ? { max_actions_per_hour: parsedMaxActions } : {}),
+      ...(parsedMaxCost !== undefined ? { max_cost_per_day_cents: parsedMaxCost } : {}),
     },
     scheduler: {
       enabled: schedulerEnabled.value,
-      max_tasks: Number.parseInt(schedulerMaxTasks.value, 10),
-      max_concurrent: Number.parseInt(schedulerMaxConcurrent.value, 10),
+      ...(parsedSchedulerMaxTasks !== undefined ? { max_tasks: parsedSchedulerMaxTasks } : {}),
+      ...(parsedSchedulerMaxConcurrent !== undefined
+        ? { max_concurrent: parsedSchedulerMaxConcurrent }
+        : {}),
     },
     plugins: {
       enabled: pluginsEnabled.value,
       install_policy: pluginsInstallPolicy.value,
     },
     gateway: {
-      port: Number.parseInt(gatewayPort.value, 10),
+      ...(parsedGatewayPort !== undefined ? { port: parsedGatewayPort } : {}),
       host: gatewayHost.value,
       require_pairing: requirePairing.value,
       allow_public_bind: allowPublicBind.value,
     },
     webhook: {
-      port: Number.parseInt(webhookPort.value, 10),
+      ...(parsedWebhookPort !== undefined ? { port: parsedWebhookPort } : {}),
       secret: secretPayload,
     },
   };
@@ -350,7 +388,8 @@ async function saveConfig(): Promise<void> {
       webhookSecretExists.value = false;
     }
     webhookSecretMode.value = "unchanged";
-  } catch {
+  } catch (err) {
+    console.error("saveConfig failed", err);
     errorMessage.value = t("form.saveError");
   } finally {
     saving.value = false;
@@ -366,7 +405,7 @@ async function saveConfig(): Promise<void> {
     </header>
 
     <section class="card">
-      <h2>Auth</h2>
+      <h2>{{ t("sections.auth") }}</h2>
       <div class="grid">
         <label>
           <span>{{ t("auth.baseUrl") }}</span>
@@ -388,7 +427,7 @@ async function saveConfig(): Promise<void> {
     </section>
 
     <section class="card">
-      <h2>Core</h2>
+      <h2>{{ t("sections.core") }}</h2>
       <div class="grid">
         <label>
           <span>{{ t("form.provider") }}</span>
@@ -430,7 +469,7 @@ async function saveConfig(): Promise<void> {
     </section>
 
     <section class="card">
-      <h2>Runtime</h2>
+      <h2>{{ t("sections.runtime") }}</h2>
       <div class="grid">
         <label>
           <span>{{ t("form.runtimeKind") }}</span>
@@ -444,7 +483,7 @@ async function saveConfig(): Promise<void> {
     </section>
 
     <section class="card">
-      <h2>Autonomy</h2>
+      <h2>{{ t("sections.autonomy") }}</h2>
       <div class="grid">
         <label>
           <span>{{ t("form.autonomyLevel") }}</span>
@@ -470,7 +509,7 @@ async function saveConfig(): Promise<void> {
     </section>
 
     <section class="card">
-      <h2>Scheduler & Plugins</h2>
+      <h2>{{ t("sections.schedulerPlugins") }}</h2>
       <div class="grid">
         <label class="switch-row">
           <input v-model="schedulerEnabled" type="checkbox" />
@@ -496,7 +535,7 @@ async function saveConfig(): Promise<void> {
     </section>
 
     <section class="card">
-      <h2>Gateway</h2>
+      <h2>{{ t("sections.gateway") }}</h2>
       <div class="grid">
         <label>
           <span>{{ t("form.gatewayPort") }}</span>
@@ -518,7 +557,7 @@ async function saveConfig(): Promise<void> {
     </section>
 
     <section class="card">
-      <h2>Webhook</h2>
+      <h2>{{ t("sections.webhook") }}</h2>
       <div class="grid">
         <label>
           <span>{{ t("form.webhookPort") }}</span>
@@ -537,7 +576,7 @@ async function saveConfig(): Promise<void> {
           <Input v-model="webhookSecretValue" type="password" />
         </label>
       </div>
-      <p class="helper">Secret actual: {{ webhookSecretExists ? "configurado" : "no configurado" }}</p>
+      <p class="helper">{{ t("webhook.secretStatus", { status: webhookSecretStatusLabel }) }}</p>
     </section>
 
     <section class="card">

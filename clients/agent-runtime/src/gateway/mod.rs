@@ -338,6 +338,121 @@ fn validate_runtime_kind(value: &str) -> bool {
     matches!(value, "native" | "docker")
 }
 
+fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> Vec<&'static str> {
+    let mut fields = Vec::new();
+
+    if let Some(model) = patch.default_model.as_ref() {
+        let model = model.trim();
+        let next = (!model.is_empty()).then_some(model);
+        let current = cfg.default_model.as_deref();
+        if next != current {
+            fields.push("default_model");
+        }
+    }
+
+    if let Some(temperature) = patch.default_temperature {
+        if temperature != cfg.default_temperature {
+            fields.push("default_temperature");
+        }
+    }
+
+    if let Some(gateway) = patch.gateway.as_ref() {
+        if let Some(port) = gateway.port {
+            if port != cfg.gateway.port {
+                fields.push("gateway.port");
+            }
+        }
+        if let Some(host) = gateway.host.as_ref() {
+            if host.trim() != cfg.gateway.host {
+                fields.push("gateway.host");
+            }
+        }
+        if let Some(require_pairing) = gateway.require_pairing {
+            if require_pairing != cfg.gateway.require_pairing {
+                fields.push("gateway.require_pairing");
+            }
+        }
+        if let Some(allow_public_bind) = gateway.allow_public_bind {
+            if allow_public_bind != cfg.gateway.allow_public_bind {
+                fields.push("gateway.allow_public_bind");
+            }
+        }
+        if let Some(pair_limit) = gateway.pair_rate_limit_per_minute {
+            if pair_limit != cfg.gateway.pair_rate_limit_per_minute {
+                fields.push("gateway.pair_rate_limit_per_minute");
+            }
+        }
+        if let Some(webhook_limit) = gateway.webhook_rate_limit_per_minute {
+            if webhook_limit != cfg.gateway.webhook_rate_limit_per_minute {
+                fields.push("gateway.webhook_rate_limit_per_minute");
+            }
+        }
+        if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
+            if trust_forwarded_headers != cfg.gateway.trust_forwarded_headers {
+                fields.push("gateway.trust_forwarded_headers");
+            }
+        }
+        if let Some(max_keys) = gateway.rate_limit_max_keys {
+            if max_keys.max(1) != cfg.gateway.rate_limit_max_keys {
+                fields.push("gateway.rate_limit_max_keys");
+            }
+        }
+        if let Some(ttl) = gateway.idempotency_ttl_secs {
+            if ttl.max(1) != cfg.gateway.idempotency_ttl_secs {
+                fields.push("gateway.idempotency_ttl_secs");
+            }
+        }
+        if let Some(max_keys) = gateway.idempotency_max_keys {
+            if max_keys.max(1) != cfg.gateway.idempotency_max_keys {
+                fields.push("gateway.idempotency_max_keys");
+            }
+        }
+    }
+
+    if let Some(webhook) = patch.webhook.as_ref() {
+        if let Some(port) = webhook.port {
+            let current_port = cfg.channels_config.webhook.as_ref().map_or(3000, |w| w.port);
+            if port != current_port {
+                fields.push("webhook.port");
+            }
+        }
+
+        if let Some(secret) = webhook.secret.as_ref() {
+            match secret {
+                AdminSecretUpdate::Unchanged => {}
+                AdminSecretUpdate::Clear => {
+                    if cfg
+                        .channels_config
+                        .webhook
+                        .as_ref()
+                        .and_then(|w| w.secret.as_ref())
+                        .map(|value| !value.trim().is_empty())
+                        .unwrap_or(false)
+                    {
+                        fields.push("webhook.secret");
+                    }
+                }
+                AdminSecretUpdate::Replace { value } => {
+                    let next = value.trim();
+                    let current = cfg
+                        .channels_config
+                        .webhook
+                        .as_ref()
+                        .and_then(|w| w.secret.as_deref())
+                        .unwrap_or("");
+                    if next != current {
+                        fields.push("webhook.secret");
+                    }
+                }
+            }
+        }
+    }
+
+    fields.sort_unstable();
+    fields.dedup();
+    fields
+}
+
 fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde_json::Value>)> {
     let Some(origin_raw) = headers.get(header::ORIGIN).and_then(|value| value.to_str().ok()) else {
         return None;
@@ -1090,6 +1205,18 @@ async fn handle_admin_update_config(
     };
 
     let mut cfg = state.config.lock();
+
+    let restart_required_fields = restart_required_updates(&cfg, &patch);
+    if !restart_required_fields.is_empty() {
+        return (
+            StatusCode::CONFLICT,
+            Json(serde_json::json!({
+                "error": "One or more requested config changes require a gateway restart to take effect.",
+                "restart_required": true,
+                "fields": restart_required_fields,
+            })),
+        );
+    }
 
     if let Some(provider) = patch.default_provider {
         let provider = provider.trim();
@@ -2301,15 +2428,9 @@ mod tests {
                 "enabled": true,
                 "install_policy": "pin-manual"
             },
-            "gateway": {
-                "port": 3333,
-                "host": "127.0.0.1"
-            },
             "webhook": {
-                "port": 4444,
                 "secret": {
-                    "mode": "replace",
-                    "value": "new-webhook-secret"
+                    "mode": "unchanged"
                 }
             }
         });
@@ -2327,24 +2448,71 @@ mod tests {
 
         let cfg_guard = shared_cfg.lock();
         assert_eq!(cfg_guard.default_provider.as_deref(), Some("anthropic"));
-        assert_eq!(cfg_guard.gateway.port, 3333);
         assert_eq!(cfg_guard.observability.backend, "prometheus");
         assert_eq!(cfg_guard.runtime.kind, "docker");
         assert_eq!(cfg_guard.autonomy.max_actions_per_hour, 25);
         assert_eq!(cfg_guard.scheduler.max_tasks, 96);
-        assert_eq!(
-            cfg_guard
-                .channels_config
-                .webhook
-                .as_ref()
-                .and_then(|w| w.secret.as_deref()),
-            Some("new-webhook-secret")
-        );
 
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(result["config"]["channels"]["webhook_has_secret"], true);
-        assert!(!result.to_string().contains("new-webhook-secret"));
+        assert_eq!(result["updated"], true);
+    }
+
+    #[tokio::test]
+    async fn admin_config_update_rejects_restart_required_security_changes() {
+        let cfg = temp_config();
+        cfg.save().unwrap();
+
+        let shared_cfg = Arc::new(Mutex::new(cfg));
+        let state = AppState {
+            config: shared_cfg,
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let payload = serde_json::json!({
+            "default_model": "anthropic/claude-3-5-sonnet",
+            "gateway": {
+                "require_pairing": false,
+                "webhook_rate_limit_per_minute": 120
+            },
+            "webhook": {
+                "secret": {
+                    "mode": "replace",
+                    "value": "new-secret"
+                }
+            }
+        });
+
+        let response = handle_admin_update_config(
+            State(state),
+            HeaderMap::new(),
+            Ok(Json(
+                serde_json::from_value::<AdminConfigUpdateRequest>(payload).unwrap(),
+            )),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["restart_required"], true);
+        assert!(result["fields"].to_string().contains("default_model"));
+        assert!(result["fields"].to_string().contains("gateway.require_pairing"));
+        assert!(result["fields"].to_string().contains("webhook.secret"));
     }
 
     #[tokio::test]

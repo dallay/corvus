@@ -4,7 +4,7 @@ defineOptions({ inheritAttrs: false });
 defineProps<{
   modelValue?: string;
   placeholder?: string;
-  type?: string;
+  type?: HTMLInputTypeAttribute;
 }>();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -16,7 +16,7 @@ const emit = defineEmits<{
 <template>
   <input
     v-bind="$attrs"
-    :class="['form-input', ($attrs.class as string)]"
+    :class="['form-input']"
     :type="type ?? 'text'"
     :value="modelValue"
     :placeholder="placeholder"

@@ -1,23 +1,33 @@
 {
   "app": {
     "title": "Corvus Dashboard",
-    "subtitle": "Configuracion segura del gateway"
+    "subtitle": "Configuración segura del gateway"
+  },
+  "sections": {
+    "auth": "Autenticación",
+    "core": "Configuración base",
+    "runtime": "Runtime",
+    "autonomy": "Autonomía",
+    "schedulerPlugins": "Scheduler y plugins",
+    "gateway": "Gateway",
+    "webhook": "Webhook"
   },
   "auth": {
     "baseUrl": "Base URL",
-    "pairingCode": "Codigo de emparejamiento",
+    "pairingCode": "Código de emparejamiento",
     "bearerToken": "Token bearer",
     "connect": "Conectar",
     "pair": "Emparejar",
     "pairSuccess": "Pairing exitoso. Token cargado.",
-    "loadError": "No se pudo cargar la configuracion admin.",
+    "connected": "Conectado correctamente.",
+    "loadError": "No se pudo cargar la configuración admin.",
     "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
     "unauthorized": "No autorizado. Haz pairing y vuelve a intentar."
   },
   "form": {
     "save": "Guardar cambios",
-    "saveSuccess": "Configuracion guardada.",
-    "saveError": "No se pudo guardar la configuracion.",
+    "saveSuccess": "Configuración guardada.",
+    "saveError": "No se pudo guardar la configuración.",
     "provider": "Provider por defecto",
     "model": "Modelo por defecto",
     "temperature": "Temperatura",
@@ -26,10 +36,10 @@
     "otelEndpoint": "OTEL endpoint",
     "otelServiceName": "OTEL service name",
     "runtimeKind": "Runtime kind",
-    "autonomyLevel": "Nivel de autonomia",
-    "workspaceOnly": "Solo workspace",
-    "maxActionsPerHour": "Max acciones por hora",
-    "maxCostPerDayCents": "Max costo por dia (centavos)",
+    "autonomyLevel": "Nivel de autonomía",
+    "workspaceOnly": "Sólo workspace",
+    "maxActionsPerHour": "Máx acciones por hora",
+    "maxCostPerDayCents": "Máx costo por día (centavos)",
     "schedulerEnabled": "Scheduler habilitado",
     "schedulerMaxTasks": "Scheduler max tasks",
     "schedulerMaxConcurrent": "Scheduler max concurrent",
@@ -38,12 +48,17 @@
     "gatewayPort": "Gateway port",
     "gatewayHost": "Gateway host",
     "requirePairing": "Requerir pairing",
-    "allowPublicBind": "Permitir bind publico",
+    "allowPublicBind": "Permitir bind público",
     "webhookPort": "Webhook port",
     "webhookSecretMode": "Webhook secret",
     "webhookSecretValue": "Nuevo webhook secret",
     "secretUnchanged": "Sin cambios",
     "secretReplace": "Reemplazar",
     "secretClear": "Limpiar"
+  },
+  "webhook": {
+    "secretStatus": "Secret actual: {status}",
+    "statusConfigured": "configurado",
+    "statusNotConfigured": "no configurado"
   }
 }

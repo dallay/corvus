@@ -1,12 +1,12 @@
 # Dashboard
 
-Panel de administracion para configurar Corvus Gateway sin tocar manualmente `config.toml`.
+Panel de administración para configurar Corvus Gateway sin tocar manualmente `config.toml`.
 
 ## Objetivo
 
 - Dashboard web opcional (no embebido en el binario Rust)
 - Seguridad por defecto: requiere pairing + bearer token para endpoints admin
-- Edicion de configuracion via API `GET/PUT /web/admin/config`
+- Edición de configuración via API `GET/PUT /web/admin/config`
 
 ## Desarrollo
 
