@@ -341,6 +341,15 @@ fn validate_runtime_kind(value: &str) -> bool {
 fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> Vec<&'static str> {
     let mut fields = Vec::new();
 
+    if let Some(provider) = patch.default_provider.as_ref() {
+        let provider = provider.trim();
+        let next = (!provider.is_empty()).then_some(provider);
+        let current = cfg.default_provider.as_deref();
+        if next != current {
+            fields.push("default_provider");
+        }
+    }
+
     if let Some(model) = patch.default_model.as_ref() {
         let model = model.trim();
         let next = (!model.is_empty()).then_some(model);
@@ -2405,7 +2414,6 @@ mod tests {
         };
 
         let payload = serde_json::json!({
-            "default_provider": "anthropic",
             "memory_backend": "sqlite",
             "observability": {
                 "backend": "prometheus"
@@ -2447,7 +2455,6 @@ mod tests {
         assert_eq!(response.status(), StatusCode::OK);
 
         let cfg_guard = shared_cfg.lock();
-        assert_eq!(cfg_guard.default_provider.as_deref(), Some("anthropic"));
         assert_eq!(cfg_guard.observability.backend, "prometheus");
         assert_eq!(cfg_guard.runtime.kind, "docker");
         assert_eq!(cfg_guard.autonomy.max_actions_per_hour, 25);

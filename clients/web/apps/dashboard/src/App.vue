@@ -307,7 +307,7 @@ async function saveConfig(): Promise<void> {
   saving.value = true;
 
   const gatewayBaseUrl = normalizeBaseUrl();
-  if (webhookSecretMode.value !== "clear" && !isUrlSafeForSecrets(gatewayBaseUrl)) {
+  if (!isUrlSafeForSecrets(gatewayBaseUrl)) {
     errorMessage.value = t("auth.insecureUrlError");
     saving.value = false;
     return;
