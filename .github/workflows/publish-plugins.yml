@@ -726,6 +726,7 @@ jobs:
       - name: 🌐 Smoke check public worker endpoints
         if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
         env:
+          ALLOW_LOCAL_CATALOG_FALLBACK: ${{ vars.ALLOW_LOCAL_CATALOG_FALLBACK }}
           CATALOG_URL: ${{ steps.meta.outputs.catalog_base_url }}/catalog.json
           REVOCATIONS_URL: ${{ steps.meta.outputs.catalog_base_url }}/revocations.json
           ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
@@ -743,6 +744,11 @@ jobs:
             until [ "$attempts" -ge "$max_attempts" ]; do
               status_code="$(curl -sS -o /dev/null -w "%{http_code}" "$url" || true)"
               if [ "$status_code" = "200" ]; then
+                return 0
+              fi
+
+              if [ "$status_code" = "403" ] && [ "${ALLOW_LOCAL_CATALOG_FALLBACK:-false}" = "true" ]; then
+                echo "HTTP 403 for $url, but fallback is enabled; continuing"
                 return 0
               fi
 
