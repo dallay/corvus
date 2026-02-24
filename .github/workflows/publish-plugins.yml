@@ -707,6 +707,7 @@ jobs:
 
       - name: 🚀 Deploy plugin edge worker
         if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
+        continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
