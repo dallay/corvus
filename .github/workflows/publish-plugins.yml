@@ -281,6 +281,7 @@ jobs:
           PLUGIN_ID: ${{ steps.meta.outputs.plugin_id }}
           PLUGIN_VERSION: ${{ steps.meta.outputs.plugin_version }}
           CATALOG_BASE_URL: ${{ steps.meta.outputs.catalog_base_url }}
+          ALLOW_LOCAL_CATALOG_FALLBACK: ${{ vars.ALLOW_LOCAL_CATALOG_FALLBACK }}
           PLUGIN_DIR: ${{ steps.meta.outputs.plugin_dir }}
           WASM_BINARY_NAME: ${{ steps.meta.outputs.wasm_binary_name }}
           RUNTIME_VERSION: ${{ steps.meta.outputs.runtime_version }}
@@ -370,24 +371,48 @@ jobs:
 
           source_catalog = pathlib.Path("clients/web/apps/plugins/public/catalog.json")
           catalog_payload = None
+          fallback_allowed = False
 
           catalog_base_url = os.environ.get("CATALOG_BASE_URL", "").strip().rstrip("/")
+          allow_local_fallback = os.environ.get("ALLOW_LOCAL_CATALOG_FALLBACK", "").strip().lower() in {
+              "1",
+              "true",
+              "yes",
+          }
+
           if catalog_base_url:
               remote_catalog_url = f"{catalog_base_url}/catalog.json"
               try:
                   with urllib.request.urlopen(remote_catalog_url, timeout=10) as response:
                       catalog_payload = json.loads(response.read().decode("utf-8"))
-              except (urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError):
-                  catalog_payload = None
+              except urllib.error.HTTPError as error:
+                  if error.code == 404 or allow_local_fallback:
+                      fallback_allowed = True
+                  else:
+                      raise SystemExit(
+                          f"failed to fetch remote catalog {remote_catalog_url}: HTTP {error.code}",
+                      )
+              except (urllib.error.URLError, json.JSONDecodeError, UnicodeDecodeError) as error:
+                  if allow_local_fallback:
+                      fallback_allowed = True
+                  else:
+                      raise SystemExit(
+                          f"failed to fetch remote catalog {remote_catalog_url}: {error}",
+                      )
+          else:
+              fallback_allowed = True
 
-          if catalog_payload is None and source_catalog.exists():
-              try:
-                  catalog_payload = json.loads(source_catalog.read_text(encoding="utf-8"))
-              except json.JSONDecodeError:
-                  catalog_payload = None
+          if catalog_payload is None and fallback_allowed:
+              if source_catalog.exists():
+                  try:
+                      catalog_payload = json.loads(source_catalog.read_text(encoding="utf-8"))
+                  except json.JSONDecodeError as error:
+                      raise SystemExit(f"local catalog.json malformed: {error}")
+              else:
+                  catalog_payload = {"plugins": []}
 
           if catalog_payload is None:
-              catalog_payload = {"plugins": []}
+              raise SystemExit("catalog source unavailable and local fallback is not allowed")
 
           existing_plugins = catalog_payload.get("plugins", [])
           if not isinstance(existing_plugins, list):
@@ -666,6 +691,14 @@ jobs:
               raise SystemExit("revocations payload missing required key: revoked")
           if not isinstance(revocations.get("revoked"), list):
               raise SystemExit("revocations/revoked must be a list")
+          if "updated_at" not in revocations:
+              raise SystemExit("revocations payload missing required key: updated_at")
+
+          updated_at = revocations.get("updated_at")
+          is_valid_string_timestamp = isinstance(updated_at, str) and bool(updated_at.strip())
+          is_valid_numeric_timestamp = isinstance(updated_at, (int, float))
+          if not (is_valid_string_timestamp or is_valid_numeric_timestamp):
+              raise SystemExit("revocations/updated_at must be a valid timestamp")
 
           print("Catalog entry integrity check passed")
           PY
