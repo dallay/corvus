@@ -1,6 +1,7 @@
 name = "corvus-plugins-edge"
 main = "src/index.ts"
 compatibility_date = "2026-02-23"
+# Enable workers.dev for fallback; custom domain requires DNS to be configured
 workers_dev = true
 
 [vars]
@@ -10,3 +11,8 @@ REVOCATIONS_OBJECT_KEY = "catalog/revocations.json"
 [[r2_buckets]]
 binding = "PLUGINS_BUCKET"
 bucket_name = "corvus-plugins-catalog-prod"
+
+# Custom domain route - uncomment once DNS is properly configured
+# [[routes]]
+# pattern = "plugins.corvus.profiletailors.com"
+# zone_name = "corvus.profiletailors.com"
