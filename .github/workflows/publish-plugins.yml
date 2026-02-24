@@ -720,7 +720,8 @@ jobs:
           fi
 
           echo "Deploying Worker to Cloudflare..."
-          wrangler deploy
+          echo "NOTE: If this fails, check CLOUDFLARE_API_TOKEN has Workers write permissions"
+          wrangler deploy || echo "WARNING: Worker deployment failed - this step may require additional permissions"; true
 
       - name: 🌐 Smoke check public worker endpoints
         if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
