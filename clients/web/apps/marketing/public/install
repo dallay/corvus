@@ -21,6 +21,7 @@ AUTO_APPROVE="${CORVUS_YES:-0}"
 RUN_ONBOARD="${CORVUS_NO_ONBOARD:-0}"
 SKIP_CHECKSUM="${CORVUS_SKIP_CHECKSUM:-0}"
 COSIGN_AVAILABLE="1"
+APT_INDEX_UPDATED="0"
 
 OS_TYPE=""
 LINUX_DISTRO=""
@@ -251,13 +252,15 @@ install_dep_with_pkg_mgr() {
       esac
       ;;
     apt-get)
+      if [ "$APT_INDEX_UPDATED" != "1" ]; then
+        run_privileged apt-get update -qq
+        APT_INDEX_UPDATED="1"
+      fi
       case "$dep" in
         sha256)
-          run_privileged apt-get update -qq
           run_privileged apt-get install -y -qq coreutils
           ;;
         *)
-          run_privileged apt-get update -qq
           run_privileged apt-get install -y -qq "$dep"
           ;;
       esac

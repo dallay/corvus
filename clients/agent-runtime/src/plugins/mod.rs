@@ -5,6 +5,7 @@ use chrono::Utc;
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
@@ -744,7 +745,7 @@ impl PluginManager {
         verify_blob_with_cosign(
             artifact_bytes,
             &signature_bytes,
-            &certificate_bytes,
+            certificate_bytes.as_ref(),
             identity_regex.as_str(),
         )
         .with_context(|| {
@@ -1024,7 +1025,7 @@ impl PluginManager {
         verify_blob_with_cosign(
             artifact_bytes,
             &signature,
-            &certificate,
+            certificate.as_ref(),
             identity_regex.as_str(),
         )
         .with_context(|| {
@@ -1036,7 +1037,7 @@ impl PluginManager {
 
         Ok(Some(VerifiedSignatureBundle {
             signature,
-            certificate,
+            certificate: certificate.into_owned(),
         }))
     }
 
@@ -1703,15 +1704,18 @@ fn verify_blob_with_cosign(
     verify_result
 }
 
-fn normalize_signature_bundle(signature: &[u8], certificate: &[u8]) -> Result<(Vec<u8>, Vec<u8>)> {
+fn normalize_signature_bundle<'a>(
+    signature: &'a [u8],
+    certificate: &'a [u8],
+) -> Result<(Vec<u8>, Cow<'a, [u8]>)> {
     let normalized_signature = normalize_signature_payload(signature);
     let normalized_certificate = normalize_certificate_payload(certificate)?;
     Ok((normalized_signature, normalized_certificate))
 }
 
-fn normalize_certificate_payload(certificate: &[u8]) -> Result<Vec<u8>> {
+fn normalize_certificate_payload(certificate: &[u8]) -> Result<Cow<'_, [u8]>> {
     if contains_pem_certificate_markers(certificate) {
-        return Ok(certificate.to_vec());
+        return Ok(Cow::Borrowed(certificate));
     }
 
     let as_text = std::str::from_utf8(certificate).context(
@@ -1730,7 +1734,7 @@ fn normalize_certificate_payload(certificate: &[u8]) -> Result<Vec<u8>> {
         bail!("Decoded certificate payload is missing PEM certificate markers");
     }
 
-    Ok(decoded)
+    Ok(Cow::Owned(decoded))
 }
 
 fn normalize_signature_payload(signature: &[u8]) -> Vec<u8> {
@@ -1781,7 +1785,7 @@ fn contains_pem_certificate_markers(payload: &[u8]) -> bool {
 }
 
 fn looks_like_cosign_signature_text(payload: &str) -> bool {
-    if payload.is_empty() || payload.lines().count() != 1 {
+    if payload.is_empty() || payload.contains('\n') {
         return false;
     }
 
@@ -1803,6 +1807,11 @@ fn decode_base64_text(payload: &str) -> Option<Vec<u8>> {
         .decode(compact.as_bytes())
         .ok()
         .or_else(|| general_purpose::URL_SAFE.decode(compact.as_bytes()).ok())
+        .or_else(|| {
+            general_purpose::URL_SAFE_NO_PAD
+                .decode(compact.as_bytes())
+                .ok()
+        })
 }
 
 struct CommandOutput {
@@ -2543,7 +2552,7 @@ mod tests {
     fn normalize_certificate_payload_accepts_plain_pem() {
         let pem = b"-----BEGIN CERTIFICATE-----\nZm9v\n-----END CERTIFICATE-----\n";
         let normalized = normalize_certificate_payload(pem).expect("plain PEM should be accepted");
-        assert_eq!(normalized, pem);
+        assert_eq!(normalized.as_ref(), pem);
     }
 
     #[test]
@@ -2553,7 +2562,7 @@ mod tests {
 
         let normalized = normalize_certificate_payload(wrapped.as_bytes())
             .expect("base64 wrapped PEM should be normalized");
-        assert_eq!(normalized, pem.as_bytes());
+        assert_eq!(normalized.as_ref(), pem.as_bytes());
     }
 
     #[test]
