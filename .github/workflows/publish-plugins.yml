@@ -703,6 +703,23 @@ jobs:
           print("Catalog entry integrity check passed")
           PY
 
+      - name: 🚀 Deploy plugin edge worker
+        if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: clients/web/apps/plugins-edge
+        run: |
+          set -euo pipefail
+
+          if [ -z "${CLOUDFLARE_API_TOKEN:-}" ] || [ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]; then
+            echo "Missing required Cloudflare secrets: CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID"
+            exit 1
+          fi
+
+          echo "Deploying Worker to Cloudflare..."
+          wrangler deploy --yes
+
       - name: 🌐 Smoke check public worker endpoints
         env:
           CATALOG_URL: ${{ steps.meta.outputs.catalog_base_url }}/catalog.json
