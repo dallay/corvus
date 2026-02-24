@@ -497,19 +497,38 @@ jobs:
         env:
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+        shell: python
         run: |
-          set -euo pipefail
+          import os
+          import pathlib
+          import subprocess
 
-          artifact_path="$DIST_DIR/$ARTIFACT_RELATIVE_PATH"
-          signature_path="${artifact_path}.sig"
-          certificate_path="${artifact_path}.pem"
+          artifact_path = pathlib.Path(os.environ["DIST_DIR"]) / os.environ["ARTIFACT_RELATIVE_PATH"]
+          signature_path = artifact_path.with_suffix(artifact_path.suffix + ".sig")
+          certificate_path = artifact_path.with_suffix(artifact_path.suffix + ".pem")
 
-          ./cosign verify-blob \
-            --certificate "$certificate_path" \
-            --signature "$signature_path" \
-            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-            --certificate-identity-regexp "https://github.com/${GITHUB_REPOSITORY}/\\.github/workflows/publish-plugins.yml@.*" \
-            "$artifact_path"
+          certificate = certificate_path.read_text(encoding="utf-8")
+          if "-----BEGIN CERTIFICATE-----" not in certificate or "-----END CERTIFICATE-----" not in certificate:
+              raise SystemExit(
+                  "cosign certificate output is not PEM text; refusing to publish wrapped certificate payload",
+              )
+
+          subprocess.run(
+              [
+                  "./cosign",
+                  "verify-blob",
+                  "--certificate",
+                  str(certificate_path),
+                  "--signature",
+                  str(signature_path),
+                  "--certificate-oidc-issuer",
+                  "https://token.actions.githubusercontent.com",
+                  "--certificate-identity-regexp",
+                  f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/\\.github/workflows/publish-plugins.yml@.*",
+                  str(artifact_path),
+              ],
+              check=True,
+          )
 
       - name: 🚀 Optional publish plugin artifact to OCI
         if: ${{ steps.meta.outputs.oci_repository != '' }}

@@ -21,6 +21,10 @@ AUTO_APPROVE="${CORVUS_YES:-0}"
 RUN_ONBOARD="${CORVUS_NO_ONBOARD:-0}"
 SKIP_CHECKSUM="${CORVUS_SKIP_CHECKSUM:-0}"
 
+OS_TYPE=""
+LINUX_DISTRO=""
+PKG_MGR=""
+
 RESOLVED_DOWNLOAD_URL=""
 RESOLVED_CHECKSUM_URL=""
 RESOLVED_ASSET_NAME=""
@@ -124,6 +128,320 @@ require_supported_shell() {
 
 require_dependencies() {
   has_cmd curl || die "curl is required. Please install curl and retry."
+}
+
+detect_platform() {
+  local uname_s=""
+
+  uname_s="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$uname_s" in
+    darwin)
+      OS_TYPE="macos"
+      LINUX_DISTRO=""
+      ;;
+    linux)
+      OS_TYPE="linux"
+      if [ -r /etc/os-release ]; then
+        LINUX_DISTRO="$(awk -F= '/^ID=/{gsub(/\"/, "", $2); print tolower($2)}' /etc/os-release)"
+      fi
+      ;;
+    *)
+      die "Unsupported OS: ${uname_s}. This installer supports macOS and Linux."
+      ;;
+  esac
+}
+
+detect_package_manager() {
+  PKG_MGR=""
+
+  if [ "$OS_TYPE" = "macos" ]; then
+    if has_cmd brew; then
+      PKG_MGR="brew"
+      return 0
+    fi
+    return 1
+  fi
+
+  if [ "$OS_TYPE" = "linux" ]; then
+    if has_cmd apt-get; then
+      PKG_MGR="apt-get"
+      return 0
+    fi
+    if has_cmd dnf; then
+      PKG_MGR="dnf"
+      return 0
+    fi
+    if has_cmd yum; then
+      PKG_MGR="yum"
+      return 0
+    fi
+    if has_cmd pacman; then
+      PKG_MGR="pacman"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+print_preflight_notice() {
+  print_info "Preflight"
+  print_warn "Beta disclaimer: Corvus is currently in beta. Behavior and compatibility may change or fail without prior notice."
+  print_info "This installer will:"
+  printf "  - Install Corvus CLI\n"
+  printf "  - Ensure minimal dependencies for secure install and plugin verification (curl, tar, SHA-256 tooling, and cosign)\n"
+  printf "  - Verify checksums by default before installing binaries\n"
+}
+
+has_checksum_tool() {
+  has_cmd sha256sum || has_cmd shasum
+}
+
+can_auto_install_dependency() {
+  local dep="$1"
+
+  case "$PKG_MGR" in
+    brew)
+      case "$dep" in
+        curl|cosign)
+          return 0
+          ;;
+        tar|sha256)
+          return 1
+          ;;
+      esac
+      ;;
+    apt-get|dnf|yum|pacman)
+      return 0
+      ;;
+  esac
+
+  return 1
+}
+
+install_dep_with_pkg_mgr() {
+  local dep="$1"
+
+  case "$PKG_MGR" in
+    brew)
+      case "$dep" in
+        curl)
+          brew install curl
+          ;;
+        cosign)
+          brew install cosign
+          ;;
+        *)
+          return 1
+          ;;
+      esac
+      ;;
+    apt-get)
+      case "$dep" in
+        sha256)
+          if [ "$(id -u)" -eq 0 ]; then
+            apt-get update -qq
+            apt-get install -y -qq coreutils
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq coreutils
+          fi
+          ;;
+        *)
+          if [ "$(id -u)" -eq 0 ]; then
+            apt-get update -qq
+            apt-get install -y -qq "$dep"
+          else
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq "$dep"
+          fi
+          ;;
+      esac
+      ;;
+    dnf)
+      case "$dep" in
+        sha256)
+          if [ "$(id -u)" -eq 0 ]; then
+            dnf install -y -q coreutils
+          else
+            sudo dnf install -y -q coreutils
+          fi
+          ;;
+        *)
+          if [ "$(id -u)" -eq 0 ]; then
+            dnf install -y -q "$dep"
+          else
+            sudo dnf install -y -q "$dep"
+          fi
+          ;;
+      esac
+      ;;
+    yum)
+      case "$dep" in
+        sha256)
+          if [ "$(id -u)" -eq 0 ]; then
+            yum install -y -q coreutils
+          else
+            sudo yum install -y -q coreutils
+          fi
+          ;;
+        *)
+          if [ "$(id -u)" -eq 0 ]; then
+            yum install -y -q "$dep"
+          else
+            sudo yum install -y -q "$dep"
+          fi
+          ;;
+      esac
+      ;;
+    pacman)
+      case "$dep" in
+        sha256)
+          if [ "$(id -u)" -eq 0 ]; then
+            pacman -Sy --noconfirm coreutils
+          else
+            sudo pacman -Sy --noconfirm coreutils
+          fi
+          ;;
+        *)
+          if [ "$(id -u)" -eq 0 ]; then
+            pacman -Sy --noconfirm "$dep"
+          else
+            sudo pacman -Sy --noconfirm "$dep"
+          fi
+          ;;
+      esac
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+print_dependency_manual_help() {
+  local dep="$1"
+
+  case "$dep" in
+    curl)
+      print_error "Could not auto-install curl. Install curl manually and retry."
+      ;;
+    tar)
+      print_error "Could not auto-install tar. Install tar manually and retry."
+      ;;
+    sha256)
+      print_error "Neither sha256sum nor shasum was found. Install coreutils or Perl (shasum) and retry."
+      ;;
+    cosign)
+      print_error "Could not auto-install cosign. Install cosign and retry."
+      print_info "Reference: https://docs.sigstore.dev/cosign/system_config/installation/"
+      ;;
+  esac
+}
+
+ensure_dependency() {
+  local dep="$1"
+  local human_name="$2"
+  local need_install="0"
+
+  case "$dep" in
+    curl)
+      has_cmd curl || need_install="1"
+      ;;
+    tar)
+      has_cmd tar || need_install="1"
+      ;;
+    sha256)
+      has_checksum_tool || need_install="1"
+      ;;
+    cosign)
+      has_cmd cosign || need_install="1"
+      ;;
+  esac
+
+  if [ "$need_install" = "0" ]; then
+    return 0
+  fi
+
+  print_warn "Missing required dependency: ${human_name}"
+
+  if ! detect_package_manager; then
+    print_error "No compatible package manager detected for this system."
+    print_dependency_manual_help "$dep"
+    return 1
+  fi
+
+  if ! can_auto_install_dependency "$dep"; then
+    print_error "Cannot auto-install ${human_name} with ${PKG_MGR} on this system."
+    print_dependency_manual_help "$dep"
+    return 1
+  fi
+
+  if [ "$AUTO_APPROVE" != "1" ]; then
+    if ! is_interactive; then
+      print_error "Non-interactive mode without --yes and required dependencies are missing."
+      print_info "Re-run with --yes to auto-install, or install dependencies manually and retry."
+      return 1
+    fi
+    if ! confirm "Install ${human_name} with ${PKG_MGR}?" "n"; then
+      print_error "Installation cancelled: ${human_name} is required."
+      return 1
+    fi
+  fi
+
+  if [ "$OS_TYPE" = "linux" ] && [ "$(id -u)" -ne 0 ] && [ "$PKG_MGR" != "brew" ] && ! has_cmd sudo; then
+    print_error "sudo is not available and root privileges are required to install ${human_name}."
+    return 1
+  fi
+
+  print_info "Installing ${human_name} with ${PKG_MGR}..."
+  if ! install_dep_with_pkg_mgr "$dep"; then
+    print_dependency_manual_help "$dep"
+    return 1
+  fi
+
+  case "$dep" in
+    curl)
+      has_cmd curl || return 1
+      ;;
+    tar)
+      has_cmd tar || return 1
+      ;;
+    sha256)
+      has_checksum_tool || return 1
+      ;;
+    cosign)
+      has_cmd cosign || return 1
+      ;;
+  esac
+
+  print_success "Dependency ready: ${human_name}"
+  return 0
+}
+
+preflight_dependencies() {
+  detect_platform
+  detect_package_manager || true
+
+  if [ "$OS_TYPE" = "macos" ]; then
+    print_info "Detected system: macOS"
+    if [ "$PKG_MGR" = "brew" ]; then
+      print_info "Detected package manager: Homebrew"
+    else
+      print_warn "Homebrew not detected. Only compatible dependencies can be auto-installed."
+    fi
+  else
+    print_info "Detected system: Linux${LINUX_DISTRO:+ (${LINUX_DISTRO})}"
+    if [ -n "$PKG_MGR" ]; then
+      print_info "Detected package manager: ${PKG_MGR}"
+    else
+      print_warn "apt-get, dnf, yum, and pacman were not detected."
+    fi
+  fi
+
+  ensure_dependency "curl" "curl" || return 1
+  ensure_dependency "tar" "tar" || return 1
+  ensure_dependency "sha256" "sha256sum or shasum" || return 1
+  ensure_dependency "cosign" "cosign" || return 1
 }
 
 parse_args() {
@@ -555,11 +873,12 @@ post_install_steps() {
 
 main() {
   require_supported_shell
-  require_dependencies
   parse_args "$@"
 
   print_info "Corvus installer"
   print_info "Security note: HTTPS only + checksum verification enabled by default."
+  print_preflight_notice
+  preflight_dependencies || die "Preflight failed: required dependencies could not be prepared."
 
   select_install_method
   print_info "Using install method: ${INSTALL_METHOD}"
