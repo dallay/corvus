@@ -126,8 +126,11 @@ Current workflow behavior:
 5. Sign artifact with cosign keyless OIDC identity.
 6. Verify signature in CI.
 7. Optionally push artifact bundle to OCI (`oci_repository`).
-8. Build plugins catalog app and deploy to Cloudflare Pages (enabled by default for release tags).
-9. Upload build + bundle artifacts as workflow artifacts for traceability.
+8. Upload immutable artifacts and mutable metadata to Cloudflare R2 in atomic order
+   (artifacts first, `catalog.json`/`revocations.json` last).
+9. Verify catalog integrity from R2 and smoke-check public Worker endpoints.
+10. Optionally build/deploy legacy Cloudflare Pages catalog UI (`deploy_cloudflare_pages=true`).
+11. Upload build + bundle artifacts as workflow artifacts for traceability.
 
 :::important
 To onboard a new plugin into automated releases:
@@ -147,11 +150,13 @@ git tag plugin/memory.surreal.graphs/v0.1.0
 git push origin plugin/memory.surreal.graphs/v0.1.0
 ```
 
-Cloudflare deployment configuration expected by the workflow:
+Cloudflare configuration expected by the workflow:
 
 - Secret: `CLOUDFLARE_API_TOKEN`
 - Secret: `CLOUDFLARE_ACCOUNT_ID`
-- Repository variable: `CLOUDFLARE_PAGES_PROJECT_NAME`
+- Repository variable: `CLOUDFLARE_R2_BUCKET_NAME`
+- Optional repository variable (legacy Pages deployment only):
+  `CLOUDFLARE_PAGES_PROJECT_NAME`
 
 ## 6. Operator Commands (Runtime)
 

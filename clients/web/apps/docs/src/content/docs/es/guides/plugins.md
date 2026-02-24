@@ -127,9 +127,14 @@ Comportamiento actual del workflow:
 5. Firma el artefacto con identidad OIDC keyless de cosign.
 6. Verifica la firma en CI.
 7. Push opcional del bundle a OCI (`oci_repository`).
-8. Hace build de la app de catálogo y deploy a Cloudflare Pages (habilitado por defecto para tags de
-   release).
-9. Sube artefactos del build y del bundle para trazabilidad.
+8. Sube artefactos inmutables y metadatos mutables a Cloudflare R2 en orden atómico
+   (artefactos primero, `catalog.json`/`revocations.json` al final).
+
+9. Verifica integridad del catálogo en R2 y smoke-check de endpoints públicos del Worker.
+
+10. Opcionalmente hace build/deploy del catálogo legacy en Cloudflare Pages (`deploy_cloudflare_pages=true`).
+
+11. Sube artefactos del build y del bundle para trazabilidad.
 
 :::important
 Para integrar un nuevo plugin al release automático:
@@ -153,7 +158,8 @@ Configuración de Cloudflare esperada por el workflow:
 
 - Secret: `CLOUDFLARE_API_TOKEN`
 - Secret: `CLOUDFLARE_ACCOUNT_ID`
-- Variable de repositorio: `CLOUDFLARE_PAGES_PROJECT_NAME`
+- Variable de repositorio: `CLOUDFLARE_R2_BUCKET_NAME`
+- Variable opcional de repositorio (solo deploy legacy de Pages): `CLOUDFLARE_PAGES_PROJECT_NAME`
 
 ## 6. Comandos de Operador (Runtime)
 

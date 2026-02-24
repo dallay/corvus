@@ -207,14 +207,19 @@ Calls the reusable `_publish.yml` workflow with:
 4. Upserts plugin entry into `catalog.json` and preserves existing entries
 5. Signs artifact with cosign keyless OIDC identity
 6. Verifies signature in CI
-7. Builds plugins catalog site
-8. Deploys to Cloudflare Pages (configurable)
+7. Uploads immutable artifacts + mutable metadata to Cloudflare R2 (atomic order)
+8. Verifies uploaded catalog integrity and public Worker endpoints
+9. Optionally builds/deploys legacy plugins catalog site to Cloudflare Pages
 
-**Required secrets/vars for deployment**:
+**Required secrets/vars for R2 publishing**:
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_PAGES_PROJECT_NAME` (repository variable recommended)
+- `CLOUDFLARE_R2_BUCKET_NAME` (repository variable recommended)
+
+**Optional legacy Pages deployment**:
+
+- `CLOUDFLARE_PAGES_PROJECT_NAME` (used only when `deploy_cloudflare_pages=true`)
 
 ---
 
