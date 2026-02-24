@@ -720,8 +720,7 @@ jobs:
           fi
 
           echo "Deploying Worker to Cloudflare..."
-          echo "NOTE: If this fails, check CLOUDFLARE_API_TOKEN has Workers write permissions"
-          wrangler deploy || echo "WARNING: Worker deployment failed - this step may require additional permissions"; true
+          wrangler deploy
 
       - name: 🌐 Smoke check public worker endpoints
         if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
@@ -737,14 +736,21 @@ jobs:
           check_url() {
             local url="$1"
             local attempts=0
-            until [ "$attempts" -ge 5 ]; do
-              if curl -fsSIL "$url" >/dev/null 2>&1; then
+            local max_attempts=20
+            local sleep_seconds=3
+
+            until [ "$attempts" -ge "$max_attempts" ]; do
+              status_code="$(curl -sS -o /dev/null -w "%{http_code}" "$url" || true)"
+              if [ "$status_code" = "200" ]; then
                 return 0
               fi
+
               attempts=$((attempts + 1))
-              sleep 2
+              echo "Attempt $attempts/$max_attempts failed for $url (HTTP $status_code)"
+              sleep "$sleep_seconds"
             done
-            echo "Public URL check failed: $url" >&2
+
+            echo "Public URL check failed after $max_attempts attempts: $url" >&2
             return 1
           }
 
