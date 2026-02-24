@@ -1,0 +1,49 @@
+{
+  "app": {
+    "title": "Corvus Dashboard",
+    "subtitle": "Configuracion segura del gateway"
+  },
+  "auth": {
+    "baseUrl": "Base URL",
+    "pairingCode": "Codigo de emparejamiento",
+    "bearerToken": "Token bearer",
+    "connect": "Conectar",
+    "pair": "Emparejar",
+    "pairSuccess": "Pairing exitoso. Token cargado.",
+    "loadError": "No se pudo cargar la configuracion admin.",
+    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
+    "unauthorized": "No autorizado. Haz pairing y vuelve a intentar."
+  },
+  "form": {
+    "save": "Guardar cambios",
+    "saveSuccess": "Configuracion guardada.",
+    "saveError": "No se pudo guardar la configuracion.",
+    "provider": "Provider por defecto",
+    "model": "Modelo por defecto",
+    "temperature": "Temperatura",
+    "memoryBackend": "Backend de memoria",
+    "observabilityBackend": "Backend de observabilidad",
+    "otelEndpoint": "OTEL endpoint",
+    "otelServiceName": "OTEL service name",
+    "runtimeKind": "Runtime kind",
+    "autonomyLevel": "Nivel de autonomia",
+    "workspaceOnly": "Solo workspace",
+    "maxActionsPerHour": "Max acciones por hora",
+    "maxCostPerDayCents": "Max costo por dia (centavos)",
+    "schedulerEnabled": "Scheduler habilitado",
+    "schedulerMaxTasks": "Scheduler max tasks",
+    "schedulerMaxConcurrent": "Scheduler max concurrent",
+    "pluginsEnabled": "Plugins habilitados",
+    "pluginsInstallPolicy": "Plugins install policy",
+    "gatewayPort": "Gateway port",
+    "gatewayHost": "Gateway host",
+    "requirePairing": "Requerir pairing",
+    "allowPublicBind": "Permitir bind publico",
+    "webhookPort": "Webhook port",
+    "webhookSecretMode": "Webhook secret",
+    "webhookSecretValue": "Nuevo webhook secret",
+    "secretUnchanged": "Sin cambios",
+    "secretReplace": "Reemplazar",
+    "secretClear": "Limpiar"
+  }
+}

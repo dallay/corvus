@@ -1,6 +1,6 @@
 # Corvus Web Monorepo
 
-Monorepo for Corvus web apps, including docs, marketing, plugins catalog, and chat.
+Monorepo for Corvus web apps, including docs, marketing, plugins catalog, chat, and dashboard.
 
 ## Structure
 
@@ -11,7 +11,8 @@ clients/web/
 │   ├── marketing/      # Marketing landing and campaign pages (Astro)
 │   ├── plugins/        # Plugin catalog and revocations (Astro)
 │   ├── plugins-edge/   # Plugin distribution API (Cloudflare Worker + R2)
-│   └── chat/           # ChatGPT-style conversational chat (Vue 3 + Vite)
+│   ├── chat/           # ChatGPT-style conversational chat (Vue 3 + Vite)
+│   └── dashboard/      # Secure gateway dashboard (Vue 3 + Vite)
 ├── packages/
 │   └── shared/         # Shared utilities
 ├── biome.json          # Single Biome config for the whole monorepo
@@ -50,6 +51,12 @@ clients/web/
 - Default port: 4323
 - ChatGPT-style conversational interface
 
+### dashboard
+
+- Framework: Vue 3 + Vite
+- Default port: 4324
+- Secure admin panel for `GET/PUT /web/admin/config`
+
 ## Commands
 
 Minimum requirements:
@@ -70,6 +77,7 @@ pnpm build:marketing
 pnpm build:plugins
 pnpm build:plugins-edge
 pnpm build:chat
+pnpm build:dashboard
 
 # Compatibility (legacy alias)
 pnpm build:landing
@@ -80,6 +88,7 @@ pnpm dev:marketing
 pnpm dev:plugins
 pnpm dev:plugins-edge
 pnpm dev:chat
+pnpm dev:dashboard
 
 # Compatibility (legacy alias)
 pnpm dev:landing
@@ -89,6 +98,7 @@ pnpm format
 pnpm check
 pnpm test
 pnpm test:chat
+pnpm test:dashboard
 
 # Deploy plugins edge worker
 pnpm deploy:plugins-edge

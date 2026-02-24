@@ -75,6 +75,7 @@ val appConfigs = mapOf(
   "plugins" to WebAppConfig("plugins", "dist", 9990),
   "plugins-edge" to WebAppConfig("plugins-edge", "dist", 9797),
   "chat" to WebAppConfig("chat", "dist", 4323),
+  "dashboard" to WebAppConfig("dashboard", "dist", 4324),
 )
 
 // Root workspace install task

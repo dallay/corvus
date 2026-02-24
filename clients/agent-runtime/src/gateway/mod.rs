@@ -22,7 +22,7 @@ use axum::{
     extract::{ConnectInfo, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Json},
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 use parking_lot::Mutex;
@@ -33,6 +33,370 @@ use std::time::{Duration, Instant};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AdminConfigView {
+    default_provider: Option<String>,
+    default_model: Option<String>,
+    default_temperature: f64,
+    memory_backend: String,
+    observability: AdminObservabilityView,
+    runtime: AdminRuntimeView,
+    autonomy: AdminAutonomyView,
+    scheduler: AdminSchedulerView,
+    plugins: AdminPluginsView,
+    gateway: AdminGatewayView,
+    channels: AdminChannelsView,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AdminObservabilityView {
+    backend: String,
+    otel_endpoint: Option<String>,
+    otel_service_name: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AdminRuntimeView {
+    kind: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AdminAutonomyView {
+    level: crate::security::AutonomyLevel,
+    workspace_only: bool,
+    max_actions_per_hour: u32,
+    max_cost_per_day_cents: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AdminSchedulerView {
+    enabled: bool,
+    max_tasks: usize,
+    max_concurrent: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AdminPluginsView {
+    enabled: bool,
+    install_policy: String,
+    allow_publishers_count: usize,
+    sources_count: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AdminGatewayView {
+    port: u16,
+    host: String,
+    require_pairing: bool,
+    allow_public_bind: bool,
+    pair_rate_limit_per_minute: u32,
+    webhook_rate_limit_per_minute: u32,
+    trust_forwarded_headers: bool,
+    rate_limit_max_keys: usize,
+    idempotency_ttl_secs: u64,
+    idempotency_max_keys: usize,
+    paired_tokens_count: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+struct AdminChannelsView {
+    cli: bool,
+    has_telegram: bool,
+    has_discord: bool,
+    has_slack: bool,
+    has_mattermost: bool,
+    has_webhook: bool,
+    has_imessage: bool,
+    has_matrix: bool,
+    has_signal: bool,
+    has_whatsapp: bool,
+    has_email: bool,
+    has_irc: bool,
+    has_lark: bool,
+    has_dingtalk: bool,
+    has_qq: bool,
+    webhook_port: Option<u16>,
+    webhook_has_secret: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct AdminConfigUpdateRequest {
+    #[serde(default)]
+    default_provider: Option<String>,
+    #[serde(default)]
+    default_model: Option<String>,
+    #[serde(default)]
+    default_temperature: Option<f64>,
+    #[serde(default)]
+    memory_backend: Option<String>,
+    #[serde(default)]
+    observability: Option<AdminObservabilityPatch>,
+    #[serde(default)]
+    runtime: Option<AdminRuntimePatch>,
+    #[serde(default)]
+    autonomy: Option<AdminAutonomyPatch>,
+    #[serde(default)]
+    scheduler: Option<AdminSchedulerPatch>,
+    #[serde(default)]
+    plugins: Option<AdminPluginsPatch>,
+    #[serde(default)]
+    gateway: Option<AdminGatewayPatch>,
+    #[serde(default)]
+    webhook: Option<AdminWebhookPatch>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct AdminGatewayPatch {
+    #[serde(default)]
+    port: Option<u16>,
+    #[serde(default)]
+    host: Option<String>,
+    #[serde(default)]
+    require_pairing: Option<bool>,
+    #[serde(default)]
+    allow_public_bind: Option<bool>,
+    #[serde(default)]
+    pair_rate_limit_per_minute: Option<u32>,
+    #[serde(default)]
+    webhook_rate_limit_per_minute: Option<u32>,
+    #[serde(default)]
+    trust_forwarded_headers: Option<bool>,
+    #[serde(default)]
+    rate_limit_max_keys: Option<usize>,
+    #[serde(default)]
+    idempotency_ttl_secs: Option<u64>,
+    #[serde(default)]
+    idempotency_max_keys: Option<usize>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct AdminObservabilityPatch {
+    #[serde(default)]
+    backend: Option<String>,
+    #[serde(default)]
+    otel_endpoint: Option<String>,
+    #[serde(default)]
+    otel_service_name: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct AdminRuntimePatch {
+    #[serde(default)]
+    kind: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct AdminAutonomyPatch {
+    #[serde(default)]
+    level: Option<crate::security::AutonomyLevel>,
+    #[serde(default)]
+    workspace_only: Option<bool>,
+    #[serde(default)]
+    max_actions_per_hour: Option<u32>,
+    #[serde(default)]
+    max_cost_per_day_cents: Option<u32>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct AdminSchedulerPatch {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    max_tasks: Option<usize>,
+    #[serde(default)]
+    max_concurrent: Option<usize>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct AdminPluginsPatch {
+    #[serde(default)]
+    enabled: Option<bool>,
+    #[serde(default)]
+    install_policy: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct AdminWebhookPatch {
+    #[serde(default)]
+    port: Option<u16>,
+    #[serde(default)]
+    secret: Option<AdminSecretUpdate>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+enum AdminSecretUpdate {
+    Unchanged,
+    Clear,
+    Replace { value: String },
+}
+
+fn admin_config_view(cfg: &Config) -> AdminConfigView {
+    let webhook = cfg.channels_config.webhook.as_ref();
+    AdminConfigView {
+        default_provider: cfg.default_provider.clone(),
+        default_model: cfg.default_model.clone(),
+        default_temperature: cfg.default_temperature,
+        memory_backend: cfg.memory.backend.clone(),
+        observability: AdminObservabilityView {
+            backend: cfg.observability.backend.clone(),
+            otel_endpoint: cfg.observability.otel_endpoint.clone(),
+            otel_service_name: cfg.observability.otel_service_name.clone(),
+        },
+        runtime: AdminRuntimeView {
+            kind: cfg.runtime.kind.clone(),
+        },
+        autonomy: AdminAutonomyView {
+            level: cfg.autonomy.level,
+            workspace_only: cfg.autonomy.workspace_only,
+            max_actions_per_hour: cfg.autonomy.max_actions_per_hour,
+            max_cost_per_day_cents: cfg.autonomy.max_cost_per_day_cents,
+        },
+        scheduler: AdminSchedulerView {
+            enabled: cfg.scheduler.enabled,
+            max_tasks: cfg.scheduler.max_tasks,
+            max_concurrent: cfg.scheduler.max_concurrent,
+        },
+        plugins: AdminPluginsView {
+            enabled: cfg.plugins.enabled,
+            install_policy: cfg.plugins.install_policy.clone(),
+            allow_publishers_count: cfg.plugins.allow_publishers.len(),
+            sources_count: cfg.plugins.sources.len(),
+        },
+        gateway: AdminGatewayView {
+            port: cfg.gateway.port,
+            host: cfg.gateway.host.clone(),
+            require_pairing: cfg.gateway.require_pairing,
+            allow_public_bind: cfg.gateway.allow_public_bind,
+            pair_rate_limit_per_minute: cfg.gateway.pair_rate_limit_per_minute,
+            webhook_rate_limit_per_minute: cfg.gateway.webhook_rate_limit_per_minute,
+            trust_forwarded_headers: cfg.gateway.trust_forwarded_headers,
+            rate_limit_max_keys: cfg.gateway.rate_limit_max_keys,
+            idempotency_ttl_secs: cfg.gateway.idempotency_ttl_secs,
+            idempotency_max_keys: cfg.gateway.idempotency_max_keys,
+            paired_tokens_count: cfg.gateway.paired_tokens.len(),
+        },
+        channels: AdminChannelsView {
+            cli: cfg.channels_config.cli,
+            has_telegram: cfg.channels_config.telegram.is_some(),
+            has_discord: cfg.channels_config.discord.is_some(),
+            has_slack: cfg.channels_config.slack.is_some(),
+            has_mattermost: cfg.channels_config.mattermost.is_some(),
+            has_webhook: webhook.is_some(),
+            has_imessage: cfg.channels_config.imessage.is_some(),
+            has_matrix: cfg.channels_config.matrix.is_some(),
+            has_signal: cfg.channels_config.signal.is_some(),
+            has_whatsapp: cfg.channels_config.whatsapp.is_some(),
+            has_email: cfg.channels_config.email.is_some(),
+            has_irc: cfg.channels_config.irc.is_some(),
+            has_lark: cfg.channels_config.lark.is_some(),
+            has_dingtalk: cfg.channels_config.dingtalk.is_some(),
+            has_qq: cfg.channels_config.qq.is_some(),
+            webhook_port: webhook.map(|w| w.port),
+            webhook_has_secret: webhook
+                .and_then(|w| w.secret.as_ref())
+                .map(|value| !value.trim().is_empty())
+                .unwrap_or(false),
+        },
+    }
+}
+
+fn admin_requires_auth(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Option<(StatusCode, Json<serde_json::Value>)> {
+    if !state.pairing.require_pairing() {
+        return None;
+    }
+
+    let token = extract_bearer_token(headers).unwrap_or_default();
+    if state.pairing.is_authenticated(&token) {
+        None
+    } else {
+        Some((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
+            })),
+        ))
+    }
+}
+
+fn validate_memory_backend(value: &str) -> bool {
+    matches!(
+        value,
+        "sqlite" | "lucid" | "surreal-graphs" | "markdown" | "surreal" | "none"
+    )
+}
+
+fn validate_observability_backend(value: &str) -> bool {
+    matches!(value, "none" | "log" | "prometheus" | "otel")
+}
+
+fn validate_runtime_kind(value: &str) -> bool {
+    matches!(value, "native" | "docker")
+}
+
+fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde_json::Value>)> {
+    let Some(origin_raw) = headers.get(header::ORIGIN).and_then(|value| value.to_str().ok()) else {
+        return None;
+    };
+    let origin_raw = origin_raw.trim();
+    if origin_raw.is_empty() {
+        return None;
+    }
+
+    let origin = match reqwest::Url::parse(origin_raw) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            return Some((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Invalid Origin header"})),
+            ));
+        }
+    };
+
+    if !matches!(origin.scheme(), "http" | "https") {
+        return Some((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Forbidden origin scheme"})),
+        ));
+    }
+
+    let host_header = headers
+        .get(header::HOST)
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_ascii_lowercase);
+    let Some(host_header) = host_header else {
+        return Some((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Forbidden request origin"})),
+        ));
+    };
+
+    let Some(origin_host) = origin.host_str().map(str::to_ascii_lowercase) else {
+        return Some((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Forbidden request origin"})),
+        ));
+    };
+    let origin_with_port = origin
+        .port()
+        .map(|port| format!("{origin_host}:{port}"))
+        .unwrap_or_else(|| origin_host.clone());
+
+    if host_header == origin_host || host_header == origin_with_port {
+        None
+    } else {
+        Some((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Forbidden request origin"})),
+        ))
+    }
+}
 
 /// Maximum request body size (64KB) — prevents memory exhaustion
 pub const MAX_BODY_SIZE: usize = 65_536;
@@ -454,6 +818,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     }
     println!("  POST /pair      — pair a new client (X-Pairing-Code header)");
     println!("  POST /webhook   — {{\"message\": \"your prompt\"}}");
+    println!("  GET  /web/admin/config   — redacted admin config");
+    println!("  PUT  /web/admin/config   — update admin config");
+    println!("  GET  /web/admin/options  — admin options catalog");
     if whatsapp_channel.is_some() {
         println!("  GET  /whatsapp  — Meta webhook verification");
         println!("  POST /whatsapp  — WhatsApp message webhook");
@@ -503,6 +870,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/metrics", get(handle_metrics))
         .route("/pair", post(handle_pair))
         .route("/webhook", post(handle_webhook))
+        .route("/web/admin/config", get(handle_admin_get_config))
+        .route("/web/admin/config", put(handle_admin_update_config))
+        .route("/web/admin/options", get(handle_admin_options))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
         .with_state(state)
@@ -627,6 +997,313 @@ fn persist_pairing_tokens(config: &Arc<Mutex<Config>>, pairing: &PairingGuard) -
     cfg.gateway.paired_tokens = paired_tokens;
     cfg.save()
         .context("Failed to persist paired tokens to config.toml")
+}
+
+/// GET /web/admin/config — return a redacted configuration view.
+async fn handle_admin_get_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(rejection) = admin_origin_guard(&headers) {
+        return rejection;
+    }
+
+    if let Some(rejection) = admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let cfg = state.config.lock().clone();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"config": admin_config_view(&cfg)})),
+    )
+}
+
+/// GET /web/admin/options — return constrained enums/defaults for dashboard forms.
+async fn handle_admin_options(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(rejection) = admin_origin_guard(&headers) {
+        return rejection;
+    }
+
+    if let Some(rejection) = admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let body = serde_json::json!({
+        "memory_backends": ["sqlite", "lucid", "surreal-graphs", "markdown", "surreal", "none"],
+        "observability_backends": ["none", "log", "prometheus", "otel"],
+        "runtime_kinds": ["native", "docker"],
+        "autonomy_levels": ["readonly", "supervised", "full"],
+        "provider_hints": [
+            "openrouter",
+            "anthropic",
+            "openai",
+            "openai-codex",
+            "google",
+            "ollama",
+            "xai",
+            "zai",
+            "glm"
+        ],
+        "gateway": {
+            "default_port": 3000,
+            "default_host": "127.0.0.1",
+            "default_pair_rate_limit_per_minute": 10,
+            "default_webhook_rate_limit_per_minute": 60,
+            "default_idempotency_ttl_secs": 300,
+            "default_rate_limit_max_keys": 10000,
+            "default_idempotency_max_keys": 10000
+        },
+        "webhook_secret_modes": ["unchanged", "replace", "clear"]
+    });
+
+    (StatusCode::OK, Json(body))
+}
+
+/// PUT /web/admin/config — update selected config fields and persist to disk.
+async fn handle_admin_update_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Result<Json<AdminConfigUpdateRequest>, axum::extract::rejection::JsonRejection>,
+) -> impl IntoResponse {
+    if let Some(rejection) = admin_origin_guard(&headers) {
+        return rejection;
+    }
+
+    if let Some(rejection) = admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let Json(patch) = match body {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Invalid JSON body for admin config update"
+                })),
+            );
+        }
+    };
+
+    let mut cfg = state.config.lock();
+
+    if let Some(provider) = patch.default_provider {
+        let provider = provider.trim();
+        cfg.default_provider = (!provider.is_empty()).then(|| provider.to_string());
+    }
+
+    if let Some(model) = patch.default_model {
+        let model = model.trim();
+        cfg.default_model = (!model.is_empty()).then(|| model.to_string());
+    }
+
+    if let Some(temperature) = patch.default_temperature {
+        if !(0.0..=2.0).contains(&temperature) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "default_temperature must be in range [0.0, 2.0]"
+                })),
+            );
+        }
+        cfg.default_temperature = temperature;
+    }
+
+    if let Some(memory_backend) = patch.memory_backend {
+        let backend = memory_backend.trim().to_ascii_lowercase();
+        if !validate_memory_backend(&backend) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Invalid memory_backend. Allowed: sqlite, lucid, surreal-graphs, markdown, surreal, none"
+                })),
+            );
+        }
+        cfg.memory.backend = backend;
+    }
+
+    if let Some(observability_patch) = patch.observability {
+        if let Some(backend) = observability_patch.backend {
+            let backend = backend.trim().to_ascii_lowercase();
+            if !validate_observability_backend(&backend) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "Invalid observability.backend. Allowed: none, log, prometheus, otel"
+                    })),
+                );
+            }
+            cfg.observability.backend = backend;
+        }
+
+        if let Some(endpoint) = observability_patch.otel_endpoint {
+            let endpoint = endpoint.trim();
+            cfg.observability.otel_endpoint = (!endpoint.is_empty()).then(|| endpoint.to_string());
+        }
+
+        if let Some(service_name) = observability_patch.otel_service_name {
+            let service_name = service_name.trim();
+            cfg.observability.otel_service_name =
+                (!service_name.is_empty()).then(|| service_name.to_string());
+        }
+    }
+
+    if let Some(runtime_patch) = patch.runtime {
+        if let Some(kind) = runtime_patch.kind {
+            let kind = kind.trim().to_ascii_lowercase();
+            if !validate_runtime_kind(&kind) {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "Invalid runtime.kind. Allowed: native, docker"
+                    })),
+                );
+            }
+            cfg.runtime.kind = kind;
+        }
+    }
+
+    if let Some(autonomy_patch) = patch.autonomy {
+        if let Some(level) = autonomy_patch.level {
+            cfg.autonomy.level = level;
+        }
+        if let Some(workspace_only) = autonomy_patch.workspace_only {
+            cfg.autonomy.workspace_only = workspace_only;
+        }
+        if let Some(max_actions_per_hour) = autonomy_patch.max_actions_per_hour {
+            cfg.autonomy.max_actions_per_hour = max_actions_per_hour;
+        }
+        if let Some(max_cost_per_day_cents) = autonomy_patch.max_cost_per_day_cents {
+            cfg.autonomy.max_cost_per_day_cents = max_cost_per_day_cents;
+        }
+    }
+
+    if let Some(scheduler_patch) = patch.scheduler {
+        if let Some(enabled) = scheduler_patch.enabled {
+            cfg.scheduler.enabled = enabled;
+        }
+        if let Some(max_tasks) = scheduler_patch.max_tasks {
+            cfg.scheduler.max_tasks = max_tasks.max(1);
+        }
+        if let Some(max_concurrent) = scheduler_patch.max_concurrent {
+            cfg.scheduler.max_concurrent = max_concurrent.max(1);
+        }
+    }
+
+    if let Some(plugins_patch) = patch.plugins {
+        if let Some(enabled) = plugins_patch.enabled {
+            cfg.plugins.enabled = enabled;
+        }
+        if let Some(install_policy) = plugins_patch.install_policy {
+            let install_policy = install_policy.trim();
+            if install_policy != "pin-manual" {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "Invalid plugins.install_policy. Allowed: pin-manual"
+                    })),
+                );
+            }
+            cfg.plugins.install_policy = install_policy.to_string();
+        }
+    }
+
+    if let Some(gateway_patch) = patch.gateway {
+        if let Some(port) = gateway_patch.port {
+            cfg.gateway.port = port;
+        }
+        if let Some(host) = gateway_patch.host {
+            let host = host.trim();
+            if host.is_empty() {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "gateway.host cannot be empty"})),
+                );
+            }
+            cfg.gateway.host = host.to_string();
+        }
+        if let Some(require_pairing) = gateway_patch.require_pairing {
+            cfg.gateway.require_pairing = require_pairing;
+        }
+        if let Some(allow_public_bind) = gateway_patch.allow_public_bind {
+            cfg.gateway.allow_public_bind = allow_public_bind;
+        }
+        if let Some(limit) = gateway_patch.pair_rate_limit_per_minute {
+            cfg.gateway.pair_rate_limit_per_minute = limit;
+        }
+        if let Some(limit) = gateway_patch.webhook_rate_limit_per_minute {
+            cfg.gateway.webhook_rate_limit_per_minute = limit;
+        }
+        if let Some(trust_forwarded_headers) = gateway_patch.trust_forwarded_headers {
+            cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
+        }
+        if let Some(max_keys) = gateway_patch.rate_limit_max_keys {
+            cfg.gateway.rate_limit_max_keys = max_keys.max(1);
+        }
+        if let Some(ttl_secs) = gateway_patch.idempotency_ttl_secs {
+            cfg.gateway.idempotency_ttl_secs = ttl_secs.max(1);
+        }
+        if let Some(max_keys) = gateway_patch.idempotency_max_keys {
+            cfg.gateway.idempotency_max_keys = max_keys.max(1);
+        }
+    }
+
+    if let Some(webhook_patch) = patch.webhook {
+        if webhook_patch.port.is_some() || webhook_patch.secret.is_some() {
+            if cfg.channels_config.webhook.is_none() {
+                cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
+                    port: 3000,
+                    secret: None,
+                });
+            }
+
+            if let Some(webhook) = cfg.channels_config.webhook.as_mut() {
+                if let Some(port) = webhook_patch.port {
+                    webhook.port = port;
+                }
+
+                if let Some(secret_mode) = webhook_patch.secret {
+                    match secret_mode {
+                        AdminSecretUpdate::Unchanged => {}
+                        AdminSecretUpdate::Clear => webhook.secret = None,
+                        AdminSecretUpdate::Replace { value } => {
+                            let trimmed = value.trim();
+                            if trimmed.is_empty() {
+                                return (
+                                    StatusCode::BAD_REQUEST,
+                                    Json(serde_json::json!({
+                                        "error": "webhook.secret replace value cannot be empty"
+                                    })),
+                                );
+                            }
+                            webhook.secret = Some(trimmed.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let updated_view = admin_config_view(&cfg);
+    match cfg.save() {
+        Ok(()) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"updated": true, "config": updated_view})),
+        ),
+        Err(error) => {
+            tracing::error!("Admin config update failed to persist: {error:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to persist configuration"
+                })),
+            )
+        }
+    }
 }
 
 /// Webhook request body
@@ -1456,6 +2133,218 @@ mod tests {
 
     fn test_connect_info() -> ConnectInfo<SocketAddr> {
         ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 30_300)))
+    }
+
+    fn temp_config() -> Config {
+        let root = std::env::temp_dir().join(format!("corvus-gateway-test-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let config_path = root.join("config.toml");
+        let workspace_path = root.join("workspace");
+        std::fs::create_dir_all(&workspace_path).unwrap();
+
+        let mut config = Config::default();
+        config.config_path = config_path;
+        config.workspace_dir = workspace_path;
+        config
+    }
+
+    #[tokio::test]
+    async fn admin_config_requires_pairing_auth_when_enabled() {
+        let mut cfg = temp_config();
+        cfg.gateway.require_pairing = true;
+        cfg.gateway.paired_tokens = vec!["zc_valid_token".into()];
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(cfg)),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_admin_get_config(State(state), HeaderMap::new())
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn admin_config_get_returns_redacted_view() {
+        let mut cfg = temp_config();
+        cfg.default_provider = Some("openrouter".into());
+        cfg.default_model = Some("anthropic/claude-sonnet-4".into());
+        cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
+            port: 3030,
+            secret: Some("top-secret".into()),
+        });
+        cfg.gateway.paired_tokens = vec!["hash1".into(), "hash2".into()];
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(cfg)),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_admin_get_config(State(state), HeaderMap::new())
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(payload["config"]["default_provider"], "openrouter");
+        assert_eq!(payload["config"]["channels"]["webhook_port"], 3030);
+        assert_eq!(payload["config"]["channels"]["webhook_has_secret"], true);
+        assert_eq!(payload["config"]["gateway"]["paired_tokens_count"], 2);
+        assert_eq!(payload["config"]["runtime"]["kind"], "native");
+        assert_eq!(payload["config"]["plugins"]["install_policy"], "pin-manual");
+        assert!(payload.to_string().contains("webhook_has_secret"));
+        assert!(!payload.to_string().contains("top-secret"));
+        assert!(!payload.to_string().contains("hash1"));
+    }
+
+    #[tokio::test]
+    async fn admin_config_rejects_cross_origin_browser_request() {
+        let cfg = temp_config();
+        let state = AppState {
+            config: Arc::new(Mutex::new(cfg)),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
+        headers.insert(header::ORIGIN, HeaderValue::from_static("http://evil.local:3000"));
+
+        let response = handle_admin_get_config(State(state), headers)
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn admin_config_update_persists_and_keeps_secret_hidden() {
+        let cfg = temp_config();
+        cfg.save().unwrap();
+
+        let shared_cfg = Arc::new(Mutex::new(cfg));
+        let state = AppState {
+            config: shared_cfg.clone(),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let payload = serde_json::json!({
+            "default_provider": "anthropic",
+            "memory_backend": "sqlite",
+            "observability": {
+                "backend": "prometheus"
+            },
+            "runtime": {
+                "kind": "docker"
+            },
+            "autonomy": {
+                "level": "supervised",
+                "workspace_only": true,
+                "max_actions_per_hour": 25,
+                "max_cost_per_day_cents": 700
+            },
+            "scheduler": {
+                "enabled": true,
+                "max_tasks": 96,
+                "max_concurrent": 6
+            },
+            "plugins": {
+                "enabled": true,
+                "install_policy": "pin-manual"
+            },
+            "gateway": {
+                "port": 3333,
+                "host": "127.0.0.1"
+            },
+            "webhook": {
+                "port": 4444,
+                "secret": {
+                    "mode": "replace",
+                    "value": "new-webhook-secret"
+                }
+            }
+        });
+
+        let response = handle_admin_update_config(
+            State(state),
+            HeaderMap::new(),
+            Ok(Json(
+                serde_json::from_value::<AdminConfigUpdateRequest>(payload).unwrap(),
+            )),
+        )
+        .await
+        .into_response();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let cfg_guard = shared_cfg.lock();
+        assert_eq!(cfg_guard.default_provider.as_deref(), Some("anthropic"));
+        assert_eq!(cfg_guard.gateway.port, 3333);
+        assert_eq!(cfg_guard.observability.backend, "prometheus");
+        assert_eq!(cfg_guard.runtime.kind, "docker");
+        assert_eq!(cfg_guard.autonomy.max_actions_per_hour, 25);
+        assert_eq!(cfg_guard.scheduler.max_tasks, 96);
+        assert_eq!(
+            cfg_guard
+                .channels_config
+                .webhook
+                .as_ref()
+                .and_then(|w| w.secret.as_deref()),
+            Some("new-webhook-secret")
+        );
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["config"]["channels"]["webhook_has_secret"], true);
+        assert!(!result.to_string().contains("new-webhook-secret"));
     }
 
     #[tokio::test]
