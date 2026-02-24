@@ -730,7 +730,7 @@ jobs:
           deploy_log="$(mktemp)"
           wrangler deploy 2>&1 | tee "$deploy_log"
 
-          workers_dev_url="$(python -c 'import pathlib,re,sys;text=pathlib.Path(sys.argv[1]).read_text(encoding="utf-8",errors="ignore");matches=re.findall(r"https://[a-zA-Z0-9.-]+\\.workers\\.dev",text);print(matches[-1] if matches else "")' "$deploy_log")"
+          workers_dev_url="$(python -c 'import pathlib,re,sys;text=pathlib.Path(sys.argv[1]).read_text(encoding="utf-8",errors="ignore");matches=re.findall(r"https://[a-zA-Z0-9.-]+\.workers\.dev",text);print(matches[-1] if matches else "")' "$deploy_log")"
 
           if [ -z "$workers_dev_url" ]; then
             echo "Could not detect workers.dev URL from Wrangler deploy output" >&2
