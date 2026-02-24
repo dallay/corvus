@@ -135,7 +135,7 @@ function isUrlSafeForSecrets(rawUrl: string): boolean {
 }
 
 function normalizeBaseUrl(): string {
-  return baseUrl.value.replace(/\/$/, "");
+  return baseUrl.value.trim().replace(/\/$/, "");
 }
 
 function authHeaders(): Record<string, string> {

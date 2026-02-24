@@ -306,11 +306,15 @@ fn admin_requires_auth(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Option<(StatusCode, Json<serde_json::Value>)> {
-    if !state.pairing.require_pairing() {
-        return None;
-    }
+    let Some(token) = extract_bearer_token(headers) else {
+        return Some((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
+            })),
+        ));
+    };
 
-    let token = extract_bearer_token(headers).unwrap_or_default();
     if state.pairing.is_authenticated(&token) {
         None
     } else {
@@ -2402,7 +2406,7 @@ mod tests {
             port: 3030,
             secret: Some("top-secret".into()),
         });
-        cfg.gateway.paired_tokens = vec!["hash1".into(), "hash2".into()];
+        cfg.gateway.paired_tokens = vec!["zc_valid_token".into(), "hash2".into()];
 
         let state = AppState {
             config: Arc::new(Mutex::new(cfg)),
@@ -2412,7 +2416,7 @@ mod tests {
             mem: Arc::new(MockMemory),
             auto_save: false,
             webhook_secret_hash: None,
-            pairing: Arc::new(PairingGuard::new(false, &[])),
+            pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
@@ -2421,7 +2425,13 @@ mod tests {
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
-        let response = handle_admin_get_config(State(state), HeaderMap::new())
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer zc_valid_token"),
+        );
+
+        let response = handle_admin_get_config(State(state), headers)
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::OK);
@@ -2484,7 +2494,7 @@ mod tests {
             mem: Arc::new(MockMemory),
             auto_save: false,
             webhook_secret_hash: None,
-            pairing: Arc::new(PairingGuard::new(false, &[])),
+            pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
@@ -2492,6 +2502,11 @@ mod tests {
             whatsapp_app_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer zc_valid_token"),
+        );
 
         let payload = serde_json::json!({
             "scheduler": {
@@ -2512,7 +2527,7 @@ mod tests {
 
         let response = handle_admin_update_config(
             State(state),
-            HeaderMap::new(),
+            headers,
             Ok(Json(
                 serde_json::from_value::<AdminConfigUpdateRequest>(payload).unwrap(),
             )),
@@ -2544,7 +2559,7 @@ mod tests {
             mem: Arc::new(MockMemory),
             auto_save: false,
             webhook_secret_hash: None,
-            pairing: Arc::new(PairingGuard::new(false, &[])),
+            pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
@@ -2552,6 +2567,11 @@ mod tests {
             whatsapp_app_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer zc_valid_token"),
+        );
 
         let before = {
             let cfg_guard = shared_cfg.lock();
@@ -2572,7 +2592,7 @@ mod tests {
 
         let response = handle_admin_update_config(
             State(state),
-            HeaderMap::new(),
+            headers,
             Ok(Json(
                 serde_json::from_value::<AdminConfigUpdateRequest>(payload).unwrap(),
             )),
@@ -2607,7 +2627,7 @@ mod tests {
             mem: Arc::new(MockMemory),
             auto_save: false,
             webhook_secret_hash: None,
-            pairing: Arc::new(PairingGuard::new(false, &[])),
+            pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
@@ -2615,6 +2635,11 @@ mod tests {
             whatsapp_app_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer zc_valid_token"),
+        );
 
         let payload = serde_json::json!({
             "default_model": "anthropic/claude-3-5-sonnet",
@@ -2632,7 +2657,7 @@ mod tests {
 
         let response = handle_admin_update_config(
             State(state),
-            HeaderMap::new(),
+            headers,
             Ok(Json(
                 serde_json::from_value::<AdminConfigUpdateRequest>(payload).unwrap(),
             )),
