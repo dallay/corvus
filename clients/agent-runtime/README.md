@@ -375,7 +375,7 @@ Traditional markdown files in your workspace:
 
 ### AIEOS (AI Entity Object Specification)
 
-[AIEOS](https://aieos.org) is a standardization framework for portable AI identity. Corvus supports
+[AIEOS](https://aieos.org) (link temporally unavailable) is a standardization framework for portable AI identity. Corvus supports
 AIEOS v1.1 JSON payloads, allowing you to:
 
 - **Import identities** from the AIEOS ecosystem
@@ -428,7 +428,7 @@ aieos_inline = '''
 | `history`      | Origin story, education, occupation                           |
 | `interests`    | Hobbies, favorites, lifestyle                                 |
 
-See [aieos.org](https://aieos.org) for the full schema and live examples.
+See [aieos.org](https://aieos.org) (temporally unavailable) for the full schema and live examples.
 
 ## Gateway API
 
