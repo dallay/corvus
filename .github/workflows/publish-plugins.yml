@@ -529,6 +529,8 @@ jobs:
               certificate_path.write_text(normalized_certificate, encoding="utf-8")
 
           try:
+              # NOTE: this issuer value is the OIDC identity claim used by GitHub Actions
+              # certificates. It is not expected to be your catalog domain.
               subprocess.run(
                   [
                       "./cosign",
@@ -540,7 +542,7 @@ jobs:
                       "--certificate-oidc-issuer",
                       "https://token.actions.githubusercontent.com",
                       "--certificate-identity-regexp",
-                      f"https://github\\.com/{repository_pattern}/\\.github/workflows/publish-plugins\\.yml@.*",
+                      f"^https://github\\.com/{repository_pattern}/\\.github/workflows/publish-plugins\\.yml@refs/tags/plugin/.+/v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9_.-]+)?(?:\\+[A-Za-z0-9_.-]+)?$",
                       str(artifact_path),
                   ],
                   check=True,

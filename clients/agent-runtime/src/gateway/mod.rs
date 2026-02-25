@@ -534,7 +534,11 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
 
     if let Some(webhook) = patch.webhook.as_ref() {
         if let Some(port) = webhook.port {
-            let current_port = cfg.channels_config.webhook.as_ref().map_or(3000, |w| w.port);
+            let current_port = cfg
+                .channels_config
+                .webhook
+                .as_ref()
+                .map_or(3000, |w| w.port);
             if port != current_port {
                 fields.push("webhook.port");
             }
@@ -577,7 +581,10 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
 }
 
 fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde_json::Value>)> {
-    let Some(origin_raw) = headers.get(header::ORIGIN).and_then(|value| value.to_str().ok()) else {
+    let Some(origin_raw) = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())
+    else {
         return None;
     };
     let origin_raw = origin_raw.trim();
@@ -2513,7 +2520,10 @@ mod tests {
 
         let mut headers = HeaderMap::new();
         headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
-        headers.insert(header::ORIGIN, HeaderValue::from_static("http://evil.local:3000"));
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://evil.local:3000"),
+        );
 
         let response = handle_admin_get_config(State(state), headers)
             .await
@@ -2705,7 +2715,9 @@ mod tests {
         let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(result["restart_required"], true);
         assert!(result["fields"].to_string().contains("default_model"));
-        assert!(result["fields"].to_string().contains("gateway.require_pairing"));
+        assert!(result["fields"]
+            .to_string()
+            .contains("gateway.require_pairing"));
         assert!(result["fields"].to_string().contains("scheduler.max_tasks"));
         assert!(result["fields"].to_string().contains("plugins.enabled"));
         assert!(result["fields"].to_string().contains("webhook.secret"));

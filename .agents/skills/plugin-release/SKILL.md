@@ -18,6 +18,11 @@ with tags in this exact form:
 - `plugin/<plugin-id>/v<semver>`
 - Example: `plugin/memory.surreal.graphs/v0.2.0`
 
+Runtime note:
+
+- End users do **not** need local `cosign` installed to verify plugins.
+- Runtime verification is native Sigstore verification inside `corvus`.
+
 ## Preconditions
 
 Before tagging a release, verify:
@@ -115,6 +120,9 @@ Notes:
 
 - Key-based signing does not always emit a `.pem` certificate file.
 - Keyless OIDC signing emits certificate metadata suitable for identity checks.
+- The certificate issuer for GitHub Actions keyless signing is
+  `https://token.actions.githubusercontent.com` (OIDC issuer identity),
+  not your catalog domain.
 
 ## Cloudflare Pages Rules
 
