@@ -33,3 +33,6 @@ panic = "abort"
 
 [profile.dev]
 opt-level = "s"
+
+[patch.crates-io]
+xmas-elf = { git = "https://github.com/nrc/xmas-elf", tag = "v0.10.0" }
