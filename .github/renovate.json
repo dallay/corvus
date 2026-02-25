@@ -119,7 +119,7 @@
         "vite",
         "typescript",
         "vitest",
-        "tailwind",
+        "tailwindcss",
         "postcss",
         "@biomejs/biome",
         "vue-tsc",
