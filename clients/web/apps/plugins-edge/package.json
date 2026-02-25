@@ -1,6 +1,6 @@
 {
   "name": "@corvus/plugins-edge",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "private": true,
   "description": "Corvus plugins catalog edge API (Cloudflare Worker + R2)",
   "type": "module",
