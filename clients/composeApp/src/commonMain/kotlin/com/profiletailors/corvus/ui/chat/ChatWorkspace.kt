@@ -32,6 +32,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -54,10 +55,10 @@ private val ChatBubbleShape = RoundedCornerShape(14.dp)
 
 // Performance: Extracting static lists to constants avoids redundant allocations during
 // recomposition.
-private val HealthDetails =
+private val HEALTH_DETAILS =
   listOf("Auth: none", "Respuesta: {\"status\": \"ok\", \"paired\": bool, \"runtime\": {...}}")
 
-private val PairDetails =
+private val PAIR_DETAILS =
   listOf(
     "Header requerido: X-Pairing-Code",
     "Sin body JSON",
@@ -65,7 +66,7 @@ private val PairDetails =
     "Errores: 403 codigo invalido, 429 rate limit/lockout",
   )
 
-private val WebhookDetails =
+private val WEBHOOK_DETAILS =
   listOf(
     "Body requerido: {\"message\": \"...\"}",
     "Header auth: Authorization: Bearer <token> (si require_pairing=true)",
@@ -82,6 +83,14 @@ data class ChatWorkspaceState(
 )
 
 @Immutable
+data class ChatUiState(
+  val workspaceState: ChatWorkspaceState,
+  val messages: List<ChatMessage>,
+  val query: String,
+  val showConfig: Boolean,
+)
+
+@Immutable
 data class AgentGatewayConfig(
   val baseUrl: String,
   val pairingCode: String,
@@ -89,7 +98,7 @@ data class AgentGatewayConfig(
   val webhookSecret: String,
 )
 
-@Immutable
+@Stable
 data class ChatWorkspaceActions(
   val onQueryChange: (String) -> Unit,
   val onSend: () -> Unit,
@@ -112,9 +121,9 @@ object ChatWorkspaceDefaults {
     )
 }
 
-@Immutable private data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
+@Immutable data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
 
-private enum class ChatRole {
+enum class ChatRole {
   User,
   Assistant,
 }
@@ -155,6 +164,16 @@ fun ChatWorkspace(
       return
     }
 
+    // Performance: Always read the latest configuration at invocation time
+    // to avoid stale capture when called from remembered actions.
+    val currentGatewayConfig =
+      AgentGatewayConfig(
+        baseUrl = baseUrl,
+        pairingCode = pairingCode,
+        bearerToken = bearerToken,
+        webhookSecret = webhookSecret,
+      )
+
     messages.add(ChatMessage(id = nextId, role = ChatRole.User, content = prompt))
     nextId += 1
 
@@ -166,7 +185,7 @@ fun ChatWorkspace(
           buildLocalAssistantReply(
             prompt = prompt,
             modelName = state.modelName,
-            gateway = gatewayConfig,
+            gateway = currentGatewayConfig,
           ),
       )
     )
@@ -186,11 +205,11 @@ fun ChatWorkspace(
     )
   }
 
+  val uiState =
+    ChatUiState(workspaceState = state, messages = messages, query = query, showConfig = showConfig)
+
   ChatWorkspaceScreen(
-    state = state,
-    messages = messages,
-    query = query,
-    showConfig = showConfig,
+    uiState = uiState,
     gatewayConfig = gatewayConfig,
     actions = actions,
     modifier = modifier,
@@ -199,10 +218,7 @@ fun ChatWorkspace(
 
 @Composable
 private fun ChatWorkspaceScreen(
-  state: ChatWorkspaceState,
-  messages: List<ChatMessage>,
-  query: String,
-  showConfig: Boolean,
+  uiState: ChatUiState,
   gatewayConfig: AgentGatewayConfig,
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
@@ -214,14 +230,14 @@ private fun ChatWorkspaceScreen(
       modifier.fillMaxSize().background(colors.background).safeContentPadding().padding(16.dp)
   ) {
     ChatHeader(
-      modelName = state.modelName,
-      showConfig = showConfig,
+      modelName = uiState.workspaceState.modelName,
+      showConfig = uiState.showConfig,
       onToggleConfig = actions.onToggleConfig,
     )
 
     Spacer(modifier = Modifier.height(12.dp))
 
-    if (showConfig) {
+    if (uiState.showConfig) {
       Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
         ConfigPanel(
           gatewayConfig = gatewayConfig,
@@ -232,10 +248,9 @@ private fun ChatWorkspaceScreen(
     } else {
       Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
         ChatPanel(
-          modelName = state.modelName,
-          inputPlaceholder = state.inputPlaceholder,
-          messages = messages,
-          query = query,
+          state = uiState.workspaceState,
+          messages = uiState.messages,
+          query = uiState.query,
           actions = actions,
           modifier = Modifier.fillMaxSize(),
         )
@@ -270,8 +285,7 @@ private fun ChatHeader(modelName: String, showConfig: Boolean, onToggleConfig: (
 
 @Composable
 private fun ChatPanel(
-  modelName: String,
-  inputPlaceholder: String,
+  state: ChatWorkspaceState,
   messages: List<ChatMessage>,
   query: String,
   actions: ChatWorkspaceActions,
@@ -292,7 +306,7 @@ private fun ChatPanel(
       verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
       items(items = messages, key = { it.id }) { message ->
-        ChatBubble(message = message, modelName = modelName)
+        ChatBubble(message = message, modelName = state.modelName)
       }
     }
   }
@@ -304,7 +318,7 @@ private fun ChatPanel(
       value = query,
       onValueChange = actions.onQueryChange,
       modifier = Modifier.weight(1f),
-      placeholder = { Text(inputPlaceholder) },
+      placeholder = { Text(state.inputPlaceholder) },
       keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
       keyboardActions = KeyboardActions(onSend = { actions.onSend() }),
       maxLines = 4,
@@ -325,11 +339,15 @@ private fun ConfigPanel(
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
+  val colors = MaterialTheme.colorScheme
+  val borderStroke =
+    remember(colors.outline) { BorderStroke(1.dp, colors.outline.copy(alpha = 0.3f)) }
+
   Surface(
     modifier = modifier.fillMaxWidth(),
     shape = ConfigPanelShape,
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-    color = MaterialTheme.colorScheme.surface,
+    border = borderStroke,
+    color = colors.surface,
   ) {
     ConfigSettingsList(gatewayConfig = gatewayConfig, actions = actions)
   }
@@ -337,9 +355,6 @@ private fun ConfigPanel(
 
 @Composable
 private fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: ChatWorkspaceActions) {
-  var showBearerToken by remember { mutableStateOf(false) }
-  var showWebhookSecret by remember { mutableStateOf(false) }
-
   val (healthUrl, pairUrl, webhookUrl) =
     remember(gatewayConfig.baseUrl) {
       Triple(
@@ -376,54 +391,63 @@ private fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: ChatW
     }
 
     item {
-      OutlinedTextField(
+      PasswordTextField(
         value = gatewayConfig.bearerToken,
         onValueChange = actions.onBearerTokenChange,
-        label = { Text("Bearer token") },
-        placeholder = { Text("zc_...") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-        visualTransformation =
-          if (showBearerToken) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-          IconButton(onClick = { showBearerToken = !showBearerToken }) {
-            Icon(
-              imageVector =
-                if (showBearerToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-              contentDescription = if (showBearerToken) "Hide" else "Show",
-            )
-          }
-        },
+        label = "Bearer token",
+        placeholder = "zc_...",
       )
     }
 
     item {
-      OutlinedTextField(
+      PasswordTextField(
         value = gatewayConfig.webhookSecret,
         onValueChange = actions.onWebhookSecretChange,
-        label = { Text("Webhook secret (opcional)") },
-        placeholder = { Text("X-Webhook-Secret") },
-        singleLine = true,
-        modifier = Modifier.fillMaxWidth(),
-        visualTransformation =
-          if (showWebhookSecret) VisualTransformation.None else PasswordVisualTransformation(),
-        trailingIcon = {
-          IconButton(onClick = { showWebhookSecret = !showWebhookSecret }) {
-            Icon(
-              imageVector =
-                if (showWebhookSecret) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-              contentDescription = if (showWebhookSecret) "Hide" else "Show",
-            )
-          }
-        },
+        label = "Webhook secret (opcional)",
+        placeholder = "X-Webhook-Secret",
       )
     }
 
-    item { EndpointCard(title = "GET /health", subtitle = healthUrl, details = HealthDetails) }
+    item { EndpointsSection(healthUrl = healthUrl, pairUrl = pairUrl, webhookUrl = webhookUrl) }
+  }
+}
 
-    item { EndpointCard(title = "POST /pair", subtitle = pairUrl, details = PairDetails) }
+@Composable
+private fun PasswordTextField(
+  value: String,
+  onValueChange: (String) -> Unit,
+  label: String,
+  placeholder: String,
+  modifier: Modifier = Modifier,
+) {
+  var isVisible by remember { mutableStateOf(false) }
 
-    item { EndpointCard(title = "POST /webhook", subtitle = webhookUrl, details = WebhookDetails) }
+  OutlinedTextField(
+    value = value,
+    onValueChange = onValueChange,
+    label = { Text(label) },
+    placeholder = { Text(placeholder) },
+    singleLine = true,
+    modifier = modifier.fillMaxWidth(),
+    visualTransformation =
+      if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
+    trailingIcon = {
+      IconButton(onClick = { isVisible = !isVisible }) {
+        Icon(
+          imageVector = if (isVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+          contentDescription = if (isVisible) "Hide" else "Show",
+        )
+      }
+    },
+  )
+}
+
+@Composable
+private fun EndpointsSection(healthUrl: String, pairUrl: String, webhookUrl: String) {
+  Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    EndpointCard(title = "GET /health", subtitle = healthUrl, details = HEALTH_DETAILS)
+    EndpointCard(title = "POST /pair", subtitle = pairUrl, details = PAIR_DETAILS)
+    EndpointCard(title = "POST /webhook", subtitle = webhookUrl, details = WEBHOOK_DETAILS)
   }
 }
 
