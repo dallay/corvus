@@ -18,9 +18,9 @@
     "every weekend"
   ],
   "automergeSchedule": ["before 4am on the first day of the month"],
-  "prConcurrentLimit": 5,
-  "prHourlyLimit": 2,
-  "branchConcurrentLimit": 5,
+  "prConcurrentLimit": 10,
+  "prHourlyLimit": 5,
+  "branchConcurrentLimit": 10,
   "prCreation": "immediate",
   "platformAutomerge": true,
   "rebaseWhen": "auto",
@@ -35,6 +35,10 @@
   "labels": ["dependencies"],
   "addLabels": ["renovate"],
   "postUpdateOptions": ["npmDedupe", "pnpmDedupe"],
+  "constraints": {
+    "node": ">=22.0.0",
+    "pnpm": ">=10.28.0"
+  },
   "lockFileMaintenance": {
     "enabled": true,
     "schedule": ["before 5am on the first day of the month"]
@@ -66,6 +70,75 @@
       "prPriority": 2
     },
     {
+      "description": "Compose Multiplatform & AndroidX",
+      "matchManagers": ["gradle"],
+      "groupName": "Compose & AndroidX",
+      "matchPackageNames": [
+        "org.jetbrains.compose:{/,}**",
+        "androidx.compose:{/,}**",
+        "androidx.activity:{/,}**",
+        "androidx.lifecycle:{/,}**",
+        "org.jetbrains.androidx.lifecycle:{/,}**",
+        "org.jetbrains.compose.components:{/,}**",
+        "org.jetbrains.compose.foundation:{/,}**",
+        "org.jetbrains.compose.material3:{/,}**",
+        "org.jetbrains.compose.runtime:{/,}**",
+        "org.jetbrains.compose.ui:{/,}**"
+      ],
+      "minimumReleaseAge": "3 days",
+      "prPriority": 2
+    },
+    {
+      "description": "Rust ecosystem - Core grouping",
+      "matchManagers": ["cargo"],
+      "groupName": "Rust core dependencies",
+      "matchPackageNames": [
+        "tokio",
+        "tokio-util",
+        "tokio-tungstenite",
+        "serde",
+        "serde_json",
+        "reqwest",
+        "tracing",
+        "tracing-subscriber",
+        "anyhow",
+        "thiserror",
+        "axum",
+        "tower",
+        "tower-http"
+      ],
+      "semanticCommitType": "chore",
+      "minimumReleaseAge": "3 days"
+    },
+    {
+      "description": "Web ecosystem - Development Tools",
+      "matchManagers": ["npm"],
+      "groupName": "Web dev tools",
+      "matchPackageNames": [
+        "vue",
+        "vite",
+        "typescript",
+        "vitest",
+        "tailwind",
+        "postcss",
+        "@biomejs/biome",
+        "vue-tsc",
+        "happy-dom",
+        "@vue/**",
+        "@vitejs/**",
+        "@tailwindcss/**"
+      ],
+      "semanticCommitType": "chore",
+      "minimumReleaseAge": "2 days"
+    },
+    {
+      "description": "Astro ecosystem",
+      "groupName": "Astro ecosystem",
+      "matchPackageNames": ["astro", "@astrojs/**", "sharp", "astro-vtbot"],
+      "semanticCommitType": "chore",
+      "minimumReleaseAge": "2 days"
+    },
+    {
       "description": "Gradle wrapper - cautious updates with lockfile refresh",
       "matchPackageNames": ["gradle"],
       "matchManagers": ["gradle-wrapper"],
@@ -78,9 +151,12 @@
       ]
     },
     {
-      "description": "Spring Boot ecosystem - manual review required",
-      "groupName": "Spring Boot",
-      "matchPackageNames": ["org.springframework.boot:{/,}**"],
+      "description": "Spring ecosystem - manual review required",
+      "groupName": "Spring Framework & Boot",
+      "matchPackageNames": [
+        "org.springframework.boot:{/,}**",
+        "org.springframework:{/,}**"
+      ],
       "matchUpdateTypes": ["minor", "patch", "major"],
       "semanticCommitType": "fix",
       "automerge": false,
@@ -88,29 +164,21 @@
       "prPriority": 3
     },
     {
-      "description": "Spring Framework - manual review required",
-      "groupName": "Spring Framework",
-      "matchPackageNames": ["org.springframework:{/,}**"],
-      "matchUpdateTypes": ["minor", "patch"],
-      "semanticCommitType": "fix",
-      "automerge": false,
-      "minimumReleaseAge": "5 days"
-    },
-    {
-      "description": "Astro ecosystem",
-      "groupName": "Astro ecosystem",
-      "matchPackageNames": ["astro", "@astrojs/**", "sharp", "astro-vtbot"],
-      "matchFileNames": ["clients/web/apps/docs/package.json"],
-      "semanticCommitType": "chore",
-      "minimumReleaseAge": "2 days"
-    },
-    {
-      "description": "Biome - fast updates",
-      "matchPackageNames": ["@biomejs/biome"],
-      "groupName": "Biome tooling",
-      "semanticCommitType": "chore",
-      "automerge": true,
-      "matchUpdateTypes": ["minor", "patch"]
+      "description": "Gradle tooling & plugins",
+      "matchManagers": ["gradle"],
+      "matchPackageNames": [
+        "org.gradlex:{/,}**",
+        "com.diffplug.spotless",
+        "dev.detekt",
+        "com.gradle.develocity",
+        "com.gradleup.shadow",
+        "com.vanniktech.maven.publish",
+        "com.autonomousapps.dependency-analysis",
+        "com.google.devtools.ksp",
+        "com.google.cloud.tools.jib"
+      ],
+      "groupName": "Gradle build tooling",
+      "minimumReleaseAge": "3 days"
     },
     {
       "description": "GitHub Actions - monthly batch",
@@ -130,13 +198,6 @@
       "schedule": ["before 5am on the first day of the month"],
       "automerge": false,
       "semanticCommitType": "chore"
-    },
-    {
-      "description": "Gradle plugins from version catalog",
-      "matchManagers": ["gradle"],
-      "matchDepTypes": ["plugin"],
-      "groupName": "Gradle plugins",
-      "minimumReleaseAge": "3 days"
     },
     {
       "description": "Major updates - delay for stability",
@@ -161,30 +222,6 @@
       "automerge": false,
       "minimumReleaseAge": "5 days",
       "addLabels": ["unstable-dependency"]
-    }
-  ],
-  "customManagers": [
-    {
-      "description": "Gradle version catalog - libraries",
-      "customType": "regex",
-      "fileFormat": "toml",
-      "managerFilePatterns": ["/^gradle/libs\\.versions\\.toml$/"],
-      "matchStrings": [
-        "(?<depName>[^\\s]+)\\s*=\\s*\\{\\s*module\\s*=\\s*\"(?<packageName>[^\"]+)\"\\s*,\\s*version\\s*=\\s*\"(?<currentValue>[^\"]+)\"\\s*\\}"
-      ],
-      "datasourceTemplate": "maven",
-      "versioningTemplate": "maven"
-    },
-    {
-      "description": "Gradle version catalog - plugins",
-      "customType": "regex",
-      "fileFormat": "toml",
-      "managerFilePatterns": ["/^gradle/libs\\.versions\\.toml$/"],
-      "matchStrings": [
-        "(?<depName>[^\\s]+)\\s*=\\s*\\{\\s*id\\s*=\\s*\"(?<packageName>[^\"]+)\"\\s*(?:,\\s*version\\s*=\\s*\"(?<currentValue>[^\"]+)\")?\\s*\\}"
-      ],
-      "datasourceTemplate": "gradle-plugin",
-      "versioningTemplate": "maven"
     }
   ]
 }
