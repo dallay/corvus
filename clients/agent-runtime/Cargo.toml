@@ -202,6 +202,7 @@ panic = "abort"
 tempfile = "=3.25.0"
 criterion = { version = "=0.5.1", features = ["async_tokio"] }
 wat = "=1.245.1"
+rcgen = "0.13"
 
 [[bench]]
 name = "agent_benchmarks"

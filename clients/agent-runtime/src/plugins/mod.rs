@@ -61,8 +61,7 @@ KsXF+jAKBggqhkjOPQQDAwNpADBmAjEAj1nHeXZp+13NWBNa+EDsDP8G1WWg1tCM
 WP/WHPqpaVo0jhsweNFZgSs0eE7wYI4qAjEA2WB9ot98sIkoF3vZYdd3/VtWB5b9
 TNMea7Ix/stJ5TfcLLeABLE4BNJOsQ4vnBHJ
 -----END CERTIFICATE-----"#;
-const OFFICIAL_PLUGIN_IDENTITY_REGEX: &str =
-    r"^https://github\.com/dallay/corvus/\.github/workflows/publish-plugins\.yml@.*$";
+const OFFICIAL_PLUGIN_IDENTITY_REGEX: &str = r"^https://github\.com/dallay/corvus/\.github/workflows/publish-plugins\.yml@refs/tags/plugin/.+/v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9_.-]+)?(?:\+[A-Za-z0-9_.-]+)?$";
 
 pub const OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID: &str = "memory.surreal.graphs";
 
@@ -1690,7 +1689,7 @@ fn verify_blob_with_sigstore(
     let cert = Certificate::from_pem(certificate_text)
         .context("Failed to parse plugin signing certificate PEM")?;
 
-    validate_sigstore_certificate(&cert, identity_regex)?;
+    validate_sigstore_certificate(&cert, identity_regex, certificate)?;
 
     let verification_key =
         CosignVerificationKey::try_from(&cert.tbs_certificate.subject_public_key_info)
@@ -1711,20 +1710,33 @@ fn verify_blob_with_sigstore(
         .context("Sigstore signature verification failed")
 }
 
-fn validate_sigstore_certificate(certificate: &Certificate, identity_regex: &str) -> Result<()> {
-    validate_certificate_chain(certificate)?;
+fn validate_sigstore_certificate(
+    certificate: &Certificate,
+    identity_regex: &str,
+    certificate_pem: &[u8],
+) -> Result<()> {
+    validate_certificate_chain(certificate, certificate_pem)?;
     validate_certificate_validity(certificate)?;
     validate_certificate_issuer(certificate, SIGSTORE_GITHUB_OIDC_ISSUER)?;
     validate_certificate_identity(certificate, identity_regex)
 }
 
-fn validate_certificate_chain(certificate: &Certificate) -> Result<()> {
+fn validate_certificate_chain(certificate: &Certificate, certificate_pem: &[u8]) -> Result<()> {
     let cert_der = certificate
         .to_der()
         .context("Failed to encode signing certificate as DER")?;
-    let end_entity_der = CertificateDer::from(cert_der);
+    let end_entity_der = CertificateDer::from(cert_der.clone());
     let end_entity = EndEntityCert::try_from(&end_entity_der)
         .context("Failed to parse signing certificate as X.509 end-entity cert")?;
+
+    let parsed_pem_chain = CertificateDer::pem_slice_iter(certificate_pem)
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .context("Failed to parse PEM certificate chain")?;
+
+    let intermediates: Vec<CertificateDer<'static>> = parsed_pem_chain
+        .into_iter()
+        .filter(|candidate| candidate.as_ref() != cert_der.as_slice())
+        .collect();
 
     let trust_anchors = [FULCIO_ROOT_CERT_1_PEM, FULCIO_ROOT_CERT_2_PEM]
         .into_iter()
@@ -1742,7 +1754,7 @@ fn validate_certificate_chain(certificate: &Certificate) -> Result<()> {
         .verify_for_usage(
             ALL_VERIFICATION_ALGS,
             trust_anchors.as_slice(),
-            &[],
+            intermediates.as_slice(),
             UnixTime::now(),
             usage,
             None,
@@ -1790,37 +1802,48 @@ fn validate_certificate_issuer(certificate: &Certificate, expected_issuer: &str)
 }
 
 fn validate_certificate_identity(certificate: &Certificate, identity_regex: &str) -> Result<()> {
-    let identity = certificate_identity(certificate)?;
+    let identities = certificate_identity(certificate)?;
     let matcher = regex::Regex::new(identity_regex)
         .with_context(|| format!("Invalid certificate identity regex: {identity_regex}"))?;
 
-    if !matcher.is_match(&identity) {
-        bail!(
-            "Certificate identity '{}' does not match expected pattern '{}'",
-            identity,
-            identity_regex
-        );
+    if identities.iter().any(|identity| matcher.is_match(identity)) {
+        return Ok(());
     }
 
-    Ok(())
+    let identity = identities.join(", ");
+    bail!(
+        "Certificate identity '{}' does not match expected pattern '{}'",
+        identity,
+        identity_regex
+    )
 }
 
-fn certificate_identity(certificate: &Certificate) -> Result<String> {
+fn certificate_identity(certificate: &Certificate) -> Result<Vec<String>> {
     let (_, san) = certificate
         .tbs_certificate
         .get::<SubjectAltName>()
         .context("Failed to read certificate SubjectAltName extension")?
         .ok_or_else(|| anyhow!("Certificate is missing SubjectAltName extension"))?;
 
+    let mut identities = Vec::new();
+
     for name in &san.0 {
-        match name {
-            GeneralName::UniformResourceIdentifier(uri) => return Ok(uri.to_string()),
-            GeneralName::Rfc822Name(email) => return Ok(email.to_string()),
-            _ => continue,
+        if let GeneralName::UniformResourceIdentifier(uri) = name {
+            identities.push(uri.to_string());
         }
     }
 
-    bail!("Certificate SubjectAltName does not include URI or email identity")
+    for name in &san.0 {
+        if let GeneralName::Rfc822Name(email) = name {
+            identities.push(email.to_string());
+        }
+    }
+
+    if identities.is_empty() {
+        bail!("Certificate SubjectAltName does not include URI or email identity");
+    }
+
+    Ok(identities)
 }
 
 fn read_certificate_extension_utf8(
@@ -2271,6 +2294,7 @@ pub fn summarize_by_source(plugins: &[LockedPlugin]) -> HashMap<String, usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rcgen::{CertificateParams, CustomExtension, DnType, IsCa, KeyPair, SanType};
     use tempfile::TempDir;
 
     fn write_json(path: &Path, value: &impl Serialize) {
@@ -2304,6 +2328,210 @@ mod tests {
 
     fn wasm_sample() -> Vec<u8> {
         vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
+    }
+
+    fn issuer_extension_oid_components() -> Vec<u64> {
+        SIGSTORE_ISSUER_OID
+            .to_string()
+            .split('.')
+            .map(|part| part.parse::<u64>().expect("valid OID component"))
+            .collect()
+    }
+
+    fn build_test_certificate(
+        san_entries: Vec<SanType>,
+        issuer_extension_bytes: Option<Vec<u8>>,
+    ) -> (String, Certificate) {
+        let mut params = CertificateParams::default();
+        params
+            .distinguished_name
+            .push(DnType::CommonName, "corvus-test");
+        params.subject_alt_names = san_entries;
+        params.is_ca = IsCa::NoCa;
+
+        if let Some(bytes) = issuer_extension_bytes {
+            let extension =
+                CustomExtension::from_oid_content(&issuer_extension_oid_components(), bytes);
+            params.custom_extensions.push(extension);
+        }
+
+        let key_pair = KeyPair::generate().expect("key pair generation should succeed");
+        let certificate = params
+            .self_signed(&key_pair)
+            .expect("certificate generation should succeed");
+        let pem = certificate.pem();
+        let parsed = Certificate::from_pem(&pem).expect("generated certificate must parse");
+        (pem, parsed)
+    }
+
+    #[test]
+    fn validate_certificate_issuer_accepts_expected_issuer() {
+        let expected = SIGSTORE_GITHUB_OIDC_ISSUER;
+        let (_, certificate) = build_test_certificate(
+            vec![SanType::Rfc822Name(
+                "dev@profiletailors.com".try_into().unwrap(),
+            )],
+            Some(expected.as_bytes().to_vec()),
+        );
+
+        validate_certificate_issuer(&certificate, expected)
+            .expect("expected issuer should be accepted");
+    }
+
+    #[test]
+    fn validate_certificate_issuer_rejects_mismatch() {
+        let (_, certificate) = build_test_certificate(
+            vec![SanType::Rfc822Name(
+                "dev@profiletailors.com".try_into().unwrap(),
+            )],
+            Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
+        );
+
+        let error = validate_certificate_issuer(&certificate, "https://issuer.example.com")
+            .expect_err("mismatched issuer must be rejected");
+        assert!(error.to_string().contains("OIDC issuer mismatch"));
+    }
+
+    #[test]
+    fn read_certificate_extension_utf8_returns_none_when_extension_missing() {
+        let (_, certificate) = build_test_certificate(
+            vec![SanType::Rfc822Name(
+                "dev@profiletailors.com".try_into().unwrap(),
+            )],
+            None,
+        );
+
+        let value = read_certificate_extension_utf8(&certificate, SIGSTORE_ISSUER_OID)
+            .expect("missing extension should not error");
+        assert!(value.is_none());
+    }
+
+    #[test]
+    fn read_certificate_extension_utf8_rejects_non_utf8_extension() {
+        let (_, certificate) = build_test_certificate(
+            vec![SanType::Rfc822Name(
+                "dev@profiletailors.com".try_into().unwrap(),
+            )],
+            Some(vec![0xFF, 0xFE, 0xFD]),
+        );
+
+        let error = read_certificate_extension_utf8(&certificate, SIGSTORE_ISSUER_OID)
+            .expect_err("non-UTF8 extension must fail");
+        assert!(error.to_string().contains("not valid UTF-8"));
+    }
+
+    #[test]
+    fn certificate_identity_prefers_uri() {
+        let (_, certificate) = build_test_certificate(
+            vec![
+                SanType::Rfc822Name("first@profiletailors.com".try_into().unwrap()),
+                SanType::URI("https://github.com/dallay/corvus/.github/workflows/publish-plugins.yml@refs/tags/plugin/memory.surreal.graphs/v0.1.2".try_into().unwrap()),
+                SanType::Rfc822Name("second@profiletailors.com".try_into().unwrap()),
+                SanType::URI("https://github.com/dallay/corvus/.github/workflows/publish-plugins.yml@refs/tags/plugin/other/v1.2.3".try_into().unwrap()),
+            ],
+            Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
+        );
+
+        let identities =
+            certificate_identity(&certificate).expect("certificate identities should parse");
+        assert_eq!(
+            identities,
+            vec![
+                "https://github.com/dallay/corvus/.github/workflows/publish-plugins.yml@refs/tags/plugin/memory.surreal.graphs/v0.1.2".to_string(),
+                "https://github.com/dallay/corvus/.github/workflows/publish-plugins.yml@refs/tags/plugin/other/v1.2.3".to_string(),
+                "first@profiletailors.com".to_string(),
+                "second@profiletailors.com".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn certificate_identity_errors_when_no_uri_or_email() {
+        let (_, certificate) = build_test_certificate(
+            vec![SanType::DnsName(
+                "plugins.corvus.profiletailors.com".try_into().unwrap(),
+            )],
+            Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
+        );
+
+        let error = certificate_identity(&certificate)
+            .expect_err("SAN without URI/email must fail identity extraction");
+        assert!(error
+            .to_string()
+            .contains("SubjectAltName does not include URI or email identity"));
+    }
+
+    #[test]
+    fn validate_certificate_identity_accepts_any_matching_identity() {
+        let (_, certificate) = build_test_certificate(
+            vec![
+                SanType::URI(
+                    "https://github.com/dallay/corvus/.github/workflows/publish-plugins.yml@refs/heads/main"
+                        .try_into()
+                        .unwrap(),
+                ),
+                SanType::Rfc822Name("bot@profiletailors.com".try_into().unwrap()),
+            ],
+            Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
+        );
+
+        validate_certificate_identity(&certificate, r"^bot@profiletailors\.com$")
+            .expect("identity matcher should accept any matching SAN identity");
+    }
+
+    #[test]
+    fn validate_certificate_identity_rejects_when_no_identity_matches() {
+        let (_, certificate) = build_test_certificate(
+            vec![SanType::Rfc822Name(
+                "bot@profiletailors.com".try_into().unwrap(),
+            )],
+            Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
+        );
+
+        let error = validate_certificate_identity(&certificate, r"^https://github\.com/.+$")
+            .expect_err("identity mismatch should be rejected");
+        assert!(error
+            .to_string()
+            .contains("does not match expected pattern"));
+    }
+
+    #[test]
+    fn validate_certificate_chain_rejects_untrusted_root() {
+        let (pem, certificate) = build_test_certificate(
+            vec![SanType::Rfc822Name(
+                "bot@profiletailors.com".try_into().unwrap(),
+            )],
+            Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
+        );
+
+        let error = validate_certificate_chain(&certificate, pem.as_bytes())
+            .expect_err("self-signed cert must fail against Fulcio trust roots");
+        assert!(error
+            .to_string()
+            .contains("Certificate chain verification against Fulcio roots failed"));
+    }
+
+    #[test]
+    fn validate_certificate_chain_rejects_invalid_intermediate_bundle() {
+        let (leaf_pem, certificate) = build_test_certificate(
+            vec![SanType::Rfc822Name(
+                "bot@profiletailors.com".try_into().unwrap(),
+            )],
+            Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
+        );
+        let (intermediate_pem, _) = build_test_certificate(
+            vec![SanType::Rfc822Name(
+                "ca@profiletailors.com".try_into().unwrap(),
+            )],
+            Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
+        );
+        let bundled = format!("{}\n{}", leaf_pem, intermediate_pem);
+
+        let error = validate_certificate_chain(&certificate, bundled.as_bytes())
+            .expect_err("invalid intermediate bundle must fail chain verification");
+        assert!(error
+            .to_string()
+            .contains("Certificate chain verification against Fulcio roots failed"));
     }
 
     #[test]
