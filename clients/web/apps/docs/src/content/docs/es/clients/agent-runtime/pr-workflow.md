@@ -11,14 +11,14 @@ Este documento define cómo Corvus maneja un alto volumen de PRs manteniendo:
 
 Referencia relacionada: [`ci-map.md`](ci-map.md) para propiedad por workflow, disparadores y flujo de triaje.
 
-## 1) Objetivos de Gobernanza
+## 1) Objetivos de gobernanza
 
 1. Mantener el throughput de merge predecible bajo carga alta de PRs.
 2. Mantener la calidad de señal de CI alta (feedback rápido, pocos falsos positivos).
 3. Mantener la revisión de seguridad explícita para superficies de riesgo.
 4. Mantener los cambios fáciles de razonar y fáciles de revertir.
 
-## 2) Configuración Requerida del Repositorio
+## 2) Configuración requerida del repositorio
 
 Mantén estas reglas de protección de rama en `main`:
 
@@ -29,7 +29,7 @@ Mantén estas reglas de protección de rama en `main`:
 - Descarta aprobaciones stale cuando se hacen nuevos commits.
 - Restringe force-push en ramas protegidas.
 
-## 3) Ciclo de Vida del PR
+## 3) Ciclo de vida del PR
 
 ### Paso A: Intake
 
@@ -41,7 +41,7 @@ Mantén estas reglas de protección de rama en `main`:
 
 - `CI Required Gate` es la merge gate.
 - PRs de docs usan fast-path y saltan jobs pesados de Rust.
-- PRs no-docs deben pasar lint, tests, y smoke check de release build.
+- PRs no-docs deben pasar lint, tests y smoke check de release build.
 
 ### Paso C: Revisión
 
@@ -84,7 +84,7 @@ Recomendado:
 1. Breves notas de herramienta/workflow cuando la automatización influyó materialmente el cambio.
 2. Snippets opcionales de prompt/plan para reproducibilidad.
 
-**No** requerimos que contribuidores cuantifiquen propiedad de líneas AI-vs-humano.
+**No** requerimos que los contribuidores cuantifiquen propiedad de líneas AI-vs-humano.
 
 Énfasis de revisión para PRs heavy-AI:
 
@@ -100,7 +100,7 @@ Recomendado:
 - Automatización `stale` se usa para mantener cola saludable; maintainers pueden aplicar `no-stale` cuando sea necesario.
 - Automatización `pr-hygiene` revisa PRs abiertos cada 12 horas y publica nudge cuando un PR no tiene nuevos commits por 48+ horas y está detrás de `main` o tiene `CI Required Gate` fallando/missing en el head commit.
 
-## 7) Reglas de Seguridad y Estabilidad
+## 7) Reglas de seguridad y estabilidad
 
 Cambios en estas áreas requieren revisión más estricta y evidencia de test más fuerte:
 
@@ -116,13 +116,13 @@ Mínimo para PRs riesgosos:
 - Notas de mitigación
 - Pasos de rollback
 
-## 8) Recuperación de Fallas
+## 8) Recuperación de fallas
 
 Si un PR mergeado causa regresiones:
 
 1. Revertir PR inmediatamente en `main`.
 2. Abrir issue de seguimiento con análisis de root cause.
-3. Re-introducir fix solo con tests de regresión.
+3. Reintroducir fix solo con tests de regresión.
 
 Preferir restauración rápida de calidad de servicio sobre fixes perfectos tardíos.
 
@@ -132,10 +132,10 @@ Preferir restauración rápida de calidad de servicio sobre fixes perfectos tard
 - CI gate está verde.
 - Campos de impacto de seguridad están completos.
 - Notas de workflow de agent son suficientes para reproducibilidad (si automatización fue usada).
-- Plan de rollback es explícito.
+- El plan de rollback es explícito.
 - Título del commit sigue Conventional Commits.
 
-## 10) Modelo Operativo de Revisión por Agent
+## 10) Modelo operativo de revisión por agent
 
 Para mantener calidad de revisión estable bajo alto volumen de PRs, usamos un modelo de dos carriles:
 
@@ -155,7 +155,7 @@ Requerido para cambios de alto riesgo (security/runtime/gateway/CI):
 - Validar compatibilidad hacia atrás e impacto de migración.
 - Validar impacto de observabilidad/logging.
 
-## 11) Prioridad de Cola y Disciplina de Labels
+## 11) Prioridad de cola y disciplina de labels
 
 Orden de triaje recomendado:
 
@@ -169,13 +169,13 @@ Disciplina de labels:
 - Size labels guían estrategia de batching.
 - `no-stale` reservado para trabajo aceptado pero bloqueado.
 
-## 12) Contrato de Handoff de Agent
+## 12) Contrato de handoff de agent
 
 Cuando un agent hace handoff a otro (o a un maintainer), incluir:
 
 1. Límite de scope (qué cambió / qué no cambió).
 2. Evidencia de validación.
 3. Riesgos y unknowns abiertos.
-4. siguiente acción sugerida.
+4. Siguiente acción sugerida.
 
 Esto mantiene baja la pérdida de contexto y evita deep dives repetidos.

@@ -102,13 +102,13 @@ Los proveedores de modelos están envueltos en un sistema de resiliencia (`provi
 
 El módulo `agent/` contiene la lógica de orquestación del agente. Define el ciclo de vida de ejecución, desde la recepción de un mensaje hasta la generación de una respuesta. Este módulo es responsable de mantener el estado de la conversación, gestionar el contexto y coordinar las interacciones con los otros componentes del sistema.
 
-El agente utiliza un patrón de loop de ejecución que alterna entre fases de pensamiento y fases de acción. Durante las fases de pensamiento, el agente analiza el contexto disponible y decide qué herramientas invocar. Durante las fases de acción, ejecuta las herramientas seleccionadas y procesa los resultados.
+El agente utiliza un patrón de bucle de ejecución que alterna entre fases de pensamiento y fases de acción. Durante las fases de pensamiento, el agente analiza el contexto disponible y decide qué herramientas invocar. Durante las fases de acción, ejecuta las herramientas seleccionadas y procesa los resultados.
 
 ### Proveedores
 
 El módulo `providers/` incluye implementaciones para múltiples proveedores de modelos de lenguaje. Cada proveedor es una implementación del trait `Provider` que define los métodos para enviar prompts, recibir respuestas y gestionar la autenticación.
 
-Los proveedores soportados incluyen OpenAI (GPT-4, GPT-4o, GPT-4o-mini), Anthropic (Claude 3.5, Claude 3), Google Gemini, Ollama para ejecución local, OpenRouter como agregador, GitHub Copilot y modelos compatibles con la API de OpenAI. El sistema de enrutamiento (`providers/router.rs`) puede dirigir solicitudes a diferentes proveedores basado en configuración, costo o disponibilidad.
+Los proveedores soportados incluyen modelos compatibles con OpenAI, Anthropic, Google Gemini, runtimes locales como Ollama, agregadores como OpenRouter, y GitHub Copilot. El sistema de enrutamiento (`providers/router.rs`) puede dirigir solicitudes a diferentes proveedores basado en configuración, costo o disponibilidad. Consulta la matriz de compatibilidad para una lista actualizada de modelos soportados.
 
 ### Canales
 
@@ -132,7 +132,7 @@ El módulo `peripherals/` extiende el agente al mundo físico. Permite controlar
 
 El subsistema de seguridad implementa múltiples capas de protección. La política de seguridad (`security/policy.rs`) define qué operaciones están permitidas bajo qué condiciones. El manejo de secretos (`security/secrets.rs`) proporciona almacenamiento cifrado para credenciales y claves API. El emparejamiento (`security/pairing.rs`) permite establecer relaciones de confianza entre el agente y usuarios o servicios. La auditoría (`security/audit.rs`) registra todas las operaciones sensibles para revisión posterior.
 
-Los mecanismos de sandboxing utilizan las capacidades del kernel de Linux para restringir los recursos disponibles al agente. Landlock aplica restricciones de filesystem y red sin requerir privilegios de root. Bubblewrap crea contenedores livianos con aislamiento completo. Firejail proporciona sandboxing establecido con múltiples perfiles preconfigurados.
+Los mecanismos de sandboxing utilizan las capacidades del kernel de Linux para restringir los recursos disponibles al agente. Landlock aplica restricciones de filesystem (soportado en kernels 5.13-6.2) y red (requiere kernel 6.7+ con ABI v4, limitado a puertos TCP para bind/connect, sin soporte para UDP, sockets raw, DNS por nombre o rangos IP) sin requerir privilegios de root. Bubblewrap crea contenedores livianos con aislamiento completo. Firejail proporciona sandboxing establecido con múltiples perfiles preconfigurados.
 
 ### Infraestructura
 
