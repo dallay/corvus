@@ -12,7 +12,7 @@ use std::path::Path;
 /// AIEOS v1.1 identity structure.
 ///
 /// This follows the AIEOS schema for defining AI agent identity, personality,
-/// and behavior. See https://aieos.org for the full specification.
+/// and behavior.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AieosIdentity {
     /// Core identity: names, bio, origin, residence

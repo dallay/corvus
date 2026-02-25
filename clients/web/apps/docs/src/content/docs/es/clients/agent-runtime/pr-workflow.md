@@ -22,12 +22,12 @@ Referencia relacionada: [`ci-map.md`](ci-map.md) para propiedad por workflow, di
 
 Mantén estas reglas de protección de rama en `main`:
 
-- Require status checks before merge.
-- Require check `CI Required Gate`.
-- Require pull request reviews before merge.
-- Require CODEOWNERS review for protected paths.
-- Dismiss stale approvals when new commits are pushed.
-- Restrict force-push on protected branches.
+- Requiere status checks antes del merge.
+- Requiere el check `CI Required Gate`.
+- Requiere revisiones de PR antes del merge.
+- Requiere revisión de CODEOWNERS para paths protegidos.
+- Descarta aprobaciones stale cuando se hacen nuevos commits.
+- Restringe force-push en ramas protegidas.
 
 ## 3) Ciclo de Vida del PR
 

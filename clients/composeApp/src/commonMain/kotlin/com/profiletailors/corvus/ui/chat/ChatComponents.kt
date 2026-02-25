@@ -64,7 +64,7 @@ enum class ChatRole {
 }
 
 @Composable
-internal fun PasswordTextField(
+internal fun passwordTextField(
   value: String,
   onValueChange: (String) -> Unit,
   label: String,
@@ -94,16 +94,16 @@ internal fun PasswordTextField(
 }
 
 @Composable
-internal fun EndpointsSection(healthUrl: String, pairUrl: String, webhookUrl: String) {
+internal fun endpointsSection(healthUrl: String, pairUrl: String, webhookUrl: String) {
   Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-    EndpointCard(title = "GET /health", subtitle = healthUrl, details = HEALTH_DETAILS)
-    EndpointCard(title = "POST /pair", subtitle = pairUrl, details = PAIR_DETAILS)
-    EndpointCard(title = "POST /webhook", subtitle = webhookUrl, details = WEBHOOK_DETAILS)
+    endpointCard(title = "GET /health", subtitle = healthUrl, details = HEALTH_DETAILS)
+    endpointCard(title = "POST /pair", subtitle = pairUrl, details = PAIR_DETAILS)
+    endpointCard(title = "POST /webhook", subtitle = webhookUrl, details = WEBHOOK_DETAILS)
   }
 }
 
 @Composable
-internal fun EndpointCard(title: String, subtitle: String, details: List<String>) {
+internal fun endpointCard(title: String, subtitle: String, details: List<String>) {
   val colors = MaterialTheme.colorScheme
   val outlineStroke =
     remember(colors.outline) { BorderStroke(1.dp, colors.outline.copy(alpha = 0.25f)) }

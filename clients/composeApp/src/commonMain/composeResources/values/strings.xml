@@ -15,4 +15,6 @@
   <string name="button_skip">Saltar</string>
   <string name="button_next">Siguiente</string>
   <string name="button_start">Comenzar</string>
+  <string name="show_password">Mostrar</string>
+  <string name="hide_password">Ocultar</string>
 </resources>
