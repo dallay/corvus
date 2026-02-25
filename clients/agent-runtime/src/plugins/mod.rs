@@ -16,7 +16,7 @@ use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
-use webpki::{anchor_from_trusted_cert, EndEntityCert, KeyUsage, ALL_VERIFICATION_ALGS};
+use webpki::{anchor_from_trusted_cert, EndEntityCert, Error, KeyUsage, ALL_VERIFICATION_ALGS};
 use x509_cert::der::{DecodePem, Encode};
 use x509_cert::ext::pkix::name::GeneralName;
 use x509_cert::ext::pkix::SubjectAltName;
@@ -1840,17 +1840,16 @@ fn validate_certificate_chain(
         // Ignore time-based errors (certificate expired or not yet valid)
         // but fail on any other chain verification errors.
         if let Err(e) = result {
-            let error_str = e.to_string();
-            let error_lower = error_str.to_ascii_lowercase();
-            if !error_lower.contains("expired")
-                && !error_lower.contains("not yet valid")
-                && !error_lower.contains("validity")
-            {
-                return Err(e)
-                    .context("Certificate chain verification against Fulcio roots failed");
+            match e {
+                Error::CertExpired { .. } | Error::CertNotValidYet { .. } => {
+                    // Log the time-based issue at debug level for observability
+                    tracing::debug!("Runtime certificate time validation skipped: {}", e);
+                }
+                _ => {
+                    return Err(e)
+                        .context("Certificate chain verification against Fulcio roots failed");
+                }
             }
-            // Log the time-based issue at debug level for observability
-            tracing::debug!("Runtime certificate time validation skipped: {}", error_str);
         }
     }
 
