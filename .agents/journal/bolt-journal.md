@@ -44,4 +44,4 @@ Build time baseline (hot): ~2s. No regression.
 - **Improved Performance**: Staying within a 50-line diff (21 insertions, 29 deletions) while improving runtime efficiency.
 
 **Benchmark:**
-Build time baseline (hot): ~10.7s. Post-optimization: ~1.4s (incremental). Verified functional correctness with `:composeApp:check`.
+Incremental baseline: ~10.7s → Incremental post-optimization: ~1.4s. Verified functional correctness with `:composeApp:check`.

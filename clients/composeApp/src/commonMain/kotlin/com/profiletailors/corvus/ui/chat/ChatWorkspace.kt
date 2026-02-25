@@ -18,7 +18,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -38,6 +43,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 
 private val ChatPanelShape = RoundedCornerShape(16.dp)
@@ -47,6 +54,17 @@ private val ChatBubbleShape = RoundedCornerShape(14.dp)
 
 // Performance: Extracting static lists to constants avoids redundant allocations during
 // recomposition.
+private val HealthDetails =
+  listOf("Auth: none", "Respuesta: {\"status\": \"ok\", \"paired\": bool, \"runtime\": {...}}")
+
+private val PairDetails =
+  listOf(
+    "Header requerido: X-Pairing-Code",
+    "Sin body JSON",
+    "Respuesta OK: {\"paired\": true, \"token\": \"zc_...\"}",
+    "Errores: 403 codigo invalido, 429 rate limit/lockout",
+  )
+
 private val WebhookDetails =
   listOf(
     "Body requerido: {\"message\": \"...\"}",
@@ -69,6 +87,17 @@ data class AgentGatewayConfig(
   val pairingCode: String,
   val bearerToken: String,
   val webhookSecret: String,
+)
+
+@Immutable
+data class ChatWorkspaceActions(
+  val onQueryChange: (String) -> Unit,
+  val onSend: () -> Unit,
+  val onToggleConfig: () -> Unit,
+  val onBaseUrlChange: (String) -> Unit,
+  val onPairingCodeChange: (String) -> Unit,
+  val onBearerTokenChange: (String) -> Unit,
+  val onWebhookSecretChange: (String) -> Unit,
 )
 
 object ChatWorkspaceDefaults {
@@ -145,7 +174,17 @@ fun ChatWorkspace(
     query = ""
   }
 
-  val onToggleConfigLambda = remember { { showConfig = !showConfig } }
+  val actions = remember {
+    ChatWorkspaceActions(
+      onQueryChange = { query = it },
+      onSend = ::sendMessage,
+      onToggleConfig = { showConfig = !showConfig },
+      onBaseUrlChange = { baseUrl = it },
+      onPairingCodeChange = { pairingCode = it },
+      onBearerTokenChange = { bearerToken = it },
+      onWebhookSecretChange = { webhookSecret = it },
+    )
+  }
 
   ChatWorkspaceScreen(
     state = state,
@@ -153,13 +192,7 @@ fun ChatWorkspace(
     query = query,
     showConfig = showConfig,
     gatewayConfig = gatewayConfig,
-    onQueryChange = { query = it },
-    onSend = ::sendMessage,
-    onToggleConfig = onToggleConfigLambda,
-    onBaseUrlChange = { baseUrl = it },
-    onPairingCodeChange = { pairingCode = it },
-    onBearerTokenChange = { bearerToken = it },
-    onWebhookSecretChange = { webhookSecret = it },
+    actions = actions,
     modifier = modifier,
   )
 }
@@ -171,13 +204,7 @@ private fun ChatWorkspaceScreen(
   query: String,
   showConfig: Boolean,
   gatewayConfig: AgentGatewayConfig,
-  onQueryChange: (String) -> Unit,
-  onSend: () -> Unit,
-  onToggleConfig: () -> Unit,
-  onBaseUrlChange: (String) -> Unit,
-  onPairingCodeChange: (String) -> Unit,
-  onBearerTokenChange: (String) -> Unit,
-  onWebhookSecretChange: (String) -> Unit,
+  actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
   val colors = MaterialTheme.colorScheme
@@ -189,7 +216,7 @@ private fun ChatWorkspaceScreen(
     ChatHeader(
       modelName = state.modelName,
       showConfig = showConfig,
-      onToggleConfig = onToggleConfig,
+      onToggleConfig = actions.onToggleConfig,
     )
 
     Spacer(modifier = Modifier.height(12.dp))
@@ -198,10 +225,7 @@ private fun ChatWorkspaceScreen(
       Column(modifier = Modifier.fillMaxWidth().weight(1f)) {
         ConfigPanel(
           gatewayConfig = gatewayConfig,
-          onBaseUrlChange = onBaseUrlChange,
-          onPairingCodeChange = onPairingCodeChange,
-          onBearerTokenChange = onBearerTokenChange,
-          onWebhookSecretChange = onWebhookSecretChange,
+          actions = actions,
           modifier = Modifier.fillMaxSize(),
         )
       }
@@ -212,8 +236,7 @@ private fun ChatWorkspaceScreen(
           inputPlaceholder = state.inputPlaceholder,
           messages = messages,
           query = query,
-          onQueryChange = onQueryChange,
-          onSend = onSend,
+          actions = actions,
           modifier = Modifier.fillMaxSize(),
         )
       }
@@ -251,8 +274,7 @@ private fun ChatPanel(
   inputPlaceholder: String,
   messages: List<ChatMessage>,
   query: String,
-  onQueryChange: (String) -> Unit,
-  onSend: () -> Unit,
+  actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
   val colors = MaterialTheme.colorScheme
@@ -280,18 +302,18 @@ private fun ChatPanel(
   Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
     TextField(
       value = query,
-      onValueChange = onQueryChange,
+      onValueChange = actions.onQueryChange,
       modifier = Modifier.weight(1f),
       placeholder = { Text(inputPlaceholder) },
       keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-      keyboardActions = KeyboardActions(onSend = { onSend() }),
+      keyboardActions = KeyboardActions(onSend = { actions.onSend() }),
       maxLines = 4,
     )
 
     Spacer(modifier = Modifier.width(8.dp))
 
     val isSendEnabled = query.isNotBlank()
-    Button(onClick = onSend, enabled = isSendEnabled, modifier = Modifier.height(56.dp)) {
+    Button(onClick = actions.onSend, enabled = isSendEnabled, modifier = Modifier.height(56.dp)) {
       Text("Send")
     }
   }
@@ -300,12 +322,24 @@ private fun ChatPanel(
 @Composable
 private fun ConfigPanel(
   gatewayConfig: AgentGatewayConfig,
-  onBaseUrlChange: (String) -> Unit,
-  onPairingCodeChange: (String) -> Unit,
-  onBearerTokenChange: (String) -> Unit,
-  onWebhookSecretChange: (String) -> Unit,
+  actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
+  Surface(
+    modifier = modifier.fillMaxWidth(),
+    shape = ConfigPanelShape,
+    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
+    color = MaterialTheme.colorScheme.surface,
+  ) {
+    ConfigSettingsList(gatewayConfig = gatewayConfig, actions = actions)
+  }
+}
+
+@Composable
+private fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: ChatWorkspaceActions) {
+  var showBearerToken by remember { mutableStateOf(false) }
+  var showWebhookSecret by remember { mutableStateOf(false) }
+
   val (healthUrl, pairUrl, webhookUrl) =
     remember(gatewayConfig.baseUrl) {
       Triple(
@@ -315,90 +349,81 @@ private fun ConfigPanel(
       )
     }
 
-  Surface(
-    modifier = modifier.fillMaxWidth(),
-    shape = ConfigPanelShape,
-    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)),
-    color = MaterialTheme.colorScheme.surface,
+  LazyColumn(
+    modifier = Modifier.fillMaxSize().padding(14.dp),
+    verticalArrangement = Arrangement.spacedBy(10.dp),
   ) {
-    LazyColumn(
-      modifier = Modifier.fillMaxSize().padding(14.dp),
-      verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
-      item {
-        OutlinedTextField(
-          value = gatewayConfig.baseUrl,
-          onValueChange = onBaseUrlChange,
-          label = { Text("URL base del agente") },
-          placeholder = { Text(ChatWorkspaceDefaults.DefaultGatewayBaseUrl) },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-        )
-      }
-
-      item {
-        OutlinedTextField(
-          value = gatewayConfig.pairingCode,
-          onValueChange = onPairingCodeChange,
-          label = { Text("Pairing code (X-Pairing-Code)") },
-          placeholder = { Text("Codigo de 6 digitos") },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-        )
-      }
-
-      item {
-        OutlinedTextField(
-          value = gatewayConfig.bearerToken,
-          onValueChange = onBearerTokenChange,
-          label = { Text("Bearer token") },
-          placeholder = { Text("zc_...") },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-        )
-      }
-
-      item {
-        OutlinedTextField(
-          value = gatewayConfig.webhookSecret,
-          onValueChange = onWebhookSecretChange,
-          label = { Text("Webhook secret (opcional)") },
-          placeholder = { Text("X-Webhook-Secret") },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-        )
-      }
-
-      item {
-        EndpointCard(
-          title = "GET /health",
-          subtitle = healthUrl,
-          details =
-            listOf(
-              "Auth: none",
-              "Respuesta: {\"status\": \"ok\", \"paired\": bool, \"runtime\": {...}}",
-            ),
-        )
-      }
-
-      item {
-        EndpointCard(
-          title = "POST /pair",
-          subtitle = pairUrl,
-          details =
-            listOf(
-              "Header requerido: X-Pairing-Code",
-              "Sin body JSON",
-              "Respuesta OK: {\"paired\": true, \"token\": \"zc_...\"}",
-              "Errores: 403 codigo invalido, 429 rate limit/lockout",
-            ),
-        )
-      }
-
-      item {
-        EndpointCard(title = "POST /webhook", subtitle = webhookUrl, details = WebhookDetails)
-      }
+    item {
+      OutlinedTextField(
+        value = gatewayConfig.baseUrl,
+        onValueChange = actions.onBaseUrlChange,
+        label = { Text("URL base del agente") },
+        placeholder = { Text(ChatWorkspaceDefaults.DefaultGatewayBaseUrl) },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+      )
     }
+
+    item {
+      OutlinedTextField(
+        value = gatewayConfig.pairingCode,
+        onValueChange = actions.onPairingCodeChange,
+        label = { Text("Pairing code (X-Pairing-Code)") },
+        placeholder = { Text("Codigo de 6 digitos") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+      )
+    }
+
+    item {
+      OutlinedTextField(
+        value = gatewayConfig.bearerToken,
+        onValueChange = actions.onBearerTokenChange,
+        label = { Text("Bearer token") },
+        placeholder = { Text("zc_...") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        visualTransformation =
+          if (showBearerToken) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+          IconButton(onClick = { showBearerToken = !showBearerToken }) {
+            Icon(
+              imageVector =
+                if (showBearerToken) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+              contentDescription = if (showBearerToken) "Hide" else "Show",
+            )
+          }
+        },
+      )
+    }
+
+    item {
+      OutlinedTextField(
+        value = gatewayConfig.webhookSecret,
+        onValueChange = actions.onWebhookSecretChange,
+        label = { Text("Webhook secret (opcional)") },
+        placeholder = { Text("X-Webhook-Secret") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+        visualTransformation =
+          if (showWebhookSecret) VisualTransformation.None else PasswordVisualTransformation(),
+        trailingIcon = {
+          IconButton(onClick = { showWebhookSecret = !showWebhookSecret }) {
+            Icon(
+              imageVector =
+                if (showWebhookSecret) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+              contentDescription = if (showWebhookSecret) "Hide" else "Show",
+            )
+          }
+        },
+      )
+    }
+
+    item { EndpointCard(title = "GET /health", subtitle = healthUrl, details = HealthDetails) }
+
+    item { EndpointCard(title = "POST /pair", subtitle = pairUrl, details = PairDetails) }
+
+    item { EndpointCard(title = "POST /webhook", subtitle = webhookUrl, details = WebhookDetails) }
   }
 }
 
