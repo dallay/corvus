@@ -45,6 +45,17 @@ private val ConfigPanelShape = RoundedCornerShape(16.dp)
 private val EndpointCardShape = RoundedCornerShape(12.dp)
 private val ChatBubbleShape = RoundedCornerShape(14.dp)
 
+// Performance: Extracting static lists to constants avoids redundant allocations during
+// recomposition.
+private val WebhookDetails =
+  listOf(
+    "Body requerido: {\"message\": \"...\"}",
+    "Header auth: Authorization: Bearer <token> (si require_pairing=true)",
+    "Header opcional adicional: X-Webhook-Secret",
+    "Header opcional: X-Idempotency-Key",
+    "Respuesta OK: {\"response\": \"...\", \"model\": \"...\"}",
+  )
+
 @Immutable
 data class ChatWorkspaceState(
   val modelName: String,
@@ -99,19 +110,21 @@ fun ChatWorkspace(
       )
     }
 
-  fun sendMessage() {
-    val prompt = query.trim()
-    if (prompt.isBlank()) {
-      return
-    }
-
-    val gatewayConfig =
+  val gatewayConfig =
+    remember(baseUrl, pairingCode, bearerToken, webhookSecret) {
       AgentGatewayConfig(
         baseUrl = baseUrl,
         pairingCode = pairingCode,
         bearerToken = bearerToken,
         webhookSecret = webhookSecret,
       )
+    }
+
+  fun sendMessage() {
+    val prompt = query.trim()
+    if (prompt.isBlank()) {
+      return
+    }
 
     messages.add(ChatMessage(id = nextId, role = ChatRole.User, content = prompt))
     nextId += 1
@@ -131,16 +144,6 @@ fun ChatWorkspace(
     nextId += 1
     query = ""
   }
-
-  val gatewayConfig =
-    remember(baseUrl, pairingCode, bearerToken, webhookSecret) {
-      AgentGatewayConfig(
-        baseUrl = baseUrl,
-        pairingCode = pairingCode,
-        bearerToken = bearerToken,
-        webhookSecret = webhookSecret,
-      )
-    }
 
   val onToggleConfigLambda = remember { { showConfig = !showConfig } }
 
@@ -393,18 +396,7 @@ private fun ConfigPanel(
       }
 
       item {
-        EndpointCard(
-          title = "POST /webhook",
-          subtitle = webhookUrl,
-          details =
-            listOf(
-              "Body requerido: {\"message\": \"...\"}",
-              "Header auth: Authorization: Bearer <token> (si require_pairing=true)",
-              "Header opcional adicional: X-Webhook-Secret",
-              "Header opcional: X-Idempotency-Key",
-              "Respuesta OK: {\"response\": \"...\", \"model\": \"...\"}",
-            ),
-        )
+        EndpointCard(title = "POST /webhook", subtitle = webhookUrl, details = WebhookDetails)
       }
     }
   }
