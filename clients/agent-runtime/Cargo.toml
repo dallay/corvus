@@ -206,3 +206,6 @@ wat = "=1.245.1"
 [[bench]]
 name = "agent_benchmarks"
 harness = false
+
+[patch.crates-io]
+jsonwebtoken = { git = "https://github.com/Keats/jsonwebtoken", tag = "v10.3.0" }
