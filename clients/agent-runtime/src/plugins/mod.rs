@@ -16,7 +16,6 @@ use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
-use tracing;
 use webpki::{anchor_from_trusted_cert, EndEntityCert, KeyUsage, ALL_VERIFICATION_ALGS};
 use x509_cert::der::{DecodePem, Encode};
 use x509_cert::ext::pkix::name::GeneralName;
@@ -1961,6 +1960,11 @@ fn read_certificate_extension_utf8(
         return Ok(None);
     };
 
+    // Note: The search returns the first matching extension in certificate order.
+    // SIGSTORE_ISSUER_OIDS order is not enforced—if both OIDs are present in the
+    // certificate, whichever appears first in the certificate's extension list will be
+    // returned. If deterministic preference is required (e.g., prefer v2 over v1),
+    // change this logic to explicitly iterate over extension_oids and search for each.
     let value = extensions
         .iter()
         .find(|extension| extension_oids.contains(&extension.extn_id))
@@ -2443,9 +2447,8 @@ mod tests {
         vec![0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
     }
 
-    fn issuer_extension_oid_components() -> Vec<u64> {
-        SIGSTORE_ISSUER_OID_V1
-            .to_string()
+    fn issuer_extension_oid_components(oid: &ObjectIdentifier) -> Vec<u64> {
+        oid.to_string()
             .split('.')
             .map(|part| part.parse::<u64>().expect("valid OID component"))
             .collect()
@@ -2463,8 +2466,10 @@ mod tests {
         params.is_ca = IsCa::NoCa;
 
         if let Some(bytes) = issuer_extension_bytes {
-            let extension =
-                CustomExtension::from_oid_content(&issuer_extension_oid_components(), bytes);
+            let extension = CustomExtension::from_oid_content(
+                &issuer_extension_oid_components(&SIGSTORE_ISSUER_OID_V1),
+                bytes,
+            );
             params.custom_extensions.push(extension);
         }
 
@@ -2560,7 +2565,6 @@ mod tests {
     #[test]
     fn read_certificate_extension_utf8_handles_v2_oid() {
         // Build certificate with v2 OID extension using the v2 OID components
-        let v2_oid_components: Vec<u64> = vec![1, 3, 6, 1, 4, 1, 57264, 1, 8];
         let v2_issuer = "https://oidcIssuerv2.example.com";
         let v2_issuer_bytes = v2_issuer.as_bytes().to_vec();
 
@@ -2573,7 +2577,10 @@ mod tests {
         )];
         params.is_ca = IsCa::NoCa;
 
-        let extension = CustomExtension::from_oid_content(&v2_oid_components, v2_issuer_bytes);
+        let extension = CustomExtension::from_oid_content(
+            &issuer_extension_oid_components(&SIGSTORE_ISSUER_OID_V2),
+            v2_issuer_bytes,
+        );
         params.custom_extensions.push(extension);
 
         let key_pair = KeyPair::generate().expect("key pair generation should succeed");

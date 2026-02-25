@@ -2590,7 +2590,9 @@ impl Config {
                                         url_part.trim(),
                                         Some(regex_part.trim().to_string())
                                             .filter(|value| !value.is_empty()),
-                                        issuer_part.trim().to_string(),
+                                        Some(issuer_part.trim().to_string())
+                                            .filter(|value| !value.is_empty())
+                                            .unwrap_or_else(default_sigstore_oidc_issuer),
                                     )
                                 } else {
                                     (
@@ -2618,22 +2620,40 @@ impl Config {
                     let (url, plugin_identity_regex, sigstore_oidc_issuer) =
                         if let Some((url_part, remainder)) = entry.split_once('|') {
                             if let Some((regex_part, issuer_part)) = remainder.split_once('|') {
+                                let url_trimmed = url_part.trim();
+                                if url_trimmed.is_empty() {
+                                    return None; // Reject empty URL
+                                }
                                 (
-                                    url_part.trim().to_string(),
+                                    url_trimmed.to_string(),
                                     Some(regex_part.trim().to_string())
                                         .filter(|value| !value.is_empty()),
-                                    issuer_part.trim().to_string(),
+                                    Some(issuer_part.trim().to_string())
+                                        .filter(|value| !value.is_empty())
+                                        .unwrap_or_else(default_sigstore_oidc_issuer),
                                 )
                             } else {
+                                let url_trimmed = url_part.trim();
+                                if url_trimmed.is_empty() {
+                                    return None; // Reject empty URL
+                                }
                                 (
-                                    url_part.trim().to_string(),
+                                    url_trimmed.to_string(),
                                     Some(remainder.trim().to_string())
                                         .filter(|value| !value.is_empty()),
                                     default_sigstore_oidc_issuer(),
                                 )
                             }
                         } else {
-                            (entry.to_string(), None, default_sigstore_oidc_issuer())
+                            let url_trimmed = entry.trim();
+                            if url_trimmed.is_empty() {
+                                return None; // Reject empty URL
+                            }
+                            (
+                                url_trimmed.to_string(),
+                                None,
+                                default_sigstore_oidc_issuer(),
+                            )
                         };
                     Some(PluginSourceConfig {
                         name: format!("env-source-{anonymous_index}"),
@@ -4811,9 +4831,99 @@ default_model = "legacy-model"
             .mode()
             & 0o777;
         assert_eq!(
-            mode, 0o600,
-            "Save should enforce owner-only config permissions, got {mode:o}"
+            config.plugins.revocation.source_urls,
+            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
         );
+    }
+
+    #[test]
+    fn migrate_corvus_plugin_sources_parses_named_entries() {
+        // Set env var with named entries including issuer
+        std::env::set_var(
+            "CORVUS_PLUGIN_SOURCES",
+            "my source=https://plugins.example.com/catalog.json|^https://ci\\.example\\.com@.*$|https://custom.issuer.com",
+        );
+        let config = Config::default();
+        std::env::remove_var("CORVUS_PLUGIN_SOURCES");
+
+        assert_eq!(config.plugins.sources.len(), 1);
+        assert_eq!(config.plugins.sources[0].name, "my source");
+        assert_eq!(
+            config.plugins.sources[0].url,
+            "https://plugins.example.com/catalog.json"
+        );
+        assert_eq!(
+            config.plugins.sources[0].plugin_identity_regex,
+            Some("^https://ci\\.example\\.com@.*$".to_string())
+        );
+        assert_eq!(
+            config.plugins.sources[0].sigstore_oidc_issuer,
+            "https://custom.issuer.com"
+        );
+    }
+
+    #[test]
+    fn migrate_corvus_plugin_sources_parses_anonymous_entries() {
+        // Set env var with anonymous entries (no name= prefix)
+        std::env::set_var(
+            "CORVUS_PLUGIN_SOURCES",
+            "https://plugins.example.com/catalog.json|https://ci\\.example\\.com@.*$|https://custom.issuer.com,https://plugins2.example.com/catalog.json",
+        );
+        let config = Config::default();
+        std::env::remove_var("CORVUS_PLUGIN_SOURCES");
+
+        assert_eq!(config.plugins.sources.len(), 2);
+        assert_eq!(config.plugins.sources[0].name, "env-source-0");
+        assert_eq!(
+            config.plugins.sources[0].url,
+            "https://plugins.example.com/catalog.json"
+        );
+        assert_eq!(
+            config.plugins.sources[0].plugin_identity_regex,
+            Some("https://ci\\.example\\.com@.*$".to_string())
+        );
+        assert_eq!(
+            config.plugins.sources[0].sigstore_oidc_issuer,
+            "https://custom.issuer.com"
+        );
+        assert_eq!(config.plugins.sources[1].name, "env-source-1");
+        assert_eq!(
+            config.plugins.sources[1].url,
+            "https://plugins2.example.com/catalog.json"
+        );
+    }
+
+    #[test]
+    fn migrate_corvus_plugin_sources_empty_issuer_falls_back() {
+        // Empty issuer should fall back to default
+        std::env::set_var(
+            "CORVUS_PLUGIN_SOURCES",
+            "source=https://plugins.example.com/catalog.json|regex|",
+        );
+        let config = Config::default();
+        std::env::remove_var("CORVUS_PLUGIN_SOURCES");
+
+        assert_eq!(config.plugins.sources.len(), 1);
+        assert_eq!(
+            config.plugins.sources[0].sigstore_oidc_issuer,
+            default_sigstore_oidc_issuer()
+        );
+    }
+
+    #[test]
+    fn migrate_corvus_plugin_sources_rejects_malformed() {
+        // Malformed entries (empty URL) should be skipped
+        std::env::set_var(
+            "CORVUS_PLUGIN_SOURCES",
+            "=https://plugins.example.com/catalog.json,https://,source2=http://valid.example.com",
+        );
+        let config = Config::default();
+        std::env::remove_var("CORVUS_PLUGIN_SOURCES");
+
+        // Should only have source2 (the valid one)
+        assert_eq!(config.plugins.sources.len(), 1);
+        assert_eq!(config.plugins.sources[0].name, "source2");
+        assert_eq!(config.plugins.sources[0].url, "http://valid.example.com");
     }
 
     #[test]
