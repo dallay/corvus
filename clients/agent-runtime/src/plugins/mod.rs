@@ -16,6 +16,7 @@ use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
+use tracing;
 use webpki::{anchor_from_trusted_cert, EndEntityCert, KeyUsage, ALL_VERIFICATION_ALGS};
 use x509_cert::der::{DecodePem, Encode};
 use x509_cert::ext::pkix::name::GeneralName;
@@ -785,6 +786,8 @@ impl PluginManager {
             &signature_bytes,
             certificate_bytes.as_ref(),
             identity_regex.as_str(),
+            SIGSTORE_GITHUB_OIDC_ISSUER,
+            false, // check_validity: false for runtime re-verification (skip time checks)
         )
         .with_context(|| {
             format!(
@@ -1065,6 +1068,8 @@ impl PluginManager {
             &signature,
             certificate.as_ref(),
             identity_regex.as_str(),
+            candidate.source.sigstore_oidc_issuer.as_str(),
+            true, // check_validity: true for install-time verification
         )
         .with_context(|| {
             format!(
@@ -1603,6 +1608,7 @@ fn signature_policy_for_locked_plugin(plugin: &LockedPlugin) -> Result<Signature
             name: plugin.source.clone(),
             url: source_url.to_string(),
             plugin_identity_regex,
+            sigstore_oidc_issuer: SIGSTORE_GITHUB_OIDC_ISSUER.to_string(),
         };
         return signature_policy_for_source(&source);
     }
@@ -1687,13 +1693,21 @@ fn verify_blob_with_sigstore(
     signature: &[u8],
     certificate: &[u8],
     identity_regex: &str,
+    oidc_issuer: &str,
+    check_validity: bool,
 ) -> Result<()> {
     let certificate_text = std::str::from_utf8(certificate)
         .context("Certificate payload is not valid UTF-8 after normalization")?;
     let cert = Certificate::from_pem(certificate_text)
         .context("Failed to parse plugin signing certificate PEM")?;
 
-    validate_sigstore_certificate(&cert, identity_regex, certificate)?;
+    validate_sigstore_certificate(
+        &cert,
+        identity_regex,
+        certificate,
+        oidc_issuer,
+        check_validity,
+    )?;
 
     let verification_key =
         CosignVerificationKey::try_from(&cert.tbs_certificate.subject_public_key_info)
@@ -1718,14 +1732,20 @@ fn validate_sigstore_certificate(
     certificate: &Certificate,
     identity_regex: &str,
     certificate_pem: &[u8],
+    oidc_issuer: &str,
+    check_validity: bool,
 ) -> Result<()> {
-    validate_certificate_chain(certificate, certificate_pem)?;
-    validate_certificate_validity(certificate)?;
-    validate_certificate_issuer(certificate, SIGSTORE_GITHUB_OIDC_ISSUER)?;
+    validate_certificate_chain(certificate, certificate_pem, check_validity)?;
+    validate_certificate_validity(certificate, check_validity)?;
+    validate_certificate_issuer(certificate, oidc_issuer)?;
     validate_certificate_identity(certificate, identity_regex)
 }
 
-fn validate_certificate_chain(certificate: &Certificate, certificate_pem: &[u8]) -> Result<()> {
+fn validate_certificate_chain(
+    certificate: &Certificate,
+    certificate_pem: &[u8],
+    check_validity: bool,
+) -> Result<()> {
     let cert_der = certificate
         .to_der()
         .context("Failed to encode signing certificate as DER")?;
@@ -1754,12 +1774,24 @@ fn validate_certificate_chain(certificate: &Certificate, certificate_pem: &[u8])
         .collect::<Result<Vec<_>>>()?;
 
     let usage = KeyUsage::required_if_present(CODE_SIGNING_EKU_OID);
+
+    // For runtime re-verification, use a time in the distant future to bypass
+    // time-window checks while still verifying chain-of-trust, algorithms, etc.
+    // For install-time verification, use the current time to enforce validity windows.
+    let verification_time = if check_validity {
+        UnixTime::now()
+    } else {
+        // Use a time far in the future to skip time-window checks at runtime
+        // while still performing all other chain validations
+        UnixTime::since_unix_epoch(std::time::Duration::from_secs(u64::MAX))
+    };
+
     end_entity
         .verify_for_usage(
             ALL_VERIFICATION_ALGS,
             trust_anchors.as_slice(),
             intermediates.as_slice(),
-            UnixTime::now(),
+            verification_time,
             usage,
             None,
             None,
@@ -1769,7 +1801,12 @@ fn validate_certificate_chain(certificate: &Certificate, certificate_pem: &[u8])
     Ok(())
 }
 
-fn validate_certificate_validity(certificate: &Certificate) -> Result<()> {
+fn validate_certificate_validity(certificate: &Certificate, check_validity: bool) -> Result<()> {
+    if !check_validity {
+        // Skip time-based validity checks for runtime re-verification
+        return Ok(());
+    }
+
     let now = std::time::SystemTime::now();
     let validity = &certificate.tbs_certificate.validity;
     let not_before = validity.not_before.to_system_time();
@@ -1859,11 +1896,26 @@ fn try_decode_der_utf8(raw_bytes: &[u8]) -> &[u8] {
         // Get the length byte(s)
         let length = raw_bytes[1] as usize;
         // Check if length is short form (single byte, < 128)
-        if raw_bytes[1] < 0x80 && raw_bytes.len() >= 2 + length {
-            // Return the inner UTF-8 bytes (skip tag + length)
-            return &raw_bytes[2..2 + length];
+        if raw_bytes[1] < 0x80 {
+            // Check if we have enough bytes for the claimed length
+            if raw_bytes.len() >= 2 + length {
+                // Return the inner UTF-8 bytes (skip tag + length)
+                return &raw_bytes[2..2 + length];
+            }
+            // Malformed length: claims more bytes than available
+            tracing::debug!(
+                "unsupported malformed DER length: claimed_length={}, available_buffer={}",
+                length,
+                raw_bytes.len()
+            );
+        } else {
+            // Long form lengths not handled - return raw bytes
+            tracing::debug!(
+                "unsupported long-form DER length: length_byte={:#04x}, buffer_len={}",
+                raw_bytes[1],
+                raw_bytes.len()
+            );
         }
-        // Long form lengths not handled for simplicity - return raw
     }
     raw_bytes
 }
@@ -1880,9 +1932,9 @@ fn read_certificate_extension_utf8(
         .iter()
         .find(|extension| extension_oids.contains(&extension.extn_id))
         .map(|extension| {
-            let raw_bytes = extension.extn_value.clone().into_bytes();
+            let raw_bytes = extension.extn_value.as_bytes();
             // Try to decode DER-wrapped UTF8String; if not DER, treat as raw UTF-8
-            let utf8_bytes = try_decode_der_utf8(&raw_bytes);
+            let utf8_bytes = try_decode_der_utf8(raw_bytes);
             String::from_utf8(utf8_bytes.to_vec())
         })
         .transpose()
@@ -2343,6 +2395,7 @@ mod tests {
             name: "official".to_string(),
             url: format!("file://{}", catalog_path.display()),
             plugin_identity_regex: None,
+            sigstore_oidc_issuer: SIGSTORE_GITHUB_OIDC_ISSUER.to_string(),
         }];
         config.plugins.allow_publishers = allow_publishers;
         config.plugins.install_policy = "pin-manual".to_string();
@@ -2623,6 +2676,7 @@ mod tests {
             name: "official".to_string(),
             url: "https://plugins.corvus.profiletailors.com/catalog.json".to_string(),
             plugin_identity_regex: None,
+            sigstore_oidc_issuer: SIGSTORE_GITHUB_OIDC_ISSUER.to_string(),
         };
 
         let policy =
@@ -2642,6 +2696,7 @@ mod tests {
             plugin_identity_regex: Some(
                 "^https://ci\\.example\\.com/workflows/publish@.*$".to_string(),
             ),
+            sigstore_oidc_issuer: SIGSTORE_GITHUB_OIDC_ISSUER.to_string(),
         };
 
         let policy =
@@ -2659,6 +2714,7 @@ mod tests {
             name: "mirror".to_string(),
             url: "https://plugins.example.com/catalog.json".to_string(),
             plugin_identity_regex: None,
+            sigstore_oidc_issuer: SIGSTORE_GITHUB_OIDC_ISSUER.to_string(),
         };
 
         let error = signature_policy_for_source(&source)
@@ -2672,6 +2728,7 @@ mod tests {
             name: "loopback".to_string(),
             url: "http://127.0.0.1:8080/catalog.json".to_string(),
             plugin_identity_regex: None,
+            sigstore_oidc_issuer: SIGSTORE_GITHUB_OIDC_ISSUER.to_string(),
         };
 
         let policy =
@@ -2685,6 +2742,7 @@ mod tests {
             name: "local".to_string(),
             url: "file:///tmp/catalog.json".to_string(),
             plugin_identity_regex: None,
+            sigstore_oidc_issuer: SIGSTORE_GITHUB_OIDC_ISSUER.to_string(),
         };
 
         let policy =

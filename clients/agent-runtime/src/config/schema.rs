@@ -1000,6 +1000,15 @@ pub struct PluginSourceConfig {
     /// Optional regex for expected Sigstore certificate identity on non-official remote sources.
     #[serde(default)]
     pub plugin_identity_regex: Option<String>,
+    /// Optional OIDC issuer for Sigstore certificate validation.
+    /// Defaults to `https://token.actions.githubusercontent.com` (GitHub Actions).
+    /// Use this for non-GitHub OIDC issuers (e.g., GitLab, CircleCI).
+    #[serde(default = "default_sigstore_oidc_issuer")]
+    pub sigstore_oidc_issuer: String,
+}
+
+fn default_sigstore_oidc_issuer() -> String {
+    "https://token.actions.githubusercontent.com".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1069,6 +1078,7 @@ fn default_plugin_sources() -> Vec<PluginSourceConfig> {
         name: "official".to_string(),
         url: "https://plugins.corvus.profiletailors.com/catalog.json".to_string(),
         plugin_identity_regex: None,
+        sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
     }]
 }
 
@@ -2587,6 +2597,7 @@ impl Config {
                             name: name.to_string(),
                             url: url.to_string(),
                             plugin_identity_regex,
+                            sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
                         });
                     }
                     anonymous_index = anonymous_index.saturating_add(1);
@@ -2603,6 +2614,7 @@ impl Config {
                         name: format!("env-source-{anonymous_index}"),
                         url,
                         plugin_identity_regex,
+                        sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
                     })
                 })
                 .collect();
@@ -2938,11 +2950,13 @@ default_temperature = 0.7
                 name: "official".to_string(),
                 url: "https://plugins.corvus.ai/catalog.json".to_string(),
                 plugin_identity_regex: None,
+                sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
             },
             PluginSourceConfig {
                 name: "mirror".to_string(),
                 url: "https://mirror.example/catalog.json".to_string(),
                 plugin_identity_regex: None,
+                sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
             },
         ];
         config.plugins.revocation.source_urls = vec![
@@ -2988,6 +3002,7 @@ default_temperature = 0.7
             name: "official".to_string(),
             url: "https://corvus.profiletailors.com/catalog.json".to_string(),
             plugin_identity_regex: None,
+            sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
         }];
         config.plugins.revocation.source_urls =
             vec!["https://corvus.profiletailors.com/revocations.json".to_string()];

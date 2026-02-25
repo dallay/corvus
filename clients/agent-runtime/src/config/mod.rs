@@ -66,6 +66,7 @@ mod tests {
             name: "official".to_string(),
             url: "https://example.com/catalog.json".to_string(),
             plugin_identity_regex: None,
+            sigstore_oidc_issuer: "https://token.actions.githubusercontent.com".to_string(),
         };
         assert_eq!(source.name, "official");
         assert!(source.url.starts_with("https://"));
