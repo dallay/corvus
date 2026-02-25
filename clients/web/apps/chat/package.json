@@ -1,6 +1,6 @@
 {
   "name": "@corvus/chat",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "description": "Corvus Chat \u2014 conversational AI interface",
   "type": "module",
