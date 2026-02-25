@@ -1,6 +1,6 @@
 # Arquitectura del Agent Runtime
 
-## Visión General
+## Visión general
 
 El Agent Runtime de Corvus es un sistema de ejecución de agentes autónomos optimizado para lograr alto rendimiento, eficiencia, estabilidad, extensibilidad, sostenibilidad y seguridad. Esta documentación describe la arquitectura interna del runtime, sus componentes principales y las decisiones de diseño que permiten estas propiedades.
 
@@ -80,7 +80,7 @@ flowchart TB
     Runtime --> Infrastructure
 ```
 
-## Principios de Diseño
+## Principios de diseño
 
 ### Trait-Driven Architecture
 
@@ -88,15 +88,15 @@ El runtime utiliza un patrón de arquitectura basada en traits para maximizar la
 
 Esta decisión de diseño permite que el sistema evolucione sin romper el principio Open/Closed: abierto para extensión, cerrado para modificación. Cuando un nuevo proveedor de modelos o un nuevo canal de comunicación necesita ser añadido, el desarrollador implementa el trait correspondiente y registra la implementación en la fábrica del módulo.
 
-### Seguridad por Defecto
+### Seguridad por defecto
 
-El sistema adopta el principio de "denegar por defecto" en todas las superficies de riesgo. Las operaciones de filesystem, red y ejecución de comandos están sujetas a políticas de seguridad configurables que pueden restringir el alcance de las capacidades del agente. Los módulos de seguridad (`security/`) implementan múltiples capas de protección incluyendo sandboxing a nivel de kernel mediante Landlock, Bubblewrap y Firejail, auditoría de operaciones sensibles, detección de anomalías, y gestión de secretos cifrada.
+El sistema adopta el principio de "denegar por defecto" en todas las superficies de riesgo. Las operaciones de filesystem, red y ejecución de comandos están sujetas a políticas de seguridad configurables que pueden restringir el alcance de las capacidades del agente. Los módulos de seguridad (`security/`) implementan múltiples capas de protección, incluyendo sandboxing a nivel de kernel mediante Landlock, Bubblewrap y Firejail, auditoría de operaciones sensibles, detección de anomalías y gestión de secretos cifrada.
 
 ### Resiliencia
 
 Los proveedores de modelos están envueltos en un sistema de resiliencia (`providers/reliable.rs`) que maneja reintentos automáticos, timeouts configurables y fallback entre proveedores. Si un proveedor primario falla, el sistema puede automáticamente intentar con proveedores alternativos sin interrumpir la ejecución del agente.
 
-## Componentes Principales
+## Componentes principales
 
 ### Agente
 
@@ -108,7 +108,7 @@ El agente utiliza un patrón de bucle de ejecución que alterna entre fases de p
 
 El módulo `providers/` incluye implementaciones para múltiples proveedores de modelos de lenguaje. Cada proveedor es una implementación del trait `Provider` que define los métodos para enviar prompts, recibir respuestas y gestionar la autenticación.
 
-Los proveedores soportados incluyen modelos compatibles con OpenAI, Anthropic, Google Gemini, runtimes locales como Ollama, agregadores como OpenRouter, y GitHub Copilot. El sistema de enrutamiento (`providers/router.rs`) puede dirigir solicitudes a diferentes proveedores basado en configuración, costo o disponibilidad. Consulta la matriz de compatibilidad para una lista actualizada de modelos soportados.
+Los proveedores soportados incluyen modelos compatibles con OpenAI, Anthropic, Google Gemini, runtimes locales como Ollama, agregadores como OpenRouter y GitHub Copilot. El sistema de enrutamiento (`providers/router.rs`) puede dirigir solicitudes a diferentes proveedores basado en configuración, costo o disponibilidad. Consulta la matriz de compatibilidad para una lista actualizada de modelos soportados.
 
 ### Canales
 
@@ -138,7 +138,7 @@ Los mecanismos de sandboxing utilizan las capacidades del kernel de Linux para r
 
 Varios módulos proporcionan capacidades de infraestructura esenciales. El módulo de configuración (`config/`) maneja la carga y fusión de opciones desde múltiples fuentes. El sistema de salud (`health/`) realiza verificaciones periódicas de los componentes del sistema. El heartbeat (`heartbeat/`) proporciona señales de vida para monitoreo externo. El programador cron (`cron/`) permite ejecutar comandos en horarios específicos o con intervalos regulares. El gateway (`gateway/`) expone el agente como un servicio web con webhooks. La autenticación (`auth/`) gestiona los perfiles de usuario y tokens de acceso. La observabilidad (`observability/`) proporciona logging, métricas y tracing.
 
-## Flujo de Ejecución
+## Flujo de ejecución
 
 El flujo de ejecución típico comienza cuando un mensaje llega a través de un canal de comunicación. El canal autentica al usuario, valida el mensaje y lo pasa al agente. El agente analiza el mensaje, consulta la memoria para contexto relevante, y determina qué acciones tomar.
 
@@ -154,13 +154,13 @@ Para añadir un nuevo canal de comunicación, el proceso es similar. Se crea una
 
 Para añadir nuevas herramientas, se implementa el trait `Tool` con la lógica específica de la herramienta. Las herramientas pueden declararse con esquemas de parámetros estrictos que permiten validación automática de las entradas.
 
-## Consideraciones de Rendimiento
+## Consideraciones de rendimiento
 
 El runtime está optimizado para minimizar la latencia de extremo a extremo. La conexión con proveedores de modelos se mantiene persistente cuando es posible, evitando el overhead de establecimiento de conexión TLS. El sistema de memoria utiliza índices optimizados para búsquedas rápidas. Las operaciones de I/O son asíncronas, permitiendo procesamiento concurrente de múltiples solicitudes.
 
 El consumo de memoria está controlado mediante límites configurables en el sistema de memoria. Los embeddings se generan bajo demanda y se cachean para reutilización. Los documentos grandes se procesan en chunks que caben en memoria disponible.
 
-## Modelo de Seguridad
+## Modelo de seguridad
 
 El modelo de seguridad del Agent Runtime sigue el principio de menor privilegio. Cada operación requiere permisos explícitos. Los usuarios pueden definir políticas que restringen qué archivos puede acceder el agente, qué comandos puede ejecutar, qué red puede alcanzar, y qué periféricos puede controlar.
 

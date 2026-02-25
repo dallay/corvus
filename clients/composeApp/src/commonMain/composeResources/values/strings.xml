@@ -15,6 +15,6 @@
   <string name="button_skip">Skip</string>
   <string name="button_next">Next</string>
   <string name="button_start">Get Started</string>
-  <string name="show_password">Show</string>
-  <string name="hide_password">Hide</string>
+  <string name="show_password">Show password</string>
+  <string name="hide_password">Hide password</string>
 </resources>

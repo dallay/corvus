@@ -33,7 +33,7 @@ Mantén estas reglas de protección de rama en `main`:
 
 ### Paso A: Intake
 
-- Contributor abre PR con `.github/pull_request_template.md` completo.
+- Contributor abre PR con `.github/pull_request_template.md` completo, incluyendo: problema, cambio, no-objetivos, riesgos y plan de rollback.
 - `PR Labeler` aplica labels de path + size.
 - `Auto Response` publica guía para contribuidores primerizos.
 
@@ -55,7 +55,7 @@ Mantén estas reglas de protección de rama en `main`:
 - Título del PR debe seguir estilo Conventional Commit.
 - Merge solo cuando el path de rollback está documentado.
 
-## 4) Política de Tamaño de PR
+## 4) Política de tamaño de PR
 
 - `size: XS` <= 80 líneas cambiadas
 - `size: S` <= 250 líneas cambiadas
@@ -69,7 +69,7 @@ Política:
 - `L/XL` PRs necesitan justificación explícita y evidencia de test más fuerte.
 - Si una feature grande es inevitable, dividir en PRs apilados.
 
-## 5) Política de Contribución AI/Agent
+## 5) Política de contribución IA/agente
 
 PRs asistidos por AI son bienvenidos, y la revisión también puede ser asistida por agent.
 
@@ -93,12 +93,12 @@ Recomendado:
 - Manejo de errores y comportamiento de fallback
 - Regresiones de rendimiento y memoria
 
-## 6) SLA de Revisión y Disciplina de Cola
+## 6) SLA de revisión y disciplina de cola
 
 - Primer triaje por maintainer: objetivo en 48 horas.
 - Si PR está bloqueado, maintainer deja una lista de verificación accionable.
 - Automatización `stale` se usa para mantener cola saludable; maintainers pueden aplicar `no-stale` cuando sea necesario.
-- Automatización `pr-hygiene` revisa PRs abiertos cada 12 horas y publica nudge cuando un PR no tiene nuevos commits por 48+ horas y está detrás de `main` o tiene `CI Required Gate` fallando/missing en el head commit.
+- Automatización `pr-hygiene` revisa PRs abiertos cada 12 horas. Se activa cuando un PR no tiene nuevos commits por 48+ horas. El PR se considera bloqueado si está detrás de `main` o si el head commit tiene `CI Required Gate` fallando o missing.
 
 ## 7) Reglas de seguridad y estabilidad
 
@@ -126,7 +126,7 @@ Si un PR mergeado causa regresiones:
 
 Preferir restauración rápida de calidad de servicio sobre fixes perfectos tardíos.
 
-## 9) Checklist de Maintainer (Merge-Ready)
+## 9) Checklist de maintainer (merge-ready)
 
 - Scope es enfocado y entendible.
 - CI gate está verde.
