@@ -132,7 +132,7 @@ Set `CORVUS_DISABLE_UPDATE_CHECK=1` to disable update notifications.
 Every subsystem is a **trait** — swap implementations with a config change, zero code changes.
 
 <p align="center">
-  <img src="docs/architecture.svg" alt="Corvus Architecture" width="900" />
+  <img src="../../assets/architecture.svg" alt="Corvus Architecture" width="900" />
 </p>
 
 | Subsystem         | Trait            | Ships with                                                                                                                                          | Extend                                                    |
