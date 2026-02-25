@@ -33,7 +33,11 @@ const MAX_SIGNATURE_BYTES: usize = 64 * 1024;
 const MAX_CERTIFICATE_BYTES: usize = 512 * 1024;
 const OFFICIAL_PLUGIN_CATALOG_HOST: &str = "plugins.corvus.profiletailors.com";
 const SIGSTORE_GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
-const SIGSTORE_ISSUER_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.57264.1.1");
+const SIGSTORE_ISSUER_OID_V1: ObjectIdentifier =
+    ObjectIdentifier::new_unwrap("1.3.6.1.4.1.57264.1.1");
+const SIGSTORE_ISSUER_OID_V2: ObjectIdentifier =
+    ObjectIdentifier::new_unwrap("1.3.6.1.4.1.57264.1.8");
+const SIGSTORE_ISSUER_OIDS: &[ObjectIdentifier] = &[SIGSTORE_ISSUER_OID_V1, SIGSTORE_ISSUER_OID_V2];
 const CODE_SIGNING_EKU_OID: &[u8] = &[1, 3, 6, 1, 5, 5, 7, 3, 3];
 const FULCIO_ROOT_CERT_1_PEM: &str = r#"-----BEGIN CERTIFICATE-----
 MIIB+DCCAX6gAwIBAgITNVkDZoCiofPDsy7dfm6geLbuhzAKBggqhkjOPQQDAzAq
@@ -1786,7 +1790,7 @@ fn validate_certificate_validity(certificate: &Certificate) -> Result<()> {
 }
 
 fn validate_certificate_issuer(certificate: &Certificate, expected_issuer: &str) -> Result<()> {
-    let issuer = read_certificate_extension_utf8(certificate, SIGSTORE_ISSUER_OID)
+    let issuer = read_certificate_extension_utf8(certificate, SIGSTORE_ISSUER_OIDS)
         .context("Failed to read Sigstore issuer extension from certificate")?
         .ok_or_else(|| anyhow!("Certificate is missing Sigstore issuer extension"))?;
 
@@ -1846,9 +1850,27 @@ fn certificate_identity(certificate: &Certificate) -> Result<Vec<String>> {
     Ok(identities)
 }
 
+/// Attempts to decode DER-encoded UTF8String (tag 0x0C).
+/// Returns the inner UTF-8 bytes if DER-encoded, otherwise returns raw bytes.
+fn try_decode_der_utf8(raw_bytes: &[u8]) -> &[u8] {
+    // DER UTF8String tag is 0x0C (12 decimal)
+    // If the first byte is the tag and we have length byte(s), try to parse
+    if raw_bytes.len() >= 2 && raw_bytes[0] == 0x0C {
+        // Get the length byte(s)
+        let length = raw_bytes[1] as usize;
+        // Check if length is short form (single byte, < 128)
+        if raw_bytes[1] < 0x80 && raw_bytes.len() >= 2 + length {
+            // Return the inner UTF-8 bytes (skip tag + length)
+            return &raw_bytes[2..2 + length];
+        }
+        // Long form lengths not handled for simplicity - return raw
+    }
+    raw_bytes
+}
+
 fn read_certificate_extension_utf8(
     certificate: &Certificate,
-    extension_oid: ObjectIdentifier,
+    extension_oids: &[ObjectIdentifier],
 ) -> Result<Option<String>> {
     let Some(extensions) = certificate.tbs_certificate.extensions.as_ref() else {
         return Ok(None);
@@ -1856,8 +1878,13 @@ fn read_certificate_extension_utf8(
 
     let value = extensions
         .iter()
-        .find(|extension| extension.extn_id == extension_oid)
-        .map(|extension| String::from_utf8(extension.extn_value.clone().into_bytes()))
+        .find(|extension| extension_oids.contains(&extension.extn_id))
+        .map(|extension| {
+            let raw_bytes = extension.extn_value.clone().into_bytes();
+            // Try to decode DER-wrapped UTF8String; if not DER, treat as raw UTF-8
+            let utf8_bytes = try_decode_der_utf8(&raw_bytes);
+            String::from_utf8(utf8_bytes.to_vec())
+        })
         .transpose()
         .context("Certificate extension is not valid UTF-8")?;
 
@@ -2331,7 +2358,7 @@ mod tests {
     }
 
     fn issuer_extension_oid_components() -> Vec<u64> {
-        SIGSTORE_ISSUER_OID
+        SIGSTORE_ISSUER_OID_V1
             .to_string()
             .split('.')
             .map(|part| part.parse::<u64>().expect("valid OID component"))
@@ -2401,7 +2428,7 @@ mod tests {
             None,
         );
 
-        let value = read_certificate_extension_utf8(&certificate, SIGSTORE_ISSUER_OID)
+        let value = read_certificate_extension_utf8(&certificate, SIGSTORE_ISSUER_OIDS)
             .expect("missing extension should not error");
         assert!(value.is_none());
     }
@@ -2415,9 +2442,65 @@ mod tests {
             Some(vec![0xFF, 0xFE, 0xFD]),
         );
 
-        let error = read_certificate_extension_utf8(&certificate, SIGSTORE_ISSUER_OID)
+        let error = read_certificate_extension_utf8(&certificate, SIGSTORE_ISSUER_OIDS)
             .expect_err("non-UTF8 extension must fail");
         assert!(error.to_string().contains("not valid UTF-8"));
+    }
+
+    #[test]
+    fn read_certificate_extension_utf8_handles_der_wrapped_utf8string() {
+        // DER-encoded UTF8String: tag=0x0C, length=0x2B (43), value="https://token.actions.githubusercontent.com"
+        let der_wrapped_issuer: Vec<u8> = vec![
+            0x0C, // UTF8String tag
+            0x2B, // Length: 43 bytes
+        ]
+        .into_iter()
+        .chain(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().iter().copied())
+        .collect();
+
+        let (_, certificate) = build_test_certificate(
+            vec![SanType::Rfc822Name(
+                "dev@profiletailors.com".try_into().unwrap(),
+            )],
+            Some(der_wrapped_issuer),
+        );
+
+        let value = read_certificate_extension_utf8(&certificate, SIGSTORE_ISSUER_OIDS)
+            .expect("DER-wrapped UTF8String should decode")
+            .expect("v2 OID extension should be present");
+        assert_eq!(value, SIGSTORE_GITHUB_OIDC_ISSUER);
+    }
+
+    #[test]
+    fn read_certificate_extension_utf8_handles_v2_oid() {
+        // Build certificate with v2 OID extension using the v2 OID components
+        let v2_oid_components: Vec<u64> = vec![1, 3, 6, 1, 4, 1, 57264, 1, 8];
+        let v2_issuer = "https://oidcIssuerv2.example.com";
+        let v2_issuer_bytes = v2_issuer.as_bytes().to_vec();
+
+        let mut params = CertificateParams::default();
+        params
+            .distinguished_name
+            .push(DnType::CommonName, "corvus-test-v2");
+        params.subject_alt_names = vec![SanType::Rfc822Name(
+            "dev@profiletailors.com".try_into().unwrap(),
+        )];
+        params.is_ca = IsCa::NoCa;
+
+        let extension = CustomExtension::from_oid_content(&v2_oid_components, v2_issuer_bytes);
+        params.custom_extensions.push(extension);
+
+        let key_pair = KeyPair::generate().expect("key pair generation should succeed");
+        let certificate = params
+            .self_signed(&key_pair)
+            .expect("certificate generation should succeed");
+        let pem = certificate.pem();
+        let parsed = Certificate::from_pem(&pem).expect("generated certificate must parse");
+
+        let value = read_certificate_extension_utf8(&parsed, SIGSTORE_ISSUER_OIDS)
+            .expect("v2 OID extension should be readable")
+            .expect("v2 OID extension should be present");
+        assert_eq!(value, v2_issuer);
     }
 
     #[test]

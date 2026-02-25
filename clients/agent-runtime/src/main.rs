@@ -77,9 +77,7 @@ mod util;
 use config::Config;
 
 // Re-export so binary modules can use crate::...Commands from the library crate.
-pub use corvus::{
-    HardwareCommands, PeripheralCommands, ServiceCommands, ServiceLingerMode,
-};
+pub use corvus::{HardwareCommands, PeripheralCommands, ServiceCommands, ServiceLingerMode};
 
 /// `Corvus` - Zero overhead. Zero compromise. 100% Rust.
 #[derive(Parser, Debug)]
