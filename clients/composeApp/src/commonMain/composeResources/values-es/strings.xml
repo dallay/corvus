@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <string name="onboarding_title_welcome">Bienvenido a Corvus</string>
+  <string name="onboarding_desc_welcome">
+    Configura tu asistente en minutos y habla con tu agente de IA desde el móvil.
+  </string>
+  <string name="onboarding_title_connect_gateway">Conecta tu gateway</string>
+  <string name="onboarding_desc_connect_gateway">
+    Ingresa la URL base, pairing code y credenciales para conectar tu entorno seguro.
+  </string>
+  <string name="onboarding_title_talk_agent">Habla con tu agente</string>
+  <string name="onboarding_desc_talk_agent">
+    Envía mensajes, valida respuestas y ajusta la configuración cuando lo necesites.
+  </string>
+  <string name="button_skip">Saltar</string>
+  <string name="button_next">Siguiente</string>
+  <string name="button_start">Comenzar</string>
+  <string name="show_password">Mostrar contraseña</string>
+  <string name="hide_password">Ocultar contraseña</string>
+</resources>

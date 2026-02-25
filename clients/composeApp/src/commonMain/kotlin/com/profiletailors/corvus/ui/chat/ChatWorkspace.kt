@@ -90,13 +90,13 @@ fun ChatWorkspace(
   modifier: Modifier = Modifier,
   state: ChatWorkspaceState = ChatWorkspaceDefaults.state(),
 ) {
-  var query by rememberSaveable { mutableStateOf("") }
+  var query by remember { mutableStateOf("") }
   var nextId by rememberSaveable { mutableIntStateOf(1) }
   var showConfig by rememberSaveable { mutableStateOf(false) }
   var baseUrl by rememberSaveable { mutableStateOf(ChatWorkspaceDefaults.DefaultGatewayBaseUrl) }
-  var pairingCode by rememberSaveable { mutableStateOf("") }
-  var bearerToken by rememberSaveable { mutableStateOf("") }
-  var webhookSecret by rememberSaveable { mutableStateOf("") }
+  var pairingCode by remember { mutableStateOf("") }
+  var bearerToken by remember { mutableStateOf("") }
+  var webhookSecret by remember { mutableStateOf("") }
 
   val messages =
     remember(state.welcomeMessage) {
@@ -291,7 +291,7 @@ private fun ChatPanel(
 
     Spacer(modifier = Modifier.width(8.dp))
 
-    val isSendEnabled = query.isNotBlank()
+    val isSendEnabled = query.trim().isNotBlank()
     Button(onClick = actions.onSend, enabled = isSendEnabled, modifier = Modifier.height(56.dp)) {
       Text("Send")
     }

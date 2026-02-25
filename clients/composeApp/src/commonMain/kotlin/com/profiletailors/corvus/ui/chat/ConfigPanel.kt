@@ -73,7 +73,7 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
     }
 
     item {
-      PasswordTextField(
+      passwordTextField(
         value = gatewayConfig.bearerToken,
         onValueChange = actions.onBearerTokenChange,
         label = "Bearer token",
@@ -82,7 +82,7 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
     }
 
     item {
-      PasswordTextField(
+      passwordTextField(
         value = gatewayConfig.webhookSecret,
         onValueChange = actions.onWebhookSecretChange,
         label = "Webhook secret (opcional)",
@@ -90,6 +90,6 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
       )
     }
 
-    item { EndpointsSection(healthUrl = healthUrl, pairUrl = pairUrl, webhookUrl = webhookUrl) }
+    item { endpointsSection(healthUrl = healthUrl, pairUrl = pairUrl, webhookUrl = webhookUrl) }
   }
 }
