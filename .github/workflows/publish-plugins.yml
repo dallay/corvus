@@ -499,6 +499,8 @@ jobs:
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
         shell: python
         run: |
+          import base64
+          import binascii
           import os
           import pathlib
           import re
@@ -509,11 +511,22 @@ jobs:
           certificate_path = artifact_path.with_name(artifact_path.name + ".pem")
           repository_pattern = re.escape(os.environ["GITHUB_REPOSITORY"])
 
-          certificate = certificate_path.read_text(encoding="utf-8")
+          certificate = certificate_path.read_text(encoding="utf-8").strip()
           if "-----BEGIN CERTIFICATE-----" not in certificate or "-----END CERTIFICATE-----" not in certificate:
-              raise SystemExit(
-                  "cosign certificate output is not PEM text; refusing to publish wrapped certificate payload",
-              )
+              try:
+                  decoded = base64.b64decode(certificate, validate=True).decode("utf-8")
+              except (binascii.Error, UnicodeDecodeError) as error:
+                  raise SystemExit(
+                      "cosign certificate output is not PEM text or base64-encoded PEM text",
+                  ) from error
+
+              if "-----BEGIN CERTIFICATE-----" not in decoded or "-----END CERTIFICATE-----" not in decoded:
+                  raise SystemExit(
+                      "cosign certificate output is not PEM text or base64-encoded PEM text",
+                  )
+
+              normalized_certificate = decoded.rstrip() + "\n"
+              certificate_path.write_text(normalized_certificate, encoding="utf-8")
 
           try:
               subprocess.run(
