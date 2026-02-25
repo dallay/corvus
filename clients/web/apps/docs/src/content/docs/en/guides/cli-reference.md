@@ -130,6 +130,19 @@ corvus providers
 Manage provider authentication profiles.
 
 - `login --provider <NAME>`: Login with OAuth (e.g., `openai-codex`).
+  - `--profile <ID>`: Profile name (default: default).
+  - `--device-code`: Use OAuth device-code flow.
+- `paste-redirect --provider <NAME>`: Complete OAuth by pasting redirect URL or auth code.
+  - `--profile <ID>`: Profile name (default: default).
+  - `--input <URL>`: Full redirect URL or raw OAuth code.
+- `paste-token --provider <NAME>`: Paste setup token / auth token (for Anthropic subscription auth).
+  - `--profile <ID>`: Profile name (default: default).
+  - `--token <TOKEN>`: Token value (if omitted, read interactively).
+  - `--auth-kind <KIND>`: Auth kind override (`authorization` or `api-key`).
+- `setup-token --provider <NAME>`: Alias for `paste-token` (interactive by default).
+  - `--profile <ID>`: Profile name (default: default).
+- `refresh --provider <NAME>`: Refresh access token using refresh token.
+  - `--profile <ID>`: Profile name or profile id.
 - `list`: List auth profiles.
 - `status`: Show auth status and token expiry.
 - `use --provider <NAME> --profile <ID>`: Set active profile.
@@ -172,8 +185,14 @@ Manage signed runtime plugins.
 
 - `list`: List installed plugins.
 - `install <ID>`: Install a plugin (e.g., `memory.surreal.graphs`).
+  - `--version <VER>`: Optional explicit version to install.
+  - `--source <NAME>`: Optional source name filter.
+- `pin <ID>`: Pin an installed plugin to prevent unintended upgrades.
+  - `--version <VER>`: Optional specific version to pin.
 - `remove <ID>`: Remove a plugin.
 - `verify`: Verify plugin integrity.
+  - `--id <ID>`: Optional plugin ID filter.
+- `revocations sync`: Download and cache the latest plugin revocation list.
 
 **Example:**
 ```bash
@@ -199,6 +218,7 @@ Manage communication channels (Telegram, Discord, Slack).
 
 - `list`: List configured channels.
 - `start`: Start all configured channels.
+- `doctor`: Run health checks for configured channels.
 - `add <TYPE> <CONFIG_JSON>`: Add a new channel.
 - `remove <NAME>`: Remove a channel.
 - `bind-telegram <IDENTITY>`: Bind a Telegram user to the allowlist.
