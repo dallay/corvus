@@ -38,7 +38,9 @@ const SIGSTORE_ISSUER_OID_V1: ObjectIdentifier =
 const SIGSTORE_ISSUER_OID_V2: ObjectIdentifier =
     ObjectIdentifier::new_unwrap("1.3.6.1.4.1.57264.1.8");
 const SIGSTORE_ISSUER_OIDS: &[ObjectIdentifier] = &[SIGSTORE_ISSUER_OID_V1, SIGSTORE_ISSUER_OID_V2];
-const CODE_SIGNING_EKU_OID: &[u8] = &[1, 3, 6, 1, 5, 5, 7, 3, 3];
+// DER-encoded OID bytes for id-kp-codeSigning (1.3.6.1.5.5.7.3.3).
+// webpki::KeyUsage::required_if_present expects DER content bytes, not OID arcs.
+const CODE_SIGNING_EKU_OID: &[u8] = &[43, 6, 1, 5, 5, 7, 3, 3];
 const FULCIO_ROOT_CERT_1_PEM: &str = r#"-----BEGIN CERTIFICATE-----
 MIIB+DCCAX6gAwIBAgITNVkDZoCiofPDsy7dfm6geLbuhzAKBggqhkjOPQQDAzAq
 MRUwEwYDVQQKEwxzaWdzdG9yZS5kZXYxETAPBgNVBAMTCHNpZ3N0b3JlMB4XDTIx
@@ -64,6 +66,20 @@ wB5fkUWlZql6zJChkyLQKsXF+jAfBgNVHSMEGDAWgBRYwB5fkUWlZql6zJChkyLQ
 KsXF+jAKBggqhkjOPQQDAwNpADBmAjEAj1nHeXZp+13NWBNa+EDsDP8G1WWg1tCM
 WP/WHPqpaVo0jhsweNFZgSs0eE7wYI4qAjEA2WB9ot98sIkoF3vZYdd3/VtWB5b9
 TNMea7Ix/stJ5TfcLLeABLE4BNJOsQ4vnBHJ
+-----END CERTIFICATE-----"#;
+const FULCIO_INTERMEDIATE_CERT_1_PEM: &str = r#"-----BEGIN CERTIFICATE-----
+MIICGjCCAaGgAwIBAgIUALnViVfnU0brJasmRkHrn/UnfaQwCgYIKoZIzj0EAwMw
+KjEVMBMGA1UEChMMc2lnc3RvcmUuZGV2MREwDwYDVQQDEwhzaWdzdG9yZTAeFw0y
+MjA0MTMyMDA2MTVaFw0zMTEwMDUxMzU2NThaMDcxFTATBgNVBAoTDHNpZ3N0b3Jl
+LmRldjEeMBwGA1UEAxMVc2lnc3RvcmUtaW50ZXJtZWRpYXRlMHYwEAYHKoZIzj0C
+AQYFK4EEACIDYgAE8RVS/ysH+NOvuDZyPIZtilgUF9NlarYpAd9HP1vBBH1U5CV7
+7LSS7s0ZiH4nE7Hv7ptS6LvvR/STk798LVgMzLlJ4HeIfF3tHSaexLcYpSASr1kS
+0N/RgBJz/9jWCiXno3sweTAOBgNVHQ8BAf8EBAMCAQYwEwYDVR0lBAwwCgYIKwYB
+BQUHAwMwEgYDVR0TAQH/BAgwBgEB/wIBADAdBgNVHQ4EFgQU39Ppz1YkEZb5qNjp
+KFWixi4YZD8wHwYDVR0jBBgwFoAUWMAeX5FFpWapesyQoZMi0CrFxfowCgYIKoZI
+zj0EAwMDZwAwZAIwPCsQK4DYiZYDPIaDi5HFKnfxXx6ASSVmERfsynYBiX2X6SJR
+nZU84/9DZdnFvvxmAjBOt6QpBlc4J/0DxvkTCqpclvziL6BCCPnjdlIB3Pu3BxsP
+mygUY7Ii2zbdCdliiow=
 -----END CERTIFICATE-----"#;
 const OFFICIAL_PLUGIN_IDENTITY_REGEX: &str = r"^https://github\.com/dallay/corvus/\.github/workflows/publish-plugins\.yml@refs/tags/plugin/.+/v[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9_.-]+)?(?:\+[A-Za-z0-9_.-]+)?$";
 
@@ -1769,10 +1785,17 @@ fn validate_certificate_chain(
         .collect::<std::result::Result<Vec<_>, _>>()
         .context("Failed to parse PEM certificate chain")?;
 
-    let intermediates: Vec<CertificateDer<'static>> = parsed_pem_chain
+    let mut intermediates: Vec<CertificateDer<'static>> = parsed_pem_chain
         .into_iter()
         .filter(|candidate| candidate.as_ref() != cert_der.as_slice())
         .collect();
+
+    if intermediates.is_empty() {
+        let fallback_intermediate =
+            CertificateDer::from_pem_slice(FULCIO_INTERMEDIATE_CERT_1_PEM.as_bytes())
+                .context("Failed to parse embedded Fulcio intermediate certificate")?;
+        intermediates.push(fallback_intermediate);
+    }
 
     let trust_anchors = [FULCIO_ROOT_CERT_1_PEM, FULCIO_ROOT_CERT_2_PEM]
         .into_iter()
@@ -1787,9 +1810,9 @@ fn validate_certificate_chain(
 
     let usage = KeyUsage::required_if_present(CODE_SIGNING_EKU_OID);
 
-    // For install-time verification: use current time to enforce validity windows.
-    // For runtime re-verification: skip time-based validation to allow expired certs
-    // but still verify chain-of-trust, algorithms, etc.
+    // Fulcio keyless certificates are intentionally short-lived. We validate
+    // chain-of-trust, issuer, identity and signature, while allowing expired
+    // certs so previously published immutable artifacts remain installable.
     if check_validity {
         end_entity
             .verify_for_usage(
@@ -1803,7 +1826,7 @@ fn validate_certificate_chain(
             )
             .context("Certificate chain verification against Fulcio roots failed")?;
     } else {
-        // Runtime verification: verify chain but ignore time-related errors
+        // Verify chain but ignore time-related errors.
         let result = end_entity.verify_for_usage(
             ALL_VERIFICATION_ALGS,
             trust_anchors.as_slice(),
@@ -1814,13 +1837,14 @@ fn validate_certificate_chain(
             None,
         );
 
-        // Ignore time-based errors (certificate expired or not yet valid) at runtime
-        // but fail on any other chain verification errors
+        // Ignore time-based errors (certificate expired or not yet valid)
+        // but fail on any other chain verification errors.
         if let Err(e) = result {
             let error_str = e.to_string();
-            if !error_str.contains("expired")
-                && !error_str.contains("not yet valid")
-                && !error_str.contains("validity")
+            let error_lower = error_str.to_ascii_lowercase();
+            if !error_lower.contains("expired")
+                && !error_lower.contains("not yet valid")
+                && !error_lower.contains("validity")
             {
                 return Err(e)
                     .context("Certificate chain verification against Fulcio roots failed");
@@ -1835,7 +1859,7 @@ fn validate_certificate_chain(
 
 fn validate_certificate_validity(certificate: &Certificate, check_validity: bool) -> Result<()> {
     if !check_validity {
-        // Skip time-based validity checks for runtime re-verification
+        // Skip time-based validity checks when validity enforcement is disabled
         return Ok(());
     }
 
