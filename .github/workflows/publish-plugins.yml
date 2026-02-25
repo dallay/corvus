@@ -529,6 +529,8 @@ jobs:
               certificate_path.write_text(normalized_certificate, encoding="utf-8")
 
           try:
+              # NOTE: this issuer value is the OIDC identity claim used by GitHub Actions
+              # certificates. It is not expected to be your catalog domain.
               subprocess.run(
                   [
                       "./cosign",

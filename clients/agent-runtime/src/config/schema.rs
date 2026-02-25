@@ -997,7 +997,7 @@ pub struct PluginSourceConfig {
     /// Catalog endpoint URL or local file path.
     /// Supported forms: `https://...`, `http://localhost...`, `file:///...`, `/abs/path`, `relative/path`.
     pub url: String,
-    /// Optional regex for expected cosign certificate identity when using a non-official remote source.
+    /// Optional regex for expected Sigstore certificate identity on non-official remote sources.
     #[serde(default)]
     pub plugin_identity_regex: Option<String>,
 }

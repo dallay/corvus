@@ -2,17 +2,25 @@ use crate::config::{Config, PluginSourceConfig, PluginsConfig};
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose, Engine as _};
 use chrono::Utc;
+use const_oid::ObjectIdentifier;
 use reqwest::Url;
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, UnixTime};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sigstore::crypto::{CosignVerificationKey, Signature};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::path::{Component, Path, PathBuf};
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use webpki::{anchor_from_trusted_cert, EndEntityCert, KeyUsage, ALL_VERIFICATION_ALGS};
+use x509_cert::der::{DecodePem, Encode};
+use x509_cert::ext::pkix::name::GeneralName;
+use x509_cert::ext::pkix::SubjectAltName;
+use x509_cert::Certificate;
 
 const LOCK_FILE_NAME: &str = "plugins.lock";
 const REVOCATIONS_CACHE_FILE_NAME: &str = "plugins.revocations.json";
@@ -23,9 +31,36 @@ const WASM_CERTIFICATE_FILE_NAME: &str = "plugin.wasm.pem";
 const MAX_ARTIFACT_BYTES: usize = 50 * 1024 * 1024;
 const MAX_SIGNATURE_BYTES: usize = 64 * 1024;
 const MAX_CERTIFICATE_BYTES: usize = 512 * 1024;
-const COSIGN_VERIFY_TIMEOUT: Duration = Duration::from_secs(30);
 const OFFICIAL_PLUGIN_CATALOG_HOST: &str = "plugins.corvus.profiletailors.com";
 const SIGSTORE_GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
+const SIGSTORE_ISSUER_OID: ObjectIdentifier = ObjectIdentifier::new_unwrap("1.3.6.1.4.1.57264.1.1");
+const CODE_SIGNING_EKU_OID: &[u8] = &[1, 3, 6, 1, 5, 5, 7, 3, 3];
+const FULCIO_ROOT_CERT_1_PEM: &str = r#"-----BEGIN CERTIFICATE-----
+MIIB+DCCAX6gAwIBAgITNVkDZoCiofPDsy7dfm6geLbuhzAKBggqhkjOPQQDAzAq
+MRUwEwYDVQQKEwxzaWdzdG9yZS5kZXYxETAPBgNVBAMTCHNpZ3N0b3JlMB4XDTIx
+MDMwNzAzMjAyOVoXDTMxMDIyMzAzMjAyOVowKjEVMBMGA1UEChMMc2lnc3RvcmUu
+ZGV2MREwDwYDVQQDEwhzaWdzdG9yZTB2MBAGByqGSM49AgEGBSuBBAAiA2IABLSy
+A7Ii5k+pNO8ZEWY0ylemWDowOkNa3kL+GZE5Z5GWehL9/A9bRNA3RbrsZ5i0Jcas
+taRL7Sp5fp/jD5dxqc/UdTVnlvS16an+2Yfswe/QuLolRUCrcOE2+2iA5+tzd6Nm
+MGQwDgYDVR0PAQH/BAQDAgEGMBIGA1UdEwEB/wQIMAYBAf8CAQEwHQYDVR0OBBYE
+FMjFHQBBmiQpMlEk6w2uSu1KBtPsMB8GA1UdIwQYMBaAFMjFHQBBmiQpMlEk6w2u
+Su1KBtPsMAoGCCqGSM49BAMDA2gAMGUCMH8liWJfMui6vXXBhjDgY4MwslmN/TJx
+Ve/83WrFomwmNf056y1X48F9c4m3a3ozXAIxAKjRay5/aj/jsKKGIkmQatjI8uup
+Hr/+CxFvaJWmpYqNkLDGRU+9orzh5hI2RrcuaQ==
+-----END CERTIFICATE-----"#;
+const FULCIO_ROOT_CERT_2_PEM: &str = r#"-----BEGIN CERTIFICATE-----
+MIIB9zCCAXygAwIBAgIUALZNAPFdxHPwjeDloDwyYChAO/4wCgYIKoZIzj0EAwMw
+KjEVMBMGA1UEChMMc2lnc3RvcmUuZGV2MREwDwYDVQQDEwhzaWdzdG9yZTAeFw0y
+MTEwMDcxMzU2NTlaFw0zMTEwMDUxMzU2NThaMCoxFTATBgNVBAoTDHNpZ3N0b3Jl
+LmRldjERMA8GA1UEAxMIc2lnc3RvcmUwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAAT7
+XeFT4rb3PQGwS4IajtLk3/OlnpgangaBclYpsYBr5i+4ynB07ceb3LP0OIOZdxex
+X69c5iVuyJRQ+Hz05yi+UF3uBWAlHpiS5sh0+H2GHE7SXrk1EC5m1Tr19L9gg92j
+YzBhMA4GA1UdDwEB/wQEAwIBBjAPBgNVHRMBAf8EBTADAQH/MB0GA1UdDgQWBBRY
+wB5fkUWlZql6zJChkyLQKsXF+jAfBgNVHSMEGDAWgBRYwB5fkUWlZql6zJChkyLQ
+KsXF+jAKBggqhkjOPQQDAwNpADBmAjEAj1nHeXZp+13NWBNa+EDsDP8G1WWg1tCM
+WP/WHPqpaVo0jhsweNFZgSs0eE7wYI4qAjEA2WB9ot98sIkoF3vZYdd3/VtWB5b9
+TNMea7Ix/stJ5TfcLLeABLE4BNJOsQ4vnBHJ
+-----END CERTIFICATE-----"#;
 const OFFICIAL_PLUGIN_IDENTITY_REGEX: &str =
     r"^https://github\.com/dallay/corvus/\.github/workflows/publish-plugins\.yml@.*$";
 
@@ -742,7 +777,7 @@ impl PluginManager {
             );
         }
 
-        verify_blob_with_cosign(
+        verify_blob_with_sigstore(
             artifact_bytes,
             &signature_bytes,
             certificate_bytes.as_ref(),
@@ -1022,7 +1057,7 @@ impl PluginManager {
             );
         }
 
-        verify_blob_with_cosign(
+        verify_blob_with_sigstore(
             artifact_bytes,
             &signature,
             certificate.as_ref(),
@@ -1030,7 +1065,7 @@ impl PluginManager {
         )
         .with_context(|| {
             format!(
-                "Plugin '{}' cosign verification failed (source='{}')",
+                "Plugin '{}' Sigstore verification failed (source='{}')",
                 candidate.manifest.id, candidate.source.name
             )
         })?;
@@ -1640,68 +1675,170 @@ fn validate_manifest_asset_source(
     Ok(())
 }
 
-/// Verifies a plugin artifact with cosign.
+/// Verifies a plugin artifact with native Sigstore primitives.
 ///
 /// Callers must pass a normalized signature/certificate payload (for example,
 /// already handled for base64 wrappers and PEM normalization).
-fn verify_blob_with_cosign(
+fn verify_blob_with_sigstore(
     artifact: &[u8],
     signature: &[u8],
     certificate: &[u8],
     identity_regex: &str,
 ) -> Result<()> {
-    let temp_dir =
-        std::env::temp_dir().join(format!("corvus-plugin-verify-{}", uuid::Uuid::new_v4()));
-    fs::create_dir_all(&temp_dir).with_context(|| {
-        format!(
-            "Failed to create temporary directory for signature verification: {}",
-            temp_dir.display()
+    let certificate_text = std::str::from_utf8(certificate)
+        .context("Certificate payload is not valid UTF-8 after normalization")?;
+    let cert = Certificate::from_pem(certificate_text)
+        .context("Failed to parse plugin signing certificate PEM")?;
+
+    validate_sigstore_certificate(&cert, identity_regex)?;
+
+    let verification_key =
+        CosignVerificationKey::try_from(&cert.tbs_certificate.subject_public_key_info)
+            .context("Failed to extract verification key from plugin signing certificate")?;
+
+    let signature_text = std::str::from_utf8(signature)
+        .context("Signature payload is not valid UTF-8 after normalization")?;
+    let trimmed_signature = signature_text.trim();
+    if trimmed_signature.is_empty() {
+        bail!("Signature payload is empty after normalization");
+    }
+
+    verification_key
+        .verify_signature(
+            Signature::Base64Encoded(trimmed_signature.as_bytes()),
+            artifact,
         )
-    })?;
+        .context("Sigstore signature verification failed")
+}
 
-    let artifact_path = temp_dir.join("plugin.wasm");
-    let signature_path = temp_dir.join("plugin.wasm.sig");
-    let certificate_path = temp_dir.join("plugin.wasm.pem");
+fn validate_sigstore_certificate(certificate: &Certificate, identity_regex: &str) -> Result<()> {
+    validate_certificate_chain(certificate)?;
+    validate_certificate_validity(certificate)?;
+    validate_certificate_issuer(certificate, SIGSTORE_GITHUB_OIDC_ISSUER)?;
+    validate_certificate_identity(certificate, identity_regex)
+}
 
-    let verify_result = (|| -> Result<()> {
-        write_private_file(&artifact_path, artifact)?;
-        write_private_file(&signature_path, signature)?;
-        write_private_file(&certificate_path, certificate)?;
+fn validate_certificate_chain(certificate: &Certificate) -> Result<()> {
+    let cert_der = certificate
+        .to_der()
+        .context("Failed to encode signing certificate as DER")?;
+    let end_entity_der = CertificateDer::from(cert_der);
+    let end_entity = EndEntityCert::try_from(&end_entity_der)
+        .context("Failed to parse signing certificate as X.509 end-entity cert")?;
 
-        let mut command = Command::new("cosign");
-        command
-            .arg("verify-blob")
-            .arg("--certificate")
-            .arg(&certificate_path)
-            .arg("--signature")
-            .arg(&signature_path)
-            .arg("--certificate-oidc-issuer")
-            .arg(SIGSTORE_GITHUB_OIDC_ISSUER)
-            .arg("--certificate-identity-regexp")
-            .arg(identity_regex);
+    let trust_anchors = [FULCIO_ROOT_CERT_1_PEM, FULCIO_ROOT_CERT_2_PEM]
+        .into_iter()
+        .map(|pem| {
+            let root_der = CertificateDer::from_pem_slice(pem.as_bytes())
+                .context("Failed to parse embedded Fulcio root certificate")?;
+            let anchor = anchor_from_trusted_cert(&root_der)
+                .context("Failed to build trust anchor from Fulcio root certificate")?;
+            Ok(anchor.to_owned())
+        })
+        .collect::<Result<Vec<_>>>()?;
 
-        command.arg(&artifact_path);
+    let usage = KeyUsage::required_if_present(CODE_SIGNING_EKU_OID);
+    end_entity
+        .verify_for_usage(
+            ALL_VERIFICATION_ALGS,
+            trust_anchors.as_slice(),
+            &[],
+            UnixTime::now(),
+            usage,
+            None,
+            None,
+        )
+        .context("Certificate chain verification against Fulcio roots failed")?;
 
-        let output = run_command_with_timeout(command, COSIGN_VERIFY_TIMEOUT)?;
+    Ok(())
+}
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-            let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let details = if !stderr.is_empty() {
-                stderr
-            } else if !stdout.is_empty() {
-                stdout
-            } else {
-                "cosign verify-blob exited with non-zero status".to_string()
-            };
-            bail!("cosign verify-blob failed: {details}");
+fn validate_certificate_validity(certificate: &Certificate) -> Result<()> {
+    let now = std::time::SystemTime::now();
+    let validity = &certificate.tbs_certificate.validity;
+    let not_before = validity.not_before.to_system_time();
+    let not_after = validity.not_after.to_system_time();
+
+    if now < not_before {
+        bail!(
+            "Certificate is not valid yet (not_before={})",
+            validity.not_before
+        );
+    }
+
+    if now > not_after {
+        bail!("Certificate has expired (not_after={})", validity.not_after);
+    }
+
+    Ok(())
+}
+
+fn validate_certificate_issuer(certificate: &Certificate, expected_issuer: &str) -> Result<()> {
+    let issuer = read_certificate_extension_utf8(certificate, SIGSTORE_ISSUER_OID)
+        .context("Failed to read Sigstore issuer extension from certificate")?
+        .ok_or_else(|| anyhow!("Certificate is missing Sigstore issuer extension"))?;
+
+    if issuer != expected_issuer {
+        bail!(
+            "Certificate OIDC issuer mismatch. expected='{}', actual='{}'",
+            expected_issuer,
+            issuer
+        );
+    }
+
+    Ok(())
+}
+
+fn validate_certificate_identity(certificate: &Certificate, identity_regex: &str) -> Result<()> {
+    let identity = certificate_identity(certificate)?;
+    let matcher = regex::Regex::new(identity_regex)
+        .with_context(|| format!("Invalid certificate identity regex: {identity_regex}"))?;
+
+    if !matcher.is_match(&identity) {
+        bail!(
+            "Certificate identity '{}' does not match expected pattern '{}'",
+            identity,
+            identity_regex
+        );
+    }
+
+    Ok(())
+}
+
+fn certificate_identity(certificate: &Certificate) -> Result<String> {
+    let (_, san) = certificate
+        .tbs_certificate
+        .get::<SubjectAltName>()
+        .context("Failed to read certificate SubjectAltName extension")?
+        .ok_or_else(|| anyhow!("Certificate is missing SubjectAltName extension"))?;
+
+    for name in &san.0 {
+        match name {
+            GeneralName::UniformResourceIdentifier(uri) => return Ok(uri.to_string()),
+            GeneralName::Rfc822Name(email) => return Ok(email.to_string()),
+            _ => continue,
         }
+    }
 
-        Ok(())
-    })();
+    bail!("Certificate SubjectAltName does not include URI or email identity")
+}
 
-    let _ = fs::remove_dir_all(&temp_dir);
-    verify_result
+fn read_certificate_extension_utf8(
+    certificate: &Certificate,
+    extension_oid: ObjectIdentifier,
+) -> Result<Option<String>> {
+    let Some(extensions) = certificate.tbs_certificate.extensions.as_ref() else {
+        return Ok(None);
+    };
+
+    let value = extensions
+        .iter()
+        .find(|extension| extension.extn_id == extension_oid)
+        .map(|extension| String::from_utf8(extension.extn_value.clone().into_bytes()))
+        .transpose()
+        .context("Certificate extension is not valid UTF-8")?;
+
+    Ok(value)
 }
 
 fn normalize_signature_bundle<'a>(
@@ -1812,62 +1949,6 @@ fn decode_base64_text(payload: &str) -> Option<Vec<u8>> {
                 .decode(compact.as_bytes())
                 .ok()
         })
-}
-
-struct CommandOutput {
-    status: std::process::ExitStatus,
-    stdout: Vec<u8>,
-    stderr: Vec<u8>,
-}
-
-fn run_command_with_timeout(mut command: Command, timeout: Duration) -> Result<CommandOutput> {
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            anyhow!("cosign binary not found in PATH. Install cosign to verify plugin signatures.")
-        } else {
-            anyhow!("Failed to execute cosign verify-blob: {error}")
-        }
-    })?;
-
-    let start = Instant::now();
-    loop {
-        if let Some(status) = child
-            .try_wait()
-            .context("Failed to check cosign verify-blob process status")?
-        {
-            let mut stdout = Vec::new();
-            if let Some(mut handle) = child.stdout.take() {
-                handle
-                    .read_to_end(&mut stdout)
-                    .context("Failed to read cosign stdout")?;
-            }
-
-            let mut stderr = Vec::new();
-            if let Some(mut handle) = child.stderr.take() {
-                handle
-                    .read_to_end(&mut stderr)
-                    .context("Failed to read cosign stderr")?;
-            }
-
-            return Ok(CommandOutput {
-                status,
-                stdout,
-                stderr,
-            });
-        }
-
-        if start.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            bail!(
-                "cosign verify-blob timed out after {} seconds",
-                timeout.as_secs()
-            );
-        }
-
-        std::thread::sleep(Duration::from_millis(100));
-    }
 }
 
 fn write_private_file(path: &Path, data: &[u8]) -> Result<()> {
