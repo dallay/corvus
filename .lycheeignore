@@ -48,3 +48,25 @@ gradle/configs/checkstyle/checkstyle-header-file\.txt
 # Any path-like string without scheme used in frontmatter
 # Matches: guides/pagename/, api/reference/, etc.
 ^[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/?$
+
+# =============================================================================
+# Temporary Network Issues (HTTP/2 errors from GitHub/dependabot)
+# =============================================================================
+
+# HTTP/2 protocol errors from GitHub
+^https://github\.com/dallay/corvus/blob/main/.github/MAINTENANCE\.md$
+^https://github\.com/dallay/corvus/blob/main/.github/workflows/README\.md$
+^https://github\.com/dallay/corvus/blob/main/.github/CONTRIBUTING\.md$
+^https://github\.com/dallay/corvus/releases$
+
+# Kotlin kover issues page
+^https://github\.com/Kotlin/kotlinx-kover/issues/746$
+
+# Dependabot PRs
+^https://github\.com/jjohannes/gradle-project-setup-howto/pulls/app%2Fdependabot$
+
+# External sites with intermittent connectivity
+^https://aieos\.org/
+
+# Security advisories page
+^https://github\.com/dallay/corvus/security/advisories/new$
