@@ -20,7 +20,6 @@ REQUESTED_INSTALL_DIR="${CORVUS_INSTALL_DIR:-}"
 AUTO_APPROVE="${CORVUS_YES:-0}"
 RUN_ONBOARD="${CORVUS_NO_ONBOARD:-0}"
 SKIP_CHECKSUM="${CORVUS_SKIP_CHECKSUM:-0}"
-COSIGN_AVAILABLE="1"
 APT_INDEX_UPDATED="0"
 
 OS_TYPE=""
@@ -187,7 +186,7 @@ print_preflight_notice() {
   print_warn "Beta disclaimer: Corvus is currently in beta. Behavior and compatibility may change or fail without prior notice."
   print_info "This installer will:"
   printf "  - Install Corvus CLI\n"
-  printf "  - Ensure minimal dependencies for secure install and plugin verification (curl, tar, SHA-256 tooling, and cosign)\n"
+  printf "  - Ensure minimal dependencies for secure install and plugin verification (curl, tar, and SHA-256 tooling)\n"
   printf "  - Verify checksums by default before installing binaries\n"
 }
 
@@ -201,7 +200,7 @@ can_auto_install_dependency() {
   case "$PKG_MGR" in
     brew)
       case "$dep" in
-        curl|cosign)
+        curl)
           return 0
           ;;
         tar|sha256)
@@ -210,9 +209,6 @@ can_auto_install_dependency() {
       esac
       ;;
     apt-get|dnf|yum|pacman)
-      if [ "$dep" = "cosign" ]; then
-        return 1
-      fi
       return 0
       ;;
   esac
@@ -242,9 +238,6 @@ install_dep_with_pkg_mgr() {
       case "$dep" in
         curl)
           run_privileged --no-sudo brew install curl
-          ;;
-        cosign)
-          run_privileged --no-sudo brew install cosign
           ;;
         *)
           return 1
@@ -314,10 +307,6 @@ print_dependency_manual_help() {
     sha256)
       print_error "Neither sha256sum nor shasum was found. Install coreutils or Perl (shasum) and retry."
       ;;
-    cosign)
-      print_error "Could not auto-install cosign. Install cosign and retry."
-      print_info "Reference: https://docs.sigstore.dev/cosign/system_config/installation/"
-      ;;
   esac
 }
 
@@ -335,9 +324,6 @@ ensure_dependency() {
       ;;
     sha256)
       has_checksum_tool || need_install="1"
-      ;;
-    cosign)
-      has_cmd cosign || need_install="1"
       ;;
   esac
 
@@ -392,9 +378,6 @@ ensure_dependency() {
     sha256)
       has_checksum_tool || return 1
       ;;
-    cosign)
-      has_cmd cosign || return 1
-      ;;
   esac
 
   print_success "Dependency ready: ${human_name}"
@@ -424,10 +407,6 @@ preflight_dependencies() {
   ensure_dependency "curl" "curl" || return 1
   ensure_dependency "tar" "tar" || return 1
   ensure_dependency "sha256" "sha256sum or shasum" || return 1
-  if ! ensure_dependency "cosign" "cosign"; then
-    COSIGN_AVAILABLE="0"
-    print_warn "cosign is not available. Corvus installation can continue, but plugin signature verification will fail until cosign is installed."
-  fi
 }
 
 parse_args() {
@@ -842,11 +821,6 @@ post_install_steps() {
 
   resolved_version="$($resolved_cmd --version 2>/dev/null || echo 'installed')"
   print_success "Corvus CLI available: ${resolved_version}"
-
-  if [ "$COSIGN_AVAILABLE" != "1" ]; then
-    print_warn "cosign is not installed. Plugin signature verification will fail until cosign is installed."
-    print_info "Install instructions: https://docs.sigstore.dev/cosign/system_config/installation/"
-  fi
 
   if [ "$RUN_ONBOARD" = "1" ]; then
     print_info "Onboarding skipped (--no-onboard or CORVUS_NO_ONBOARD=1)."

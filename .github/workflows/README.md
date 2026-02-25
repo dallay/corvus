@@ -206,10 +206,13 @@ Calls the reusable `_publish.yml` workflow with:
 3. Generates immutable artifact paths under `artifacts/<plugin-id>/<version>/`
 4. Upserts plugin entry into `catalog.json` and preserves existing entries
 5. Signs artifact with cosign keyless OIDC identity
-6. Verifies signature in CI
+6. Verifies signature in CI (OIDC issuer: `https://token.actions.githubusercontent.com`)
 7. Uploads immutable artifacts + mutable metadata to Cloudflare R2 (atomic order)
 8. Verifies uploaded catalog integrity and public Worker endpoints
 9. Optionally builds/deploys legacy plugins catalog site to Cloudflare Pages
+
+Runtime note: plugin verification for users runs natively in `corvus` (Sigstore in runtime);
+local `cosign` is not required on end-user machines.
 
 **Required secrets/vars for R2 publishing**:
 

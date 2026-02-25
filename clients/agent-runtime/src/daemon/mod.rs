@@ -161,8 +161,7 @@ where
                     backoff = initial_backoff_secs.max(1);
                 }
                 Err(e) => {
-                    let is_gateway_addr_in_use =
-                        name == "gateway" && is_addr_in_use_error(&e);
+                    let is_gateway_addr_in_use = name == "gateway" && is_addr_in_use_error(&e);
                     let err_str = e.to_string();
                     crate::health::mark_component_error(name, &err_str);
                     tracing::error!("Daemon component '{name}' failed: {err_str}");
