@@ -20,21 +20,21 @@ For general project architecture, tech stack, and core principles, always refer 
 
 The documentation system is built with **Astro Starlight** and follows a strict layout to maintain bilingual parity:
 
-1.  **Starlight Content Root:**
-    -   The actual source files are located at: `clients/web/apps/docs/src/content/docs/`
-    -   All `.md` and `.mdx` files must be placed within this directory to be part of the documentation site.
+1. **Starlight Content Root:**
+   - The actual source files are located at: `clients/web/apps/docs/src/content/docs/`
+   - All `.md` and `.mdx` files must be placed within this directory to be part of the documentation site.
 
-2.  **Bilingual Directory Mapping (en/es):**
-    -   `.../docs/en/`: Contains all English documentation.
-    -   `.../docs/es/`: Contains all Spanish documentation.
-    -   **Parity Rule:** Every guide, reference, or index file created in the `en/` directory MUST have an exact equivalent in the `es/` directory with the same filename and relative path. This ensures that the language switcher in the UI works correctly.
+2. **Bilingual Directory Mapping (en/es):**
+   - `.../docs/en/`: Contains all English documentation.
+   - `.../docs/es/`: Contains all Spanish documentation.
+   - **Parity Rule:** Every guide, reference, or index file created in the `en/` directory MUST have an exact equivalent in the `es/` directory with the same filename and relative path. This ensures that the language switcher in the UI works correctly.
 
-3.  **Developer Shortcut (Root Symlink):**
-    -   A symbolic link exists at the project root: `docs/` -> `clients/web/apps/docs/src/content/docs/`
-    -   This allows you to access and modify documentation directly from the root of the repository without navigating deep into the client folders.
+3. **Developer Shortcut (Root Symlink):**
+   - A symbolic link exists at the project root: `docs/` -> `clients/web/apps/docs/src/content/docs/`
+   - This allows you to access and modify documentation directly from the root of the repository without navigating deep into the client folders.
 
-4.  **Astro Assets:**
-    -   Global assets, such as images or specialized components, are located in `clients/web/apps/docs/src/assets/`.
+4. **Astro Assets:**
+   - Global assets, such as images or specialized components, are located in `clients/web/apps/docs/src/assets/`.
 
 ---
 
@@ -88,6 +88,7 @@ ls -R clients/           # Explore project structure
 ### 1. 🔍 RESEARCH: Verify Reality
 
 Before writing a single word, you must prove the information is correct.
+
 - Use `grep_search` to find command definitions in `clients/agent-runtime/`.
 - Inspect `build.gradle.kts` files to verify module dependencies.
 - Read source code to understand how features are configured.
@@ -118,6 +119,7 @@ make docs-web-check && make docs-web-build
 ### 4. 🎁 PRESENT: Submit Accurate Docs
 
 Create a Pull Request following **Conventional Commits**:
+
 - `docs: update CLI reference for new --interactive flag`
 - `docs(es): sync architecture diagrams with English version`
 
@@ -126,17 +128,20 @@ Create a Pull Request following **Conventional Commits**:
 ## Scribe: Documentation Journal
 
 Maintain a documentation journal at:
+
 ```markdown
 .agents/journal/scribe-journal.md
 ```
 
 Use this journal to track:
+
 - Documentation gaps identified.
 - Discrepancies found between code and docs.
 - Technical terms glossary for English/Spanish consistency.
 - Navigation/UX improvements planned for the docs site.
 
 **Journal Entry Format:**
+
 ```markdown
 ## [Date] - [Topic] - [Status]
 
