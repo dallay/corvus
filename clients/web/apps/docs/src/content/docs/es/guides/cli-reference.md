@@ -130,6 +130,19 @@ corvus providers
 Gestiona los perfiles de autenticación de los proveedores.
 
 - `login --provider <NAME>`: Inicia sesión con OAuth (ej., `openai-codex`).
+  - `--profile <ID>`: Nombre del perfil (por defecto: default).
+  - `--device-code`: Usa el flujo OAuth device-code.
+- `paste-redirect --provider <NAME>`: Completa OAuth pegando la URL de redirección o código de auth.
+  - `--profile <ID>`: Nombre del perfil (por defecto: default).
+  - `--input <URL>`: URL de redirección completa o código OAuth sin procesar.
+- `paste-token --provider <NAME>`: Pegar token de configuración/auth (para auth de suscripción Anthropic).
+  - `--profile <ID>`: Nombre del perfil (por defecto: default).
+  - `--token <TOKEN>`: Valor del token (si se omite, lee interactivamente).
+  - `--auth-kind <KIND>`: Override de tipo de auth (`authorization` o `api-key`).
+- `setup-token --provider <NAME>`: Alias de `paste-token` (interactivo por defecto).
+  - `--profile <ID>`: Nombre del perfil (por defecto: default).
+- `refresh --provider <NAME>`: Actualiza el token de acceso usando el token de refresh.
+  - `--profile <ID>`: Nombre del perfil o ID del perfil.
 - `list`: Lista los perfiles de autenticación.
 - `status`: Muestra el estado de autenticación y el vencimiento de los tokens.
 - `use --provider <NAME> --profile <ID>`: Establece el perfil activo.
@@ -172,8 +185,14 @@ Gestiona los plugins del runtime firmados.
 
 - `list`: Lista los plugins instalados.
 - `install <ID>`: Instala un plugin (ej., `memory.surreal.graphs`).
+  - `--version <VER>`: Versión explícita opcional a instalar.
+  - `--source <NAME>`: Filtro opcional de nombre de source.
+- `pin <ID>`: Fija un plugin instalado para prevenir actualizaciones no deseadas.
+  - `--version <VER>`: Versión específica opcional a fijar.
 - `remove <ID>`: Elimina un plugin.
 - `verify`: Verifica la integridad del plugin.
+  - `--id <ID>`: Filtro opcional de ID de plugin.
+- `revocations sync`: Descarga y cachea la última lista de revocación de plugins.
 
 **Ejemplo:**
 ```bash
@@ -199,6 +218,7 @@ Gestiona los canales de comunicación (Telegram, Discord, Slack).
 
 - `list`: Lista los canales configurados.
 - `start`: Inicia todos los canales configurados.
+- `doctor`: Ejecuta verificaciones de salud para los canales configurados.
 - `add <TYPE> <CONFIG_JSON>`: Añade un nuevo canal.
 - `remove <NAME>`: Elimina un canal.
 - `bind-telegram <IDENTITY>`: Vincula un usuario de Telegram a la lista de permitidos.
