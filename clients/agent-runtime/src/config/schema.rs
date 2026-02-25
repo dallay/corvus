@@ -1000,9 +1000,10 @@ pub struct PluginSourceConfig {
     /// Optional regex for expected Sigstore certificate identity on non-official remote sources.
     #[serde(default)]
     pub plugin_identity_regex: Option<String>,
-    /// Optional OIDC issuer for Sigstore certificate validation.
-    /// Defaults to `https://token.actions.githubusercontent.com` (GitHub Actions).
-    /// Use this for non-GitHub OIDC issuers (e.g., GitLab, CircleCI).
+    /// OIDC issuer for Sigstore certificate validation.
+    /// Defaults to `https://token.actions.githubusercontent.com` (GitHub Actions) if not provided.
+    /// Use this field with [`default_sigstore_oidc_issuer`] to specify a custom OIDC issuer
+    /// for non-GitHub OIDC providers (e.g., GitLab, CircleCI).
     #[serde(default = "default_sigstore_oidc_issuer")]
     pub sigstore_oidc_issuer: String,
 }
@@ -2571,6 +2572,7 @@ impl Config {
         // Plugin catalog sources:
         // CORVUS_PLUGIN_SOURCES="official=https://plugins.example/catalog.json,mirror=https://plugins.example/catalog.json|^https://ci\\.example\\.com/workflows/publish@.*$"
         // OR "https://plugins.example/catalog.json,file:///tmp/catalog.json"
+        // Optionally with OIDC issuer: "name=url|regex|issuer" or "url|regex|issuer"
         if let Ok(sources_raw) = std::env::var("CORVUS_PLUGIN_SOURCES") {
             let mut anonymous_index = 0usize;
             let parsed: Vec<PluginSourceConfig> = sources_raw
@@ -2580,16 +2582,27 @@ impl Config {
                 .filter_map(|entry| {
                     if let Some((name, url)) = entry.split_once('=') {
                         let name = name.trim();
-                        let (url, plugin_identity_regex) = if let Some((url, regex)) =
-                            url.split_once('|')
-                        {
-                            (
-                                url.trim(),
-                                Some(regex.trim().to_string()).filter(|value| !value.is_empty()),
-                            )
-                        } else {
-                            (url.trim(), None)
-                        };
+                        // Parse url|regex|issuer format
+                        let (url, plugin_identity_regex, sigstore_oidc_issuer) =
+                            if let Some((url_part, remainder)) = url.split_once('|') {
+                                if let Some((regex_part, issuer_part)) = remainder.split_once('|') {
+                                    (
+                                        url_part.trim(),
+                                        Some(regex_part.trim().to_string())
+                                            .filter(|value| !value.is_empty()),
+                                        issuer_part.trim().to_string(),
+                                    )
+                                } else {
+                                    (
+                                        url_part.trim(),
+                                        Some(remainder.trim().to_string())
+                                            .filter(|value| !value.is_empty()),
+                                        default_sigstore_oidc_issuer(),
+                                    )
+                                }
+                            } else {
+                                (url.trim(), None, default_sigstore_oidc_issuer())
+                            };
                         if name.is_empty() || url.is_empty() {
                             return None;
                         }
@@ -2597,24 +2610,36 @@ impl Config {
                             name: name.to_string(),
                             url: url.to_string(),
                             plugin_identity_regex,
-                            sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
+                            sigstore_oidc_issuer,
                         });
                     }
                     anonymous_index = anonymous_index.saturating_add(1);
-                    let (url, plugin_identity_regex) =
-                        if let Some((url, regex)) = entry.split_once('|') {
-                            (
-                                url.trim().to_string(),
-                                Some(regex.trim().to_string()).filter(|value| !value.is_empty()),
-                            )
+                    // Parse url|regex|issuer format for anonymous entries
+                    let (url, plugin_identity_regex, sigstore_oidc_issuer) =
+                        if let Some((url_part, remainder)) = entry.split_once('|') {
+                            if let Some((regex_part, issuer_part)) = remainder.split_once('|') {
+                                (
+                                    url_part.trim().to_string(),
+                                    Some(regex_part.trim().to_string())
+                                        .filter(|value| !value.is_empty()),
+                                    issuer_part.trim().to_string(),
+                                )
+                            } else {
+                                (
+                                    url_part.trim().to_string(),
+                                    Some(remainder.trim().to_string())
+                                        .filter(|value| !value.is_empty()),
+                                    default_sigstore_oidc_issuer(),
+                                )
+                            }
                         } else {
-                            (entry.to_string(), None)
+                            (entry.to_string(), None, default_sigstore_oidc_issuer())
                         };
                     Some(PluginSourceConfig {
                         name: format!("env-source-{anonymous_index}"),
                         url,
                         plugin_identity_regex,
-                        sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
+                        sigstore_oidc_issuer,
                     })
                 })
                 .collect();

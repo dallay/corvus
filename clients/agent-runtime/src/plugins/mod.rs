@@ -239,6 +239,11 @@ pub struct LockedPlugin {
     #[serde(default)]
     pub source_identity_regex: Option<String>,
 
+    /// OIDC issuer used for certificate validation at install time.
+    /// Stored to enable runtime re-verification with the same issuer.
+    #[serde(default)]
+    pub source_sigstore_oidc_issuer: Option<String>,
+
     pub publisher: String,
     pub runtime_api: String,
     pub installed_at: String,
@@ -786,7 +791,10 @@ impl PluginManager {
             &signature_bytes,
             certificate_bytes.as_ref(),
             identity_regex.as_str(),
-            SIGSTORE_GITHUB_OIDC_ISSUER,
+            plugin
+                .source_sigstore_oidc_issuer
+                .as_deref()
+                .unwrap_or(SIGSTORE_GITHUB_OIDC_ISSUER),
             false, // check_validity: false for runtime re-verification (skip time checks)
         )
         .with_context(|| {
@@ -849,6 +857,7 @@ impl PluginManager {
             source: candidate.source.name.clone(),
             source_url: Some(candidate.source.url.clone()),
             source_identity_regex: source_identity_regex.clone(),
+            source_sigstore_oidc_issuer: Some(candidate.source.sigstore_oidc_issuer.clone()),
             publisher: candidate.manifest.publisher.clone(),
             runtime_api: candidate.manifest.runtime_api.clone(),
             installed_at: Utc::now().to_rfc3339(),
@@ -962,9 +971,10 @@ impl PluginManager {
             id: candidate.manifest.id,
             version: candidate.manifest.version,
             digest: format!("sha256:{actual_digest}"),
-            source: candidate.source.name,
-            source_url: Some(candidate.source.url),
+            source: candidate.source.name.clone(),
+            source_url: Some(candidate.source.url.clone()),
             source_identity_regex,
+            source_sigstore_oidc_issuer: Some(candidate.source.sigstore_oidc_issuer.clone()),
             publisher: candidate.manifest.publisher,
             runtime_api: candidate.manifest.runtime_api,
             installed_at: Utc::now().to_rfc3339(),
@@ -1608,7 +1618,10 @@ fn signature_policy_for_locked_plugin(plugin: &LockedPlugin) -> Result<Signature
             name: plugin.source.clone(),
             url: source_url.to_string(),
             plugin_identity_regex,
-            sigstore_oidc_issuer: SIGSTORE_GITHUB_OIDC_ISSUER.to_string(),
+            sigstore_oidc_issuer: plugin
+                .source_sigstore_oidc_issuer
+                .clone()
+                .unwrap_or_else(|| SIGSTORE_GITHUB_OIDC_ISSUER.to_string()),
         };
         return signature_policy_for_source(&source);
     }
@@ -1775,28 +1788,48 @@ fn validate_certificate_chain(
 
     let usage = KeyUsage::required_if_present(CODE_SIGNING_EKU_OID);
 
-    // For runtime re-verification, use a time in the distant future to bypass
-    // time-window checks while still verifying chain-of-trust, algorithms, etc.
-    // For install-time verification, use the current time to enforce validity windows.
-    let verification_time = if check_validity {
-        UnixTime::now()
+    // For install-time verification: use current time to enforce validity windows.
+    // For runtime re-verification: skip time-based validation to allow expired certs
+    // but still verify chain-of-trust, algorithms, etc.
+    if check_validity {
+        end_entity
+            .verify_for_usage(
+                ALL_VERIFICATION_ALGS,
+                trust_anchors.as_slice(),
+                intermediates.as_slice(),
+                UnixTime::now(),
+                usage,
+                None,
+                None,
+            )
+            .context("Certificate chain verification against Fulcio roots failed")?;
     } else {
-        // Use a time far in the future to skip time-window checks at runtime
-        // while still performing all other chain validations
-        UnixTime::since_unix_epoch(std::time::Duration::from_secs(u64::MAX))
-    };
-
-    end_entity
-        .verify_for_usage(
+        // Runtime verification: verify chain but ignore time-related errors
+        let result = end_entity.verify_for_usage(
             ALL_VERIFICATION_ALGS,
             trust_anchors.as_slice(),
             intermediates.as_slice(),
-            verification_time,
+            UnixTime::now(),
             usage,
             None,
             None,
-        )
-        .context("Certificate chain verification against Fulcio roots failed")?;
+        );
+
+        // Ignore time-based errors (certificate expired or not yet valid) at runtime
+        // but fail on any other chain verification errors
+        if let Err(e) = result {
+            let error_str = e.to_string();
+            if !error_str.contains("expired")
+                && !error_str.contains("not yet valid")
+                && !error_str.contains("validity")
+            {
+                return Err(e)
+                    .context("Certificate chain verification against Fulcio roots failed");
+            }
+            // Log the time-based issue at debug level for observability
+            tracing::debug!("Runtime certificate time validation skipped: {}", error_str);
+        }
+    }
 
     Ok(())
 }
@@ -2640,7 +2673,7 @@ mod tests {
             Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
         );
 
-        let error = validate_certificate_chain(&certificate, pem.as_bytes())
+        let error = validate_certificate_chain(&certificate, pem.as_bytes(), true)
             .expect_err("self-signed cert must fail against Fulcio trust roots");
         assert!(error
             .to_string()
@@ -2663,7 +2696,7 @@ mod tests {
         );
         let bundled = format!("{}\n{}", leaf_pem, intermediate_pem);
 
-        let error = validate_certificate_chain(&certificate, bundled.as_bytes())
+        let error = validate_certificate_chain(&certificate, bundled.as_bytes(), true)
             .expect_err("invalid intermediate bundle must fail chain verification");
         assert!(error
             .to_string()
@@ -2762,6 +2795,9 @@ mod tests {
             source_identity_regex: Some(
                 "^https://ci\\.example\\.com/workflows/publish@.*$".to_string(),
             ),
+            source_sigstore_oidc_issuer: Some(
+                "https://token.actions.githubusercontent.com".to_string(),
+            ),
             publisher: "corvus-official".to_string(),
             runtime_api: default_runtime_api(),
             installed_at: Utc::now().to_rfc3339(),
@@ -2790,6 +2826,7 @@ mod tests {
             source: "legacy-mirror".to_string(),
             source_url: None,
             source_identity_regex: None,
+            source_sigstore_oidc_issuer: None,
             publisher: "corvus-official".to_string(),
             runtime_api: default_runtime_api(),
             installed_at: Utc::now().to_rfc3339(),
@@ -2814,6 +2851,7 @@ mod tests {
             source: "legacy-mirror".to_string(),
             source_url: Some("https://plugins.example.com/catalog.json".to_string()),
             source_identity_regex: None,
+            source_sigstore_oidc_issuer: None,
             publisher: "corvus-official".to_string(),
             runtime_api: default_runtime_api(),
             installed_at: Utc::now().to_rfc3339(),
