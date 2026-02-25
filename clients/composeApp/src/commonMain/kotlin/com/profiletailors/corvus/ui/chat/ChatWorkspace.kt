@@ -1,3 +1,5 @@
+@file:Suppress("FunctionNaming")
+
 package com.profiletailors.corvus.ui.chat
 
 import androidx.compose.foundation.BorderStroke
@@ -148,20 +150,21 @@ fun ChatWorkspace(
     query = ""
   }
 
-  val actions = remember {
-    ChatWorkspaceActions(
-      onQueryChange = { query = it },
-      onSend = ::sendMessage,
-      onToggleConfig = { showConfig = !showConfig },
-      onBaseUrlChange = { baseUrl = it },
-      onPairingCodeChange = { pairingCode = it },
-      onBearerTokenChange = { bearerToken = it },
-      onWebhookSecretChange = { webhookSecret = it },
-    )
-  }
+  val actions =
+    remember(state) {
+      ChatWorkspaceActions(
+        onQueryChange = { query = it },
+        onSend = ::sendMessage,
+        onToggleConfig = { showConfig = !showConfig },
+        onBaseUrlChange = { baseUrl = it },
+        onPairingCodeChange = { pairingCode = it },
+        onBearerTokenChange = { bearerToken = it },
+        onWebhookSecretChange = { webhookSecret = it },
+      )
+    }
 
   val uiState =
-    remember(state, messages, query, showConfig) {
+    remember(state, query, showConfig) {
       ChatUiState(
         workspaceState = state,
         messages = messages,

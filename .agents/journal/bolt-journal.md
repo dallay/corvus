@@ -36,8 +36,8 @@ Build time baseline (hot): ~2s. No regression.
 2. Inefficient recomposition: Static lists of endpoint details in `ConfigPanel` were recreated on every recomposition (e.g., while the user is typing in gateway fields).
 
 **Solution:**
-1. Moved the `remember`ed `gatewayConfig` definition above `sendMessage` and reused it within the function.
-2. Extracted the longest static list (`WebhookDetails`) to a private constant outside the composable to avoid redundant allocations during typing.
+1. Moved the `remember`ed `gatewayConfig` definition above `sendMessage` and reused it within the function. (Superseded in next iteration: approach replaced by reading current state at invocation to avoid stale-capture).
+2. Extracted the longest static list (`WebhookDetails`) to a private constant outside the composable to avoid redundant allocations during typing (note: this is unrelated to the `gatewayConfig` change).
 
 **Impact:**
 - **Reduced GC Pressure**: Fewer short-lived objects created during chat interaction and configuration editing.
@@ -54,7 +54,7 @@ Incremental baseline: ~10.7s → Incremental post-optimization: ~1.4s. Verified 
 - `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatComponents.kt`
 
 **Issue:**
-1. Stale state capture: `sendMessage` used a `remember`ed version of `gatewayConfig`, potentially leading to bugs when settings were changed.
+1. Stale state capture: `sendMessage` used a `remember`ed version of `gatewayConfig`, potentially leading to bugs when settings were changed. (Replaced the previous approach of reusing a fixed remembered config).
 2. Unnecessary allocations: `ChatUiState` was recreated on every recomposition; `BorderStroke` objects were created in every `EndpointCard` and `ChatBubble`.
 3. Maintenance: `ChatWorkspace.kt` grew too large, violating function count limits.
 
@@ -66,7 +66,7 @@ Incremental baseline: ~10.7s → Incremental post-optimization: ~1.4s. Verified 
 
 **Impact:**
 - **Improved Stability**: Fixed state capture bugs.
-- **Maximized Skipiability**: Optimized Compose compiler's ability to skip recompositions via stable wrappers and memoization.
+- **Maximized Skippability**: Optimized Compose compiler's ability to skip recompositions via stable wrappers and memoization.
 - **Clean Architecture**: Met Detekt and maintainability standards.
 
 **Benchmark:**
