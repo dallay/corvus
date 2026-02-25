@@ -9,7 +9,7 @@ This document defines how Corvus handles high PR volume while maintaining:
 - High sustainability
 - High security
 
-Related reference: [`docs/ci-map.md`](ci-map.md) for per-workflow ownership, triggers, and triage flow.
+Related reference: [`ci-map.md`](ci-map.md) for per-workflow ownership, triggers, and triage flow.
 
 ## 1) Governance Goals
 

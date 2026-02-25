@@ -47,8 +47,8 @@ When PR traffic is high (especially with AI-assisted contributions), these rules
 - **Explicit rollback**: every PR must include a fast rollback path.
 - **Security-first review**: changes in `src/security/`, runtime, and CI need stricter validation.
 
-Full maintainer workflow: [`docs/pr-workflow.md`](docs/pr-workflow.md).
-CI workflow ownership and triage map: [`docs/ci-map.md`](docs/ci-map.md).
+Full maintainer workflow: see [`../web/apps/docs/src/content/docs/en/clients/agent-runtime/pr-workflow.md`](../web/apps/docs/src/content/docs/en/clients/agent-runtime/pr-workflow.md).
+CI workflow ownership and triage map: see [`../web/apps/docs/src/content/docs/en/clients/agent-runtime/ci-map.md`](../web/apps/docs/src/content/docs/en/clients/agent-runtime/ci-map.md).
 
 ## Agent Collaboration Guidance
 

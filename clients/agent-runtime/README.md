@@ -132,7 +132,7 @@ Set `CORVUS_DISABLE_UPDATE_CHECK=1` to disable update notifications.
 Every subsystem is a **trait** — swap implementations with a config change, zero code changes.
 
 <p align="center">
-  <img src="docs/architecture.svg" alt="Corvus Architecture" width="900" />
+  <img src="../../assets/architecture.svg" alt="Corvus Architecture" width="900" />
 </p>
 
 | Subsystem         | Trait            | Ships with                                                                                                                                          | Extend                                                    |
@@ -375,7 +375,7 @@ Traditional markdown files in your workspace:
 
 ### AIEOS (AI Entity Object Specification)
 
-[AIEOS](https://aieos.org) (link temporally unavailable) is a standardization framework for portable AI identity. Corvus supports
+AIEOS is a standardization framework for portable AI identity. Corvus supports
 AIEOS v1.1 JSON payloads, allowing you to:
 
 - **Import identities** from the AIEOS ecosystem
@@ -428,7 +428,7 @@ aieos_inline = '''
 | `history`      | Origin story, education, occupation                           |
 | `interests`    | Hobbies, favorites, lifestyle                                 |
 
-See [aieos.org](https://aieos.org) (temporally unavailable) for the full schema and live examples.
+See the AIEOS specification for the full schema and examples.
 
 ## Gateway API
 
