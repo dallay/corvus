@@ -2,5 +2,10 @@
   "devDependencies": {
     "@astrojs/check": "^0.9.6",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "lodash": "^4.17.23"
+    }
   }
 }
