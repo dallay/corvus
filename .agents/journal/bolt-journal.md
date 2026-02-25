@@ -45,3 +45,29 @@ Build time baseline (hot): ~2s. No regression.
 
 **Benchmark:**
 Incremental baseline: ~10.7s → Incremental post-optimization: ~1.4s. Verified functional correctness with `:composeApp:check`.
+
+## 2025-02-18 - KMP - Architecture & Caching Optimization
+
+**Location:**
+- `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatWorkspace.kt`
+- `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ConfigPanel.kt`
+- `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatComponents.kt`
+
+**Issue:**
+1. Stale state capture: `sendMessage` used a `remember`ed version of `gatewayConfig`, potentially leading to bugs when settings were changed.
+2. Unnecessary allocations: `ChatUiState` was recreated on every recomposition; `BorderStroke` objects were created in every `EndpointCard` and `ChatBubble`.
+3. Maintenance: `ChatWorkspace.kt` grew too large, violating function count limits.
+
+**Solution:**
+1. Refactored `sendMessage` to read current state variables at invocation time.
+2. Applied `remember` to `ChatUiState` and all `BorderStroke` allocations.
+3. Split the file into focused components (`ConfigPanel`, `ChatComponents`) and simplified component signatures using `ChatUiState` and `ChatWorkspaceActions` wrappers.
+4. Corrected annotations (`@Stable` for state-backed classes) and naming (screaming snake case for constants).
+
+**Impact:**
+- **Improved Stability**: Fixed state capture bugs.
+- **Maximized Skipiability**: Optimized Compose compiler's ability to skip recompositions via stable wrappers and memoization.
+- **Clean Architecture**: Met Detekt and maintainability standards.
+
+**Benchmark:**
+Incremental build time: ~1.8s. All checks passed.
