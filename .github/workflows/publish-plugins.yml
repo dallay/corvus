@@ -211,12 +211,14 @@ jobs:
           )
           signature_relative_path = f"{artifact_relative_path}.sig"
           certificate_relative_path = f"{artifact_relative_path}.pem"
+          bundle_relative_path = f"{artifact_relative_path}.sigstore.json"
           manifest_relative_path = (
               f"artifacts/{plugin_id}/{plugin_version}/plugin-manifest.json"
           )
           artifact_url = f"{input_catalog_base_url}/{artifact_relative_path}"
           signature_url = f"{input_catalog_base_url}/{signature_relative_path}"
           certificate_url = f"{input_catalog_base_url}/{certificate_relative_path}"
+          bundle_url = f"{input_catalog_base_url}/{bundle_relative_path}"
           manifest_url = f"{input_catalog_base_url}/{manifest_relative_path}"
 
           output = pathlib.Path(os.environ["GITHUB_OUTPUT"])
@@ -236,10 +238,12 @@ jobs:
               fh.write(f"artifact_relative_path={artifact_relative_path}\n")
               fh.write(f"signature_relative_path={signature_relative_path}\n")
               fh.write(f"certificate_relative_path={certificate_relative_path}\n")
+              fh.write(f"bundle_relative_path={bundle_relative_path}\n")
               fh.write(f"manifest_relative_path={manifest_relative_path}\n")
               fh.write(f"artifact_url={artifact_url}\n")
               fh.write(f"signature_url={signature_url}\n")
               fh.write(f"certificate_url={certificate_url}\n")
+              fh.write(f"bundle_url={bundle_url}\n")
               fh.write(f"manifest_url={manifest_url}\n")
 
               fh.write(f"publisher={publisher}\n")
@@ -290,10 +294,12 @@ jobs:
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
           SIGNATURE_RELATIVE_PATH: ${{ steps.meta.outputs.signature_relative_path }}
           CERTIFICATE_RELATIVE_PATH: ${{ steps.meta.outputs.certificate_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
           MANIFEST_RELATIVE_PATH: ${{ steps.meta.outputs.manifest_relative_path }}
           ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
           SIGNATURE_URL: ${{ steps.meta.outputs.signature_url }}
           CERTIFICATE_URL: ${{ steps.meta.outputs.certificate_url }}
+          BUNDLE_URL: ${{ steps.meta.outputs.bundle_url }}
           MANIFEST_URL: ${{ steps.meta.outputs.manifest_url }}
           PUBLISHER: ${{ steps.meta.outputs.publisher }}
           RUNTIME_API: ${{ steps.meta.outputs.runtime_api }}
@@ -361,6 +367,7 @@ jobs:
           plugin_entry["signature"] = {
               "url": os.environ["SIGNATURE_URL"],
               "certificate_url": os.environ["CERTIFICATE_URL"],
+              "bundle_url": os.environ["BUNDLE_URL"],
           }
 
           manifest_target = dist_dir / manifest_relative_path
@@ -480,23 +487,27 @@ jobs:
         env:
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
         run: |
           set -euo pipefail
 
           artifact_path="$DIST_DIR/$ARTIFACT_RELATIVE_PATH"
           signature_path="${artifact_path}.sig"
           certificate_path="${artifact_path}.pem"
+          bundle_path="$DIST_DIR/$BUNDLE_RELATIVE_PATH"
 
           ./cosign sign-blob \
             --yes \
             --output-signature "$signature_path" \
             --output-certificate "$certificate_path" \
+            --bundle "$bundle_path" \
             "$artifact_path"
 
       - name: ✅ Verify plugin signature
         env:
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
         shell: python
         run: |
           import base64
@@ -509,7 +520,14 @@ jobs:
           artifact_path = pathlib.Path(os.environ["DIST_DIR"]) / os.environ["ARTIFACT_RELATIVE_PATH"]
           signature_path = artifact_path.with_name(artifact_path.name + ".sig")
           certificate_path = artifact_path.with_name(artifact_path.name + ".pem")
+          bundle_path = pathlib.Path(os.environ["DIST_DIR"]) / os.environ["BUNDLE_RELATIVE_PATH"]
           repository_pattern = re.escape(os.environ["GITHUB_REPOSITORY"])
+
+          if not bundle_path.exists():
+              raise SystemExit(
+                  f"internal workflow error: cosign bundle output missing at {bundle_path}; "
+                  "verify cosign sign-blob --bundle configuration"
+              )
 
           certificate = certificate_path.read_text(encoding="utf-8").strip()
           if "-----BEGIN CERTIFICATE-----" not in certificate or "-----END CERTIFICATE-----" not in certificate:
@@ -531,6 +549,22 @@ jobs:
           try:
               # NOTE: this issuer value is the OIDC identity claim used by GitHub Actions
               # certificates. It is not expected to be your catalog domain.
+              subprocess.run(
+                  [
+                      "./cosign",
+                      "verify-blob",
+                      "--bundle",
+                      str(bundle_path),
+                      "--certificate-oidc-issuer",
+                      "https://token.actions.githubusercontent.com",
+                      "--certificate-identity-regexp",
+                      f"^https://github\\.com/{repository_pattern}/\\.github/workflows/publish-plugins\\.yml@refs/tags/plugin/.+/v[0-9]+\\.[0-9]+\\.[0-9]+(?:-[A-Za-z0-9_.-]+)?(?:\\+[A-Za-z0-9_.-]+)?$",
+                      str(artifact_path),
+                  ],
+                  check=True,
+                  timeout=30,
+              )
+
               subprocess.run(
                   [
                       "./cosign",
@@ -560,6 +594,7 @@ jobs:
           PLUGIN_VERSION: ${{ steps.meta.outputs.plugin_version }}
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
           MANIFEST_RELATIVE_PATH: ${{ steps.meta.outputs.manifest_relative_path }}
         run: |
           set -euo pipefail
@@ -590,6 +625,7 @@ jobs:
           oras_args=(
             "$DIST_DIR/$ARTIFACT_RELATIVE_PATH:application/wasm"
             "$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.sig:application/octet-stream"
+            "$DIST_DIR/$BUNDLE_RELATIVE_PATH:application/vnd.dev.sigstore.bundle+json"
             "$DIST_DIR/$MANIFEST_RELATIVE_PATH:application/json"
             "$DIST_DIR/catalog.json:application/json"
             "$DIST_DIR/revocations.json:application/json"
@@ -633,6 +669,7 @@ jobs:
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
           SIGNATURE_RELATIVE_PATH: ${{ steps.meta.outputs.signature_relative_path }}
           CERTIFICATE_RELATIVE_PATH: ${{ steps.meta.outputs.certificate_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
           MANIFEST_RELATIVE_PATH: ${{ steps.meta.outputs.manifest_relative_path }}
         run: |
           set -euo pipefail
@@ -662,6 +699,7 @@ jobs:
           wrangler_put "$ARTIFACT_RELATIVE_PATH" "$DIST_DIR/$ARTIFACT_RELATIVE_PATH" "application/wasm"
           wrangler_put "$SIGNATURE_RELATIVE_PATH" "$DIST_DIR/$SIGNATURE_RELATIVE_PATH" "application/octet-stream"
           wrangler_put "$CERTIFICATE_RELATIVE_PATH" "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "application/x-pem-file"
+          wrangler_put "$BUNDLE_RELATIVE_PATH" "$DIST_DIR/$BUNDLE_RELATIVE_PATH" "application/vnd.dev.sigstore.bundle+json"
           wrangler_put "$MANIFEST_RELATIVE_PATH" "$DIST_DIR/$MANIFEST_RELATIVE_PATH" "application/json"
 
           # Upload mutable metadata last for an atomic catalog view
@@ -678,6 +716,7 @@ jobs:
           ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
           SIGNATURE_URL: ${{ steps.meta.outputs.signature_url }}
           CERTIFICATE_URL: ${{ steps.meta.outputs.certificate_url }}
+          BUNDLE_URL: ${{ steps.meta.outputs.bundle_url }}
         shell: bash
         run: |
           set -euo pipefail
@@ -703,6 +742,7 @@ jobs:
           artifact_url = os.environ["ARTIFACT_URL"]
           signature_url = os.environ["SIGNATURE_URL"]
           certificate_url = os.environ["CERTIFICATE_URL"]
+          bundle_url = os.environ["BUNDLE_URL"]
           catalog = json.loads(pathlib.Path(os.environ["TMP_CATALOG_PATH"]).read_text(encoding="utf-8"))
           revocations = json.loads(pathlib.Path(os.environ["TMP_REVOCATIONS_PATH"]).read_text(encoding="utf-8"))
 
@@ -732,6 +772,8 @@ jobs:
               raise SystemExit("catalog signature.url mismatch")
           if signature.get("certificate_url") != certificate_url:
               raise SystemExit("catalog signature.certificate_url mismatch")
+          if signature.get("bundle_url") != bundle_url:
+              raise SystemExit("catalog signature.bundle_url mismatch")
 
           if not isinstance(revocations, dict):
               raise SystemExit("revocations payload must be a JSON object")
@@ -786,6 +828,7 @@ jobs:
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
           SIGNATURE_RELATIVE_PATH: ${{ steps.meta.outputs.signature_relative_path }}
           CERTIFICATE_RELATIVE_PATH: ${{ steps.meta.outputs.certificate_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
         run: |
           set -euo pipefail
 
@@ -799,6 +842,7 @@ jobs:
           ARTIFACT_URL="${WORKERS_DEV_BASE_URL}/${ARTIFACT_RELATIVE_PATH}"
           SIGNATURE_URL="${WORKERS_DEV_BASE_URL}/${SIGNATURE_RELATIVE_PATH}"
           CERTIFICATE_URL="${WORKERS_DEV_BASE_URL}/${CERTIFICATE_RELATIVE_PATH}"
+          BUNDLE_URL="${WORKERS_DEV_BASE_URL}/${BUNDLE_RELATIVE_PATH}"
 
           check_url() {
             local url="$1"
@@ -826,6 +870,7 @@ jobs:
           check_url "$ARTIFACT_URL"
           check_url "$SIGNATURE_URL"
           check_url "$CERTIFICATE_URL"
+          check_url "$BUNDLE_URL"
 
       - name: 🌐 Smoke check custom-domain endpoints (informational)
         if: ${{ steps.meta.outputs.deploy_to_r2 == 'true' }}
@@ -836,6 +881,7 @@ jobs:
           ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
           SIGNATURE_URL: ${{ steps.meta.outputs.signature_url }}
           CERTIFICATE_URL: ${{ steps.meta.outputs.certificate_url }}
+          BUNDLE_URL: ${{ steps.meta.outputs.bundle_url }}
         run: |
           set -euo pipefail
 
@@ -862,6 +908,7 @@ jobs:
           report_status "$ARTIFACT_URL"
           report_status "$SIGNATURE_URL"
           report_status "$CERTIFICATE_URL"
+          report_status "$BUNDLE_URL"
 
       - name: 🧩 Stage generated catalog assets
         if: ${{ steps.meta.outputs.deploy_cloudflare_pages == 'true' }}
@@ -870,6 +917,7 @@ jobs:
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
           SIGNATURE_RELATIVE_PATH: ${{ steps.meta.outputs.signature_relative_path }}
           CERTIFICATE_RELATIVE_PATH: ${{ steps.meta.outputs.certificate_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
           MANIFEST_RELATIVE_PATH: ${{ steps.meta.outputs.manifest_relative_path }}
         run: |
           set -euo pipefail
@@ -881,6 +929,7 @@ jobs:
           cp "$DIST_DIR/$SIGNATURE_RELATIVE_PATH" "$catalog_public/$SIGNATURE_RELATIVE_PATH"
           test -f "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" || { echo "missing certificate: $DIST_DIR/$CERTIFICATE_RELATIVE_PATH" >&2; exit 1; }
           cp "$DIST_DIR/$CERTIFICATE_RELATIVE_PATH" "$catalog_public/$CERTIFICATE_RELATIVE_PATH"
+          cp "$DIST_DIR/$BUNDLE_RELATIVE_PATH" "$catalog_public/$BUNDLE_RELATIVE_PATH"
           cp "$DIST_DIR/$MANIFEST_RELATIVE_PATH" "$catalog_public/$MANIFEST_RELATIVE_PATH"
           cp "$DIST_DIR/catalog.json" "$catalog_public/catalog.json"
           cp "$DIST_DIR/revocations.json" "$catalog_public/revocations.json"
@@ -932,6 +981,7 @@ jobs:
           path: |
             clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.artifact_relative_path }}
             clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.signature_relative_path }}
+            clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.bundle_relative_path }}
             clients/agent-runtime/dist/plugins/**/*.pem
             clients/agent-runtime/dist/plugins/${{ steps.meta.outputs.manifest_relative_path }}
             clients/agent-runtime/dist/plugins/plugin-manifest.json
@@ -954,6 +1004,7 @@ jobs:
           RUNTIME_VERSION: ${{ steps.meta.outputs.runtime_version }}
           ARTIFACT_URL: ${{ steps.meta.outputs.artifact_url }}
           MANIFEST_URL: ${{ steps.meta.outputs.manifest_url }}
+          BUNDLE_URL: ${{ steps.meta.outputs.bundle_url }}
           CATALOG_URL: ${{ steps.meta.outputs.catalog_base_url }}/catalog.json
           REVOCATIONS_URL: ${{ steps.meta.outputs.catalog_base_url }}/revocations.json
           ARTIFACT_DIGEST: ${{ steps.bundle.outputs.artifact_digest }}
@@ -966,6 +1017,7 @@ jobs:
             echo "- Min agent version: \`$RUNTIME_VERSION\`"
             echo "- Artifact URL: \`$ARTIFACT_URL\`"
             echo "- Manifest URL: \`$MANIFEST_URL\`"
+            echo "- Sigstore bundle URL: \`$BUNDLE_URL\`"
             echo "- Catalog URL: \`$CATALOG_URL\`"
             echo "- Revocations URL: \`$REVOCATIONS_URL\`"
             echo "- Artifact digest: \`$ARTIFACT_DIGEST\`"
