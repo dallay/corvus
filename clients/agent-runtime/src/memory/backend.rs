@@ -58,9 +58,9 @@ const SURREAL_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
 
 const SURREAL_GRAPHS_PROFILE: MemoryBackendProfile = MemoryBackendProfile {
     key: "surreal-graphs",
-    label: "Surreal Graphs (plugin) — signed WASM extension with secure fallback",
+    label: "Surreal Graphs — built-in SurrealDB graph memory backend",
     auto_save_default: true,
-    uses_sqlite_hygiene: false,
+    uses_sqlite_hygiene: true,
     sqlite_based: false,
     optional_dependency: true,
 };
@@ -183,7 +183,7 @@ mod tests {
         let profile = memory_backend_profile("surreal-graphs");
         assert!(!profile.sqlite_based);
         assert!(profile.optional_dependency);
-        assert!(!profile.uses_sqlite_hygiene);
+        assert!(profile.uses_sqlite_hygiene);
     }
 
     #[test]
