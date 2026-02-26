@@ -110,13 +110,6 @@ export default defineConfig({
               },
             },
             {
-              label: "Runtime Plugins",
-              slug: "guides/plugins",
-              translations: {
-                es: "Plugins del Runtime",
-              },
-            },
-            {
               label: "CLI Reference",
               slug: "guides/cli-reference",
               translations: {

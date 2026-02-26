@@ -180,25 +180,6 @@ Gestiona las capacidades definidas por el usuario.
 corvus skills install https://github.com/user/my-skill
 ```
 
-### `plugins`
-Gestiona los plugins del runtime firmados.
-
-- `list`: Lista los plugins instalados.
-- `install <ID>`: Instala un plugin (ej., `memory.surreal.graphs`).
-  - `--version <VER>`: Versión explícita opcional a instalar.
-  - `--source <NAME>`: Filtro opcional de nombre de source.
-- `pin <ID>`: Fija un plugin instalado para prevenir actualizaciones no deseadas.
-  - `--version <VER>`: Versión específica opcional a fijar.
-- `remove <ID>`: Elimina un plugin.
-- `verify`: Verifica la integridad del plugin.
-  - `--id <ID>`: Filtro opcional de ID de plugin.
-- `revocations sync`: Descarga y cachea la última lista de revocación de plugins.
-
-**Ejemplo:**
-```bash
-corvus plugins install memory.surreal.graphs
-```
-
 ### `integrations`
 Explora las integraciones disponibles.
 
