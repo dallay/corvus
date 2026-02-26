@@ -156,11 +156,11 @@ pub fn create_memory(
         MemoryBackendKind::Surreal => {
             #[cfg(feature = "memory-surreal")]
             {
-                return Ok(Box::new(build_surreal_memory(
+                Ok(Box::new(build_surreal_memory(
                     config,
                     workspace_dir,
                     api_key,
-                )?));
+                )?))
             }
             #[cfg(not(feature = "memory-surreal"))]
             {
@@ -453,7 +453,7 @@ mod tests {
     }
 
     #[test]
-    fn migration_factory_rejects_surreal_graphs() {
+    fn migration_factory_handles_surreal_graphs() {
         let tmp = TempDir::new().unwrap();
         #[cfg(feature = "memory-surreal")]
         {
