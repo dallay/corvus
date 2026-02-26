@@ -1696,6 +1696,8 @@ fn is_disallowed_remote_ip(ip: IpAddr) -> bool {
                 || v6.is_multicast()
                 || v6.is_unique_local()
                 || v6.is_unicast_link_local()
+                // RFC 3849: IPv6 documentation prefix 2001:db8::/32
+                || is_ipv6_in_doc_prefix(v6)
         }
     }
 }
@@ -1709,6 +1711,14 @@ fn is_ipv4_in_cidr(ip: Ipv4Addr, network: Ipv4Addr, prefix: u8) -> bool {
         u32::MAX << (u32::BITS - u32::from(prefix))
     };
     (ip_u32 & mask) == (network_u32 & mask)
+}
+
+/// Check if an IPv6 address is in the RFC 3849 documentation prefix 2001:db8::/32
+fn is_ipv6_in_doc_prefix(ip: Ipv6Addr) -> bool {
+    // RFC 3849: 2001:db8::/32 - documentation prefix
+    // Check if the first two hextets (32 bits) match 2001:db8
+    let segments = ip.segments();
+    segments[0] == 0x2001 && segments[1] == 0x0db8
 }
 
 fn build_http_client(timeout: Duration) -> Result<reqwest::blocking::Client> {
@@ -3087,6 +3097,27 @@ mod tests {
             "fc00::1"
                 .parse::<std::net::IpAddr>()
                 .expect("valid ULA IPv6")
+        ));
+    }
+
+    #[test]
+    fn disallowed_remote_ip_classification_blocks_rfc3849_doc_prefix() {
+        // RFC 3849: 2001:db8::/32 - documentation prefix
+        assert!(is_disallowed_remote_ip(
+            "2001:db8::1"
+                .parse::<std::net::IpAddr>()
+                .expect("valid RFC 3849 doc prefix")
+        ));
+        assert!(is_disallowed_remote_ip(
+            "2001:db8:abcd:1234::1"
+                .parse::<std::net::IpAddr>()
+                .expect("valid RFC 3849 doc prefix subnet")
+        ));
+        // Ensure public IPv6 is not blocked
+        assert!(!is_disallowed_remote_ip(
+            "2001:4860:4860::8888"
+                .parse::<std::net::IpAddr>()
+                .expect("valid public IPv6")
         ));
     }
 

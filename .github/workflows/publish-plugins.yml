@@ -594,6 +594,7 @@ jobs:
           PLUGIN_VERSION: ${{ steps.meta.outputs.plugin_version }}
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
           MANIFEST_RELATIVE_PATH: ${{ steps.meta.outputs.manifest_relative_path }}
         run: |
           set -euo pipefail
