@@ -135,7 +135,7 @@ opentelemetry-otlp = { version = "0.31", default-features = false, features = ["
 nusb = { version = "0.2", default-features = false, optional = true }
 
 # Serial port for peripheral communication (STM32, etc.)
-tokio-serial = { version = "5", default-features = false, optional = true }
+tokio-serial = { version = "5.4.5", default-features = false, optional = true }
 
 # probe-rs for STM32/Nucleo memory read (Phase B)
 probe-rs = { version = "0.30", optional = true }
