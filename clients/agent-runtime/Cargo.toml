@@ -58,7 +58,7 @@ anyhow = "1.0"
 thiserror = "2.0"
 
 # UUID generation
-uuid = { version = "1.11", default-features = false, features = ["v4", "std"] }
+uuid = { version = "1.21.0", default-features = false, features = ["v4", "std"] }
 
 # Authenticated encryption (AEAD) for secret store
 chacha20poly1305 = "0.10"
