@@ -13,9 +13,9 @@ use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, OpenOptions};
 use std::io::{Read, Write};
-use std::net::IpAddr;
+use std::net::{IpAddr, Ipv4Addr, ToSocketAddrs};
 use std::path::{Component, Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use webpki::{anchor_from_trusted_cert, EndEntityCert, KeyUsage, ALL_VERIFICATION_ALGS};
 use x509_cert::der::{DecodePem, Encode};
 use x509_cert::ext::pkix::name::GeneralName;
@@ -28,9 +28,11 @@ const MANIFEST_FILE_NAME: &str = "plugin-manifest.json";
 const WASM_ARTIFACT_FILE_NAME: &str = "plugin.wasm";
 const WASM_SIGNATURE_FILE_NAME: &str = "plugin.wasm.sig";
 const WASM_CERTIFICATE_FILE_NAME: &str = "plugin.wasm.pem";
+const WASM_SIGSTORE_BUNDLE_FILE_NAME: &str = "plugin.wasm.sigstore.json";
 const MAX_ARTIFACT_BYTES: usize = 50 * 1024 * 1024;
 const MAX_SIGNATURE_BYTES: usize = 64 * 1024;
 const MAX_CERTIFICATE_BYTES: usize = 512 * 1024;
+const MAX_SIGSTORE_BUNDLE_BYTES: usize = 2 * 1024 * 1024;
 const OFFICIAL_PLUGIN_CATALOG_HOST: &str = "plugins.corvus.profiletailors.com";
 const SIGSTORE_GITHUB_OIDC_ISSUER: &str = "https://token.actions.githubusercontent.com";
 const SIGSTORE_ISSUER_OID_V1: ObjectIdentifier =
@@ -145,6 +147,9 @@ pub struct PluginSignature {
 
     #[serde(default)]
     pub certificate_url: Option<String>,
+
+    #[serde(default)]
+    pub bundle_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -228,6 +233,13 @@ impl PluginManifest {
         self.signature
             .as_ref()
             .and_then(|signature| signature.certificate_url.as_deref())
+            .filter(|url| !url.trim().is_empty())
+    }
+
+    fn resolved_signature_bundle_url(&self) -> Option<&str> {
+        self.signature
+            .as_ref()
+            .and_then(|signature| signature.bundle_url.as_deref())
             .filter(|url| !url.trim().is_empty())
     }
 }
@@ -531,6 +543,9 @@ impl PluginManager {
                         "signature certificate URL",
                     )?;
                 }
+                if let Some(bundle_url) = manifest.resolved_signature_bundle_url() {
+                    validate_manifest_asset_source(source, bundle_url, "signature bundle URL")?;
+                }
             }
             SignaturePolicy::RequiredKeyless { .. } => {
                 let signature_url = manifest.resolved_signature_url().ok_or_else(|| {
@@ -557,6 +572,10 @@ impl PluginManager {
                     certificate_url,
                     "signature certificate URL",
                 )?;
+
+                if let Some(bundle_url) = manifest.resolved_signature_bundle_url() {
+                    validate_manifest_asset_source(source, bundle_url, "signature bundle URL")?;
+                }
             }
         }
 
@@ -810,7 +829,7 @@ impl PluginManager {
                 .source_sigstore_oidc_issuer
                 .as_deref()
                 .unwrap_or(SIGSTORE_GITHUB_OIDC_ISSUER),
-            false, // check_validity: false for runtime re-verification (skip time checks)
+            None,
         )
         .with_context(|| {
             format!(
@@ -895,17 +914,8 @@ impl PluginManager {
             .manifest
             .resolved_artifact_url()
             .ok_or_else(|| anyhow!("Plugin '{}' is missing artifact URL", candidate.manifest.id))?;
-        let bytes = fetch_bytes(artifact_url)
+        let bytes = fetch_bytes_limited(artifact_url, MAX_ARTIFACT_BYTES)
             .with_context(|| format!("Failed to download plugin artifact from {artifact_url}"))?;
-
-        if bytes.len() > MAX_ARTIFACT_BYTES {
-            bail!(
-                "Plugin '{}' artifact size ({}) exceeds {} bytes safety limit",
-                candidate.manifest.id,
-                bytes.len(),
-                MAX_ARTIFACT_BYTES
-            );
-        }
 
         if !is_wasm_binary(&bytes) {
             bail!(
@@ -968,6 +978,16 @@ impl PluginManager {
                     )
                 },
             )?;
+
+            if let Some(bundle_bytes) = &signature_bundle.transparency_bundle {
+                let bundle_path = install_dir.join(WASM_SIGSTORE_BUNDLE_FILE_NAME);
+                write_private_file(&bundle_path, bundle_bytes).with_context(|| {
+                    format!(
+                        "Failed to write plugin Sigstore bundle metadata: {}",
+                        bundle_path.display()
+                    )
+                })?;
+            }
         }
 
         let manifest_path = install_dir.join(MANIFEST_FILE_NAME);
@@ -1088,13 +1108,42 @@ impl PluginManager {
             );
         }
 
+        let (transparency_bundle, signing_time) =
+            if let Some(bundle_url) = candidate.manifest.resolved_signature_bundle_url() {
+                let bundle = fetch_bytes_limited(bundle_url, MAX_SIGSTORE_BUNDLE_BYTES)
+                    .with_context(|| {
+                        format!(
+                            "Failed to download plugin '{}' Sigstore bundle from {bundle_url}",
+                            candidate.manifest.id
+                        )
+                    })?;
+                if bundle.is_empty() {
+                    bail!(
+                        "Plugin '{}' Sigstore bundle has invalid size ({} bytes)",
+                        candidate.manifest.id,
+                        bundle.len()
+                    );
+                }
+
+                let signing_time = extract_signing_time_from_sigstore_bundle(&bundle)
+                    .with_context(|| {
+                        format!(
+                            "Plugin '{}' Sigstore bundle is malformed",
+                            candidate.manifest.id
+                        )
+                    })?;
+                (Some(bundle), signing_time)
+            } else {
+                (None, None)
+            };
+
         verify_blob_with_sigstore(
             artifact_bytes,
             &signature,
             certificate.as_ref(),
             identity_regex.as_str(),
             candidate.source.sigstore_oidc_issuer.as_str(),
-            true, // check_validity: true for install-time verification
+            signing_time,
         )
         .with_context(|| {
             format!(
@@ -1106,6 +1155,7 @@ impl PluginManager {
         Ok(Some(VerifiedSignatureBundle {
             signature,
             certificate: certificate.into_owned(),
+            transparency_bundle,
         }))
     }
 
@@ -1393,7 +1443,10 @@ fn validate_fetch_source(source: &str) -> Result<()> {
     if let ResolvedSource::Remote(url) = resolved {
         let parsed = Url::parse(&url).with_context(|| format!("Invalid source URL: {url}"))?;
         match parsed.scheme() {
-            "https" => Ok(()),
+            "https" => {
+                validate_remote_target_not_private(&parsed)?;
+                Ok(())
+            }
             "http" if host_is_loopback(&parsed) => Ok(()),
             "http" => bail!(
                 "Refusing insecure HTTP download from non-loopback host: {}",
@@ -1437,10 +1490,10 @@ fn fetch_text(source: &str) -> Result<String> {
             .with_context(|| format!("Failed to read local source: {}", path.display())),
         ResolvedSource::Remote(url) => {
             validate_fetch_source(&url)?;
-            let client = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_secs(20))
-                .build()
-                .context("Failed to initialize HTTP client")?;
+            let client = build_http_client(Duration::from_secs(20))?;
+            // Re-validate immediately before issuing the request to reduce
+            // DNS TOCTOU/rebinding exposure between initial checks and use.
+            validate_fetch_source(&url)?;
             let response = client
                 .get(&url)
                 .send()
@@ -1450,30 +1503,6 @@ fn fetch_text(source: &str) -> Result<String> {
             response
                 .text()
                 .with_context(|| format!("Failed to read response body: {url}"))
-        }
-    }
-}
-
-fn fetch_bytes(source: &str) -> Result<Vec<u8>> {
-    match resolve_source(source)? {
-        ResolvedSource::Local(path) => fs::read(&path)
-            .with_context(|| format!("Failed to read local source: {}", path.display())),
-        ResolvedSource::Remote(url) => {
-            validate_fetch_source(&url)?;
-            let client = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .context("Failed to initialize HTTP client")?;
-            let response = client
-                .get(&url)
-                .send()
-                .with_context(|| format!("Failed to fetch remote source: {url}"))?
-                .error_for_status()
-                .with_context(|| format!("Remote source returned error status: {url}"))?;
-            let bytes = response
-                .bytes()
-                .with_context(|| format!("Failed to read response body: {url}"))?;
-            Ok(bytes.to_vec())
         }
     }
 }
@@ -1506,10 +1535,10 @@ fn fetch_bytes_limited(source: &str, max_bytes: usize) -> Result<Vec<u8>> {
         }
         ResolvedSource::Remote(url) => {
             validate_fetch_source(&url)?;
-            let client = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_secs(30))
-                .build()
-                .context("Failed to initialize HTTP client")?;
+            let client = build_http_client(Duration::from_secs(30))?;
+            // Re-validate immediately before issuing the request to reduce
+            // DNS TOCTOU/rebinding exposure between initial checks and use.
+            validate_fetch_source(&url)?;
             let response = client
                 .get(&url)
                 .send()
@@ -1546,6 +1575,92 @@ fn fetch_bytes_limited(source: &str, max_bytes: usize) -> Result<Vec<u8>> {
     }
 }
 
+fn validate_remote_target_not_private(url: &Url) -> Result<()> {
+    let host = url
+        .host_str()
+        .ok_or_else(|| anyhow!("Remote URL is missing host: {url}"))?;
+
+    if host.eq_ignore_ascii_case("localhost") || host.ends_with(".localhost") {
+        bail!("Refusing remote download from localhost host: {url}");
+    }
+
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        if is_disallowed_remote_ip(ip) {
+            bail!("Refusing remote download from non-public IP {ip}: {url}");
+        }
+        return Ok(());
+    }
+
+    let port = url
+        .port_or_known_default()
+        .ok_or_else(|| anyhow!("Could not determine default port for URL: {url}"))?;
+    let resolved = (host, port)
+        .to_socket_addrs()
+        .with_context(|| format!("Failed to resolve remote host '{host}' for URL: {url}"))?
+        .map(|address| address.ip())
+        .collect::<Vec<_>>();
+    if resolved.is_empty() {
+        bail!("Remote host '{host}' resolved to no addresses: {url}");
+    }
+
+    if let Some(ip) = resolved
+        .iter()
+        .copied()
+        .find(|address| is_disallowed_remote_ip(*address))
+    {
+        bail!("Refusing remote download from host '{host}' resolved to non-public IP {ip}: {url}");
+    }
+
+    Ok(())
+}
+
+fn is_disallowed_remote_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => {
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_broadcast()
+                || v4.is_documentation()
+                || v4.is_unspecified()
+                || v4.is_multicast()
+                // RFC 6598: carrier-grade NAT shared address space. Treat as internal.
+                || is_ipv4_in_cidr(v4, Ipv4Addr::new(100, 64, 0, 0), 10)
+                // RFC 2544: benchmarking interconnect range, non-public and internal-only.
+                || is_ipv4_in_cidr(v4, Ipv4Addr::new(198, 18, 0, 0), 15)
+        }
+        IpAddr::V6(v6) => {
+            v6.is_loopback()
+                || v6.is_unspecified()
+                || v6.is_multicast()
+                || v6.is_unique_local()
+                || v6.is_unicast_link_local()
+        }
+    }
+}
+
+fn is_ipv4_in_cidr(ip: Ipv4Addr, network: Ipv4Addr, prefix: u8) -> bool {
+    let ip_u32 = u32::from(ip);
+    let network_u32 = u32::from(network);
+    let mask = if prefix == 0 {
+        0
+    } else {
+        u32::MAX << (u32::BITS - u32::from(prefix))
+    };
+    (ip_u32 & mask) == (network_u32 & mask)
+}
+
+fn build_http_client(timeout: Duration) -> Result<reqwest::blocking::Client> {
+    reqwest::blocking::Client::builder()
+        .timeout(timeout)
+        // Security: never follow redirects automatically. A trusted public URL
+        // can otherwise redirect to internal/private addresses and bypass
+        // source validation (SSRF via redirect chain).
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .context("Failed to initialize HTTP client")
+}
+
 fn host_is_loopback(url: &Url) -> bool {
     url.host_str().is_some_and(|host| {
         host.eq_ignore_ascii_case("localhost")
@@ -1561,6 +1676,7 @@ enum ResolvedSource {
 struct VerifiedSignatureBundle {
     signature: Vec<u8>,
     certificate: Vec<u8>,
+    transparency_bundle: Option<Vec<u8>>,
 }
 
 fn is_official_source(source: &PluginSourceConfig) -> Result<bool> {
@@ -1722,7 +1838,7 @@ fn verify_blob_with_sigstore(
     certificate: &[u8],
     identity_regex: &str,
     oidc_issuer: &str,
-    check_validity: bool,
+    verification_time: Option<SystemTime>,
 ) -> Result<()> {
     let certificate_text = std::str::from_utf8(certificate)
         .context("Certificate payload is not valid UTF-8 after normalization")?;
@@ -1734,7 +1850,7 @@ fn verify_blob_with_sigstore(
         identity_regex,
         certificate,
         oidc_issuer,
-        check_validity,
+        verification_time,
     )?;
 
     let verification_key =
@@ -1761,10 +1877,10 @@ fn validate_sigstore_certificate(
     identity_regex: &str,
     certificate_pem: &[u8],
     oidc_issuer: &str,
-    check_validity: bool,
+    verification_time: Option<SystemTime>,
 ) -> Result<()> {
-    validate_certificate_chain(certificate, certificate_pem, check_validity)?;
-    validate_certificate_validity(certificate, check_validity)?;
+    validate_certificate_chain(certificate, certificate_pem, verification_time)?;
+    validate_certificate_validity(certificate, verification_time)?;
     validate_certificate_issuer(certificate, oidc_issuer)?;
     validate_certificate_identity(certificate, identity_regex)
 }
@@ -1772,7 +1888,7 @@ fn validate_sigstore_certificate(
 fn validate_certificate_chain(
     certificate: &Certificate,
     certificate_pem: &[u8],
-    check_validity: bool,
+    verification_time: Option<SystemTime>,
 ) -> Result<()> {
     let cert_der = certificate
         .to_der()
@@ -1810,16 +1926,20 @@ fn validate_certificate_chain(
 
     let usage = KeyUsage::required_if_present(CODE_SIGNING_EKU_OID);
 
-    // Fulcio keyless certificates are intentionally short-lived. We validate
-    // chain-of-trust, issuer, identity and signature, while allowing expired
-    // certs so previously published immutable artifacts remain installable.
-    if check_validity {
+    // Fulcio keyless certificates are intentionally short-lived. If a trusted
+    // signing time is available (for example from a Sigstore bundle integrated
+    // time), validate the chain at that time. Otherwise, skip time validity
+    // checks while still enforcing trust-chain correctness.
+    if let Some(verification_time) = verification_time {
+        let verification_unix_time = verification_time
+            .duration_since(UNIX_EPOCH)
+            .context("Verification time predates UNIX epoch")?;
         end_entity
             .verify_for_usage(
                 ALL_VERIFICATION_ALGS,
                 trust_anchors.as_slice(),
                 intermediates.as_slice(),
-                UnixTime::now(),
+                UnixTime::since_unix_epoch(verification_unix_time),
                 usage,
                 None,
                 None,
@@ -1857,13 +1977,15 @@ fn validate_certificate_chain(
     Ok(())
 }
 
-fn validate_certificate_validity(certificate: &Certificate, check_validity: bool) -> Result<()> {
-    if !check_validity {
-        // Skip time-based validity checks when validity enforcement is disabled
+fn validate_certificate_validity(
+    certificate: &Certificate,
+    verification_time: Option<SystemTime>,
+) -> Result<()> {
+    let Some(now) = verification_time else {
+        // Skip time-based validity checks when a trusted signing time is unavailable.
         return Ok(());
-    }
+    };
 
-    let now = std::time::SystemTime::now();
     let validity = &certificate.tbs_certificate.validity;
     let not_before = validity.not_before.to_system_time();
     let not_after = validity.not_after.to_system_time();
@@ -2112,6 +2234,51 @@ fn decode_base64_text(payload: &str) -> Option<Vec<u8>> {
                 .decode(compact.as_bytes())
                 .ok()
         })
+}
+
+fn extract_signing_time_from_sigstore_bundle(bundle_bytes: &[u8]) -> Result<Option<SystemTime>> {
+    let value: serde_json::Value =
+        serde_json::from_slice(bundle_bytes).context("Sigstore bundle is not valid JSON")?;
+
+    // Support both Sigstore protobuf bundle JSON (v1 style) and legacy Cosign
+    // blob-bundle JSON layouts:
+    // - verificationMaterial.tlogEntries[0].integratedTime (current bundle JSON)
+    // - Payload.integratedTime / payload.integratedTime (legacy Cosign formats)
+    let integrated_time = value
+        .get("verificationMaterial")
+        .and_then(|item| item.get("tlogEntries"))
+        .and_then(|entries| entries.as_array())
+        .and_then(|entries| entries.first())
+        .and_then(|entry| entry.get("integratedTime"))
+        .or_else(|| {
+            value
+                .get("Payload")
+                .and_then(|payload| payload.get("integratedTime"))
+        })
+        .or_else(|| {
+            value
+                .get("payload")
+                .and_then(|payload| payload.get("integratedTime"))
+        });
+
+    let Some(integrated_time) = integrated_time else {
+        return Ok(None);
+    };
+
+    let seconds = if let Some(value) = integrated_time.as_u64() {
+        value
+    } else if let Some(text) = integrated_time.as_str() {
+        text.trim()
+            .parse::<u64>()
+            .context("Sigstore bundle integratedTime is not a valid integer")?
+    } else {
+        bail!("Sigstore bundle integratedTime must be a number or string");
+    };
+
+    let signing_time = UNIX_EPOCH
+        .checked_add(Duration::from_secs(seconds))
+        .ok_or_else(|| anyhow!("Sigstore bundle integratedTime is out of range"))?;
+    Ok(Some(signing_time))
 }
 
 fn write_private_file(path: &Path, data: &[u8]) -> Result<()> {
@@ -2704,8 +2871,9 @@ mod tests {
             Some(SIGSTORE_GITHUB_OIDC_ISSUER.as_bytes().to_vec()),
         );
 
-        let error = validate_certificate_chain(&certificate, pem.as_bytes(), true)
-            .expect_err("self-signed cert must fail against Fulcio trust roots");
+        let error =
+            validate_certificate_chain(&certificate, pem.as_bytes(), Some(SystemTime::now()))
+                .expect_err("self-signed cert must fail against Fulcio trust roots");
         assert!(error
             .to_string()
             .contains("Certificate chain verification against Fulcio roots failed"));
@@ -2727,8 +2895,9 @@ mod tests {
         );
         let bundled = format!("{}\n{}", leaf_pem, intermediate_pem);
 
-        let error = validate_certificate_chain(&certificate, bundled.as_bytes(), true)
-            .expect_err("invalid intermediate bundle must fail chain verification");
+        let error =
+            validate_certificate_chain(&certificate, bundled.as_bytes(), Some(SystemTime::now()))
+                .expect_err("invalid intermediate bundle must fail chain verification");
         assert!(error
             .to_string()
             .contains("Certificate chain verification against Fulcio roots failed"));
@@ -2798,6 +2967,46 @@ mod tests {
         let policy =
             signature_policy_for_source(&source).expect("policy resolution should succeed");
         assert!(matches!(policy, SignaturePolicy::NotRequired));
+    }
+
+    #[test]
+    fn validate_fetch_source_rejects_https_private_ip_literal() {
+        let error = validate_fetch_source("https://10.0.0.1/catalog.json")
+            .expect_err("private RFC1918 host must be rejected");
+        assert!(error
+            .to_string()
+            .contains("Refusing remote download from non-public IP"));
+    }
+
+    #[test]
+    fn disallowed_remote_ip_classification_blocks_internal_ranges() {
+        assert!(is_disallowed_remote_ip(
+            "10.0.0.1".parse::<std::net::IpAddr>().expect("valid IPv4")
+        ));
+        assert!(is_disallowed_remote_ip(
+            "169.254.169.254"
+                .parse::<std::net::IpAddr>()
+                .expect("valid IPv4 link-local")
+        ));
+        assert!(is_disallowed_remote_ip(
+            "100.64.0.10"
+                .parse::<std::net::IpAddr>()
+                .expect("valid IPv4 shared space")
+        ));
+        assert!(is_disallowed_remote_ip(
+            "fc00::1"
+                .parse::<std::net::IpAddr>()
+                .expect("valid ULA IPv6")
+        ));
+    }
+
+    #[test]
+    fn disallowed_remote_ip_classification_allows_public_ip() {
+        assert!(!is_disallowed_remote_ip(
+            "8.8.8.8"
+                .parse::<std::net::IpAddr>()
+                .expect("valid public IPv4")
+        ));
     }
 
     #[test]
@@ -3118,5 +3327,45 @@ mod tests {
             .to_string()
             .to_ascii_lowercase()
             .contains("certificate"));
+    }
+
+    #[test]
+    fn extract_signing_time_from_sigstore_bundle_reads_v1_format() {
+        let bundle = r#"{
+          "verificationMaterial": {
+            "tlogEntries": [
+              {
+                "integratedTime": 1700000000
+              }
+            ]
+          }
+        }"#;
+
+        let extracted = extract_signing_time_from_sigstore_bundle(bundle.as_bytes())
+            .expect("bundle parsing should succeed")
+            .expect("integrated time should exist");
+        let seconds = extracted
+            .duration_since(UNIX_EPOCH)
+            .expect("signing time should be after epoch")
+            .as_secs();
+        assert_eq!(seconds, 1_700_000_000);
+    }
+
+    #[test]
+    fn extract_signing_time_from_sigstore_bundle_reads_legacy_payload_format() {
+        let bundle = r#"{
+          "Payload": {
+            "integratedTime": "1700001234"
+          }
+        }"#;
+
+        let extracted = extract_signing_time_from_sigstore_bundle(bundle.as_bytes())
+            .expect("bundle parsing should succeed")
+            .expect("integrated time should exist");
+        let seconds = extracted
+            .duration_since(UNIX_EPOCH)
+            .expect("signing time should be after epoch")
+            .as_secs();
+        assert_eq!(seconds, 1_700_001_234);
     }
 }
