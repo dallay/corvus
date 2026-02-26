@@ -180,25 +180,6 @@ Manage user-defined capabilities.
 corvus skills install https://github.com/user/my-skill
 ```
 
-### `plugins`
-Manage signed runtime plugins.
-
-- `list`: List installed plugins.
-- `install <ID>`: Install a plugin (e.g., `memory.surreal.graphs`).
-  - `--version <VER>`: Optional explicit version to install.
-  - `--source <NAME>`: Optional source name filter.
-- `pin <ID>`: Pin an installed plugin to prevent unintended upgrades.
-  - `--version <VER>`: Optional specific version to pin.
-- `remove <ID>`: Remove a plugin.
-- `verify`: Verify plugin integrity.
-  - `--id <ID>`: Optional plugin ID filter.
-- `revocations sync`: Download and cache the latest plugin revocation list.
-
-**Example:**
-```bash
-corvus plugins install memory.surreal.graphs
-```
-
 ### `integrations`
 Browse available integrations.
 

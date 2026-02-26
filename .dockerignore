@@ -10,6 +10,6 @@ clients/composeApp/
 clients/iosApp/
 clients/androidApp/
 modules/agent-core-kmp/
-playground/
+ephemeral/
 target/
 clients/agent-runtime/target/

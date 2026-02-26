@@ -2,7 +2,6 @@ use crate::providers::{is_glm_alias, is_zai_alias};
 use crate::security::AutonomyLevel;
 use anyhow::{Context, Result};
 use directories::UserDirs;
-use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
@@ -64,9 +63,6 @@ pub struct Config {
 
     #[serde(default)]
     pub memory: MemoryConfig,
-
-    #[serde(default)]
-    pub plugins: PluginsConfig,
 
     #[serde(default)]
     pub tunnel: TunnelConfig,
@@ -984,113 +980,6 @@ impl Default for MemoryConfig {
             auto_hydrate: true,
             sqlite_open_timeout_secs: None,
             surreal: SurrealMemoryConfig::default(),
-        }
-    }
-}
-
-// ── Plugins ─────────────────────────────────────────────────────
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginSourceConfig {
-    /// Human-readable source name (for lockfile provenance and CLI filters).
-    pub name: String,
-    /// Catalog endpoint URL or local file path.
-    /// Supported forms: `https://...`, `http://localhost...`, `file:///...`, `/abs/path`, `relative/path`.
-    pub url: String,
-    /// Optional regex for expected Sigstore certificate identity on non-official remote sources.
-    #[serde(default)]
-    pub plugin_identity_regex: Option<String>,
-    /// OIDC issuer for Sigstore certificate validation.
-    /// Defaults to `https://token.actions.githubusercontent.com` (GitHub Actions) if not provided.
-    /// Use this field with [`default_sigstore_oidc_issuer`] to specify a custom OIDC issuer
-    /// for non-GitHub OIDC providers (e.g., GitLab, CircleCI).
-    #[serde(default = "default_sigstore_oidc_issuer")]
-    pub sigstore_oidc_issuer: String,
-}
-
-fn default_sigstore_oidc_issuer() -> String {
-    "https://token.actions.githubusercontent.com".to_string()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginRevocationConfig {
-    /// Enable revocation checks for installed plugins.
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    /// Enforce revocations strictly (fail startup and plugin load on sync/verification errors).
-    #[serde(default = "default_true")]
-    pub enforced: bool,
-    /// URLs for revocation lists (JSON/TOML).
-    #[serde(default = "default_plugin_revocation_sources")]
-    pub source_urls: Vec<String>,
-    /// Advisory refresh cadence for revocation sync.
-    #[serde(default = "default_plugin_revocation_refresh_minutes")]
-    pub refresh_interval_minutes: u64,
-}
-
-fn default_plugin_revocation_refresh_minutes() -> u64 {
-    15
-}
-
-fn default_plugin_revocation_sources() -> Vec<String> {
-    vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
-}
-
-impl Default for PluginRevocationConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            enforced: true,
-            source_urls: default_plugin_revocation_sources(),
-            refresh_interval_minutes: default_plugin_revocation_refresh_minutes(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginsConfig {
-    /// Enable runtime plugin system.
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-    /// Catalog sources used for plugin discovery and installation.
-    #[serde(default = "default_plugin_sources")]
-    pub sources: Vec<PluginSourceConfig>,
-    /// Allowed plugin publishers.
-    #[serde(default = "default_plugin_allow_publishers")]
-    pub allow_publishers: Vec<String>,
-    /// Revocation policy.
-    #[serde(default)]
-    pub revocation: PluginRevocationConfig,
-    /// Installation policy (`pin-manual` only).
-    #[serde(default = "default_plugin_install_policy")]
-    pub install_policy: String,
-}
-
-fn default_plugin_install_policy() -> String {
-    "pin-manual".to_string()
-}
-
-fn default_plugin_allow_publishers() -> Vec<String> {
-    vec!["corvus-official".to_string()]
-}
-
-fn default_plugin_sources() -> Vec<PluginSourceConfig> {
-    vec![PluginSourceConfig {
-        name: "official".to_string(),
-        url: "https://plugins.corvus.profiletailors.com/catalog.json".to_string(),
-        plugin_identity_regex: None,
-        sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
-    }]
-}
-
-impl Default for PluginsConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            sources: default_plugin_sources(),
-            allow_publishers: default_plugin_allow_publishers(),
-            revocation: PluginRevocationConfig::default(),
-            install_policy: default_plugin_install_policy(),
         }
     }
 }
@@ -2018,7 +1907,6 @@ impl Default for Config {
             cron: CronConfig::default(),
             channels_config: ChannelsConfig::default(),
             memory: MemoryConfig::default(),
-            plugins: PluginsConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
@@ -2229,59 +2117,6 @@ fn env_override_optional(var_name: &str, target: &mut Option<String>) {
     }
 }
 
-fn migrate_deprecated_plugin_registry_urls(config: &mut Config) -> bool {
-    const OLD_PLUGIN_HOST: &str = "plugins.corvus.ai";
-    const LEGACY_PLUGIN_HOST: &str = "corvus.profiletailors.com";
-    const NEW_PLUGIN_HOST: &str = "plugins.corvus.profiletailors.com";
-
-    fn host_matches(candidate: &str, host: &str) -> bool {
-        candidate == host || candidate.ends_with(&format!(".{host}"))
-    }
-
-    fn migrate_url_host(raw_url: &str, old_hosts: &[&str], new_host: &str) -> Option<String> {
-        let mut parsed = Url::parse(raw_url).ok()?;
-        let host = parsed.host_str()?;
-        if old_hosts
-            .iter()
-            .any(|old_host| host_matches(host, old_host))
-        {
-            parsed.set_host(Some(new_host)).ok()?;
-            return Some(parsed.to_string());
-        }
-        None
-    }
-
-    let mut changed = false;
-    let mut revocation_changed = false;
-    let old_hosts = [OLD_PLUGIN_HOST, LEGACY_PLUGIN_HOST];
-
-    for source in &mut config.plugins.sources {
-        if let Some(migrated) = migrate_url_host(&source.url, &old_hosts, NEW_PLUGIN_HOST) {
-            source.url = migrated;
-            changed = true;
-        }
-    }
-
-    for source_url in &mut config.plugins.revocation.source_urls {
-        if let Some(migrated) = migrate_url_host(source_url.as_str(), &old_hosts, NEW_PLUGIN_HOST) {
-            *source_url = migrated;
-            changed = true;
-            revocation_changed = true;
-        }
-    }
-
-    if revocation_changed {
-        let mut seen = std::collections::HashSet::new();
-        config
-            .plugins
-            .revocation
-            .source_urls
-            .retain(|url| seen.insert(url.clone()));
-    }
-
-    changed
-}
-
 impl Config {
     pub fn load_or_init() -> Result<Self> {
         let (default_corvus_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
@@ -2350,22 +2185,6 @@ impl Config {
 
             for agent in config.agents.values_mut() {
                 decrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
-            }
-
-            if migrate_deprecated_plugin_registry_urls(&mut config) {
-                tracing::warn!(
-                    "Migrated deprecated plugin registry host entries from \
-                     'plugins.corvus.ai' and 'corvus.profiletailors.com' to \
-                     'plugins.corvus.profiletailors.com' in plugins.sources and \
-                     plugins.revocation.source_urls"
-                );
-                if let Err(error) = config.save() {
-                    tracing::warn!(
-                        "Failed to persist migrated plugin registry URLs in load_or_init via \
-                         config.save(); continuing startup with in-memory migrated config: \
-                         {error:#}"
-                    );
-                }
             }
 
             config.apply_env_overrides();
@@ -2550,143 +2369,6 @@ impl Config {
             &mut self.memory.surreal.password,
         );
         env_override_optional("CORVUS_SURREALDB_TOKEN", &mut self.memory.surreal.token);
-
-        // Plugins enabled: CORVUS_PLUGINS_ENABLED
-        if let Ok(enabled) = std::env::var("CORVUS_PLUGINS_ENABLED") {
-            self.plugins.enabled = enabled == "1" || enabled.eq_ignore_ascii_case("true");
-        }
-
-        // Plugin allowlist: CORVUS_PLUGIN_ALLOW_PUBLISHERS="publisher-a,publisher-b"
-        if let Ok(publishers) = std::env::var("CORVUS_PLUGIN_ALLOW_PUBLISHERS") {
-            let parsed: Vec<String> = publishers
-                .split(',')
-                .map(str::trim)
-                .filter(|publisher| !publisher.is_empty())
-                .map(ToOwned::to_owned)
-                .collect();
-            if !parsed.is_empty() {
-                self.plugins.allow_publishers = parsed;
-            }
-        }
-
-        // Plugin catalog sources:
-        // CORVUS_PLUGIN_SOURCES="official=https://plugins.example/catalog.json,mirror=https://plugins.example/catalog.json|^https://ci\\.example\\.com/workflows/publish@.*$"
-        // OR "https://plugins.example/catalog.json,file:///tmp/catalog.json"
-        // Optionally with OIDC issuer: "name=url|regex|issuer" or "url|regex|issuer"
-        if let Ok(sources_raw) = std::env::var("CORVUS_PLUGIN_SOURCES") {
-            let mut anonymous_index = 0usize;
-            let parsed: Vec<PluginSourceConfig> = sources_raw
-                .split(',')
-                .map(str::trim)
-                .filter(|entry| !entry.is_empty())
-                .filter_map(|entry| {
-                    if let Some((name, url)) = entry.split_once('=') {
-                        let name = name.trim();
-                        // Parse url|regex|issuer format
-                        let (url, plugin_identity_regex, sigstore_oidc_issuer) =
-                            if let Some((url_part, remainder)) = url.split_once('|') {
-                                if let Some((regex_part, issuer_part)) = remainder.split_once('|') {
-                                    (
-                                        url_part.trim(),
-                                        Some(regex_part.trim().to_string())
-                                            .filter(|value| !value.is_empty()),
-                                        Some(issuer_part.trim().to_string())
-                                            .filter(|value| !value.is_empty())
-                                            .unwrap_or_else(default_sigstore_oidc_issuer),
-                                    )
-                                } else {
-                                    (
-                                        url_part.trim(),
-                                        Some(remainder.trim().to_string())
-                                            .filter(|value| !value.is_empty()),
-                                        default_sigstore_oidc_issuer(),
-                                    )
-                                }
-                            } else {
-                                (url.trim(), None, default_sigstore_oidc_issuer())
-                            };
-                        if name.is_empty() || url.is_empty() {
-                            return None;
-                        }
-                        return Some(PluginSourceConfig {
-                            name: name.to_string(),
-                            url: url.to_string(),
-                            plugin_identity_regex,
-                            sigstore_oidc_issuer,
-                        });
-                    }
-                    anonymous_index = anonymous_index.saturating_add(1);
-                    // Parse url|regex|issuer format for anonymous entries
-                    let (url, plugin_identity_regex, sigstore_oidc_issuer) =
-                        if let Some((url_part, remainder)) = entry.split_once('|') {
-                            if let Some((regex_part, issuer_part)) = remainder.split_once('|') {
-                                let url_trimmed = url_part.trim();
-                                if url_trimmed.is_empty() {
-                                    return None; // Reject empty URL
-                                }
-                                (
-                                    url_trimmed.to_string(),
-                                    Some(regex_part.trim().to_string())
-                                        .filter(|value| !value.is_empty()),
-                                    Some(issuer_part.trim().to_string())
-                                        .filter(|value| !value.is_empty())
-                                        .unwrap_or_else(default_sigstore_oidc_issuer),
-                                )
-                            } else {
-                                let url_trimmed = url_part.trim();
-                                if url_trimmed.is_empty() {
-                                    return None; // Reject empty URL
-                                }
-                                (
-                                    url_trimmed.to_string(),
-                                    Some(remainder.trim().to_string())
-                                        .filter(|value| !value.is_empty()),
-                                    default_sigstore_oidc_issuer(),
-                                )
-                            }
-                        } else {
-                            let url_trimmed = entry.trim();
-                            if url_trimmed.is_empty() {
-                                return None; // Reject empty URL
-                            }
-                            (
-                                url_trimmed.to_string(),
-                                None,
-                                default_sigstore_oidc_issuer(),
-                            )
-                        };
-                    Some(PluginSourceConfig {
-                        name: format!("env-source-{anonymous_index}"),
-                        url,
-                        plugin_identity_regex,
-                        sigstore_oidc_issuer,
-                    })
-                })
-                .collect();
-
-            if !parsed.is_empty() {
-                self.plugins.sources = parsed;
-            }
-        }
-
-        // Revocation sources: CORVUS_PLUGIN_REVOCATION_SOURCES="https://.../revocations.json,file:///..."
-        if let Ok(revocation_sources_raw) = std::env::var("CORVUS_PLUGIN_REVOCATION_SOURCES") {
-            let parsed: Vec<String> = revocation_sources_raw
-                .split(',')
-                .map(str::trim)
-                .filter(|entry| !entry.is_empty())
-                .map(ToOwned::to_owned)
-                .collect();
-            if !parsed.is_empty() {
-                self.plugins.revocation.source_urls = parsed;
-            }
-        }
-
-        // Revocation enforced: CORVUS_PLUGIN_REVOCATION_ENFORCED
-        if let Ok(enforced) = std::env::var("CORVUS_PLUGIN_REVOCATION_ENFORCED") {
-            self.plugins.revocation.enforced =
-                enforced == "1" || enforced.eq_ignore_ascii_case("true");
-        }
     }
 
     pub fn save(&self) -> Result<()> {
@@ -2959,112 +2641,6 @@ default_temperature = 0.7
     }
 
     #[test]
-    fn plugins_config_defaults_are_secure() {
-        let plugins = PluginsConfig::default();
-        assert!(plugins.enabled);
-        assert_eq!(plugins.install_policy, "pin-manual");
-        assert!(plugins.revocation.enabled);
-        assert!(plugins.revocation.enforced);
-        assert!(!plugins.sources.is_empty());
-        assert_eq!(
-            plugins.sources[0].url,
-            "https://plugins.corvus.profiletailors.com/catalog.json"
-        );
-        assert_eq!(
-            plugins.revocation.source_urls,
-            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
-        );
-        assert_eq!(
-            default_plugin_sources()[0].url,
-            "https://plugins.corvus.profiletailors.com/catalog.json"
-        );
-        assert_eq!(
-            default_plugin_revocation_sources(),
-            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
-        );
-        assert!(plugins
-            .allow_publishers
-            .contains(&"corvus-official".to_string()));
-    }
-
-    #[test]
-    fn migrate_deprecated_plugin_registry_urls_rewrites_and_deduplicates() {
-        let mut config = Config::default();
-        config.plugins.sources = vec![
-            PluginSourceConfig {
-                name: "official".to_string(),
-                url: "https://plugins.corvus.ai/catalog.json".to_string(),
-                plugin_identity_regex: None,
-                sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
-            },
-            PluginSourceConfig {
-                name: "mirror".to_string(),
-                url: "https://mirror.example/catalog.json".to_string(),
-                plugin_identity_regex: None,
-                sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
-            },
-        ];
-        config.plugins.revocation.source_urls = vec![
-            "https://plugins.corvus.ai/revocations.json".to_string(),
-            "https://plugins.corvus.profiletailors.com/revocations.json".to_string(),
-        ];
-
-        let changed = migrate_deprecated_plugin_registry_urls(&mut config);
-        assert!(changed);
-        assert_eq!(
-            config.plugins.sources[0].url,
-            "https://plugins.corvus.profiletailors.com/catalog.json"
-        );
-        assert_eq!(
-            config.plugins.sources[1].url,
-            "https://mirror.example/catalog.json"
-        );
-        assert_eq!(
-            config.plugins.revocation.source_urls,
-            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
-        );
-    }
-
-    #[test]
-    fn migrate_deprecated_plugin_registry_urls_no_op_on_new_urls() {
-        let mut config = Config::default();
-        let changed = migrate_deprecated_plugin_registry_urls(&mut config);
-        assert!(!changed);
-        assert_eq!(
-            config.plugins.sources[0].url,
-            "https://plugins.corvus.profiletailors.com/catalog.json"
-        );
-        assert_eq!(
-            config.plugins.revocation.source_urls,
-            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
-        );
-    }
-
-    #[test]
-    fn migrate_deprecated_plugin_registry_urls_rewrites_legacy_profiletailors_host() {
-        let mut config = Config::default();
-        config.plugins.sources = vec![PluginSourceConfig {
-            name: "official".to_string(),
-            url: "https://corvus.profiletailors.com/catalog.json".to_string(),
-            plugin_identity_regex: None,
-            sigstore_oidc_issuer: default_sigstore_oidc_issuer(),
-        }];
-        config.plugins.revocation.source_urls =
-            vec!["https://corvus.profiletailors.com/revocations.json".to_string()];
-
-        let changed = migrate_deprecated_plugin_registry_urls(&mut config);
-        assert!(changed);
-        assert_eq!(
-            config.plugins.sources[0].url,
-            "https://plugins.corvus.profiletailors.com/catalog.json"
-        );
-        assert_eq!(
-            config.plugins.revocation.source_urls,
-            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
-        );
-    }
-
-    #[test]
     fn surreal_memory_config_debug_redacts_sensitive_fields() {
         let cfg = SurrealMemoryConfig {
             url: Some("http://127.0.0.1:8000".into()),
@@ -3154,7 +2730,6 @@ default_temperature = 0.7
                 qq: None,
             },
             memory: MemoryConfig::default(),
-            plugins: PluginsConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
@@ -3188,8 +2763,6 @@ default_temperature = 0.7
             parsed.channels_config.telegram.unwrap().bot_token,
             "123:ABC"
         );
-        assert!(parsed.plugins.enabled);
-        assert_eq!(parsed.plugins.install_policy, "pin-manual");
     }
 
     #[test]
@@ -3211,9 +2784,6 @@ default_temperature = 0.7
         assert_eq!(parsed.memory.archive_after_days, 7);
         assert_eq!(parsed.memory.purge_after_days, 30);
         assert_eq!(parsed.memory.conversation_retention_days, 30);
-        assert!(parsed.plugins.enabled);
-        assert_eq!(parsed.plugins.install_policy, "pin-manual");
-        assert!(parsed.plugins.revocation.enforced);
     }
 
     #[test]
@@ -3271,7 +2841,6 @@ tool_dispatcher = "xml"
             cron: CronConfig::default(),
             channels_config: ChannelsConfig::default(),
             memory: MemoryConfig::default(),
-            plugins: PluginsConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
             composio: ComposioConfig::default(),
@@ -4830,100 +4399,7 @@ default_model = "legacy-model"
             .permissions()
             .mode()
             & 0o777;
-        assert_eq!(
-            config.plugins.revocation.source_urls,
-            vec!["https://plugins.corvus.profiletailors.com/revocations.json".to_string()]
-        );
-    }
-
-    #[test]
-    fn migrate_corvus_plugin_sources_parses_named_entries() {
-        // Set env var with named entries including issuer
-        std::env::set_var(
-            "CORVUS_PLUGIN_SOURCES",
-            "my source=https://plugins.example.com/catalog.json|^https://ci\\.example\\.com@.*$|https://custom.issuer.com",
-        );
-        let config = Config::default();
-        std::env::remove_var("CORVUS_PLUGIN_SOURCES");
-
-        assert_eq!(config.plugins.sources.len(), 1);
-        assert_eq!(config.plugins.sources[0].name, "my source");
-        assert_eq!(
-            config.plugins.sources[0].url,
-            "https://plugins.example.com/catalog.json"
-        );
-        assert_eq!(
-            config.plugins.sources[0].plugin_identity_regex,
-            Some("^https://ci\\.example\\.com@.*$".to_string())
-        );
-        assert_eq!(
-            config.plugins.sources[0].sigstore_oidc_issuer,
-            "https://custom.issuer.com"
-        );
-    }
-
-    #[test]
-    fn migrate_corvus_plugin_sources_parses_anonymous_entries() {
-        // Set env var with anonymous entries (no name= prefix)
-        std::env::set_var(
-            "CORVUS_PLUGIN_SOURCES",
-            "https://plugins.example.com/catalog.json|https://ci\\.example\\.com@.*$|https://custom.issuer.com,https://plugins2.example.com/catalog.json",
-        );
-        let config = Config::default();
-        std::env::remove_var("CORVUS_PLUGIN_SOURCES");
-
-        assert_eq!(config.plugins.sources.len(), 2);
-        assert_eq!(config.plugins.sources[0].name, "env-source-0");
-        assert_eq!(
-            config.plugins.sources[0].url,
-            "https://plugins.example.com/catalog.json"
-        );
-        assert_eq!(
-            config.plugins.sources[0].plugin_identity_regex,
-            Some("https://ci\\.example\\.com@.*$".to_string())
-        );
-        assert_eq!(
-            config.plugins.sources[0].sigstore_oidc_issuer,
-            "https://custom.issuer.com"
-        );
-        assert_eq!(config.plugins.sources[1].name, "env-source-1");
-        assert_eq!(
-            config.plugins.sources[1].url,
-            "https://plugins2.example.com/catalog.json"
-        );
-    }
-
-    #[test]
-    fn migrate_corvus_plugin_sources_empty_issuer_falls_back() {
-        // Empty issuer should fall back to default
-        std::env::set_var(
-            "CORVUS_PLUGIN_SOURCES",
-            "source=https://plugins.example.com/catalog.json|regex|",
-        );
-        let config = Config::default();
-        std::env::remove_var("CORVUS_PLUGIN_SOURCES");
-
-        assert_eq!(config.plugins.sources.len(), 1);
-        assert_eq!(
-            config.plugins.sources[0].sigstore_oidc_issuer,
-            default_sigstore_oidc_issuer()
-        );
-    }
-
-    #[test]
-    fn migrate_corvus_plugin_sources_rejects_malformed() {
-        // Malformed entries (empty URL) should be skipped
-        std::env::set_var(
-            "CORVUS_PLUGIN_SOURCES",
-            "=https://plugins.example.com/catalog.json,https://,source2=http://valid.example.com",
-        );
-        let config = Config::default();
-        std::env::remove_var("CORVUS_PLUGIN_SOURCES");
-
-        // Should only have source2 (the valid one)
-        assert_eq!(config.plugins.sources.len(), 1);
-        assert_eq!(config.plugins.sources[0].name, "source2");
-        assert_eq!(config.plugins.sources[0].url, "http://valid.example.com");
+        assert_eq!(mode, 0o600);
     }
 
     #[test]
