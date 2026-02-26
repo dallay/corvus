@@ -80,7 +80,7 @@ parking_lot = "0.12"
 # Async traits
 async-trait = "0.1"
 
-# WASM execution for plugin-backed memory backends
+# WASM execution support for runtime sandboxing
 wasmi = { version = "0.40", optional = true, default-features = false, features = ["std"] }
 
 # HMAC-SHA256 (Zhipu/GLM JWT auth)
@@ -175,8 +175,6 @@ probe = ["dep:probe-rs"]
 rag-pdf = ["dep:pdf-extract"]
 # memory-surreal = SurrealDB-backed memory backend
 memory-surreal = ["dep:surrealdb"]
-# memory-plugin = WASM-backed memory plugin runtime
-memory-plugin = ["dep:wasmi"]
 [profile.release]
 opt-level = "z"      # Optimize for size
 lto = "thin"         # Lower memory use during release builds

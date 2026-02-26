@@ -5,8 +5,6 @@ pub mod hygiene;
 pub mod lucid;
 pub mod markdown;
 pub mod none;
-#[cfg(feature = "memory-plugin")]
-pub mod plugin;
 pub mod response_cache;
 pub mod snapshot;
 pub mod sqlite;
@@ -23,8 +21,6 @@ pub use backend::{
 pub use lucid::LucidMemory;
 pub use markdown::MarkdownMemory;
 pub use none::NoneMemory;
-#[cfg(feature = "memory-plugin")]
-pub use plugin::PluginBackedMemory;
 pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
 #[cfg(feature = "memory-surreal")]
@@ -58,6 +54,30 @@ fn build_sqlite_memory(
         config.keyword_weight as f32,
         config.embedding_cache_size,
         config.sqlite_open_timeout_secs,
+    )?;
+    Ok(mem)
+}
+
+#[cfg(feature = "memory-surreal")]
+fn build_surreal_memory(
+    config: &MemoryConfig,
+    workspace_dir: &Path,
+    api_key: Option<&str>,
+) -> anyhow::Result<SurrealMemory> {
+    let embedder: Arc<dyn embeddings::EmbeddingProvider> =
+        Arc::from(embeddings::create_embedding_provider(
+            &config.embedding_provider,
+            api_key,
+            &config.embedding_model,
+            config.embedding_dimensions,
+        ));
+    #[allow(clippy::cast_possible_truncation)]
+    let mem = SurrealMemory::new(
+        workspace_dir,
+        config,
+        embedder,
+        config.vector_weight as f32,
+        config.keyword_weight as f32,
     )?;
     Ok(mem)
 }
@@ -113,52 +133,22 @@ pub fn create_memory(
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
         MemoryBackendKind::SurrealGraphs => {
-            #[cfg(feature = "memory-plugin")]
+            #[cfg(feature = "memory-surreal")]
             {
-                match crate::plugins::resolve_memory_plugin_runtime(
+                tracing::info!(
+                    "Memory backend 'surreal-graphs' mapped to built-in surreal memory backend"
+                );
+                Ok(Box::new(build_surreal_memory(
+                    config,
                     workspace_dir,
-                    crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
-                ) {
-                    Ok(Some(plugin_runtime)) => {
-                        tracing::info!(
-                            "Using plugin-backed memory backend '{}' (version {})",
-                            plugin_runtime.locked.id,
-                            plugin_runtime.locked.version
-                        );
-                        match PluginBackedMemory::new(plugin_runtime, config, workspace_dir) {
-                            Ok(memory) => Ok(Box::new(memory)),
-                            Err(error) => {
-                                tracing::error!(
-                                    plugin_id = crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
-                                    error = %error,
-                                    "surreal-graphs backend requested but plugin initialization failed; falling back to markdown (SurrealDB graph features and persistence are unavailable)"
-                                );
-                                Ok(Box::new(MarkdownMemory::new(workspace_dir)))
-                            }
-                        }
-                    }
-                    Ok(None) => {
-                        tracing::error!(
-                            plugin_id = crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
-                            "memory backend 'surreal-graphs' selected but plugin is not installed or not trusted; falling back to markdown (SurrealDB graph features and persistence are unavailable). Install and trust this plugin id to restore surreal-graphs"
-                        );
-                        Ok(Box::new(MarkdownMemory::new(workspace_dir)))
-                    }
-                    Err(error) => {
-                        tracing::error!(
-                            plugin_id = crate::plugins::OFFICIAL_SURREAL_GRAPHS_PLUGIN_ID,
-                            error = %error,
-                            "memory backend 'surreal-graphs' selected but plugin verification failed; falling back to markdown (SurrealDB graph features and persistence are unavailable). Install and trust this plugin id to restore surreal-graphs"
-                        );
-                        Ok(Box::new(MarkdownMemory::new(workspace_dir)))
-                    }
-                }
+                    api_key,
+                )?))
             }
-            #[cfg(not(feature = "memory-plugin"))]
+            #[cfg(not(feature = "memory-surreal"))]
             {
                 tracing::warn!(
                     "Memory backend 'surreal-graphs' requested but binary was built without \
-                     feature 'memory-plugin'; falling back to markdown"
+                     feature 'memory-surreal'; falling back to markdown"
                 );
                 Ok(Box::new(MarkdownMemory::new(workspace_dir)))
             }
@@ -166,21 +156,11 @@ pub fn create_memory(
         MemoryBackendKind::Surreal => {
             #[cfg(feature = "memory-surreal")]
             {
-                let embedder: Arc<dyn embeddings::EmbeddingProvider> =
-                    Arc::from(embeddings::create_embedding_provider(
-                        &config.embedding_provider,
-                        api_key,
-                        &config.embedding_model,
-                        config.embedding_dimensions,
-                    ));
-                #[allow(clippy::cast_possible_truncation)]
-                return Ok(Box::new(SurrealMemory::new(
-                    workspace_dir,
+                Ok(Box::new(build_surreal_memory(
                     config,
-                    embedder,
-                    config.vector_weight as f32,
-                    config.keyword_weight as f32,
-                )?));
+                    workspace_dir,
+                    api_key,
+                )?))
             }
             #[cfg(not(feature = "memory-surreal"))]
             {
@@ -220,9 +200,29 @@ pub fn create_memory_for_migration(
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
         MemoryBackendKind::SurrealGraphs => {
-            anyhow::bail!(
-                "backend 'surreal-graphs' is plugin-backed and does not support direct migration yet"
-            );
+            #[cfg(feature = "memory-surreal")]
+            {
+                let config = MemoryConfig {
+                    backend: "surreal-graphs".to_string(),
+                    ..MemoryConfig::default()
+                };
+                let embedder: Arc<dyn embeddings::EmbeddingProvider> =
+                    Arc::new(embeddings::NoopEmbedding);
+                #[allow(clippy::cast_possible_truncation)]
+                return Ok(Box::new(SurrealMemory::new(
+                    workspace_dir,
+                    &config,
+                    embedder,
+                    config.vector_weight as f32,
+                    config.keyword_weight as f32,
+                )?));
+            }
+            #[cfg(not(feature = "memory-surreal"))]
+            {
+                anyhow::bail!(
+                    "backend 'surreal-graphs' requires the binary to be built with feature 'memory-surreal'"
+                );
+            }
         }
         MemoryBackendKind::Surreal => {
             #[cfg(feature = "memory-surreal")]
@@ -332,13 +332,16 @@ mod tests {
     }
 
     #[test]
-    fn factory_surreal_graphs_without_installed_plugin_falls_back_to_markdown() {
+    fn factory_surreal_graphs_uses_built_in_surreal_or_markdown_fallback() {
         let tmp = TempDir::new().unwrap();
         let cfg = MemoryConfig {
             backend: "surreal-graphs".into(),
             ..MemoryConfig::default()
         };
         let mem = create_memory(&cfg, tmp.path(), None).unwrap();
+        #[cfg(feature = "memory-surreal")]
+        assert_eq!(mem.name(), "surreal");
+        #[cfg(not(feature = "memory-surreal"))]
         assert_eq!(mem.name(), "markdown");
     }
 
@@ -450,12 +453,20 @@ mod tests {
     }
 
     #[test]
-    fn migration_factory_rejects_surreal_graphs() {
+    fn migration_factory_handles_surreal_graphs() {
         let tmp = TempDir::new().unwrap();
-        let error = create_memory_for_migration("surreal-graphs", tmp.path())
-            .err()
-            .expect("surreal-graphs should be rejected for migration");
-        assert!(error.to_string().contains("plugin-backed"));
+        #[cfg(feature = "memory-surreal")]
+        {
+            let mem = create_memory_for_migration("surreal-graphs", tmp.path()).unwrap();
+            assert_eq!(mem.name(), "surreal");
+        }
+        #[cfg(not(feature = "memory-surreal"))]
+        {
+            let error = create_memory_for_migration("surreal-graphs", tmp.path())
+                .err()
+                .expect("surreal-graphs should require memory-surreal feature");
+            assert!(error.to_string().contains("memory-surreal"));
+        }
     }
 
     #[test]

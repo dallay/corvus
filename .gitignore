@@ -157,6 +157,8 @@ build/spotless-prettier-node-modules-*/package.json
 build/spotless-prettier-node-modules-*/package-lock.json
 build/spotless-prettier-node-modules-*/serve.js
 .pnpm-store
+
+/ephemeral
 # START AI Agent Symlinks
 .claude/commands
 .claude/commands/

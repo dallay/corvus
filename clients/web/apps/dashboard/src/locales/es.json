@@ -8,7 +8,7 @@
     "core": "Configuración base",
     "runtime": "Runtime",
     "autonomy": "Autonomía",
-    "schedulerPlugins": "Scheduler y plugins",
+    "scheduler": "Scheduler",
     "gateway": "Gateway",
     "webhook": "Webhook"
   },
@@ -48,8 +48,6 @@
     "schedulerEnabled": "Scheduler habilitado",
     "schedulerMaxTasks": "Scheduler max tasks",
     "schedulerMaxConcurrent": "Scheduler max concurrent",
-    "pluginsEnabled": "Plugins habilitados",
-    "pluginsInstallPolicy": "Plugins install policy",
     "gatewayPort": "Gateway port",
     "gatewayHost": "Gateway host",
     "requirePairing": "Requerir pairing",

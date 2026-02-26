@@ -43,10 +43,6 @@ interface AdminConfigResponse {
       max_tasks?: number;
       max_concurrent?: number;
     };
-    plugins?: {
-      enabled?: boolean;
-      install_policy?: string;
-    };
     gateway?: {
       port?: number;
       host?: string;
@@ -76,8 +72,6 @@ interface InitialConfigSnapshot {
   scheduler_enabled: boolean;
   scheduler_max_tasks: number;
   scheduler_max_concurrent: number;
-  plugins_enabled: boolean;
-  plugins_install_policy: string;
   gateway_port: number;
   gateway_host: string;
   gateway_require_pairing: boolean;
@@ -120,9 +114,6 @@ const maxCostPerDayCents = ref("500");
 const schedulerEnabled = ref(true);
 const schedulerMaxTasks = ref("64");
 const schedulerMaxConcurrent = ref("4");
-
-const pluginsEnabled = ref(true);
-const pluginsInstallPolicy = ref("pin-manual");
 
 const gatewayPort = ref("3000");
 const gatewayHost = ref("127.0.0.1");
@@ -310,9 +301,6 @@ async function connectGateway(): Promise<void> {
     schedulerMaxTasks.value = `${cfg.scheduler?.max_tasks ?? 64}`;
     schedulerMaxConcurrent.value = `${cfg.scheduler?.max_concurrent ?? 4}`;
 
-    pluginsEnabled.value = cfg.plugins?.enabled ?? true;
-    pluginsInstallPolicy.value = cfg.plugins?.install_policy ?? "pin-manual";
-
     gatewayPort.value = `${cfg.gateway?.port ?? 3000}`;
     gatewayHost.value = cfg.gateway?.host ?? "127.0.0.1";
     requirePairing.value = cfg.gateway?.require_pairing ?? true;
@@ -337,8 +325,6 @@ async function connectGateway(): Promise<void> {
       scheduler_enabled: cfg.scheduler?.enabled ?? true,
       scheduler_max_tasks: cfg.scheduler?.max_tasks ?? 64,
       scheduler_max_concurrent: cfg.scheduler?.max_concurrent ?? 4,
-      plugins_enabled: cfg.plugins?.enabled ?? true,
-      plugins_install_policy: cfg.plugins?.install_policy ?? "pin-manual",
       gateway_port: cfg.gateway?.port ?? 3000,
       gateway_host: cfg.gateway?.host ?? "127.0.0.1",
       gateway_require_pairing: cfg.gateway?.require_pairing ?? true,
@@ -471,17 +457,6 @@ async function saveConfig(): Promise<void> {
   }
   if (Object.keys(schedulerPayload).length > 0) {
     payload.scheduler = schedulerPayload;
-  }
-
-  const pluginsPayload: Record<string, unknown> = {};
-  if (pluginsEnabled.value !== snapshot.plugins_enabled) {
-    pluginsPayload.enabled = pluginsEnabled.value;
-  }
-  if (pluginsInstallPolicy.value !== snapshot.plugins_install_policy) {
-    pluginsPayload.install_policy = pluginsInstallPolicy.value;
-  }
-  if (Object.keys(pluginsPayload).length > 0) {
-    payload.plugins = pluginsPayload;
   }
 
   const gatewayPayload: Record<string, unknown> = {};
@@ -669,7 +644,7 @@ async function saveConfig(): Promise<void> {
     </section>
 
     <section class="card">
-      <h2>{{ t("sections.schedulerPlugins") }}</h2>
+      <h2>{{ t("sections.scheduler") }}</h2>
       <div class="grid">
         <label class="switch-row">
           <input v-model="schedulerEnabled" type="checkbox" />
@@ -682,14 +657,6 @@ async function saveConfig(): Promise<void> {
         <label>
           <span>{{ t("form.schedulerMaxConcurrent") }}</span>
           <Input v-model="schedulerMaxConcurrent" type="number" min="1" />
-        </label>
-        <label class="switch-row">
-          <input v-model="pluginsEnabled" type="checkbox" />
-          <span>{{ t("form.pluginsEnabled") }}</span>
-        </label>
-        <label>
-          <span>{{ t("form.pluginsInstallPolicy") }}</span>
-          <Input v-model="pluginsInstallPolicy" />
         </label>
       </div>
     </section>
