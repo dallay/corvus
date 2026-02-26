@@ -8,6 +8,8 @@ use rustls_pki_types::pem::PemObject;
 use rustls_pki_types::{CertificateDer, UnixTime};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use sigstore::bundle::verify::blocking::Verifier as SigstoreBundleVerifier;
+use sigstore::bundle::verify::policy::OIDCIssuer;
 use sigstore::crypto::{CosignVerificationKey, Signature};
 use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
@@ -573,9 +575,14 @@ impl PluginManager {
                     "signature certificate URL",
                 )?;
 
-                if let Some(bundle_url) = manifest.resolved_signature_bundle_url() {
-                    validate_manifest_asset_source(source, bundle_url, "signature bundle URL")?;
-                }
+                let bundle_url = manifest.resolved_signature_bundle_url().ok_or_else(|| {
+                    anyhow!(
+                        "Plugin '{}' from source '{}' is missing signature.bundle_url metadata",
+                        manifest.id,
+                        source.name
+                    )
+                })?;
+                validate_manifest_asset_source(source, bundle_url, "signature bundle URL")?;
             }
         }
 
@@ -820,6 +827,46 @@ impl PluginManager {
             );
         }
 
+        let bundle_path = install_dir.join(WASM_SIGSTORE_BUNDLE_FILE_NAME);
+        if !bundle_path.exists() {
+            bail!(
+                "Plugin '{}' requires '{}' for signature verification",
+                plugin.id,
+                WASM_SIGSTORE_BUNDLE_FILE_NAME
+            );
+        }
+
+        let bundle_bytes = fs::read(&bundle_path).with_context(|| {
+            format!(
+                "Failed to read plugin '{}' Sigstore bundle file: {}",
+                plugin.id,
+                bundle_path.display()
+            )
+        })?;
+        if bundle_bytes.is_empty() || bundle_bytes.len() > MAX_SIGSTORE_BUNDLE_BYTES {
+            bail!(
+                "Plugin '{}' Sigstore bundle file has invalid size ({} bytes)",
+                plugin.id,
+                bundle_bytes.len()
+            );
+        }
+
+        let signing_time = verify_sigstore_bundle_and_extract_signing_time(
+            &plugin.id,
+            &bundle_bytes,
+            artifact_bytes,
+            plugin
+                .source_sigstore_oidc_issuer
+                .as_deref()
+                .unwrap_or(SIGSTORE_GITHUB_OIDC_ISSUER),
+        )
+        .with_context(|| {
+            format!(
+                "Plugin '{}' local Sigstore bundle verification failed",
+                plugin.id
+            )
+        })?;
+
         verify_blob_with_sigstore(
             artifact_bytes,
             &signature_bytes,
@@ -829,7 +876,7 @@ impl PluginManager {
                 .source_sigstore_oidc_issuer
                 .as_deref()
                 .unwrap_or(SIGSTORE_GITHUB_OIDC_ISSUER),
-            None,
+            Some(signing_time),
         )
         .with_context(|| {
             format!(
@@ -1108,34 +1155,44 @@ impl PluginManager {
             );
         }
 
-        let (transparency_bundle, signing_time) =
-            if let Some(bundle_url) = candidate.manifest.resolved_signature_bundle_url() {
-                let bundle = fetch_bytes_limited(bundle_url, MAX_SIGSTORE_BUNDLE_BYTES)
-                    .with_context(|| {
-                        format!(
-                            "Failed to download plugin '{}' Sigstore bundle from {bundle_url}",
-                            candidate.manifest.id
-                        )
-                    })?;
-                if bundle.is_empty() {
-                    bail!(
-                        "Plugin '{}' Sigstore bundle has invalid size ({} bytes)",
-                        candidate.manifest.id,
-                        bundle.len()
-                    );
-                }
+        let bundle_url = candidate
+            .manifest
+            .resolved_signature_bundle_url()
+            .ok_or_else(|| {
+                anyhow!(
+                    "Plugin '{}' from source '{}' is missing signature.bundle_url metadata",
+                    candidate.manifest.id,
+                    candidate.source.name
+                )
+            })?;
 
-                let signing_time = extract_signing_time_from_sigstore_bundle(&bundle)
-                    .with_context(|| {
-                        format!(
-                            "Plugin '{}' Sigstore bundle is malformed",
-                            candidate.manifest.id
-                        )
-                    })?;
-                (Some(bundle), signing_time)
-            } else {
-                (None, None)
-            };
+        let transparency_bundle = fetch_bytes_limited(bundle_url, MAX_SIGSTORE_BUNDLE_BYTES)
+            .with_context(|| {
+                format!(
+                    "Failed to download plugin '{}' Sigstore bundle from {bundle_url}",
+                    candidate.manifest.id
+                )
+            })?;
+        if transparency_bundle.is_empty() {
+            bail!(
+                "Plugin '{}' Sigstore bundle has invalid size ({} bytes)",
+                candidate.manifest.id,
+                transparency_bundle.len()
+            );
+        }
+
+        let signing_time = verify_sigstore_bundle_and_extract_signing_time(
+            &candidate.manifest.id,
+            &transparency_bundle,
+            artifact_bytes,
+            candidate.source.sigstore_oidc_issuer.as_str(),
+        )
+        .with_context(|| {
+            format!(
+                "Plugin '{}' Sigstore bundle failed to verify",
+                candidate.manifest.id
+            )
+        })?;
 
         verify_blob_with_sigstore(
             artifact_bytes,
@@ -1143,7 +1200,7 @@ impl PluginManager {
             certificate.as_ref(),
             identity_regex.as_str(),
             candidate.source.sigstore_oidc_issuer.as_str(),
-            signing_time,
+            Some(signing_time),
         )
         .with_context(|| {
             format!(
@@ -1155,7 +1212,7 @@ impl PluginManager {
         Ok(Some(VerifiedSignatureBundle {
             signature,
             certificate: certificate.into_owned(),
-            transparency_bundle,
+            transparency_bundle: Some(transparency_bundle),
         }))
     }
 
@@ -1630,6 +1687,10 @@ fn is_disallowed_remote_ip(ip: IpAddr) -> bool {
                 || is_ipv4_in_cidr(v4, Ipv4Addr::new(198, 18, 0, 0), 15)
         }
         IpAddr::V6(v6) => {
+            if let Some(mapped_v4) = v6.to_ipv4_mapped() {
+                return is_disallowed_remote_ip(IpAddr::V4(mapped_v4));
+            }
+
             v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
@@ -2234,6 +2295,35 @@ fn decode_base64_text(payload: &str) -> Option<Vec<u8>> {
                 .decode(compact.as_bytes())
                 .ok()
         })
+}
+
+fn verify_sigstore_bundle_and_extract_signing_time(
+    plugin_id: &str,
+    bundle_bytes: &[u8],
+    artifact_bytes: &[u8],
+    oidc_issuer: &str,
+) -> Result<SystemTime> {
+    let bundle: sigstore::bundle::Bundle = serde_json::from_slice(bundle_bytes)
+        .context("Sigstore bundle is malformed or unsupported")?;
+
+    let verifier = SigstoreBundleVerifier::production()
+        .context("Failed to initialize Sigstore bundle verifier")?;
+    let policy = OIDCIssuer(oidc_issuer.to_string());
+
+    let mut hasher = Sha256::new();
+    hasher.update(artifact_bytes);
+    verifier
+        .verify_digest(hasher, bundle, &policy, true)
+        .with_context(|| {
+            format!(
+                "Plugin '{}' Sigstore bundle verification failed (issuer='{}')",
+                plugin_id, oidc_issuer
+            )
+        })?;
+
+    extract_signing_time_from_sigstore_bundle(bundle_bytes)
+        .context("Sigstore bundle integratedTime parsing failed")?
+        .ok_or_else(|| anyhow!("Sigstore bundle is missing integratedTime metadata"))
 }
 
 fn extract_signing_time_from_sigstore_bundle(bundle_bytes: &[u8]) -> Result<Option<SystemTime>> {
@@ -3010,6 +3100,24 @@ mod tests {
     }
 
     #[test]
+    fn disallowed_remote_ip_classification_blocks_ipv4_mapped_loopback_v6() {
+        assert!(is_disallowed_remote_ip(
+            "::ffff:127.0.0.1"
+                .parse::<std::net::IpAddr>()
+                .expect("valid IPv4-mapped IPv6 loopback")
+        ));
+    }
+
+    #[test]
+    fn disallowed_remote_ip_classification_blocks_ipv4_mapped_private_v6() {
+        assert!(is_disallowed_remote_ip(
+            "::ffff:10.0.0.1"
+                .parse::<std::net::IpAddr>()
+                .expect("valid IPv4-mapped IPv6 private address")
+        ));
+    }
+
+    #[test]
     fn signature_policy_not_required_for_local_catalog_sources() {
         let source = PluginSourceConfig {
             name: "local".to_string(),
@@ -3280,7 +3388,7 @@ mod tests {
     fn normalize_certificate_payload_accepts_plain_pem() {
         let pem = b"-----BEGIN CERTIFICATE-----\nZm9v\n-----END CERTIFICATE-----\n";
         let normalized = normalize_certificate_payload(pem).expect("plain PEM should be accepted");
-        assert_eq!(normalized.as_ref(), pem);
+        assert_eq!(&*normalized, pem);
     }
 
     #[test]
@@ -3290,7 +3398,7 @@ mod tests {
 
         let normalized = normalize_certificate_payload(wrapped.as_bytes())
             .expect("base64 wrapped PEM should be normalized");
-        assert_eq!(normalized.as_ref(), pem.as_bytes());
+        assert_eq!(&*normalized, pem.as_bytes());
     }
 
     #[test]

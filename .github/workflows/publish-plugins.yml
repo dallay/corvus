@@ -487,13 +487,14 @@ jobs:
         env:
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
         run: |
           set -euo pipefail
 
           artifact_path="$DIST_DIR/$ARTIFACT_RELATIVE_PATH"
           signature_path="${artifact_path}.sig"
           certificate_path="${artifact_path}.pem"
-          bundle_path="${artifact_path}.sigstore.json"
+          bundle_path="$DIST_DIR/$BUNDLE_RELATIVE_PATH"
 
           ./cosign sign-blob \
             --yes \
@@ -506,6 +507,7 @@ jobs:
         env:
           DIST_DIR: ${{ env.DIST_DIR }}
           ARTIFACT_RELATIVE_PATH: ${{ steps.meta.outputs.artifact_relative_path }}
+          BUNDLE_RELATIVE_PATH: ${{ steps.meta.outputs.bundle_relative_path }}
         shell: python
         run: |
           import base64
@@ -518,7 +520,7 @@ jobs:
           artifact_path = pathlib.Path(os.environ["DIST_DIR"]) / os.environ["ARTIFACT_RELATIVE_PATH"]
           signature_path = artifact_path.with_name(artifact_path.name + ".sig")
           certificate_path = artifact_path.with_name(artifact_path.name + ".pem")
-          bundle_path = artifact_path.with_name(artifact_path.name + ".sigstore.json")
+          bundle_path = pathlib.Path(os.environ["DIST_DIR"]) / os.environ["BUNDLE_RELATIVE_PATH"]
           repository_pattern = re.escape(os.environ["GITHUB_REPOSITORY"])
 
           if not bundle_path.exists():
@@ -622,7 +624,7 @@ jobs:
           oras_args=(
             "$DIST_DIR/$ARTIFACT_RELATIVE_PATH:application/wasm"
             "$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.sig:application/octet-stream"
-            "$DIST_DIR/${ARTIFACT_RELATIVE_PATH}.sigstore.json:application/vnd.dev.sigstore.bundle+json"
+            "$DIST_DIR/$BUNDLE_RELATIVE_PATH:application/vnd.dev.sigstore.bundle+json"
             "$DIST_DIR/$MANIFEST_RELATIVE_PATH:application/json"
             "$DIST_DIR/catalog.json:application/json"
             "$DIST_DIR/revocations.json:application/json"
