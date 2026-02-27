@@ -44,7 +44,6 @@ struct AdminConfigView {
     runtime: AdminRuntimeView,
     autonomy: AdminAutonomyView,
     scheduler: AdminSchedulerView,
-    plugins: AdminPluginsView,
     gateway: AdminGatewayView,
     channels: AdminChannelsView,
 }
@@ -74,14 +73,6 @@ struct AdminSchedulerView {
     enabled: bool,
     max_tasks: usize,
     max_concurrent: usize,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-struct AdminPluginsView {
-    enabled: bool,
-    install_policy: String,
-    allow_publishers_count: usize,
-    sources_count: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -138,8 +129,6 @@ struct AdminConfigUpdateRequest {
     autonomy: Option<AdminAutonomyPatch>,
     #[serde(default)]
     scheduler: Option<AdminSchedulerPatch>,
-    #[serde(default)]
-    plugins: Option<AdminPluginsPatch>,
     #[serde(default)]
     gateway: Option<AdminGatewayPatch>,
     #[serde(default)]
@@ -209,14 +198,6 @@ struct AdminSchedulerPatch {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-struct AdminPluginsPatch {
-    #[serde(default)]
-    enabled: Option<bool>,
-    #[serde(default)]
-    install_policy: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
 struct AdminWebhookPatch {
     #[serde(default)]
     port: Option<u16>,
@@ -257,12 +238,6 @@ fn admin_config_view(cfg: &Config) -> AdminConfigView {
             enabled: cfg.scheduler.enabled,
             max_tasks: cfg.scheduler.max_tasks,
             max_concurrent: cfg.scheduler.max_concurrent,
-        },
-        plugins: AdminPluginsView {
-            enabled: cfg.plugins.enabled,
-            install_policy: cfg.plugins.install_policy.clone(),
-            allow_publishers_count: cfg.plugins.allow_publishers.len(),
-            sources_count: cfg.plugins.sources.len(),
         },
         gateway: AdminGatewayView {
             port: cfg.gateway.port,
@@ -514,20 +489,6 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
         if let Some(max_concurrent) = scheduler.max_concurrent {
             if max_concurrent.max(1) != cfg.scheduler.max_concurrent {
                 fields.push("scheduler.max_concurrent");
-            }
-        }
-    }
-
-    if let Some(plugins) = patch.plugins.as_ref() {
-        if let Some(enabled) = plugins.enabled {
-            if enabled != cfg.plugins.enabled {
-                fields.push("plugins.enabled");
-            }
-        }
-
-        if let Some(install_policy) = plugins.install_policy.as_ref() {
-            if install_policy.trim() != cfg.plugins.install_policy {
-                fields.push("plugins.install_policy");
             }
         }
     }
@@ -1451,24 +1412,6 @@ async fn handle_admin_update_config(
         }
         if let Some(max_concurrent) = scheduler_patch.max_concurrent {
             cfg.scheduler.max_concurrent = max_concurrent.max(1);
-        }
-    }
-
-    if let Some(plugins_patch) = patch.plugins {
-        if let Some(enabled) = plugins_patch.enabled {
-            cfg.plugins.enabled = enabled;
-        }
-        if let Some(install_policy) = plugins_patch.install_policy {
-            let install_policy = install_policy.trim();
-            if install_policy != "pin-manual" {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": "Invalid plugins.install_policy. Allowed: pin-manual"
-                    })),
-                );
-            }
-            cfg.plugins.install_policy = install_policy.to_string();
         }
     }
 
@@ -2492,7 +2435,6 @@ mod tests {
         assert_eq!(payload["config"]["channels"]["webhook_has_secret"], true);
         assert_eq!(payload["config"]["gateway"]["paired_tokens_count"], 2);
         assert_eq!(payload["config"]["runtime"]["kind"], "native");
-        assert_eq!(payload["config"]["plugins"]["install_policy"], "pin-manual");
         assert!(payload.to_string().contains("webhook_has_secret"));
         assert!(!payload.to_string().contains("top-secret"));
         assert!(!payload.to_string().contains("hash1"));
@@ -2684,9 +2626,6 @@ mod tests {
             "scheduler": {
                 "max_tasks": 12
             },
-            "plugins": {
-                "enabled": false
-            },
             "gateway": {
                 "require_pairing": false,
                 "webhook_rate_limit_per_minute": 120
@@ -2719,7 +2658,6 @@ mod tests {
             .to_string()
             .contains("gateway.require_pairing"));
         assert!(result["fields"].to_string().contains("scheduler.max_tasks"));
-        assert!(result["fields"].to_string().contains("plugins.enabled"));
         assert!(result["fields"].to_string().contains("webhook.secret"));
     }
 

@@ -1258,7 +1258,7 @@ dependencies = [
 
 [[package]]
 name = "corvus"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6929,7 +6929,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0136791f7c95b1f6dd99f9cc786b91bb81c3800b639b3478e561ddb7be95e5f1"
 dependencies = [
  "fastrand",
- "getrandom 0.4.1",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.3",
  "windows-sys 0.52.0",
@@ -8982,8 +8982,3 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
-
-[[patch.unused]]
-name = "jsonwebtoken"
-version = "10.3.0"
-source = "git+https://github.com/Keats/jsonwebtoken?tag=v10.3.0#abbc3076742c4161347bc6b8bf4aa5eb86e1dc01"
