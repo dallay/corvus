@@ -980,7 +980,7 @@ mod tests {
             .iter()
             .find(|(header, _)| *header == "Editor-Version")
             .map(|(_, value)| *value);
-        let plugin_version = headers
+        let extension_version = headers
             .iter()
             .find(|(header, _)| *header == "Editor-Plugin-Version")
             .map(|(_, value)| *value);
@@ -990,7 +990,7 @@ mod tests {
             .map(|(_, value)| *value);
 
         assert_eq!(editor_version, Some("vscode/1.85.1"));
-        assert_eq!(plugin_version, Some("copilot/1.155.0"));
+        assert_eq!(extension_version, Some("copilot/1.155.0"));
         assert_eq!(user_agent, Some("GithubCopilot/1.155.0"));
     }
 
