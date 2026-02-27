@@ -1,0 +1,52 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Security Dependency Scan
+
+on:
+  schedule:
+    - cron: "0 5 * * *" # Daily at 05:00 UTC
+  push:
+    branches:
+      - main
+      - minor
+  workflow_dispatch:
+
+jobs:
+  rust-audit:
+    name: Rust Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 🦀 Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 📥 Install cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
+
+      - name: 🔍 Run cargo-deny
+        run: |
+          cd clients/agent-runtime
+          cargo-deny check advisories
+
+  kotlin-dependency-submission:
+    name: Kotlin Dependency Submission
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@v4
+
+      - name: ☕ Setup Java
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "corretto"
+
+      - name: 🐘 Submit Dependency Graph
+        uses: gradle/actions/dependency-submission@v4
+        with:
+          gradle-version: wrapper
