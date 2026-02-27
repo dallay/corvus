@@ -6,23 +6,23 @@
 
 <div align="center">
 
-### 📊 Repository Stats
+## 📊 Repository Stats
 
 [![Stars](https://img.shields.io/github/stars/dallay/corvus?style=social)](https://github.com/dallay/corvus/stargazers)
 [![Forks](https://img.shields.io/github/forks/dallay/corvus?style=social)](https://github.com/dallay/corvus/network/members)
 [![Issues](https://img.shields.io/github/issues/dallay/corvus)](https://github.com/dallay/corvus/issues)
-[![Pull Requests](https://img.shields.io/github/github/pull-requests/dallay/corvus)](https://github.com/dallay/corvus/pulls)
+[![Pull Requests](https://img.shields.io/github/issues-pr/dallay/corvus)](https://github.com/dallay/corvus/pulls)
 [![Repo Size](https://img.shields.io/github/repo-size/dallay/corvus)](https://github.com/dallay/corvus)
 [![Last Commit](https://img.shields.io/github/last-commit/dallay/corvus)](https://github.com/dallay/corvus/commits/main)
 
-### 🚀 Project Status
+## 🚀 Project Status
 
 [![Build Status](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml/badge.svg)](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml)
 [![License](https://img.shields.io/github/license/dallay/corvus?color=blue)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.14-blue.svg)](gradle.properties)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://makeapullrequest.com)
 
-### 🛡️ Code Quality (SonarCloud)
+## 🛡️ Code Quality (SonarCloud)
 
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=bugs)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
@@ -30,7 +30,7 @@
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=coverage)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 
-### 🛠️ Tech Stack
+## 🛠️ Tech Stack
 
 ![Kotlin](https://img.shields.io/badge/kotlin-%237F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white)
 ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
