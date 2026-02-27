@@ -1,20 +1,50 @@
 # 🐦‍⬛ Corvus
 
 ![corvus-ai.png](assets/corvus.png)
+
 **A reactive, always-on agent platform for long-running orchestration workloads.**
 
+<div align="center">
+
+### 📊 Repository Stats
+[![Stars](https://img.shields.io/github/stars/dallay/corvus?style=social)](https://github.com/dallay/corvus/stargazers)
+[![Forks](https://img.shields.io/github/forks/dallay/corvus?style=social)](https://github.com/dallay/corvus/network/members)
+[![Issues](https://img.shields.io/github/issues/dallay/corvus)](https://github.com/dallay/corvus/issues)
+[![Pull Requests](https://img.shields.io/github/github/pull-requests/dallay/corvus)](https://github.com/dallay/corvus/pulls)
+[![Repo Size](https://img.shields.io/github/repo-size/dallay/corvus)](https://github.com/dallay/corvus)
+[![Last Commit](https://img.shields.io/github/last-commit/dallay/corvus)](https://github.com/dallay/corvus/commits/main)
+
+### 🚀 Project Status
+[![Build Status](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml/badge.svg)](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml)
+[![License](https://img.shields.io/github/license/dallay/corvus?color=blue)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.14-blue.svg)](gradle.properties)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://makeapullrequest.com)
+
+### 🛡️ Code Quality (SonarCloud)
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=bugs)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=coverage)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
-[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
-[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
-[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
-[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
-[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
-[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 
+### 🛠️ Tech Stack
+![Kotlin](https://img.shields.io/badge/kotlin-%237F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white)
+![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
+![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)
+![Vue.js](https://img.shields.io/badge/vuejs-%2335495e.svg?style=for-the-badge&logo=vuedotjs&logoColor=%234FC08D)
+![Astro](https://img.shields.io/badge/astro-%23ff5d01.svg?style=for-the-badge&logo=astro&logoColor=white)
+![TailwindCSS](https://img.shields.io/badge/tailwindcss-%2338B2AC.svg?style=for-the-badge&logo=tailwind-css&logoColor=white)
+![Android](https://img.shields.io/badge/Android-3DDC84?style=for-the-badge&logo=android&logoColor=white)
+![iOS](https://img.shields.io/badge/iOS-000000?style=for-the-badge&logo=ios&logoColor=white)
+![Node.js](https://img.shields.io/badge/node.js-6DA55F?style=for-the-badge&logo=node.js&logoColor=white)
+![pnpm](https://img.shields.io/badge/pnpm-%234a4a4a.svg?style=for-the-badge&logo=pnpm&logoColor=f69220)
+![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white)
+![Gradle](https://img.shields.io/badge/Gradle-02303A.svg?style=for-the-badge&logo=Gradle&logoColor=white)
+![SQLite](https://img.shields.io/badge/sqlite-%2307405e.svg?style=for-the-badge&logo=sqlite&logoColor=white)
+
+</div>
+
+---
 Corvus is a highly extensible, multi-interface agentic platform designed to bridge the gap between AI autonomy and human supervision. Built with a robust Kotlin Multiplatform foundation and powered by a high-performance Rust runtime, Corvus provides a secure, sandboxed environment for AI agents to perform complex, multi-step tasks.
 
 ---
