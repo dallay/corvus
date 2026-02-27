@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "corvus"
-version = "0.1.13"
+version = "0.1.14"
 edition = "2021"
 authors = ["theonlyhennygod"]
 license = "Apache-2.0"
@@ -32,7 +32,7 @@ serde_json = { version = "1.0", default-features = false, features = ["std"] }
 # Config
 directories = "6.0"
 toml = "1.0"
-shellexpand = "3.1"
+shellexpand = "3.1.2"
 
 # Logging - minimal
 tracing = { version = "0.1", default-features = false }
@@ -48,7 +48,7 @@ base64 = "0.22"
 zeroize = "1.8"
 
 # URL encoding for web search
-urlencoding = "2.1"
+urlencoding = "2.1.3"
 
 # Optional Rust-native browser automation backend
 fantoccini = { version = "0.22.0", optional = true, default-features = false, features = ["rustls-tls"] }
@@ -58,7 +58,7 @@ anyhow = "1.0"
 thiserror = "2.0"
 
 # UUID generation
-uuid = { version = "1.11", default-features = false, features = ["v4", "std"] }
+uuid = { version = "1.21.0", default-features = false, features = ["v4", "std"] }
 
 # Authenticated encryption (AEAD) for secret store
 chacha20poly1305 = "0.10"
@@ -80,7 +80,7 @@ parking_lot = "0.12"
 # Async traits
 async-trait = "0.1"
 
-# WASM execution for plugin-backed memory backends
+# WASM execution support for runtime sandboxing
 wasmi = { version = "0.40", optional = true, default-features = false, features = ["std"] }
 
 # HMAC-SHA256 (Zhipu/GLM JWT auth)
@@ -107,7 +107,7 @@ glob = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 futures = "0.3"
-regex = "1.10"
+regex = "1.12.3"
 const-oid = "0.9"
 x509-cert = { version = "0.2", default-features = false, features = ["pem", "std"] }
 sigstore = { version = "0.13", default-features = false, features = ["bundle", "sigstore-trust-root", "rustls-tls"] }
@@ -135,7 +135,7 @@ opentelemetry-otlp = { version = "0.31", default-features = false, features = ["
 nusb = { version = "0.2", default-features = false, optional = true }
 
 # Serial port for peripheral communication (STM32, etc.)
-tokio-serial = { version = "5", default-features = false, optional = true }
+tokio-serial = { version = "5.4.5", default-features = false, optional = true }
 
 # probe-rs for STM32/Nucleo memory read (Phase B)
 probe-rs = { version = "0.30", optional = true }
@@ -175,8 +175,6 @@ probe = ["dep:probe-rs"]
 rag-pdf = ["dep:pdf-extract"]
 # memory-surreal = SurrealDB-backed memory backend
 memory-surreal = ["dep:surrealdb"]
-# memory-plugin = WASM-backed memory plugin runtime
-memory-plugin = ["dep:wasmi"]
 [profile.release]
 opt-level = "z"      # Optimize for size
 lto = "thin"         # Lower memory use during release builds
@@ -207,6 +205,3 @@ rcgen = "0.13"
 [[bench]]
 name = "agent_benchmarks"
 harness = false
-
-[patch.crates-io]
-jsonwebtoken = { git = "https://github.com/Keats/jsonwebtoken", tag = "v10.3.0" }
