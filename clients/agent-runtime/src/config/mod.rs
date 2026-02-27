@@ -7,11 +7,10 @@ pub use schema::{
     DelegateAgentConfig, DiscordConfig, DockerRuntimeConfig, GatewayConfig, HardwareConfig,
     HardwareTransport, HeartbeatConfig, HttpRequestConfig, IMessageConfig, IdentityConfig,
     LarkConfig, MatrixConfig, MemoryConfig, ModelRouteConfig, ObservabilityConfig,
-    PeripheralBoardConfig, PeripheralsConfig, PluginRevocationConfig, PluginSourceConfig,
-    PluginsConfig, QueryClassificationConfig, ReliabilityConfig, ResourceLimitsConfig,
-    RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig, SecretsConfig, SecurityConfig,
-    SlackConfig, StreamMode, SurrealMemoryConfig, TelegramConfig, TunnelConfig, WebSearchConfig,
-    WebhookConfig,
+    PeripheralBoardConfig, PeripheralsConfig, QueryClassificationConfig, ReliabilityConfig,
+    ResourceLimitsConfig, RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig,
+    SecretsConfig, SecurityConfig, SlackConfig, StreamMode, SurrealMemoryConfig, TelegramConfig,
+    TunnelConfig, WebSearchConfig, WebhookConfig,
 };
 
 #[cfg(test)]
@@ -58,27 +57,6 @@ mod tests {
         assert_eq!(telegram.allowed_users.len(), 1);
         assert_eq!(discord.guild_id.as_deref(), Some("123"));
         assert_eq!(lark.app_id, "app-id");
-    }
-
-    #[test]
-    fn reexported_plugin_configs_are_accessible() {
-        let source = PluginSourceConfig {
-            name: "official".to_string(),
-            url: "https://example.com/catalog.json".to_string(),
-            plugin_identity_regex: None,
-            sigstore_oidc_issuer: "https://token.actions.githubusercontent.com".to_string(),
-        };
-        assert_eq!(source.name, "official");
-        assert!(source.url.starts_with("https://"));
-
-        let revocation = PluginRevocationConfig {
-            refresh_interval_minutes: 60,
-            enabled: true,
-            enforced: true,
-            source_urls: vec!["https://example.com/revocations.json".to_string()],
-        };
-        assert!(revocation.enabled);
-        assert!(revocation.enforced);
     }
 
     #[test]
