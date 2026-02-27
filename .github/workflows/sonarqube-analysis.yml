@@ -29,6 +29,8 @@ jobs:
   sonar:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
     steps:
       - name: ✈ Checkout repository
@@ -37,47 +39,47 @@ jobs:
           fetch-depth: 0
 
       - name: ℹ️ SONAR_TOKEN missing
-        if: secrets.SONAR_TOKEN == ''
+        if: env.SONAR_TOKEN == ''
         run: echo "SONAR_TOKEN is not configured. Skipping SonarQube scan and quality gate."
 
       - name: ☕ Setup Java
-        if: secrets.SONAR_TOKEN != ''
+        if: env.SONAR_TOKEN != ''
         uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
         with:
           java-version: "25"
           distribution: "corretto"
 
       - name: 📦 Setup Node
-        if: secrets.SONAR_TOKEN != ''
+        if: env.SONAR_TOKEN != ''
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: "24"
 
       - name: 🐘 Setup Gradle
-        if: secrets.SONAR_TOKEN != ''
+        if: env.SONAR_TOKEN != ''
         uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
         with:
           gradle-version: wrapper
 
       - name: 🔧 Make Gradle wrapper executable
-        if: secrets.SONAR_TOKEN != ''
+        if: env.SONAR_TOKEN != ''
         run: chmod +x ./gradlew
 
       - name: 🧪 Build and generate coverage
-        if: secrets.SONAR_TOKEN != ''
+        if: env.SONAR_TOKEN != ''
         run: ./gradlew testCodeCoverageReport
 
       - name: 🧮 Compute Sonar project key
-        if: secrets.SONAR_TOKEN != ''
+        if: env.SONAR_TOKEN != ''
         id: sonar_meta
         shell: bash
         run: echo "key=${GITHUB_REPOSITORY//\//_}" >> "$GITHUB_OUTPUT"
 
       - name: 🔍 SonarQube scan
-        if: secrets.SONAR_TOKEN != ''
+        if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
         with:
           args: >-
             -Dsonar.organization=${{ env.SONAR_ORGANIZATION }}
@@ -89,7 +91,7 @@ jobs:
 
       - name: 🚦 SonarQube Quality Gate
         if: >-
-          secrets.SONAR_TOKEN != '' &&
+          env.SONAR_TOKEN != '' &&
           (
             github.event_name == 'pull_request' ||
             (github.event_name == 'push' && github.ref == 'refs/heads/main')
@@ -97,6 +99,6 @@ jobs:
         uses: SonarSource/sonarqube-quality-gate-action@d304d050d930b02a896b0f85935344f023928496 # v1
         timeout-minutes: 5
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
         with:
           pollingTimeoutSec: 300
