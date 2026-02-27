@@ -1,4 +1,6 @@
-# Agent Runtime Architecture
+---
+title: Agent Runtime Architecture
+---
 
 ## Overview
 
