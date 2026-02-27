@@ -12,7 +12,6 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 | **Security**    | `codeql-analysis.yml`                | Security scanning with CodeQL               | Push to main/minor, daily schedule      |
 | **Publishing**  | `publish-release.yml`                | Publish release (Maven, Cargo, npm, Docker) | Tag push `v*.*.*`                       |
 | **Publishing**  | `publish-snapshot.yml`               | Publish snapshot versions                   | Manual, daily schedule                  |
-| **Publishing**  | `publish-plugins.yml`                | Build/sign/deploy runtime plugins catalog   | Plugin tag push, manual dispatch        |
 | **Publishing**  | `_publish.yml`                       | Reusable publish workflow                   | Called by other workflows               |
 | **Automation**  | `auto-fix-lockfile.yml`              | Auto-update lockfiles                       | Daily schedule, manual                  |
 | **Automation**  | `fix-renovate.yml`                   | Fix lockfiles for Renovate PRs              | Comment `/fix-lock` on PR               |
@@ -187,42 +186,6 @@ Calls the reusable `_publish.yml` workflow with:
 **Restrictions**:
 
 - Only runs on `dallay/corvus` repository
-
----
-
-### `publish-plugins.yml` - Plugin Artifact Publishing
-
-**Purpose**: Builds, signs, verifies, and deploys runtime plugin artifacts and catalog metadata.
-
-**Triggers**:
-
-- Push tag matching `plugin/<plugin-id>/v<semver>`
-- Manual trigger (`workflow_dispatch`)
-
-**What it does**:
-
-1. Resolves target plugin from `package.metadata.corvus.plugin_id`
-2. Builds WASM artifact (`wasm32-wasip1`)
-3. Generates immutable artifact paths under `artifacts/<plugin-id>/<version>/`
-4. Upserts plugin entry into `catalog.json` and preserves existing entries
-5. Signs artifact with cosign keyless OIDC identity
-6. Verifies signature in CI (OIDC issuer: `https://token.actions.githubusercontent.com`)
-7. Uploads immutable artifacts + mutable metadata to Cloudflare R2 (atomic order)
-8. Verifies uploaded catalog integrity and public Worker endpoints
-9. Optionally builds/deploys legacy plugins catalog site to Cloudflare Pages
-
-Runtime note: plugin verification for users runs natively in `corvus` (Sigstore in runtime);
-local `cosign` is not required on end-user machines.
-
-**Required secrets/vars for R2 publishing**:
-
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_R2_BUCKET_NAME` (repository variable recommended)
-
-**Optional legacy Pages deployment**:
-
-- `CLOUDFLARE_PAGES_PROJECT_NAME` (used only when `deploy_cloudflare_pages=true`)
 
 ---
 

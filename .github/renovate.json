@@ -18,9 +18,9 @@
     "every weekend"
   ],
   "automergeSchedule": ["before 4am on the first day of the month"],
-  "prConcurrentLimit": 10,
+  "prConcurrentLimit": 5,
   "prHourlyLimit": 5,
-  "branchConcurrentLimit": 10,
+  "branchConcurrentLimit": 5,
   "prCreation": "immediate",
   "platformAutomerge": true,
   "rebaseWhen": "auto",
@@ -89,52 +89,16 @@
       "prPriority": 2
     },
     {
-      "description": "Rust ecosystem - Core grouping",
+      "description": "Rust ecosystem - batch updates",
       "matchManagers": ["cargo"],
-      "groupName": "Rust core dependencies",
-      "matchPackageNames": [
-        "tokio",
-        "tokio-util",
-        "tokio-tungstenite",
-        "serde",
-        "serde_json",
-        "reqwest",
-        "tracing",
-        "tracing-subscriber",
-        "anyhow",
-        "thiserror",
-        "axum",
-        "tower",
-        "tower-http"
-      ],
+      "groupName": "Rust dependencies",
       "semanticCommitType": "chore",
       "minimumReleaseAge": "3 days"
     },
     {
-      "description": "Web ecosystem - Development Tools",
+      "description": "Web ecosystem - batch updates",
       "matchManagers": ["npm"],
-      "groupName": "Web dev tools",
-      "matchPackageNames": [
-        "vue",
-        "vite",
-        "typescript",
-        "vitest",
-        "tailwindcss",
-        "postcss",
-        "@biomejs/biome",
-        "vue-tsc",
-        "happy-dom",
-        "@vue/**",
-        "@vitejs/**",
-        "@tailwindcss/**"
-      ],
-      "semanticCommitType": "chore",
-      "minimumReleaseAge": "2 days"
-    },
-    {
-      "description": "Astro ecosystem",
-      "groupName": "Astro ecosystem",
-      "matchPackageNames": ["astro", "@astrojs/**", "sharp", "astro-vtbot"],
+      "groupName": "Web dependencies",
       "semanticCommitType": "chore",
       "minimumReleaseAge": "2 days"
     },
@@ -164,24 +128,27 @@
       "prPriority": 3
     },
     {
-      "description": "Gradle tooling & plugins",
+      "description": "Gradle tooling & plugins - batch updates",
       "matchManagers": ["gradle"],
-      "matchPackageNames": [
-        "org.gradlex:{/,}**",
-        "com.diffplug.spotless",
-        "dev.detekt",
-        "com.gradle.develocity",
-        "com.gradleup.shadow",
-        "com.vanniktech.maven.publish",
-        "com.autonomousapps.dependency-analysis",
-        "com.google.devtools.ksp",
-        "com.google.cloud.tools.jib"
-      ],
       "groupName": "Gradle build tooling",
+      "excludePackageNames": [
+        "org.jetbrains.compose:{/,}**",
+        "androidx.compose:{/,}**",
+        "androidx.activity:{/,}**",
+        "androidx.lifecycle:{/,}**",
+        "org.jetbrains.androidx.lifecycle:{/,}**",
+        "org.jetbrains.compose.components:{/,}**",
+        "org.jetbrains.compose.foundation:{/,}**",
+        "org.jetbrains.compose.material3:{/,}**",
+        "org.jetbrains.compose.runtime:{/,}**",
+        "org.jetbrains.compose.ui:{/,}**",
+        "org.springframework.boot:{/,}**",
+        "org.springframework:{/,}**"
+      ],
       "minimumReleaseAge": "3 days"
     },
     {
-      "description": "GitHub Actions - monthly batch",
+      "description": "GitHub Actions - batch updates",
       "matchManagers": ["github-actions"],
       "groupName": "GitHub Actions",
       "schedule": ["before 5am on the first day of the month"],
@@ -206,14 +173,6 @@
       "automerge": false,
       "prPriority": -1,
       "addLabels": ["major-update"]
-    },
-    {
-      "description": "GitHub Actions major - extended delay",
-      "matchManagers": ["github-actions"],
-      "matchUpdateTypes": ["major"],
-      "automerge": false,
-      "minimumReleaseAge": "7 days",
-      "addLabels": ["major-update", "github-actions"]
     },
     {
       "description": "0.x versions - treat as major",

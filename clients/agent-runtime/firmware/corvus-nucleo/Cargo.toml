@@ -19,7 +19,7 @@ embassy-executor = { version = "0.9", features = ["arch-cortex-m", "executor-thr
 embassy-stm32 = { version = "0.5", features = ["defmt", "stm32f401re", "unstable-pac", "memory-x", "time-driver-tim4", "exti"] }
 embassy-time = { version = "0.5", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
 defmt = "1.0"
-defmt-rtt = "1.0"
+defmt-rtt = "1.1.0"
 panic-probe = { version = "1.0", features = ["print-defmt"] }
 heapless = { version = "0.9", default-features = false }
 critical-section = "1.1"

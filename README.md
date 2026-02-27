@@ -3,6 +3,18 @@
 ![corvus-ai.png](assets/corvus.png)
 **A reactive, always-on agent platform for long-running orchestration workloads.**
 
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Bugs](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=bugs)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=coverage)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Duplicated Lines (%)](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=duplicated_lines_density)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Lines of Code](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=ncloc)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Reliability Rating](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=reliability_rating)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Security Rating](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=security_rating)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Technical Debt](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=sqale_index)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Maintainability Rating](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=sqale_rating)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+[![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
+
 Corvus is a highly extensible, multi-interface agentic platform designed to bridge the gap between AI autonomy and human supervision. Built with a robust Kotlin Multiplatform foundation and powered by a high-performance Rust runtime, Corvus provides a secure, sandboxed environment for AI agents to perform complex, multi-step tasks.
 
 ---

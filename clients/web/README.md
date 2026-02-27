@@ -1,6 +1,6 @@
 # Corvus Web Monorepo
 
-Monorepo for Corvus web apps, including docs, marketing, plugins catalog, chat, and dashboard.
+Monorepo for Corvus web apps, including docs, marketing, chat, and dashboard.
 
 ## Structure
 
@@ -9,8 +9,6 @@ clients/web/
 ├── apps/
 │   ├── docs/           # Documentation (Astro + Starlight)
 │   ├── marketing/      # Marketing landing and campaign pages (Astro)
-│   ├── plugins/        # Plugin catalog and revocations (Astro)
-│   ├── plugins-edge/   # Plugin distribution API (Cloudflare Worker + R2)
 │   ├── chat/           # ChatGPT-style conversational chat (Vue 3 + Vite)
 │   └── dashboard/      # Secure gateway dashboard (Vue 3 + Vite)
 ├── packages/
@@ -32,18 +30,6 @@ clients/web/
 - Framework: Astro
 - URL configurable with `MARKETING_URL` (dev default: `http://localhost:9988`)
 - Includes public install script at `/install`
-
-### plugins
-
-- Framework: Astro
-- URL configurable with `PLUGINS_URL` (dev default: `http://localhost:9990`)
-- Publishes official plugin metadata at `/catalog.json` and `/revocations.json`
-
-### plugins-edge
-
-- Runtime metadata/artifact API served from Cloudflare Worker + R2
-- Intended production source for `/catalog.json`, `/revocations.json`, and `/artifacts/*`
-- Default local port: 9797
 
 ### chat
 
@@ -78,8 +64,6 @@ pnpm build
 # Build individual apps
 pnpm build:docs
 pnpm build:marketing
-pnpm build:plugins
-pnpm build:plugins-edge
 pnpm build:chat
 pnpm build:dashboard
 
@@ -89,8 +73,6 @@ pnpm build:landing
 # Development
 pnpm dev
 pnpm dev:marketing
-pnpm dev:plugins
-pnpm dev:plugins-edge
 pnpm dev:chat
 pnpm dev:dashboard
 
@@ -104,8 +86,6 @@ pnpm test
 pnpm test:chat
 pnpm test:dashboard
 
-# Deploy plugins edge worker
-pnpm deploy:plugins-edge
 ```
 
 ## Biome (Linter & Formatter)
