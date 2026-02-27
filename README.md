@@ -4,7 +4,6 @@
 **A reactive, always-on agent platform for long-running orchestration workloads.**
 
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
-[![Quality gate](https://sonarcloud.io/api/project_badges/quality_gate?project=dallay_corvus)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=bugs)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=coverage)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
