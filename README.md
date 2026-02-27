@@ -7,6 +7,7 @@
 <div align="center">
 
 ### 📊 Repository Stats
+
 [![Stars](https://img.shields.io/github/stars/dallay/corvus?style=social)](https://github.com/dallay/corvus/stargazers)
 [![Forks](https://img.shields.io/github/forks/dallay/corvus?style=social)](https://github.com/dallay/corvus/network/members)
 [![Issues](https://img.shields.io/github/issues/dallay/corvus)](https://github.com/dallay/corvus/issues)
@@ -15,12 +16,14 @@
 [![Last Commit](https://img.shields.io/github/last-commit/dallay/corvus)](https://github.com/dallay/corvus/commits/main)
 
 ### 🚀 Project Status
+
 [![Build Status](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml/badge.svg)](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml)
 [![License](https://img.shields.io/github/license/dallay/corvus?color=blue)](LICENSE)
 [![Version](https://img.shields.io/badge/version-0.1.14-blue.svg)](gradle.properties)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://makeapullrequest.com)
 
 ### 🛡️ Code Quality (SonarCloud)
+
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Bugs](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=bugs)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 [![Code Smells](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=code_smells)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
@@ -28,6 +31,7 @@
 [![Vulnerabilities](https://sonarcloud.io/api/project_badges/measure?project=dallay_corvus&metric=vulnerabilities)](https://sonarcloud.io/summary/new_code?id=dallay_corvus)
 
 ### 🛠️ Tech Stack
+
 ![Kotlin](https://img.shields.io/badge/kotlin-%237F52FF.svg?style=for-the-badge&logo=kotlin&logoColor=white)
 ![Rust](https://img.shields.io/badge/rust-%23000000.svg?style=for-the-badge&logo=rust&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/typescript-%23007ACC.svg?style=for-the-badge&logo=typescript&logoColor=white)
@@ -45,6 +49,7 @@
 </div>
 
 ---
+
 Corvus is a highly extensible, multi-interface agentic platform designed to bridge the gap between AI autonomy and human supervision. Built with a robust Kotlin Multiplatform foundation and powered by a high-performance Rust runtime, Corvus provides a secure, sandboxed environment for AI agents to perform complex, multi-step tasks.
 
 ---
