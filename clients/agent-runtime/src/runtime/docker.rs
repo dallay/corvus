@@ -127,11 +127,12 @@ impl RuntimeAdapter for DockerRuntime {
                 .arg("/workspace");
         }
 
-        process
-            .arg(self.config.image.trim())
-            .arg("sh")
-            .arg("-c")
-            .arg(command);
+        let image = self.config.image.trim();
+        if image.is_empty() {
+            anyhow::bail!("Docker runtime requires a non-empty image name");
+        }
+
+        process.arg(image).arg("sh").arg("-c").arg(command);
 
         Ok(process)
     }
@@ -290,18 +291,15 @@ mod tests {
     }
 
     #[test]
-    fn docker_build_shell_command_fails_with_empty_image() {
+    fn docker_build_shell_command_errors_on_empty_image() {
         let cfg = DockerRuntimeConfig {
-            image: "".into(),
+            image: "  ".into(), // Test whitespace too
             ..DockerRuntimeConfig::default()
         };
         let runtime = DockerRuntime::new(cfg);
         let workspace = std::env::temp_dir();
-        let cmd = runtime.build_shell_command("echo test", &workspace).unwrap();
-        let debug = format!("{cmd:?}");
-        // Even if build_shell_command succeeds in returning a Command,
-        // it might be invalid. Let's see how it handles empty image.
-        // In the current implementation, it just adds the empty string as an argument.
-        assert!(debug.contains("\"\""));
+        let result = runtime.build_shell_command("echo test", &workspace);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("image"));
     }
 }
