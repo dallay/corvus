@@ -1,12 +1,15 @@
 use super::traits::{Tool, ToolResult};
+use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::json;
+use std::sync::Arc;
 use std::time::Duration;
 
 /// Web search tool for searching the internet.
 /// Supports multiple providers: DuckDuckGo (free), Brave (requires API key).
 pub struct WebSearchTool {
+    security: Arc<SecurityPolicy>,
     provider: String,
     brave_api_key: Option<String>,
     max_results: usize,
@@ -15,12 +18,14 @@ pub struct WebSearchTool {
 
 impl WebSearchTool {
     pub fn new(
+        security: Arc<SecurityPolicy>,
         provider: String,
         brave_api_key: Option<String>,
         max_results: usize,
         timeout_secs: u64,
     ) -> Self {
         Self {
+            security,
             provider: provider.trim().to_lowercase(),
             brave_api_key,
             max_results: max_results.clamp(1, 10),
@@ -214,6 +219,22 @@ impl Tool for WebSearchTool {
             anyhow::bail!("Search query cannot be empty");
         }
 
+        if !self.security.can_act() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Action blocked: autonomy is read-only".into()),
+            });
+        }
+
+        if !self.security.record_action() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Action blocked: rate limit exceeded".into()),
+            });
+        }
+
         tracing::info!("Searching web for: {}", query);
 
         let result = match self.provider.as_str() {
@@ -233,22 +254,30 @@ impl Tool for WebSearchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::{AutonomyLevel, SecurityPolicy};
+
+    fn test_security() -> Arc<SecurityPolicy> {
+        Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            ..SecurityPolicy::default()
+        })
+    }
 
     #[test]
     fn test_tool_name() {
-        let tool = WebSearchTool::new("duckduckgo".to_string(), None, 5, 15);
+        let tool = WebSearchTool::new(test_security(), "duckduckgo".to_string(), None, 5, 15);
         assert_eq!(tool.name(), "web_search_tool");
     }
 
     #[test]
     fn test_tool_description() {
-        let tool = WebSearchTool::new("duckduckgo".to_string(), None, 5, 15);
+        let tool = WebSearchTool::new(test_security(), "duckduckgo".to_string(), None, 5, 15);
         assert!(tool.description().contains("Search the web"));
     }
 
     #[test]
     fn test_parameters_schema() {
-        let tool = WebSearchTool::new("duckduckgo".to_string(), None, 5, 15);
+        let tool = WebSearchTool::new(test_security(), "duckduckgo".to_string(), None, 5, 15);
         let schema = tool.parameters_schema();
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["query"].is_object());
@@ -262,7 +291,7 @@ mod tests {
 
     #[test]
     fn test_parse_duckduckgo_results_empty() {
-        let tool = WebSearchTool::new("duckduckgo".to_string(), None, 5, 15);
+        let tool = WebSearchTool::new(test_security(), "duckduckgo".to_string(), None, 5, 15);
         let result = tool
             .parse_duckduckgo_results("<html>No results here</html>", "test")
             .unwrap();
@@ -271,7 +300,7 @@ mod tests {
 
     #[test]
     fn test_parse_duckduckgo_results_with_data() {
-        let tool = WebSearchTool::new("duckduckgo".to_string(), None, 5, 15);
+        let tool = WebSearchTool::new(test_security(), "duckduckgo".to_string(), None, 5, 15);
         let html = r#"
             <a class="result__a" href="https://example.com">Example Title</a>
             <a class="result__snippet">This is a description</a>
@@ -283,7 +312,7 @@ mod tests {
 
     #[test]
     fn test_parse_duckduckgo_results_decodes_redirect_url() {
-        let tool = WebSearchTool::new("duckduckgo".to_string(), None, 5, 15);
+        let tool = WebSearchTool::new(test_security(), "duckduckgo".to_string(), None, 5, 15);
         let html = r#"
             <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpath%3Fa%3D1&amp;rut=test">Example Title</a>
             <a class="result__snippet">This is a description</a>
@@ -295,7 +324,7 @@ mod tests {
 
     #[test]
     fn test_constructor_clamps_web_search_limits() {
-        let tool = WebSearchTool::new("duckduckgo".to_string(), None, 0, 0);
+        let tool = WebSearchTool::new(test_security(), "duckduckgo".to_string(), None, 0, 0);
         let html = r#"
             <a class="result__a" href="https://example.com">Example Title</a>
             <a class="result__snippet">This is a description</a>
@@ -306,23 +335,47 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_missing_query() {
-        let tool = WebSearchTool::new("duckduckgo".to_string(), None, 5, 15);
+        let tool = WebSearchTool::new(test_security(), "duckduckgo".to_string(), None, 5, 15);
         let result = tool.execute(json!({})).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_execute_empty_query() {
-        let tool = WebSearchTool::new("duckduckgo".to_string(), None, 5, 15);
+        let tool = WebSearchTool::new(test_security(), "duckduckgo".to_string(), None, 5, 15);
         let result = tool.execute(json!({"query": ""})).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_execute_brave_without_api_key() {
-        let tool = WebSearchTool::new("brave".to_string(), None, 5, 15);
+        let tool = WebSearchTool::new(test_security(), "brave".to_string(), None, 5, 15);
         let result = tool.execute(json!({"query": "test"})).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("API key"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_blocks_when_rate_limited() {
+        let security = Arc::new(SecurityPolicy {
+            max_actions_per_hour: 0,
+            ..SecurityPolicy::default()
+        });
+        let tool = WebSearchTool::new(security, "duckduckgo".to_string(), None, 5, 15);
+        let result = tool.execute(json!({"query": "test"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("rate limit"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_blocks_readonly_mode() {
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::ReadOnly,
+            ..SecurityPolicy::default()
+        });
+        let tool = WebSearchTool::new(security, "duckduckgo".to_string(), None, 5, 15);
+        let result = tool.execute(json!({"query": "test"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("read-only"));
     }
 }
