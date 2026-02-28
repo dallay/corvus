@@ -8,6 +8,7 @@ The Corvus CLI (`corvus`) is the primary interface for managing your agents, har
 ## Core Commands
 
 ### `onboard`
+
 Initialize your workspace and configuration.
 
 - `--interactive`: Run the full interactive wizard (default is quick setup).
@@ -17,11 +18,13 @@ Initialize your workspace and configuration.
 - `--memory <TYPE>`: Memory backend (sqlite, lucid, surreal-graphs, surreal, markdown, none).
 
 **Example:**
+
 ```bash
 corvus onboard --interactive
 ```
 
 ### `agent`
+
 Start the AI agent loop.
 
 - `-m, --message <TEXT>`: Single message mode.
@@ -31,28 +34,33 @@ Start the AI agent loop.
 - `--peripheral <BOARD:PATH>`: Attach a peripheral (e.g., `nucleo-f401re:/dev/ttyACM0`).
 
 **Example:**
+
 ```bash
 corvus agent -m "Hello, how can you help me today?"
 ```
 
 ### `daemon`
+
 Start the long-running autonomous runtime (gateway + channels + heartbeat + scheduler).
 
 - `-p, --port <PORT>`: Port to listen on.
 - `--host <HOST>`: Host to bind to.
 
 **Example:**
+
 ```bash
 corvus daemon --port 3000
 ```
 
 ### `gateway`
+
 Start only the gateway server (webhooks, websockets).
 
 - `-p, --port <PORT>`: Port to listen on.
 - `--host <HOST>`: Host to bind to.
 
 **Example:**
+
 ```bash
 corvus gateway --port 3001
 ```
@@ -62,22 +70,27 @@ corvus gateway --port 3001
 ## System & Service
 
 ### `status`
+
 Show full system status details.
 
 **Example:**
+
 ```bash
 corvus status
 ```
 
 ### `doctor`
+
 Run diagnostics for daemon, scheduler, and channel freshness.
 
 **Example:**
+
 ```bash
 corvus doctor
 ```
 
 ### `service`
+
 Manage the OS service lifecycle (systemd/launchd).
 
 - `install`: Install the daemon service.
@@ -89,6 +102,7 @@ Manage the OS service lifecycle (systemd/launchd).
 - `uninstall`: Remove the service unit.
 
 **Example:**
+
 ```bash
 corvus service install --linger on
 ```
@@ -98,6 +112,7 @@ corvus service install --linger on
 ## Task Management
 
 ### `cron`
+
 Configure and manage scheduled tasks.
 
 - `list`: List all scheduled tasks.
@@ -110,6 +125,7 @@ Configure and manage scheduled tasks.
 - `resume <ID>`: Resume a task.
 
 **Example:**
+
 ```bash
 corvus cron add "0 9 * * *" "corvus agent -m 'Daily update'"
 ```
@@ -119,14 +135,17 @@ corvus cron add "0 9 * * *" "corvus agent -m 'Daily update'"
 ## Providers & Auth
 
 ### `providers`
+
 List all supported AI providers.
 
 **Example:**
+
 ```bash
 corvus providers
 ```
 
 ### `auth`
+
 Manage provider authentication profiles.
 
 - `login --provider <NAME>`: Login with OAuth (e.g., `openai-codex`).
@@ -149,17 +168,20 @@ Manage provider authentication profiles.
 - `logout --provider <NAME>`: Remove a profile.
 
 **Example:**
+
 ```bash
 corvus auth list
 ```
 
 ### `models`
+
 Manage provider model catalogs.
 
 - `refresh`: Refresh and cache provider models.
   - `--force`: Force live refresh.
 
 **Example:**
+
 ```bash
 corvus models refresh --provider anthropic
 ```
@@ -169,6 +191,7 @@ corvus models refresh --provider anthropic
 ## Capabilities & Integrations
 
 ### `skills`
+
 Manage user-defined capabilities.
 
 - `list`: List installed skills.
@@ -176,16 +199,19 @@ Manage user-defined capabilities.
 - `remove <NAME>`: Remove a skill.
 
 **Example:**
+
 ```bash
 corvus skills install https://github.com/user/my-skill
 ```
 
 ### `integrations`
+
 Browse available integrations.
 
 - `info <NAME>`: Show details about a specific integration.
 
 **Example:**
+
 ```bash
 corvus integrations info telegram
 ```
@@ -195,6 +221,7 @@ corvus integrations info telegram
 ## Communication
 
 ### `channel`
+
 Manage communication channels (Telegram, Discord, Slack).
 
 - `list`: List configured channels.
@@ -205,6 +232,7 @@ Manage communication channels (Telegram, Discord, Slack).
 - `bind-telegram <IDENTITY>`: Bind a Telegram user to the allowlist.
 
 **Example:**
+
 ```bash
 corvus channel list
 ```
@@ -214,6 +242,7 @@ corvus channel list
 ## Hardware & Peripherals
 
 ### `hardware`
+
 Discover and introspect USB hardware.
 
 - `discover`: Enumerate USB devices and show known boards.
@@ -221,11 +250,13 @@ Discover and introspect USB hardware.
 - `info`: Get chip info via USB (probe-rs).
 
 **Example:**
+
 ```bash
 corvus hardware discover
 ```
 
 ### `peripheral`
+
 Manage hardware peripherals (STM32, RPi, etc.).
 
 - `list`: List configured peripherals.
@@ -234,6 +265,7 @@ Manage hardware peripherals (STM32, RPi, etc.).
 - `flash`: Flash Corvus firmware to Arduino.
 
 **Example:**
+
 ```bash
 corvus peripheral add nucleo-f401re /dev/ttyACM0
 ```
@@ -243,11 +275,13 @@ corvus peripheral add nucleo-f401re /dev/ttyACM0
 ## Utilities
 
 ### `migrate`
+
 Migrate data from other agent runtimes.
 
 - `openclaw`: Import memory from an OpenClaw workspace.
 
 **Example:**
+
 ```bash
 corvus migrate openclaw --source ~/.openclaw/workspace
 ```

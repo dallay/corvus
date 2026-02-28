@@ -9,32 +9,36 @@ SurrealDB documentation and standard containerization practices.
 
 SurrealDB supports several storage engines, each with different characteristics:
 
-| Engine | Docker Command | Persistence | Use Cases |
-|--------|----------------|-------------|-----------|
-| **In-Memory** (`mem://`) | Not specified | ❌ No | Tests, cache, temporary data |
-| **RocksDB** (`rocksdb://`) | `rocksdb:/surreal/db` | ✅ Yes | Development, single-node production |
-| **SurrealKV** (`surrealkv://`) | `surrealkv:/surreal/db` | ✅ Yes | Production (modern RocksDB replacement) |
-| **TiKV** | Cluster config | ✅ Yes | High availability, distributed clustering |
+| Engine                         | Docker Command          | Persistence | Use Cases                                 |
+|--------------------------------|-------------------------|-------------|-------------------------------------------|
+| **In-Memory** (`mem://`)       | Not specified           | ❌ No        | Tests, cache, temporary data              |
+| **RocksDB** (`rocksdb://`)     | `rocksdb:/surreal/db`   | ✅ Yes       | Development, single-node production       |
+| **SurrealKV** (`surrealkv://`) | `surrealkv:/surreal/db` | ✅ Yes       | Production (modern RocksDB replacement)   |
+| **TiKV**                       | Cluster config          | ✅ Yes       | High availability, distributed clustering |
 
 ### Details of Each Type
 
 #### In-Memory (`mem://`)
+
 - Stores all data in RAM
 - **Fastest possible** performance
 - Data is **lost** when connection closes
 - Ideal for: unit tests, cache, rapid development
 
 #### RocksDB (`rocksdb://`)
+
 - Key-value based storage engine
 - Persistent on disk
 - Suitable for development and single-node production
 
 #### SurrealKV (`surrealkv://`)
+
 - **Recommended** engine by SurrealDB for production
 - Modern RocksDB replacement
 - Better performance and efficiency
 
 #### TiKV (Clustering)
+
 - For distributed high-availability deployments
 - Requires more complex configuration (not included in simple Docker Compose)
 
@@ -42,7 +46,8 @@ SurrealDB supports several storage engines, each with different characteristics:
 
 ## 2) Graph Database (Native Feature)
 
-One of the most powerful features of SurrealDB is that **it supports graphs natively and implicitly**. No additional configuration needed - it's part of the database engine.
+One of the most powerful features of SurrealDB is that **it supports graphs natively and implicitly
+**. No additional configuration needed - it's part of the database engine.
 
 ### What Does This Mean?
 
@@ -91,24 +96,27 @@ SELECT ->follows->person FROM person:alice;
 
 SurrealDB has two ways to relate records:
 
-| Feature | Record Links | Graph Relations |
-|---------|-------------|-----------------|
-| **Direction** | Unidirectional | Bidirectional |
-| **Metadata** | ❌ No | ✅ Yes (you can store data in the relation) |
-| **Performance** | Faster | Flexible |
-| **Use Case** | Simple references | Complex relations with context |
+| Feature         | Record Links      | Graph Relations                            |
+|-----------------|-------------------|--------------------------------------------|
+| **Direction**   | Unidirectional    | Bidirectional                              |
+| **Metadata**    | ❌ No              | ✅ Yes (you can store data in the relation) |
+| **Performance** | Faster            | Flexible                                   |
+| **Use Case**    | Simple references | Complex relations with context             |
 
 **Use Record Links when:**
+
 - You only need to reference one record from another
 - Performance is critical
 - You don't need metadata in the relation
 
 **Use Graph Relations when:**
+
 - You need bidirectional relationships
 - You want to store information about the relation (e.g., "creation date", "weight")
 - You're going to do complex traversal queries
 
-> 📖 **More Info**: See [Graph Database in SurrealDB](https://surrealdb.com/docs) for advanced examples.
+> 📖 **More Info**: See [Graph Database in SurrealDB](https://surrealdb.com/docs) for advanced
+> examples.
 
 ---
 
@@ -133,7 +141,7 @@ version: "3.9"
 
 services:
   surrealdb:
-    image: surrealdb/surrealdb:2.6.2         # pin a specific version
+    image: surrealdb/surrealdb:v3.0.1         # pin a specific version
     container_name: surrealdb
     command: >
       start
@@ -141,7 +149,7 @@ services:
       --user ${SURREAL_USER}                # root/non-root user
       --pass ${SURREAL_PASS}                # secret password
       rocksdb:/surreal/db                    # RocksDB persistence on volume
-    env_file: 
+    env_file:
       - .env                                 # define sensitive variables
     ports:
       - "${SURREAL_PORT:-8000}:8000"         # expose only if needed
@@ -154,7 +162,7 @@ services:
         max-size: "50m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/ready"]
+      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8000/ready" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -170,7 +178,7 @@ version: "3.9"
 
 services:
   surrealdb:
-    image: surrealdb/surrealdb:2.6.2
+    image: surrealdb/surrealdb:v3.0.1
     container_name: surrealdb
     command: >
       start
@@ -188,7 +196,7 @@ version: "3.9"
 
 services:
   surrealdb:
-    image: surrealdb/surrealdb:2.6.2
+    image: surrealdb/surrealdb:v3.0.1
     container_name: surrealdb
     command: >
       start
@@ -237,7 +245,8 @@ The logging configuration limits size and rotation. Adjust based on observabilit
 
 ## 6) Security and Networking Considerations
 
-- In production, it is recommended to place SurrealDB **behind a reverse proxy** (NGINX/Traefik) with
+- In production, it is recommended to place SurrealDB **behind a reverse proxy** (NGINX/Traefik)
+  with
   **TLS termination**.
 - Use private Docker networks if running other services (e.g., backend) to avoid exposing the
   port publicly.
@@ -256,13 +265,15 @@ If you need to autoscale or have multiple nodes:
 
 ### Official Documentation
 
-- [Running SurrealDB with Docker](https://surrealdb.com/docs/surrealdb/installation/running/docker) - Official Docker installation guide
+- [Running SurrealDB with Docker](https://surrealdb.com/docs/surrealdb/installation/running/docker) -
+  Official Docker installation guide
 - [SurrealQL](https://surrealdb.com/docs/surrealql) - SurrealDB query language
 - [Graph Database in SurrealDB](https://surrealdb.com/docs) - Native graph features
 
 ### Repositories
 
-- [SurrealDB Docker GitHub](https://github.com/surrealdb/docker.surrealdb.com) - Official Docker configurations
+- [SurrealDB Docker GitHub](https://github.com/surrealdb/docker.surrealdb.com) - Official Docker
+  configurations
 - [SurrealDB GitHub](https://github.com/surrealdb/surrealdb) - Main repository
 
 ### Learning
