@@ -14,7 +14,7 @@ clear separation between clients and shared modules.
 │   ├── androidApp/             # Android host app
 │   ├── composeApp/             # Shared Compose Multiplatform module
 │   ├── iosApp/                 # iOS host app (Xcode project)
-│   └── web/                    # Web app and operator dashboard
+│   └── web/                    # Web monorepo (docs, dashboard, marketing)
 ├── modules/                    # Shared modules
 │   └── agent-core-kmp/         # Agent core in Kotlin Multiplatform
 ├── gradle/                     # Build configuration
@@ -24,7 +24,7 @@ clear separation between clients and shared modules.
 │   ├── versions/               # Version management
 │   ├── libs.versions.toml      # Version catalog
 │   └── wrapper/                # Gradle wrapper
-├── docs/                       # Documentation (Astro + Starlight)
+├── dev/                        # Local development environment (Docker/Sandbox)
 ├── Makefile                    # Standardized command interface
 └── settings.gradle.kts         # Global project configuration
 ```

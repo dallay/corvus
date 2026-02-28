@@ -6,8 +6,11 @@ Welcome to **Corvus**. This guide helps you run the customized project baseline 
 
 ## Prerequisites
 
-- **Java JDK 21** or higher.
+- **Java JDK 21** or higher (for Kotlin/KMP).
+- **Rust 1.75** or higher (for Agent Runtime).
+- **Node.js 22** or higher & **pnpm 10** or higher (for Web Apps).
 - **Git**.
+- **Docker** (optional, for Sandboxing).
 - A bash-compatible shell (Linux, macOS, or Git Bash on Windows).
 
 ## Installation
