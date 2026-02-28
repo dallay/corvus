@@ -116,13 +116,6 @@ export default defineConfig({
                 es: "Referencia de la CLI",
               },
             },
-            {
-              label: "Dashboard API",
-              slug: "guides/dashboard-api",
-              translations: {
-                es: "API del Dashboard",
-              },
-            },
           ],
         },
         {
