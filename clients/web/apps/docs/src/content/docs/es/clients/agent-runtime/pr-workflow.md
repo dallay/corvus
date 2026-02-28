@@ -1,4 +1,6 @@
-# Corvus PR Workflow (Colaboración de Alto Volumen)
+---
+title: Corvus PR Workflow (Colaboración de Alto Volumen)
+---
 
 Este documento define cómo Corvus maneja un alto volumen de PRs manteniendo:
 
