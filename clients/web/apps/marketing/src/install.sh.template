@@ -8,21 +8,7 @@ readonly LEGACY_REPO_SLUG="dallay/corvus"
 readonly DEFAULT_INSTALL_DIR_USER="$HOME/.local/bin"
 readonly DEFAULT_INSTALL_DIR_ROOT="/usr/local/bin"
 
-BANNER=$(cat << 'BANNER_EOF'
-    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
-
-      ██████╗ ██████╗ ██████╗ ██╗   ██╗██╗   ██╗███████╗
-     ██╔════╝██╔═══██╗██╔══██╗██║   ██║██║   ██║██╔════╝
-     ██║     ██║   ██║██████╔╝██║   ██║██║   ██║███████╗
-     ██║     ██║   ██║██╔══██╗╚██╗ ██╔╝██║   ██║╚════██║
-     ╚██████╗╚██████╔╝██║  ██║ ╚████╔╝ ╚██████╔╝███████║
-      ╚═════╝ ╚═════╝ ╚═╝  ╚═╝  ╚═══╝   ╚═════╝ ╚══════╝
-
-    Zero overhead. Zero compromise. 100% Rust. 100% Agnostic.
-
-    ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
-BANNER_EOF
-)
+%%BANNER_PLACEHOLDER%%
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 RED='\033[0;31m'
