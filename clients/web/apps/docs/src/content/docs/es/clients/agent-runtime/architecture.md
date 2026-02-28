@@ -1,4 +1,6 @@
-# Arquitectura del Agent Runtime
+---
+title: Arquitectura del Agent Runtime
+---
 
 ## Visión general
 
