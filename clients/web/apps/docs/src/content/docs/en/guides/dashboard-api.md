@@ -9,6 +9,10 @@ The Corvus Gateway provides a REST API for the operator dashboard and external i
 By default, the gateway listens on:
 `http://127.0.0.1:3000`
 
+:::caution[Production Security]
+The default URL is for local development only. In production, you **must** enable TLS (HTTPS) and ensure authentication tokens are never exposed in URLs, logs, or client-side code. Use secure storage like environment variables or a secrets manager for all tokens.
+:::
+
 ## Authentication
 
 The API uses two main authentication mechanisms:
@@ -106,6 +110,12 @@ Returns the available options for configuration fields (e.g., supported backends
 The primary endpoint for sending messages to the agent.
 
 - **Authentication**: Bearer Token required.
+- **Status Codes**:
+  - `200 OK`: Message processed successfully.
+  - `401 Unauthorized`: Missing or invalid bearer token or webhook secret.
+  - `403 Forbidden`: Origin not allowed.
+  - `429 Too Many Requests`: Rate limit exceeded.
+  - `5xx Server Error`: Internal gateway or provider error.
 - **Optional Header**: `X-Webhook-Secret` (if configured in `config.toml`).
 - **Request Body**:
   ```json
@@ -123,6 +133,16 @@ The primary endpoint for sending messages to the agent.
 
 #### `POST /whatsapp` & `GET /whatsapp`
 Handles WhatsApp Business API webhooks and verification.
+
+- **Authentication**:
+  - `GET`: Uses `hub.verify_token` for Meta verification.
+  - `POST`: Requires `X-Hub-Signature-256` HMAC-SHA256 verification if `app_secret` is configured.
+- **Status Codes**:
+  - `200 OK`: Webhook processed or verification successful.
+  - `401 Unauthorized`: Missing or invalid signature.
+  - `403 Forbidden`: Verification token mismatch.
+  - `404 Not Found`: WhatsApp channel not configured.
+  - `5xx Server Error`: Internal gateway error.
 
 ---
 
@@ -143,4 +163,10 @@ Returns the current status of the gateway and its components. Publicly accessibl
 #### `GET /metrics`
 Returns Prometheus-formatted metrics for monitoring.
 
+- **Authentication**: Bearer Token required.
 - **Format**: `text/plain`
+- **Status Codes**:
+  - `200 OK`: Metrics returned successfully.
+  - `401 Unauthorized`: Missing or invalid bearer token.
+  - `403 Forbidden`: Origin not allowed.
+  - `5xx Server Error`: Internal gateway error.

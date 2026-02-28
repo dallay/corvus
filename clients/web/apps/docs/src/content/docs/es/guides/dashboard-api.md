@@ -9,6 +9,10 @@ El Gateway de Corvus proporciona una API REST para el dashboard del operador e i
 Por defecto, el gateway escucha en:
 `http://127.0.0.1:3000`
 
+:::caution[Seguridad en Producción]
+La URL por defecto es solo para desarrollo local. En producción, **debe** habilitar TLS (HTTPS) y asegurarse de que los tokens de autenticación nunca se expongan en URLs, registros (logs) o código del lado del cliente. Utilice un almacenamiento seguro como variables de entorno o un gestor de secretos para todos los tokens.
+:::
+
 ## Autenticación
 
 La API utiliza dos mecanismos principales de autenticación:
@@ -106,6 +110,12 @@ Devuelve las opciones disponibles para los campos de configuración (por ejemplo
 El endpoint principal para enviar mensajes al agente.
 
 - **Autenticación**: Requiere Token de Portador.
+- **Códigos de Estado**:
+  - `200 OK`: Mensaje procesado correctamente.
+  - `401 Unauthorized`: Token de portador o secreto de webhook faltante o inválido.
+  - `403 Forbidden`: Origen no permitido.
+  - `429 Too Many Requests`: Límite de velocidad excedido.
+  - `5xx Error del Servidor`: Error interno del gateway o del proveedor.
 - **Cabecera Opcional**: `X-Webhook-Secret` (si está configurado en `config.toml`).
 - **Cuerpo de la Solicitud**:
   ```json
@@ -123,6 +133,16 @@ El endpoint principal para enviar mensajes al agente.
 
 #### `POST /whatsapp` & `GET /whatsapp`
 Maneja los webhooks y la verificación de la API de WhatsApp Business.
+
+- **Autenticación**:
+  - `GET`: Utiliza `hub.verify_token` para la verificación de Meta.
+  - `POST`: Requiere verificación HMAC-SHA256 `X-Hub-Signature-256` si `app_secret` está configurado.
+- **Códigos de Estado**:
+  - `200 OK`: Webhook procesado o verificación exitosa.
+  - `401 Unauthorized`: Firma faltante o inválida.
+  - `403 Forbidden`: El token de verificación no coincide.
+  - `404 Not Found`: El canal de WhatsApp no está configurado.
+  - `5xx Error del Servidor`: Error interno del gateway.
 
 ---
 
@@ -143,4 +163,10 @@ Devuelve el estado actual del gateway y sus componentes. Accesible al público.
 #### `GET /metrics`
 Devuelve métricas en formato Prometheus para su monitorización.
 
+- **Autenticación**: Requiere Token de Portador.
 - **Formato**: `text/plain`
+- **Códigos de Estado**:
+  - `200 OK`: Métricas devueltas con éxito.
+  - `401 Unauthorized`: Token de portador faltante o inválido.
+  - `403 Forbidden`: Origen no permitido.
+  - `5xx Error del Servidor`: Error interno del gateway.
