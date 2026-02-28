@@ -1,4 +1,6 @@
-# Mapa de Workflows de CI
+---
+title: Mapa de Workflows de CI
+---
 
 Este documento explica qué hace cada workflow de GitHub, cuándo se ejecuta, y si debe bloquear merges.
 
