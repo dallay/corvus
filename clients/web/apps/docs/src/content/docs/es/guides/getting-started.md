@@ -7,8 +7,11 @@ proyecto.
 
 ## Requisitos Previos
 
-- **Java JDK 21** o superior.
+- **Java JDK 21** o superior (para Kotlin/KMP).
+- **Rust 1.75** o superior (para Agent Runtime).
+- **Node.js 22** o superior y **pnpm 10** o superior (para aplicaciones Web).
 - **Git**.
+- **Docker** (opcional, para Sandboxing).
 - Un shell compatible con bash (Linux, macOS o Git Bash en Windows).
 
 ## Instalación

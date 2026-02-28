@@ -14,7 +14,7 @@ centralizada y separación clara entre clientes y módulos compartidos.
 │   ├── androidApp/             # App host de Android
 │   ├── composeApp/             # Módulo compartido Compose Multiplatform
 │   ├── iosApp/                 # App host de iOS (proyecto Xcode)
-│   └── web/                    # Aplicación web y panel de operadores
+│   └── web/                    # Monorepositorio web (docs, dashboard, marketing)
 ├── modules/                    # Módulos compartidos
 │   └── agent-core-kmp/         # Core del agente en Kotlin Multiplatform
 ├── gradle/                     # Configuración de construcción
@@ -24,7 +24,7 @@ centralizada y separación clara entre clientes y módulos compartidos.
 │   ├── versions/               # Gestión de versiones
 │   ├── libs.versions.toml      # Catálogo de versiones
 │   └── wrapper/                # Wrapper de Gradle
-├── docs/                       # Documentación (Astro + Starlight)
+├── dev/                        # Entorno de desarrollo local (Docker/Sandbox)
 ├── Makefile                    # Interfaz de comandos estandarizada
 └── settings.gradle.kts         # Configuración global del proyecto
 ```

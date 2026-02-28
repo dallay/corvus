@@ -174,7 +174,7 @@ make dev-down    # Stop the environment
 
 ## 📚 Documentation
 
-Detailed documentation is available in the `clients/web/apps/docs/` directory. You can build and view it locally:
+Detailed documentation is available in the [clients/web/apps/docs/](clients/web/apps/docs/) directory. You can build and view it locally:
 
 ```bash
 make docs-web-build
@@ -185,7 +185,7 @@ make docs-web-dev
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our `CONTRIBUTING.md` (if available) and ensure you run `make check` before submitting a Pull Request.
+Contributions are welcome! Please read our [Contributing Guide](.github/CONTRIBUTING.md) and ensure you run `make check` before submitting a Pull Request.
 
 ---
 
