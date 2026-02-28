@@ -1,0 +1,112 @@
+# syntax=docker/dockerfile:1
+
+# Corvus Agent Testing Environment - Ubuntu/Debian
+# ================================================
+# This image provides a controlled environment for testing the Corvus agent
+# installation script and validating its functionality.
+#
+# Build:   docker build -f dev/os/Dockerfile.ubuntu -t corvus-test:ubuntu .
+# Run:     docker run -it corvus-test:ubuntu bash
+
+FROM ubuntu:24.04
+
+# Prevent interactive prompts during package installation
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TERM=xterm-256color
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Base System - Essential Tools
+# ═══════════════════════════════════════════════════════════════════════════════
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Core utilities for agent operations
+    curl \
+    wget \
+    git \
+    vim \
+    nano \
+    unzip \
+    zip \
+    tar \
+    gzip \
+    # Build tools (for compiling dependencies)
+    build-essential \
+    pkg-config \
+    # SSL/TLS support
+    ca-certificates \
+    openssl \
+    # Network utilities
+    iputils-ping \
+    dnsutils \
+    net-tools \
+    netcat-openbsd \
+    # Process and system info
+    procps \
+    htop \
+    tree \
+    # Text processing (gawk provides awk in Ubuntu 24.04+)
+    grep \
+    sed \
+    gawk \
+    findutils \
+    # Compression utilities
+    bzip2 \
+    xz-utils \
+    # Clean up
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Shell & User Experience
+# ═══════════════════════════════════════════════════════════════════════════════
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash-completion \
+    && rm -rf /var/lib/apt/lists/*
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Corvus Agent Installation Testing Prerequisites
+# ═══════════════════════════════════════════════════════════════════════════════
+# Install Rust toolchain (required for building Corvus from source)
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+ENV PATH="/root/.cargo/bin:${PATH}"
+ENV RUSTUP_HOME="/root/.cargo"
+ENV CARGO_HOME="/root/.cargo"
+
+# Install Node.js 20 LTS (for npm-based Corvus installation)
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg && \
+    mkdir -p /etc/apt/keyrings && \
+    curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
+    echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
+    apt-get update && apt-get install -y nodejs && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python 3 and pip
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
+    && rm -rf /var/lib/apt/lists/*
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Non-root User Setup (for security testing)
+# Note: Ubuntu 24.04 base already has UID 1000, use 1001 instead
+# ═══════════════════════════════════════════════════════════════════════════════
+RUN mkdir -p /etc/sudoers.d && \
+    useradd -m -s /bin/bash -u 1001 tester && \
+    echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester && \
+    chmod 0440 /etc/sudoers.d/tester
+
+# Create workspace directory
+RUN mkdir -p /home/tester/workspace && chown -R tester:1001 /home/tester
+
+# Switch to non-root user
+USER tester
+WORKDIR /home/tester/workspace
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Environment Variables
+# ═══════════════════════════════════════════════════════════════════════════════
+ENV HOME=/home/tester
+ENV USER=tester
+
+# Default command
+CMD ["/bin/bash"]
