@@ -67,7 +67,7 @@ jobs:
 
       - name: 🧪 Build and generate coverage
         if: env.SONAR_TOKEN != ''
-        run: ./gradlew testCodeCoverageReport
+        run: ./gradlew :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
 
       - name: 🧮 Compute Sonar project key
         if: env.SONAR_TOKEN != ''
@@ -87,7 +87,7 @@ jobs:
             -Dsonar.projectName=${{ github.event.repository.name }}
             -Dsonar.sources=.
             -Dsonar.exclusions=**/.git/**,**/.gradle/**,**/build/**,**/dist/**,**/coverage/**,**/node_modules/**,**/.next/**,**/.turbo/**,**/target/**,**/vendor/**,**/generated/**
-            -Dsonar.coverage.jacoco.xmlReportPaths=gradle/aggregation/build/reports/coverage/coverage.xml
+            -Dsonar.coverage.jacoco.xmlReportPaths=modules/agent-core-kmp/build/reports/kover/report.xml,clients/composeApp/build/reports/kover/report.xml
 
       - name: 🚦 SonarQube Quality Gate
         if: >-

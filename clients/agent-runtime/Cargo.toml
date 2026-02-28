@@ -16,7 +16,7 @@ categories = ["command-line-utilities", "api-bindings"]
 
 [dependencies]
 # CLI - minimal and fast
-clap = { version = "4.5", features = ["derive"] }
+clap = { version = "4.5.60", features = ["derive"] }
 
 # Async runtime - feature-optimized for size
 tokio = { version = "1.42", default-features = false, features = ["rt-multi-thread", "macros", "time", "net", "io-util", "sync", "process", "io-std", "fs", "signal"] }
@@ -32,7 +32,7 @@ serde_json = { version = "1.0", default-features = false, features = ["std"] }
 # Config
 directories = "6.0"
 toml = "1.0"
-shellexpand = "3.1"
+shellexpand = "3.1.2"
 
 # Logging - minimal
 tracing = { version = "0.1", default-features = false }
@@ -48,7 +48,7 @@ base64 = "0.22"
 zeroize = "1.8"
 
 # URL encoding for web search
-urlencoding = "2.1"
+urlencoding = "2.1.3"
 
 # Optional Rust-native browser automation backend
 fantoccini = { version = "0.22.0", optional = true, default-features = false, features = ["rustls-tls"] }
@@ -107,7 +107,7 @@ glob = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 futures = "0.3"
-regex = "1.10"
+regex = "1.12.3"
 const-oid = "0.9"
 x509-cert = { version = "0.2", default-features = false, features = ["pem", "std"] }
 sigstore = { version = "0.13", default-features = false, features = ["bundle", "sigstore-trust-root", "rustls-tls"] }
@@ -135,7 +135,7 @@ opentelemetry-otlp = { version = "0.31", default-features = false, features = ["
 nusb = { version = "0.2", default-features = false, optional = true }
 
 # Serial port for peripheral communication (STM32, etc.)
-tokio-serial = { version = "5", default-features = false, optional = true }
+tokio-serial = { version = "5.4.5", default-features = false, optional = true }
 
 # probe-rs for STM32/Nucleo memory read (Phase B)
 probe-rs = { version = "0.30", optional = true }
