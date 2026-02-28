@@ -5,10 +5,9 @@
   "description": "Corvus Marketing Site built with Astro",
   "type": "module",
   "scripts": {
-    "prepare-install": "./scripts/generate-install.sh",
-    "dev": "pnpm run prepare-install && astro dev",
-    "start": "pnpm run prepare-install && astro dev",
-    "build": "pnpm run prepare-install && astro build",
+    "dev": "astro dev",
+    "start": "astro dev",
+    "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
     "format": "biome format --write src public package.json astro.config.mjs tsconfig.json README.md",
