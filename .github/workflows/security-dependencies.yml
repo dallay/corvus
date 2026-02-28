@@ -16,13 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: ✈ Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: 🦀 Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@e97e2d8cc328f1b50210efc529dca0028893a2d9 # v1
 
       - name: 📥 Install cargo-deny
-        uses: taiki-e/install-action@v2
+        uses: taiki-e/install-action@2dc1234c293fde032a8e34c74501c7d6403e92ae # v2.68.14
         with:
           tool: cargo-deny
 
@@ -38,15 +38,15 @@ jobs:
       contents: write
     steps:
       - name: ✈ Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: ☕ Setup Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
         with:
           java-version: "21"
           distribution: "corretto"
 
       - name: 🐘 Submit Dependency Graph
-        uses: gradle/actions/dependency-submission@v4
+        uses: gradle/actions/dependency-submission@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
         with:
           gradle-version: wrapper
