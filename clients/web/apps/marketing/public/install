@@ -736,7 +736,8 @@ install_via_binary() {
 install_via_package_manager() {
   local pkg_with_ver="$CLI_PACKAGE"
   if [ "$REQUESTED_VERSION" != "latest" ]; then
-    pkg_with_ver="${CLI_PACKAGE}@${REQUESTED_VERSION}"
+    local pkg_version_for_pm="${REQUESTED_VERSION#v}"
+    pkg_with_ver="${CLI_PACKAGE}@${pkg_version_for_pm}"
   fi
 
   case "$INSTALL_METHOD" in
