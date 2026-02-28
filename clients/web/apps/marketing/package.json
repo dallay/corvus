@@ -7,7 +7,7 @@
   "scripts": {
     "prepare-install": "./scripts/generate-install.sh",
     "dev": "pnpm run prepare-install && astro dev",
-    "start": "astro dev",
+    "start": "pnpm run prepare-install && astro dev",
     "build": "pnpm run prepare-install && astro build",
     "preview": "astro preview",
     "astro": "astro",

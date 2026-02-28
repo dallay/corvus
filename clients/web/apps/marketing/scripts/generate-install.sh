@@ -14,6 +14,7 @@ fi
 
 BANNER_CONTENT=$(cat "$BANNER_FILE")
 TEMP_FILE=$(mktemp)
+trap 'rm -f "$TEMP_FILE"' EXIT
 
 cat << BANNER_BLOCK_EOF > "$TEMP_FILE"
 BANNER=\$(cat << 'BANNER_EOF'
@@ -23,5 +24,4 @@ BANNER_EOF
 BANNER_BLOCK_EOF
 
 sed -e "/%%BANNER_PLACEHOLDER%%/r $TEMP_FILE" -e "/%%BANNER_PLACEHOLDER%%/d" "$TEMPLATE_FILE" > "$OUTPUT_FILE"
-rm "$TEMP_FILE"
 echo "Generated $OUTPUT_FILE"
