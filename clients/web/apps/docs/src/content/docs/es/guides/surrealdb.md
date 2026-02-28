@@ -9,32 +9,36 @@ documentación oficial de SurrealDB y prácticas estándar de contenedorización
 
 SurrealDB soporta varios motores de almacenamiento, cada uno con características distintas:
 
-| Motor | Comando Docker | Persistencia | Casos de uso |
-|-------|----------------|--------------|---------------|
-| **In-Memory** (`mem://`) | Sin especificar | ❌ No | Tests, caché, datos temporales |
-| **RocksDB** (`rocksdb://`) | `rocksdb:/surreal/db` | ✅ Sí | Desarrollo, producción single-node |
-| **SurrealKV** (`surrealkv://`) | `surrealkv:/surreal/db` | ✅ Sí | Producción (reemplazo moderno de RocksDB) |
-| **TiKV** | Configuración cluster | ✅ Sí | Alta disponibilidad, clustering distribuido |
+| Motor                          | Comando Docker          | Persistencia | Casos de uso                                |
+|--------------------------------|-------------------------|--------------|---------------------------------------------|
+| **In-Memory** (`mem://`)       | Sin especificar         | ❌ No         | Tests, caché, datos temporales              |
+| **RocksDB** (`rocksdb://`)     | `rocksdb:/surreal/db`   | ✅ Sí         | Desarrollo, producción single-node          |
+| **SurrealKV** (`surrealkv://`) | `surrealkv:/surreal/db` | ✅ Sí         | Producción (reemplazo moderno de RocksDB)   |
+| **TiKV**                       | Configuración cluster   | ✅ Sí         | Alta disponibilidad, clustering distribuido |
 
 ### Detalles de cada tipo
 
 #### In-Memory (`mem://`)
+
 - Almacena todos los datos en RAM
 - **Rendimiento más rápido** posible
 - Los datos se **pierden** al cerrar la conexión
 - Ideal para: tests unitarios, caché, desarrollo rápido
 
 #### RocksDB (`rocksdb://`)
+
 - Motor de almacenamiento basado en key-value
 - Persistente en disco
 - Adecuado para desarrollo y producción single-node
 
 #### SurrealKV (`surrealkv://`)
+
 - **Motor recomendado** por SurrealDB para producción
 - Reemplazo moderno de RocksDB
 - Mejor rendimiento y eficiencia
 
 #### TiKV (Clustering)
+
 - Para despliegues distribuidos de alta disponibilidad
 - Requiere configuración más compleja (no incluido en Docker Compose simple)
 
@@ -42,7 +46,8 @@ SurrealDB soporta varios motores de almacenamiento, cada uno con característica
 
 ## 2) Base de datos de Grafos (funcionalidad nativa)
 
-Una de las características más potentes de SurrealDB es que **soporta grafos de forma nativa e implícita**. No necesitas configuración adicional - es parte del motor de base de datos.
+Una de las características más potentes de SurrealDB es que **soporta grafos de forma nativa e
+implícita**. No necesitas configuración adicional - es parte del motor de base de datos.
 
 ### ¿Qué significa esto?
 
@@ -91,24 +96,27 @@ SELECT ->follows->person FROM person:alice;
 
 SurrealDB tiene dos formas de relacionar registros:
 
-| Característica | Record Links | Graph Relations |
-|----------------|--------------|-----------------|
-| **Dirección** | Unidireccional | Bidireccional |
-| **Metadatos** | ❌ No | ✅ Sí (puedes guardar datos en la relación) |
-| **Rendimiento** | Más rápido | Flexible |
-| **Caso de uso** | Referencias simples | Relaciones complejas con contexto |
+| Característica  | Record Links        | Graph Relations                            |
+|-----------------|---------------------|--------------------------------------------|
+| **Dirección**   | Unidireccional      | Bidireccional                              |
+| **Metadatos**   | ❌ No                | ✅ Sí (puedes guardar datos en la relación) |
+| **Rendimiento** | Más rápido          | Flexible                                   |
+| **Caso de uso** | Referencias simples | Relaciones complejas con contexto          |
 
 **Usa Record Links cuando:**
+
 - Solo necesitas referenciar un registro desde otro
 - El rendimiento es crítico
 - No necesitas metadatos en la relación
 
 **Usa Graph Relations cuando:**
+
 - Necesitas relaciones bidireccionales
 - Quieres guardar información sobre la relación (ej: "fecha de creación", "peso")
 - Vas a hacer consultas complejas de traversal
 
-> 📖 **Más información**: Ver [Graph Database en SurrealDB](https://surrealdb.com/docs) para ejemplos avanzados.
+> 📖 **Más información**: Ver [Graph Database en SurrealDB](https://surrealdb.com/docs) para ejemplos
+> avanzados.
 
 ---
 
@@ -133,7 +141,7 @@ version: "3.9"
 
 services:
   surrealdb:
-    image: surrealdb/surrealdb:2.6.2         # fija una versión concreta
+    image: surrealdb/surrealdb:v3.0.1         # fija una versión concreta
     container_name: surrealdb
     command: >
       start
@@ -141,7 +149,7 @@ services:
       --user ${SURREAL_USER}                 # usuario root/no root
       --pass ${SURREAL_PASS}                 # contraseña secreta
       rocksdb:/surreal/db                    # persistencia RocksDB en volumen
-    env_file: 
+    env_file:
       - .env                                 # define variables sensibles
     ports:
       - "${SURREAL_PORT:-8000}:8000"         # solo expone si es necesario
@@ -170,7 +178,7 @@ version: "3.9"
 
 services:
   surrealdb:
-    image: surrealdb/surrealdb:2.6.2
+    image: surrealdb/surrealdb:v3.0.1
     container_name: surrealdb
     command: >
       start
@@ -188,7 +196,7 @@ version: "3.9"
 
 services:
   surrealdb:
-    image: surrealdb/surrealdb:2.6.2
+    image: surrealdb/surrealdb:v3.0.1
     container_name: surrealdb
     command: >
       start
@@ -256,13 +264,15 @@ Si vas a autoscalar o tener múltiples nodos:
 
 ### Documentación Oficial
 
-- [Running SurrealDB with Docker](https://surrealdb.com/docs/surrealdb/installation/running/docker) - Guía oficial de instalación con Docker
+- [Running SurrealDB with Docker](https://surrealdb.com/docs/surrealdb/installation/running/docker) -
+  Guía oficial de instalación con Docker
 - [SurrealQL](https://surrealdb.com/docs/surrealql) - Lenguaje de consulta de SurrealDB
 - [Graph Database en SurrealDB](https://surrealdb.com/docs) - Funcionalidades de grafos nativas
 
 ### Repositorios
 
-- [SurrealDB Docker GitHub](https://github.com/surrealdb/docker.surrealdb.com) - Configuraciones Docker oficiales
+- [SurrealDB Docker GitHub](https://github.com/surrealdb/docker.surrealdb.com) - Configuraciones
+  Docker oficiales
 - [SurrealDB GitHub](https://github.com/surrealdb/surrealdb) - Repositorio principal
 
 ### Aprendizaje

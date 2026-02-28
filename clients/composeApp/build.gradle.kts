@@ -9,6 +9,7 @@ plugins {
   id("com.profiletailors.base.lifecycle")
   id("com.profiletailors.check.format-gradle")
   id("com.profiletailors.check.format-kotlin")
+  id("org.jetbrains.kotlinx.kover")
   alias(libs.plugins.org.jetbrains.kotlin.multiplatform)
   alias(libs.plugins.com.android.kotlin.multiplatform.library)
   alias(libs.plugins.org.jetbrains.compose)
