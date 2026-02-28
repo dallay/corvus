@@ -12,19 +12,15 @@ Antes de poder publicar, asegúrate de tener:
 1. **Clave GPG configurada**: Sigue la [Guía de Configuración GPG](./gpg-setup/) para crear y
    configurar tu clave de firma
 2. **Acceso a Maven Central**: Secrets del repositorio configurados:
-
-- `SIGNING_IN_MEMORY_KEY`: Tu clave privada GPG
-- `SIGNING_IN_MEMORY_KEY_PASSWORD`: Contraseña de la clave GPG
-- `MAVEN_CENTRAL_USERNAME`: Usuario de Maven Central
-- `MAVEN_CENTRAL_PASSWORD`: Contraseña de Maven Central
-
+  - `SIGNING_IN_MEMORY_KEY`: Tu clave privada GPG
+  - `SIGNING_IN_MEMORY_KEY_PASSWORD`: Contraseña de la clave GPG
+  - `MAVEN_CENTRAL_USERNAME`: Usuario de Maven Central
+  - `MAVEN_CENTRAL_PASSWORD`: Contraseña de Maven Central
 3. **Secrets de canales de release** para artefactos no-Gradle:
-
-- `CARGO_REGISTRY_TOKEN`: token de publicación en crates.io para `clients/agent-runtime`
-- `NPM_TOKEN`: token de npm para `@dallay/corvus`
-- `DOCKERHUB_USERNAME`: usuario de Docker Hub
-- `DOCKERHUB_TOKEN`: token de acceso de Docker Hub
-
+  - `CARGO_REGISTRY_TOKEN`: token de publicación en crates.io para `clients/agent-runtime`
+  - `NPM_TOKEN`: token de npm para `@dallay/corvus`
+  - `DOCKERHUB_USERNAME`: usuario de Docker Hub
+  - `DOCKERHUB_TOKEN`: token de acceso de Docker Hub
 4. **Permisos de escritura**: Debes ser mantenedor del repositorio
 
 ### Qué publica un release
@@ -217,14 +213,13 @@ releases estables `vX.Y.Z`.
 
 1. Revisa los logs del workflow en GitHub Actions
 2. Problemas comunes:
-
-- **Firma fallida**: Verifica que los secrets GPG estén correctamente configurados
-- **Autenticación Maven Central fallida**: Verifica que las credenciales no hayan expirado
-- **Build fallido**: Asegúrate de que todos los tests pasen localmente con `./gradlew check`
-- **Versiones desalineadas**: La versión del tag debe coincidir con Gradle + monorepo web + Cargo
-  + versiones de paquetes npm del runtime (`clients/agent-runtime/npm/*`)
-- **Secret faltante de release**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
-  `DOCKERHUB_USERNAME` o `DOCKERHUB_TOKEN`
+  - **Firma fallida**: Verifica que los secrets GPG estén correctamente configurados
+  - **Autenticación Maven Central fallida**: Verifica que las credenciales no hayan expirado
+  - **Build fallido**: Asegúrate de que todos los tests pasen localmente con `./gradlew check`
+  - **Versiones desalineadas**: La versión del tag debe coincidir con Gradle + monorepo web + Cargo
+    + versiones de paquetes npm del runtime (`clients/agent-runtime/npm/*`)
+  - **Secret faltante de release**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
+    `DOCKERHUB_USERNAME` o `DOCKERHUB_TOKEN`
 
 ### La versión ya existe
 
@@ -246,8 +241,7 @@ Los snapshots pueden ser cacheados por Maven/Gradle. Fuerza una actualización:
 Usa este checklist antes de publicar:
 
 - [ ] Todos los tests pasan localmente (`./gradlew check`)
-- [ ] La versión está sincronizada en todos los targets (Gradle, monorepo web, Cargo, matriz de
-  paquetes npm del runtime)
+- [ ] La versión está sincronizada en todos los targets (Gradle, monorepo web, Cargo, matriz de paquetes npm del runtime)
 - [ ] CHANGELOG.md está actualizado (si se mantiene manualmente)
 - [ ] La clave GPG es válida y no ha expirado
 - [ ] Las credenciales de Maven Central son actuales

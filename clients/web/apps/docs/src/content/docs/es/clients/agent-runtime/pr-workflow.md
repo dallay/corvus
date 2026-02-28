@@ -9,8 +9,7 @@ Este documento define cómo Corvus maneja un alto volumen de PRs manteniendo:
 - Alta sostenibilidad
 - Alta seguridad
 
-Referencia relacionada: [`ci-map.md`](ci-map.md) para propiedad por workflow, disparadores y flujo
-de triaje.
+Referencia relacionada: [`ci-map.md`](ci-map.md) para propiedad por workflow, disparadores y flujo de triaje.
 
 ## 1) Objetivos de gobernanza
 
@@ -34,8 +33,7 @@ Mantén estas reglas de protección de rama en `main`:
 
 ### Paso A: Intake
 
-- Contributor abre PR con `.github/pull_request_template.md` completo, incluyendo: problema, cambio,
-  no-objetivos, riesgos y plan de rollback.
+- Contributor abre PR con `.github/pull_request_template.md` completo, incluyendo: problema, cambio, no-objetivos, riesgos y plan de rollback.
 - `PR Labeler` aplica labels de path + size.
 - `Auto Response` publica guía para contribuidores primerizos.
 
@@ -99,11 +97,8 @@ Recomendado:
 
 - Primer triaje por maintainer: objetivo en 48 horas.
 - Si PR está bloqueado, maintainer deja una lista de verificación accionable.
-- Automatización `stale` se usa para mantener cola saludable; maintainers pueden aplicar `no-stale`
-  cuando sea necesario.
-- Automatización `pr-hygiene` revisa PRs abiertos cada 12 horas. Se activa cuando un PR no tiene
-  nuevos commits por 48+ horas. El PR se considera bloqueado si está detrás de `main` o si el head
-  commit tiene `CI Required Gate` fallando o missing.
+- Automatización `stale` se usa para mantener cola saludable; maintainers pueden aplicar `no-stale` cuando sea necesario.
+- Automatización `pr-hygiene` revisa PRs abiertos cada 12 horas. Se activa cuando un PR no tiene nuevos commits por 48+ horas. El PR se considera bloqueado si está detrás de `main` o si el head commit tiene `CI Required Gate` fallando o missing.
 
 ## 7) Reglas de seguridad y estabilidad
 
@@ -142,8 +137,7 @@ Preferir restauración rápida de calidad de servicio sobre fixes perfectos tard
 
 ## 10) Modelo operativo de revisión por agent
 
-Para mantener calidad de revisión estable bajo alto volumen de PRs, usamos un modelo de dos
-carriles:
+Para mantener calidad de revisión estable bajo alto volumen de PRs, usamos un modelo de dos carriles:
 
 ### Carril A: Fast triage (agent-friendly)
 

@@ -32,7 +32,7 @@ MKDIR_P := mkdir -p
 
 # Module Names
 APP_MODULE := composeApp
-DOCS_MODULE := web
+DOCS_MODULE := docs
 
 # ------------------------------------------------------------------------------------
 # CORE & HELP
@@ -253,19 +253,19 @@ docs-serve: docs ## Generate and serve documentation locally
 
 docs-web-build: check-tools ## Build website docs (Astro/Starlight)
 	@echo "🌐 Building website docs..."
-	@cd clients/$(DOCS_MODULE)/apps/docs && pnpm run build
+	@$(GRADLEW) :$(DOCS_MODULE):docStarlight
 
 docs-web-check: check-tools ## Check website docs formatting/lint (Biome)
 	@echo "🔎 Checking website docs..."
-	@cd clients/$(DOCS_MODULE)/apps/docs && pnpm run check
+	@$(GRADLEW) :$(DOCS_MODULE):websiteCheck
 
 docs-web-format: check-tools ## Format website docs (Biome)
 	@echo "✨ Formatting website docs..."
-	@cd clients/$(DOCS_MODULE)/apps/docs && pnpm run format
+	@$(GRADLEW) :$(DOCS_MODULE):websiteFormat
 
 docs-web-dev: check-tools ## Run website docs dev server
 	@echo "🌐 Starting docs dev server..."
-	@cd clients/$(DOCS_MODULE)/apps/docs && pnpm run dev
+	@cd apps/docs/website && pnpm run dev
 
 # ------------------------------------------------------------------------------------
 # DEPENDENCY MANAGEMENT

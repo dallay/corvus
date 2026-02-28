@@ -1,41 +1,39 @@
 # CI Workflow Map
 
-This document explains what each GitHub workflow does, when it runs, and whether it should block
-merges.
+This document explains what each GitHub workflow does, when it runs, and whether it should block merges.
 
 ## Merge-Blocking vs Optional
 
-Merge-blocking checks should stay small and deterministic. Optional checks are useful for automation
-and maintenance, but should not block normal development.
+Merge-blocking checks should stay small and deterministic. Optional checks are useful for automation and maintenance, but should not block normal development.
 
 ### Merge-Blocking
 
 - `.github/workflows/ci.yml` (`CI`)
-  - Purpose: Rust validation (`fmt`, `clippy`, `test`, release build smoke)
-  - Merge gate: `CI Required Gate`
+    - Purpose: Rust validation (`fmt`, `clippy`, `test`, release build smoke)
+    - Merge gate: `CI Required Gate`
 - `.github/workflows/workflow-sanity.yml` (`Workflow Sanity`)
-  - Purpose: lint GitHub workflow files (`actionlint`, tab checks)
-  - Recommended for workflow-changing PRs
+    - Purpose: lint GitHub workflow files (`actionlint`, tab checks)
+    - Recommended for workflow-changing PRs
 
 ### Non-Blocking but Important
 
 - `.github/workflows/docker.yml` (`Docker`)
-  - Purpose: PR docker smoke check and publish images on `main`/tag pushes
+    - Purpose: PR docker smoke check and publish images on `main`/tag pushes
 - `.github/workflows/security.yml` (`Security Audit`)
-  - Purpose: dependency advisories (`cargo audit`) and policy/license checks (`cargo deny`)
+    - Purpose: dependency advisories (`cargo audit`) and policy/license checks (`cargo deny`)
 - `.github/workflows/release.yml` (`Release`)
-  - Purpose: build tagged release artifacts and publish GitHub releases
+    - Purpose: build tagged release artifacts and publish GitHub releases
 
 ### Optional Repository Automation
 
 - `.github/workflows/labeler.yml` (`PR Labeler`)
-  - Purpose: path labels + size labels
+    - Purpose: path labels + size labels
 - `.github/workflows/auto-response.yml` (`Auto Response`)
-  - Purpose: first-time contributor onboarding messages
+    - Purpose: first-time contributor onboarding messages
 - `.github/workflows/stale.yml` (`Stale`)
-  - Purpose: stale issue/PR lifecycle automation
+    - Purpose: stale issue/PR lifecycle automation
 - `.github/workflows/pr-hygiene.yml` (`PR Hygiene`)
-  - Purpose: nudge stale-but-active PRs to rebase/re-run required checks before queue starvation
+    - Purpose: nudge stale-but-active PRs to rebase/re-run required checks before queue starvation
 
 ## Trigger Map
 
@@ -43,8 +41,7 @@ and maintenance, but should not block normal development.
 - `Docker`: push to `main`, tag push (`v*`), PRs touching docker/workflow files, manual dispatch
 - `Release`: tag push (`v*`)
 - `Security Audit`: push to `main`, PRs to `main`, weekly schedule
-- `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml`
-  change
+- `Workflow Sanity`: PR/push when `.github/workflows/**`, `.github/*.yml`, or `.github/*.yaml` change
 - `PR Labeler`: `pull_request_target` lifecycle events
 - `Auto Response`: issue opened, `pull_request_target` opened
 - `Stale`: daily schedule, manual dispatch

@@ -3,13 +3,11 @@ title: Referencia de la CLI
 description: Guía completa de los comandos y opciones de la CLI del agente Corvus.
 ---
 
-La CLI de Corvus (`corvus`) es la interfaz principal para gestionar tus agentes, hardware y
-servicios.
+La CLI de Corvus (`corvus`) es la interfaz principal para gestionar tus agentes, hardware y servicios.
 
 ## Comandos Principales
 
 ### `onboard`
-
 Inicializa tu espacio de trabajo y configuración.
 
 - `--interactive`: Ejecuta el asistente interactivo completo (por defecto es configuración rápida).
@@ -19,13 +17,11 @@ Inicializa tu espacio de trabajo y configuración.
 - `--memory <TYPE>`: Backend de memoria (sqlite, lucid, surreal-graphs, surreal, markdown, none).
 
 **Ejemplo:**
-
 ```bash
 corvus onboard --interactive
 ```
 
 ### `agent`
-
 Inicia el bucle del agente de IA.
 
 - `-m, --message <TEXT>`: Modo de mensaje único.
@@ -35,33 +31,28 @@ Inicia el bucle del agente de IA.
 - `--peripheral <BOARD:PATH>`: Conecta un periférico (ej., `nucleo-f401re:/dev/ttyACM0`).
 
 **Ejemplo:**
-
 ```bash
 corvus agent -m "Hola, ¿cómo puedes ayudarme hoy?"
 ```
 
 ### `daemon`
-
 Inicia el runtime autónomo de larga duración (gateway + canales + heartbeat + planificador).
 
 - `-p, --port <PORT>`: Puerto para escuchar.
 - `--host <HOST>`: Host para vincularse.
 
 **Ejemplo:**
-
 ```bash
 corvus daemon --port 3000
 ```
 
 ### `gateway`
-
 Inicia solo el servidor gateway (webhooks, websockets).
 
 - `-p, --port <PORT>`: Puerto para escuchar.
 - `--host <HOST>`: Host para vincularse.
 
 **Ejemplo:**
-
 ```bash
 corvus gateway --port 3001
 ```
@@ -71,27 +62,22 @@ corvus gateway --port 3001
 ## Sistema y Servicio
 
 ### `status`
-
 Muestra los detalles completos del estado del sistema.
 
 **Ejemplo:**
-
 ```bash
 corvus status
 ```
 
 ### `doctor`
-
 Ejecuta diagnósticos para el daemon, el planificador y la frescura de los canales.
 
 **Ejemplo:**
-
 ```bash
 corvus doctor
 ```
 
 ### `service`
-
 Gestiona el ciclo de vida del servicio del SO (systemd/launchd).
 
 - `install`: Instala la unidad de servicio del daemon.
@@ -103,7 +89,6 @@ Gestiona el ciclo de vida del servicio del SO (systemd/launchd).
 - `uninstall`: Elimina la unidad de servicio.
 
 **Ejemplo:**
-
 ```bash
 corvus service install --linger on
 ```
@@ -113,7 +98,6 @@ corvus service install --linger on
 ## Gestión de Tareas
 
 ### `cron`
-
 Configura y gestiona tareas programadas.
 
 - `list`: Lista todas las tareas programadas.
@@ -126,7 +110,6 @@ Configura y gestiona tareas programadas.
 - `resume <ID>`: Reanuda una tarea pausada.
 
 **Ejemplo:**
-
 ```bash
 corvus cron add "0 9 * * *" "corvus agent -m 'Actualización diaria'"
 ```
@@ -136,17 +119,14 @@ corvus cron add "0 9 * * *" "corvus agent -m 'Actualización diaria'"
 ## Proveedores y Autenticación
 
 ### `providers`
-
 Lista todos los proveedores de IA soportados.
 
 **Ejemplo:**
-
 ```bash
 corvus providers
 ```
 
 ### `auth`
-
 Gestiona los perfiles de autenticación de los proveedores.
 
 - `login --provider <NAME>`: Inicia sesión con OAuth (ej., `openai-codex`).
@@ -155,8 +135,7 @@ Gestiona los perfiles de autenticación de los proveedores.
 - `paste-redirect --provider <NAME>`: Completa OAuth pegando la URL de redirección o código de auth.
   - `--profile <ID>`: Nombre del perfil (por defecto: default).
   - `--input <URL>`: URL de redirección completa o código OAuth sin procesar.
-- `paste-token --provider <NAME>`: Pegar token de configuración/auth (para auth de suscripción
-  Anthropic).
+- `paste-token --provider <NAME>`: Pegar token de configuración/auth (para auth de suscripción Anthropic).
   - `--profile <ID>`: Nombre del perfil (por defecto: default).
   - `--token <TOKEN>`: Valor del token (si se omite, lee interactivamente).
   - `--auth-kind <KIND>`: Override de tipo de auth (`authorization` o `api-key`).
@@ -170,20 +149,17 @@ Gestiona los perfiles de autenticación de los proveedores.
 - `logout --provider <NAME>`: Elimina un perfil.
 
 **Ejemplo:**
-
 ```bash
 corvus auth list
 ```
 
 ### `models`
-
 Gestiona los catálogos de modelos de los proveedores.
 
 - `refresh`: Actualiza y cachea los modelos del proveedor.
   - `--force`: Fuerza la actualización en vivo.
 
 **Ejemplo:**
-
 ```bash
 corvus models refresh --provider anthropic
 ```
@@ -193,7 +169,6 @@ corvus models refresh --provider anthropic
 ## Capacidades e Integraciones
 
 ### `skills`
-
 Gestiona las capacidades definidas por el usuario.
 
 - `list`: Lista las habilidades instaladas.
@@ -201,19 +176,16 @@ Gestiona las capacidades definidas por el usuario.
 - `remove <NAME>`: Elimina una habilidad.
 
 **Ejemplo:**
-
 ```bash
 corvus skills install https://github.com/user/my-skill
 ```
 
 ### `integrations`
-
 Explora las integraciones disponibles.
 
 - `info <NAME>`: Muestra detalles sobre una integración específica.
 
 **Ejemplo:**
-
 ```bash
 corvus integrations info telegram
 ```
@@ -223,7 +195,6 @@ corvus integrations info telegram
 ## Comunicación
 
 ### `channel`
-
 Gestiona los canales de comunicación (Telegram, Discord, Slack).
 
 - `list`: Lista los canales configurados.
@@ -234,7 +205,6 @@ Gestiona los canales de comunicación (Telegram, Discord, Slack).
 - `bind-telegram <IDENTITY>`: Vincula un usuario de Telegram a la lista de permitidos.
 
 **Ejemplo:**
-
 ```bash
 corvus channel list
 ```
@@ -244,7 +214,6 @@ corvus channel list
 ## Hardware y Periféricos
 
 ### `hardware`
-
 Descubre e introspecciona el hardware USB.
 
 - `discover`: Enumera los dispositivos USB y muestra las placas conocidas.
@@ -252,13 +221,11 @@ Descubre e introspecciona el hardware USB.
 - `info`: Obtiene información del chip vía USB (probe-rs).
 
 **Ejemplo:**
-
 ```bash
 corvus hardware discover
 ```
 
 ### `peripheral`
-
 Gestiona periféricos de hardware (STM32, RPi, etc.).
 
 - `list`: Lista los periféricos configurados.
@@ -267,7 +234,6 @@ Gestiona periféricos de hardware (STM32, RPi, etc.).
 - `flash`: Flashea el firmware de Corvus al Arduino.
 
 **Ejemplo:**
-
 ```bash
 corvus peripheral add nucleo-f401re /dev/ttyACM0
 ```
@@ -277,13 +243,11 @@ corvus peripheral add nucleo-f401re /dev/ttyACM0
 ## Utilidades
 
 ### `migrate`
-
 Migra datos desde otros runtimes de agentes.
 
 - `openclaw`: Importa memoria desde un espacio de trabajo de OpenClaw.
 
 **Ejemplo:**
-
 ```bash
 corvus migrate openclaw --source ~/.openclaw/workspace
 ```

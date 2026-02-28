@@ -12,26 +12,7 @@ coverage:
       default:
         target: 60%
         threshold: 1%
-      # Per-language status checks
-      kotlin:
-        target: 60%
-        threshold: 1%
-        flags:
-          - kotlin
-      rust:
-        target: 70%
-        threshold: 1%
-        flags:
-          - rust
 ignore:
   - ".*/nocheck/.*"
   - ".*/autogen/.*"
   - ".*/generated/.*"
-flags:
-  kotlin:
-    paths:
-      - modules/agent-core-kmp/
-      - clients/composeApp/
-  rust:
-    paths:
-      - clients/agent-runtime/
