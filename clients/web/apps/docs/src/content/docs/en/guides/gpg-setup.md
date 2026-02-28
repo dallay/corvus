@@ -146,8 +146,9 @@ secrets:
 3. Click on your avatar → **Profile**
 4. Find **User Token** or **Generate Token**
 5. Create a token and copy:
-  - **Username** → `MAVEN_CENTRAL_USERNAME`
-  - **Password** → `MAVEN_CENTRAL_PASSWORD`
+
+- **Username** → `MAVEN_CENTRAL_USERNAME`
+- **Password** → `MAVEN_CENTRAL_PASSWORD`
 
 **Important:** Never use a never-expiring token. User tokens should be rotated periodically.
 
