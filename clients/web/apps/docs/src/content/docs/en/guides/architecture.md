@@ -123,32 +123,3 @@ For a more detailed view of the architecture, see the following C4 diagrams:
 | -               | [Module Dependencies](./architecture/diagrams/module-dependencies.mmd)     | Gradle dependency relationships                   | `module-dependencies.mmd`         |
 
 See [Architecture Index](./architecture/index.md) for more details on how to visualize them.
-
-## Build Logic (Convention Plugins)
-
-Instead of repeating build logic in every `build.gradle.kts`, we use **Convention Plugins** located
-in `gradle/build-logic`.
-
-### Plugin Categories
-
-1. **Base Plugins**: Fundamental configuration like identity, lifecycle, and JVM conflict
-   resolution.
-2. **Module Plugins**: Language-specific configurations (`kotlin`, `java`, `spring-boot`).
-3. **Feature Plugins**: Opt-in features like `publish-library`, `shadow`, `test-fixtures`, and
-   `git-hook`.
-4. **Check Plugins**: Code quality and formatting tools (`spotless`, `detekt`, `spotbugs`).
-5. **Report Plugins**: Aggregated reports for testing, coverage, and SBOM.
-
-## Dependency Management
-
-We use **Gradle Version Catalogs** (`libs.versions.toml`) to define all dependencies and versions in
-a single location. This ensures consistency across all modules.
-
-### Example usage:
-
-```kotlin
-dependencies {
-    implementation(libs.kotlin.stdlib)
-    testImplementation(libs.junit.jupiter)
-}
-```

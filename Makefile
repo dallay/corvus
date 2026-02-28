@@ -253,19 +253,19 @@ docs-serve: docs ## Generate and serve documentation locally
 
 docs-web-build: check-tools ## Build website docs (Astro/Starlight)
 	@echo "🌐 Building website docs..."
-	@cd clients/web/apps/docs && pnpm run build
+	@cd clients/$(DOCS_MODULE)/apps/docs && pnpm run build
 
 docs-web-check: check-tools ## Check website docs formatting/lint (Biome)
 	@echo "🔎 Checking website docs..."
-	@cd clients/web/apps/docs && pnpm run check
+	@cd clients/$(DOCS_MODULE)/apps/docs && pnpm run check
 
 docs-web-format: check-tools ## Format website docs (Biome)
 	@echo "✨ Formatting website docs..."
-	@cd clients/web/apps/docs && pnpm run format
+	@cd clients/$(DOCS_MODULE)/apps/docs && pnpm run format
 
 docs-web-dev: check-tools ## Run website docs dev server
 	@echo "🌐 Starting docs dev server..."
-	@cd clients/web/apps/docs && pnpm run dev
+	@cd clients/$(DOCS_MODULE)/apps/docs && pnpm run dev
 
 # ------------------------------------------------------------------------------------
 # DEPENDENCY MANAGEMENT
