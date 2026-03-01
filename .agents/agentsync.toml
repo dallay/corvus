@@ -165,42 +165,18 @@ description = "Antigravity - High-performance AI coding CLI"
 
 [agents.antigravity.targets.instructions]
 source = "AGENTS.md"
-destination = ".antigravity/instructions.md"
+destination = "	.agent/rules/instructions.md"
 type = "symlink"
 
 [agents.antigravity.targets.skills]
 source = "skills"
-destination = ".antigravity/skills"
+destination = ".agent/skills"
 type = "symlink-contents"
 pattern = "*"
 
 [agents.antigravity.targets.commands]
 source = "command"
-destination = ".antigravity/commands"
-type = "symlink-contents"
-pattern = "*"
-
-# -----------------------------------------------------------------------------
-# Jules CLI - The expert engineer assistant
-# -----------------------------------------------------------------------------
-[agents.jules]
-enabled = true
-description = "Jules CLI - The expert engineer assistant"
-
-[agents.jules.targets.instructions]
-source = "AGENTS.md"
-destination = ".jules/instructions.md"
-type = "symlink"
-
-[agents.jules.targets.skills]
-source = "skills"
-destination = ".jules/skills"
-type = "symlink-contents"
-pattern = "*"
-
-[agents.jules.targets.commands]
-source = "command"
-destination = ".jules/commands"
+destination = ".agent/commands"
 type = "symlink-contents"
 pattern = "*"
 

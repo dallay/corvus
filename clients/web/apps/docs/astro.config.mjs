@@ -1,7 +1,7 @@
 import starlight from "@astrojs/starlight";
+import { getPortFromUrl, PORTS, resolveSiteUrl } from "@corvus/shared/env";
 import { defineConfig } from "astro/config";
 import { viewTransitions } from "astro-vtbot/starlight-view-transitions";
-import { getPortFromUrl, PORTS, resolveSiteUrl } from "@corvus/shared/env";
 import { loadEnv } from "vite";
 
 const DEFAULT_DEV_URL = `http://localhost:${PORTS.DOCS}`;
@@ -32,7 +32,7 @@ function computeBaseFromUrl(url) {
     if (pathname === "/") return "/";
     // Remove trailing slash for non-root paths
     return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
-  } catch (e) {
+  } catch (_e) {
     return "/";
   }
 }

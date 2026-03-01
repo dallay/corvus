@@ -312,7 +312,7 @@ impl CopilotProvider {
                 warn!(
                     "Failed to write secure Copilot token file {}: {err}",
                     path_display
-                )
+                );
             }
             Err(err) => warn!(
                 "Failed to spawn token write task for {}: {err}",

@@ -91,6 +91,7 @@ struct AdminGatewayView {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+#[allow(clippy::struct_excessive_bools)]
 struct AdminChannelsView {
     cli: bool,
     has_telegram: bool,
@@ -542,12 +543,9 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
 }
 
 fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde_json::Value>)> {
-    let Some(origin_raw) = headers
+    let origin_raw = headers
         .get(header::ORIGIN)
-        .and_then(|value| value.to_str().ok())
-    else {
-        return None;
-    };
+        .and_then(|value| value.to_str().ok())?;
     let origin_raw = origin_raw.trim();
     if origin_raw.is_empty() {
         return None;

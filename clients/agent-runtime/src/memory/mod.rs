@@ -234,13 +234,13 @@ pub fn create_memory_for_migration(
                 };
                 let embedder: Arc<dyn embeddings::EmbeddingProvider> =
                     Arc::new(embeddings::NoopEmbedding);
-                return Ok(Box::new(SurrealMemory::new(
+                Ok(Box::new(SurrealMemory::new(
                     workspace_dir,
                     &config,
                     embedder,
                     config.vector_weight as f32,
                     config.keyword_weight as f32,
-                )?));
+                )?))
             }
             #[cfg(not(feature = "memory-surreal"))]
             {

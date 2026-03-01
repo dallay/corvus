@@ -6,7 +6,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 /// HTTP request tool for API interactions.
-
 const MAX_REQUEST_HEADERS: usize = 64;
 const MAX_HEADER_TOTAL_BYTES: usize = 8 * 1024;
 
