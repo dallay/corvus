@@ -9,7 +9,7 @@ Una mirada detallada a la organización del repositorio **Corvus**.
 - `clients/`: Aplicaciones cliente (Android, iOS, Web, runtime del agente).
 - `modules/`: Módulos compartidos y reutilizables (core del agente).
 - `gradle/`: Configuraciones específicas de Gradle y lógica de construcción.
-- `dev/`: Entorno de desarrollo local (Docker/Sandbox).
+- `docs/`: Documentación del proyecto (sitio Astro + Starlight).
 - `Makefile`: Comandos estandarizados para tareas comunes.
 - `settings.gradle.kts`: Define la jerarquía del proyecto e incluye los módulos.
 - `README.md`: Descripción general del proyecto a alto nivel.
@@ -22,11 +22,8 @@ Contiene todas las aplicaciones cliente que consumen los módulos compartidos:
 - `clients/composeApp`: Módulo UI compartido en Compose Kotlin Multiplatform.
 - `clients/androidApp`: App wrapper nativa de Android conectada al módulo Compose compartido.
 - `clients/iosApp`: App wrapper nativa de iOS conectada al framework Compose compartido.
-- `clients/web`: Monorepositorio web que contiene:
-  - `apps/docs`: Este sitio de documentación (Astro + Starlight).
-  - `apps/dashboard`: Panel operativo (Vue).
-  - `apps/marketing`: Página pública (Astro).
-- `clients/agent-runtime`: Núcleo del Agente y CLI de alto rendimiento (Rust).
+- `clients/web`: Aplicación web y panel de operadores.
+- `clients/agent-runtime`: Runtime del agente para ejecución de tareas.
 
 ## El Directorio `modules`
 
@@ -46,9 +43,9 @@ Contiene todas las aplicaciones cliente que consumen los módulos compartidos:
   consistentes.
 - **`configs/`**: Configuraciones adicionales de herramientas (Detekt, Spotless, etc.).
 
-## La Documentación (en `clients/web/apps/docs`)
+## El Directorio `docs`
 
-- **`src/content/docs/es/`**: Documentación en español.
+- **`docs/es/`**: Documentación en español.
   - `index.mdx`: Página de inicio.
   - `guides/`: Guías detalladas del proyecto.
-- **`src/content/docs/en/`**: Documentación en inglés (si aplica).
+- **`docs/en/`**: Documentación en inglés (si aplica).

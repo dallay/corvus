@@ -7,12 +7,15 @@ proyecto.
 
 ## Requisitos Previos
 
-- **Java JDK 21** o superior (para Kotlin/KMP).
-- **Rust 1.75** o superior (para Agent Runtime).
-- **Node.js 22** o superior y **pnpm 10** o superior (para aplicaciones Web).
+- **Java JDK 21** o superior.
+- **Rust 1.75** o superior.
+- **Node.js 22** o superior.
+- **pnpm 10** o superior.
 - **Git**.
-- **Docker** (opcional, para Sandboxing).
 - Un shell compatible con bash (Linux, macOS o Git Bash en Windows).
+- **Docker**: requerido solo para el sandbox y los contenedores de desarrollo; si no usas contenedores, Docker no es necesario.
+
+Las herramientas listadas son necesarias para ejecutar `make setup` y `make build` cuando usas esos flujos de trabajo con contenedores.
 
 ## Instalación
 

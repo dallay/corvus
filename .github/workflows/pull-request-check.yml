@@ -90,40 +90,14 @@ jobs:
 
       - name: 📈 Generate Code Coverage Report
         if: github.event_name != 'pull_request'
-        run: ./gradlew :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
+        run: ./gradlew testCodeCoverageReport
 
-      - name: 🦀 Setup Rust coverage toolchain
-        if: github.event_name != 'pull_request'
-        run: |
-          rustup toolchain install 1.92 --profile minimal --component llvm-tools-preview
-          rustup default 1.92
-          cargo install --locked cargo-llvm-cov --version 0.8.4
-
-      - name: 🦀 Generate Rust coverage report
-        if: github.event_name != 'pull_request'
-        working-directory: clients/agent-runtime
-        run: |
-          mkdir -p coverage
-          cargo llvm-cov --workspace --locked --lcov --output-path coverage/lcov.info
-
-      - name: 📤 Upload Kotlin coverage to Codecov
+      - name: 📤 Upload coverage to Codecov
         if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
         with:
           fail_ci_if_error: true
           verbose: true
-          files: ./modules/agent-core-kmp/build/reports/kover/report.xml,./clients/composeApp/build/reports/kover/report.xml
-          flags: kotlin
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
-
-      - name: 📤 Upload Rust coverage to Codecov
-        if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
-        with:
-          fail_ci_if_error: true
-          verbose: true
-          files: ./clients/agent-runtime/coverage/lcov.info
-          flags: rust
+          files: ./gradle/aggregation/build/reports/coverage/coverage.xml
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

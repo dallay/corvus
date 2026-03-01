@@ -14,7 +14,7 @@ clear separation between clients and shared modules.
 │   ├── androidApp/             # Android host app
 │   ├── composeApp/             # Shared Compose Multiplatform module
 │   ├── iosApp/                 # iOS host app (Xcode project)
-│   └── web/                    # Web monorepo (docs, dashboard, marketing)
+│   └── web/                    # Web app and operator dashboard
 ├── modules/                    # Shared modules
 │   └── agent-core-kmp/         # Agent core in Kotlin Multiplatform
 ├── gradle/                     # Build configuration
@@ -24,7 +24,7 @@ clear separation between clients and shared modules.
 │   ├── versions/               # Version management
 │   ├── libs.versions.toml      # Version catalog
 │   └── wrapper/                # Gradle wrapper
-├── dev/                        # Local development environment (Docker/Sandbox)
+├── docs/                       # Documentation (Astro + Starlight)
 ├── Makefile                    # Standardized command interface
 └── settings.gradle.kts         # Global project configuration
 ```
@@ -123,3 +123,4 @@ For a more detailed view of the architecture, see the following C4 diagrams:
 | -               | [Module Dependencies](./architecture/diagrams/module-dependencies.mmd)     | Gradle dependency relationships                   | `module-dependencies.mmd`         |
 
 See [Architecture Index](./architecture/index.md) for more details on how to visualize them.
+

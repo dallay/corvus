@@ -145,9 +145,8 @@ Ve a **GitHub → Repositorio → Settings → Secrets and variables → Actions
 3. Haz clic en tu avatar → **Profile**
 4. Busca **User Token** o **Generate Token**
 5. Crea un token y copia:
-
-- **Username** → `MAVEN_CENTRAL_USERNAME`
-- **Password** → `MAVEN_CENTRAL_PASSWORD`
+  - **Username** → `MAVEN_CENTRAL_USERNAME`
+  - **Password** → `MAVEN_CENTRAL_PASSWORD`
 
 **Importante:** Nunca uses un token sin expiración. Rota los tokens periódicamente.
 

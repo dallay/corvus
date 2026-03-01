@@ -27,7 +27,7 @@ SurrealDB supports several storage engines, each with different characteristics:
 
 #### RocksDB (`rocksdb://`)
 
-- Key-value based storage engine
+- Key-value-based storage engine
 - Persistent on disk
 - Suitable for development and single-node production
 

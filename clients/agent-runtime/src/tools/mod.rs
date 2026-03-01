@@ -193,6 +193,7 @@ pub fn all_tools_with_runtime(
     // Web search tool (enabled by default for GLM and other models)
     if root_config.web_search.enabled {
         tools.push(Box::new(WebSearchTool::new(
+            security.clone(),
             root_config.web_search.provider.clone(),
             root_config.web_search.brave_api_key.clone(),
             root_config.web_search.max_results,

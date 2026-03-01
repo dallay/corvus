@@ -71,11 +71,27 @@ val cargoFmtCheck =
     "--check",
   )
 
+val cargoClippy =
+  registerCargoTask(
+    name = "cargoClippy",
+    description = "Run cargo clippy for embedded Corvus core.",
+    "clippy",
+    "--all-targets",
+    "--all-features",
+    "--",
+    "-D",
+    "warnings",
+  )
+
 tasks.named("assemble") { dependsOn(cargoBuild) }
 
 tasks.named("qualityCheck") {
   dependsOn(cargoCheck)
   dependsOn(cargoFmtCheck)
+  dependsOn(cargoClippy)
 }
 
-tasks.named("check") { dependsOn(cargoTest) }
+tasks.named("check") {
+  dependsOn(cargoTest)
+  dependsOn(cargoClippy)
+}
