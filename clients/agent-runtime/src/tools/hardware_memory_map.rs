@@ -104,11 +104,13 @@ impl Tool for HardwareMemoryMapTool {
                 };
                 match probe_rs_memory_map(chip) {
                     Ok(probe_msg) => {
-                        output.push_str(&format!("**{}** (via probe-rs):\n{}\n", board, probe_msg));
+                        use std::fmt::Write as _;
+                        let _ = write!(output, "**{}** (via probe-rs):\n{}\n", board, probe_msg);
                         true
                     }
                     Err(e) => {
-                        output.push_str(&format!("Probe-rs failed: {}. ", e));
+                        use std::fmt::Write as _;
+                        let _ = write!(output, "Probe-rs failed: {}. ", e);
                         false
                     }
                 }
@@ -154,27 +156,26 @@ fn probe_rs_memory_map(chip: &str) -> anyhow::Result<String> {
     let target = session.target();
     let mut out = String::new();
 
-    for region in target.memory_map.iter() {
+    for region in &target.memory_map {
+        use std::fmt::Write as _;
         match region {
             MemoryRegion::Ram(ram) => {
                 let start = ram.range.start;
                 let end = ram.range.end;
                 let size_kb = (end - start) / 1024;
-                out.push_str(&format!(
-                    "RAM: 0x{:08X} - 0x{:08X} ({} KB)\n",
-                    start, end, size_kb
-                ));
+                let _ = writeln!(out, "RAM: 0x{:08X} - 0x{:08X} ({} KB)", start, end, size_kb);
             }
             MemoryRegion::Nvm(flash) => {
                 let start = flash.range.start;
                 let end = flash.range.end;
                 let size_kb = (end - start) / 1024;
-                out.push_str(&format!(
-                    "Flash: 0x{:08X} - 0x{:08X} ({} KB)\n",
+                let _ = writeln!(
+                    out,
+                    "Flash: 0x{:08X} - 0x{:08X} ({} KB)",
                     start, end, size_kb
-                ));
+                );
             }
-            _ => {}
+            MemoryRegion::Generic(_) => {}
         }
     }
 

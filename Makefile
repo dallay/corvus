@@ -7,6 +7,9 @@
 
 .DEFAULT_GOAL := help
 
+MAKEFLAGS += --no-builtin-rules --no-builtin-variables --output-sync=target
+.SHELLFLAGS := -eu -o pipefail -c
+
 # ------------------------------------------------------------------------------------
 # VARIABLES & CONFIGURATION
 # ------------------------------------------------------------------------------------
@@ -29,6 +32,7 @@ endif
 GRADLEW := ./gradlew
 DEV_NULL := /dev/null
 MKDIR_P := mkdir -p
+CHECK_TOOLS ?= 1
 
 # Module Names
 APP_MODULE := composeApp
@@ -59,6 +63,9 @@ help: ## Show this help message
 # ------------------------------------------------------------------------------------
 
 check-tools: ## Verify required tools are installed
+ifeq ($(CHECK_TOOLS),0)
+	@echo "ℹ️  Skipping toolchain checks (CHECK_TOOLS=0)"
+else
 	@echo "🔍 Checking required tools and versions..."
 	@bash -ec '\
 		require_cmd() { \
@@ -103,6 +110,13 @@ check-tools: ## Verify required tools are installed
 		fi; \
 		echo "✅ Toolchain OK: java=$$java_major, node=$$node_major, pnpm=$$pnpm_major, rustc=$$rust_ver"; \
 	'
+endif
+
+check-python: ## Verify python3 is installed
+	@command -v python3 >/dev/null 2>&1 || { \
+		echo "❌ Error: 'python3' is required for fast-fail make workflows."; \
+		exit 1; \
+	}
 
 setup: check-tools ## Initial project setup (chmod +x gradlew)
 	@echo "🔧 Setting up project..."
@@ -331,7 +345,11 @@ ci-check: check-tools ## CI: Run all checks without daemon
 # FULL WORKFLOWS
 # ------------------------------------------------------------------------------------
 
-all: clean build check ## Run full CI pipeline (clean, build, check)
+all: check-tools check-python ## Fast-fail quality pipeline (parallel)
+	@echo "🚦 Running fast-fail pipeline (parallel): format, tests, quality, rust"
+	@python3 dev/make-fast-fail.py "$(MAKE)" check-format test lint-kotlin lint-rust
+
+all-full: clean build check ## Full CI pipeline (sequential)
 	@echo "✨ Full CI pipeline completed successfully!"
 
 quick: format build-fast ## Quick development cycle (format + build without tests)
@@ -340,10 +358,10 @@ quick: format build-fast ## Quick development cycle (format + build without test
 sync-version: ## Sync VERSION in gradle.properties with the latest git tag (vX.Y.Z)
 	@bash ./sync-version-with-tag.sh
 
-.PHONY: help check-tools setup wrapper build build-fast clean clean-all run dev \
+.PHONY: help check-tools check-python setup wrapper build build-fast clean clean-all run dev \
         dev-up dev-down dev-shell dev-agent dev-logs dev-build dev-clean dev-status \
         test test-app test-coverage test-verbose \
         format check-format lint-kotlin lint-java lint-rust lint-android lint-all check docs docs-serve \
         docs-web-build docs-web-check docs-web-format docs-web-dev \
         deps deps-app deps-analysis deps-update tasks info version ci-build \
-        ci-test ci-check all quick sync-version
+        ci-test ci-check all all-full quick sync-version
