@@ -5,6 +5,13 @@
 unmaintained = "workspace"
 yanked = "warn"
 
+# Ignore RUSTSEC-2023-0071 (Marvin Attack) - No fix available yet
+# The rsa crate has a timing side-channel vulnerability but no patched version exists
+# tracked in: https://github.com/RustCrypto/RSA/issues/19
+ignore = [
+    "RUSTSEC-2023-0071",
+]
+
 [licenses]
 # All licenses are denied unless explicitly allowed
 allow = [
