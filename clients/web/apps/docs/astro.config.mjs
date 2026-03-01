@@ -28,9 +28,10 @@ function computeBaseFromUrl(url) {
   if (!url) return "/";
   try {
     const pathname = new URL(url).pathname || "/";
-    // Ensure leading slash and remove trailing slash except for root
-    const normalized = pathname === "/" ? "/" : `/${pathname.replace(/^\/+|\/+$/g, "").replace(/\/+$/, "")}`;
-    return normalized === "" ? "/" : normalized.replace(/\/$/, "");
+    // If root, keep '/'
+    if (pathname === "/") return "/";
+    // Remove trailing slash for non-root paths
+    return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
   } catch (e) {
     return "/";
   }
