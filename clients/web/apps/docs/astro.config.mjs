@@ -24,9 +24,23 @@ const docsUrl = resolveSiteUrl({
 });
 const resolvedPort = getPortFromUrl(docsUrl, PORTS.DOCS);
 
+function computeBaseFromUrl(url) {
+  if (!url) return "/";
+  try {
+    const pathname = new URL(url).pathname || "/";
+    // Ensure leading slash and remove trailing slash except for root
+    const normalized = pathname === "/" ? "/" : `/${pathname.replace(/^\/+|\/+$/g, "").replace(/\/+$/, "")}`;
+    return normalized === "" ? "/" : normalized.replace(/\/$/, "");
+  } catch (e) {
+    return "/";
+  }
+}
+
+const base = computeBaseFromUrl(docsUrl);
+
 export default defineConfig({
   site: docsUrl,
-  base: "/", // ← Root level for custom domain
+  base, // computed from the provider/site URL so subpath deployments work
   server: {
     host: true,
     port: resolvedPort,
