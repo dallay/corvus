@@ -1,8 +1,7 @@
 {
-  "$schema": "https://raw.githubusercontent.com/mikepenz/release-changelog-builder-action/main/configs/json-schema.json",
-  "template": "## 📢 What's Changed\n\n#{{CHANGELOG}}\n<details>\n<summary>🔐 Uncategorized Changes</summary>\n\n#{{UNCATEGORIZED}}\n</details>\n\n## Contributors:\n- #{{CONTRIBUTORS}}",
-  "commit_template": "- #{{TITLE}} #{{MERGE_SHA}}",
-  "pr_template": "- #{{TITLE}} - #{{MERGE_SHA}} - ##{{NUMBER}}",
+  "template": "## 📢 What's Changed\n\n{{CHANGELOG}}\n\n<details>\n<summary>🔐 Uncategorized Changes</summary>\n\n{{UNCATEGORIZED}}\n</details>\n\n## Contributors:\n- {{CONTRIBUTORS}}",
+  "commit_template": "- {{TITLE}} ({{MERGE_SHA}})",
+  "pr_template": "- {{TITLE}} — #{{NUMBER}} (merge {{MERGE_SHA}})",
   "empty_template": "- No changes in this release",
   "exclude_merge_branches": ["hotfix/temp-*", "owner/qa", "owner/test"],
   "tag_resolver": {
@@ -73,13 +72,13 @@
       "on_property": "title",
       "method": "regexr",
       "pattern": "!!\\s*$",
-      "target": "$'pr|breaking-change"
+      "target": "pr|breaking-change"
     },
     {
       "on_property": "title",
       "method": "regexr",
-      "pattern": "\\.\\.\\s*$",
-      "target": "$'pr|changelog-ignore"
+      "pattern": "\\.\\.\\.\\s*$",
+      "target": "pr|changelog-ignore"
     },
     {
       "on_property": "title",
@@ -89,7 +88,7 @@
     }
   ],
   "sort": {
-    "order": "ASC",
+    "order": "DESC",
     "on_property": "mergedAt"
   },
   "max_tags_to_fetch": 200,
