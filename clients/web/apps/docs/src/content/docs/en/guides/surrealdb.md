@@ -134,23 +134,27 @@ You must satisfy these points before running SurrealDB in production:
 
 ## 4) Production `docker-compose.yml` Examples
 
-### With RocksDB (standard)
+> ⚠️ **Security Best Practice**: For production, use Docker **secrets** for sensitive data
+> (usernames, passwords) instead of environment variables. See [Docker Secrets documentation](https://docs.docker.com/engine/swarm/secrets/).
+
+### With RocksDB (standard) - Using Secrets
 
 ```yaml
-version: "3.9"
-
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.1         # pin a specific version
-    container_name: surrealdb
-    command: >
-      start
-      --bind 0.0.0.0:8000                   # listen on all interfaces
-      --user ${SURREAL_USER}                # root/non-root user
-      --pass ${SURREAL_PASS}                # secret password
-      rocksdb:/surreal/db                    # RocksDB persistence on volume
-    env_file:
-      - .env                                 # define sensitive variables
+    command:
+      - sh
+      - -c
+      - >
+        surreal start
+        --bind 0.0.0.0:8000
+        --user "$$(cat /run/secrets/surreal_user)"
+        --pass "$$(cat /run/secrets/surreal_pass)"
+        rocksdb:/surreal/db                   # RocksDB persistence on volume
+    secrets:
+      - surreal_user
+      - surreal_pass
     ports:
       - "${SURREAL_PORT:-8000}:8000"         # expose only if needed
     volumes:
@@ -162,7 +166,49 @@ services:
         max-size: "50m"
         max-file: "3"
     healthcheck:
-      test: [ "CMD", "wget", "--spider", "-q", "http://localhost:8000/ready" ]
+      test: ["CMD", "surreal", "is-ready", "--endpoint", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+secrets:
+  surreal_user:
+    file: ./secrets/surreal_user.txt        # contains: root
+  surreal_pass:
+    file: ./secrets/surreal_pass.txt         # contains: your_secure_password
+
+volumes:
+  surreal_data:
+```
+
+### With RocksDB - Using .env file (development only)
+
+For local development, you can use `.env` files (add to `.gitignore`):
+
+```yaml
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v3.0.1
+    command: >
+      start
+      --bind 0.0.0.0:8000
+      --user ${SURREAL_USER}
+      --pass ${SURREAL_PASS}
+      rocksdb:/surreal/db
+    env_file:
+      - .env                                 # local dev only - ADD TO .gitignore!
+    ports:
+      - "${SURREAL_PORT:-8000}:8000"
+    volumes:
+      - surreal_data:/surreal/db
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "surreal", "is-ready", "--endpoint", "http://localhost:8000"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -174,51 +220,81 @@ volumes:
 ### With SurrealKV (recommended for production)
 
 ```yaml
-version: "3.9"
-
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.1
-    container_name: surrealdb
-    command: >
-      start
-      --bind 0.0.0.0:8000
-      --user ${SURREAL_USER}
-      --pass ${SURREAL_PASS}
-      surrealkv:/surreal/db                  # SurrealKV (recommended)
+    command:
+      - sh
+      - -c
+      - >
+        surreal start
+        --bind 0.0.0.0:8000
+        --user "$$(cat /run/secrets/surreal_user)"
+        --pass "$$(cat /run/secrets/surreal_pass)"
+        surrealkv:/surreal/db                # SurrealKV (recommended)
+    secrets:
+      - surreal_user
+      - surreal_pass
     # ... rest of configuration same
 ```
 
 ### In-Memory (development/tests only)
 
 ```yaml
-version: "3.9"
-
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.1
-    container_name: surrealdb
-    command: >
-      start
-      --bind 0.0.0.0:8000
-      --user ${SURREAL_USER}
-      --pass ${SURREAL_PASS}
-      mem                                        # In-memory (NOT persistent)
+    command:
+      - sh
+      - -c
+      - >
+        surreal start
+        --bind 0.0.0.0:8000
+        --user "$$(cat /run/secrets/surreal_user)"
+        --pass "$$(cat /run/secrets/surreal_pass)"
+        mem                                      # In-memory (NOT persistent)
+    secrets:
+      - surreal_user
+      - surreal_pass
     # NO volumes for in-memory
     # WARNING: data is lost on restart
 ```
 
-## 4) Environment Variables (`.env` file)
+## 5) Environment Variables and Secrets
 
-This file **must NOT be committed to public repository**:
+> Note: in Docker Compose, use `$$` to escape `$` and prevent interpolation at parse time.
+
+### For Production: Docker Secrets
+
+Create secrets files (never commit these):
 
 ```bash
+mkdir -p secrets
+echo "root" > secrets/surreal_user.txt
+echo "S0m3$3cur3P@ss" > secrets/surreal_pass.txt
+chmod 600 secrets/*.txt
+```
+
+Add to `.gitignore`:
+```
+secrets/
+.env
+```
+
+### For Development: .env file
+
+This file **must NOT be committed to public repository** (add to `.gitignore`):
+
+```bash
+# .env - Development only!
 SURREAL_USER=root
 SURREAL_PASS=S0m3$3cur3P@ss
 SURREAL_PORT=8000
 ```
 
-## 5) Key Technical Notes
+> 📖 See [Docker Compose Environment Variables Best Practices](https://docs.docker.com/compose/how-tos/environment-variables/best-practices/) for more details.
+
+## 6) Key Technical Notes
 
 ### Data Persistence
 
@@ -243,7 +319,7 @@ This is standard in production.
 
 The logging configuration limits size and rotation. Adjust based on observability requirements.
 
-## 6) Security and Networking Considerations
+## 7) Security and Networking Considerations
 
 - In production, it is recommended to place SurrealDB **behind a reverse proxy** (NGINX/Traefik)
   with
@@ -252,7 +328,7 @@ The logging configuration limits size and rotation. Adjust based on observabilit
   port publicly.
 - **Do NOT use `latest` in production**; pinning the version enforces release control.
 
-## 7) Enterprise Environment Options
+## 8) Enterprise Environment Options
 
 If you need to autoscale or have multiple nodes:
 

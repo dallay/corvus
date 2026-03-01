@@ -134,23 +134,27 @@ Debes satisfacer estos puntos antes de poner SurrealDB en producción:
 
 ## 4) Ejemplo de `docker-compose.yml` para producción
 
-### Con RocksDB (estándar)
+> ⚠️ **Best Practice de Seguridad**: Para producción, usa **secrets** de Docker para datos sensibles
+> (usuarios, contraseñas) en lugar de variables de entorno. Ver [documentación de Docker Secrets](https://docs.docker.com/engine/swarm/secrets/).
+
+### Con RocksDB (estándar) - Usando Secrets
 
 ```yaml
-version: "3.9"
-
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.1         # fija una versión concreta
-    container_name: surrealdb
-    command: >
-      start
-      --bind 0.0.0.0:8000                   # escucha en todas las interfaces
-      --user ${SURREAL_USER}                 # usuario root/no root
-      --pass ${SURREAL_PASS}                 # contraseña secreta
-      rocksdb:/surreal/db                    # persistencia RocksDB en volumen
-    env_file:
-      - .env                                 # define variables sensibles
+    command:
+      - sh
+      - -c
+      - >
+        surreal start
+        --bind 0.0.0.0:8000
+        --user "$$(cat /run/secrets/surreal_user)"
+        --pass "$$(cat /run/secrets/surreal_pass)"
+        rocksdb:/surreal/db                   # persistencia RocksDB en volumen
+    secrets:
+      - surreal_user
+      - surreal_pass
     ports:
       - "${SURREAL_PORT:-8000}:8000"         # solo expone si es necesario
     volumes:
@@ -162,7 +166,49 @@ services:
         max-size: "50m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8000/ready"]
+      test: ["CMD", "surreal", "is-ready", "--endpoint", "http://localhost:8000"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+secrets:
+  surreal_user:
+    file: ./secrets/surreal_user.txt        # contenido: root
+  surreal_pass:
+    file: ./secrets/surreal_pass.txt         # contenido: tu_contraseña_segura
+
+volumes:
+  surreal_data:
+```
+
+### Con RocksDB - Usando archivo .env (solo desarrollo)
+
+Para desarrollo local, puedes usar archivos `.env` (añadir a `.gitignore`):
+
+```yaml
+services:
+  surrealdb:
+    image: surrealdb/surrealdb:v3.0.1
+    command: >
+      start
+      --bind 0.0.0.0:8000
+      --user ${SURREAL_USER}
+      --pass ${SURREAL_PASS}
+      rocksdb:/surreal/db
+    env_file:
+      - .env                                 # solo para dev local - ¡AÑADIR A .gitignore!
+    ports:
+      - "${SURREAL_PORT:-8000}:8000"
+    volumes:
+      - surreal_data:/surreal/db
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "surreal", "is-ready", "--endpoint", "http://localhost:8000"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -174,51 +220,81 @@ volumes:
 ### Con SurrealKV (recomendado para producción)
 
 ```yaml
-version: "3.9"
-
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.1
-    container_name: surrealdb
-    command: >
-      start
-      --bind 0.0.0.0:8000
-      --user ${SURREAL_USER}
-      --pass ${SURREAL_PASS}
-      surrealkv:/surreal/db                  # SurrealKV (recomendado)
+    command:
+      - sh
+      - -c
+      - >
+        surreal start
+        --bind 0.0.0.0:8000
+        --user "$$(cat /run/secrets/surreal_user)"
+        --pass "$$(cat /run/secrets/surreal_pass)"
+        surrealkv:/surreal/db                # SurrealKV (recomendado)
+    secrets:
+      - surreal_user
+      - surreal_pass
     # ... resto de configuración igual
 ```
 
 ### In-Memory (solo desarrollo/tests)
 
 ```yaml
-version: "3.9"
-
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.1
-    container_name: surrealdb
-    command: >
-      start
-      --bind 0.0.0.0:8000
-      --user ${SURREAL_USER}
-      --pass ${SURREAL_PASS}
-      mem                                        # In-memory (NO persistente)
+    command:
+      - sh
+      - -c
+      - >
+        surreal start
+        --bind 0.0.0.0:8000
+        --user "$$(cat /run/secrets/surreal_user)"
+        --pass "$$(cat /run/secrets/surreal_pass)"
+        mem                                      # In-memory (NO persistente)
+    secrets:
+      - surreal_user
+      - surreal_pass
     # NO volumes para in-memory
     # ADVERTENCIA: datos se pierden al reiniciar
 ```
 
-## 4) Variables de entorno (archivo `.env`)
+## 5) Variables de entorno y Secrets
 
-Este archivo **no debe guardarse en repositorio público**:
+> Nota: en Docker Compose se usa `$$` para escapar `$` y evitar interpolación en parseo.
+
+### Para Producción: Docker Secrets
+
+Crea archivos de secrets (nunca hacer commit):
 
 ```bash
+mkdir -p secrets
+echo "root" > secrets/surreal_user.txt
+echo "S0m3$3cur3P@ss" > secrets/surreal_pass.txt
+chmod 600 secrets/*.txt
+```
+
+Añadir a `.gitignore`:
+```
+secrets/
+.env
+```
+
+### Para Desarrollo: archivo .env
+
+Este archivo **no debe guardarse en repositorio público** (añadir a `.gitignore`):
+
+```bash
+# .env - ¡Solo desarrollo!
 SURREAL_USER=root
 SURREAL_PASS=S0m3$3cur3P@ss
 SURREAL_PORT=8000
 ```
 
-## 5) Notas técnicas clave
+> 📖 Ver [Docker Compose Environment Variables Best Practices](https://docs.docker.com/compose/how-tos/environment-variables/best-practices/) para más detalles.
+
+## 6) Notas técnicas clave
 
 ### Persistencia de datos
 
@@ -243,7 +319,7 @@ contenedor falla. Esto es estándar en producción.
 
 La configuración de logs limita tamaño y rotación. Ajusta en función de observabilidad requerida.
 
-## 6) Consideraciones de seguridad y networking
+## 7) Consideraciones de seguridad y networking
 
 - En producción es recomendable colocar SurrealDB **detrás de un proxy inverso** (NGINX/Traefik) y
   **TLS termination**.
@@ -251,7 +327,7 @@ La configuración de logs limita tamaño y rotación. Ajusta en función de obse
   puerto al público.
 - **No uses `latest` en producción**; fijar la versión obliga a control de releases.
 
-## 7) Opcionales para entornos enterprise
+## 8) Opcionales para entornos enterprise
 
 Si vas a autoscalar o tener múltiples nodos:
 
