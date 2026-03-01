@@ -112,6 +112,12 @@ else
 	'
 endif
 
+check-python: ## Verify python3 is installed
+	@command -v python3 >/dev/null 2>&1 || { \
+		echo "❌ Error: 'python3' is required for fast-fail make workflows."; \
+		exit 1; \
+	}
+
 setup: check-tools ## Initial project setup (chmod +x gradlew)
 	@echo "🔧 Setting up project..."
 	@chmod +x gradlew
@@ -339,7 +345,7 @@ ci-check: check-tools ## CI: Run all checks without daemon
 # FULL WORKFLOWS
 # ------------------------------------------------------------------------------------
 
-all: check-tools ## Fast-fail quality pipeline (parallel)
+all: check-tools check-python ## Fast-fail quality pipeline (parallel)
 	@echo "🚦 Running fast-fail pipeline (parallel): format, tests, quality, rust"
 	@python3 dev/make-fast-fail.py "$(MAKE)" check-format test lint-kotlin lint-rust
 
@@ -352,7 +358,7 @@ quick: format build-fast ## Quick development cycle (format + build without test
 sync-version: ## Sync VERSION in gradle.properties with the latest git tag (vX.Y.Z)
 	@bash ./sync-version-with-tag.sh
 
-.PHONY: help check-tools setup wrapper build build-fast clean clean-all run dev \
+.PHONY: help check-tools check-python setup wrapper build build-fast clean clean-all run dev \
         dev-up dev-down dev-shell dev-agent dev-logs dev-build dev-clean dev-status \
         test test-app test-coverage test-verbose \
         format check-format lint-kotlin lint-java lint-rust lint-android lint-all check docs docs-serve \

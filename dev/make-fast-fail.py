@@ -2,6 +2,7 @@
 
 import subprocess
 import sys
+import traceback
 import time
 
 
@@ -41,8 +42,12 @@ def main() -> int:
                     continue
                 try:
                     other.terminate()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    print(
+                        f"⚠️ Failed to terminate {alive.get(other, 'unknown target')}: {exc}",
+                        file=sys.stderr,
+                    )
+                    traceback.print_exc(file=sys.stderr)
 
             deadline = time.time() + 5
             for other in list(alive.keys()):
@@ -53,8 +58,12 @@ def main() -> int:
                 if other.poll() is None:
                     try:
                         other.kill()
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        print(
+                            f"⚠️ Failed to kill {alive.get(other, 'unknown target')}: {exc}",
+                            file=sys.stderr,
+                        )
+                        traceback.print_exc(file=sys.stderr)
 
             return code
 
