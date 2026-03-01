@@ -1,10 +1,40 @@
 import starlight from "@astrojs/starlight";
 import { defineConfig } from "astro/config";
 import { viewTransitions } from "astro-vtbot/starlight-view-transitions";
+import { getPortFromUrl, PORTS, resolveSiteUrl } from "@corvus/shared/env";
+import { loadEnv } from "vite";
+
+const DEFAULT_DEV_URL = `http://localhost:${PORTS.DOCS}`;
+const DEFAULT_PROD_URL = "https://docs.profiletailors.com";
+
+const mode = process.env.NODE_ENV || "production";
+const env = loadEnv(mode, process.cwd(), "");
+const docsUrl = resolveSiteUrl({
+  env,
+  primaryKey: "DOCS_URL",
+  localDefault: DEFAULT_DEV_URL,
+  productionDefault: DEFAULT_PROD_URL,
+  genericKeys: ["SITE_URL"],
+  providerKeys: {
+    cloudflare: "CF_PAGES_URL",
+    vercel: "VERCEL_URL",
+    netlify: "URL",
+  },
+  isProdLike: mode === "production",
+});
+const resolvedPort = getPortFromUrl(docsUrl, PORTS.DOCS);
 
 export default defineConfig({
-  site: "https://dallay.github.io",
-  base: "/corvus",
+  site: docsUrl,
+  base: "/", // ← Root level for custom domain
+  server: {
+    host: true,
+    port: resolvedPort,
+  },
+  preview: {
+    host: true,
+    port: resolvedPort,
+  },
   integrations: [
     starlight({
       title: "Corvus",
