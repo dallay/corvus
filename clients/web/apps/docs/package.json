@@ -14,12 +14,14 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.37.6",
+    "@corvus/shared": "workspace:*",
     "astro": "^5.17.2",
     "sharp": "^0.34.5"
   },
   "devDependencies": {
-    "astro-vtbot": "2.1.11",
     "@astrojs/check": "latest",
-    "typescript": "latest"
+    "astro-vtbot": "2.1.11",
+    "typescript": "latest",
+    "vite": "6.4.1"
   }
 }
