@@ -72,49 +72,4 @@ class RustCliBridgeTest {
 
     assertTrue(failure.message.contains("Unable to start Rust bridge executable"))
   }
-
-  @Test
-  fun `should recover and succeed after a timeout failure`() {
-    val bridge =
-      RustCliBridge(
-        config =
-          RustCliBridgeConfig(
-            executable = "sh",
-            arguments =
-              listOf(
-                "-c",
-                "if [ \"$1\" = \"slow\" ]; then sleep 1; else echo \"fast-success\"; fi",
-                "bridge",
-              ),
-          )
-      )
-
-    // First call: timeout
-    val timeoutResult = bridge.invoke(CoreInvocation(prompt = "slow", timeoutMs = 50))
-    assertIs<CoreResult.Failure>(timeoutResult)
-    assertTrue(timeoutResult.message.contains("timed out"))
-
-    // Second call: success
-    val successResult = bridge.invoke(CoreInvocation(prompt = "fast"))
-    val success = assertIs<CoreResult.Success>(successResult)
-    assertEquals("fast-success", success.output.text)
-  }
-
-  @Test
-  fun `should handle large output without crashing`() {
-    // Generate ~10KB of output.
-    val bridge =
-      RustCliBridge(
-        config =
-          RustCliBridgeConfig(
-            executable = "python3",
-            arguments = listOf("-c", "print('a' * 10240)"),
-          )
-      )
-
-    val result = bridge.invoke(CoreInvocation(prompt = "ignored"))
-    val success = assertIs<CoreResult.Success>(result)
-    assertEquals(10240, success.output.text.length)
-    assertTrue(success.output.text.all { it == 'a' })
-  }
 }

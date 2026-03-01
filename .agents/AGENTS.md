@@ -24,9 +24,6 @@ plugins, and version catalogs.
 >
 > These principles override convenience, speed of development, and "getting it done quickly."
 
-We develop using **TDD by default**: Red -> Green -> Refactor for new behavior, bug fixes, and
-risky refactors.
-
 ## Quick Commands
 
 ```bash
@@ -158,22 +155,19 @@ Located in `.agents/skills/`. Reference for detailed patterns:
 
 | Skill                                                                | Description                               | Trigger                          |
 | -------------------------------------------------------------------- | ----------------------------------------- | -------------------------------- |
-| [rust](.agents/skills/rust/SKILL.md)                                 | Rust basics, testing, Cargo.toml          | `Cargo.toml`, `**/*.rs` files   |
-| [rust-async-patterns](.agents/skills/rust-async-patterns/SKILL.md)   | Tokio, async traits, concurrent patterns | `tokio::`, `async fn`, channels |
 | [gradle](.agents/skills/gradle/SKILL.md)                             | Gradle best practices, custom tasks       | `build.gradle.kts`, build config |
 | [kotlin](.agents/skills/kotlin/SKILL.md)                             | Kotlin conventions, null safety           | `.kt` files                      |
-| [c4-diagrams](.agents/skills/c4-diagrams/SKILL.md)                  | C4 architecture diagrams                   | `docs/architecture/diagrams`    |
+| [c4-diagrams](.agents/skills/c4-diagrams/SKILL.md)                   | C4 architecture diagrams                  | `docs/architecture/diagrams`     |
 | [pr-creator](.agents/skills/pr-creator/SKILL.md)                     | PR creation workflow                      | Creating PRs                     |
-| [pinned-tag](.agents/skills/pinned-tag/SKILL.md)                    | Pin GitHub Actions                        | CI security                      |
-| [release](.agents/skills/release/SKILL.md)                           | Release process, Maven Central publishing  | Creating releases                |
-| [android-expert](.agents/skills/android-expert/SKILL.md)            | Android-specific patterns, best practices | Android development              |
-| [compose-expert](.agents/skills/compose-expert/SKILL.md)            | Jetpack Compose UI patterns               | Compose UI code                  |
-| [desktop-expert](.agents/skills/desktop-expert/SKILL.md)            | Compose Desktop, desktop patterns         | Desktop app development          |
-| [gradle-expert](.agents/skills/gradle-expert/SKILL.md)              | Advanced Gradle, custom plugins           | Complex Gradle configs           |
-| [kotlin-coroutines](.agents/skills/kotlin-coroutines/SKILL.md)      | Coroutines, async patterns                | Coroutines, Flow                 |
-| [kotlin-expert](.agents/skills/kotlin-expert/SKILL.md)              | Advanced Kotlin features                  | Advanced Kotlin                  |
+| [pinned-tag](.agents/skills/pinned-tag/SKILL.md)                     | Pin GitHub Actions                        | CI security                      |
+| [release](.agents/skills/release/SKILL.md)                           | Release process, Maven Central publishing | Creating releases                |
+| [android-expert](.agents/skills/android-expert/SKILL.md)             | Android-specific patterns, best practices | Android development              |
+| [compose-expert](.agents/skills/compose-expert/SKILL.md)             | Jetpack Compose UI patterns               | Compose UI code                  |
+| [desktop-expert](.agents/skills/desktop-expert/SKILL.md)             | Compose Desktop, desktop patterns         | Desktop app development          |
+| [gradle-expert](.agents/skills/gradle-expert/SKILL.md)               | Advanced Gradle, custom plugins           | Complex Gradle configs           |
+| [kotlin-coroutines](.agents/skills/kotlin-coroutines/SKILL.md)       | Coroutines, async patterns                | Coroutines, Flow                 |
+| [kotlin-expert](.agents/skills/kotlin-expert/SKILL.md)               | Advanced Kotlin features                  | Advanced Kotlin                  |
 | [kotlin-multiplatform](.agents/skills/kotlin-multiplatform/SKILL.md) | KMP patterns, expect/actual               | KMP modules                      |
-| [tdd](.agents/skills/tdd/SKILL.md)                                     | Test-Driven Development workflow          | Red/Green/Refactor, new behavior |
 | [conventional-commits](.opencode/skill/conventional-commits/SKILL.md) | Conventional Commits specification        | Creating commits, git messages   |
 
 ## Testing

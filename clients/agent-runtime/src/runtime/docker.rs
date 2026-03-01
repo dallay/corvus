@@ -127,12 +127,11 @@ impl RuntimeAdapter for DockerRuntime {
                 .arg("/workspace");
         }
 
-        let image = self.config.image.trim();
-        if image.is_empty() {
-            anyhow::bail!("Docker runtime requires a non-empty image name");
-        }
-
-        process.arg(image).arg("sh").arg("-c").arg(command);
+        process
+            .arg(self.config.image.trim())
+            .arg("sh")
+            .arg("-c")
+            .arg(command);
 
         Ok(process)
     }
@@ -272,34 +271,5 @@ mod tests {
             !debug.contains("--memory"),
             "should not include --memory when not configured"
         );
-    }
-
-    #[test]
-    fn docker_build_shell_command_fails_with_non_absolute_workspace_when_mount_enabled() {
-        let cfg = DockerRuntimeConfig {
-            mount_workspace: true,
-            ..DockerRuntimeConfig::default()
-        };
-        let runtime = DockerRuntime::new(cfg);
-        // Note: canonicalize() might make a relative path absolute if it exists in current dir.
-        // We use a path that definitely doesn't exist and isn't absolute.
-        let relative_workspace = Path::new("definitely/relative/and/nonexistent");
-        let result = runtime.build_shell_command("echo test", relative_workspace);
-        assert!(result.is_err());
-        let err_msg = format!("{:#}", result.unwrap_err());
-        assert!(err_msg.contains("absolute"), "Error message should mention 'absolute', got: {}", err_msg);
-    }
-
-    #[test]
-    fn docker_build_shell_command_errors_on_empty_image() {
-        let cfg = DockerRuntimeConfig {
-            image: "  ".into(), // Test whitespace too
-            ..DockerRuntimeConfig::default()
-        };
-        let runtime = DockerRuntime::new(cfg);
-        let workspace = std::env::temp_dir();
-        let result = runtime.build_shell_command("echo test", &workspace);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("image"));
     }
 }

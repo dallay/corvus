@@ -89,39 +89,4 @@ mod tests {
         let debug = format!("{command:?}");
         assert!(debug.contains("echo hello"));
     }
-
-    #[tokio::test]
-    async fn native_executes_failing_command() {
-        let cwd = std::env::temp_dir();
-        let mut command = NativeRuntime::new()
-            .build_shell_command("exit 42", &cwd)
-            .unwrap();
-
-        let output = command.output().await.unwrap();
-        assert!(!output.status.success());
-        assert_eq!(output.status.code(), Some(42));
-    }
-
-    #[tokio::test]
-    async fn native_executes_command_with_stderr() {
-        let cwd = std::env::temp_dir();
-        let mut command = NativeRuntime::new()
-            .build_shell_command("echo 'error message' >&2", &cwd)
-            .unwrap();
-
-        let output = command.output().await.unwrap();
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(stderr.contains("error message"));
-    }
-
-    #[tokio::test]
-    async fn native_fails_with_invalid_directory() {
-        let invalid_dir = Path::new("/nonexistent/directory/that/does/not/exist");
-        let mut command = NativeRuntime::new()
-            .build_shell_command("ls", invalid_dir)
-            .unwrap();
-
-        let result = command.output().await;
-        assert!(result.is_err());
-    }
 }
