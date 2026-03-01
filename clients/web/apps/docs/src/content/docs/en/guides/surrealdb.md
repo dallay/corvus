@@ -133,7 +133,7 @@ version: "3.9"
 
 services:
   surrealdb:
-    image: surrealdb/surrealdb:2.6.2         # pin a specific version
+    image: surrealdb/surrealdb:v3.0.1         # pin a specific version
     container_name: surrealdb
     command: >
       start
@@ -170,7 +170,7 @@ version: "3.9"
 
 services:
   surrealdb:
-    image: surrealdb/surrealdb:2.6.2
+    image: surrealdb/surrealdb:v3.0.1
     container_name: surrealdb
     command: >
       start
@@ -188,7 +188,7 @@ version: "3.9"
 
 services:
   surrealdb:
-    image: surrealdb/surrealdb:2.6.2
+    image: surrealdb/surrealdb:v3.0.1
     container_name: surrealdb
     command: >
       start

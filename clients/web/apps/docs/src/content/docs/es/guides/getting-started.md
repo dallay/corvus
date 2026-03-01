@@ -8,8 +8,14 @@ proyecto.
 ## Requisitos Previos
 
 - **Java JDK 21** o superior.
+- **Rust 1.75** o superior.
+- **Node.js 22** o superior.
+- **pnpm 10** o superior.
 - **Git**.
 - Un shell compatible con bash (Linux, macOS o Git Bash en Windows).
+- **Docker** (opcional; requerido para el sandbox y contenedores de desarrollo).
+
+Estas herramientas son necesarias para ejecutar `make setup` y `make build`.
 
 ## Instalación
 

@@ -98,7 +98,7 @@ Recomendado:
 - Primer triaje por maintainer: objetivo en 48 horas.
 - Si PR está bloqueado, maintainer deja una lista de verificación accionable.
 - Automatización `stale` se usa para mantener cola saludable; maintainers pueden aplicar `no-stale` cuando sea necesario.
-- Automatización `pr-hygiene` revisa PRs abiertos cada 12 horas. Se activa cuando un PR no tiene nuevos commits por 48+ horas. El PR se considera bloqueado si está detrás de `main` o si el head commit tiene `CI Required Gate` fallando o missing.
+- Automatización `pr-hygiene` revisa PRs abiertos cada 12 horas. Se activa cuando un PR no tiene nuevos commits por 48+ horas. El PR se considera bloqueado si está detrás de `main` o si el head commit tiene `CI Required Gate` fallando o ausente.
 
 ## 7) Reglas de seguridad y estabilidad
 

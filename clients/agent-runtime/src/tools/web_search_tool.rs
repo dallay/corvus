@@ -227,6 +227,17 @@ impl Tool for WebSearchTool {
             });
         }
 
+        // Pre-validate provider and credentials so we don't waste action budget
+        match self.provider.as_str() {
+            "duckduckgo" | "ddg" => {}
+            "brave" => {
+                if self.brave_api_key.is_none() {
+                    anyhow::bail!("Brave API key not configured");
+                }
+            }
+            _ => anyhow::bail!("Unknown search provider: {}", self.provider),
+        }
+
         if !self.security.record_action() {
             return Ok(ToolResult {
                 success: false,
@@ -240,7 +251,7 @@ impl Tool for WebSearchTool {
         let result = match self.provider.as_str() {
             "duckduckgo" | "ddg" => self.search_duckduckgo(query).await?,
             "brave" => self.search_brave(query).await?,
-            _ => anyhow::bail!("Unknown search provider: {}", self.provider),
+            _ => unreachable!(),
         };
 
         Ok(ToolResult {

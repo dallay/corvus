@@ -265,7 +265,7 @@ docs-web-format: check-tools ## Format website docs (Biome)
 
 docs-web-dev: check-tools ## Run website docs dev server
 	@echo "🌐 Starting docs dev server..."
-	@cd apps/docs/website && pnpm run dev
+	@cd $(DOCS_MODULE)/website && pnpm run dev
 
 # ------------------------------------------------------------------------------------
 # DEPENDENCY MANAGEMENT

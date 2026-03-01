@@ -20,7 +20,7 @@ Los checks merge-blocking deben mantenerse pequeños y deterministas. Los checks
 - `.github/workflows/docker.yml` (`Docker`)
     - Propósito: PR docker smoke check y publicación de imágenes en pushes a `main`/tag
 - `.github/workflows/security.yml` (`Security Audit`)
-    - Propósito: Advisorys de dependencias (`cargo audit`) y checks de política/licencia (`cargo deny`)
+    - Propósito: Avisos de dependencias (`cargo audit`) y checks de política/licencia (`cargo deny`)
 - `.github/workflows/release.yml` (`Release`)
     - Propósito: Build de artifacts etiquetados y publicación de GitHub releases
 
