@@ -69,7 +69,7 @@ pattern = "*"
 source = "command"
 destination = ".claude/commands"
 type = "symlink-contents"
-pattern = "*.md"
+pattern = "*"
 
 # -----------------------------------------------------------------------------
 # GitHub Copilot
@@ -87,7 +87,7 @@ type = "symlink"
 source = "command"
 destination = ".github/agents"
 type = "symlink-contents"
-pattern = "*.md"
+pattern = "*"
 
 # -----------------------------------------------------------------------------
 # OpenAI Codex CLI
@@ -111,7 +111,7 @@ pattern = "*"
 source = "command"
 destination = ".codex/commands"
 type = "symlink-contents"
-pattern = "*.md"
+pattern = "*"
 
 # -----------------------------------------------------------------------------
 # Google Gemini
@@ -135,7 +135,7 @@ pattern = "*"
 source = "command"
 destination = ".gemini/commands"
 type = "symlink-contents"
-pattern = "*.md"
+pattern = "*"
 
 # -----------------------------------------------------------------------------
 # OpenCode AI - Terminal-based AI coding assistant
@@ -154,7 +154,55 @@ pattern = "*"
 source = "command"
 destination = ".opencode/command"
 type = "symlink-contents"
-pattern = "*.md"
+pattern = "*"
+
+# -----------------------------------------------------------------------------
+# Antigravity - High-performance AI coding CLI
+# -----------------------------------------------------------------------------
+[agents.antigravity]
+enabled = true
+description = "Antigravity - High-performance AI coding CLI"
+
+[agents.antigravity.targets.instructions]
+source = "AGENTS.md"
+destination = ".antigravity/instructions.md"
+type = "symlink"
+
+[agents.antigravity.targets.skills]
+source = "skills"
+destination = ".antigravity/skills"
+type = "symlink-contents"
+pattern = "*"
+
+[agents.antigravity.targets.commands]
+source = "command"
+destination = ".antigravity/commands"
+type = "symlink-contents"
+pattern = "*"
+
+# -----------------------------------------------------------------------------
+# Jules CLI - The expert engineer assistant
+# -----------------------------------------------------------------------------
+[agents.jules]
+enabled = true
+description = "Jules CLI - The expert engineer assistant"
+
+[agents.jules.targets.instructions]
+source = "AGENTS.md"
+destination = ".jules/instructions.md"
+type = "symlink"
+
+[agents.jules.targets.skills]
+source = "skills"
+destination = ".jules/skills"
+type = "symlink-contents"
+pattern = "*"
+
+[agents.jules.targets.commands]
+source = "command"
+destination = ".jules/commands"
+type = "symlink-contents"
+pattern = "*"
 
 # -----------------------------------------------------------------------------
 # Root AGENTS.md
