@@ -1,5 +1,6 @@
 package com.profiletailors.agent.core
 
+import java.io.File
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -31,7 +32,7 @@ class RustCliBridgeTest {
         config =
           RustCliBridgeConfig(
             executable = "sh",
-            arguments = listOf("-c", "echo bridge-error >&2; exit 7", "bridge"),
+            arguments = listOf("-c", "echo bridge-error >&2; /usr/bin/env sh -c 'exit 7'", "bridge"),
           )
       )
 
@@ -71,5 +72,53 @@ class RustCliBridgeTest {
     val failure = assertIs<CoreResult.Failure>(result)
 
     assertTrue(failure.message.contains("Unable to start Rust bridge executable"))
+  }
+
+  @Test
+  fun `should fail for invalid timeout`() {
+    val bridge = RustCliBridge()
+    val result = bridge.invoke(CoreInvocation(prompt = "hello", timeoutMs = 0))
+    val failure = assertIs<CoreResult.Failure>(result)
+
+    assertTrue(failure.message.contains("Timeout must be greater than zero"))
+  }
+
+  @Test
+  fun `should honor working directory`() {
+    val tempDir = System.getProperty("java.io.tmpdir")
+    val bridge =
+      RustCliBridge(
+        config =
+          RustCliBridgeConfig(
+            executable = "sh",
+            arguments = listOf("-c", "pwd", "bridge"),
+            workingDirectory = tempDir,
+          )
+      )
+
+    val result = bridge.invoke(CoreInvocation(prompt = "ignored"))
+    val success = assertIs<CoreResult.Success>(result)
+
+    // Normalize paths for comparison
+    val expected = File(tempDir).absolutePath.removeSuffix("/")
+    val actual = File(success.output.text).absolutePath.removeSuffix("/")
+    assertEquals(expected, actual)
+  }
+
+  @Test
+  fun `should return default details when output is blank on failure`() {
+    val bridge =
+      RustCliBridge(
+        config =
+          RustCliBridgeConfig(
+            executable = "sh",
+            arguments = listOf("-c", "/usr/bin/env sh -c 'exit 9'", "bridge"),
+          )
+      )
+
+    val result = bridge.invoke(CoreInvocation(prompt = "ignored"))
+    val failure = assertIs<CoreResult.Failure>(result)
+
+    assertEquals("No output returned by Rust bridge.", failure.details)
   }
 }
