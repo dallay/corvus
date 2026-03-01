@@ -14,6 +14,8 @@ jobs:
   rust-audit:
     name: Rust Security Audit (${{ matrix.name }})
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
