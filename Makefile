@@ -225,19 +225,30 @@ check-format: check-tools ## Check code formatting without fixing
 	@echo "🔍 Checking code formatting..."
 	@$(GRADLEW) spotlessCheck
 
-lint-kotlin: check-tools ## Run Kotlin linting (Detekt)
-	@echo "🔍 Running Kotlin static analysis (Detekt)..."
-	@$(GRADLEW) detekt
+lint-kotlin: check-tools ## Run Kotlin static analysis (via qualityCheck)
+	@echo "🔍 Running Kotlin static analysis (qualityCheck)..."
+	@$(GRADLEW) qualityCheck
 
-lint-java: check-tools ## Run Java static analysis (SpotBugs)
-	@echo "🔍 Running Java static analysis (SpotBugs)..."
-	@$(GRADLEW) spotbugsMain
+lint-java: check-tools ## Run Java static analysis (via qualityCheck)
+	@echo "🔍 Running Java static analysis (qualityCheck)..."
+	@$(GRADLEW) qualityCheck
 
-lint: lint-kotlin lint-java ## Run all static analysis
+lint-rust: check-tools ## Run Rust static analysis (Clippy)
+	@echo "🔍 Running Rust static analysis (Clippy)..."
+	@$(GRADLEW) :agent-runtime:cargoClippy -PenableRustTasks=true
 
-check: check-tools ## Run all checks (format, lint, tests)
-	@echo "🔍 Running all checks..."
-	@$(GRADLEW) check
+lint-android: check-tools ## Run Android static analysis (Lint)
+	@echo "🔍 Running Android static analysis (Lint)..."
+	@$(GRADLEW) :androidApp:lint
+
+lint-all: lint-kotlin lint-java lint-rust lint-android ## Run all static analysis
+
+check: check-tools ## Run all checks (format, lint, tests, Rust, Android)
+	@echo "🔍 Running Gradle check (includes tests, format, quality checks)..."
+	@$(GRADLEW) check -PenableRustTasks=true
+	@echo ""
+	@echo "🔍 Running Android Lint..."
+	@$(GRADLEW) :androidApp:lint
 
 # ------------------------------------------------------------------------------------
 # DOCUMENTATION
@@ -314,7 +325,7 @@ ci-test: check-tools ## CI: Run tests without daemon
 	@$(GRADLEW) test --no-daemon
 
 ci-check: check-tools ## CI: Run all checks without daemon
-	@$(GRADLEW) check --no-daemon
+	@$(GRADLEW) check -PenableRustTasks=true --no-daemon
 
 # ------------------------------------------------------------------------------------
 # FULL WORKFLOWS
@@ -332,7 +343,7 @@ sync-version: ## Sync VERSION in gradle.properties with the latest git tag (vX.Y
 .PHONY: help check-tools setup wrapper build build-fast clean clean-all run dev \
         dev-up dev-down dev-shell dev-agent dev-logs dev-build dev-clean dev-status \
         test test-app test-coverage test-verbose \
-        format check-format lint-kotlin lint-java lint check docs docs-serve \
+        format check-format lint-kotlin lint-java lint-rust lint-android lint-all check docs docs-serve \
         docs-web-build docs-web-check docs-web-format docs-web-dev \
         deps deps-app deps-analysis deps-update tasks info version ci-build \
         ci-test ci-check all quick sync-version

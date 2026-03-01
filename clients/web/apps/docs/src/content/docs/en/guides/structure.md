@@ -40,7 +40,7 @@ Contains all client applications that consume the shared modules:
 - **`wrapper/`**: Contains the Gradle wrapper files, ensuring consistent build environments.
 - **`configs/`**: Additional tool configurations (Detekt, Spotless, etc.).
 
-## The `docs` Directory
+## Documentation
 
 - **`clients/web/apps/docs/src/content/docs/es/`**: Documentation in Spanish.
   - `index.mdx`: Home page.

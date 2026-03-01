@@ -251,7 +251,13 @@ impl Tool for WebSearchTool {
         let result = match self.provider.as_str() {
             "duckduckgo" | "ddg" => self.search_duckduckgo(query).await?,
             "brave" => self.search_brave(query).await?,
-            _ => unreachable!(),
+            unknown => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Unknown web search provider: '{}'. Supported providers are: duckduckgo, ddg, brave", unknown).into()),
+                });
+            }
         };
 
         Ok(ToolResult {

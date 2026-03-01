@@ -13,9 +13,9 @@ proyecto.
 - **pnpm 10** o superior.
 - **Git**.
 - Un shell compatible con bash (Linux, macOS o Git Bash en Windows).
-- **Docker** (opcional; requerido para el sandbox y contenedores de desarrollo).
+- **Docker**: requerido solo para el sandbox y los contenedores de desarrollo; si no usas contenedores, Docker no es necesario.
 
-Estas herramientas son necesarias para ejecutar `make setup` y `make build`.
+Las herramientas listadas son necesarias para ejecutar `make setup` y `make build` cuando usas esos flujos de trabajo con contenedores.
 
 ## Instalación
 

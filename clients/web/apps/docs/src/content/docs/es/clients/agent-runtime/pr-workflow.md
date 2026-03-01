@@ -33,7 +33,7 @@ Mantén estas reglas de protección de rama en `main`:
 
 ### Paso A: Intake
 
-- Contributor abre PR con `.github/pull_request_template.md` completo, incluyendo: problema, cambio, no-objetivos, riesgos y plan de rollback.
+- Contributor abre PR con `.github/pull_request_template.md` completo, incluyendo problema, cambio, no-objetivos, riesgos y plan de rollback.
 - `PR Labeler` aplica labels de path + size.
 - `Auto Response` publica guía para contribuidores primerizos.
 
