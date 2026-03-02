@@ -189,8 +189,19 @@ tasks.register("distZipAllWebApps") {
   dependsOn(webApps.map { "${it}DistZip" })
 }
 
-// Legacy compatibility with old "docs" naming
-tasks.register<Exec>("websiteInstall") {
+tasks.register("websiteFormat") {
+  group = "web"
+  description = "[Legacy] Format docs"
+  dependsOn("docsFormat")
+}
+
+tasks.register("websiteCheck") {
+  group = "web"
+  description = "[Legacy] Check docs"
+  dependsOn("docsCheck")
+}
+
+tasks.register("websiteInstall") {
   group = "web"
   description = "[Legacy] Install docs dependencies"
   dependsOn(workspaceInstall)
@@ -198,20 +209,9 @@ tasks.register<Exec>("websiteInstall") {
 
 tasks.register<Exec>("docStarlight") {
   group = "web"
-  description = "[Legacy] Build Starlight docs"
-  dependsOn("docsBuild")
-}
-
-tasks.register<Exec>("websiteFormat") {
-  group = "web"
-  description = "[Legacy] Format docs"
-  dependsOn("docsFormat")
-}
-
-tasks.register<Exec>("websiteCheck") {
-  group = "web"
-  description = "[Legacy] Check docs"
-  dependsOn("docsCheck")
+  description = "Build Starlight docs with pnpm"
+  workingDir = webRootDir
+  commandLine(pnpmShim, "run", "build")
 }
 
 tasks.register<Zip>("distZipWebsite") {

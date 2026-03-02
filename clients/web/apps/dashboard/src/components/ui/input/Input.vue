@@ -1,10 +1,34 @@
 <script setup lang="ts">
 defineOptions({ inheritAttrs: false });
 
+type InputType =
+  | "text"
+  | "password"
+  | "email"
+  | "number"
+  | "tel"
+  | "url"
+  | "search"
+  | "date"
+  | "time"
+  | "datetime-local"
+  | "month"
+  | "week"
+  | "color"
+  | "file"
+  | "range"
+  | "checkbox"
+  | "radio"
+  | "hidden"
+  | "submit"
+  | "reset"
+  | "button"
+  | "image";
+
 defineProps<{
   modelValue?: string;
   placeholder?: string;
-  type?: HTMLInputTypeAttribute;
+  type?: InputType;
 }>();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
