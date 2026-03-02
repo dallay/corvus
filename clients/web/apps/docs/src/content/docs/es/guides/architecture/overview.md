@@ -1,5 +1,5 @@
 ---
-title: Diagramas de Arquitectura
+title: Descripción de Arquitectura
 description: Colección de diagramas C4 para el proyecto Corvus
 ---
 

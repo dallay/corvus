@@ -1,5 +1,5 @@
 ---
-title: Architecture Diagrams
+title: Architecture Overview
 description: Collection of C4 diagrams for the Corvus project
 ---
 

@@ -122,4 +122,4 @@ For a more detailed view of the architecture, see the following C4 diagrams:
 | C3 - Components | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd)     | Internal components of the core module            | `component/agent-core-kmp.mmd`    |
 | -               | [Module Dependencies](./architecture/diagrams/module-dependencies.mmd)     | Gradle dependency relationships                   | `module-dependencies.mmd`         |
 
-See [Architecture Index](./architecture/index.md) for more details on how to visualize them.
+See [Architecture Index](./architecture/overview.md) for more details on how to visualize them.

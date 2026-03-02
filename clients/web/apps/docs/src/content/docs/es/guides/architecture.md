@@ -123,5 +123,5 @@ Para una vista más detallada de la arquitectura, consulta los siguientes diagra
 | C3 - Componentes  | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd)              | Componentes internos del módulo core               | `component/agent-core-kmp.mmd`    |
 | -                 | [Dependencias entre Módulos](./architecture/diagrams/module-dependencies.mmd)       | Relaciones de dependencia de Gradle                | `module-dependencies.mmd`         |
 
-Ver [Índice de Diagramas](./architecture/index.md) (en inglés) para más detalles sobre cómo
+Ver [Índice de Diagramas](./architecture/overview.md) (en inglés) para más detalles sobre cómo
 visualizarlos.
