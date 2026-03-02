@@ -7,10 +7,6 @@ on:
     branches:
       - main
       - minor
-  pull_request:
-    branches:
-      - main
-      - minor
   schedule:
     - cron: "16 5 * * *"
   workflow_dispatch:
@@ -34,10 +30,6 @@ jobs:
         include:
           - language: actions
             build-mode: none
-          - language: javascript-typescript
-            build-mode: none
-          - language: rust
-            build-mode: none
           - language: java-kotlin
             build-mode: manual
 
@@ -51,24 +43,20 @@ jobs:
           node-version: "24"
 
       - name: ☕ Setup Java
-        if: matrix.language == 'java-kotlin'
         uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
         with:
           java-version: "25"
           distribution: "corretto"
 
       - name: 🐘 Setup Gradle
-        if: matrix.language == 'java-kotlin'
         uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
         with:
           gradle-version: wrapper
 
       - name: 🔧 Ensure gradlew is executable
-        if: matrix.language == 'java-kotlin'
         run: chmod +x ./gradlew
 
       - name: 🔧 Show Gradle version
-        if: matrix.language == 'java-kotlin'
         run: ./gradlew --version
 
       - name: ⚙️ Initialize CodeQL

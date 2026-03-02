@@ -164,10 +164,7 @@ impl Observer for PrometheusObserver {
                     self.tokens_used.set(i64::try_from(*t).unwrap_or(i64::MAX));
                 }
             }
-            ObserverEvent::ToolCallStart { .. }
-            | ObserverEvent::TurnComplete
-            | ObserverEvent::LlmRequest { .. }
-            | ObserverEvent::LlmResponse { .. } => {}
+            ObserverEvent::ToolCallStart { tool: _ } => {}
             ObserverEvent::ToolCall {
                 tool,
                 duration,
@@ -180,6 +177,9 @@ impl Observer for PrometheusObserver {
                 self.tool_duration
                     .with_label_values(&[tool.as_str()])
                     .observe(duration.as_secs_f64());
+            }
+            ObserverEvent::TurnComplete => {
+                // No metric for turn complete currently
             }
             ObserverEvent::ChannelMessage { channel, direction } => {
                 self.channel_messages
@@ -195,6 +195,8 @@ impl Observer for PrometheusObserver {
             } => {
                 self.errors.with_label_values(&[component]).inc();
             }
+            ObserverEvent::LlmRequest { .. } => {}
+            ObserverEvent::LlmResponse { .. } => {}
         }
     }
 

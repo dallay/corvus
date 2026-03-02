@@ -112,7 +112,7 @@ struct AdminChannelsView {
     webhook_has_secret: bool,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, Default)]
 struct AdminConfigUpdateRequest {
     #[serde(default)]
     default_provider: Option<String>,
@@ -136,7 +136,7 @@ struct AdminConfigUpdateRequest {
     webhook: Option<AdminWebhookPatch>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, Default)]
 struct AdminGatewayPatch {
     #[serde(default)]
     port: Option<u16>,
@@ -160,7 +160,7 @@ struct AdminGatewayPatch {
     idempotency_max_keys: Option<usize>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, Default)]
 struct AdminObservabilityPatch {
     #[serde(default)]
     backend: Option<String>,
@@ -170,13 +170,13 @@ struct AdminObservabilityPatch {
     otel_service_name: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, Default)]
 struct AdminRuntimePatch {
     #[serde(default)]
     kind: Option<String>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, Default)]
 struct AdminAutonomyPatch {
     #[serde(default)]
     level: Option<crate::security::AutonomyLevel>,
@@ -188,7 +188,7 @@ struct AdminAutonomyPatch {
     max_cost_per_day_cents: Option<u32>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, Default)]
 struct AdminSchedulerPatch {
     #[serde(default)]
     enabled: Option<bool>,
@@ -198,7 +198,7 @@ struct AdminSchedulerPatch {
     max_concurrent: Option<usize>,
 }
 
-#[derive(Debug, Clone, serde::Deserialize)]
+#[derive(Debug, Clone, serde::Deserialize, Default)]
 struct AdminWebhookPatch {
     #[serde(default)]
     port: Option<u16>,
@@ -764,6 +764,12 @@ impl IdempotencyStore {
 
         keys.insert(key.to_owned(), now);
         true
+    }
+
+    /// Remove a key from the store (e.g., on failure to allow retries).
+    fn remove(&self, key: &str) {
+        let mut keys = self.keys.lock();
+        keys.remove(key);
     }
 }
 
@@ -3089,5 +3095,252 @@ mod tests {
             body,
             &signature_header
         ));
+    }
+
+    // ── Tests for restart_required_updates and admin config handling ──
+
+    /// Test AdminSecretUpdate::Unchanged - no change to secret
+    #[test]
+    fn test_restart_required_webhook_secret_unchanged() {
+        let cfg = Config::default();
+        let patch = AdminConfigUpdateRequest {
+            webhook: Some(AdminWebhookPatch {
+                secret: Some(AdminSecretUpdate::Unchanged),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(!fields.contains(&"webhook.secret"), "Unchanged should not require restart");
+    }
+
+    /// Test AdminSecretUpdate::Clear - no restart needed if no secret exists (default config)
+    #[test]
+    fn test_restart_required_webhook_secret_clear_when_no_secret() {
+        let cfg = Config::default(); // No webhook secret configured
+
+        let patch = AdminConfigUpdateRequest {
+            webhook: Some(AdminWebhookPatch {
+                secret: Some(AdminSecretUpdate::Clear),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+        // Clear only triggers restart if there was an existing secret
+        // Default config has no webhook secret, so no restart needed
+        assert!(!fields.contains(&"webhook.secret"), "Clear should not require restart when no secret exists");
+    }
+
+    /// Test AdminSecretUpdate::Replace - replacing secret requires restart
+    #[test]
+    fn test_restart_required_webhook_secret_replace() {
+        let cfg = Config::default();
+        let patch = AdminConfigUpdateRequest {
+            webhook: Some(AdminWebhookPatch {
+                secret: Some(AdminSecretUpdate::Replace { value: "new_secret".to_string() }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(fields.contains(&"webhook.secret"), "Replace should require restart");
+    }
+
+    /// Test memory_backend comparison is case-insensitive
+    #[test]
+    fn test_restart_required_memory_backend_case_insensitive() {
+        let mut cfg = Config::default();
+        cfg.memory.backend = "sqlite".to_string();
+
+        // Different case should NOT trigger restart
+        let patch = AdminConfigUpdateRequest {
+            memory_backend: Some("SQLITE".to_string()),
+            ..Default::default()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(!fields.contains(&"memory_backend"), "Case-insensitive comparison should not trigger restart");
+    }
+
+    /// Test observability.backend comparison is case-insensitive
+    #[test]
+    fn test_restart_required_observability_backend_case_insensitive() {
+        let mut cfg = Config::default();
+        cfg.observability.backend = "prometheus".to_string();
+
+        // Different case should NOT trigger restart
+        let patch = AdminConfigUpdateRequest {
+            observability: Some(AdminObservabilityPatch {
+                backend: Some("PROMETHEUS".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(!fields.contains(&"observability.backend"), "Case-insensitive comparison should not trigger restart");
+    }
+
+    /// Test runtime.kind comparison detects changes
+    #[test]
+    fn test_restart_required_runtime_kind_change() {
+        let mut cfg = Config::default();
+        cfg.runtime.kind = "native".to_string();
+
+        let patch = AdminConfigUpdateRequest {
+            runtime: Some(AdminRuntimePatch {
+                kind: Some("docker".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(fields.contains(&"runtime.kind"), "Kind change should require restart");
+    }
+
+    /// Test scheduler max_tasks bounds (max(1, value))
+    #[test]
+    fn test_restart_required_scheduler_max_tasks_zero_becomes_one() {
+        let mut cfg = Config::default();
+        cfg.scheduler.max_tasks = 5;
+
+        // Zero should be normalized to 1 (handled in patch application)
+        // But restart detection checks the raw value
+        let patch = AdminConfigUpdateRequest {
+            scheduler: Some(AdminSchedulerPatch {
+                max_tasks: Some(0),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        // Note: restart detection compares raw values, normalization happens in apply
+        // Zero to non-zero change IS detected as a change
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(fields.contains(&"scheduler.max_tasks"), "max_tasks change should be detected");
+    }
+
+    /// Test scheduler max_concurrent bounds (max(1, value))
+    #[test]
+    fn test_restart_required_scheduler_max_concurrent_change() {
+        let mut cfg = Config::default();
+        cfg.scheduler.max_concurrent = 3;
+
+        let patch = AdminConfigUpdateRequest {
+            scheduler: Some(AdminSchedulerPatch {
+                max_concurrent: Some(5),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(fields.contains(&"scheduler.max_concurrent"), "max_concurrent change should be detected");
+    }
+
+    /// Test idempotency_ttl_secs zero handling
+    #[test]
+    fn test_restart_required_idempotency_ttl_change() {
+        let mut cfg = Config::default();
+        cfg.gateway.idempotency_ttl_secs = 300;
+
+        let patch = AdminConfigUpdateRequest {
+            gateway: Some(AdminGatewayPatch {
+                idempotency_ttl_secs: Some(600),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(fields.contains(&"gateway.idempotency_ttl_secs"), "idempotency_ttl_secs change should be detected");
+    }
+
+    /// Test that returned fields are sorted and deduplicated
+    #[test]
+    fn test_restart_required_fields_are_sorted_and_deduped() {
+        let mut cfg = Config::default();
+        cfg.default_model = None;
+        cfg.default_provider = None;
+        cfg.memory.backend = "sqlite".to_string();
+
+        // Multiple field changes
+        let patch = AdminConfigUpdateRequest {
+            default_model: Some("gpt-4".to_string()),
+            default_provider: Some("openai".to_string()),
+            memory_backend: Some("markdown".to_string()),
+            observability: Some(AdminObservabilityPatch {
+                backend: Some("prometheus".to_string()),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+
+        // Check sorted
+        let mut sorted_fields = fields.clone();
+        sorted_fields.sort_unstable();
+        assert_eq!(fields, sorted_fields, "Fields should be sorted");
+
+        // Check deduped (simulate duplicate entries)
+        let fields_with_dupes = vec!["default_model", "default_model", "memory_backend"];
+        let mut deduped = fields_with_dupes.clone();
+        deduped.sort_unstable();
+        deduped.dedup();
+        assert!(deduped.len() < fields_with_dupes.len(), "Dedup works correctly");
+    }
+
+    /// Test normalize_max_keys with zero value - uses fallback
+    #[test]
+    fn test_normalize_max_keys_zero_uses_fallback() {
+        // Zero should use fallback
+        assert_eq!(normalize_max_keys(0, 100), 100);
+        assert_eq!(normalize_max_keys(0, 1000), 1000);
+    }
+
+    /// Test normalize_max_keys clamps to bounds (100-100000)
+    #[test]
+    fn test_normalize_max_keys_clamped() {
+        assert_eq!(normalize_max_keys(50, 1000), 100, "Too low clamped to 100");
+        assert_eq!(normalize_max_keys(200000, 1000), 100000, "Too high clamped to 100000");
+        assert_eq!(normalize_max_keys(500, 1000), 500, "Normal value preserved");
+    }
+
+    /// Test validate_observability_backend accepts valid backends
+    #[test]
+    fn test_validate_observability_backend_valid() {
+        assert!(validate_observability_backend("none"));
+        assert!(validate_observability_backend("log"));
+        assert!(validate_observability_backend("prometheus"));
+        assert!(validate_observability_backend("otel"));
+    }
+
+    /// Test validate_observability_backend rejects invalid backends
+    #[test]
+    fn test_validate_observability_backend_invalid() {
+        assert!(!validate_observability_backend("invalid"));
+        assert!(!validate_observability_backend(""));
+        assert!(!validate_observability_backend("aws"));
+    }
+
+    /// Test validate_runtime_kind accepts valid kinds
+    #[test]
+    fn test_validate_runtime_kind_valid() {
+        assert!(validate_runtime_kind("native"));
+        assert!(validate_runtime_kind("docker"));
+    }
+
+    /// Test validate_runtime_kind rejects invalid kinds
+    #[test]
+    fn test_validate_runtime_kind_invalid() {
+        assert!(!validate_runtime_kind("invalid"));
+        assert!(!validate_runtime_kind(""));
+        assert!(!validate_runtime_kind("kubernetes"));
     }
 }

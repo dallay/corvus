@@ -316,6 +316,7 @@ archivos `.md` o `.txt` por placa (`nucleo-f401re.md`, `rpi-gpio.md`). Archivos 
 
 ## 12. Documentos Relacionados
 
+- [Arquitectura](./architecture.md)
 - [Flujo de Desarrollo](./development.md)
 - [Estructura del Proyecto](./structure.md)
 

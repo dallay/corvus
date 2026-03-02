@@ -111,6 +111,7 @@ mod tests {
                 mount_workspace: true,
                 ..Default::default()
             },
+            ..Default::default()
         };
         assert_eq!(runtime.kind, "docker");
         assert_eq!(runtime.docker.image, "custom:latest");

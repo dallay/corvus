@@ -1,7 +1,3 @@
----
-title: "Corvus PR Workflow (High-Volume Collaboration)"
----
-
 # Corvus PR Workflow (High-Volume Collaboration)
 
 This document defines how Corvus handles high PR volume while maintaining:

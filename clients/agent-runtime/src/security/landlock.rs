@@ -7,6 +7,7 @@
 use landlock::{AccessFs, PathBeneath, PathFd, Ruleset, RulesetAttr, RulesetCreatedAttr};
 
 use crate::security::traits::Sandbox;
+use std::path::Path;
 
 /// Landlock sandbox backend for Linux
 #[cfg(all(feature = "sandbox-landlock", target_os = "linux"))]
@@ -150,7 +151,6 @@ impl Sandbox for LandlockSandbox {
 
 // Stub implementations for non-Linux or when feature is disabled
 #[cfg(not(all(feature = "sandbox-landlock", target_os = "linux")))]
-#[derive(Debug)]
 pub struct LandlockSandbox;
 
 #[cfg(not(all(feature = "sandbox-landlock", target_os = "linux")))]
@@ -225,9 +225,10 @@ mod tests {
         // Result depends on platform and feature flag
         match result {
             Ok(sandbox) => assert!(sandbox.is_available()),
-            Err(_) => {
-                // On non-Linux or without sandbox-landlock feature this is expected
-            }
+            Err(_) => assert!(!cfg!(all(
+                feature = "sandbox-landlock",
+                target_os = "linux"
+            ))),
         }
     }
 

@@ -202,11 +202,13 @@ impl AnthropicProvider {
         if let Some(last_msg) = messages.last_mut() {
             if let Some(last_content) = last_msg.content.last_mut() {
                 match last_content {
-                    NativeContentOut::Text { cache_control, .. }
-                    | NativeContentOut::ToolResult { cache_control, .. } => {
+                    NativeContentOut::Text { cache_control, .. } => {
                         *cache_control = Some(CacheControl::ephemeral());
                     }
-                    NativeContentOut::ToolUse { .. } => {}
+                    NativeContentOut::ToolResult { cache_control, .. } => {
+                        *cache_control = Some(CacheControl::ephemeral());
+                    }
+                    _ => {}
                 }
             }
         }

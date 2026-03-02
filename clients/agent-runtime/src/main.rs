@@ -29,7 +29,6 @@
     clippy::unnecessary_literal_bound,
     clippy::unnecessary_map_or,
     clippy::unnecessary_wraps,
-    clippy::large_stack_arrays,
     dead_code
 )]
 
@@ -854,7 +853,7 @@ fn format_expiry(profile: &auth::profiles::AuthProfile) -> String {
     match profile
         .token_set
         .as_ref()
-        .and_then(|token_set| token_set.expires_at)
+        .and_then(|token_set| token_set.expires_at.as_ref().cloned())
     {
         Some(ts) => {
             let now = chrono::Utc::now();

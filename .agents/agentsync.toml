@@ -165,7 +165,7 @@ description = "Antigravity - High-performance AI coding CLI"
 
 [agents.antigravity.targets.instructions]
 source = "AGENTS.md"
-destination = "	.agent/rules/instructions.md"
+destination = ".agent/rules/instructions.md"
 type = "symlink"
 
 [agents.antigravity.targets.skills]

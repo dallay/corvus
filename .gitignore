@@ -160,8 +160,8 @@ build/spotless-prettier-node-modules-*/serve.js
 
 /ephemeral
 # START AI Agent Symlinks
-	.agent/rules/instructions.md
 .agent/commands
+.agent/rules/instructions.md
 .agent/skills
 .claude/commands
 .claude/commands/
