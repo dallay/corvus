@@ -51,36 +51,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Compression utilities
     bzip2 \
     xz-utils \
-    # Clean up
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Shell & User Experience
-# ═══════════════════════════════════════════════════════════════════════════════
-RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion \
-    && rm -rf /var/lib/apt/lists/*
+    # Rust toolchain (system-wide installation)
+    rustc \
+    cargo && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Corvus Agent Installation Testing Prerequisites
 # ═══════════════════════════════════════════════════════════════════════════════
-# Install Rust toolchain (required for building Corvus from source)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-ENV PATH="/root/.cargo/bin:${PATH}"
-ENV RUSTUP_HOME="/root/.cargo"
-ENV CARGO_HOME="/root/.cargo"
+# Rust is installed system-wide via apt, binaries are in /usr/bin/rustc and /usr/bin/cargo
 
 # Install Node.js 20 LTS (for npm-based Corvus installation)
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl gnupg && \
     mkdir -p /etc/apt/keyrings && \
     curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg && \
     echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" | tee /etc/apt/sources.list.d/nodesource.list && \
-    apt-get update && apt-get install -y nodejs && \
-    rm -rf /var/lib/apt/lists/*
-
-# Install Python 3 and pip
-RUN apt-get update && apt-get install -y --no-install-recommends \
+    apt-get update && apt-get install -y --no-install-recommends \
+    nodejs \
     python3 \
     python3-pip \
     python3-venv \
@@ -90,13 +79,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Non-root User Setup (for security testing)
 # Note: Ubuntu 24.04 base already has UID 1000, use 1001 instead
 # ═══════════════════════════════════════════════════════════════════════════════
-RUN mkdir -p /etc/sudoers.d && \
+RUN mkdir -p /etc/sudoers.d /home/tester/workspace && \
     useradd -m -s /bin/bash -u 1001 tester && \
     echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester && \
-    chmod 0440 /etc/sudoers.d/tester
-
-# Create workspace directory
-RUN mkdir -p /home/tester/workspace && chown -R tester:1001 /home/tester
+    chmod 0440 /etc/sudoers.d/tester && \
+    chown -R tester:1001 /home/tester
 
 # Switch to non-root user
 USER tester

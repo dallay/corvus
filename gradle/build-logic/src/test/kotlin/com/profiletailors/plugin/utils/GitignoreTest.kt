@@ -9,6 +9,13 @@ import org.junit.jupiter.api.Test
 /** Gitignore unit test class */
 class GitignorePatternsTest : GitignoreGitCommandTest() {
 
+  private companion object {
+    const val APP_BUILD = "app/build"
+    const val BUILD_SLASH = "build/"
+    const val APP_BUILD_SLASH = "app/build/"
+    const val APP_BUILD_DATA_TXT = "app/build/data.txt"
+  }
+
   /** Test asterisk wildcard behavior */
   @Test
   fun testAsteriskPattern() {
@@ -43,16 +50,16 @@ class GitignorePatternsTest : GitignoreGitCommandTest() {
     val cases =
       mapOf(
         "build" to true, // ignored
-        "app/build" to true, // ignored
+        APP_BUILD to true, // ignored
       )
     runGitignoreTests(gitignore, cases)
 
     // Directories
     val cases1 =
       mapOf(
-        "build/" to true, // ignored
-        "app/build/" to true, // ignored
-        "app/build/data.txt" to true, // ignored
+        BUILD_SLASH to true, // ignored
+        APP_BUILD_SLASH to true, // ignored
+        APP_BUILD_DATA_TXT to true, // ignored
       )
     runGitignoreTests(gitignore, cases1)
   }
@@ -70,16 +77,16 @@ class GitignorePatternsTest : GitignoreGitCommandTest() {
     val cases =
       mapOf(
         "build" to true, // ignored
-        "app/build" to false, // not ignored
+        APP_BUILD to false, // not ignored
       )
     runGitignoreTests(gitignore, cases)
 
     // Directories
     val cases1 =
       mapOf(
-        "build/" to true, // ignored
-        "app/build/" to false, // not ignored
-        "app/build/data.txt" to false, // not ignored
+        BUILD_SLASH to true, // ignored
+        APP_BUILD_SLASH to false, // not ignored
+        APP_BUILD_DATA_TXT to false, // not ignored
       )
     runGitignoreTests(gitignore, cases1)
   }
@@ -127,16 +134,16 @@ class GitignorePatternsTest : GitignoreGitCommandTest() {
     val cases =
       mapOf(
         "build" to false, // not ignored
-        "app/build" to false, // not ignored
+        APP_BUILD to false, // not ignored
       )
     runGitignoreTests(gitignore, cases)
 
     // Directories
     val cases1 =
       mapOf(
-        "build/" to true, // ignored
-        "app/build/" to true, // ignored
-        "app/build/data.txt" to true, // ignored
+        BUILD_SLASH to true, // ignored
+        APP_BUILD_SLASH to true, // ignored
+        APP_BUILD_DATA_TXT to true, // ignored
       )
     runGitignoreTests(gitignore, cases1)
   }
@@ -153,16 +160,16 @@ class GitignorePatternsTest : GitignoreGitCommandTest() {
     val cases =
       mapOf(
         "build" to true, // ignored
-        "app/build" to true, // ignored
+        APP_BUILD to true, // ignored
       )
     runGitignoreTests(gitignore, cases)
 
     // Directories
     val cases1 =
       mapOf(
-        "build/" to true, // ignored
-        "app/build/" to true, // ignored
-        "app/build/data.txt" to true, // ignored
+        BUILD_SLASH to true, // ignored
+        APP_BUILD_SLASH to true, // ignored
+        APP_BUILD_DATA_TXT to true, // ignored
       )
     runGitignoreTests(gitignore, cases1)
   }
@@ -179,17 +186,17 @@ class GitignorePatternsTest : GitignoreGitCommandTest() {
     val cases =
       mapOf(
         "build" to true, // ignored
-        "app/build" to true, // ignored
+        APP_BUILD to true, // ignored
       )
     runGitignoreTests(gitignore, cases)
 
     // Directories
     val cases1 =
       mapOf(
-        "build/" to true, // ignored
+        BUILD_SLASH to true, // ignored
         "build/data.txt" to true, // ignored
-        "app/build/" to true, // ignored
-        "app/build/data.txt" to true, // ignored
+        APP_BUILD_SLASH to true, // ignored
+        APP_BUILD_DATA_TXT to true, // ignored
       )
     runGitignoreTests(gitignore, cases1)
   }
@@ -207,18 +214,18 @@ class GitignorePatternsTest : GitignoreGitCommandTest() {
     val cases =
       mapOf(
         "build" to false, // not ignored
-        "app/build" to false, // not ignored
+        APP_BUILD to false, // not ignored
       )
     runGitignoreTests(gitignore, cases)
 
     // Directories
     val cases1 =
       mapOf(
-        "build/" to true, // ignored
+        BUILD_SLASH to true, // ignored
         "build/data.txt" to true, // ignored
         "build/sub/data.txt" to true, // ignored
-        "app/build/" to false, // not ignored
-        "app/build/data.txt" to false, // not ignored
+        APP_BUILD_SLASH to false, // not ignored
+        APP_BUILD_DATA_TXT to false, // not ignored
         "app/build/sub/data.txt" to false, // not ignored
       )
     runGitignoreTests(gitignore, cases1)

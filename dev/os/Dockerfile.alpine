@@ -47,38 +47,28 @@ RUN apk add --no-cache \
     findutils \
     # Compression utilities
     bzip2 \
-    xz
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Shell & User Experience
-# ═══════════════════════════════════════════════════════════════════════════════
-RUN apk add --no-cache bash-completion
+    xz \
+    bash-completion \
+    nodejs \
+    npm \
+    python3 \
+    py3-pip \
+    rust \
+    cargo
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Corvus Agent Installation Testing Prerequisites
 # ═══════════════════════════════════════════════════════════════════════════════
-# Install Rust toolchain (required for building Corvus from source)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
-ENV PATH="/root/.cargo/bin:${PATH}"
-ENV RUSTUP_HOME="/root/.cargo"
-ENV CARGO_HOME="/root/.cargo"
-
-# Install Node.js 20 LTS (for npm-based Corvus installation)
-RUN apk add --no-cache nodejs npm
-
-# Install Python 3 and pip
-RUN apk add --no-cache python3 py3-pip
+# Rust is installed system-wide via apk, no PATH manipulation needed
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Non-root User Setup (for security testing)
 # ═══════════════════════════════════════════════════════════════════════════════
-RUN mkdir -p /etc/sudoers.d && \
+RUN mkdir -p /etc/sudoers.d /home/tester/workspace && \
     adduser -D -u 1000 tester && \
     echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester && \
-    chmod 0440 /etc/sudoers.d/tester
-
-# Create workspace directory
-RUN mkdir -p /home/tester/workspace && chown -R tester:tester /home/tester
+    chmod 0440 /etc/sudoers.d/tester && \
+    chown -R tester:tester /home/tester
 
 # Switch to non-root user
 USER tester

@@ -5,6 +5,7 @@ plugins {
   id("com.profiletailors.check.format-gradle")
   id("com.profiletailors.check.format-kotlin")
   alias(libs.plugins.org.jetbrains.kotlin.multiplatform)
+  id("org.jetbrains.kotlinx.kover")
 }
 
 kotlin {

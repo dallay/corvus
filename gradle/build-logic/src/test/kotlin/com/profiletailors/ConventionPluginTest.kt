@@ -1,3 +1,5 @@
+@file:Suppress("FunctionName")
+
 package com.profiletailors
 
 import com.profiletailors.fixtures.GradleProject
@@ -20,12 +22,12 @@ class ConventionPluginTest {
   fun `each plugin can be applied individually without error`(pluginId: String) {
     val p = GradleProject()
     when {
-      pluginId.endsWith(".settings") ->
+      pluginId.endsWith(SETTINGS_SUFFIX) ->
         p.defaultGradleProperties()
-          .settingsFile("""plugins { id("${pluginId.substringBeforeLast(".settings")}") }""")
-      pluginId.endsWith(".root") ->
+          .settingsFile("""plugins { id("${pluginId.substringBeforeLast(SETTINGS_SUFFIX)}") }""")
+      pluginId.endsWith(ROOT_SUFFIX) ->
         p.defaultGradleProperties()
-          .rootBuildFile("""plugins { id("${pluginId.substringBeforeLast(".settings")}") }""")
+          .rootBuildFile("""plugins { id("${pluginId.substringBeforeLast(ROOT_SUFFIX)}") }""")
       else -> p.withMinimalStructure().moduleBuildFile("""plugins { id("$pluginId") }""")
     }
 
@@ -172,6 +174,9 @@ class ConventionPluginTest {
   fun GradleProject.failQualityGate(): BuildResult = runner(listOf("qualityGate")).buildAndFail()
 
   companion object {
+    private const val SETTINGS_SUFFIX = ".settings"
+    private const val ROOT_SUFFIX = ".root"
+
     @JvmStatic
     fun pluginIds(): Array<String> {
       val pluginList =

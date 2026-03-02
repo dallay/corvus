@@ -186,6 +186,259 @@ pub enum AdminSecretUpdate {
     Replace { value: String },
 }
 
+type AdminResponse = (StatusCode, Json<serde_json::Value>);
+
+fn bad_request(message: &str) -> AdminResponse {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": message })),
+    )
+}
+
+fn collect_restart_required_defaults(
+    cfg: &Config,
+    patch: &AdminConfigUpdateRequest,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(provider) = patch.default_provider.as_ref() {
+        let provider = provider.trim();
+        let next = (!provider.is_empty()).then_some(provider);
+        let current = cfg.default_provider.as_deref();
+        if next != current {
+            fields.push("default_provider");
+        }
+    }
+
+    if let Some(model) = patch.default_model.as_ref() {
+        let model = model.trim();
+        let next = (!model.is_empty()).then_some(model);
+        let current = cfg.default_model.as_deref();
+        if next != current {
+            fields.push("default_model");
+        }
+    }
+
+    if let Some(temperature) = patch.default_temperature {
+        if temperature != cfg.default_temperature {
+            fields.push("default_temperature");
+        }
+    }
+
+    if let Some(memory_backend) = patch.memory_backend.as_ref() {
+        let backend = memory_backend.trim().to_ascii_lowercase();
+        if backend != cfg.memory.backend {
+            fields.push("memory_backend");
+        }
+    }
+}
+
+fn collect_restart_required_observability(
+    cfg: &Config,
+    observability: &AdminObservabilityPatch,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(backend) = observability.backend.as_ref() {
+        let backend = backend.trim().to_ascii_lowercase();
+        if backend != cfg.observability.backend {
+            fields.push("observability.backend");
+        }
+    }
+
+    if let Some(endpoint) = observability.otel_endpoint.as_ref() {
+        let endpoint = endpoint.trim();
+        let next = (!endpoint.is_empty()).then_some(endpoint);
+        let current = cfg.observability.otel_endpoint.as_deref();
+        if next != current {
+            fields.push("observability.otel_endpoint");
+        }
+    }
+
+    if let Some(service_name) = observability.otel_service_name.as_ref() {
+        let service_name = service_name.trim();
+        let next = (!service_name.is_empty()).then_some(service_name);
+        let current = cfg.observability.otel_service_name.as_deref();
+        if next != current {
+            fields.push("observability.otel_service_name");
+        }
+    }
+}
+
+fn collect_restart_required_runtime(
+    cfg: &Config,
+    runtime: &AdminRuntimePatch,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(kind) = runtime.kind.as_ref() {
+        let kind = kind.trim().to_ascii_lowercase();
+        if kind != cfg.runtime.kind {
+            fields.push("runtime.kind");
+        }
+    }
+}
+
+fn collect_restart_required_autonomy(
+    cfg: &Config,
+    autonomy: &AdminAutonomyPatch,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(level) = autonomy.level {
+        if level != cfg.autonomy.level {
+            fields.push("autonomy.level");
+        }
+    }
+
+    if let Some(workspace_only) = autonomy.workspace_only {
+        if workspace_only != cfg.autonomy.workspace_only {
+            fields.push("autonomy.workspace_only");
+        }
+    }
+
+    if let Some(max_actions_per_hour) = autonomy.max_actions_per_hour {
+        if max_actions_per_hour != cfg.autonomy.max_actions_per_hour {
+            fields.push("autonomy.max_actions_per_hour");
+        }
+    }
+
+    if let Some(max_cost_per_day_cents) = autonomy.max_cost_per_day_cents {
+        if max_cost_per_day_cents != cfg.autonomy.max_cost_per_day_cents {
+            fields.push("autonomy.max_cost_per_day_cents");
+        }
+    }
+}
+
+fn collect_restart_required_gateway(
+    cfg: &Config,
+    gateway: &AdminGatewayPatch,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(port) = gateway.port {
+        if port != cfg.gateway.port {
+            fields.push("gateway.port");
+        }
+    }
+    if let Some(host) = gateway.host.as_ref() {
+        if host.trim() != cfg.gateway.host {
+            fields.push("gateway.host");
+        }
+    }
+    if let Some(require_pairing) = gateway.require_pairing {
+        if require_pairing != cfg.gateway.require_pairing {
+            fields.push("gateway.require_pairing");
+        }
+    }
+    if let Some(allow_public_bind) = gateway.allow_public_bind {
+        if allow_public_bind != cfg.gateway.allow_public_bind {
+            fields.push("gateway.allow_public_bind");
+        }
+    }
+    if let Some(pair_limit) = gateway.pair_rate_limit_per_minute {
+        if pair_limit != cfg.gateway.pair_rate_limit_per_minute {
+            fields.push("gateway.pair_rate_limit_per_minute");
+        }
+    }
+    if let Some(limit) = gateway.webhook_rate_limit_per_minute {
+        if limit != cfg.gateway.webhook_rate_limit_per_minute {
+            fields.push("gateway.webhook_rate_limit_per_minute");
+        }
+    }
+    if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
+        if trust_forwarded_headers != cfg.gateway.trust_forwarded_headers {
+            fields.push("gateway.trust_forwarded_headers");
+        }
+    }
+    if let Some(max_keys) = gateway.rate_limit_max_keys {
+        let normalized =
+            gateway::utils::normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
+        if normalized != cfg.gateway.rate_limit_max_keys {
+            fields.push("gateway.rate_limit_max_keys");
+        }
+    }
+    if let Some(ttl) = gateway.idempotency_ttl_secs {
+        let normalized_ttl = if ttl == 0 {
+            cfg.gateway.idempotency_ttl_secs
+        } else {
+            ttl
+        };
+        if normalized_ttl != cfg.gateway.idempotency_ttl_secs {
+            fields.push("gateway.idempotency_ttl_secs");
+        }
+    }
+    if let Some(max_keys) = gateway.idempotency_max_keys {
+        let normalized =
+            gateway::utils::normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
+        if normalized != cfg.gateway.idempotency_max_keys {
+            fields.push("gateway.idempotency_max_keys");
+        }
+    }
+}
+
+fn collect_restart_required_scheduler(
+    cfg: &Config,
+    scheduler: &AdminSchedulerPatch,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(enabled) = scheduler.enabled {
+        if enabled != cfg.scheduler.enabled {
+            fields.push("scheduler.enabled");
+        }
+    }
+
+    if let Some(max_tasks) = scheduler.max_tasks {
+        if max_tasks.max(1) != cfg.scheduler.max_tasks {
+            fields.push("scheduler.max_tasks");
+        }
+    }
+
+    if let Some(max_concurrent) = scheduler.max_concurrent {
+        if max_concurrent.max(1) != cfg.scheduler.max_concurrent {
+            fields.push("scheduler.max_concurrent");
+        }
+    }
+}
+
+fn collect_restart_required_webhook(
+    cfg: &Config,
+    webhook: &AdminWebhookPatch,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(port) = webhook.port {
+        let current_port = cfg.channels_config.webhook.as_ref().map_or(3000, |w| w.port);
+        if port != current_port {
+            fields.push("webhook.port");
+        }
+    }
+
+    if let Some(secret) = webhook.secret.as_ref() {
+        match secret {
+            AdminSecretUpdate::Unchanged => {}
+            AdminSecretUpdate::Clear => {
+                if cfg
+                    .channels_config
+                    .webhook
+                    .as_ref()
+                    .and_then(|w| w.secret.as_ref())
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
+                {
+                    fields.push("webhook.secret");
+                }
+            }
+            AdminSecretUpdate::Replace { value } => {
+                let next = value.trim();
+                let current = cfg
+                    .channels_config
+                    .webhook
+                    .as_ref()
+                    .and_then(|w| w.secret.as_deref())
+                    .unwrap_or("");
+                if next != current {
+                    fields.push("webhook.secret");
+                }
+            }
+        }
+    }
+}
+
 pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
     let webhook = cfg.channels_config.webhook.as_ref();
     AdminConfigView {
@@ -253,220 +506,25 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
 pub fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> Vec<&'static str> {
     let mut fields = Vec::new();
 
-    if let Some(provider) = patch.default_provider.as_ref() {
-        let provider = provider.trim();
-        let next = (!provider.is_empty()).then_some(provider);
-        let current = cfg.default_provider.as_deref();
-        if next != current {
-            fields.push("default_provider");
-        }
-    }
-
-    if let Some(model) = patch.default_model.as_ref() {
-        let model = model.trim();
-        let next = (!model.is_empty()).then_some(model);
-        let current = cfg.default_model.as_deref();
-        if next != current {
-            fields.push("default_model");
-        }
-    }
-
-    if let Some(temperature) = patch.default_temperature {
-        if temperature != cfg.default_temperature {
-            fields.push("default_temperature");
-        }
-    }
-
-    if let Some(memory_backend) = patch.memory_backend.as_ref() {
-        let backend = memory_backend.trim().to_ascii_lowercase();
-        if backend != cfg.memory.backend {
-            fields.push("memory_backend");
-        }
-    }
+    collect_restart_required_defaults(cfg, patch, &mut fields);
 
     if let Some(observability) = patch.observability.as_ref() {
-        if let Some(backend) = observability.backend.as_ref() {
-            let backend = backend.trim().to_ascii_lowercase();
-            if backend != cfg.observability.backend {
-                fields.push("observability.backend");
-            }
-        }
-
-        if let Some(endpoint) = observability.otel_endpoint.as_ref() {
-            let endpoint = endpoint.trim();
-            let next = (!endpoint.is_empty()).then_some(endpoint);
-            let current = cfg.observability.otel_endpoint.as_deref();
-            if next != current {
-                fields.push("observability.otel_endpoint");
-            }
-        }
-
-        if let Some(service_name) = observability.otel_service_name.as_ref() {
-            let service_name = service_name.trim();
-            let next = (!service_name.is_empty()).then_some(service_name);
-            let current = cfg.observability.otel_service_name.as_deref();
-            if next != current {
-                fields.push("observability.otel_service_name");
-            }
-        }
+        collect_restart_required_observability(cfg, observability, &mut fields);
     }
-
     if let Some(runtime) = patch.runtime.as_ref() {
-        if let Some(kind) = runtime.kind.as_ref() {
-            let kind = kind.trim().to_ascii_lowercase();
-            if kind != cfg.runtime.kind {
-                fields.push("runtime.kind");
-            }
-        }
+        collect_restart_required_runtime(cfg, runtime, &mut fields);
     }
-
     if let Some(autonomy) = patch.autonomy.as_ref() {
-        if let Some(level) = autonomy.level {
-            if level != cfg.autonomy.level {
-                fields.push("autonomy.level");
-            }
-        }
-
-        if let Some(workspace_only) = autonomy.workspace_only {
-            if workspace_only != cfg.autonomy.workspace_only {
-                fields.push("autonomy.workspace_only");
-            }
-        }
-
-        if let Some(max_actions_per_hour) = autonomy.max_actions_per_hour {
-            if max_actions_per_hour != cfg.autonomy.max_actions_per_hour {
-                fields.push("autonomy.max_actions_per_hour");
-            }
-        }
-
-        if let Some(max_cost_per_day_cents) = autonomy.max_cost_per_day_cents {
-            if max_cost_per_day_cents != cfg.autonomy.max_cost_per_day_cents {
-                fields.push("autonomy.max_cost_per_day_cents");
-            }
-        }
+        collect_restart_required_autonomy(cfg, autonomy, &mut fields);
     }
-
-    if let Some(gateway) = patch.gateway.as_ref() {
-        if let Some(port) = gateway.port {
-            if port != cfg.gateway.port {
-                fields.push("gateway.port");
-            }
-        }
-        if let Some(host) = gateway.host.as_ref() {
-            if host.trim() != cfg.gateway.host {
-                fields.push("gateway.host");
-            }
-        }
-        if let Some(require_pairing) = gateway.require_pairing {
-            if require_pairing != cfg.gateway.require_pairing {
-                fields.push("gateway.require_pairing");
-            }
-        }
-        if let Some(allow_public_bind) = gateway.allow_public_bind {
-            if allow_public_bind != cfg.gateway.allow_public_bind {
-                fields.push("gateway.allow_public_bind");
-            }
-        }
-        if let Some(pair_limit) = gateway.pair_rate_limit_per_minute {
-            if pair_limit != cfg.gateway.pair_rate_limit_per_minute {
-                fields.push("gateway.pair_rate_limit_per_minute");
-            }
-        }
-        if let Some(limit) = gateway.webhook_rate_limit_per_minute {
-            if limit != cfg.gateway.webhook_rate_limit_per_minute {
-                fields.push("gateway.webhook_rate_limit_per_minute");
-            }
-        }
-        if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
-            if trust_forwarded_headers != cfg.gateway.trust_forwarded_headers {
-                fields.push("gateway.trust_forwarded_headers");
-            }
-        }
-        if let Some(max_keys) = gateway.rate_limit_max_keys {
-            let normalized = gateway::utils::normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
-            if normalized != cfg.gateway.rate_limit_max_keys {
-                fields.push("gateway.rate_limit_max_keys");
-            }
-        }
-        if let Some(ttl) = gateway.idempotency_ttl_secs {
-            let normalized_ttl = if ttl == 0 {
-                cfg.gateway.idempotency_ttl_secs
-            } else {
-                ttl
-            };
-            if normalized_ttl != cfg.gateway.idempotency_ttl_secs {
-                fields.push("gateway.idempotency_ttl_secs");
-            }
-        }
-        if let Some(max_keys) = gateway.idempotency_max_keys {
-            let normalized = gateway::utils::normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
-            if normalized != cfg.gateway.idempotency_max_keys {
-                fields.push("gateway.idempotency_max_keys");
-            }
-        }
+    if let Some(gateway_patch) = patch.gateway.as_ref() {
+        collect_restart_required_gateway(cfg, gateway_patch, &mut fields);
     }
-
     if let Some(scheduler) = patch.scheduler.as_ref() {
-        if let Some(enabled) = scheduler.enabled {
-            if enabled != cfg.scheduler.enabled {
-                fields.push("scheduler.enabled");
-            }
-        }
-
-        if let Some(max_tasks) = scheduler.max_tasks {
-            if max_tasks.max(1) != cfg.scheduler.max_tasks {
-                fields.push("scheduler.max_tasks");
-            }
-        }
-
-        if let Some(max_concurrent) = scheduler.max_concurrent {
-            if max_concurrent.max(1) != cfg.scheduler.max_concurrent {
-                fields.push("scheduler.max_concurrent");
-            }
-        }
+        collect_restart_required_scheduler(cfg, scheduler, &mut fields);
     }
-
     if let Some(webhook) = patch.webhook.as_ref() {
-        if let Some(port) = webhook.port {
-            let current_port = cfg
-                .channels_config
-                .webhook
-                .as_ref()
-                .map_or(3000, |w| w.port);
-            if port != current_port {
-                fields.push("webhook.port");
-            }
-        }
-
-        if let Some(secret) = webhook.secret.as_ref() {
-            match secret {
-                AdminSecretUpdate::Unchanged => {}
-                AdminSecretUpdate::Clear => {
-                    if cfg
-                        .channels_config
-                        .webhook
-                        .as_ref()
-                        .and_then(|w| w.secret.as_ref())
-                        .map(|value| !value.trim().is_empty())
-                        .unwrap_or(false)
-                    {
-                        fields.push("webhook.secret");
-                    }
-                }
-                AdminSecretUpdate::Replace { value } => {
-                    let next = value.trim();
-                    let current = cfg
-                        .channels_config
-                        .webhook
-                        .as_ref()
-                        .and_then(|w| w.secret.as_deref())
-                        .unwrap_or("");
-                    if next != current {
-                        fields.push("webhook.secret");
-                    }
-                }
-            }
-        }
+        collect_restart_required_webhook(cfg, webhook, &mut fields);
     }
 
     fields.sort_unstable();
@@ -536,6 +594,205 @@ pub async fn handle_admin_options(
     (StatusCode::OK, Json(body))
 }
 
+fn apply_defaults_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(), AdminResponse> {
+    if let Some(provider) = patch.default_provider.as_ref() {
+        let provider = provider.trim();
+        cfg.default_provider = (!provider.is_empty()).then(|| provider.to_string());
+    }
+
+    if let Some(model) = patch.default_model.as_ref() {
+        let model = model.trim();
+        cfg.default_model = (!model.is_empty()).then(|| model.to_string());
+    }
+
+    if let Some(temperature) = patch.default_temperature {
+        if !(0.0..=2.0).contains(&temperature) {
+            return Err(bad_request("default_temperature must be in range [0.0, 2.0]"));
+        }
+        cfg.default_temperature = temperature;
+    }
+
+    if let Some(memory_backend) = patch.memory_backend.as_ref() {
+        let backend = memory_backend.trim().to_ascii_lowercase();
+        if !gateway::utils::validate_memory_backend(&backend) {
+            return Err(bad_request(
+                "Invalid memory_backend. Allowed: sqlite, lucid, surreal-graphs, markdown, surreal, none",
+            ));
+        }
+        cfg.memory.backend = backend;
+    }
+
+    Ok(())
+}
+
+fn apply_observability_patch(
+    cfg: &mut Config,
+    patch: Option<&AdminObservabilityPatch>,
+) -> Result<(), AdminResponse> {
+    let Some(observability_patch) = patch else {
+        return Ok(());
+    };
+
+    if let Some(backend) = observability_patch.backend.as_ref() {
+        let backend = backend.trim().to_ascii_lowercase();
+        if !gateway::utils::validate_observability_backend(&backend) {
+            return Err(bad_request(
+                "Invalid observability.backend. Allowed: none, log, prometheus, otel",
+            ));
+        }
+        cfg.observability.backend = backend;
+    }
+
+    if let Some(endpoint) = observability_patch.otel_endpoint.as_ref() {
+        let endpoint = endpoint.trim();
+        cfg.observability.otel_endpoint = (!endpoint.is_empty()).then(|| endpoint.to_string());
+    }
+
+    if let Some(service_name) = observability_patch.otel_service_name.as_ref() {
+        let service_name = service_name.trim();
+        cfg.observability.otel_service_name = (!service_name.is_empty()).then(|| service_name.to_string());
+    }
+
+    Ok(())
+}
+
+fn apply_runtime_patch(cfg: &mut Config, patch: Option<&AdminRuntimePatch>) -> Result<(), AdminResponse> {
+    let Some(runtime_patch) = patch else {
+        return Ok(());
+    };
+
+    if let Some(kind) = runtime_patch.kind.as_ref() {
+        let kind = kind.trim().to_ascii_lowercase();
+        if !gateway::utils::validate_runtime_kind(&kind) {
+            return Err(bad_request("Invalid runtime.kind. Allowed: native, docker"));
+        }
+        cfg.runtime.kind = kind;
+    }
+
+    Ok(())
+}
+
+fn apply_autonomy_patch(cfg: &mut Config, patch: Option<&AdminAutonomyPatch>) {
+    let Some(autonomy_patch) = patch else {
+        return;
+    };
+
+    if let Some(level) = autonomy_patch.level {
+        cfg.autonomy.level = level;
+    }
+    if let Some(workspace_only) = autonomy_patch.workspace_only {
+        cfg.autonomy.workspace_only = workspace_only;
+    }
+    if let Some(max_actions_per_hour) = autonomy_patch.max_actions_per_hour {
+        cfg.autonomy.max_actions_per_hour = max_actions_per_hour;
+    }
+    if let Some(max_cost_per_day_cents) = autonomy_patch.max_cost_per_day_cents {
+        cfg.autonomy.max_cost_per_day_cents = max_cost_per_day_cents;
+    }
+}
+
+fn apply_scheduler_patch(cfg: &mut Config, patch: Option<&AdminSchedulerPatch>) {
+    let Some(scheduler_patch) = patch else {
+        return;
+    };
+
+    if let Some(enabled) = scheduler_patch.enabled {
+        cfg.scheduler.enabled = enabled;
+    }
+    if let Some(max_tasks) = scheduler_patch.max_tasks {
+        cfg.scheduler.max_tasks = max_tasks.max(1);
+    }
+    if let Some(max_concurrent) = scheduler_patch.max_concurrent {
+        cfg.scheduler.max_concurrent = max_concurrent.max(1);
+    }
+}
+
+fn apply_gateway_patch(cfg: &mut Config, patch: Option<&AdminGatewayPatch>) -> Result<(), AdminResponse> {
+    let Some(gateway_patch) = patch else {
+        return Ok(());
+    };
+
+    if let Some(port) = gateway_patch.port {
+        cfg.gateway.port = port;
+    }
+    if let Some(host) = gateway_patch.host.as_ref() {
+        let host = host.trim();
+        if host.is_empty() {
+            return Err(bad_request("gateway.host cannot be empty"));
+        }
+        cfg.gateway.host = host.to_string();
+    }
+    if let Some(require_pairing) = gateway_patch.require_pairing {
+        cfg.gateway.require_pairing = require_pairing;
+    }
+    if let Some(allow_public_bind) = gateway_patch.allow_public_bind {
+        cfg.gateway.allow_public_bind = allow_public_bind;
+    }
+    if let Some(limit) = gateway_patch.pair_rate_limit_per_minute {
+        cfg.gateway.pair_rate_limit_per_minute = limit;
+    }
+    if let Some(limit) = gateway_patch.webhook_rate_limit_per_minute {
+        cfg.gateway.webhook_rate_limit_per_minute = limit;
+    }
+    if let Some(trust_forwarded_headers) = gateway_patch.trust_forwarded_headers {
+        cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
+    }
+    if let Some(max_keys) = gateway_patch.rate_limit_max_keys {
+        cfg.gateway.rate_limit_max_keys =
+            gateway::utils::normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
+    }
+    if let Some(ttl_secs) = gateway_patch.idempotency_ttl_secs {
+        if ttl_secs != 0 {
+            cfg.gateway.idempotency_ttl_secs = ttl_secs;
+        }
+    }
+    if let Some(max_keys) = gateway_patch.idempotency_max_keys {
+        cfg.gateway.idempotency_max_keys =
+            gateway::utils::normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
+    }
+
+    Ok(())
+}
+
+fn apply_webhook_patch(cfg: &mut Config, patch: Option<&AdminWebhookPatch>) -> Result<(), AdminResponse> {
+    let Some(webhook_patch) = patch else {
+        return Ok(());
+    };
+
+    if webhook_patch.port.is_none() && webhook_patch.secret.is_none() {
+        return Ok(());
+    }
+
+    if cfg.channels_config.webhook.is_none() {
+        cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
+            port: 3000,
+            secret: None,
+        });
+    }
+
+    if let Some(webhook) = cfg.channels_config.webhook.as_mut() {
+        if let Some(port) = webhook_patch.port {
+            webhook.port = port;
+        }
+
+        if let Some(secret_mode) = webhook_patch.secret.as_ref() {
+            match secret_mode {
+                AdminSecretUpdate::Unchanged => {}
+                AdminSecretUpdate::Clear => webhook.secret = None,
+                AdminSecretUpdate::Replace { value } => {
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        return Err(bad_request("webhook.secret replace value cannot be empty"));
+                    }
+                    webhook.secret = Some(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn handle_admin_update_config(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -576,187 +833,22 @@ pub async fn handle_admin_update_config(
 
     let mut cfg = current_cfg;
 
-    if let Some(provider) = patch.default_provider {
-        let provider = provider.trim();
-        cfg.default_provider = (!provider.is_empty()).then(|| provider.to_string());
+    if let Err(response) = apply_defaults_patch(&mut cfg, &patch) {
+        return response;
     }
-
-    if let Some(model) = patch.default_model {
-        let model = model.trim();
-        cfg.default_model = (!model.is_empty()).then(|| model.to_string());
+    if let Err(response) = apply_observability_patch(&mut cfg, patch.observability.as_ref()) {
+        return response;
     }
-
-    if let Some(temperature) = patch.default_temperature {
-        if !(0.0..=2.0).contains(&temperature) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "default_temperature must be in range [0.0, 2.0]"
-                })),
-            );
-        }
-        cfg.default_temperature = temperature;
+    if let Err(response) = apply_runtime_patch(&mut cfg, patch.runtime.as_ref()) {
+        return response;
     }
-
-    if let Some(memory_backend) = patch.memory_backend {
-        let backend = memory_backend.trim().to_ascii_lowercase();
-        if !gateway::utils::validate_memory_backend(&backend) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "Invalid memory_backend. Allowed: sqlite, lucid, surreal-graphs, markdown, surreal, none"
-                })),
-            );
-        }
-        cfg.memory.backend = backend;
+    apply_autonomy_patch(&mut cfg, patch.autonomy.as_ref());
+    apply_scheduler_patch(&mut cfg, patch.scheduler.as_ref());
+    if let Err(response) = apply_gateway_patch(&mut cfg, patch.gateway.as_ref()) {
+        return response;
     }
-
-    if let Some(observability_patch) = patch.observability {
-        if let Some(backend) = observability_patch.backend {
-            let backend = backend.trim().to_ascii_lowercase();
-            if !gateway::utils::validate_observability_backend(&backend) {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": "Invalid observability.backend. Allowed: none, log, prometheus, otel"
-                    })),
-                );
-            }
-            cfg.observability.backend = backend;
-        }
-
-        if let Some(endpoint) = observability_patch.otel_endpoint {
-            let endpoint = endpoint.trim();
-            cfg.observability.otel_endpoint = (!endpoint.is_empty()).then(|| endpoint.to_string());
-        }
-
-        if let Some(service_name) = observability_patch.otel_service_name {
-            let service_name = service_name.trim();
-            cfg.observability.otel_service_name =
-                (!service_name.is_empty()).then(|| service_name.to_string());
-        }
-    }
-
-    if let Some(runtime_patch) = patch.runtime {
-        if let Some(kind) = runtime_patch.kind {
-            let kind = kind.trim().to_ascii_lowercase();
-            if !gateway::utils::validate_runtime_kind(&kind) {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": "Invalid runtime.kind. Allowed: native, docker"
-                    })),
-                );
-            }
-            cfg.runtime.kind = kind;
-        }
-    }
-
-    if let Some(autonomy_patch) = patch.autonomy {
-        if let Some(level) = autonomy_patch.level {
-            cfg.autonomy.level = level;
-        }
-        if let Some(workspace_only) = autonomy_patch.workspace_only {
-            cfg.autonomy.workspace_only = workspace_only;
-        }
-        if let Some(max_actions_per_hour) = autonomy_patch.max_actions_per_hour {
-            cfg.autonomy.max_actions_per_hour = max_actions_per_hour;
-        }
-        if let Some(max_cost_per_day_cents) = autonomy_patch.max_cost_per_day_cents {
-            cfg.autonomy.max_cost_per_day_cents = max_cost_per_day_cents;
-        }
-    }
-
-    if let Some(scheduler_patch) = patch.scheduler {
-        if let Some(enabled) = scheduler_patch.enabled {
-            cfg.scheduler.enabled = enabled;
-        }
-        if let Some(max_tasks) = scheduler_patch.max_tasks {
-            cfg.scheduler.max_tasks = max_tasks.max(1);
-        }
-        if let Some(max_concurrent) = scheduler_patch.max_concurrent {
-            cfg.scheduler.max_concurrent = max_concurrent.max(1);
-        }
-    }
-
-    if let Some(gateway_patch) = patch.gateway {
-        if let Some(port) = gateway_patch.port {
-            cfg.gateway.port = port;
-        }
-        if let Some(host) = gateway_patch.host {
-            let host = host.trim();
-            if host.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({"error": "gateway.host cannot be empty"})),
-                );
-            }
-            cfg.gateway.host = host.to_string();
-        }
-        if let Some(require_pairing) = gateway_patch.require_pairing {
-            cfg.gateway.require_pairing = require_pairing;
-        }
-        if let Some(allow_public_bind) = gateway_patch.allow_public_bind {
-            cfg.gateway.allow_public_bind = allow_public_bind;
-        }
-        if let Some(limit) = gateway_patch.pair_rate_limit_per_minute {
-            cfg.gateway.pair_rate_limit_per_minute = limit;
-        }
-        if let Some(limit) = gateway_patch.webhook_rate_limit_per_minute {
-            cfg.gateway.webhook_rate_limit_per_minute = limit;
-        }
-        if let Some(trust_forwarded_headers) = gateway_patch.trust_forwarded_headers {
-            cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
-        }
-        if let Some(max_keys) = gateway_patch.rate_limit_max_keys {
-            cfg.gateway.rate_limit_max_keys =
-                gateway::utils::normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
-        }
-        if let Some(ttl_secs) = gateway_patch.idempotency_ttl_secs {
-            if ttl_secs != 0 {
-                cfg.gateway.idempotency_ttl_secs = ttl_secs;
-            }
-        }
-        if let Some(max_keys) = gateway_patch.idempotency_max_keys {
-            cfg.gateway.idempotency_max_keys =
-                gateway::utils::normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
-        }
-    }
-
-    if let Some(webhook_patch) = patch.webhook {
-        if webhook_patch.port.is_some() || webhook_patch.secret.is_some() {
-            if cfg.channels_config.webhook.is_none() {
-                cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
-                    port: 3000,
-                    secret: None,
-                });
-            }
-
-            if let Some(webhook) = cfg.channels_config.webhook.as_mut() {
-                if let Some(port) = webhook_patch.port {
-                    webhook.port = port;
-                }
-
-                if let Some(secret_mode) = webhook_patch.secret {
-                    match secret_mode {
-                        AdminSecretUpdate::Unchanged => {}
-                        AdminSecretUpdate::Clear => webhook.secret = None,
-                        AdminSecretUpdate::Replace { value } => {
-                            let trimmed = value.trim();
-                            if trimmed.is_empty() {
-                                return (
-                                    StatusCode::BAD_REQUEST,
-                                    Json(serde_json::json!({
-                                        "error": "webhook.secret replace value cannot be empty"
-                                    })),
-                                );
-                            }
-                            webhook.secret = Some(trimmed.to_string());
-                        }
-                    }
-                }
-            }
-        }
+    if let Err(response) = apply_webhook_patch(&mut cfg, patch.webhook.as_ref()) {
+        return response;
     }
 
     let updated_view = admin_config_view(&cfg);

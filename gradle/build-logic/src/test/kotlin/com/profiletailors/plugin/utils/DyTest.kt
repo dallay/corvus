@@ -9,14 +9,14 @@ import org.junit.jupiter.api.Test
 class ChunkedVirtualTest {
 
   @Test
-  fun success_case() {
+  fun `success case should return doubled values`() {
     val input = listOf(1, 2, 3, 4, 5)
     val result = input.chunkedVirtual(size = 2) { it * 2 }
     assertEquals(listOf(2, 4, 6, 8, 10), result)
   }
 
   @Test
-  fun failure_case_throws_exception() {
+  fun `failure case should throw exception on fail`() {
     val input = listOf(1, 2, 3)
     assertThrows(IllegalStateException::class.java) {
       input.chunkedVirtual(size = 2) {
@@ -27,7 +27,7 @@ class ChunkedVirtualTest {
   }
 
   @Test
-  fun timeout_cancels_task() {
+  fun `timeout should cancel task`() {
     val input = listOf(1, 2, 3)
     val exception =
       assertThrows(IllegalStateException::class.java) {
@@ -36,25 +36,25 @@ class ChunkedVirtualTest {
           it * 2
         }
       }
-    assertTrue(exception.message!!.contains("cancelled"))
+    assertTrue(exception.message?.contains("cancelled") ?: false)
   }
 
   @Test
-  fun preserves_order_of_results() {
+  fun `preserves order of results`() {
     val input = (1..10).toList()
     val result = input.chunkedVirtual(size = 3) { it * it }
     assertEquals(input.map { it * it }, result)
   }
 
   @Test
-  fun empty_input_returns_empty() {
+  fun `empty input returns empty`() {
     val input = emptyList<Int>()
     val result = input.chunkedVirtual { it * 2 }
     assertTrue(result.isEmpty())
   }
 
   @Test
-  fun large_scale_stress_test() {
+  fun `large scale stress test`() {
     val input = (1..1000).toList()
 
     val result =
@@ -63,7 +63,7 @@ class ChunkedVirtualTest {
         x * 2
       }
 
-    assertTrue { 1000 == result.size }
+    assertEquals(1000, result.size)
     assertEquals((1..1000).map { it * 2 }, result)
   }
 }
