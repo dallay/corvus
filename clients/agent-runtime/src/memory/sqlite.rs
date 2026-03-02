@@ -337,17 +337,19 @@ impl SqliteMemory {
         category: Option<&str>,
         session_id: Option<&str>,
     ) -> anyhow::Result<Vec<(String, f32)>> {
+        use std::fmt::Write;
+
         let mut sql = "SELECT id, embedding FROM memories WHERE embedding IS NOT NULL".to_string();
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
 
         if let Some(cat) = category {
-            sql.push_str(&format!(" AND category = ?{idx}"));
+            let _ = write!(sql, " AND category = ?{idx}");
             param_values.push(Box::new(cat.to_string()));
             idx += 1;
         }
         if let Some(sid) = session_id {
-            sql.push_str(&format!(" AND session_id = ?{idx}"));
+            let _ = write!(sql, " AND session_id = ?{idx}");
             param_values.push(Box::new(sid.to_string()));
         }
 

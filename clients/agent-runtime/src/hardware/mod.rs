@@ -165,7 +165,7 @@ fn run_info(chip: &str) -> Result<()> {
     #[cfg(feature = "probe")]
     {
         match info_via_probe(chip) {
-            Ok(()) => return Ok(()),
+            Ok(()) => Ok(()),
             Err(e) => {
                 println!("probe-rs attach failed: {}", e);
                 println!();
@@ -173,7 +173,7 @@ fn run_info(chip: &str) -> Result<()> {
                     "Ensure Nucleo is connected via USB. The ST-Link is built into the board."
                 );
                 println!("No firmware needs to be flashed — probe-rs reads chip info over SWD.");
-                return Err(e.into());
+                Err(e)
             }
         }
     }
@@ -207,7 +207,7 @@ fn info_via_probe(chip: &str) -> anyhow::Result<()> {
     println!("Architecture: {:?}", session.architecture());
     println!();
     println!("Memory map:");
-    for region in target.memory_map.iter() {
+    for region in &target.memory_map {
         match region {
             MemoryRegion::Ram(ram) => {
                 let start = ram.range.start;
@@ -221,7 +221,7 @@ fn info_via_probe(chip: &str) -> anyhow::Result<()> {
                 let size_kb = (end - start) / 1024;
                 println!("  Flash: 0x{:08X} - 0x{:08X} ({} KB)", start, end, size_kb);
             }
-            _ => {}
+            MemoryRegion::Generic(_) => {}
         }
     }
     println!();

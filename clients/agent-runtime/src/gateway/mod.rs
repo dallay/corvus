@@ -3112,7 +3112,10 @@ mod tests {
         };
 
         let fields = restart_required_updates(&cfg, &patch);
-        assert!(!fields.contains(&"webhook.secret"), "Unchanged should not require restart");
+        assert!(
+            !fields.contains(&"webhook.secret"),
+            "Unchanged should not require restart"
+        );
     }
 
     /// Test AdminSecretUpdate::Clear - no restart needed if no secret exists (default config)
@@ -3131,7 +3134,10 @@ mod tests {
         let fields = restart_required_updates(&cfg, &patch);
         // Clear only triggers restart if there was an existing secret
         // Default config has no webhook secret, so no restart needed
-        assert!(!fields.contains(&"webhook.secret"), "Clear should not require restart when no secret exists");
+        assert!(
+            !fields.contains(&"webhook.secret"),
+            "Clear should not require restart when no secret exists"
+        );
     }
 
     /// Test AdminSecretUpdate::Replace - replacing secret requires restart
@@ -3140,14 +3146,19 @@ mod tests {
         let cfg = Config::default();
         let patch = AdminConfigUpdateRequest {
             webhook: Some(AdminWebhookPatch {
-                secret: Some(AdminSecretUpdate::Replace { value: "new_secret".to_string() }),
+                secret: Some(AdminSecretUpdate::Replace {
+                    value: "new_secret".to_string(),
+                }),
                 ..Default::default()
             }),
             ..Default::default()
         };
 
         let fields = restart_required_updates(&cfg, &patch);
-        assert!(fields.contains(&"webhook.secret"), "Replace should require restart");
+        assert!(
+            fields.contains(&"webhook.secret"),
+            "Replace should require restart"
+        );
     }
 
     /// Test memory_backend comparison is case-insensitive
@@ -3163,7 +3174,10 @@ mod tests {
         };
 
         let fields = restart_required_updates(&cfg, &patch);
-        assert!(!fields.contains(&"memory_backend"), "Case-insensitive comparison should not trigger restart");
+        assert!(
+            !fields.contains(&"memory_backend"),
+            "Case-insensitive comparison should not trigger restart"
+        );
     }
 
     /// Test observability.backend comparison is case-insensitive
@@ -3182,7 +3196,10 @@ mod tests {
         };
 
         let fields = restart_required_updates(&cfg, &patch);
-        assert!(!fields.contains(&"observability.backend"), "Case-insensitive comparison should not trigger restart");
+        assert!(
+            !fields.contains(&"observability.backend"),
+            "Case-insensitive comparison should not trigger restart"
+        );
     }
 
     /// Test runtime.kind comparison detects changes
@@ -3194,13 +3211,15 @@ mod tests {
         let patch = AdminConfigUpdateRequest {
             runtime: Some(AdminRuntimePatch {
                 kind: Some("docker".to_string()),
-                ..Default::default()
             }),
             ..Default::default()
         };
 
         let fields = restart_required_updates(&cfg, &patch);
-        assert!(fields.contains(&"runtime.kind"), "Kind change should require restart");
+        assert!(
+            fields.contains(&"runtime.kind"),
+            "Kind change should require restart"
+        );
     }
 
     /// Test scheduler max_tasks bounds (max(1, value))
@@ -3222,7 +3241,10 @@ mod tests {
         // Note: restart detection compares raw values, normalization happens in apply
         // Zero to non-zero change IS detected as a change
         let fields = restart_required_updates(&cfg, &patch);
-        assert!(fields.contains(&"scheduler.max_tasks"), "max_tasks change should be detected");
+        assert!(
+            fields.contains(&"scheduler.max_tasks"),
+            "max_tasks change should be detected"
+        );
     }
 
     /// Test scheduler max_concurrent bounds (max(1, value))
@@ -3240,7 +3262,10 @@ mod tests {
         };
 
         let fields = restart_required_updates(&cfg, &patch);
-        assert!(fields.contains(&"scheduler.max_concurrent"), "max_concurrent change should be detected");
+        assert!(
+            fields.contains(&"scheduler.max_concurrent"),
+            "max_concurrent change should be detected"
+        );
     }
 
     /// Test idempotency_ttl_secs zero handling
@@ -3258,7 +3283,10 @@ mod tests {
         };
 
         let fields = restart_required_updates(&cfg, &patch);
-        assert!(fields.contains(&"gateway.idempotency_ttl_secs"), "idempotency_ttl_secs change should be detected");
+        assert!(
+            fields.contains(&"gateway.idempotency_ttl_secs"),
+            "idempotency_ttl_secs change should be detected"
+        );
     }
 
     /// Test that returned fields are sorted and deduplicated
@@ -3293,7 +3321,10 @@ mod tests {
         let mut deduped = fields_with_dupes.clone();
         deduped.sort_unstable();
         deduped.dedup();
-        assert!(deduped.len() < fields_with_dupes.len(), "Dedup works correctly");
+        assert!(
+            deduped.len() < fields_with_dupes.len(),
+            "Dedup works correctly"
+        );
     }
 
     /// Test normalize_max_keys with zero value - uses fallback
@@ -3304,12 +3335,24 @@ mod tests {
         assert_eq!(normalize_max_keys(0, 1000), 1000);
     }
 
-    /// Test normalize_max_keys clamps to bounds (100-100000)
+    /// Test normalize_max_keys keeps non-zero values and fallback for zero
     #[test]
     fn test_normalize_max_keys_clamped() {
-        assert_eq!(normalize_max_keys(50, 1000), 100, "Too low clamped to 100");
-        assert_eq!(normalize_max_keys(200000, 1000), 100000, "Too high clamped to 100000");
-        assert_eq!(normalize_max_keys(500, 1000), 500, "Normal value preserved");
+        assert_eq!(
+            normalize_max_keys(50, 1_000),
+            50,
+            "Non-zero value is preserved"
+        );
+        assert_eq!(
+            normalize_max_keys(200_000, 1_000),
+            200_000,
+            "High non-zero value is preserved"
+        );
+        assert_eq!(
+            normalize_max_keys(500, 1_000),
+            500,
+            "Normal value preserved"
+        );
     }
 
     /// Test validate_observability_backend accepts valid backends

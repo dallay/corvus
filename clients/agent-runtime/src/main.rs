@@ -11,6 +11,7 @@
     clippy::items_after_statements,
     clippy::map_unwrap_or,
     clippy::manual_let_else,
+    clippy::large_stack_arrays,
     clippy::missing_errors_doc,
     clippy::missing_panics_doc,
     clippy::module_name_repetitions,
@@ -853,7 +854,7 @@ fn format_expiry(profile: &auth::profiles::AuthProfile) -> String {
     match profile
         .token_set
         .as_ref()
-        .and_then(|token_set| token_set.expires_at.as_ref().cloned())
+        .and_then(|token_set| token_set.expires_at)
     {
         Some(ts) => {
             let now = chrono::Utc::now();

@@ -255,7 +255,7 @@ impl Tool for WebSearchTool {
                 return Ok(ToolResult {
                     success: false,
                     output: String::new(),
-                    error: Some(format!("Unknown web search provider: '{}'. Supported providers are: duckduckgo, ddg, brave", unknown).into()),
+                    error: Some(format!("Unknown web search provider: '{}'. Supported providers are: duckduckgo, ddg, brave", unknown)),
                 });
             }
         };

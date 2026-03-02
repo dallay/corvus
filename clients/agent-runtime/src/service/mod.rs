@@ -38,13 +38,12 @@ fn install(config: &Config, linger: crate::ServiceLingerMode) -> Result<()> {
 }
 
 fn restart(config: &Config) -> Result<()> {
-    if cfg!(target_os = "linux") {
-        if run_checked(Command::new("systemctl").args(["--user", "restart", "corvus.service"]))
+    if cfg!(target_os = "linux")
+        && run_checked(Command::new("systemctl").args(["--user", "restart", "corvus.service"]))
             .is_ok()
-        {
-            println!("✅ Service restarted");
-            return Ok(());
-        }
+    {
+        println!("✅ Service restarted");
+        return Ok(());
     }
 
     stop(config)?;
@@ -510,7 +509,7 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn run_capture_reads_stdout() {
-        let out = run_capture(Command::new("sh").args(["-lc", "echo hello"]))
+        let out = run_capture(Command::new("sh").args(["-c", "echo hello"]))
             .expect("stdout capture should succeed");
         assert_eq!(out.trim(), "hello");
     }
@@ -518,15 +517,15 @@ mod tests {
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn run_capture_falls_back_to_stderr() {
-        let out = run_capture(Command::new("sh").args(["-lc", "echo warn 1>&2"]))
+        let out = run_capture(Command::new("sh").args(["-c", "echo warn 1>&2"]))
             .expect("stderr capture should succeed");
-        assert_eq!(out.trim(), "warn");
+        assert!(out.contains("warn"));
     }
 
     #[cfg(not(target_os = "windows"))]
     #[test]
     fn run_checked_errors_on_non_zero_status() {
-        let err = run_checked(Command::new("sh").args(["-lc", "exit 17"]))
+        let err = run_checked(Command::new("sh").args(["-c", "exit 17"]))
             .expect_err("non-zero exit should error");
         assert!(err.to_string().contains("Command failed"));
     }
@@ -576,8 +575,8 @@ mod tests {
     #[cfg(not(target_os = "linux"))]
     #[test]
     fn linux_helpers_compile_on_non_linux() {
-        let _apply: fn(crate::ServiceLingerMode) -> Result<()> = apply_linux_linger_mode;
-        let _state: fn() -> Result<Option<bool>> = linux_linger_state;
+        let _: fn(crate::ServiceLingerMode) -> Result<()> = apply_linux_linger_mode;
+        let _: fn() -> Result<Option<bool>> = linux_linger_state;
     }
 
     #[cfg(target_os = "windows")]

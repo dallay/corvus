@@ -148,6 +148,7 @@ fn probe_read_memory(chip: &str, address: u64, length: usize) -> anyhow::Result<
     use probe_rs::MemoryInterface;
     use probe_rs::Session;
     use probe_rs::SessionConfig;
+    use std::fmt::Write;
 
     let mut session = Session::auto_attach(chip, SessionConfig::default())
         .map_err(|e| anyhow::anyhow!("{}", e))?;
@@ -177,7 +178,7 @@ fn probe_read_memory(chip: &str, address: u64, length: usize) -> anyhow::Result<
                 }
             })
             .collect();
-        out.push_str(&format!("0x{:08X}  {:48}  {}\n", addr, hex, ascii));
+        let _ = writeln!(out, "0x{:08X}  {:48}  {}", addr, hex, ascii);
     }
     Ok(out)
 }

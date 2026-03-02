@@ -86,32 +86,35 @@ fn memory_map_for_board(board_name: Option<&str>) -> String {
 fn probe_memory_map(chip: &str) -> anyhow::Result<String> {
     use probe_rs::config::MemoryRegion;
     use probe_rs::{Session, SessionConfig};
+    use std::fmt::Write;
 
     let session = Session::auto_attach(chip, SessionConfig::default())
         .map_err(|e| anyhow::anyhow!("{}", e))?;
     let target = session.target();
     let mut out = String::new();
-    for region in target.memory_map.iter() {
+    for region in &target.memory_map {
         match region {
             MemoryRegion::Ram(ram) => {
                 let (start, end) = (ram.range.start, ram.range.end);
-                out.push_str(&format!(
-                    "RAM: 0x{:08X} - 0x{:08X} ({} KB)\n",
+                let _ = writeln!(
+                    out,
+                    "RAM: 0x{:08X} - 0x{:08X} ({} KB)",
                     start,
                     end,
                     (end - start) / 1024
-                ));
+                );
             }
             MemoryRegion::Nvm(flash) => {
                 let (start, end) = (flash.range.start, flash.range.end);
-                out.push_str(&format!(
-                    "Flash: 0x{:08X} - 0x{:08X} ({} KB)\n",
+                let _ = writeln!(
+                    out,
+                    "Flash: 0x{:08X} - 0x{:08X} ({} KB)",
                     start,
                     end,
                     (end - start) / 1024
-                ));
+                );
             }
-            _ => {}
+            MemoryRegion::Generic(_) => {}
         }
     }
     if out.is_empty() {
