@@ -1,3 +1,5 @@
+@file:Suppress("FunctionName")
+
 package com.profiletailors.plugin.utils
 
 import com.profiletailors.fixtures.consoleLog

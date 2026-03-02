@@ -13,6 +13,7 @@ plugins {
   alias(libs.plugins.com.android.kotlin.multiplatform.library)
   alias(libs.plugins.org.jetbrains.compose)
   alias(libs.plugins.org.jetbrains.kotlin.plugin.compose)
+  id("org.jetbrains.kotlinx.kover")
 }
 
 val isMacOs = System.getProperty("os.name").startsWith("Mac", ignoreCase = true)

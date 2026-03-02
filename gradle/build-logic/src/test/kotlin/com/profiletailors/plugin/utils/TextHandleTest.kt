@@ -1,9 +1,15 @@
+@file:Suppress("FunctionName")
+
 package com.profiletailors.plugin.utils
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Test
 
 class TextHandleTest {
+
+  private companion object {
+    const val HELLO_WORLD_TEST = "Hello world test"
+  }
 
   /**
    * ```
@@ -37,8 +43,8 @@ class TextHandleTest {
    */
   @Test
   fun `wrapText with multiple short words within line width should keep them in one line`() {
-    val result = TextHandle.wrapText("Hello world test", 20)
-    assertEquals("Hello world test", result)
+    val result = TextHandle.wrapText(HELLO_WORLD_TEST, 20)
+    assertEquals(HELLO_WORLD_TEST, result)
   }
 
   /**
@@ -102,7 +108,7 @@ class TextHandleTest {
   @Test
   fun `wrapText should handle multiple spaces by normalizing them`() {
     val result = TextHandle.wrapText("Hello    world    test", 20)
-    assertEquals("Hello world test", result)
+    assertEquals(HELLO_WORLD_TEST, result)
   }
 
   /**
@@ -164,7 +170,7 @@ class TextHandleTest {
   @Test
   fun `wrapText with exact fit including space should wrap correctly`() {
     // "Hello"(5) + " "(1) + "world"(5) = 11 characters
-    val result = TextHandle.wrapText("Hello world test", 11)
+    val result = TextHandle.wrapText(HELLO_WORLD_TEST, 11)
     val expected = "Hello world\ntest"
     assertEquals(expected, result)
   }
