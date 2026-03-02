@@ -48,7 +48,7 @@ val webRootDir = isolated.projectDirectory.asFile
 val appsDir = file("${webRootDir}/apps")
 val installArgs =
   if (webRootDir.resolve("pnpm-lock.yaml").exists()) {
-    listOf("install", "--no-frozen-lockfile")
+    listOf("install", "--frozen-lockfile")
   } else {
     logger.lifecycle("⚠️ clients/web/pnpm-lock.yaml missing, using --no-frozen-lockfile")
     listOf("install", "--no-frozen-lockfile")
