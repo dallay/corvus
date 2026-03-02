@@ -15,15 +15,7 @@ type InputType =
   | "month"
   | "week"
   | "color"
-  | "file"
-  | "range"
-  | "checkbox"
-  | "radio"
-  | "hidden"
-  | "submit"
-  | "reset"
-  | "button"
-  | "image";
+  | "range";
 
 defineProps<{
   modelValue?: string;

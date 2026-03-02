@@ -319,7 +319,6 @@ or named `generic.md` apply to all boards.
 
 - [Project Structure](./structure.md)
 - [Development Workflow](./development.md)
-- [Project Structure](./structure.md)
 
 ## 13. References
 

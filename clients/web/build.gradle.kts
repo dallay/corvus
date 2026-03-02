@@ -207,11 +207,10 @@ tasks.register("websiteInstall") {
   dependsOn(workspaceInstall)
 }
 
-tasks.register<Exec>("docStarlight") {
+tasks.register("docStarlight") {
   group = "web"
   description = "Build Starlight docs with pnpm"
-  workingDir = webRootDir
-  commandLine(pnpmShim, "run", "build")
+  dependsOn("docsBuild")
 }
 
 tasks.register<Zip>("distZipWebsite") {

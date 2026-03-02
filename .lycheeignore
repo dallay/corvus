@@ -67,6 +67,9 @@ gradle/configs/checkstyle/checkstyle-header-file\.txt
 ^https://github\.com/dallay/corvus/blob/main/.github/CONTRIBUTING\.md$
 ^https://github\.com/dallay/corvus/releases$
 
+# GitHub commits page returns 502 Bad Gateway intermittently from CI runners
+^https://github\.com/dallay/corvus/commits/.*$
+
 # Kotlin kover issues page
 ^https://github\.com/Kotlin/kotlinx-kover/issues/746$
 
