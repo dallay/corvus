@@ -1,10 +1,10 @@
+use crate::gateway::AppState;
 use axum::{
     http::{header, HeaderMap, StatusCode},
     response::Json,
 };
-use std::net::SocketAddr;
 use sha2::{Digest, Sha256};
-use crate::gateway::AppState;
+use std::net::SocketAddr;
 
 /// Extract bearer token from Authorization header.
 pub fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
@@ -49,26 +49,27 @@ pub fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde
     let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
     let referer = headers.get(header::REFERER).and_then(|v| v.to_str().ok());
 
-    let validate_host = |raw: &str| -> bool {
-        if let Ok(url) = reqwest::Url::parse(raw) {
-            if let Some(host) = url.host_str() {
-                return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]";
+    let is_allowed = match (origin, referer) {
+        // Parse as URL and compare host strictly
+        (Some(o), _) | (_, Some(o)) => {
+            let url_str = o.trim_end_matches('/');
+            match url::Url::parse(url_str) {
+                Ok(url) => url
+                    .host_str()
+                    .map(|host| host == "localhost" || host == "127.0.0.1")
+                    .unwrap_or(false),
+                Err(_) => false,
             }
         }
-        false
-    };
-
-    let is_allowed = match (origin, referer) {
-        (Some(o), _) => validate_host(o),
-        (None, Some(r)) => validate_host(r),
-        (None, None) => false, // Deny direct API calls by default for admin safety
+        // Direct API calls without origin/referer are denied
+        (None, None) => false,
     };
 
     if !is_allowed {
         return Some((
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({
-                "error": "Admin access restricted to local origin (localhost/127.0.0.1)"
+                "error": "Admin access restricted to local origin"
             })),
         ));
     }

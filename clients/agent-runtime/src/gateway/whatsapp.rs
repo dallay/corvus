@@ -59,18 +59,22 @@ pub async fn handle_whatsapp_message(
         }
     };
 
+    // Fail closed: require app_secret to be configured
     let app_secret = match state.whatsapp_app_secret.as_ref() {
         Some(secret) => secret,
         None => {
-            tracing::error!("WhatsApp webhook received but CORVUS_WHATSAPP_APP_SECRET is not configured");
+            tracing::error!("WhatsApp webhook received but whatsapp_app_secret is not configured");
             return (
                 StatusCode::FORBIDDEN,
-                Json(serde_json::json!({"error": "WhatsApp signature verification required but secret is missing"})),
+                Json(serde_json::json!({
+                    "error": "WhatsApp webhook not configured securely"
+                })),
             )
                 .into_response();
         }
     };
 
+    // Verify signature using constant-time comparison
     let signature = headers
         .get("X-Hub-Signature-256")
         .and_then(|v| v.to_str().ok())
@@ -124,15 +128,26 @@ pub async fn handle_whatsapp_message(
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"}))).into_response()
 }
 
+/// Verify WhatsApp webhook signature using constant-time comparison.
+///
+/// The signature is expected in the format "sha256=<hex_signature>".
+/// Uses Mac::verify_slice for constant-time verification to prevent timing attacks.
 pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature: &str) -> bool {
-    let hex_sig = signature.strip_prefix("sha256=").unwrap_or(signature);
-    let Ok(expected_bytes) = hex::decode(hex_sig) else {
-        return false;
+    let signature = signature.strip_prefix("sha256=").unwrap_or(signature);
+
+    // Decode hex signature to bytes
+    let signature_bytes = match hex::decode(signature) {
+        Ok(bytes) => bytes,
+        Err(_) => return false,
     };
 
-    let mut mac = Hmac::<Sha256>::new_from_slice(app_secret.as_bytes())
-        .expect("HMAC can take key of any size");
+    // Create HMAC and compute MAC
+    let mut mac = match Hmac::<Sha256>::new_from_slice(app_secret.as_bytes()) {
+        Ok(m) => m,
+        Err(_) => return false,
+    };
     mac.update(body);
 
-    mac.verify_slice(&expected_bytes).is_ok()
+    // Use verify_slice for constant-time comparison
+    mac.verify_slice(&signature_bytes).is_ok()
 }

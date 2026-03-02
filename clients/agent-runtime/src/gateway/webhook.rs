@@ -55,6 +55,7 @@ pub async fn handle_webhook(
         }
     }
 
+    // Use constant-time comparison for webhook secret hash
     if let Some(expected_hash) = state.webhook_secret_hash.as_ref() {
         let provided_secret = headers
             .get("X-Webhook-Secret")
@@ -62,7 +63,8 @@ pub async fn handle_webhook(
             .unwrap_or("");
         let provided_hash = gateway::utils::hash_webhook_secret(provided_secret);
 
-        if !constant_time_eq(&provided_hash, expected_hash) {
+        // Use constant_time_eq to prevent timing attacks
+        if !constant_time_eq(&provided_hash, &*expected_hash) {
             tracing::warn!("Webhook request with invalid X-Webhook-Secret");
             let err = serde_json::json!({"error": "Invalid X-Webhook-Secret header"});
             return (StatusCode::FORBIDDEN, Json(err));
@@ -78,8 +80,11 @@ pub async fn handle_webhook(
         }
     };
 
+    // Check idempotency key early to reject duplicates before doing any work,
+    // but use a provisional/in-progress marker
     let idempotency_key = headers.get("X-Idempotency-Key").and_then(|v| v.to_str().ok());
     if let Some(key) = idempotency_key {
+        // Try to record as in-progress; if already exists, it's a duplicate
         if !state.idempotency_store.record_if_new(key) {
             tracing::info!("Webhook request with duplicate idempotency key: {key}");
             let body = serde_json::json!({
@@ -96,6 +101,8 @@ pub async fn handle_webhook(
     });
 
     let start_time = std::time::Instant::now();
+    let idempotency_key_final = idempotency_key.map(|k| k.to_string());
+
     match state
         .provider
         .chat_with_system(None, &req.message, &state.model, state.temperature)
@@ -120,6 +127,8 @@ pub async fn handle_webhook(
                 }
             }
 
+            // Key remains recorded as completed - client can retry safely
+
             let body = serde_json::json!({
                 "response": response,
                 "model": state.model,
@@ -128,10 +137,13 @@ pub async fn handle_webhook(
             (StatusCode::OK, Json(body))
         }
         Err(err) => {
-            if let Some(key) = idempotency_key {
-                state.idempotency_store.rollback(key);
-            }
             tracing::error!("Webhook provider error: {err:#}");
+
+            // Remove provisional idempotency marker on failure so retries work
+            if let Some(key) = idempotency_key_final {
+                state.idempotency_store.remove(&key);
+            }
+
             let err = serde_json::json!({"error": "AI provider failed to generate response"});
             (StatusCode::INTERNAL_SERVER_ERROR, Json(err))
         }
