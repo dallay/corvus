@@ -49,17 +49,26 @@ pub fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde
     let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
     let referer = headers.get(header::REFERER).and_then(|v| v.to_str().ok());
 
+    let validate_host = |raw: &str| -> bool {
+        if let Ok(url) = reqwest::Url::parse(raw) {
+            if let Some(host) = url.host_str() {
+                return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]";
+            }
+        }
+        false
+    };
+
     let is_allowed = match (origin, referer) {
-        (Some(o), _) => o.starts_with("http://localhost") || o.starts_with("http://127.0.0.1"),
-        (None, Some(r)) => r.starts_with("http://localhost") || r.starts_with("http://127.0.0.1"),
-        (None, None) => true, // direct API calls
+        (Some(o), _) => validate_host(o),
+        (None, Some(r)) => validate_host(r),
+        (None, None) => false, // Deny direct API calls by default for admin safety
     };
 
     if !is_allowed {
         return Some((
             StatusCode::FORBIDDEN,
             Json(serde_json::json!({
-                "error": "Admin access restricted to local origin"
+                "error": "Admin access restricted to local origin (localhost/127.0.0.1)"
             })),
         ));
     }

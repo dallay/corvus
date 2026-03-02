@@ -28,10 +28,16 @@ pub async fn handle_pair(
         return (StatusCode::TOO_MANY_REQUESTS, Json(err));
     }
 
-    let code = headers
-        .get("X-Pairing-Code")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
+    let code = match headers.get("X-Pairing-Code").and_then(|v| v.to_str().ok()) {
+        Some(v) if !v.is_empty() => v,
+        _ => {
+            tracing::warn!("🔐 Pairing attempt missing X-Pairing-Code header");
+            let err = serde_json::json!({
+                "error": "Missing or invalid X-Pairing-Code header"
+            });
+            return (StatusCode::BAD_REQUEST, Json(err));
+        }
+    };
 
     match state.pairing.try_pair(code) {
         Ok(Some(token)) => {
@@ -75,8 +81,11 @@ pub async fn handle_pair(
 
 pub fn persist_pairing_tokens(config: &Arc<Mutex<Config>>, pairing: &PairingGuard) -> Result<()> {
     let paired_tokens = pairing.tokens();
-    let mut cfg = config.lock();
-    cfg.gateway.paired_tokens = paired_tokens;
-    cfg.save()
+    let cfg_clone = {
+        let mut cfg = config.lock();
+        cfg.gateway.paired_tokens = paired_tokens;
+        cfg.clone()
+    };
+    cfg_clone.save()
         .context("Failed to persist paired tokens to config.toml")
 }

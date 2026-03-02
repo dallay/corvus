@@ -162,7 +162,7 @@ fn split_sasl_authenticate_payload(encoded: &str) -> Vec<String> {
         start = end;
     }
 
-    if encoded.is_empty() || encoded.len().is_multiple_of(SASL_CHUNK_MAX) {
+    if encoded.is_empty() || encoded.len() % SASL_CHUNK_MAX == 0 {
         chunks.push("+".to_string());
     }
 

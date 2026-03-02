@@ -5,6 +5,7 @@ use axum::{
 };
 use std::net::SocketAddr;
 use crate::gateway::{self, AppState};
+use crate::security::pairing::constant_time_eq;
 
 #[derive(Debug, serde::Deserialize)]
 pub struct WebhookRequest {
@@ -61,7 +62,7 @@ pub async fn handle_webhook(
             .unwrap_or("");
         let provided_hash = gateway::utils::hash_webhook_secret(provided_secret);
 
-        if provided_hash != **expected_hash {
+        if !constant_time_eq(&provided_hash, expected_hash) {
             tracing::warn!("Webhook request with invalid X-Webhook-Secret");
             let err = serde_json::json!({"error": "Invalid X-Webhook-Secret header"});
             return (StatusCode::FORBIDDEN, Json(err));
@@ -77,9 +78,10 @@ pub async fn handle_webhook(
         }
     };
 
-    if let Some(idempotency_key) = headers.get("X-Idempotency-Key").and_then(|v| v.to_str().ok()) {
-        if !state.idempotency_store.record_if_new(idempotency_key) {
-            tracing::info!("Webhook request with duplicate idempotency key: {idempotency_key}");
+    let idempotency_key = headers.get("X-Idempotency-Key").and_then(|v| v.to_str().ok());
+    if let Some(key) = idempotency_key {
+        if !state.idempotency_store.record_if_new(key) {
+            tracing::info!("Webhook request with duplicate idempotency key: {key}");
             let body = serde_json::json!({
                 "idempotency": "duplicate",
                 "message": "Request already processed or in progress."
@@ -126,6 +128,9 @@ pub async fn handle_webhook(
             (StatusCode::OK, Json(body))
         }
         Err(err) => {
+            if let Some(key) = idempotency_key {
+                state.idempotency_store.rollback(key);
+            }
             tracing::error!("Webhook provider error: {err:#}");
             let err = serde_json::json!({"error": "AI provider failed to generate response"});
             (StatusCode::INTERNAL_SERVER_ERROR, Json(err))

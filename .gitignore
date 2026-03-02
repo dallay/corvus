@@ -160,9 +160,9 @@ build/spotless-prettier-node-modules-*/serve.js
 
 /ephemeral
 # START AI Agent Symlinks
-	.agent/rules/instructions.md
-.agent/commands
-.agent/skills
+.antigravity/commands
+.antigravity/instructions.md
+.antigravity/skills
 .claude/commands
 .claude/commands/
 .claude/skills
@@ -178,6 +178,9 @@ build/spotless-prettier-node-modules-*/serve.js
 .gemini/skills/
 .github/agents
 .github/copilot-instructions.md
+.jules/commands
+.jules/instructions.md
+.jules/skills
 .mcp.json
 .opencode/command
 .opencode/skill
