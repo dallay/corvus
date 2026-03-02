@@ -32,6 +32,7 @@
     clippy::unused_self,
     clippy::cast_precision_loss,
     clippy::unnecessary_wraps,
+    clippy::large_stack_arrays,
     dead_code
 )]
 

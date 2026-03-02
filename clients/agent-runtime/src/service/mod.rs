@@ -38,13 +38,12 @@ fn install(config: &Config, linger: crate::ServiceLingerMode) -> Result<()> {
 }
 
 fn restart(config: &Config) -> Result<()> {
-    if cfg!(target_os = "linux") {
-        if run_checked(Command::new("systemctl").args(["--user", "restart", "corvus.service"]))
+    if cfg!(target_os = "linux")
+        && run_checked(Command::new("systemctl").args(["--user", "restart", "corvus.service"]))
             .is_ok()
-        {
-            println!("✅ Service restarted");
-            return Ok(());
-        }
+    {
+        println!("✅ Service restarted");
+        return Ok(());
     }
 
     stop(config)?;
@@ -576,8 +575,9 @@ mod tests {
     #[cfg(not(target_os = "linux"))]
     #[test]
     fn linux_helpers_compile_on_non_linux() {
-        let _apply: fn(crate::ServiceLingerMode) -> Result<()> = apply_linux_linger_mode;
-        let _state: fn() -> Result<Option<bool>> = linux_linger_state;
+        // Verify the function signatures compile on non-Linux targets.
+        let _: fn(crate::ServiceLingerMode) -> Result<()> = apply_linux_linger_mode;
+        let _: fn() -> Result<Option<bool>> = linux_linger_state;
     }
 
     #[cfg(target_os = "windows")]

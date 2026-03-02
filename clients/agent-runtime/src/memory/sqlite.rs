@@ -342,12 +342,14 @@ impl SqliteMemory {
         let mut idx = 1;
 
         if let Some(cat) = category {
-            sql.push_str(&format!(" AND category = ?{idx}"));
+            use std::fmt::Write as _;
+            let _ = write!(sql, " AND category = ?{idx}");
             param_values.push(Box::new(cat.to_string()));
             idx += 1;
         }
         if let Some(sid) = session_id {
-            sql.push_str(&format!(" AND session_id = ?{idx}"));
+            use std::fmt::Write as _;
+            let _ = write!(sql, " AND session_id = ?{idx}");
             param_values.push(Box::new(sid.to_string()));
         }
 

@@ -7,6 +7,9 @@
 
 .DEFAULT_GOAL := help
 
+MAKEFLAGS += --no-builtin-rules --no-builtin-variables --output-sync=target
+.SHELLFLAGS := -eu -o pipefail -c
+
 # ------------------------------------------------------------------------------------
 # VARIABLES & CONFIGURATION
 # ------------------------------------------------------------------------------------
@@ -29,10 +32,10 @@ endif
 GRADLEW := ./gradlew
 DEV_NULL := /dev/null
 MKDIR_P := mkdir -p
+CHECK_TOOLS ?= 1
 
 # Module Names
 APP_MODULE := composeApp
-DOCS_MODULE := docs
 
 # ------------------------------------------------------------------------------------
 # CORE & HELP
@@ -59,6 +62,9 @@ help: ## Show this help message
 # ------------------------------------------------------------------------------------
 
 check-tools: ## Verify required tools are installed
+ifeq ($(CHECK_TOOLS),0)
+	@echo "ℹ️  Skipping toolchain checks (CHECK_TOOLS=0)"
+else
 	@echo "🔍 Checking required tools and versions..."
 	@bash -ec '\
 		require_cmd() { \
@@ -103,6 +109,13 @@ check-tools: ## Verify required tools are installed
 		fi; \
 		echo "✅ Toolchain OK: java=$$java_major, node=$$node_major, pnpm=$$pnpm_major, rustc=$$rust_ver"; \
 	'
+endif
+
+check-python: ## Verify python3 is installed
+	@command -v python3 >/dev/null 2>&1 || { \
+		echo "❌ Error: 'python3' is required for fast-fail make workflows."; \
+		exit 1; \
+	}
 
 setup: check-tools ## Initial project setup (chmod +x gradlew)
 	@echo "🔧 Setting up project..."
@@ -254,29 +267,101 @@ check: check-tools ## Run all checks (format, lint, tests, Rust, Android)
 # DOCUMENTATION
 # ------------------------------------------------------------------------------------
 
-docs: check-tools ## Generate documentation (Dokka)
+docs: check-tools ## Generate documentation (Starlight website)
 	@echo "📚 Generating documentation..."
-	@$(GRADLEW) dokkaHtml
+	@$(GRADLEW) :web:docStarlight
 
-docs-serve: docs ## Generate and serve documentation locally
-	@echo "📚 Documentation generated in: build/dokka/html/"
-	@echo "📖 Open the index.html file in your browser"
+docs-serve: check-tools ## Run documentation dev server locally
+	@echo "📚 Starting docs dev server..."
+	@$(GRADLEW) :web:docsDev
 
 docs-web-build: check-tools ## Build website docs (Astro/Starlight)
 	@echo "🌐 Building website docs..."
-	@$(GRADLEW) :$(DOCS_MODULE):docStarlight
+	@$(GRADLEW) :web:docStarlight
 
 docs-web-check: check-tools ## Check website docs formatting/lint (Biome)
 	@echo "🔎 Checking website docs..."
-	@$(GRADLEW) :$(DOCS_MODULE):websiteCheck
+	@$(GRADLEW) :web:websiteCheck
 
 docs-web-format: check-tools ## Format website docs (Biome)
 	@echo "✨ Formatting website docs..."
-	@$(GRADLEW) :$(DOCS_MODULE):websiteFormat
+	@$(GRADLEW) :web:websiteFormat
 
 docs-web-dev: check-tools ## Run website docs dev server
 	@echo "🌐 Starting docs dev server..."
-	@cd $(DOCS_MODULE)/website && pnpm run dev
+	@$(GRADLEW) :web:docsDev
+
+# ------------------------------------------------------------------------------------
+# WEB APPS
+# ------------------------------------------------------------------------------------
+
+web-build: check-tools ## Build all web apps (chat, dashboard, docs, marketing)
+	@echo "🌐 Building all web apps..."
+	@$(GRADLEW) :web:buildAllWebApps
+
+web-install: check-tools ## Install all web workspace dependencies
+	@echo "📦 Installing web workspace dependencies..."
+	@$(GRADLEW) :web:workspaceInstall
+
+chat-build: check-tools ## Build chat app
+	@echo "🏗️  Building chat..."
+	@$(GRADLEW) :web:chatBuild
+
+chat-dev: check-tools ## Run chat dev server (port 4323)
+	@echo "🚀 Starting chat dev server..."
+	@$(GRADLEW) :web:chatDev
+
+chat-check: check-tools ## Check chat sources (Biome)
+	@echo "🔎 Checking chat..."
+	@$(GRADLEW) :web:chatCheck
+
+chat-format: check-tools ## Format chat sources (Biome)
+	@echo "✨ Formatting chat..."
+	@$(GRADLEW) :web:chatFormat
+
+chat-clean: ## Clean chat build artifacts
+	@echo "🧹 Cleaning chat..."
+	@$(GRADLEW) :web:chatClean
+
+dashboard-build: check-tools ## Build dashboard app
+	@echo "🏗️  Building dashboard..."
+	@$(GRADLEW) :web:dashboardBuild
+
+dashboard-dev: check-tools ## Run dashboard dev server (port 4324)
+	@echo "🚀 Starting dashboard dev server..."
+	@$(GRADLEW) :web:dashboardDev
+
+dashboard-check: check-tools ## Check dashboard sources (Biome)
+	@echo "🔎 Checking dashboard..."
+	@$(GRADLEW) :web:dashboardCheck
+
+dashboard-format: check-tools ## Format dashboard sources (Biome)
+	@echo "✨ Formatting dashboard..."
+	@$(GRADLEW) :web:dashboardFormat
+
+dashboard-clean: ## Clean dashboard build artifacts
+	@echo "🧹 Cleaning dashboard..."
+	@$(GRADLEW) :web:dashboardClean
+
+marketing-build: check-tools ## Build marketing site
+	@echo "🏗️  Building marketing..."
+	@$(GRADLEW) :web:marketingBuild
+
+marketing-dev: check-tools ## Run marketing dev server (port 9988)
+	@echo "🚀 Starting marketing dev server..."
+	@$(GRADLEW) :web:marketingDev
+
+marketing-check: check-tools ## Check marketing sources (Biome)
+	@echo "🔎 Checking marketing..."
+	@$(GRADLEW) :web:marketingCheck
+
+marketing-format: check-tools ## Format marketing sources (Biome)
+	@echo "✨ Formatting marketing..."
+	@$(GRADLEW) :web:marketingFormat
+
+marketing-clean: ## Clean marketing build artifacts
+	@echo "🧹 Cleaning marketing..."
+	@$(GRADLEW) :web:marketingClean
 
 # ------------------------------------------------------------------------------------
 # DEPENDENCY MANAGEMENT
@@ -294,9 +379,10 @@ deps-analysis: check-tools ## Run dependency analysis
 	@echo "🔍 Analyzing dependencies..."
 	@$(GRADLEW) buildHealth
 
-deps-update: check-tools ## Check for dependency updates
-	@echo "🔄 Checking for updates..."
-	@$(GRADLEW) dependencyUpdates
+deps-update: check-tools ## List all declared dependency versions (from version catalog)
+	@echo "🔄 Listing declared dependency versions..."
+	@$(GRADLEW) :versions:dependencies --configuration runtimeClasspath 2>/dev/null || \
+		$(GRADLEW) :versions:dependencies
 
 # ------------------------------------------------------------------------------------
 # UTILITY
@@ -331,7 +417,11 @@ ci-check: check-tools ## CI: Run all checks without daemon
 # FULL WORKFLOWS
 # ------------------------------------------------------------------------------------
 
-all: clean build check ## Run full CI pipeline (clean, build, check)
+all: check-tools check-python ## Fast-fail quality pipeline (parallel)
+	@echo "🚦 Running fast-fail pipeline (parallel): format, tests, quality, rust"
+	@python3 dev/make-fast-fail.py "$(MAKE)" check-format test lint-kotlin lint-rust
+
+all-full: clean build check ## Full CI pipeline (sequential)
 	@echo "✨ Full CI pipeline completed successfully!"
 
 quick: format build-fast ## Quick development cycle (format + build without tests)
@@ -340,10 +430,14 @@ quick: format build-fast ## Quick development cycle (format + build without test
 sync-version: ## Sync VERSION in gradle.properties with the latest git tag (vX.Y.Z)
 	@bash ./sync-version-with-tag.sh
 
-.PHONY: help check-tools setup wrapper build build-fast clean clean-all run dev \
+.PHONY: help check-tools check-python setup wrapper build build-fast clean clean-all run dev \
         dev-up dev-down dev-shell dev-agent dev-logs dev-build dev-clean dev-status \
         test test-app test-coverage test-verbose \
         format check-format lint-kotlin lint-java lint-rust lint-android lint-all check docs docs-serve \
         docs-web-build docs-web-check docs-web-format docs-web-dev \
+        web-build web-install \
+        chat-build chat-dev chat-check chat-format chat-clean \
+        dashboard-build dashboard-dev dashboard-check dashboard-format dashboard-clean \
+        marketing-build marketing-dev marketing-check marketing-format marketing-clean \
         deps deps-app deps-analysis deps-update tasks info version ci-build \
-        ci-test ci-check all quick sync-version
+        ci-test ci-check all all-full quick sync-version
