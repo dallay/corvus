@@ -48,10 +48,9 @@ val webRootDir = isolated.projectDirectory.asFile
 val appsDir = file("${webRootDir}/apps")
 val installArgs =
   if (webRootDir.resolve("pnpm-lock.yaml").exists()) {
-    listOf("install", "--no-frozen-lockfile")
+    listOf("install", "--frozen-lockfile")
   } else {
-    logger.lifecycle("⚠️ clients/web/pnpm-lock.yaml missing, using --no-frozen-lockfile")
-    listOf("install", "--no-frozen-lockfile")
+    error("clients/web/pnpm-lock.yaml is missing. The build requires the lockfile to ensure deterministic installs.")
   }
 
 // Discover all web apps dynamically
@@ -189,29 +188,28 @@ tasks.register("distZipAllWebApps") {
   dependsOn(webApps.map { "${it}DistZip" })
 }
 
-// Legacy compatibility with old "docs" naming
-tasks.register<Exec>("websiteInstall") {
-  group = "web"
-  description = "[Legacy] Install docs dependencies"
-  dependsOn(workspaceInstall)
-}
-
-tasks.register<Exec>("docStarlight") {
-  group = "web"
-  description = "[Legacy] Build Starlight docs"
-  dependsOn("docsBuild")
-}
-
-tasks.register<Exec>("websiteFormat") {
+tasks.register("websiteFormat") {
   group = "web"
   description = "[Legacy] Format docs"
   dependsOn("docsFormat")
 }
 
-tasks.register<Exec>("websiteCheck") {
+tasks.register("websiteCheck") {
   group = "web"
   description = "[Legacy] Check docs"
   dependsOn("docsCheck")
+}
+
+tasks.register("websiteInstall") {
+  group = "web"
+  description = "[Legacy] Install docs dependencies"
+  dependsOn(workspaceInstall)
+}
+
+tasks.register("docStarlight") {
+  group = "web"
+  description = "Build Starlight docs with pnpm"
+  dependsOn("docsBuild")
 }
 
 tasks.register<Zip>("distZipWebsite") {

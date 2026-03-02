@@ -99,9 +99,10 @@ class RustCliBridgeTest {
     val result = bridge.invoke(CoreInvocation(prompt = "ignored"))
     val success = assertIs<CoreResult.Success>(result)
 
-    // Normalize paths for comparison
-    val expected = File(tempDir).absolutePath.removeSuffix("/")
-    val actual = File(success.output.text).absolutePath.removeSuffix("/")
+    // Normalize paths for comparison - use canonicalPath to resolve symlinks (e.g. /var ->
+    // /private/var on macOS)
+    val expected = File(tempDir).canonicalPath.removeSuffix("/")
+    val actual = File(success.output.text.trim()).canonicalPath.removeSuffix("/")
     assertEquals(expected, actual)
   }
 

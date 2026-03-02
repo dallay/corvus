@@ -317,9 +317,8 @@ or named `generic.md` apply to all boards.
 
 ## 12. Related Documents
 
-- [Architecture](./architecture.md)
-- [Development Workflow](./development.md)
 - [Project Structure](./structure.md)
+- [Development Workflow](./development.md)
 
 ## 13. References
 

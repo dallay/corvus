@@ -39,6 +39,14 @@ gradle/configs/checkstyle/checkstyle-header-file\.txt
 ^\.\./[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/?$
 ^\.\./[a-zA-Z0-9_-]+/?$
 
+# Relative links to local .md files: ./file.md, ../guides/file.md, ../section/sub/file.md
+^\./[a-zA-Z0-9_-]+\.md(x)?$
+^\.\./[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+\.md(x)?$
+^\.\./[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+/[a-zA-Z0-9_-]+\.md(x)?$
+
+# file:// protocol links to local filesystem (resolved at build time by Astro)
+^file://.*\.md(x)?$
+
 # Root link in 404 pages
 ^/$
 
@@ -58,6 +66,9 @@ gradle/configs/checkstyle/checkstyle-header-file\.txt
 ^https://github\.com/dallay/corvus/blob/main/.github/workflows/README\.md$
 ^https://github\.com/dallay/corvus/blob/main/.github/CONTRIBUTING\.md$
 ^https://github\.com/dallay/corvus/releases$
+
+# GitHub commits page returns 502 Bad Gateway intermittently from CI runners
+^https://github\.com/dallay/corvus/commits/.*$
 
 # Kotlin kover issues page
 ^https://github\.com/Kotlin/kotlinx-kover/issues/746$

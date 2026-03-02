@@ -1,5 +1,6 @@
 ---
-title: Arquitectura
+title: Visión General de la Arquitectura
+description: Arquitectura de alto nivel del proyecto Corvus
 ---
 
 El proyecto sigue una arquitectura modular con un fuerte énfasis en la lógica de construcción
@@ -114,14 +115,5 @@ dependencies {
 
 ## Diagramas de Arquitectura C4
 
-Para una vista más detallada de la arquitectura, consulta los siguientes diagramas C4:
-
-| Nivel             | Diagrama                                                                            | Descripción                                        | Archivo                           |
-|-------------------|-------------------------------------------------------------------------------------|----------------------------------------------------|-----------------------------------|
-| C1 - Contexto     | [Sistema Completo](./architecture/diagrams/context/system-context.mmd)              | Vista de alto nivel del sistema y actores externos | `context/system-context.mmd`      |
-| C2 - Contenedores | [Contenedores Principales](./architecture/diagrams/container/system-containers.mmd) | Aplicaciones y servicios que componen Corvus       | `container/system-containers.mmd` |
-| C3 - Componentes  | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd)              | Componentes internos del módulo core               | `component/agent-core-kmp.mmd`    |
-| -                 | [Dependencias entre Módulos](./architecture/diagrams/module-dependencies.mmd)       | Relaciones de dependencia de Gradle                | `module-dependencies.mmd`         |
-
-Ver [Índice de Diagramas](./architecture/index.md) (en inglés) para más detalles sobre cómo
-visualizarlos.
+Para una vista más detallada de la arquitectura, consulta la sección de
+[Diagramas de Arquitectura](./architecture/index.md).
