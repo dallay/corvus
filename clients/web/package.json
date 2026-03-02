@@ -30,7 +30,7 @@
   "pnpm": {
     "overrides": {
       "minimatch": "^9.0.6",
-      "lodash": "^4.17.23",
+      "lodash@>=4.17.0 <4.17.23": "^4.17.23",
       "devalue": "^5.6.3",
       "rollup": "^4.59.0"
     }
