@@ -15,14 +15,13 @@ concurrency:
   group: pages-${{ github.ref }}
   cancel-in-progress: true
 
-# Allow this job to clone the repo and create a page deployment
-permissions:
-  contents: read
-  pages: write
-  id-token: write
+# Default permissions for the workflow
+permissions: {}
 
 jobs:
   build:
+    permissions:
+      contents: read
     if: github.repository == 'dallay/corvus'
     runs-on: ubuntu-latest
     defaults:
@@ -56,6 +55,9 @@ jobs:
           path: clients/web/apps/docs/dist
 
   deploy:
+    permissions:
+      pages: write
+      id-token: write
     needs: build
     runs-on: ubuntu-latest
     environment:
