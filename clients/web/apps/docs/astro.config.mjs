@@ -1,8 +1,8 @@
 import starlight from "@astrojs/starlight";
-import { getPortFromUrl, PORTS, resolveSiteUrl } from "../../packages/shared/env.mjs";
 import { defineConfig } from "astro/config";
 import { viewTransitions } from "astro-vtbot/starlight-view-transitions";
 import { loadEnv } from "vite";
+import { getPortFromUrl, PORTS, resolveSiteUrl } from "../../packages/shared/env.mjs";
 
 const DEFAULT_DEV_URL = `http://localhost:${PORTS.DOCS}`;
 const DEFAULT_PROD_URL = "https://docs.profiletailors.com";
