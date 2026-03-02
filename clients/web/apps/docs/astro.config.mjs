@@ -1,5 +1,5 @@
 import starlight from "@astrojs/starlight";
-import { getPortFromUrl, PORTS, resolveSiteUrl } from "@corvus/shared/env";
+import { getPortFromUrl, PORTS, resolveSiteUrl } from "../../packages/shared/env.mjs";
 import { defineConfig } from "astro/config";
 import { viewTransitions } from "astro-vtbot/starlight-view-transitions";
 import { loadEnv } from "vite";
