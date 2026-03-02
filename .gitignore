@@ -180,7 +180,7 @@ build/spotless-prettier-node-modules-*/serve.js
 .github/copilot-instructions.md
 .mcp.json
 .opencode/command
-.opencode/skill
+.opencode/skills
 .vscode/mcp.json
 AGENTS.md
 CLAUDE.md

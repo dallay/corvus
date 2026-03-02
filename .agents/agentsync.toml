@@ -146,7 +146,7 @@ description = "OpenCode - Open source AI coding agent"
 
 [agents.opencode.targets.skills]
 source = "skills"
-destination = ".opencode/skill"
+destination = ".opencode/skills"
 type = "symlink-contents"
 pattern = "*"
 
