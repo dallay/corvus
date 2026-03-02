@@ -52,15 +52,14 @@ RUN apk add --no-cache \
     nodejs \
     npm \
     python3 \
-    py3-pip && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable
+    py3-pip \
+    rust \
+    cargo
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Corvus Agent Installation Testing Prerequisites
 # ═══════════════════════════════════════════════════════════════════════════════
-ENV PATH="/root/.cargo/bin:${PATH}"
-ENV RUSTUP_HOME="/root/.cargo"
-ENV CARGO_HOME="/root/.cargo"
+# Rust is installed system-wide via apk, no PATH manipulation needed
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Non-root User Setup (for security testing)

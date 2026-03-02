@@ -25,9 +25,9 @@ class ConventionPluginTest {
       pluginId.endsWith(SETTINGS_SUFFIX) ->
         p.defaultGradleProperties()
           .settingsFile("""plugins { id("${pluginId.substringBeforeLast(SETTINGS_SUFFIX)}") }""")
-      pluginId.endsWith(".root") ->
+      pluginId.endsWith(ROOT_SUFFIX) ->
         p.defaultGradleProperties()
-          .rootBuildFile("""plugins { id("${pluginId.substringBeforeLast(SETTINGS_SUFFIX)}") }""")
+          .rootBuildFile("""plugins { id("${pluginId.substringBeforeLast(ROOT_SUFFIX)}") }""")
       else -> p.withMinimalStructure().moduleBuildFile("""plugins { id("$pluginId") }""")
     }
 
@@ -175,6 +175,7 @@ class ConventionPluginTest {
 
   companion object {
     private const val SETTINGS_SUFFIX = ".settings"
+    private const val ROOT_SUFFIX = ".root"
 
     @JvmStatic
     fun pluginIds(): Array<String> {
