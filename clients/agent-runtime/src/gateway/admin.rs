@@ -372,8 +372,8 @@ pub fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) 
                 fields.push("gateway.pair_rate_limit_per_minute");
             }
         }
-        if let Some(webhook_limit) = gateway.webhook_rate_limit_per_minute {
-            if webhook_limit != cfg.gateway.webhook_rate_limit_per_minute {
+        if let Some(limit) = gateway.webhook_rate_limit_per_minute {
+            if limit != cfg.gateway.webhook_rate_limit_per_minute {
                 fields.push("gateway.webhook_rate_limit_per_minute");
             }
         }
@@ -778,5 +778,184 @@ pub async fn handle_admin_update_config(
                 })),
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Config;
+    use crate::security::AutonomyLevel;
+    use crate::gateway::AppState;
+    use crate::security::pairing::PairingGuard;
+    use std::sync::Arc;
+    use parking_lot::Mutex;
+
+    fn test_config() -> Config {
+        let mut cfg = Config::default();
+        cfg.gateway.port = 3000;
+        cfg.gateway.host = "127.0.0.1".to_string();
+        cfg.memory.backend = "sqlite".to_string();
+        cfg.observability.backend = "log".to_string();
+        cfg.runtime.kind = "native".to_string();
+        cfg.autonomy.level = AutonomyLevel::Supervised;
+        cfg.scheduler.enabled = true;
+        cfg.scheduler.max_tasks = 10;
+        cfg.scheduler.max_concurrent = 5;
+        cfg.default_temperature = 0.7;
+        cfg
+    }
+
+    #[test]
+    fn test_restart_required_updates_table() {
+        let cfg = test_config();
+
+        // Re-implementing correctly without zeroed for safety
+        let mut patch = AdminConfigUpdateRequest {
+            default_provider: None,
+            default_model: None,
+            default_temperature: None,
+            memory_backend: None,
+            observability: None,
+            runtime: None,
+            autonomy: None,
+            scheduler: None,
+            gateway: None,
+            webhook: None,
+        };
+
+        // Test lowercase normalization
+        patch.memory_backend = Some("SQLITE".into());
+        assert!(restart_required_updates(&cfg, &patch).is_empty());
+
+        patch.memory_backend = Some("lucid".into());
+        assert_eq!(restart_required_updates(&cfg, &patch), vec!["memory_backend"]);
+
+        // Test scheduler bounds
+        patch.memory_backend = None;
+        patch.scheduler = Some(AdminSchedulerPatch {
+            enabled: None,
+            max_tasks: Some(10), // Same as default
+            max_concurrent: None,
+        });
+        assert!(restart_required_updates(&cfg, &patch).is_empty());
+
+        patch.scheduler = Some(AdminSchedulerPatch {
+            enabled: None,
+            max_tasks: Some(1), // max(1) applies, but it's different from 10
+            max_concurrent: None,
+        });
+        assert_eq!(restart_required_updates(&cfg, &patch), vec!["scheduler.max_tasks"]);
+    }
+
+    #[tokio::test]
+    async fn test_handle_admin_update_config_rollback_on_persistence_failure() {
+        let mut cfg = test_config();
+        // Point to a non-existent/unwritable path to simulate persistence failure
+        cfg.config_path = std::path::PathBuf::from("/nonexistent/config.toml");
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderValue::from_static("Bearer valid_token"),
+        );
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(cfg.clone())),
+            provider: Arc::new(crate::gateway::tests::MockProvider::default()),
+            model: "model".into(),
+            temperature: 0.5,
+            mem: Arc::new(crate::gateway::tests::MockMemory::default()),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(true, &["valid_token".into()])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(crate::gateway::GatewayRateLimiter::new(100, 100, 1000)),
+            idempotency_store: Arc::new(crate::gateway::IdempotencyStore::new(std::time::Duration::from_secs(60), 100)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let patch = AdminConfigUpdateRequest {
+            default_provider: None,
+            default_model: None,
+            default_temperature: None,
+            memory_backend: None,
+            observability: None,
+            runtime: None,
+            autonomy: None,
+            scheduler: None,
+            gateway: Some(AdminGatewayPatch {
+                port: None,
+                host: None,
+                require_pairing: None,
+                allow_public_bind: None,
+                pair_rate_limit_per_minute: None,
+                webhook_rate_limit_per_minute: None,
+                trust_forwarded_headers: None,
+                rate_limit_max_keys: Some(10_000), // Same as default, no 409
+                idempotency_ttl_secs: None,
+                idempotency_max_keys: None,
+            }),
+            webhook: None,
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            axum::http::header::ORIGIN,
+            axum::http::HeaderValue::from_static("http://127.0.0.1:4321"),
+        );
+        headers.insert(
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderValue::from_static("Bearer valid_token"),
+        );
+
+        let response = handle_admin_update_config(
+            State(state.clone()),
+            headers,
+            Ok(Json(patch)),
+        ).await.into_response();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+        // Assert rollback: in-memory config should NOT have been updated
+        assert_eq!(state.config.lock().default_temperature, 0.7);
+    }
+
+    #[test]
+    fn test_admin_secret_update_logic() {
+        let mut cfg = test_config();
+        cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
+            port: 3000,
+            secret: Some("old-secret".into()),
+        });
+
+        let mut patch = AdminConfigUpdateRequest {
+            default_provider: None,
+            default_model: None,
+            default_temperature: None,
+            memory_backend: None,
+            observability: None,
+            runtime: None,
+            autonomy: None,
+            scheduler: None,
+            gateway: None,
+            webhook: Some(AdminWebhookPatch {
+                port: None,
+                secret: Some(AdminSecretUpdate::Unchanged),
+            }),
+        };
+
+        assert!(restart_required_updates(&cfg, &patch).is_empty());
+
+        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Replace { value: "old-secret".into() });
+        assert!(restart_required_updates(&cfg, &patch).is_empty());
+
+        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Replace { value: "new-secret".into() });
+        assert_eq!(restart_required_updates(&cfg, &patch), vec!["webhook.secret"]);
+
+        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Clear);
+        assert_eq!(restart_required_updates(&cfg, &patch), vec!["webhook.secret"]);
     }
 }

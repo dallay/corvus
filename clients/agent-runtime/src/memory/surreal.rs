@@ -663,10 +663,10 @@ fn normalize_ws_endpoint(mut endpoint: Url) -> Result<String> {
     match endpoint.scheme() {
         "http" => endpoint
             .set_scheme("ws")
-            .map_err(|()| anyhow::anyhow!("failed converting http endpoint to ws"))?,
+            .map_err(|_| anyhow::anyhow!("failed converting http endpoint to ws"))?,
         "https" => endpoint
             .set_scheme("wss")
-            .map_err(|()| anyhow::anyhow!("failed converting https endpoint to wss"))?,
+            .map_err(|_| anyhow::anyhow!("failed converting https endpoint to wss"))?,
         "ws" | "wss" => {}
         other => anyhow::bail!(
             "unsupported SurrealDB URL scheme '{other}', expected one of http/https/ws/wss"

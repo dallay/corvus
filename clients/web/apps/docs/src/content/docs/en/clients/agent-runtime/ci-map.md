@@ -1,7 +1,3 @@
----
-title: "CI Workflow Map"
----
-
 # CI Workflow Map
 
 This document explains what each GitHub workflow does, when it runs, and whether it should block merges.
