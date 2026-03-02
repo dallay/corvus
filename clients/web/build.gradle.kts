@@ -50,8 +50,7 @@ val installArgs =
   if (webRootDir.resolve("pnpm-lock.yaml").exists()) {
     listOf("install", "--frozen-lockfile")
   } else {
-    logger.lifecycle("⚠️ clients/web/pnpm-lock.yaml missing, using --no-frozen-lockfile")
-    listOf("install", "--no-frozen-lockfile")
+    error("clients/web/pnpm-lock.yaml is missing. The build requires the lockfile to ensure deterministic installs.")
   }
 
 // Discover all web apps dynamically
