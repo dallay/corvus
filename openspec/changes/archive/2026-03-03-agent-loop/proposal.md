@@ -87,6 +87,11 @@ If convergence introduces regressions, rollback is executed by switching entrypo
 mode via runtime flags (`CORVUS_UNIFIED_LOOP_PREVIEW=0`, `CORVUS_UNIFIED_LOOP_ONLY=0`) and disabling
 convergence-specific adapters while keeping canonical code paths compiled and selectable.
 
+**Important**: Rollback does NOT disable or weaken enforcement of approval, risk, or authentication checks.
+All security controls—including approval/risk/auth enforcement and deny-by-default access controls across
+CLI/channel/gateway paths—remain active and unchanged. Only convergence-specific adapter selection is toggled;
+canonical security checks continue to execute regardless of rollback state.
+
 Rollback criteria:
 - Security invariant violations (approval/risk/auth) in any surface.
 - Material regression in loop completion reliability or latency budgets.

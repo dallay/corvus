@@ -6,7 +6,7 @@ use std::path::PathBuf;
 // `cargo test` because this patch only adjusts path resolution and assertions.
 
 fn runtime_path(relative: &str) -> PathBuf {
-    PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR")).join(relative)
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(relative)
 }
 
 #[test]

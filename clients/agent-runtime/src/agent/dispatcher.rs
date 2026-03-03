@@ -47,15 +47,16 @@ pub trait ToolDispatcher: Send + Sync {
     fn should_send_tool_specs(&self) -> bool;
 
     // Check if the tool invocation requires approval
-    // Note: Agent now checks tool existence before calling this, so we only need to check
-    // for known risky operations (shell, bash, etc.). Unknown tools are handled by the agent.
+    // Only risky tools (shell, bash, execute_command) require approval
+    // The agent handles unknown tools separately (executes them to return "Unknown tool" error)
     fn check_tool_risk(&self, tool_name: &str, _arguments: &Value) -> DispatchAction {
+        // Only these specific commands require approval - they're the only truly risky operations
         match tool_name {
             "shell" | "bash" | "execute_command" => {
                 DispatchAction::ApprovalRequired(tool_name.to_string())
             }
-            // All other tools - agent has already verified they exist
-            // Unknown tools are handled by the agent (executed and return "Unknown tool" error)
+            // All other tools - including those not in SAFE_TOOL_NAMES - are allowed
+            // The agent checks tool existence separately and handles unknown tools appropriately
             _ => DispatchAction::Execute,
         }
     }

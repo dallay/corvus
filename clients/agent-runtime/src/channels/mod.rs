@@ -37,7 +37,6 @@ use crate::config::Config;
 use crate::identity;
 use crate::memory::{self, Memory};
 use crate::observability::{self, Observer};
-use crate::providers::traits::build_tool_instructions_text;
 use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
 use crate::runtime;
 use crate::security::SecurityPolicy;
@@ -1498,7 +1497,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     } else {
         None
     };
-    let mut system_prompt = build_system_prompt(
+    let system_prompt = build_system_prompt(
         &workspace,
         &model,
         &tool_descs,
@@ -1506,9 +1505,9 @@ pub async fn start_channels(config: Config) -> Result<()> {
         Some(&config.identity),
         bootstrap_max_chars,
     );
-    let tool_specs: Vec<crate::tools::ToolSpec> =
-        tools_registry.iter().map(|tool| tool.spec()).collect();
-    system_prompt.push_str(&build_tool_instructions_text(&tool_specs));
+
+    // Note: build_system_prompt already includes tool descriptions and protocol instructions,
+    // so we don't add additional tool_specs here to avoid duplication.
 
     if !skills.is_empty() {
         println!(
@@ -2936,7 +2935,16 @@ mod tests {
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
         });
 
+        // RAII guard to ensure env var is removed even if process_channel_message panics
+        struct EnvVarGuard(&'static str);
+        impl Drop for EnvVarGuard {
+            fn drop(&mut self) {
+                std::env::remove_var(self.0);
+            }
+        }
         std::env::set_var("CORVUS_UNIFIED_APPROVE", "1");
+        let _guard = EnvVarGuard("CORVUS_UNIFIED_APPROVE");
+
         process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
@@ -2949,7 +2957,7 @@ mod tests {
             },
         )
         .await;
-        std::env::remove_var("CORVUS_UNIFIED_APPROVE");
+        // Guard drops here and removes the env var
 
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 1);

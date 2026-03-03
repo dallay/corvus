@@ -542,14 +542,17 @@ impl Agent {
             let tool_exists = self.tools.iter().any(|t| t.name() == call.name);
 
             // Only require approval for known risky tools, not unknown ones
-            let needs_approval = if tool_exists {
-                matches!(
-                    self.tool_dispatcher
-                        .check_tool_risk(&call.name, &call.arguments),
-                    DispatchAction::ApprovalRequired(_)
-                )
+            // Extract the actual reason from check_tool_risk instead of using call.name
+            let (needs_approval, extracted_reason) = if tool_exists {
+                match self
+                    .tool_dispatcher
+                    .check_tool_risk(&call.name, &call.arguments)
+                {
+                    DispatchAction::ApprovalRequired(reason) => (true, reason),
+                    DispatchAction::Execute => (false, String::new()),
+                }
             } else {
-                false // Unknown tools will be executed and return "Unknown tool: {name}"
+                (false, String::new()) // Unknown tools will be executed and return "Unknown tool: {name}"
             };
 
             if needs_approval {
@@ -557,15 +560,14 @@ impl Agent {
                     .tool_call_id
                     .clone()
                     .unwrap_or_else(|| format!("{}#{index}", call.name));
-                let reason = call.name.clone();
                 results_by_call_id.insert(
                     key,
                     ToolExecutionResult {
                         name: call.name.clone(),
-                        output: format!("approval required before executing `{reason}`"),
+                        output: format!("approval required before executing `{extracted_reason}`"),
                         success: false,
                         tool_call_id: call.tool_call_id.clone(),
-                        action: DispatchAction::ApprovalRequired(reason),
+                        action: DispatchAction::ApprovalRequired(extracted_reason),
                     },
                 );
             } else {
@@ -657,8 +659,18 @@ pub async fn run(
     provider_override: Option<String>,
     model_override: Option<String>,
     temperature: f64,
-    _peripheral_overrides: Vec<String>,
+    peripheral_overrides: Vec<String>,
 ) -> Result<()> {
+    // Validate peripheral overrides - currently not supported
+    if !peripheral_overrides.is_empty() {
+        anyhow::bail!(
+            "peripheral overrides are not currently supported; \
+             found {} override(s): {:?}",
+            peripheral_overrides.len(),
+            peripheral_overrides
+        );
+    }
+
     let start = Instant::now();
 
     let mut effective_config = config;

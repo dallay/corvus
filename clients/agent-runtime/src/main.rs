@@ -630,10 +630,9 @@ async fn main() -> Result<()> {
 
             if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1") {
                 println!("loop_session={}", canonical.session_id);
-                let preview_events = canonical.events.clone();
-                for event in preview_events {
+                for event in &canonical.events {
                     println!("loop_event={event:?}");
-                    let event_kind = match &event {
+                    let event_kind = match event {
                         crate::agent::unified_loop::LoopEvent::Start => "start",
                         crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
                         crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(_) => {
