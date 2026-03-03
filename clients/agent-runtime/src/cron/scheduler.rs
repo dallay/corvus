@@ -137,14 +137,7 @@ async fn run_agent_job(config: &Config, job: &CronJob) -> (bool, String) {
     };
 
     match run_result {
-        Ok(response) => (
-            true,
-            if response.trim().is_empty() {
-                "agent job executed".to_string()
-            } else {
-                response
-            },
-        ),
+        Ok(()) => (true, "agent job executed".to_string()),
         Err(e) => (false, format!("agent job failed: {e}")),
     }
 }

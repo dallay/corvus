@@ -33,7 +33,7 @@
     dead_code
 )]
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use clap::{Parser, Subcommand};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
@@ -45,9 +45,6 @@ mod agent;
 mod approval;
 mod auth;
 mod channels;
-mod rag {
-    pub use corvus::rag::*;
-}
 mod config;
 mod cron;
 mod daemon;
@@ -445,6 +442,123 @@ enum IntegrationCommands {
     },
 }
 
+async fn collect_unified_loop_result(
+    prompt: &str,
+) -> crate::agent::unified_entrypoint::CanonicalOutcome {
+    let session = std::env::var("CORVUS_SESSION_ID").unwrap_or_else(|_| "cli-session".to_string());
+    let is_preview = std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
+
+    if is_preview {
+        let mut loop_config = crate::agent::unified_loop::LoopConfig::default();
+        let mut step_duration = Duration::from_millis(1);
+        let mut tool_calls = 1usize;
+        if prompt.contains("timeout") {
+            loop_config.timeout = Duration::from_millis(1);
+            step_duration = Duration::from_millis(2);
+            tool_calls = 2;
+        }
+        if prompt.contains("needs-approval") {
+            loop_config.approval_required_tool = Some("tool-1".to_string());
+        }
+
+        let mut preview = crate::agent::unified_entrypoint::execute_with_retry_backoff(
+            session.clone(),
+            prompt,
+            &loop_config,
+            crate::agent::unified_entrypoint::UnifiedExecutionConfig {
+                tool_calls,
+                step_duration,
+                max_retries: 1,
+                backoff_millis: 25,
+                enable_test_triggers: cfg!(test),
+            },
+        )
+        .await;
+
+        if preview.events.iter().any(|event| {
+            matches!(
+                event,
+                crate::agent::unified_loop::LoopEvent::ApprovalRequired(_)
+            )
+        }) && !preview.events.iter().any(|event| {
+            matches!(
+                event,
+                crate::agent::unified_loop::LoopEvent::Error(message)
+                    if message.contains("approval denied")
+            )
+        }) {
+            preview
+                .events
+                .push(crate::agent::unified_loop::LoopEvent::Error(
+                    "approval denied".to_string(),
+                ));
+        }
+
+        return crate::agent::unified_entrypoint::CanonicalOutcome {
+            session_id: preview.session_id,
+            events: preview.events,
+            approval_required: None,
+            timeout_aborted: false,
+            fallback_response: if preview.used_fallback {
+                Some("fallback response: temporary tool/runtime issue".to_string())
+            } else {
+                None
+            },
+        };
+    }
+
+    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
+    // Enable test triggers if running in test mode OR if explicitly enabled via env var
+    let enable_test_triggers =
+        cfg!(test) || std::env::var("CORVUS_UNIFIED_TEST_TRIGGERS").as_deref() == Ok("1");
+    let mut outcome = crate::agent::unified_entrypoint::run_canonical_outcome(
+        session,
+        prompt,
+        approval_granted,
+        crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
+            enable_test_triggers,
+        },
+    )
+    .await;
+
+    if outcome.approval_required.is_some()
+        && !outcome.events.iter().any(|event| {
+            matches!(
+                event,
+                crate::agent::unified_loop::LoopEvent::Error(message)
+                    if message.contains("approval denied")
+            )
+        })
+    {
+        outcome
+            .events
+            .push(crate::agent::unified_loop::LoopEvent::Error(
+                "approval denied".to_string(),
+            ));
+    }
+
+    outcome
+}
+
+async fn collect_unified_loop_events(prompt: &str) -> Vec<crate::agent::unified_loop::LoopEvent> {
+    collect_unified_loop_result(prompt).await.events
+}
+
+fn loop_event_kind(event: &crate::agent::unified_loop::LoopEvent) -> &'static str {
+    match event {
+        crate::agent::unified_loop::LoopEvent::Start => "start",
+        crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
+        crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(_) => "tool_dispatch_started",
+        crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(_) => {
+            "tool_dispatch_completed"
+        }
+        crate::agent::unified_loop::LoopEvent::CompactionTriggered => "compaction_triggered",
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => "approval_required",
+        crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
+        crate::agent::unified_loop::LoopEvent::Error(_) => "error",
+    }
+}
+
 #[tokio::main]
 #[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
@@ -523,9 +637,71 @@ async fn main() -> Result<()> {
             peripheral,
         } => {
             maybe_print_update_notice_bounded(&config).await;
-            agent::run(config, message, provider, model, temperature, peripheral)
-                .await
-                .map(|_| ())
+
+            let canonical_prompt = message
+                .clone()
+                .unwrap_or_else(|| "interactive-session".to_string());
+            let canonical = collect_unified_loop_result(&canonical_prompt).await;
+
+            if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1") {
+                println!("loop_session={}", canonical.session_id);
+                for event in &canonical.events {
+                    let event_kind = loop_event_kind(event);
+                    // Only print non-sensitive event kind, not full event payload
+                    println!("loop_event={event_kind}");
+                    info!(
+                        session_id = %canonical.session_id,
+                        event_kind,
+                        "Unified loop preview event"
+                    );
+                }
+
+                if std::env::var("CORVUS_UNIFIED_LOOP_ONLY").as_deref() == Ok("1") {
+                    return Ok(());
+                }
+            }
+
+            if let Some(tool) = canonical.approval_required {
+                println!(
+                    "[session:{}] approval required for `{tool}`; request blocked",
+                    canonical.session_id
+                );
+                return Err(anyhow!(
+                    "[session:{}] approval required for `{tool}`; request blocked",
+                    canonical.session_id
+                ));
+            }
+
+            if canonical.timeout_aborted {
+                println!(
+                    "[session:{}] request aborted due to timeout semantics",
+                    canonical.session_id
+                );
+                return Err(anyhow!(
+                    "[session:{}] request aborted due to timeout semantics",
+                    canonical.session_id
+                ));
+            }
+
+            if let Some(fallback) = canonical.fallback_response {
+                println!("[session:{}] {fallback}", canonical.session_id);
+                return Err(anyhow!(
+                    "[session:{}] fallback activated: {fallback}",
+                    canonical.session_id
+                ));
+            }
+
+            if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
+                println!("loop_session={}", canonical.session_id);
+                for event in &canonical.events {
+                    let event_kind = loop_event_kind(event);
+                    // Only print non-sensitive event kind, not full event payload
+                    println!("loop_event={event_kind}");
+                }
+                return Ok(());
+            }
+
+            agent::run(config, message, provider, model, temperature, peripheral).await
         }
 
         Commands::Gateway { port, host } => {
@@ -1304,5 +1480,19 @@ mod tests {
             Some("encrypted-data".to_string())
         );
         assert!(parsed.code_verifier.is_none());
+    }
+
+    #[tokio::test]
+    async fn unified_loop_collection_returns_lifecycle_events() {
+        let events = collect_unified_loop_events("hello").await;
+        assert!(events
+            .iter()
+            .any(|event| matches!(event, crate::agent::unified_loop::LoopEvent::Start)));
+        assert!(events.iter().any(|event| {
+            matches!(
+                event,
+                crate::agent::unified_loop::LoopEvent::Complete(message) if message == "done"
+            )
+        }));
     }
 }

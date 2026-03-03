@@ -3,11 +3,25 @@ use crate::tools::{Tool, ToolSpec};
 use serde_json::Value;
 use std::fmt::Write;
 
+const SAFE_TOOL_NAMES: &[&str] = &[
+    "file_read",
+    "memory_recall",
+    "echo",
+    "mock_price",
+    "counter",
+];
+
 #[derive(Debug, Clone)]
 pub struct ParsedToolCall {
     pub name: String,
     pub arguments: Value,
     pub tool_call_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DispatchAction {
+    Execute,
+    ApprovalRequired(String), // e.g. tool name or reason
 }
 
 #[derive(Debug, Clone)]
@@ -16,6 +30,7 @@ pub struct ToolExecutionResult {
     pub output: String,
     pub success: bool,
     pub tool_call_id: Option<String>,
+    pub action: DispatchAction,
 }
 
 pub trait ToolDispatcher: Send + Sync {
@@ -24,6 +39,27 @@ pub trait ToolDispatcher: Send + Sync {
     fn prompt_instructions(&self, tools: &[Box<dyn Tool>]) -> String;
     fn to_provider_messages(&self, history: &[ConversationMessage]) -> Vec<ChatMessage>;
     fn should_send_tool_specs(&self) -> bool;
+
+    // Check if the tool invocation requires approval
+    // FAIL-CLOSED: Unknown tools require approval by default for safety
+    // Only explicitly safe tools can execute without approval
+    fn check_tool_risk(&self, tool_name: &str, _arguments: &Value) -> DispatchAction {
+        // First check if it's a known risky operation
+        match tool_name {
+            "shell" | "bash" | "execute_command" => {
+                DispatchAction::ApprovalRequired(tool_name.to_string())
+            }
+            _ => {
+                // Fail-closed: only tools in SAFE_TOOL_NAMES are allowed without approval
+                if SAFE_TOOL_NAMES.contains(&tool_name) {
+                    DispatchAction::Execute
+                } else {
+                    // Unknown tools require approval by default
+                    DispatchAction::ApprovalRequired(tool_name.to_string())
+                }
+            }
+        }
+    }
 }
 
 #[derive(Default)]
@@ -270,6 +306,7 @@ mod tests {
             output: "hello".into(),
             success: true,
             tool_call_id: Some("tc1".into()),
+            action: DispatchAction::Execute,
         }]);
         match msg {
             ConversationMessage::ToolResults(results) => {
@@ -288,6 +325,7 @@ mod tests {
             output: "ok".into(),
             success: true,
             tool_call_id: None,
+            action: DispatchAction::Execute,
         }]);
         let rendered = match msg {
             ConversationMessage::Chat(chat) => chat.content,
@@ -305,6 +343,7 @@ mod tests {
             output: "ok".into(),
             success: true,
             tool_call_id: Some("tc-1".into()),
+            action: DispatchAction::Execute,
         }]);
 
         match msg {
@@ -314,5 +353,21 @@ mod tests {
             }
             _ => panic!("expected ToolResults variant"),
         }
+    }
+
+    #[test]
+    fn test_risk_classification() {
+        let dispatcher = NativeToolDispatcher;
+        let action = dispatcher.check_tool_risk("shell", &serde_json::json!({"command": "rm -rf"}));
+        assert_eq!(action, DispatchAction::ApprovalRequired("shell".into()));
+
+        let safe_action = dispatcher.check_tool_risk("echo", &serde_json::json!({"message": "hi"}));
+        assert_eq!(safe_action, DispatchAction::Execute);
+
+        let unknown_action = dispatcher.check_tool_risk("unknown_tool", &serde_json::json!({}));
+        assert_eq!(
+            unknown_action,
+            DispatchAction::ApprovalRequired("unknown_tool".into())
+        );
     }
 }

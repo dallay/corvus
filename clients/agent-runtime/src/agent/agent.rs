@@ -1,5 +1,6 @@
 use crate::agent::dispatcher::{
-    NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
+    DispatchAction, NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult,
+    XmlToolDispatcher,
 };
 use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
@@ -12,7 +13,7 @@ use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
-use std::io::Write as IoWrite;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -371,38 +372,40 @@ impl Agent {
     async fn execute_tool_call(&self, call: &ParsedToolCall) -> ToolExecutionResult {
         let start = Instant::now();
 
-        let result = if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
-            match tool.execute(call.arguments.clone()).await {
-                Ok(r) => {
-                    self.observer.record_event(&ObserverEvent::ToolCall {
-                        tool: call.name.clone(),
-                        duration: start.elapsed(),
-                        success: r.success,
-                    });
-                    if r.success {
-                        r.output
-                    } else {
-                        format!("Error: {}", r.error.unwrap_or(r.output))
+        let (result, success) =
+            if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
+                match tool.execute(call.arguments.clone()).await {
+                    Ok(r) => {
+                        self.observer.record_event(&ObserverEvent::ToolCall {
+                            tool: call.name.clone(),
+                            duration: start.elapsed(),
+                            success: r.success,
+                        });
+                        if r.success {
+                            (r.output, true)
+                        } else {
+                            (format!("Error: {}", r.error.unwrap_or(r.output)), false)
+                        }
+                    }
+                    Err(e) => {
+                        self.observer.record_event(&ObserverEvent::ToolCall {
+                            tool: call.name.clone(),
+                            duration: start.elapsed(),
+                            success: false,
+                        });
+                        (format!("Error executing {}: {e}", call.name), false)
                     }
                 }
-                Err(e) => {
-                    self.observer.record_event(&ObserverEvent::ToolCall {
-                        tool: call.name.clone(),
-                        duration: start.elapsed(),
-                        success: false,
-                    });
-                    format!("Error executing {}: {e}", call.name)
-                }
-            }
-        } else {
-            format!("Unknown tool: {}", call.name)
-        };
+            } else {
+                (format!("Unknown tool: {}", call.name), false)
+            };
 
         ToolExecutionResult {
             name: call.name.clone(),
             output: result,
-            success: true,
+            success,
             tool_call_id: call.tool_call_id.clone(),
+            action: crate::agent::dispatcher::DispatchAction::Execute,
         }
     }
 
@@ -432,7 +435,7 @@ impl Agent {
         self.model_name.clone()
     }
 
-    pub async fn turn(&mut self, user_message: &str) -> Result<String> {
+    pub async fn prepare_turn(&mut self, user_message: &str) -> Result<String> {
         if self.history.is_empty() {
             let system_prompt = self.build_system_prompt()?;
             self.history
@@ -463,76 +466,143 @@ impl Agent {
         self.history
             .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
 
-        let effective_model = self.classify_model(user_message);
+        Ok(self.classify_model(user_message))
+    }
 
-        for _ in 0..self.config.max_tool_iterations {
-            let messages = self.tool_dispatcher.to_provider_messages(&self.history);
-            let response = match self
-                .provider
-                .chat(
-                    ChatRequest {
-                        messages: &messages,
-                        tools: if self.tool_dispatcher.should_send_tool_specs() {
-                            Some(&self.tool_specs)
-                        } else {
-                            None
-                        },
+    pub async fn step(
+        &mut self,
+        effective_model: &str,
+        user_message: &str,
+    ) -> Result<Option<String>> {
+        let messages = self.tool_dispatcher.to_provider_messages(&self.history);
+        let response = self
+            .provider
+            .chat(
+                ChatRequest {
+                    messages: &messages,
+                    tools: if self.tool_dispatcher.should_send_tool_specs() {
+                        Some(&self.tool_specs)
+                    } else {
+                        None
                     },
-                    &effective_model,
-                    self.temperature,
-                )
-                .await
-            {
-                Ok(resp) => resp,
-                Err(err) => return Err(err),
+                },
+                effective_model,
+                self.temperature,
+            )
+            .await?;
+
+        let (text, calls) = self.tool_dispatcher.parse_response(&response);
+        if calls.is_empty() {
+            let final_text = if text.is_empty() {
+                response.text.unwrap_or_default()
+            } else {
+                text
             };
+            let final_text = self
+                .enforce_strict_memory_validation(user_message, final_text)
+                .await;
 
-            let (text, calls) = self.tool_dispatcher.parse_response(&response);
-            if calls.is_empty() {
-                let final_text = if text.is_empty() {
-                    response.text.unwrap_or_default()
-                } else {
-                    text
-                };
-                let final_text = self
-                    .enforce_strict_memory_validation(user_message, final_text)
+            self.history
+                .push(ConversationMessage::Chat(ChatMessage::assistant(
+                    final_text.clone(),
+                )));
+            self.trim_history();
+
+            if self.auto_save {
+                let summary = truncate_with_ellipsis(&final_text, 100);
+                let _ = self
+                    .memory
+                    .store("assistant_resp", &summary, MemoryCategory::Daily, None)
                     .await;
-
-                self.history
-                    .push(ConversationMessage::Chat(ChatMessage::assistant(
-                        final_text.clone(),
-                    )));
-                self.trim_history();
-
-                if self.auto_save {
-                    let summary = truncate_with_ellipsis(&final_text, 100);
-                    let _ = self
-                        .memory
-                        .store("assistant_resp", &summary, MemoryCategory::Daily, None)
-                        .await;
-                }
-
-                return Ok(final_text);
             }
 
+            return Ok(Some(final_text));
+        }
+
+        if response.tool_calls.is_empty() {
             if !text.is_empty() {
                 self.history
-                    .push(ConversationMessage::Chat(ChatMessage::assistant(
-                        text.clone(),
-                    )));
-                print!("{text}");
-                let _ = std::io::stdout().flush();
+                    .push(ConversationMessage::Chat(ChatMessage::assistant(text)));
             }
-
+        } else {
             self.history.push(ConversationMessage::AssistantToolCalls {
-                text: response.text.clone(),
-                tool_calls: response.tool_calls.clone(),
+                text: response.text,
+                tool_calls: response.tool_calls,
             });
+        }
 
-            let results = self.execute_tools(&calls).await;
-            let formatted = self.tool_dispatcher.format_results(&results);
-            self.history.push(formatted);
-            self.trim_history();
+        let mut approved_calls = Vec::new();
+        let mut approved_call_keys = Vec::new();
+        let mut results_by_call_id = HashMap::new();
+
+        for (index, call) in calls.iter().enumerate() {
+            let (needs_approval, extracted_reason) = match self
+                .tool_dispatcher
+                .check_tool_risk(&call.name, &call.arguments)
+            {
+                DispatchAction::ApprovalRequired(reason) => (true, reason),
+                DispatchAction::Execute => (false, String::new()),
+            };
+
+            if needs_approval {
+                let key = call
+                    .tool_call_id
+                    .clone()
+                    .unwrap_or_else(|| format!("{}#{index}", call.name));
+                results_by_call_id.insert(
+                    key,
+                    ToolExecutionResult {
+                        name: call.name.clone(),
+                        output: format!("approval required before executing `{extracted_reason}`"),
+                        success: false,
+                        tool_call_id: call.tool_call_id.clone(),
+                        action: DispatchAction::ApprovalRequired(extracted_reason),
+                    },
+                );
+            } else {
+                approved_calls.push(call.clone());
+                approved_call_keys.push(
+                    call.tool_call_id
+                        .clone()
+                        .unwrap_or_else(|| format!("{}#{index}", call.name)),
+                );
+            }
+        }
+
+        for (result, key) in self
+            .execute_tools(&approved_calls)
+            .await
+            .into_iter()
+            .zip(approved_call_keys.into_iter())
+        {
+            results_by_call_id.insert(key, result);
+        }
+
+        let mut gated_results = Vec::new();
+        for (index, call) in calls.iter().enumerate() {
+            let key = call
+                .tool_call_id
+                .clone()
+                .unwrap_or_else(|| format!("{}#{index}", call.name));
+            if let Some(result) = results_by_call_id.remove(&key) {
+                gated_results.push(result);
+            }
+        }
+
+        let formatted = self.tool_dispatcher.format_results(&gated_results);
+        self.history.push(formatted);
+        self.trim_history();
+
+        Ok(None)
+    }
+
+    pub async fn turn(&mut self, user_message: &str) -> Result<String> {
+        let effective_model = self.prepare_turn(user_message).await?;
+
+        for _ in 0..self.config.max_tool_iterations {
+            if let Some(final_text) = self.step(&effective_model, user_message).await? {
+                return Ok(final_text);
+            }
         }
 
         anyhow::bail!(
@@ -578,7 +648,18 @@ pub async fn run(
     provider_override: Option<String>,
     model_override: Option<String>,
     temperature: f64,
+    peripheral_overrides: Vec<String>,
 ) -> Result<()> {
+    // Validate peripheral overrides - currently not supported
+    if !peripheral_overrides.is_empty() {
+        anyhow::bail!(
+            "peripheral overrides are not currently supported; \
+             found {} override(s): {:?}",
+            peripheral_overrides.len(),
+            peripheral_overrides
+        );
+    }
+
     let start = Instant::now();
 
     let mut effective_config = config;

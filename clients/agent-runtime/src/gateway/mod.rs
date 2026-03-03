@@ -26,13 +26,21 @@ use axum::{
     Router,
 };
 use parking_lot::Mutex;
+use regex::Regex;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use uuid::Uuid;
+
+static SENSITIVE_GATEWAY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(
+        r#"(?i)(authorization\s*:\s*bearer\s+|api[_-]?key\s*[:=]\s*|token\s*[:=]\s*)([A-Za-z0-9_\-\.]{8,})"#,
+    )
+    .expect("valid sensitive gateway regex")
+});
 
 #[derive(Debug, Clone, serde::Serialize)]
 struct AdminConfigView {
@@ -626,6 +634,127 @@ fn hash_webhook_secret(value: &str) -> String {
 
     let digest = Sha256::digest(value.as_bytes());
     hex::encode(digest)
+}
+
+fn scrub_sensitive_boundary_text(input: &str) -> String {
+    SENSITIVE_GATEWAY_REGEX
+        .replace_all(input, |caps: &regex::Captures| {
+            format!("{}[REDACTED]", &caps[1])
+        })
+        .to_string()
+}
+
+fn loop_event_name(event: &crate::agent::unified_loop::LoopEvent) -> &'static str {
+    match event {
+        crate::agent::unified_loop::LoopEvent::Start => "start",
+        crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
+        crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(_) => "tool_dispatch_started",
+        crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(_) => {
+            "tool_dispatch_completed"
+        }
+        crate::agent::unified_loop::LoopEvent::CompactionTriggered => "compaction_triggered",
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => "approval_required",
+        crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
+        crate::agent::unified_loop::LoopEvent::Error(_) => "error",
+    }
+}
+
+fn loop_event_payload(event: &crate::agent::unified_loop::LoopEvent) -> String {
+    match event {
+        crate::agent::unified_loop::LoopEvent::Start => "started".to_string(),
+        crate::agent::unified_loop::LoopEvent::LLMProgress(text)
+        | crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(text)
+        | crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(text)
+        | crate::agent::unified_loop::LoopEvent::ApprovalRequired(text)
+        | crate::agent::unified_loop::LoopEvent::Complete(text)
+        | crate::agent::unified_loop::LoopEvent::Error(text) => scrub_sensitive_boundary_text(text),
+        crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
+            "compaction_triggered".to_string()
+        }
+    }
+}
+
+fn map_loop_event_to_sse_frame(
+    session_id: &str,
+    event: &crate::agent::unified_loop::LoopEvent,
+) -> String {
+    let event_name = loop_event_name(event);
+    let payload = loop_event_payload(event)
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
+    let data_lines = if payload.is_empty() {
+        "data:\n".to_string()
+    } else {
+        payload.lines().fold(String::new(), |mut acc, line| {
+            use std::fmt::Write;
+            writeln!(acc, "data: {line}").unwrap();
+            acc
+        })
+    };
+    format!("id: {session_id}\nevent: {event_name}\n{data_lines}\n")
+}
+
+fn normalized_session_id(headers: &HeaderMap) -> String {
+    headers
+        .get("X-Session-Id")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|value| {
+            !value.is_empty()
+                && value.len() <= 64
+                && value
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
+        })
+        .map(ToOwned::to_owned)
+        .unwrap_or_else(|| format!("webhook-{}", Uuid::new_v4()))
+}
+
+fn env_u64_or(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(default)
+}
+
+fn env_usize_or(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
+async fn collect_unified_loop_sse_preview(
+    prompt: &str,
+    tool_calls: usize,
+    session_id: &str,
+    step_duration: Duration,
+    timeout: Duration,
+) -> Vec<String> {
+    let config = crate::agent::unified_loop::LoopConfig {
+        timeout,
+        ..crate::agent::unified_loop::LoopConfig::default()
+    };
+
+    let result = crate::agent::unified_entrypoint::execute_with_retry_backoff(
+        session_id.to_string(),
+        prompt,
+        &config,
+        crate::agent::unified_entrypoint::UnifiedExecutionConfig {
+            tool_calls,
+            step_duration,
+            max_retries: 1,
+            backoff_millis: 25,
+            enable_test_triggers: cfg!(test),
+        },
+    )
+    .await;
+
+    result
+        .events
+        .iter()
+        .map(|event| map_loop_event_to_sse_frame(session_id, event))
+        .collect::<Vec<_>>()
 }
 
 /// How often the rate limiter sweeps stale IP entries from its map.
@@ -1606,12 +1735,55 @@ async fn handle_webhook(
     }
 
     let message = &webhook_body.message;
+    let scrubbed_message = scrub_sensitive_boundary_text(message);
+    let session_id = normalized_session_id(&headers);
+    let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
+    if !is_preview {
+        let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
+        let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
+            session_id.clone(),
+            &scrubbed_message,
+            approval_granted,
+            crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
+                enable_test_triggers: cfg!(test),
+            },
+        )
+        .await;
+
+        if let Some(tool) = canonical.approval_required {
+            let err = serde_json::json!({
+                "error": format!("approval required for `{tool}`"),
+                "session_id": session_id,
+            });
+            return (StatusCode::FORBIDDEN, Json(err));
+        }
+
+        if canonical.timeout_aborted {
+            let body = serde_json::json!({
+                "response": "request aborted due to timeout semantics",
+                "model": state.model,
+                "session_id": session_id,
+                "aborted": true,
+            });
+            return (StatusCode::REQUEST_TIMEOUT, Json(body));
+        }
+
+        if let Some(fallback) = canonical.fallback_response {
+            let body = serde_json::json!({
+                "response": fallback,
+                "model": state.model,
+                "session_id": session_id,
+                "fallback": true,
+            });
+            return (StatusCode::OK, Json(body));
+        }
+    }
 
     if state.auto_save {
         let key = webhook_memory_key();
         let _ = state
             .mem
-            .store(&key, message, MemoryCategory::Conversation, None)
+            .store(&key, &scrubbed_message, MemoryCategory::Conversation, None)
             .await;
     }
 
@@ -1667,7 +1839,28 @@ async fn handle_webhook(
                     cost_usd: None,
                 });
 
-            let body = serde_json::json!({"response": response, "model": state.model});
+            let sanitized_response = scrub_sensitive_boundary_text(&response);
+            let mut body = serde_json::json!({
+                "response": sanitized_response,
+                "model": state.model,
+                "session_id": session_id,
+            });
+            if is_preview {
+                let preview_tool_calls = env_usize_or("CORVUS_GATEWAY_PREVIEW_TOOL_CALLS", 1);
+                let step_duration =
+                    Duration::from_millis(env_u64_or("CORVUS_GATEWAY_PREVIEW_STEP_MS", 1));
+                let timeout =
+                    Duration::from_millis(env_u64_or("CORVUS_GATEWAY_PREVIEW_TIMEOUT_MS", 30_000));
+                let frames = collect_unified_loop_sse_preview(
+                    &scrubbed_message,
+                    preview_tool_calls,
+                    &session_id,
+                    step_duration,
+                    timeout,
+                )
+                .await;
+                body["events_sse"] = serde_json::json!(frames);
+            }
             (StatusCode::OK, Json(body))
         }
         Err(e) => {
@@ -1885,6 +2078,33 @@ mod tests {
     use http_body_util::BodyExt;
     use parking_lot::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::LazyLock;
+
+    static GATEWAY_ENV_MUTEX: LazyLock<tokio::sync::Mutex<()>> =
+        LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.as_deref() {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     #[test]
     fn security_body_limit_is_64kb() {
@@ -2203,6 +2423,96 @@ mod tests {
     }
 
     #[test]
+    fn loop_event_maps_to_sse_frame() {
+        let frame = map_loop_event_to_sse_frame(
+            "session-a",
+            &crate::agent::unified_loop::LoopEvent::Complete("done".to_string()),
+        );
+
+        assert!(frame.starts_with("id: session-a\n"));
+        assert!(frame.contains("event: complete\n"));
+        assert!(frame.contains("data: done\n\n"));
+    }
+
+    #[test]
+    fn loop_event_sse_frame_scrubs_sensitive_content() {
+        let frame = map_loop_event_to_sse_frame(
+            "session-a",
+            &crate::agent::unified_loop::LoopEvent::Error(
+                "Authorization: Bearer sk-secret-token-123".to_string(),
+            ),
+        );
+
+        assert!(frame.contains("[REDACTED]"));
+        assert!(!frame.contains("sk-secret-token-123"));
+    }
+
+    #[tokio::test]
+    async fn unified_loop_sse_preview_contains_start_and_completion() {
+        let frames = collect_unified_loop_sse_preview(
+            "hello",
+            1,
+            "session-abc",
+            Duration::from_millis(1),
+            Duration::from_secs(30),
+        )
+        .await;
+        assert!(frames
+            .iter()
+            .any(|frame| frame.starts_with("id: session-abc\nevent: start\n")));
+        assert!(frames
+            .iter()
+            .any(|frame| frame.starts_with("id: session-abc\nevent: complete\n")));
+    }
+
+    #[tokio::test]
+    async fn unified_loop_sse_preview_keeps_event_order_and_timeout_abort() {
+        let frames = collect_unified_loop_sse_preview(
+            "timeout case",
+            2,
+            "session-timeout",
+            Duration::from_millis(2),
+            Duration::from_millis(1),
+        )
+        .await;
+
+        let order = frames
+            .iter()
+            .map(|frame| {
+                frame
+                    .lines()
+                    .find(|line| line.starts_with("event: "))
+                    .unwrap_or("")
+                    .to_string()
+            })
+            .collect::<Vec<_>>();
+
+        assert!(order.first().is_some_and(|line| line == "event: start"));
+        assert!(order.iter().any(|line| line == "event: error"));
+        assert!(frames
+            .iter()
+            .all(|frame| frame.starts_with("id: session-timeout\n")));
+    }
+
+    #[test]
+    fn normalized_session_id_uses_safe_header_value() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("safe_session-1"));
+        let session_id = normalized_session_id(&headers);
+        assert_eq!(session_id, "safe_session-1");
+    }
+
+    #[test]
+    fn scrub_sensitive_boundary_text_redacts_bearer_and_api_keys() {
+        let input = "Authorization: Bearer sk-abc123xyz987 api_key=secretValue123";
+        let scrubbed = scrub_sensitive_boundary_text(input);
+
+        assert!(scrubbed.contains("[REDACTED]"));
+        assert!(!scrubbed.contains("sk-abc123xyz987"));
+        assert!(!scrubbed.contains("secretValue123"));
+    }
+
+    #[test]
     fn whatsapp_memory_key_includes_sender_and_message_id() {
         let msg = ChannelMessage {
             id: "wamid-123".into(),
@@ -2390,6 +2700,179 @@ mod tests {
             .await
             .into_response();
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn webhook_preview_includes_sse_order_timeout_and_session_scope() {
+        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("session-e2e"));
+
+        let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "1");
+        let _timeout = EnvVarGuard::set("CORVUS_GATEWAY_PREVIEW_TIMEOUT_MS", "1");
+        let _tool_calls = EnvVarGuard::set("CORVUS_GATEWAY_PREVIEW_TOOL_CALLS", "2");
+        let _step = EnvVarGuard::set("CORVUS_GATEWAY_PREVIEW_STEP_MS", "2");
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "timeout-preview".to_string(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(payload["session_id"], "session-e2e");
+
+        let frames = payload["events_sse"].as_array().expect("events_sse array");
+        assert!(!frames.is_empty());
+        let first = frames[0].as_str().unwrap_or_default();
+        assert!(first.starts_with("id: session-e2e\nevent: start\n"));
+        assert!(frames
+            .iter()
+            .any(|f| f.as_str().unwrap_or_default().contains("event: error\n")));
+        assert!(frames.iter().any(|f| f
+            .as_str()
+            .unwrap_or_default()
+            .contains("retrying after recoverable error")));
+    }
+
+    #[tokio::test]
+    async fn webhook_non_preview_blocks_approval_and_keeps_session_id() {
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("session-prod"));
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "needs-approval".to_string(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["session_id"], "session-prod");
+    }
+
+    #[tokio::test]
+    async fn webhook_non_preview_unblocks_with_approval_override() {
+        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let _approve = EnvVarGuard::set("CORVUS_UNIFIED_APPROVE", "1");
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("session-prod"));
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "needs-approval".to_string(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn webhook_non_preview_timeout_aborts_with_session_scope() {
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("session-timeout"));
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "timeout".to_string(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::REQUEST_TIMEOUT);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["session_id"], "session-timeout");
+        assert_eq!(payload["aborted"], true);
     }
 
     #[tokio::test]
