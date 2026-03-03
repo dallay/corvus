@@ -441,8 +441,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
 
     let target_channel = ctx.channels_by_name.get(&msg.channel).cloned();
     let session_id = channel_session_id(&msg);
-    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1")
-        || msg.content.contains("#approve");
+    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
     let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
         session_id.clone(),
         &msg.content,
@@ -2928,18 +2927,20 @@ mod tests {
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
         });
 
+        std::env::set_var("CORVUS_UNIFIED_APPROVE", "1");
         process_channel_message(
             runtime_ctx,
             traits::ChannelMessage {
                 id: "approval-2".to_string(),
                 sender: "alice".to_string(),
                 reply_target: "chat-1".to_string(),
-                content: "needs-approval #approve".to_string(),
+                content: "needs-approval".to_string(),
                 channel: "test-channel".to_string(),
                 timestamp: 1,
             },
         )
         .await;
+        std::env::remove_var("CORVUS_UNIFIED_APPROVE");
 
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 1);

@@ -96,7 +96,7 @@ runtime reversion.
 
 ## Dependencies
 
-- Existing exploration artifact: `openspec/changes/{argument}/exploration.md`.
+- Existing exploration artifact: `openspec/changes/archive/2026-03-03-agent-loop/exploration.md`.
 - Follow-on artifacts: delta specs, design, and task breakdown for phased implementation.
 - Verification support for cross-entrypoint behavior and security/performance checks.
 

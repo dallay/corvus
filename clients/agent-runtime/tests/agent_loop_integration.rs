@@ -129,6 +129,8 @@ impl Memory for IntegrationMemory {
 
 #[tokio::test]
 async fn full_prompt_tool_response_cycle_with_dummy_provider() {
+    let workspace = tempfile::TempDir::new().expect("tempdir");
+
     let provider = Box::new(IntegrationProvider {
         calls: Mutex::new(vec![
             ChatResponse {
@@ -160,7 +162,7 @@ async fn full_prompt_tool_response_cycle_with_dummy_provider() {
         .memory(memory)
         .observer(observer)
         .tool_dispatcher(Box::new(NativeToolDispatcher))
-        .workspace_dir(std::env::temp_dir())
+        .workspace_dir(workspace.path().to_path_buf())
         .build()
         .unwrap();
 

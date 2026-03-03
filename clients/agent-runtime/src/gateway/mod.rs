@@ -679,8 +679,18 @@ fn map_loop_event_to_sse_frame(
     event: &crate::agent::unified_loop::LoopEvent,
 ) -> String {
     let event_name = loop_event_name(event);
-    let payload = loop_event_payload(event);
-    format!("id: {session_id}\nevent: {event_name}\ndata: {payload}\n\n")
+    let payload = loop_event_payload(event)
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
+    let data_lines = if payload.is_empty() {
+        "data:\n".to_string()
+    } else {
+        payload
+            .lines()
+            .map(|line| format!("data: {line}\n"))
+            .collect::<String>()
+    };
+    format!("id: {session_id}\nevent: {event_name}\n{data_lines}\n")
 }
 
 fn normalized_session_id(headers: &HeaderMap) -> String {
@@ -1712,12 +1722,7 @@ async fn handle_webhook(
     let session_id = normalized_session_id(&headers);
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
     if !is_preview {
-        let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1")
-            || headers
-                .get("X-Unified-Approve")
-                .and_then(|v| v.to_str().ok())
-                .map(str::trim)
-                == Some("1");
+        let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
         let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
             session_id.clone(),
             &scrubbed_message,
@@ -2761,9 +2766,9 @@ mod tests {
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
+        std::env::set_var("CORVUS_UNIFIED_APPROVE", "1");
         let mut headers = HeaderMap::new();
         headers.insert("X-Session-Id", HeaderValue::from_static("session-prod"));
-        headers.insert("X-Unified-Approve", HeaderValue::from_static("1"));
         let response = handle_webhook(
             State(state),
             test_connect_info(),
@@ -2774,6 +2779,7 @@ mod tests {
         )
         .await
         .into_response();
+        std::env::remove_var("CORVUS_UNIFIED_APPROVE");
 
         assert_eq!(response.status(), StatusCode::OK);
     }

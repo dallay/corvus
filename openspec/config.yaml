@@ -28,10 +28,11 @@ rules:
     test_command: "make test"
   verify:
     checks:
-      - Run tests if test infrastructure exists
+      - Execute tests as part of the standard verification stack
       - Compare implementation against every spec scenario
     test_command: "make test"
     build_command: "make build"
-    coverage_threshold: 0
+    # Interim baseline while legacy gaps are closed; increase over time.
+    coverage_threshold: 60
   archive:
     - Warn before merging destructive deltas (large removals)

@@ -4,7 +4,9 @@ use std::fs;
 fn no_legacy_loop_reexport_in_agent_mod() {
     let mod_rs = fs::read_to_string("src/agent/mod.rs").expect("read agent/mod.rs");
     assert!(
-        !mod_rs.contains("pub use loop_::{process_message, run};"),
+        !mod_rs.contains("pub use loop_")
+            && !mod_rs.contains("pub(crate) use loop_")
+            && !mod_rs.contains("pub use loop_::"),
         "legacy loop re-export must be removed"
     );
 }

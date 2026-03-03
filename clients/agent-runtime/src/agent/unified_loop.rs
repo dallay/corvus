@@ -6,6 +6,7 @@ pub struct LoopConfig {
     pub max_iterations: usize,
     pub timeout: Duration,
     pub compaction_threshold: usize,
+    pub approval_required_tool: Option<String>,
 }
 
 impl Default for LoopConfig {
@@ -14,6 +15,7 @@ impl Default for LoopConfig {
             max_iterations: 10,
             timeout: Duration::from_secs(60),
             compaction_threshold: 4_096,
+            approval_required_tool: None,
         }
     }
 }
@@ -36,6 +38,22 @@ pub struct AgentLoop {
 }
 
 impl AgentLoop {
+    fn prompt_progress_summary(prompt: &str) -> String {
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        prompt.hash(&mut hasher);
+        let fingerprint = hasher.finish();
+        format!(
+            "prompt_received chars={} hash={fingerprint:016x}",
+            prompt.chars().count()
+        )
+    }
+
+    fn requires_approval_for(&self, tool_name: &str) -> bool {
+        self.config.approval_required_tool.as_deref() == Some(tool_name)
+    }
+
     pub fn new(config: LoopConfig) -> Self {
         Self {
             config,
@@ -49,7 +67,14 @@ impl AgentLoop {
         tool_calls: usize,
         step_duration: Duration,
     ) -> impl futures::Stream<Item = LoopEvent> {
-        let mut events = vec![LoopEvent::Start, LoopEvent::LLMProgress(prompt.to_string())];
+        if let Ok(mut pending) = self.pending_approval.lock() {
+            *pending = None;
+        }
+
+        let mut events = vec![
+            LoopEvent::Start,
+            LoopEvent::LLMProgress(Self::prompt_progress_summary(prompt)),
+        ];
         let mut elapsed = Duration::ZERO;
         let mut context_size = prompt.len();
 
@@ -72,7 +97,7 @@ impl AgentLoop {
 
             let tool_name = format!("tool-{}", idx + 1);
 
-            if idx == 0 && prompt.contains("needs-approval") {
+            if idx == 0 && self.requires_approval_for(&tool_name) {
                 if let Ok(mut pending) = self.pending_approval.lock() {
                     *pending = Some(tool_name.clone());
                 }
@@ -95,11 +120,10 @@ impl AgentLoop {
     }
 
     pub fn resume(&self, approved: bool) -> impl futures::Stream<Item = LoopEvent> {
-        let pending_tool = self
-            .pending_approval
-            .lock()
-            .ok()
-            .and_then(|mut lock| lock.take());
+        let pending_tool = match self.pending_approval.lock() {
+            Ok(mut lock) => lock.take(),
+            Err(_) => None,
+        };
 
         let events = match pending_tool {
             Some(tool_name) if approved => vec![
@@ -146,7 +170,7 @@ mod tests {
             events,
             vec![
                 LoopEvent::Start,
-                LoopEvent::LLMProgress("hello".to_string()),
+                LoopEvent::LLMProgress(AgentLoop::prompt_progress_summary("hello")),
                 LoopEvent::ToolDispatchStarted("tool-1".to_string()),
                 LoopEvent::ToolDispatchCompleted("tool-1".to_string()),
                 LoopEvent::Complete("done".to_string()),
@@ -205,7 +229,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_loop_resume_continues_after_approval() {
-        let agent_loop = AgentLoop::new(LoopConfig::default());
+        let agent_loop = AgentLoop::new(LoopConfig {
+            approval_required_tool: Some("tool-1".to_string()),
+            ..LoopConfig::default()
+        });
         let run_events = agent_loop
             .run("needs-approval", 1, Duration::from_millis(1))
             .collect::<Vec<_>>()
@@ -228,7 +255,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_agent_loop_resume_emits_error_when_denied() {
-        let agent_loop = AgentLoop::new(LoopConfig::default());
+        let agent_loop = AgentLoop::new(LoopConfig {
+            approval_required_tool: Some("tool-1".to_string()),
+            ..LoopConfig::default()
+        });
         let _ = agent_loop
             .run("needs-approval", 1, Duration::from_millis(1))
             .collect::<Vec<_>>()
@@ -286,7 +316,10 @@ mod tests {
             |event| matches!(event, LoopEvent::Error(message) if message.contains("timeout"))
         ));
 
-        let approval_required = AgentLoop::new(LoopConfig::default());
+        let approval_required = AgentLoop::new(LoopConfig {
+            approval_required_tool: Some("tool-1".to_string()),
+            ..LoopConfig::default()
+        });
         let approval_run = approval_required
             .run("needs-approval", 1, Duration::from_millis(1))
             .collect::<Vec<_>>()

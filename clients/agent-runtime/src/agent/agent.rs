@@ -1,5 +1,6 @@
 use crate::agent::dispatcher::{
-    NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
+    DispatchAction, NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult,
+    XmlToolDispatcher,
 };
 use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
@@ -12,7 +13,6 @@ use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
-use std::io::Write as IoWrite;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -371,7 +371,8 @@ impl Agent {
     async fn execute_tool_call(&self, call: &ParsedToolCall) -> ToolExecutionResult {
         let start = Instant::now();
 
-        let result = if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
+        let (result, success) = if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name)
+        {
             match tool.execute(call.arguments.clone()).await {
                 Ok(r) => {
                     self.observer.record_event(&ObserverEvent::ToolCall {
@@ -380,9 +381,9 @@ impl Agent {
                         success: r.success,
                     });
                     if r.success {
-                        r.output
+                        (r.output, true)
                     } else {
-                        format!("Error: {}", r.error.unwrap_or(r.output))
+                        (format!("Error: {}", r.error.unwrap_or(r.output)), false)
                     }
                 }
                 Err(e) => {
@@ -391,17 +392,17 @@ impl Agent {
                         duration: start.elapsed(),
                         success: false,
                     });
-                    format!("Error executing {}: {e}", call.name)
+                    (format!("Error executing {}: {e}", call.name), false)
                 }
             }
         } else {
-            format!("Unknown tool: {}", call.name)
+            (format!("Unknown tool: {}", call.name), false)
         };
 
         ToolExecutionResult {
             name: call.name.clone(),
             output: result,
-            success: true,
+            success,
             tool_call_id: call.tool_call_id.clone(),
             action: crate::agent::dispatcher::DispatchAction::Execute,
         }
@@ -519,11 +520,7 @@ impl Agent {
 
         if !text.is_empty() {
             self.history
-                .push(ConversationMessage::Chat(ChatMessage::assistant(
-                    text.clone(),
-                )));
-            print!("{text}");
-            let _ = std::io::stdout().flush();
+                .push(ConversationMessage::Chat(ChatMessage::assistant(text)));
         }
 
         self.history.push(ConversationMessage::AssistantToolCalls {
@@ -531,8 +528,28 @@ impl Agent {
             tool_calls: response.tool_calls.clone(),
         });
 
-        let results = self.execute_tools(&calls).await;
-        let formatted = self.tool_dispatcher.format_results(&results);
+        let mut approved_calls = Vec::new();
+        let mut gated_results = Vec::new();
+
+        for call in &calls {
+            match self.tool_dispatcher.check_tool_risk(&call.name, &call.arguments) {
+                DispatchAction::Execute => approved_calls.push(call.clone()),
+                DispatchAction::ApprovalRequired(reason) => {
+                    gated_results.push(ToolExecutionResult {
+                        name: call.name.clone(),
+                        output: format!("approval required before executing `{reason}`"),
+                        success: false,
+                        tool_call_id: call.tool_call_id.clone(),
+                        action: DispatchAction::ApprovalRequired(reason),
+                    });
+                }
+            }
+        }
+
+        let mut executed_results = self.execute_tools(&approved_calls).await;
+        gated_results.append(&mut executed_results);
+
+        let formatted = self.tool_dispatcher.format_results(&gated_results);
         self.history.push(formatted);
         self.trim_history();
 

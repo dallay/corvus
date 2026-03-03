@@ -42,7 +42,7 @@ sequenceDiagram
         Agent-->>AL: ToolCall(s) or FinalResponse
 
         alt is FinalResponse
-            AL-->>Client: LoopEvent::Done(FinalResponse)
+            AL-->>Client: LoopEvent::Complete(FinalResponse)
         end
 
         AL->>AL: Check Context Size (Trigger Compaction if needed)
@@ -104,7 +104,7 @@ pub enum LoopEvent {
     ApprovalRequired(ApprovalRequest),
     ToolDispatchCompleted(ToolResult),
     CompactionTriggered,
-    Done(FinalResponse),
+    Complete(FinalResponse),
     Error(LoopError),
 }
 

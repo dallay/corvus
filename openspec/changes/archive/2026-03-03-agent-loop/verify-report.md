@@ -6,7 +6,7 @@
 
 ---
 
-### Completeness
+## Completeness
 
 | Metric | Value |
 |--------|-------|

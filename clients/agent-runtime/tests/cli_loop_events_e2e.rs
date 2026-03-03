@@ -6,10 +6,12 @@ fn cli_preview_outputs_loop_lifecycle_with_approval_interruption() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_corvus"))
         .args(["agent", "--message", "needs-approval"])
+        .env_clear()
         .env("HOME", tmp.path())
         .env("XDG_CONFIG_HOME", tmp.path())
         .env("CORVUS_UNIFIED_LOOP_PREVIEW", "1")
         .env("CORVUS_UNIFIED_LOOP_ONLY", "1")
+        .env("CORVUS_UNIFIED_APPROVE", "0")
         .env("RUST_LOG", "off")
         .output()
         .expect("run corvus binary");
@@ -31,10 +33,12 @@ fn cli_preview_propagates_session_and_timeout_abort_semantics() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_corvus"))
         .args(["agent", "--message", "timeout"])
+        .env_clear()
         .env("HOME", tmp.path())
         .env("XDG_CONFIG_HOME", tmp.path())
         .env("CORVUS_UNIFIED_LOOP_PREVIEW", "1")
         .env("CORVUS_UNIFIED_LOOP_ONLY", "1")
+        .env("CORVUS_UNIFIED_APPROVE", "0")
         .env("CORVUS_SESSION_ID", "session-cli-e2e")
         .env("RUST_LOG", "off")
         .output()
@@ -52,16 +56,25 @@ fn cli_non_preview_timeout_abort_is_session_scoped() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_corvus"))
         .args(["agent", "--message", "timeout"])
+        .env_clear()
         .env("HOME", tmp.path())
         .env("XDG_CONFIG_HOME", tmp.path())
+        .env("CORVUS_UNIFIED_LOOP_PREVIEW", "0")
+        .env("CORVUS_UNIFIED_LOOP_ONLY", "0")
+        .env("CORVUS_UNIFIED_APPROVE", "0")
         .env("CORVUS_SESSION_ID", "session-cli-prod")
         .env("RUST_LOG", "off")
         .output()
         .expect("run corvus binary");
 
-    assert!(output.status.success());
+    assert!(!output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("[session:session-cli-prod] request aborted due to timeout semantics"));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stdout.contains("[session:session-cli-prod] request aborted due to timeout semantics")
+            || stderr
+                .contains("[session:session-cli-prod] request aborted due to timeout semantics")
+    );
 }
 
 #[test]
@@ -70,9 +83,12 @@ fn cli_non_preview_approval_unblocks_with_override() {
 
     let output = Command::new(env!("CARGO_BIN_EXE_corvus"))
         .args(["agent", "--message", "needs-approval"])
+        .env_clear()
         .env("HOME", tmp.path())
         .env("XDG_CONFIG_HOME", tmp.path())
         .env("CORVUS_UNIFIED_APPROVE", "1")
+        .env("CORVUS_UNIFIED_LOOP_PREVIEW", "0")
+        .env("CORVUS_UNIFIED_LOOP_ONLY", "0")
         .env("CORVUS_UNIFIED_CANONICAL_ONLY", "1")
         .env("CORVUS_SESSION_ID", "session-cli-prod")
         .env("RUST_LOG", "off")

@@ -46,9 +46,10 @@ pub async fn execute_with_retry_backoff(
 ) -> UnifiedExecutionResult {
     let mut retries_used = 0;
     let mut events = Vec::new();
+    let mut current_config = config.clone();
 
     loop {
-        let loop_runner = AgentLoop::new(config.clone());
+        let loop_runner = AgentLoop::new(current_config.clone());
         let mut current_events = loop_runner
             .run(prompt, options.tool_calls, options.step_duration)
             .collect::<Vec<_>>()
@@ -84,7 +85,7 @@ pub async fn execute_with_retry_backoff(
         retries_used += 1;
         let backoff = options
             .backoff_millis
-            .saturating_mul(2u64.pow(u32::from(retries_used - 1)));
+            .saturating_mul(2u64.saturating_pow(u32::from(retries_used - 1)));
         events.push(LoopEvent::LLMProgress(format!(
             "retrying after recoverable error (backoff={}ms)",
             backoff
@@ -92,7 +93,9 @@ pub async fn execute_with_retry_backoff(
 
         tokio::time::sleep(Duration::from_millis(backoff)).await;
 
-        let timeout_multiplier = 1u32 << retries_used;
+        let timeout_multiplier = 1u32
+            .checked_shl(u32::from(retries_used))
+            .unwrap_or(u32::MAX);
         options.step_duration = options.step_duration.max(Duration::from_millis(1));
         let mut next_config = config.clone();
         next_config.timeout = config
@@ -116,37 +119,7 @@ pub async fn execute_with_retry_backoff(
             };
         }
 
-        let loop_runner = AgentLoop::new(next_config);
-        let mut retried = loop_runner
-            .run(prompt, options.tool_calls, options.step_duration)
-            .collect::<Vec<_>>()
-            .await;
-        let retried_recoverable = retried.iter().any(is_recoverable_error);
-        events.append(&mut retried);
-
-        if !retried_recoverable {
-            return UnifiedExecutionResult {
-                session_id,
-                events,
-                retries_used,
-                used_fallback: false,
-            };
-        }
-
-        if retries_used >= options.max_retries {
-            events.push(LoopEvent::LLMProgress(
-                "recoverable error exhausted retries; returning fallback".to_string(),
-            ));
-            events.push(LoopEvent::Complete(
-                "fallback response: temporary tool/runtime issue".to_string(),
-            ));
-            return UnifiedExecutionResult {
-                session_id,
-                events,
-                retries_used,
-                used_fallback: true,
-            };
-        }
+        current_config = next_config;
     }
 }
 
@@ -172,6 +145,10 @@ pub async fn run_canonical_outcome(
         options.tool_calls = 2;
         options.step_duration = Duration::from_millis(2);
         options.max_retries = 0;
+    }
+
+    if prompt.contains("needs-approval") {
+        config.approval_required_tool = Some("tool-1".to_string());
     }
 
     let result = execute_with_retry_backoff(session_id.clone(), prompt, &config, options).await;

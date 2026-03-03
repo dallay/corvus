@@ -3,7 +3,7 @@
 **Change**: agent-loop  
 **Date**: 2026-03-03  
 **Artifact mode**: openspec  
-**Verification prerequisite**: PASS (`openspec/changes/agent-loop/verify-report.md`)
+**Verification prerequisite**: PASS (`openspec/changes/archive/2026-03-03-agent-loop/verify-report.md`)
 
 ---
 

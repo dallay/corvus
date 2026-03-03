@@ -38,7 +38,14 @@ pub trait ToolDispatcher: Send + Sync {
             "shell" | "bash" | "execute_command" => {
                 DispatchAction::ApprovalRequired(tool_name.to_string())
             }
-            _ => DispatchAction::Execute,
+            "file_read" | "file_write" | "memory_store" | "memory_recall" | "memory_forget"
+            | "schedule" | "delegate" | "composio" | "browser_open" | "echo" | "mock_price" => {
+                DispatchAction::Execute
+            }
+            name if name.starts_with("file_") || name.starts_with("memory_") => {
+                DispatchAction::Execute
+            }
+            _ => DispatchAction::ApprovalRequired(tool_name.to_string()),
         }
     }
 }

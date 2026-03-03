@@ -33,7 +33,7 @@
     dead_code
 )]
 
-use anyhow::{bail, Result};
+use anyhow::{anyhow, bail, Result};
 use clap::{Parser, Subcommand};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
@@ -442,10 +442,7 @@ enum IntegrationCommands {
     },
 }
 
-async fn collect_unified_loop_result(
-    prompt: &str,
-    _tool_calls: usize,
-) -> crate::agent::unified_entrypoint::CanonicalOutcome {
+async fn collect_unified_loop_result(prompt: &str) -> crate::agent::unified_entrypoint::CanonicalOutcome {
     let session = std::env::var("CORVUS_SESSION_ID").unwrap_or_else(|_| "cli-session".to_string());
     let is_preview = std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
 
@@ -457,6 +454,9 @@ async fn collect_unified_loop_result(
             loop_config.timeout = Duration::from_millis(1);
             step_duration = Duration::from_millis(2);
             tool_calls = 2;
+        }
+        if prompt.contains("needs-approval") {
+            loop_config.approval_required_tool = Some("tool-1".to_string());
         }
 
         let mut preview = crate::agent::unified_entrypoint::execute_with_retry_backoff(
@@ -528,11 +528,8 @@ async fn collect_unified_loop_result(
     outcome
 }
 
-async fn collect_unified_loop_events(
-    prompt: &str,
-    tool_calls: usize,
-) -> Vec<crate::agent::unified_loop::LoopEvent> {
-    collect_unified_loop_result(prompt, tool_calls).await.events
+async fn collect_unified_loop_events(prompt: &str) -> Vec<crate::agent::unified_loop::LoopEvent> {
+    collect_unified_loop_result(prompt).await.events
 }
 
 #[tokio::main]
@@ -617,14 +614,36 @@ async fn main() -> Result<()> {
             let canonical_prompt = message
                 .clone()
                 .unwrap_or_else(|| "interactive-session".to_string());
-            let canonical = collect_unified_loop_result(&canonical_prompt, 1).await;
+            let canonical = collect_unified_loop_result(&canonical_prompt).await;
 
             if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1") {
                 println!("loop_session={}", canonical.session_id);
                 let preview_events = canonical.events.clone();
                 for event in preview_events {
+                    let event_kind = match &event {
+                        crate::agent::unified_loop::LoopEvent::Start => "start",
+                        crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
+                        crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(_) => {
+                            "tool_dispatch_started"
+                        }
+                        crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(_) => {
+                            "tool_dispatch_completed"
+                        }
+                        crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
+                            "compaction_triggered"
+                        }
+                        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => {
+                            "approval_required"
+                        }
+                        crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
+                        crate::agent::unified_loop::LoopEvent::Error(_) => "error",
+                    };
                     println!("loop_event={event:?}");
-                    info!(?event, "Unified loop preview event");
+                    info!(
+                        session_id = %canonical.session_id,
+                        event_kind,
+                        "Unified loop preview event"
+                    );
                 }
 
                 if std::env::var("CORVUS_UNIFIED_LOOP_ONLY").as_deref() == Ok("1") {
@@ -637,7 +656,10 @@ async fn main() -> Result<()> {
                     "[session:{}] approval required for `{tool}`; request blocked",
                     canonical.session_id
                 );
-                return Ok(());
+                return Err(anyhow!(
+                    "[session:{}] approval required for `{tool}`; request blocked",
+                    canonical.session_id
+                ));
             }
 
             if canonical.timeout_aborted {
@@ -645,12 +667,18 @@ async fn main() -> Result<()> {
                     "[session:{}] request aborted due to timeout semantics",
                     canonical.session_id
                 );
-                return Ok(());
+                return Err(anyhow!(
+                    "[session:{}] request aborted due to timeout semantics",
+                    canonical.session_id
+                ));
             }
 
             if let Some(fallback) = canonical.fallback_response {
                 println!("[session:{}] {fallback}", canonical.session_id);
-                return Ok(());
+                return Err(anyhow!(
+                    "[session:{}] fallback activated: {fallback}",
+                    canonical.session_id
+                ));
             }
 
             if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
@@ -1444,7 +1472,7 @@ mod tests {
 
     #[tokio::test]
     async fn unified_loop_collection_returns_lifecycle_events() {
-        let events = collect_unified_loop_events("hello", 1).await;
+        let events = collect_unified_loop_events("hello").await;
         assert!(events
             .iter()
             .any(|event| matches!(event, crate::agent::unified_loop::LoopEvent::Start)));
