@@ -13,10 +13,9 @@ const {
 	description = "Corvus is a lightweight autonomous AI runtime designed for secure operations, tiny footprint, and fast deployment.",
 } = Astro.props;
 
-const canonical = new URL(
-	Astro.url.pathname,
-	Astro.site ?? "http://localhost:9988",
-).toString();
+const canonical = Astro.site
+	? new URL(Astro.url.pathname, Astro.site).toString()
+	: undefined;
 ---
 
 <!doctype html>
@@ -29,10 +28,10 @@ const canonical = new URL(
     <meta property="og:type" content="website" />
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
-    <meta property="og:url" content={canonical} />
+    {canonical && <meta property="og:url" content={canonical} />}
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="theme-color" content="#0a0f1e" />
-    <link rel="canonical" href={canonical} />
+    {canonical && <link rel="canonical" href={canonical} />}
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{title}</title>
     <Analytics key={AHREFS_KEY} />

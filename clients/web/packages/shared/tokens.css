@@ -49,6 +49,12 @@
 		#0f172a 40%,
 		#1a1044 100%
 	);
+	--corvus-gradient-hero-heading: linear-gradient(
+		135deg,
+		#ffffff 0%,
+		#e2e8f0 40%,
+		#38bdf8 100%
+	);
 
 	/* Glass */
 	--corvus-glass-bg: rgba(15, 23, 42, 0.6);

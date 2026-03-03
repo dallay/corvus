@@ -13,7 +13,8 @@
     },
     "./env": {
       "import": "./env.mjs"
-    }
+    },
+    "./tokens.css": "./tokens.css"
   },
   "scripts": {
     "build": "echo 'Shared package build not yet implemented'",

@@ -3,7 +3,7 @@
    Imports shared brand tokens from @corvus/shared
    ───────────────────────────────────────────────────────────── */
 
-@import "../../../../packages/shared/tokens.css";
+@import "@corvus/shared/tokens.css";
 
 * {
   box-sizing: border-box;
@@ -144,7 +144,7 @@ nav a:hover,
   margin-top: 1rem;
   font-size: clamp(2.2rem, 6vw, 4.45rem);
   max-width: 17ch;
-  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 40%, #38bdf8 100%);
+  background: var(--corvus-gradient-hero-heading);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
