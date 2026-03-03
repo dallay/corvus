@@ -1,8 +1,17 @@
+use crate::channels::traits::ChannelMessage;
+use crate::channels::{
+    Channel, DingTalkChannel, DiscordChannel, EmailChannel, IMessageChannel, IrcChannel,
+    LarkChannel, MatrixChannel, QQChannel, SendMessage, SignalChannel, SlackChannel,
+    TelegramChannel, WhatsAppChannel,
+};
 use crate::config::Config;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use tokio::process::Command;
 
 const VERSION_CHECK_FILE: &str = "version_check.json";
 const VERSION_CHECK_TTL_SECS: u64 = 24 * 60 * 60;
@@ -10,6 +19,7 @@ const VERSION_CHECK_TIMEOUT_SECS: u64 = 2;
 const UPDATE_CHECK_DISABLE_ENV: &str = "CORVUS_DISABLE_UPDATE_CHECK";
 const INSTALL_SCRIPT_URL: &str = "https://profiletailors.com/install";
 const PACKAGE_NAME: &str = "@dallay/corvus";
+const CONFIRM_COMMAND_PREFIX: &str = "corvus update confirm";
 const RELEASE_ENDPOINTS: [&str; 2] = [
     "https://api.github.com/repos/profiletailors/corvus/releases/latest",
     "https://api.github.com/repos/dallay/corvus/releases/latest",
@@ -20,6 +30,31 @@ struct VersionCheckState {
     latest_version: String,
     checked_at_unix: u64,
     update_available: bool,
+    #[serde(default)]
+    last_notified_version: Option<String>,
+    #[serde(default)]
+    pending_confirmations: Vec<PendingConfirmation>,
+    #[serde(default)]
+    notified_conversations: Vec<NotifiedConversation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+struct NotifiedConversation {
+    version: String,
+    channel: String,
+    recipient: String,
+    authorized_sender: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PendingConfirmation {
+    version: String,
+    channel: String,
+    recipient: String,
+    authorized_sender: Option<String>,
+    nonce_hash: String,
+    expires_at_unix: u64,
+    used: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -31,6 +66,18 @@ struct LatestReleaseResponse {
 struct UpdateNotice {
     current_version: String,
     latest_version: String,
+}
+
+#[derive(Debug, Clone)]
+struct NotificationTarget {
+    channel: String,
+    recipient: String,
+    authorized_sender: Option<String>,
+}
+
+#[derive(Debug)]
+struct UpdateExecutionResult {
+    summary: String,
 }
 
 pub async fn maybe_print_update_notice(config: &Config) {
@@ -55,6 +102,776 @@ pub async fn maybe_print_update_notice(config: &Config) {
     }
 }
 
+pub async fn run_daemon_update_watcher(config: Config) -> Result<()> {
+    if is_update_check_disabled() || !config.updates.enabled {
+        return Ok(());
+    }
+
+    loop {
+        if let Err(error) = poll_and_notify_update(&config, env!("CARGO_PKG_VERSION")).await {
+            tracing::warn!("daemon update check failed: {error}");
+        }
+
+        let interval_minutes = config.updates.check_interval_minutes.max(1);
+        tokio::time::sleep(Duration::from_secs(interval_minutes * 60)).await;
+    }
+}
+
+pub async fn try_handle_channel_update_confirmation(
+    config: &Config,
+    msg: &ChannelMessage,
+    target_channel: Option<&Arc<dyn Channel>>,
+) -> bool {
+    let Some(raw_nonce) = parse_confirmation_nonce(&msg.content) else {
+        return false;
+    };
+
+    let Some(channel) = target_channel else {
+        return true;
+    };
+
+    let state_path = version_check_path(&config.workspace_dir);
+    let mut state = match load_state(&state_path).await {
+        Ok(Some(state)) => state,
+        Ok(None) => {
+            let _ = channel
+                .send(&SendMessage::new(
+                    "No pending update confirmation was found.",
+                    &msg.reply_target,
+                ))
+                .await;
+            return true;
+        }
+        Err(error) => {
+            let _ = channel
+                .send(&SendMessage::new(
+                    format!("Update state read failed: {error}"),
+                    &msg.reply_target,
+                ))
+                .await;
+            return true;
+        }
+    };
+
+    prune_pending_confirmations(&mut state.pending_confirmations);
+
+    if !is_sender_authorized(config, &msg.channel, &msg.sender) {
+        let _ = channel
+            .send(&SendMessage::new(
+                "Unauthorized sender for update confirmation.",
+                &msg.reply_target,
+            ))
+            .await;
+        return true;
+    }
+
+    let nonce_hash = hash_nonce(raw_nonce);
+    let Some(pending) = state.pending_confirmations.iter_mut().find(|pending| {
+        !pending.used
+            && pending.nonce_hash == nonce_hash
+            && pending.channel.eq_ignore_ascii_case(&msg.channel)
+            && pending.expires_at_unix > now_unix_secs()
+            && pending
+                .authorized_sender
+                .as_ref()
+                .is_none_or(|sender| sender == &msg.sender)
+    }) else {
+        let _ = channel
+            .send(&SendMessage::new(
+                "Invalid, expired, or already-used update confirmation nonce.",
+                &msg.reply_target,
+            ))
+            .await;
+        let _ = save_state(&state_path, &state).await;
+        return true;
+    };
+
+    pending.used = true;
+    let version = pending.version.clone();
+
+    if let Err(error) = save_state(&state_path, &state).await {
+        let _ = channel
+            .send(&SendMessage::new(
+                format!("Failed to persist confirmation state: {error}"),
+                &msg.reply_target,
+            ))
+            .await;
+        return true;
+    }
+
+    let result = execute_minimal_update_strategy(&version).await;
+    let _ = channel
+        .send(&SendMessage::new(result.summary, &msg.reply_target))
+        .await;
+
+    true
+}
+
+pub async fn maybe_send_opportunistic_update_notice(
+    config: &Config,
+    msg: &ChannelMessage,
+    target_channel: Option<&Arc<dyn Channel>>,
+    current_version: &str,
+) -> bool {
+    if is_update_check_disabled() || !config.updates.enabled {
+        return false;
+    }
+
+    let Some(channel) = target_channel else {
+        return false;
+    };
+
+    if !is_sender_authorized(config, &msg.channel, &msg.sender) {
+        return false;
+    }
+
+    let Some(current) = normalize_version(current_version) else {
+        tracing::warn!(
+            "invalid current version for opportunistic update notice: {current_version}"
+        );
+        return false;
+    };
+
+    let state_path = version_check_path(&config.workspace_dir);
+    let mut state = match load_state(&state_path).await {
+        Ok(Some(state)) => state,
+        Ok(None) => VersionCheckState {
+            latest_version: current.clone(),
+            checked_at_unix: 0,
+            update_available: false,
+            last_notified_version: None,
+            pending_confirmations: Vec::new(),
+            notified_conversations: Vec::new(),
+        },
+        Err(error) => {
+            tracing::warn!("opportunistic update notice skipped: state load failed: {error}");
+            return false;
+        }
+    };
+
+    prune_pending_confirmations(&mut state.pending_confirmations);
+
+    if is_stale(&state) {
+        if let Ok(fetched) = fetch_latest_release_version().await {
+            state.latest_version = fetched.clone();
+            state.checked_at_unix = now_unix_secs();
+            state.update_available =
+                compare_semverish(&fetched, &current).is_some_and(|ordering| ordering.is_gt());
+        } else {
+            state.checked_at_unix = now_unix_secs();
+        }
+    }
+
+    let has_update = state.update_available
+        && compare_semverish(&state.latest_version, &current)
+            .is_some_and(|ordering| ordering.is_gt());
+
+    if !has_update {
+        state.pending_confirmations.clear();
+        state.notified_conversations.clear();
+        let _ = save_state(&state_path, &state).await;
+        return false;
+    }
+
+    state
+        .notified_conversations
+        .retain(|notice| notice.version == state.latest_version);
+
+    if state.notified_conversations.iter().any(|notice| {
+        notice.version == state.latest_version
+            && notice.channel.eq_ignore_ascii_case(&msg.channel)
+            && notice.recipient == msg.reply_target
+            && notice.authorized_sender == msg.sender
+    }) {
+        let _ = save_state(&state_path, &state).await;
+        return false;
+    }
+
+    let now = now_unix_secs();
+    let ttl_secs = config.updates.confirmation_ttl_minutes.max(1) * 60;
+    let expires_at_unix = now.saturating_add(ttl_secs);
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+
+    let sent = send_update_notification_via_channel(
+        channel,
+        &msg.reply_target,
+        &state.latest_version,
+        &current,
+        &nonce,
+        expires_at_unix,
+    )
+    .await;
+
+    if sent {
+        state.pending_confirmations.push(PendingConfirmation {
+            version: state.latest_version.clone(),
+            channel: msg.channel.clone(),
+            recipient: msg.reply_target.clone(),
+            authorized_sender: Some(msg.sender.clone()),
+            nonce_hash: hash_nonce(&nonce),
+            expires_at_unix,
+            used: false,
+        });
+        state.notified_conversations.push(NotifiedConversation {
+            version: state.latest_version.clone(),
+            channel: msg.channel.clone(),
+            recipient: msg.reply_target.clone(),
+            authorized_sender: msg.sender.clone(),
+        });
+    }
+
+    let _ = save_state(&state_path, &state).await;
+    sent
+}
+
+async fn poll_and_notify_update(config: &Config, current_version: &str) -> Result<()> {
+    let current = normalize_version(current_version)
+        .ok_or_else(|| anyhow::anyhow!("invalid current version: {current_version}"))?;
+    let state_path = version_check_path(&config.workspace_dir);
+
+    let mut state = load_state(&state_path).await?.unwrap_or(VersionCheckState {
+        latest_version: current.clone(),
+        checked_at_unix: 0,
+        update_available: false,
+        last_notified_version: None,
+        pending_confirmations: Vec::new(),
+        notified_conversations: Vec::new(),
+    });
+
+    prune_pending_confirmations(&mut state.pending_confirmations);
+
+    if is_stale(&state) {
+        if let Ok(fetched) = fetch_latest_release_version().await {
+            state.latest_version = fetched.clone();
+            state.checked_at_unix = now_unix_secs();
+            state.update_available =
+                compare_semverish(&fetched, &current).is_some_and(|ordering| ordering.is_gt());
+        } else {
+            state.checked_at_unix = now_unix_secs();
+        }
+    }
+
+    let has_update = state.update_available
+        && compare_semverish(&state.latest_version, &current)
+            .is_some_and(|ordering| ordering.is_gt());
+
+    if !has_update {
+        state.pending_confirmations.clear();
+        state.notified_conversations.clear();
+        save_state(&state_path, &state).await?;
+        return Ok(());
+    }
+
+    if state.last_notified_version.as_deref() == Some(state.latest_version.as_str()) {
+        save_state(&state_path, &state).await?;
+        return Ok(());
+    }
+
+    let targets = collect_notification_targets(config);
+    if targets.is_empty() {
+        tracing::info!(
+            "Update v{} available but no notification destinations configured",
+            state.latest_version
+        );
+        save_state(&state_path, &state).await?;
+        return Ok(());
+    }
+
+    let now = now_unix_secs();
+    let ttl_secs = config.updates.confirmation_ttl_minutes.max(1) * 60;
+    let expires_at_unix = now.saturating_add(ttl_secs);
+
+    let mut confirmations = Vec::new();
+    for target in targets {
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        let sent = send_update_notification(
+            config,
+            &target,
+            &state.latest_version,
+            &current,
+            &nonce,
+            expires_at_unix,
+        )
+        .await;
+        if sent {
+            confirmations.push(PendingConfirmation {
+                version: state.latest_version.clone(),
+                channel: target.channel,
+                recipient: target.recipient,
+                authorized_sender: target.authorized_sender,
+                nonce_hash: hash_nonce(&nonce),
+                expires_at_unix,
+                used: false,
+            });
+        }
+    }
+
+    if !confirmations.is_empty() {
+        state.pending_confirmations.extend(confirmations);
+        state.last_notified_version = Some(state.latest_version.clone());
+    }
+
+    save_state(&state_path, &state).await?;
+    Ok(())
+}
+
+fn parse_confirmation_nonce(content: &str) -> Option<&str> {
+    let trimmed = content.trim();
+    let mut parts = trimmed.split_whitespace();
+    let first = parts.next()?;
+    let second = parts.next()?;
+    let third = parts.next()?;
+    let nonce = parts.next()?;
+
+    if first.eq_ignore_ascii_case("corvus")
+        && second.eq_ignore_ascii_case("update")
+        && third.eq_ignore_ascii_case("confirm")
+        && parts.next().is_none()
+    {
+        return Some(nonce);
+    }
+
+    None
+}
+
+fn hash_nonce(nonce: &str) -> String {
+    let digest = Sha256::digest(nonce.as_bytes());
+    hex::encode(digest)
+}
+
+fn prune_pending_confirmations(confirmations: &mut Vec<PendingConfirmation>) {
+    let now = now_unix_secs();
+    confirmations.retain(|pending| !pending.used && pending.expires_at_unix > now);
+}
+
+fn is_sender_authorized(config: &Config, channel: &str, sender: &str) -> bool {
+    let sender = sender.trim();
+    if sender.is_empty() {
+        return false;
+    }
+
+    match channel {
+        "telegram" => config
+            .channels_config
+            .telegram
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_users, sender)),
+        "discord" => config
+            .channels_config
+            .discord
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_users, sender)),
+        "slack" => config
+            .channels_config
+            .slack
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_users, sender)),
+        "mattermost" => config
+            .channels_config
+            .mattermost
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_users, sender)),
+        "imessage" => config
+            .channels_config
+            .imessage
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_contacts, sender)),
+        "matrix" => config
+            .channels_config
+            .matrix
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_users, sender)),
+        "signal" => config
+            .channels_config
+            .signal
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_from, sender)),
+        "whatsapp" => config
+            .channels_config
+            .whatsapp
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_numbers, sender)),
+        "email" => config
+            .channels_config
+            .email
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match_email(&cfg.allowed_senders, sender)),
+        "irc" => config
+            .channels_config
+            .irc
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_users, sender)),
+        "lark" => config
+            .channels_config
+            .lark
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_users, sender)),
+        "dingtalk" => config
+            .channels_config
+            .dingtalk
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_users, sender)),
+        "qq" => config
+            .channels_config
+            .qq
+            .as_ref()
+            .is_some_and(|cfg| allowlist_match(&cfg.allowed_users, sender)),
+        _ => false,
+    }
+}
+
+fn allowlist_match(allowlist: &[String], sender: &str) -> bool {
+    if allowlist.is_empty() {
+        return false;
+    }
+    if allowlist.iter().any(|entry| entry == "*") {
+        return true;
+    }
+    allowlist
+        .iter()
+        .any(|entry| entry.eq_ignore_ascii_case(sender))
+}
+
+fn allowlist_match_email(allowlist: &[String], sender: &str) -> bool {
+    if allowlist.is_empty() {
+        return false;
+    }
+    if allowlist.iter().any(|entry| entry == "*") {
+        return true;
+    }
+
+    let sender_lower = sender.to_ascii_lowercase();
+    allowlist.iter().any(|entry| {
+        if entry.starts_with('@') {
+            sender_lower.ends_with(&entry.to_ascii_lowercase())
+        } else if entry.contains('@') {
+            entry.eq_ignore_ascii_case(sender)
+        } else {
+            sender_lower.ends_with(&format!("@{}", entry.to_ascii_lowercase()))
+        }
+    })
+}
+
+fn collect_notification_targets(config: &Config) -> Vec<NotificationTarget> {
+    let mut targets = Vec::new();
+
+    let mut push_target = |channel: &str, recipient: String, authorized_sender: Option<String>| {
+        if recipient.trim().is_empty() {
+            return;
+        }
+        targets.push(NotificationTarget {
+            channel: channel.to_string(),
+            recipient,
+            authorized_sender,
+        });
+    };
+
+    for (channel, recipients) in &config.updates.notify_destinations {
+        for recipient in recipients {
+            let authorized_sender = infer_authorized_sender(channel, recipient);
+            push_target(channel, recipient.clone(), authorized_sender);
+        }
+    }
+
+    if let Some(slack) = &config.channels_config.slack {
+        if let Some(channel_id) = &slack.channel_id {
+            push_target("slack", channel_id.clone(), None);
+        }
+    }
+
+    if let Some(mattermost) = &config.channels_config.mattermost {
+        if let Some(channel_id) = &mattermost.channel_id {
+            push_target("mattermost", channel_id.clone(), None);
+        }
+    }
+
+    if let Some(matrix) = &config.channels_config.matrix {
+        push_target("matrix", matrix.room_id.clone(), None);
+    }
+
+    if let Some(signal) = &config.channels_config.signal {
+        if let Some(group_id) = &signal.group_id {
+            push_target("signal", format!("group:{group_id}"), None);
+        }
+    }
+
+    if let Some(irc) = &config.channels_config.irc {
+        for room in &irc.channels {
+            push_target("irc", room.clone(), None);
+        }
+    }
+
+    if let Some(imessage) = &config.channels_config.imessage {
+        for contact in &imessage.allowed_contacts {
+            if contact != "*" {
+                push_target("imessage", contact.clone(), Some(contact.clone()));
+            }
+        }
+    }
+
+    if let Some(whatsapp) = &config.channels_config.whatsapp {
+        for number in &whatsapp.allowed_numbers {
+            if number != "*" {
+                push_target("whatsapp", number.clone(), Some(number.clone()));
+            }
+        }
+    }
+
+    if let Some(email) = &config.channels_config.email {
+        for sender in &email.allowed_senders {
+            if sender.contains('@') && sender != "*" && !sender.starts_with('@') {
+                push_target("email", sender.clone(), Some(sender.clone()));
+            }
+        }
+    }
+
+    if let Some(telegram) = &config.channels_config.telegram {
+        for user in &telegram.allowed_users {
+            if user != "*" && user.chars().all(|ch| ch.is_ascii_digit()) {
+                push_target("telegram", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+
+    if let Some(discord) = &config.channels_config.discord {
+        for user in &discord.allowed_users {
+            if user != "*" {
+                push_target("discord", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+
+    targets.sort_by(|left, right| {
+        left.channel
+            .cmp(&right.channel)
+            .then(left.recipient.cmp(&right.recipient))
+    });
+    targets.dedup_by(|left, right| {
+        left.channel == right.channel
+            && left.recipient == right.recipient
+            && left.authorized_sender == right.authorized_sender
+    });
+    targets
+}
+
+fn infer_authorized_sender(channel: &str, recipient: &str) -> Option<String> {
+    match channel {
+        "telegram" | "signal" | "whatsapp" | "imessage" | "email" | "discord" => {
+            Some(recipient.to_string())
+        }
+        _ => None,
+    }
+}
+
+fn build_channel(config: &Config, channel_name: &str) -> Option<Arc<dyn Channel>> {
+    match channel_name {
+        "telegram" => config.channels_config.telegram.as_ref().map(|cfg| {
+            Arc::new(TelegramChannel::new(
+                cfg.bot_token.clone(),
+                cfg.allowed_users.clone(),
+            )) as Arc<dyn Channel>
+        }),
+        "discord" => config.channels_config.discord.as_ref().map(|cfg| {
+            Arc::new(DiscordChannel::new(
+                cfg.bot_token.clone(),
+                cfg.guild_id.clone(),
+                cfg.allowed_users.clone(),
+                cfg.listen_to_bots,
+                cfg.mention_only,
+            )) as Arc<dyn Channel>
+        }),
+        "slack" => config.channels_config.slack.as_ref().map(|cfg| {
+            Arc::new(SlackChannel::new(
+                cfg.bot_token.clone(),
+                cfg.channel_id.clone(),
+                cfg.allowed_users.clone(),
+            )) as Arc<dyn Channel>
+        }),
+        "mattermost" => config.channels_config.mattermost.as_ref().map(|cfg| {
+            Arc::new(crate::channels::MattermostChannel::new(
+                cfg.url.clone(),
+                cfg.bot_token.clone(),
+                cfg.channel_id.clone(),
+                cfg.allowed_users.clone(),
+                cfg.thread_replies.unwrap_or(true),
+            )) as Arc<dyn Channel>
+        }),
+        "imessage" => config.channels_config.imessage.as_ref().map(|cfg| {
+            Arc::new(IMessageChannel::new(cfg.allowed_contacts.clone())) as Arc<dyn Channel>
+        }),
+        "matrix" => config.channels_config.matrix.as_ref().map(|cfg| {
+            Arc::new(MatrixChannel::new(
+                cfg.homeserver.clone(),
+                cfg.access_token.clone(),
+                cfg.room_id.clone(),
+                cfg.allowed_users.clone(),
+            )) as Arc<dyn Channel>
+        }),
+        "signal" => config.channels_config.signal.as_ref().map(|cfg| {
+            Arc::new(SignalChannel::new(
+                cfg.http_url.clone(),
+                cfg.account.clone(),
+                cfg.group_id.clone(),
+                cfg.allowed_from.clone(),
+                cfg.ignore_attachments,
+                cfg.ignore_stories,
+            )) as Arc<dyn Channel>
+        }),
+        "whatsapp" => config.channels_config.whatsapp.as_ref().map(|cfg| {
+            Arc::new(WhatsAppChannel::new(
+                cfg.access_token.clone(),
+                cfg.phone_number_id.clone(),
+                cfg.verify_token.clone(),
+                cfg.allowed_numbers.clone(),
+            )) as Arc<dyn Channel>
+        }),
+        "email" => config
+            .channels_config
+            .email
+            .as_ref()
+            .map(|cfg| Arc::new(EmailChannel::new(cfg.clone())) as Arc<dyn Channel>),
+        "irc" => config.channels_config.irc.as_ref().map(|cfg| {
+            Arc::new(IrcChannel::new(crate::channels::irc::IrcChannelConfig {
+                server: cfg.server.clone(),
+                port: cfg.port,
+                nickname: cfg.nickname.clone(),
+                username: cfg.username.clone(),
+                channels: cfg.channels.clone(),
+                allowed_users: cfg.allowed_users.clone(),
+                server_password: cfg.server_password.clone(),
+                nickserv_password: cfg.nickserv_password.clone(),
+                sasl_password: cfg.sasl_password.clone(),
+                verify_tls: cfg.verify_tls.unwrap_or(true),
+            })) as Arc<dyn Channel>
+        }),
+        "lark" => config
+            .channels_config
+            .lark
+            .as_ref()
+            .map(|cfg| Arc::new(LarkChannel::from_config(cfg)) as Arc<dyn Channel>),
+        "dingtalk" => config.channels_config.dingtalk.as_ref().map(|cfg| {
+            Arc::new(DingTalkChannel::new(
+                cfg.client_id.clone(),
+                cfg.client_secret.clone(),
+                cfg.allowed_users.clone(),
+            )) as Arc<dyn Channel>
+        }),
+        "qq" => config.channels_config.qq.as_ref().map(|cfg| {
+            Arc::new(QQChannel::new(
+                cfg.app_id.clone(),
+                cfg.app_secret.clone(),
+                cfg.allowed_users.clone(),
+            )) as Arc<dyn Channel>
+        }),
+        _ => None,
+    }
+}
+
+async fn send_update_notification(
+    config: &Config,
+    target: &NotificationTarget,
+    latest_version: &str,
+    current_version: &str,
+    nonce: &str,
+    expires_at_unix: u64,
+) -> bool {
+    let Some(channel) = build_channel(config, &target.channel) else {
+        tracing::warn!(
+            "update notification skipped: unsupported/unconfigured channel={}",
+            target.channel
+        );
+        return false;
+    };
+
+    send_update_notification_via_channel(
+        &channel,
+        &target.recipient,
+        latest_version,
+        current_version,
+        nonce,
+        expires_at_unix,
+    )
+    .await
+}
+
+async fn send_update_notification_via_channel(
+    channel: &Arc<dyn Channel>,
+    recipient: &str,
+    latest_version: &str,
+    current_version: &str,
+    nonce: &str,
+    expires_at_unix: u64,
+) -> bool {
+    let expires_iso = chrono::DateTime::<chrono::Utc>::from_timestamp(expires_at_unix as i64, 0)
+        .map_or_else(|| expires_at_unix.to_string(), |dt| dt.to_rfc3339());
+
+    let body = format!(
+        "⬆️ Corvus update available: v{latest_version} (current v{current_version})\n\
+         Confirm from this same authorized sender with:\n\
+         `{CONFIRM_COMMAND_PREFIX} {nonce}`\n\
+         Nonce expires at {expires_iso}."
+    );
+
+    let result = channel.send(&SendMessage::new(body, recipient)).await;
+
+    if let Err(error) = result {
+        tracing::warn!(
+            "update notification failed: channel={} recipient={} error={error}",
+            channel.name(),
+            recipient
+        );
+        return false;
+    }
+
+    true
+}
+
+async fn execute_minimal_update_strategy(target_version: &str) -> UpdateExecutionResult {
+    let package_managers: [(&str, [&str; 4]); 4] = [
+        ("npm", ["i", "-g", "@dallay/corvus@latest", ""]),
+        ("pnpm", ["add", "-g", "@dallay/corvus@latest", ""]),
+        ("yarn", ["global", "add", "@dallay/corvus@latest", ""]),
+        ("bun", ["add", "-g", "@dallay/corvus@latest", ""]),
+    ];
+
+    for (bin, args) in package_managers {
+        let filtered_args = args
+            .into_iter()
+            .filter(|arg| !arg.is_empty())
+            .collect::<Vec<_>>();
+        let output = Command::new(bin).args(&filtered_args).output().await;
+
+        let Ok(output) = output else {
+            continue;
+        };
+
+        if output.status.success() {
+            return UpdateExecutionResult {
+                summary: format!(
+                    "✅ Update command executed with `{}`. Please restart daemon/service to run v{}.",
+                    std::iter::once(bin)
+                        .chain(filtered_args.iter().copied())
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    target_version
+                ),
+            };
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        tracing::warn!("update command failed ({bin}): {stderr}");
+    }
+
+    UpdateExecutionResult {
+        summary: format!(
+            "⚠️ Update confirmation accepted for v{target_version}, but automatic installation is not available in this runtime. Run one of:\n\
+             - npm i -g {PACKAGE_NAME}@latest\n\
+             - curl -fsSL {INSTALL_SCRIPT_URL} | bash\n\
+             Then restart the daemon/service."
+        ),
+    }
+}
+
 async fn check_for_update(config: &Config, current_version: &str) -> Option<UpdateNotice> {
     let current = normalize_version(current_version)?;
     let state_path = version_check_path(&config.workspace_dir);
@@ -73,6 +890,15 @@ async fn check_for_update(config: &Config, current_version: &str) -> Option<Upda
             latest_version,
             checked_at_unix: now_unix_secs(),
             update_available,
+            last_notified_version: cached_state
+                .as_ref()
+                .and_then(|state| state.last_notified_version.clone()),
+            pending_confirmations: cached_state
+                .as_ref()
+                .map_or_else(Vec::new, |state| state.pending_confirmations.clone()),
+            notified_conversations: cached_state
+                .as_ref()
+                .map_or_else(Vec::new, |state| state.notified_conversations.clone()),
         };
 
         let _ = save_state(&state_path, &state).await;
@@ -294,6 +1120,7 @@ fn parse_semverish(version: &str) -> Option<(u64, u64, u64, Option<String>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config;
 
     #[test]
     fn normalize_version_accepts_with_or_without_v_prefix() {
@@ -352,11 +1179,17 @@ mod tests {
             latest_version: "0.1.8".into(),
             checked_at_unix: now.saturating_sub(30),
             update_available: true,
+            last_notified_version: None,
+            pending_confirmations: Vec::new(),
+            notified_conversations: Vec::new(),
         };
         let stale = VersionCheckState {
             latest_version: "0.1.8".into(),
             checked_at_unix: now.saturating_sub(VERSION_CHECK_TTL_SECS + 10),
             update_available: true,
+            last_notified_version: None,
+            pending_confirmations: Vec::new(),
+            notified_conversations: Vec::new(),
         };
 
         assert!(!is_stale(&fresh));
@@ -369,21 +1202,124 @@ mod tests {
             latest_version: "0.1.8".into(),
             checked_at_unix: now_unix_secs(),
             update_available: true,
+            last_notified_version: None,
+            pending_confirmations: Vec::new(),
+            notified_conversations: Vec::new(),
         };
         let no_update_same = VersionCheckState {
             latest_version: "0.1.7".into(),
             checked_at_unix: now_unix_secs(),
             update_available: true,
+            last_notified_version: None,
+            pending_confirmations: Vec::new(),
+            notified_conversations: Vec::new(),
         };
         let no_update_flag = VersionCheckState {
             latest_version: "0.1.8".into(),
             checked_at_unix: now_unix_secs(),
             update_available: false,
+            last_notified_version: None,
+            pending_confirmations: Vec::new(),
+            notified_conversations: Vec::new(),
         };
 
         assert!(notice_from_state("0.1.7".into(), &update).is_some());
         assert!(notice_from_state("0.1.7".into(), &no_update_same).is_none());
         assert!(notice_from_state("0.1.7".into(), &no_update_flag).is_none());
+    }
+
+    #[test]
+    fn parse_confirmation_nonce_accepts_command() {
+        assert_eq!(
+            parse_confirmation_nonce("corvus update confirm abc123"),
+            Some("abc123")
+        );
+        assert_eq!(
+            parse_confirmation_nonce("  Corvus   Update   Confirm   xyz   "),
+            Some("xyz")
+        );
+    }
+
+    #[test]
+    fn parse_confirmation_nonce_rejects_non_matching_command() {
+        assert!(parse_confirmation_nonce("update confirm abc").is_none());
+        assert!(parse_confirmation_nonce("corvus update confirm").is_none());
+        assert!(parse_confirmation_nonce("corvus update confirm abc extra").is_none());
+    }
+
+    #[test]
+    fn prune_pending_confirmations_removes_used_and_expired() {
+        let now = now_unix_secs();
+        let mut pending = vec![
+            PendingConfirmation {
+                version: "1.0.0".into(),
+                channel: "telegram".into(),
+                recipient: "1".into(),
+                authorized_sender: Some("1".into()),
+                nonce_hash: "a".into(),
+                expires_at_unix: now + 30,
+                used: false,
+            },
+            PendingConfirmation {
+                version: "1.0.0".into(),
+                channel: "telegram".into(),
+                recipient: "2".into(),
+                authorized_sender: Some("2".into()),
+                nonce_hash: "b".into(),
+                expires_at_unix: now.saturating_sub(1),
+                used: false,
+            },
+            PendingConfirmation {
+                version: "1.0.0".into(),
+                channel: "telegram".into(),
+                recipient: "3".into(),
+                authorized_sender: Some("3".into()),
+                nonce_hash: "c".into(),
+                expires_at_unix: now + 30,
+                used: true,
+            },
+        ];
+
+        prune_pending_confirmations(&mut pending);
+        assert_eq!(pending.len(), 1);
+        assert_eq!(pending[0].recipient, "1");
+    }
+
+    #[test]
+    fn collect_notification_targets_uses_configured_and_inferred_destinations() {
+        let mut cfg = Config::default();
+        cfg.updates.notify_destinations.insert(
+            "slack".to_string(),
+            vec!["C123".to_string(), "C123".to_string()],
+        );
+        cfg.channels_config.matrix = Some(config::schema::MatrixConfig {
+            homeserver: "https://matrix.example".into(),
+            access_token: "token".into(),
+            room_id: "!room:matrix.example".into(),
+            allowed_users: vec!["@alice:matrix.example".into()],
+        });
+
+        let targets = collect_notification_targets(&cfg);
+        assert!(targets
+            .iter()
+            .any(|target| { target.channel == "slack" && target.recipient == "C123" }));
+        assert!(targets.iter().any(|target| {
+            target.channel == "matrix" && target.recipient == "!room:matrix.example"
+        }));
+    }
+
+    #[test]
+    fn sender_authorization_checks_allowlists() {
+        let mut cfg = Config::default();
+        cfg.channels_config.telegram = Some(config::schema::TelegramConfig {
+            bot_token: "token".into(),
+            allowed_users: vec!["123".into()],
+            stream_mode: config::StreamMode::default(),
+            draft_update_interval_ms: 1000,
+        });
+
+        assert!(is_sender_authorized(&cfg, "telegram", "123"));
+        assert!(!is_sender_authorized(&cfg, "telegram", "999"));
     }
 
     #[tokio::test]
@@ -394,6 +1330,22 @@ mod tests {
             latest_version: "0.1.9".into(),
             checked_at_unix: 123,
             update_available: true,
+            last_notified_version: Some("0.1.9".into()),
+            pending_confirmations: vec![PendingConfirmation {
+                version: "0.1.9".into(),
+                channel: "telegram".into(),
+                recipient: "123".into(),
+                authorized_sender: Some("123".into()),
+                nonce_hash: hash_nonce("nonce"),
+                expires_at_unix: 999,
+                used: false,
+            }],
+            notified_conversations: vec![NotifiedConversation {
+                version: "0.1.9".into(),
+                channel: "telegram".into(),
+                recipient: "123".into(),
+                authorized_sender: "123".into(),
+            }],
         };
 
         save_state(&path, &state).await.unwrap();
@@ -402,5 +1354,142 @@ mod tests {
         assert_eq!(loaded.latest_version, "0.1.9");
         assert_eq!(loaded.checked_at_unix, 123);
         assert!(loaded.update_available);
+        assert_eq!(loaded.last_notified_version.as_deref(), Some("0.1.9"));
+        assert_eq!(loaded.pending_confirmations.len(), 1);
+        assert_eq!(loaded.notified_conversations.len(), 1);
+    }
+
+    #[derive(Default)]
+    struct TestChannel {
+        sent_messages: tokio::sync::Mutex<Vec<(String, String)>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Channel for TestChannel {
+        fn name(&self) -> &str {
+            "test-channel"
+        }
+
+        async fn send(&self, message: &SendMessage) -> anyhow::Result<()> {
+            self.sent_messages
+                .lock()
+                .await
+                .push((message.recipient.clone(), message.content.clone()));
+            Ok(())
+        }
+
+        async fn listen(
+            &self,
+            _tx: tokio::sync::mpsc::Sender<crate::channels::traits::ChannelMessage>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn opportunistic_notice_uses_reply_target_and_dedupes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.workspace_dir = dir.path().to_path_buf();
+        cfg.channels_config.telegram = Some(config::schema::TelegramConfig {
+            bot_token: "token".into(),
+            allowed_users: vec!["123".into()],
+            stream_mode: config::StreamMode::default(),
+            draft_update_interval_ms: 1000,
+        });
+
+        let state_path = version_check_path(&cfg.workspace_dir);
+        save_state(
+            &state_path,
+            &VersionCheckState {
+                latest_version: "9.9.9".into(),
+                checked_at_unix: now_unix_secs(),
+                update_available: true,
+                last_notified_version: None,
+                pending_confirmations: Vec::new(),
+                notified_conversations: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let channel_impl = Arc::new(TestChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let msg = ChannelMessage {
+            id: "msg-1".into(),
+            sender: "123".into(),
+            reply_target: "chat-1".into(),
+            content: "hi".into(),
+            channel: "telegram".into(),
+            timestamp: 1,
+        };
+
+        let first =
+            maybe_send_opportunistic_update_notice(&cfg, &msg, Some(&channel), "1.0.0").await;
+        let second =
+            maybe_send_opportunistic_update_notice(&cfg, &msg, Some(&channel), "1.0.0").await;
+
+        assert!(first);
+        assert!(!second);
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert_eq!(sent[0].0, "chat-1");
+        assert!(sent[0].1.contains("Corvus update available"));
+        assert!(sent[0].1.contains("corvus update confirm"));
+
+        let state = load_state(&state_path).await.unwrap().unwrap();
+        assert_eq!(state.pending_confirmations.len(), 1);
+        assert_eq!(state.notified_conversations.len(), 1);
+        assert_eq!(state.pending_confirmations[0].recipient, "chat-1");
+        assert_eq!(
+            state.pending_confirmations[0].authorized_sender.as_deref(),
+            Some("123")
+        );
+    }
+
+    #[tokio::test]
+    async fn opportunistic_notice_skips_when_no_update_available() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut cfg = Config::default();
+        cfg.workspace_dir = dir.path().to_path_buf();
+        cfg.channels_config.telegram = Some(config::schema::TelegramConfig {
+            bot_token: "token".into(),
+            allowed_users: vec!["123".into()],
+            stream_mode: config::StreamMode::default(),
+            draft_update_interval_ms: 1000,
+        });
+
+        let state_path = version_check_path(&cfg.workspace_dir);
+        save_state(
+            &state_path,
+            &VersionCheckState {
+                latest_version: "1.0.0".into(),
+                checked_at_unix: now_unix_secs(),
+                update_available: false,
+                last_notified_version: None,
+                pending_confirmations: Vec::new(),
+                notified_conversations: Vec::new(),
+            },
+        )
+        .await
+        .unwrap();
+
+        let channel_impl = Arc::new(TestChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let msg = ChannelMessage {
+            id: "msg-1".into(),
+            sender: "123".into(),
+            reply_target: "chat-1".into(),
+            content: "hi".into(),
+            channel: "telegram".into(),
+            timestamp: 1,
+        };
+
+        let sent =
+            maybe_send_opportunistic_update_notice(&cfg, &msg, Some(&channel), "1.0.0").await;
+
+        assert!(!sent);
+        assert!(channel_impl.sent_messages.lock().await.is_empty());
     }
 }

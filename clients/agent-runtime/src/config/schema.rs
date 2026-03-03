@@ -62,6 +62,9 @@ pub struct Config {
     pub channels_config: ChannelsConfig,
 
     #[serde(default)]
+    pub updates: UpdateConfig,
+
+    #[serde(default)]
     pub memory: MemoryConfig,
 
     #[serde(default)]
@@ -1906,6 +1909,7 @@ impl Default for Config {
             heartbeat: HeartbeatConfig::default(),
             cron: CronConfig::default(),
             channels_config: ChannelsConfig::default(),
+            updates: UpdateConfig::default(),
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
@@ -1920,6 +1924,48 @@ impl Default for Config {
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateConfig {
+    /// Enable periodic update checks + notifications in daemon mode.
+    #[serde(default = "default_updates_enabled")]
+    pub enabled: bool,
+    /// Poll interval for update checks while daemon is running.
+    #[serde(default = "default_update_check_interval_minutes")]
+    pub check_interval_minutes: u64,
+    /// Lifetime for a confirmation nonce before it expires.
+    #[serde(default = "default_update_confirmation_ttl_minutes")]
+    pub confirmation_ttl_minutes: u64,
+    /// Per-channel destination overrides for update notifications.
+    ///
+    /// Key: channel name (e.g. telegram, slack, discord)
+    /// Value: list of destination identifiers for that channel.
+    #[serde(default)]
+    pub notify_destinations: HashMap<String, Vec<String>>,
+}
+
+fn default_updates_enabled() -> bool {
+    true
+}
+
+fn default_update_check_interval_minutes() -> u64 {
+    30
+}
+
+fn default_update_confirmation_ttl_minutes() -> u64 {
+    30
+}
+
+impl Default for UpdateConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_updates_enabled(),
+            check_interval_minutes: default_update_check_interval_minutes(),
+            confirmation_ttl_minutes: default_update_confirmation_ttl_minutes(),
+            notify_destinations: HashMap::new(),
         }
     }
 }
@@ -2666,6 +2712,15 @@ default_temperature = 0.7
         assert!(c.discord.is_none());
     }
 
+    #[test]
+    fn updates_config_defaults_are_safe_and_enabled() {
+        let updates = UpdateConfig::default();
+        assert!(updates.enabled);
+        assert_eq!(updates.check_interval_minutes, 30);
+        assert_eq!(updates.confirmation_ttl_minutes, 30);
+        assert!(updates.notify_destinations.is_empty());
+    }
+
     // ── Serde round-trip ─────────────────────────────────────
 
     #[test]
@@ -2729,6 +2784,7 @@ default_temperature = 0.7
                 dingtalk: None,
                 qq: None,
             },
+            updates: UpdateConfig::default(),
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
@@ -2840,6 +2896,7 @@ tool_dispatcher = "xml"
             heartbeat: HeartbeatConfig::default(),
             cron: CronConfig::default(),
             channels_config: ChannelsConfig::default(),
+            updates: UpdateConfig::default(),
             memory: MemoryConfig::default(),
             tunnel: TunnelConfig::default(),
             gateway: GatewayConfig::default(),
