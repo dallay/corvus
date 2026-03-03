@@ -500,16 +500,18 @@ async fn turn_handles_unknown_tool_gracefully() {
         "Expected non-empty response after unknown tool recovery"
     );
 
-    // Verify the tool result mentioned "Unknown tool"
+    // Unknown tools should fail-closed and require explicit approval
     let has_tool_result = agent.history().iter().any(|msg| match msg {
         ConversationMessage::ToolResults(results) => {
-            results.iter().any(|r| r.content.contains("Unknown tool"))
+            results
+                .iter()
+                .any(|r| r.content.contains("approval required before executing"))
         }
         _ => false,
     });
     assert!(
         has_tool_result,
-        "Expected tool result with 'Unknown tool' message"
+        "Expected tool result with approval-required message"
     );
 }
 

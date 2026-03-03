@@ -544,6 +544,21 @@ async fn collect_unified_loop_events(prompt: &str) -> Vec<crate::agent::unified_
     collect_unified_loop_result(prompt).await.events
 }
 
+fn loop_event_kind(event: &crate::agent::unified_loop::LoopEvent) -> &'static str {
+    match event {
+        crate::agent::unified_loop::LoopEvent::Start => "start",
+        crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
+        crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(_) => "tool_dispatch_started",
+        crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(_) => {
+            "tool_dispatch_completed"
+        }
+        crate::agent::unified_loop::LoopEvent::CompactionTriggered => "compaction_triggered",
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => "approval_required",
+        crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
+        crate::agent::unified_loop::LoopEvent::Error(_) => "error",
+    }
+}
+
 #[tokio::main]
 #[allow(clippy::too_many_lines)]
 async fn main() -> Result<()> {
@@ -631,24 +646,7 @@ async fn main() -> Result<()> {
             if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1") {
                 println!("loop_session={}", canonical.session_id);
                 for event in &canonical.events {
-                    let event_kind = match event {
-                        crate::agent::unified_loop::LoopEvent::Start => "start",
-                        crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
-                        crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(_) => {
-                            "tool_dispatch_started"
-                        }
-                        crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(_) => {
-                            "tool_dispatch_completed"
-                        }
-                        crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
-                            "compaction_triggered"
-                        }
-                        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => {
-                            "approval_required"
-                        }
-                        crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
-                        crate::agent::unified_loop::LoopEvent::Error(_) => "error",
-                    };
+                    let event_kind = loop_event_kind(event);
                     // Only print non-sensitive event kind, not full event payload
                     println!("loop_event={event_kind}");
                     info!(
@@ -696,24 +694,7 @@ async fn main() -> Result<()> {
             if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
                 println!("loop_session={}", canonical.session_id);
                 for event in &canonical.events {
-                    let event_kind = match event {
-                        crate::agent::unified_loop::LoopEvent::Start => "start",
-                        crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
-                        crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(_) => {
-                            "tool_dispatch_started"
-                        }
-                        crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(_) => {
-                            "tool_dispatch_completed"
-                        }
-                        crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
-                            "compaction_triggered"
-                        }
-                        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => {
-                            "approval_required"
-                        }
-                        crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
-                        crate::agent::unified_loop::LoopEvent::Error(_) => "error",
-                    };
+                    let event_kind = loop_event_kind(event);
                     // Only print non-sensitive event kind, not full event payload
                     println!("loop_event={event_kind}");
                 }

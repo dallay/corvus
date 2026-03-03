@@ -536,21 +536,12 @@ impl Agent {
         let mut results_by_call_id = HashMap::new();
 
         for (index, call) in calls.iter().enumerate() {
-            // Check if tool exists - unknown tools should be executed to return "Unknown tool" error
-            let tool_exists = self.tools.iter().any(|t| t.name() == call.name);
-
-            // Only require approval for known risky tools, not unknown ones
-            // Extract the actual reason from check_tool_risk instead of using call.name
-            let (needs_approval, extracted_reason) = if tool_exists {
-                match self
-                    .tool_dispatcher
-                    .check_tool_risk(&call.name, &call.arguments)
-                {
-                    DispatchAction::ApprovalRequired(reason) => (true, reason),
-                    DispatchAction::Execute => (false, String::new()),
-                }
-            } else {
-                (false, String::new()) // Unknown tools will be executed and return "Unknown tool: {name}"
+            let (needs_approval, extracted_reason) = match self
+                .tool_dispatcher
+                .check_tool_risk(&call.name, &call.arguments)
+            {
+                DispatchAction::ApprovalRequired(reason) => (true, reason),
+                DispatchAction::Execute => (false, String::new()),
             };
 
             if needs_approval {

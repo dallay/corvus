@@ -5,14 +5,7 @@ use std::fmt::Write;
 
 const SAFE_TOOL_NAMES: &[&str] = &[
     "file_read",
-    "file_write",
-    "memory_store",
     "memory_recall",
-    "memory_forget",
-    "schedule",
-    "delegate",
-    "composio",
-    "browser_open",
     "echo",
     "mock_price",
     "counter",
@@ -364,9 +357,17 @@ mod tests {
 
     #[test]
     fn test_risk_classification() {
-        // Failing test for TDD
         let dispatcher = NativeToolDispatcher;
         let action = dispatcher.check_tool_risk("shell", &serde_json::json!({"command": "rm -rf"}));
         assert_eq!(action, DispatchAction::ApprovalRequired("shell".into()));
+
+        let safe_action = dispatcher.check_tool_risk("echo", &serde_json::json!({"message": "hi"}));
+        assert_eq!(safe_action, DispatchAction::Execute);
+
+        let unknown_action = dispatcher.check_tool_risk("unknown_tool", &serde_json::json!({}));
+        assert_eq!(
+            unknown_action,
+            DispatchAction::ApprovalRequired("unknown_tool".into())
+        );
     }
 }
