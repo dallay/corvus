@@ -87,7 +87,8 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         tracing::info!("Cron disabled; scheduler supervisor not started");
     }
 
-    if config.updates.enabled {
+    let updater_started = config.updates.enabled && !crate::update::is_update_check_disabled();
+    if updater_started {
         let update_cfg = config.clone();
         handles.push(spawn_component_supervisor(
             "updater",
@@ -103,9 +104,14 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         tracing::info!("Update daemon watcher disabled; updater supervisor not started");
     }
 
+    let mut component_list = vec!["gateway", "channels", "heartbeat", "scheduler"];
+    if updater_started {
+        component_list.push("updater");
+    }
+
     println!("🧠 Corvus daemon started");
     println!("   Gateway:  http://{host}:{port}");
-    println!("   Components: gateway, channels, heartbeat, scheduler, updater");
+    println!("   Components: {}", component_list.join(", "));
     println!("   Ctrl+C to stop");
 
     tokio::signal::ctrl_c().await?;
