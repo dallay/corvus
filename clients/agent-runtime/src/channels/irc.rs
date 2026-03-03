@@ -282,6 +282,132 @@ impl IrcChannel {
             .any(|u| u.eq_ignore_ascii_case(nick))
     }
 
+    async fn send_raw(writer: &mut WriteHalf, line: &str) -> anyhow::Result<()> {
+        let data = format!("{line}\r\n");
+        writer.write_all(data.as_bytes()).await?;
+        writer.flush().await?;
+        Ok(())
+    }
+
+    async fn send_to_writer(&self, msg: &str) -> anyhow::Result<()> {
+        let mut guard = self.writer.lock().await;
+        if let Some(ref mut w) = *guard {
+            Self::send_raw(w, msg).await?;
+        }
+        Ok(())
+    }
+
+    async fn handle_registration(&self, writer: &mut WriteHalf) -> anyhow::Result<()> {
+        let current_nick = self.nickname.clone();
+
+        if let Some(ref pass) = self.server_password {
+            Self::send_raw(writer, &format!("PASS {pass}")).await?;
+        }
+
+        Self::send_raw(writer, &format!("NICK {current_nick}")).await?;
+        Self::send_raw(writer, &format!("USER {} 0 * :Corvus", self.username)).await?;
+
+        Ok(())
+    }
+
+    async fn handle_welcome(&self, _current_nick: &str) -> anyhow::Result<()> {
+        if let Some(ref pass) = self.nickserv_password {
+            self.send_to_writer(&format!("PRIVMSG NickServ :IDENTIFY {pass}"))
+                .await?;
+        }
+
+        for chan in &self.channels {
+            self.send_to_writer(&format!("JOIN {chan}")).await?;
+        }
+
+        Ok(())
+    }
+
+    fn parse_privmsg(&self, msg: &IrcMessage, sender_nick: &str) -> Option<ChannelMessage> {
+        let target = msg.params.first()?;
+        let text = msg.params.get(1)?;
+
+        if sender_nick.eq_ignore_ascii_case("NickServ")
+            || sender_nick.eq_ignore_ascii_case("ChanServ")
+        {
+            return None;
+        }
+
+        if !self.is_user_allowed(sender_nick) {
+            return None;
+        }
+
+        let is_channel = target.starts_with('#') || target.starts_with('&');
+        let reply_to = if is_channel {
+            target.to_string()
+        } else {
+            sender_nick.to_string()
+        };
+        let content = if is_channel {
+            format!("{IRC_STYLE_PREFIX}<{sender_nick}> {text}")
+        } else {
+            format!("{IRC_STYLE_PREFIX}{text}")
+        };
+
+        let seq = MSG_SEQ.fetch_add(1, Ordering::Relaxed);
+        Some(ChannelMessage {
+            id: format!("irc_{}_{seq}", chrono::Utc::now().timestamp_millis()),
+            sender: sender_nick.to_string(),
+            reply_target: reply_to,
+            content,
+            channel: "irc".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        })
+    }
+
+    async fn handle_cap_message(
+        &self,
+        msg: &IrcMessage,
+        sasl_pending: bool,
+        sasl_active: &mut bool,
+    ) -> anyhow::Result<()> {
+        match sasl_cap_action(msg, sasl_pending) {
+            Some(SaslCapAction::StartAuthenticatePlain) => {
+                self.send_to_writer("AUTHENTICATE PLAIN").await?;
+            }
+            Some(SaslCapAction::EndCapAndDisable) => {
+                tracing::warn!("IRC server does not support SASL, continuing without it");
+                *sasl_active = false;
+                self.send_to_writer("CAP END").await?;
+            }
+            None => {}
+        }
+        Ok(())
+    }
+
+    async fn handle_authenticate(
+        &self,
+        msg: &IrcMessage,
+        sasl_pending: bool,
+        current_nick: &str,
+        sasl_active: &mut bool,
+    ) -> anyhow::Result<()> {
+        if sasl_pending && msg.params.first().is_some_and(|p| p == "+") {
+            if let Some(password) = self.sasl_password.as_deref() {
+                let encoded = encode_sasl_plain(current_nick, password);
+                for chunk in split_sasl_authenticate_payload(&encoded) {
+                    self.send_to_writer(&format!("AUTHENTICATE {chunk}"))
+                        .await?;
+                }
+            } else {
+                tracing::warn!(
+                    "SASL authentication requested but no SASL password is configured; aborting SASL"
+                );
+                *sasl_active = false;
+                self.send_to_writer("CAP END").await?;
+            }
+        }
+        Ok(())
+    }
+
     /// Create a TLS connection to the IRC server.
     async fn connect(
         &self,
@@ -318,14 +444,6 @@ impl IrcChannel {
             })??;
 
         Ok(tls)
-    }
-
-    /// Send a raw IRC line (appends \r\n).
-    async fn send_raw(writer: &mut WriteHalf, line: &str) -> anyhow::Result<()> {
-        let data = format!("{line}\r\n");
-        writer.write_all(data.as_bytes()).await?;
-        writer.flush().await?;
-        Ok(())
     }
 }
 
@@ -397,32 +515,22 @@ impl Channel for IrcChannel {
     }
 
     async fn listen(&self, tx: mpsc::Sender<ChannelMessage>) -> anyhow::Result<()> {
-        let mut current_nick = self.nickname.clone();
         tracing::info!(
             "IRC channel connecting to {}:{} as {}...",
             self.server,
             self.port,
-            current_nick
+            self.nickname
         );
 
         let tls = self.connect().await?;
         let (reader, mut writer) = tokio::io::split(tls);
 
-        // --- SASL negotiation ---
         if self.sasl_password.is_some() {
             Self::send_raw(&mut writer, "CAP REQ :sasl").await?;
         }
 
-        // --- Server password ---
-        if let Some(ref pass) = self.server_password {
-            Self::send_raw(&mut writer, &format!("PASS {pass}")).await?;
-        }
+        self.handle_registration(&mut writer).await?;
 
-        // --- Nick/User registration ---
-        Self::send_raw(&mut writer, &format!("NICK {current_nick}")).await?;
-        Self::send_raw(&mut writer, &format!("USER {} 0 * :Corvus", self.username)).await?;
-
-        // Store writer for send()
         {
             let mut guard = self.writer.lock().await;
             *guard = Some(writer);
@@ -432,6 +540,7 @@ impl Channel for IrcChannel {
         let mut line = String::new();
         let mut registered = false;
         let mut sasl_pending = self.sasl_password.is_some();
+        let mut current_nick = self.nickname.clone();
 
         loop {
             line.clear();
@@ -451,112 +560,40 @@ impl Channel for IrcChannel {
             match msg.command.as_str() {
                 "PING" => {
                     let token = msg.params.first().map_or("", String::as_str);
-                    let mut guard = self.writer.lock().await;
-                    if let Some(ref mut w) = *guard {
-                        Self::send_raw(w, &format!("PONG :{token}")).await?;
-                    }
+                    self.send_to_writer(&format!("PONG :{token}")).await?;
                 }
 
-                // CAP responses for SASL
                 "CAP" => {
-                    match sasl_cap_action(&msg, sasl_pending) {
-                        Some(SaslCapAction::StartAuthenticatePlain) => {
-                            // CAP * ACK :sasl — server accepted, start SASL auth.
-                            let mut guard = self.writer.lock().await;
-                            if let Some(ref mut w) = *guard {
-                                Self::send_raw(w, "AUTHENTICATE PLAIN").await?;
-                            }
-                        }
-                        Some(SaslCapAction::EndCapAndDisable) => {
-                            // CAP * NAK :sasl — server rejected SASL, proceed without it
-                            tracing::warn!(
-                                "IRC server does not support SASL, continuing without it"
-                            );
-                            sasl_pending = false;
-                            let mut guard = self.writer.lock().await;
-                            if let Some(ref mut w) = *guard {
-                                Self::send_raw(w, "CAP END").await?;
-                            }
-                        }
-                        None => {}
-                    }
+                    self.handle_cap_message(&msg, sasl_pending, &mut sasl_pending)
+                        .await?;
                 }
 
                 "AUTHENTICATE" => {
-                    // Server sends "AUTHENTICATE +" to request credentials
-                    if sasl_pending && msg.params.first().is_some_and(|p| p == "+") {
-                        if let Some(password) = self.sasl_password.as_deref() {
-                            let encoded = encode_sasl_plain(&current_nick, password);
-                            let mut guard = self.writer.lock().await;
-                            if let Some(ref mut w) = *guard {
-                                for chunk in split_sasl_authenticate_payload(&encoded) {
-                                    Self::send_raw(w, &format!("AUTHENTICATE {chunk}")).await?;
-                                }
-                            }
-                        } else {
-                            // SASL was requested but no password is configured; abort SASL
-                            tracing::warn!(
-                                "SASL authentication requested but no SASL password is configured; aborting SASL"
-                            );
-                            sasl_pending = false;
-                            let mut guard = self.writer.lock().await;
-                            if let Some(ref mut w) = *guard {
-                                Self::send_raw(w, "CAP END").await?;
-                            }
-                        }
-                    }
+                    self.handle_authenticate(&msg, sasl_pending, &current_nick, &mut sasl_pending)
+                        .await?;
                 }
 
-                // RPL_SASLSUCCESS (903) — SASL done, end CAP
                 "903" => {
                     sasl_pending = false;
-                    let mut guard = self.writer.lock().await;
-                    if let Some(ref mut w) = *guard {
-                        Self::send_raw(w, "CAP END").await?;
-                    }
+                    self.send_to_writer("CAP END").await?;
                 }
 
-                // SASL failure (904, 905, 906, 907)
                 "904" | "905" | "906" | "907" => {
                     tracing::warn!("IRC SASL authentication failed ({})", msg.command);
                     sasl_pending = false;
-                    let mut guard = self.writer.lock().await;
-                    if let Some(ref mut w) = *guard {
-                        Self::send_raw(w, "CAP END").await?;
-                    }
+                    self.send_to_writer("CAP END").await?;
                 }
 
-                // RPL_WELCOME — registration complete
                 "001" => {
                     registered = true;
                     tracing::info!("IRC registered as {}", current_nick);
-
-                    // NickServ authentication
-                    if let Some(ref pass) = self.nickserv_password {
-                        let mut guard = self.writer.lock().await;
-                        if let Some(ref mut w) = *guard {
-                            Self::send_raw(w, &format!("PRIVMSG NickServ :IDENTIFY {pass}"))
-                                .await?;
-                        }
-                    }
-
-                    // Join channels
-                    for chan in &self.channels {
-                        let mut guard = self.writer.lock().await;
-                        if let Some(ref mut w) = *guard {
-                            Self::send_raw(w, &format!("JOIN {chan}")).await?;
-                        }
-                    }
+                    self.handle_welcome(&current_nick).await?;
                 }
 
-                // ERR_NICKNAMEINUSE (433)
                 "433" => {
                     let alt = format!("{current_nick}_");
                     tracing::warn!("IRC nickname {current_nick} is in use, trying {alt}");
-                    let mut guard = self.writer.lock().await;
-                    if let Some(ref mut w) = *guard {
-                        Self::send_raw(w, &format!("NICK {alt}")).await?;
-                    }
+                    self.send_to_writer(&format!("NICK {alt}")).await?;
                     current_nick = alt;
                 }
 
@@ -565,54 +602,14 @@ impl Channel for IrcChannel {
                         continue;
                     }
 
-                    let target = msg.params.first().map_or("", String::as_str);
-                    let text = msg.params.get(1).map_or("", String::as_str);
                     let sender_nick = msg.nick().unwrap_or("unknown");
-
-                    // Skip messages from NickServ/ChanServ
-                    if sender_nick.eq_ignore_ascii_case("NickServ")
-                        || sender_nick.eq_ignore_ascii_case("ChanServ")
-                    {
-                        continue;
-                    }
-
-                    if !self.is_user_allowed(sender_nick) {
-                        continue;
-                    }
-
-                    // Determine reply target: if sent to a channel, reply to channel;
-                    // if DM (target == our nick), reply to sender
-                    let is_channel = target.starts_with('#') || target.starts_with('&');
-                    let reply_to = if is_channel {
-                        target.to_string()
-                    } else {
-                        sender_nick.to_string()
-                    };
-                    let content = if is_channel {
-                        format!("{IRC_STYLE_PREFIX}<{sender_nick}> {text}")
-                    } else {
-                        format!("{IRC_STYLE_PREFIX}{text}")
-                    };
-
-                    let seq = MSG_SEQ.fetch_add(1, Ordering::Relaxed);
-                    let channel_msg = ChannelMessage {
-                        id: format!("irc_{}_{seq}", chrono::Utc::now().timestamp_millis()),
-                        sender: sender_nick.to_string(),
-                        reply_target: reply_to,
-                        content,
-                        channel: "irc".to_string(),
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                    };
-
-                    if tx.send(channel_msg).await.is_err() {
-                        return Ok(());
+                    if let Some(channel_msg) = self.parse_privmsg(&msg, sender_nick) {
+                        if tx.send(channel_msg).await.is_err() {
+                            return Ok(());
+                        }
                     }
                 }
 
-                // ERR_PASSWDMISMATCH (464) or other fatal errors
                 "464" => {
                     anyhow::bail!("IRC password mismatch");
                 }

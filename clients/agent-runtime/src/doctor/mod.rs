@@ -104,7 +104,32 @@ pub fn run(config: &Config) -> Result<()> {
 fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
     let cat = "config";
 
-    // Config file exists
+    check_config_file(config, cat, items);
+    check_provider_config(config, cat, items);
+    check_api_key_config(config, cat, items);
+    check_model_config(config, cat, items);
+    check_temperature_config(config, cat, items);
+    check_gateway_port(config, cat, items);
+    check_fallback_providers(config, cat, items);
+    check_model_routes(config, cat, items);
+    check_channels_configured(config, cat, items);
+    check_delegate_agents(config, cat, items);
+}
+
+fn provider_validation_error(name: &str) -> Option<String> {
+    match crate::providers::create_provider(name, None) {
+        Ok(_) => None,
+        Err(err) => Some(
+            err.to_string()
+                .lines()
+                .next()
+                .unwrap_or("invalid provider")
+                .into(),
+        ),
+    }
+}
+
+fn check_config_file(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     if config.config_path.exists() {
         items.push(DiagItem::ok(
             cat,
@@ -116,8 +141,9 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
             format!("config file not found: {}", config.config_path.display()),
         ));
     }
+}
 
-    // Provider validity
+fn check_provider_config(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     if let Some(ref provider) = config.default_provider {
         if let Some(reason) = provider_validation_error(provider) {
             items.push(DiagItem::error(
@@ -133,8 +159,9 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
     } else {
         items.push(DiagItem::error(cat, "no default_provider configured"));
     }
+}
 
-    // API key presence
+fn check_api_key_config(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     if config.default_provider.as_deref() != Some("ollama") {
         if config.api_key.is_some() {
             items.push(DiagItem::ok(cat, "API key configured"));
@@ -145,8 +172,9 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
             ));
         }
     }
+}
 
-    // Model configured
+fn check_model_config(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     if config.default_model.is_some() {
         items.push(DiagItem::ok(
             cat,
@@ -158,8 +186,9 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
     } else {
         items.push(DiagItem::warn(cat, "no default_model configured"));
     }
+}
 
-    // Temperature range
+fn check_temperature_config(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     if config.default_temperature >= 0.0 && config.default_temperature <= 2.0 {
         items.push(DiagItem::ok(
             cat,
@@ -177,16 +206,18 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
             ),
         ));
     }
+}
 
-    // Gateway port range
+fn check_gateway_port(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     let port = config.gateway.port;
     if port > 0 {
         items.push(DiagItem::ok(cat, format!("gateway port: {port}")));
     } else {
         items.push(DiagItem::error(cat, "gateway port is 0 (invalid)"));
     }
+}
 
-    // Reliability: fallback providers
+fn check_fallback_providers(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     for fb in &config.reliability.fallback_providers {
         if let Some(reason) = provider_validation_error(fb) {
             items.push(DiagItem::warn(
@@ -195,8 +226,9 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
             ));
         }
     }
+}
 
-    // Model routes validation
+fn check_model_routes(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     for route in &config.model_routes {
         if route.hint.is_empty() {
             items.push(DiagItem::warn(cat, "model route with empty hint"));
@@ -217,8 +249,9 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
             ));
         }
     }
+}
 
-    // Channel: at least one configured
+fn check_channels_configured(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     let cc = &config.channels_config;
     let has_channel = cc.telegram.is_some()
         || cc.discord.is_some()
@@ -239,8 +272,9 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
             "no channels configured — run `corvus onboard` to set one up",
         ));
     }
+}
 
-    // Delegate agents: provider validity
+fn check_delegate_agents(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
     for (name, agent) in &config.agents {
         if let Some(reason) = provider_validation_error(&agent.provider) {
             items.push(DiagItem::warn(
@@ -251,19 +285,6 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
                 ),
             ));
         }
-    }
-}
-
-fn provider_validation_error(name: &str) -> Option<String> {
-    match crate::providers::create_provider(name, None) {
-        Ok(_) => None,
-        Err(err) => Some(
-            err.to_string()
-                .lines()
-                .next()
-                .unwrap_or("invalid provider")
-                .into(),
-        ),
     }
 }
 
@@ -386,6 +407,20 @@ fn check_daemon_state(config: &Config, items: &mut Vec<DiagItem>) {
     let cat = "daemon";
     let state_file = crate::daemon::state_file_path(config);
 
+    let snapshot = match load_daemon_state(&state_file, cat, items) {
+        Some(s) => s,
+        None => return,
+    };
+
+    check_daemon_heartbeat(&snapshot, cat, items);
+    check_daemon_components(&snapshot, cat, items);
+}
+
+fn load_daemon_state(
+    state_file: &std::path::Path,
+    cat: &'static str,
+    items: &mut Vec<DiagItem>,
+) -> Option<serde_json::Value> {
     if !state_file.exists() {
         items.push(DiagItem::error(
             cat,
@@ -394,26 +429,31 @@ fn check_daemon_state(config: &Config, items: &mut Vec<DiagItem>) {
                 state_file.display()
             ),
         ));
-        return;
+        return None;
     }
 
-    let raw = match std::fs::read_to_string(&state_file) {
+    let raw = match std::fs::read_to_string(state_file) {
         Ok(r) => r,
         Err(e) => {
             items.push(DiagItem::error(cat, format!("cannot read state file: {e}")));
-            return;
+            return None;
         }
     };
 
-    let snapshot: serde_json::Value = match serde_json::from_str(&raw) {
-        Ok(v) => v,
+    match serde_json::from_str::<serde_json::Value>(&raw) {
+        Ok(v) => Some(v),
         Err(e) => {
             items.push(DiagItem::error(cat, format!("invalid state JSON: {e}")));
-            return;
+            None
         }
-    };
+    }
+}
 
-    // Daemon heartbeat freshness
+fn check_daemon_heartbeat(
+    snapshot: &serde_json::Value,
+    cat: &'static str,
+    items: &mut Vec<DiagItem>,
+) {
     let updated_at = snapshot
         .get("updated_at")
         .and_then(serde_json::Value::as_str)
@@ -437,80 +477,100 @@ fn check_daemon_state(config: &Config, items: &mut Vec<DiagItem>) {
             format!("invalid daemon timestamp: {updated_at}"),
         ));
     }
+}
 
-    // Components
-    if let Some(components) = snapshot
+fn check_daemon_components(
+    snapshot: &serde_json::Value,
+    cat: &'static str,
+    items: &mut Vec<DiagItem>,
+) {
+    let Some(components) = snapshot
         .get("components")
         .and_then(serde_json::Value::as_object)
-    {
-        // Scheduler
-        if let Some(scheduler) = components.get("scheduler") {
-            let scheduler_ok = scheduler
-                .get("status")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|s| s == "ok");
-            let scheduler_age = scheduler
-                .get("last_ok")
-                .and_then(serde_json::Value::as_str)
-                .and_then(parse_rfc3339)
-                .map_or(i64::MAX, |dt| {
-                    Utc::now().signed_duration_since(dt).num_seconds()
-                });
+    else {
+        return;
+    };
 
-            if scheduler_ok && scheduler_age <= SCHEDULER_STALE_SECONDS {
-                items.push(DiagItem::ok(
-                    cat,
-                    format!("scheduler healthy (last ok {scheduler_age}s ago)"),
-                ));
-            } else {
-                items.push(DiagItem::error(
-                    cat,
-                    format!("scheduler unhealthy (ok={scheduler_ok}, age={scheduler_age}s)"),
-                ));
-            }
-        } else {
-            items.push(DiagItem::warn(cat, "scheduler component not tracked yet"));
-        }
+    check_scheduler_component(components, cat, items);
+    check_channel_components(components, cat, items);
+}
 
-        // Channels
-        let mut channel_count = 0u32;
-        let mut stale = 0u32;
-        for (name, component) in components {
-            if !name.starts_with("channel:") {
-                continue;
-            }
-            channel_count += 1;
-            let status_ok = component
-                .get("status")
-                .and_then(serde_json::Value::as_str)
-                .is_some_and(|s| s == "ok");
-            let age = component
-                .get("last_ok")
-                .and_then(serde_json::Value::as_str)
-                .and_then(parse_rfc3339)
-                .map_or(i64::MAX, |dt| {
-                    Utc::now().signed_duration_since(dt).num_seconds()
-                });
+fn check_scheduler_component(
+    components: &serde_json::Map<String, serde_json::Value>,
+    cat: &'static str,
+    items: &mut Vec<DiagItem>,
+) {
+    if let Some(scheduler) = components.get("scheduler") {
+        let scheduler_ok = scheduler
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|s| s == "ok");
+        let scheduler_age = scheduler
+            .get("last_ok")
+            .and_then(serde_json::Value::as_str)
+            .and_then(parse_rfc3339)
+            .map_or(i64::MAX, |dt| {
+                Utc::now().signed_duration_since(dt).num_seconds()
+            });
 
-            if status_ok && age <= CHANNEL_STALE_SECONDS {
-                items.push(DiagItem::ok(cat, format!("{name} fresh ({age}s ago)")));
-            } else {
-                stale += 1;
-                items.push(DiagItem::error(
-                    cat,
-                    format!("{name} stale (ok={status_ok}, age={age}s)"),
-                ));
-            }
-        }
-
-        if channel_count == 0 {
-            items.push(DiagItem::warn(cat, "no channel components tracked yet"));
-        } else if stale > 0 {
-            items.push(DiagItem::warn(
+        if scheduler_ok && scheduler_age <= SCHEDULER_STALE_SECONDS {
+            items.push(DiagItem::ok(
                 cat,
-                format!("{channel_count} channels, {stale} stale"),
+                format!("scheduler healthy (last ok {scheduler_age}s ago)"),
+            ));
+        } else {
+            items.push(DiagItem::error(
+                cat,
+                format!("scheduler unhealthy (ok={scheduler_ok}, age={scheduler_age}s)"),
             ));
         }
+    } else {
+        items.push(DiagItem::warn(cat, "scheduler component not tracked yet"));
+    }
+}
+
+fn check_channel_components(
+    components: &serde_json::Map<String, serde_json::Value>,
+    cat: &'static str,
+    items: &mut Vec<DiagItem>,
+) {
+    let mut channel_count = 0u32;
+    let mut stale = 0u32;
+    for (name, component) in components {
+        if !name.starts_with("channel:") {
+            continue;
+        }
+        channel_count += 1;
+        let status_ok = component
+            .get("status")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|s| s == "ok");
+        let age = component
+            .get("last_ok")
+            .and_then(serde_json::Value::as_str)
+            .and_then(parse_rfc3339)
+            .map_or(i64::MAX, |dt| {
+                Utc::now().signed_duration_since(dt).num_seconds()
+            });
+
+        if status_ok && age <= CHANNEL_STALE_SECONDS {
+            items.push(DiagItem::ok(cat, format!("{name} fresh ({age}s ago)")));
+        } else {
+            stale += 1;
+            items.push(DiagItem::error(
+                cat,
+                format!("{name} stale (ok={status_ok}, age={age}s)"),
+            ));
+        }
+    }
+
+    if channel_count == 0 {
+        items.push(DiagItem::warn(cat, "no channel components tracked yet"));
+    } else if stale > 0 {
+        items.push(DiagItem::warn(
+            cat,
+            format!("{channel_count} channels, {stale} stale"),
+        ));
     }
 }
 

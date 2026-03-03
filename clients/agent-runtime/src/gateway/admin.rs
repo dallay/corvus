@@ -1,11 +1,11 @@
+use crate::config::Config;
+use crate::gateway::{self, AppState};
+use crate::security::AutonomyLevel;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json},
 };
-use crate::gateway::{self, AppState};
-use crate::config::Config;
-use crate::security::AutonomyLevel;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AdminConfigView {
@@ -64,6 +64,7 @@ pub struct AdminGatewayView {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct AdminChannelsView {
     pub cli: bool,
     pub has_telegram: bool,
@@ -402,7 +403,11 @@ fn collect_restart_required_webhook(
     fields: &mut Vec<&'static str>,
 ) {
     if let Some(port) = webhook.port {
-        let current_port = cfg.channels_config.webhook.as_ref().map_or(3000, |w| w.port);
+        let current_port = cfg
+            .channels_config
+            .webhook
+            .as_ref()
+            .map_or(3000, |w| w.port);
         if port != current_port {
             fields.push("webhook.port");
         }
@@ -503,7 +508,10 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
     }
 }
 
-pub fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> Vec<&'static str> {
+pub fn restart_required_updates(
+    cfg: &Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Vec<&'static str> {
     let mut fields = Vec::new();
 
     collect_restart_required_defaults(cfg, patch, &mut fields);
@@ -532,6 +540,7 @@ pub fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) 
     fields
 }
 
+#[allow(clippy::unused_async)]
 pub async fn handle_admin_get_config(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -551,6 +560,7 @@ pub async fn handle_admin_get_config(
     )
 }
 
+#[allow(clippy::unused_async)]
 pub async fn handle_admin_options(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -594,7 +604,10 @@ pub async fn handle_admin_options(
     (StatusCode::OK, Json(body))
 }
 
-fn apply_defaults_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(), AdminResponse> {
+fn apply_defaults_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
     if let Some(provider) = patch.default_provider.as_ref() {
         let provider = provider.trim();
         cfg.default_provider = (!provider.is_empty()).then(|| provider.to_string());
@@ -607,7 +620,9 @@ fn apply_defaults_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> R
 
     if let Some(temperature) = patch.default_temperature {
         if !(0.0..=2.0).contains(&temperature) {
-            return Err(bad_request("default_temperature must be in range [0.0, 2.0]"));
+            return Err(bad_request(
+                "default_temperature must be in range [0.0, 2.0]",
+            ));
         }
         cfg.default_temperature = temperature;
     }
@@ -650,13 +665,17 @@ fn apply_observability_patch(
 
     if let Some(service_name) = observability_patch.otel_service_name.as_ref() {
         let service_name = service_name.trim();
-        cfg.observability.otel_service_name = (!service_name.is_empty()).then(|| service_name.to_string());
+        cfg.observability.otel_service_name =
+            (!service_name.is_empty()).then(|| service_name.to_string());
     }
 
     Ok(())
 }
 
-fn apply_runtime_patch(cfg: &mut Config, patch: Option<&AdminRuntimePatch>) -> Result<(), AdminResponse> {
+fn apply_runtime_patch(
+    cfg: &mut Config,
+    patch: Option<&AdminRuntimePatch>,
+) -> Result<(), AdminResponse> {
     let Some(runtime_patch) = patch else {
         return Ok(());
     };
@@ -707,7 +726,10 @@ fn apply_scheduler_patch(cfg: &mut Config, patch: Option<&AdminSchedulerPatch>) 
     }
 }
 
-fn apply_gateway_patch(cfg: &mut Config, patch: Option<&AdminGatewayPatch>) -> Result<(), AdminResponse> {
+fn apply_gateway_patch(
+    cfg: &mut Config,
+    patch: Option<&AdminGatewayPatch>,
+) -> Result<(), AdminResponse> {
     let Some(gateway_patch) = patch else {
         return Ok(());
     };
@@ -754,7 +776,10 @@ fn apply_gateway_patch(cfg: &mut Config, patch: Option<&AdminGatewayPatch>) -> R
     Ok(())
 }
 
-fn apply_webhook_patch(cfg: &mut Config, patch: Option<&AdminWebhookPatch>) -> Result<(), AdminResponse> {
+fn apply_webhook_patch(
+    cfg: &mut Config,
+    patch: Option<&AdminWebhookPatch>,
+) -> Result<(), AdminResponse> {
     let Some(webhook_patch) = patch else {
         return Ok(());
     };
@@ -793,6 +818,7 @@ fn apply_webhook_patch(cfg: &mut Config, patch: Option<&AdminWebhookPatch>) -> R
     Ok(())
 }
 
+#[allow(clippy::unused_async)]
 pub async fn handle_admin_update_config(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -877,11 +903,11 @@ pub async fn handle_admin_update_config(
 mod tests {
     use super::*;
     use crate::config::Config;
-    use crate::security::AutonomyLevel;
     use crate::gateway::AppState;
     use crate::security::pairing::PairingGuard;
-    use std::sync::Arc;
+    use crate::security::AutonomyLevel;
     use parking_lot::Mutex;
+    use std::sync::Arc;
 
     fn test_config() -> Config {
         let mut cfg = Config::default();
@@ -921,7 +947,10 @@ mod tests {
         assert!(restart_required_updates(&cfg, &patch).is_empty());
 
         patch.memory_backend = Some("lucid".into());
-        assert_eq!(restart_required_updates(&cfg, &patch), vec!["memory_backend"]);
+        assert_eq!(
+            restart_required_updates(&cfg, &patch),
+            vec!["memory_backend"]
+        );
 
         // Test scheduler bounds
         patch.memory_backend = None;
@@ -937,7 +966,10 @@ mod tests {
             max_tasks: Some(1), // max(1) applies, but it's different from 10
             max_concurrent: None,
         });
-        assert_eq!(restart_required_updates(&cfg, &patch), vec!["scheduler.max_tasks"]);
+        assert_eq!(
+            restart_required_updates(&cfg, &patch),
+            vec!["scheduler.max_tasks"]
+        );
     }
 
     #[tokio::test]
@@ -957,13 +989,16 @@ mod tests {
             provider: Arc::new(crate::gateway::tests::MockProvider::default()),
             model: "model".into(),
             temperature: 0.5,
-            mem: Arc::new(crate::gateway::tests::MockMemory::default()),
+            mem: Arc::new(crate::gateway::tests::MockMemory),
             auto_save: false,
             webhook_secret_hash: None,
             pairing: Arc::new(PairingGuard::new(true, &["valid_token".into()])),
             trust_forwarded_headers: false,
             rate_limiter: Arc::new(crate::gateway::GatewayRateLimiter::new(100, 100, 1000)),
-            idempotency_store: Arc::new(crate::gateway::IdempotencyStore::new(std::time::Duration::from_secs(60), 100)),
+            idempotency_store: Arc::new(crate::gateway::IdempotencyStore::new(
+                std::time::Duration::from_secs(60),
+                100,
+            )),
             whatsapp: None,
             whatsapp_app_secret: None,
             observer: Arc::new(crate::observability::NoopObserver),
@@ -1003,11 +1038,9 @@ mod tests {
             axum::http::HeaderValue::from_static("Bearer valid_token"),
         );
 
-        let response = handle_admin_update_config(
-            State(state.clone()),
-            headers,
-            Ok(Json(patch)),
-        ).await.into_response();
+        let response = handle_admin_update_config(State(state.clone()), headers, Ok(Json(patch)))
+            .await
+            .into_response();
 
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
 
@@ -1041,13 +1074,23 @@ mod tests {
 
         assert!(restart_required_updates(&cfg, &patch).is_empty());
 
-        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Replace { value: "old-secret".into() });
+        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Replace {
+            value: "old-secret".into(),
+        });
         assert!(restart_required_updates(&cfg, &patch).is_empty());
 
-        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Replace { value: "new-secret".into() });
-        assert_eq!(restart_required_updates(&cfg, &patch), vec!["webhook.secret"]);
+        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Replace {
+            value: "new-secret".into(),
+        });
+        assert_eq!(
+            restart_required_updates(&cfg, &patch),
+            vec!["webhook.secret"]
+        );
 
         patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Clear);
-        assert_eq!(restart_required_updates(&cfg, &patch), vec!["webhook.secret"]);
+        assert_eq!(
+            restart_required_updates(&cfg, &patch),
+            vec!["webhook.secret"]
+        );
     }
 }

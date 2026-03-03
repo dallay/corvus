@@ -35,6 +35,9 @@ use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;
 use uuid::Uuid;
 
+pub mod admin;
+pub mod utils;
+
 static SENSITIVE_GATEWAY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?i)(authorization\s*:\s*bearer\s+|api[_-]?key\s*[:=]\s*|token\s*[:=]\s*)([A-Za-z0-9_\-\.]{8,})"#,
@@ -329,135 +332,127 @@ fn validate_runtime_kind(value: &str) -> bool {
 fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> Vec<&'static str> {
     let mut fields = Vec::new();
 
-    if let Some(provider) = patch.default_provider.as_ref() {
-        let provider = provider.trim();
-        let next = (!provider.is_empty()).then_some(provider);
-        let current = cfg.default_provider.as_deref();
-        if next != current {
-            fields.push("default_provider");
-        }
-    }
-
-    if let Some(model) = patch.default_model.as_ref() {
-        let model = model.trim();
-        let next = (!model.is_empty()).then_some(model);
-        let current = cfg.default_model.as_deref();
-        if next != current {
-            fields.push("default_model");
-        }
-    }
-
-    if let Some(temperature) = patch.default_temperature {
-        if temperature != cfg.default_temperature {
-            fields.push("default_temperature");
-        }
-    }
-
-    if let Some(memory_backend) = patch.memory_backend.as_ref() {
-        let backend = memory_backend.trim().to_ascii_lowercase();
-        if backend != cfg.memory.backend {
-            fields.push("memory_backend");
-        }
-    }
+    compare_trimmed_string(
+        patch.default_provider.as_ref(),
+        cfg.default_provider.as_ref(),
+        "default_provider",
+        &mut fields,
+    );
+    compare_trimmed_string(
+        patch.default_model.as_ref(),
+        cfg.default_model.as_ref(),
+        "default_model",
+        &mut fields,
+    );
+    compare_primitive(
+        patch.default_temperature,
+        cfg.default_temperature,
+        "default_temperature",
+        &mut fields,
+    );
+    compare_ascii_lowercase(
+        patch.memory_backend.as_ref(),
+        &cfg.memory.backend,
+        "memory_backend",
+        &mut fields,
+    );
 
     if let Some(observability) = patch.observability.as_ref() {
-        if let Some(backend) = observability.backend.as_ref() {
-            let backend = backend.trim().to_ascii_lowercase();
-            if backend != cfg.observability.backend {
-                fields.push("observability.backend");
-            }
-        }
-
-        if let Some(endpoint) = observability.otel_endpoint.as_ref() {
-            let endpoint = endpoint.trim();
-            let next = (!endpoint.is_empty()).then_some(endpoint);
-            let current = cfg.observability.otel_endpoint.as_deref();
-            if next != current {
-                fields.push("observability.otel_endpoint");
-            }
-        }
-
-        if let Some(service_name) = observability.otel_service_name.as_ref() {
-            let service_name = service_name.trim();
-            let next = (!service_name.is_empty()).then_some(service_name);
-            let current = cfg.observability.otel_service_name.as_deref();
-            if next != current {
-                fields.push("observability.otel_service_name");
-            }
-        }
+        compare_ascii_lowercase(
+            observability.backend.as_ref(),
+            &cfg.observability.backend,
+            "observability.backend",
+            &mut fields,
+        );
+        compare_trimmed_string(
+            observability.otel_endpoint.as_ref(),
+            cfg.observability.otel_endpoint.as_ref(),
+            "observability.otel_endpoint",
+            &mut fields,
+        );
+        compare_trimmed_string(
+            observability.otel_service_name.as_ref(),
+            cfg.observability.otel_service_name.as_ref(),
+            "observability.otel_service_name",
+            &mut fields,
+        );
     }
 
     if let Some(runtime) = patch.runtime.as_ref() {
-        if let Some(kind) = runtime.kind.as_ref() {
-            let kind = kind.trim().to_ascii_lowercase();
-            if kind != cfg.runtime.kind {
-                fields.push("runtime.kind");
-            }
-        }
+        compare_ascii_lowercase(
+            runtime.kind.as_ref(),
+            &cfg.runtime.kind,
+            "runtime.kind",
+            &mut fields,
+        );
     }
 
     if let Some(autonomy) = patch.autonomy.as_ref() {
-        if let Some(level) = autonomy.level {
-            if level != cfg.autonomy.level {
-                fields.push("autonomy.level");
-            }
-        }
-
-        if let Some(workspace_only) = autonomy.workspace_only {
-            if workspace_only != cfg.autonomy.workspace_only {
-                fields.push("autonomy.workspace_only");
-            }
-        }
-
-        if let Some(max_actions_per_hour) = autonomy.max_actions_per_hour {
-            if max_actions_per_hour != cfg.autonomy.max_actions_per_hour {
-                fields.push("autonomy.max_actions_per_hour");
-            }
-        }
-
-        if let Some(max_cost_per_day_cents) = autonomy.max_cost_per_day_cents {
-            if max_cost_per_day_cents != cfg.autonomy.max_cost_per_day_cents {
-                fields.push("autonomy.max_cost_per_day_cents");
-            }
-        }
+        compare_primitive(
+            autonomy.level,
+            cfg.autonomy.level,
+            "autonomy.level",
+            &mut fields,
+        );
+        compare_primitive(
+            autonomy.workspace_only,
+            cfg.autonomy.workspace_only,
+            "autonomy.workspace_only",
+            &mut fields,
+        );
+        compare_primitive(
+            autonomy.max_actions_per_hour,
+            cfg.autonomy.max_actions_per_hour,
+            "autonomy.max_actions_per_hour",
+            &mut fields,
+        );
+        compare_primitive(
+            autonomy.max_cost_per_day_cents,
+            cfg.autonomy.max_cost_per_day_cents,
+            "autonomy.max_cost_per_day_cents",
+            &mut fields,
+        );
     }
 
     if let Some(gateway) = patch.gateway.as_ref() {
-        if let Some(port) = gateway.port {
-            if port != cfg.gateway.port {
-                fields.push("gateway.port");
-            }
-        }
-        if let Some(host) = gateway.host.as_ref() {
-            if host.trim() != cfg.gateway.host {
-                fields.push("gateway.host");
-            }
-        }
-        if let Some(require_pairing) = gateway.require_pairing {
-            if require_pairing != cfg.gateway.require_pairing {
-                fields.push("gateway.require_pairing");
-            }
-        }
-        if let Some(allow_public_bind) = gateway.allow_public_bind {
-            if allow_public_bind != cfg.gateway.allow_public_bind {
-                fields.push("gateway.allow_public_bind");
-            }
-        }
-        if let Some(pair_limit) = gateway.pair_rate_limit_per_minute {
-            if pair_limit != cfg.gateway.pair_rate_limit_per_minute {
-                fields.push("gateway.pair_rate_limit_per_minute");
-            }
-        }
-        if let Some(webhook_limit) = gateway.webhook_rate_limit_per_minute {
-            if webhook_limit != cfg.gateway.webhook_rate_limit_per_minute {
-                fields.push("gateway.webhook_rate_limit_per_minute");
-            }
-        }
-        if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
-            if trust_forwarded_headers != cfg.gateway.trust_forwarded_headers {
-                fields.push("gateway.trust_forwarded_headers");
-            }
-        }
+        compare_primitive(gateway.port, cfg.gateway.port, "gateway.port", &mut fields);
+        compare_trimmed_string(
+            gateway.host.as_ref(),
+            Some(&cfg.gateway.host),
+            "gateway.host",
+            &mut fields,
+        );
+        compare_primitive(
+            gateway.require_pairing,
+            cfg.gateway.require_pairing,
+            "gateway.require_pairing",
+            &mut fields,
+        );
+        compare_primitive(
+            gateway.allow_public_bind,
+            cfg.gateway.allow_public_bind,
+            "gateway.allow_public_bind",
+            &mut fields,
+        );
+        compare_primitive(
+            gateway.pair_rate_limit_per_minute,
+            cfg.gateway.pair_rate_limit_per_minute,
+            "gateway.pair_rate_limit_per_minute",
+            &mut fields,
+        );
+        compare_primitive(
+            gateway.webhook_rate_limit_per_minute,
+            cfg.gateway.webhook_rate_limit_per_minute,
+            "gateway.webhook_rate_limit_per_minute",
+            &mut fields,
+        );
+        compare_primitive(
+            gateway.trust_forwarded_headers,
+            cfg.gateway.trust_forwarded_headers,
+            "gateway.trust_forwarded_headers",
+            &mut fields,
+        );
+
         if let Some(max_keys) = gateway.rate_limit_max_keys {
             let normalized = normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
             if normalized != cfg.gateway.rate_limit_max_keys {
@@ -483,18 +478,17 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
     }
 
     if let Some(scheduler) = patch.scheduler.as_ref() {
-        if let Some(enabled) = scheduler.enabled {
-            if enabled != cfg.scheduler.enabled {
-                fields.push("scheduler.enabled");
-            }
-        }
-
+        compare_primitive(
+            scheduler.enabled,
+            cfg.scheduler.enabled,
+            "scheduler.enabled",
+            &mut fields,
+        );
         if let Some(max_tasks) = scheduler.max_tasks {
             if max_tasks.max(1) != cfg.scheduler.max_tasks {
                 fields.push("scheduler.max_tasks");
             }
         }
-
         if let Some(max_concurrent) = scheduler.max_concurrent {
             if max_concurrent.max(1) != cfg.scheduler.max_concurrent {
                 fields.push("scheduler.max_concurrent");
@@ -548,6 +542,49 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
     fields.sort_unstable();
     fields.dedup();
     fields
+}
+
+fn compare_trimmed_string(
+    new: Option<&String>,
+    current: Option<&String>,
+    field: &'static str,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(value) = new {
+        let trimmed = value.trim();
+        let next = (!trimmed.is_empty()).then_some(trimmed);
+        let current_str = current.map(|s| s.as_str());
+        if next != current_str {
+            fields.push(field);
+        }
+    }
+}
+
+fn compare_ascii_lowercase(
+    new: Option<&String>,
+    current: &str,
+    field: &'static str,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(value) = new {
+        let normalized = value.trim().to_ascii_lowercase();
+        if normalized != current {
+            fields.push(field);
+        }
+    }
+}
+
+fn compare_primitive<T: PartialEq>(
+    new: Option<T>,
+    current: T,
+    field: &'static str,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(value) = new {
+        if value != current {
+            fields.push(field);
+        }
+    }
 }
 
 fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde_json::Value>)> {
@@ -1211,7 +1248,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/webhook", post(handle_webhook))
         .route(
             "/web/admin/config",
-            get(handle_admin_get_config).put(handle_admin_update_config),
+            get(handle_admin_get_config).put(handle_admin_update_config_wrapper),
         )
         .route("/web/admin/options", get(handle_admin_options))
         .route("/whatsapp", get(handle_whatsapp_verify))
@@ -1404,250 +1441,12 @@ async fn handle_admin_options(
     (StatusCode::OK, Json(body))
 }
 
-/// PUT /web/admin/config — update selected config fields and persist to disk.
-async fn handle_admin_update_config(
+async fn handle_admin_update_config_wrapper(
     State(state): State<AppState>,
     headers: HeaderMap,
-    body: Result<Json<AdminConfigUpdateRequest>, axum::extract::rejection::JsonRejection>,
+    body: Result<Json<admin::AdminConfigUpdateRequest>, axum::extract::rejection::JsonRejection>,
 ) -> impl IntoResponse {
-    if let Some(rejection) = admin_origin_guard(&headers) {
-        return rejection;
-    }
-
-    if let Some(rejection) = admin_requires_auth(&state, &headers) {
-        return rejection;
-    }
-
-    let Json(patch) = match body {
-        Ok(value) => value,
-        Err(_) => {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "Invalid JSON body for admin config update"
-                })),
-            );
-        }
-    };
-
-    let current_cfg = state.config.lock().clone();
-    let restart_required_fields = restart_required_updates(&current_cfg, &patch);
-    if !restart_required_fields.is_empty() {
-        return (
-            StatusCode::CONFLICT,
-            Json(serde_json::json!({
-                "error": "One or more requested config changes require a gateway restart to take effect.",
-                "restart_required": true,
-                "fields": restart_required_fields,
-            })),
-        );
-    }
-
-    let mut cfg = current_cfg;
-
-    if let Some(provider) = patch.default_provider {
-        let provider = provider.trim();
-        cfg.default_provider = (!provider.is_empty()).then(|| provider.to_string());
-    }
-
-    if let Some(model) = patch.default_model {
-        let model = model.trim();
-        cfg.default_model = (!model.is_empty()).then(|| model.to_string());
-    }
-
-    if let Some(temperature) = patch.default_temperature {
-        if !(0.0..=2.0).contains(&temperature) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "default_temperature must be in range [0.0, 2.0]"
-                })),
-            );
-        }
-        cfg.default_temperature = temperature;
-    }
-
-    if let Some(memory_backend) = patch.memory_backend {
-        let backend = memory_backend.trim().to_ascii_lowercase();
-        if !validate_memory_backend(&backend) {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({
-                    "error": "Invalid memory_backend. Allowed: sqlite, lucid, surreal-graphs, markdown, surreal, none"
-                })),
-            );
-        }
-        cfg.memory.backend = backend;
-    }
-
-    if let Some(observability_patch) = patch.observability {
-        if let Some(backend) = observability_patch.backend {
-            let backend = backend.trim().to_ascii_lowercase();
-            if !validate_observability_backend(&backend) {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": "Invalid observability.backend. Allowed: none, log, prometheus, otel"
-                    })),
-                );
-            }
-            cfg.observability.backend = backend;
-        }
-
-        if let Some(endpoint) = observability_patch.otel_endpoint {
-            let endpoint = endpoint.trim();
-            cfg.observability.otel_endpoint = (!endpoint.is_empty()).then(|| endpoint.to_string());
-        }
-
-        if let Some(service_name) = observability_patch.otel_service_name {
-            let service_name = service_name.trim();
-            cfg.observability.otel_service_name =
-                (!service_name.is_empty()).then(|| service_name.to_string());
-        }
-    }
-
-    if let Some(runtime_patch) = patch.runtime {
-        if let Some(kind) = runtime_patch.kind {
-            let kind = kind.trim().to_ascii_lowercase();
-            if !validate_runtime_kind(&kind) {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({
-                        "error": "Invalid runtime.kind. Allowed: native, docker"
-                    })),
-                );
-            }
-            cfg.runtime.kind = kind;
-        }
-    }
-
-    if let Some(autonomy_patch) = patch.autonomy {
-        if let Some(level) = autonomy_patch.level {
-            cfg.autonomy.level = level;
-        }
-        if let Some(workspace_only) = autonomy_patch.workspace_only {
-            cfg.autonomy.workspace_only = workspace_only;
-        }
-        if let Some(max_actions_per_hour) = autonomy_patch.max_actions_per_hour {
-            cfg.autonomy.max_actions_per_hour = max_actions_per_hour;
-        }
-        if let Some(max_cost_per_day_cents) = autonomy_patch.max_cost_per_day_cents {
-            cfg.autonomy.max_cost_per_day_cents = max_cost_per_day_cents;
-        }
-    }
-
-    if let Some(scheduler_patch) = patch.scheduler {
-        if let Some(enabled) = scheduler_patch.enabled {
-            cfg.scheduler.enabled = enabled;
-        }
-        if let Some(max_tasks) = scheduler_patch.max_tasks {
-            cfg.scheduler.max_tasks = max_tasks.max(1);
-        }
-        if let Some(max_concurrent) = scheduler_patch.max_concurrent {
-            cfg.scheduler.max_concurrent = max_concurrent.max(1);
-        }
-    }
-
-    if let Some(gateway_patch) = patch.gateway {
-        if let Some(port) = gateway_patch.port {
-            cfg.gateway.port = port;
-        }
-        if let Some(host) = gateway_patch.host {
-            let host = host.trim();
-            if host.is_empty() {
-                return (
-                    StatusCode::BAD_REQUEST,
-                    Json(serde_json::json!({"error": "gateway.host cannot be empty"})),
-                );
-            }
-            cfg.gateway.host = host.to_string();
-        }
-        if let Some(require_pairing) = gateway_patch.require_pairing {
-            cfg.gateway.require_pairing = require_pairing;
-        }
-        if let Some(allow_public_bind) = gateway_patch.allow_public_bind {
-            cfg.gateway.allow_public_bind = allow_public_bind;
-        }
-        if let Some(limit) = gateway_patch.pair_rate_limit_per_minute {
-            cfg.gateway.pair_rate_limit_per_minute = limit;
-        }
-        if let Some(limit) = gateway_patch.webhook_rate_limit_per_minute {
-            cfg.gateway.webhook_rate_limit_per_minute = limit;
-        }
-        if let Some(trust_forwarded_headers) = gateway_patch.trust_forwarded_headers {
-            cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
-        }
-        if let Some(max_keys) = gateway_patch.rate_limit_max_keys {
-            cfg.gateway.rate_limit_max_keys =
-                normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
-        }
-        if let Some(ttl_secs) = gateway_patch.idempotency_ttl_secs {
-            if ttl_secs != 0 {
-                cfg.gateway.idempotency_ttl_secs = ttl_secs;
-            }
-        }
-        if let Some(max_keys) = gateway_patch.idempotency_max_keys {
-            cfg.gateway.idempotency_max_keys =
-                normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
-        }
-    }
-
-    if let Some(webhook_patch) = patch.webhook {
-        if webhook_patch.port.is_some() || webhook_patch.secret.is_some() {
-            if cfg.channels_config.webhook.is_none() {
-                cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
-                    port: 3000,
-                    secret: None,
-                });
-            }
-
-            if let Some(webhook) = cfg.channels_config.webhook.as_mut() {
-                if let Some(port) = webhook_patch.port {
-                    webhook.port = port;
-                }
-
-                if let Some(secret_mode) = webhook_patch.secret {
-                    match secret_mode {
-                        AdminSecretUpdate::Unchanged => {}
-                        AdminSecretUpdate::Clear => webhook.secret = None,
-                        AdminSecretUpdate::Replace { value } => {
-                            let trimmed = value.trim();
-                            if trimmed.is_empty() {
-                                return (
-                                    StatusCode::BAD_REQUEST,
-                                    Json(serde_json::json!({
-                                        "error": "webhook.secret replace value cannot be empty"
-                                    })),
-                                );
-                            }
-                            webhook.secret = Some(trimmed.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    let updated_view = admin_config_view(&cfg);
-    match cfg.save() {
-        Ok(()) => (
-            {
-                let mut shared_cfg = state.config.lock();
-                *shared_cfg = cfg;
-                StatusCode::OK
-            },
-            Json(serde_json::json!({"updated": true, "config": updated_view})),
-        ),
-        Err(error) => {
-            tracing::error!("Admin config update failed to persist: {error:#}");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "error": "Failed to persist configuration"
-                })),
-            )
-        }
-    }
+    admin::handle_admin_update_config(State(state), headers, body).await
 }
 
 /// Webhook request body
@@ -2528,7 +2327,7 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct MockMemory;
+    pub struct MockMemory;
 
     #[async_trait]
     impl Memory for MockMemory {
@@ -2581,7 +2380,7 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct MockProvider {
+    pub struct MockProvider {
         calls: AtomicUsize,
     }
 
@@ -2987,6 +2786,10 @@ mod tests {
             header::AUTHORIZATION,
             HeaderValue::from_static("Bearer zc_valid_token"),
         );
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:3000"),
+        );
 
         let payload = serde_json::json!({
             "webhook": {
@@ -2996,11 +2799,11 @@ mod tests {
             }
         });
 
-        let response = handle_admin_update_config(
+        let response = handle_admin_update_config_wrapper(
             State(state),
             headers,
             Ok(Json(
-                serde_json::from_value::<AdminConfigUpdateRequest>(payload).unwrap(),
+                serde_json::from_value::<admin::AdminConfigUpdateRequest>(payload).unwrap(),
             )),
         )
         .await
@@ -3039,6 +2842,10 @@ mod tests {
             header::AUTHORIZATION,
             HeaderValue::from_static("Bearer zc_valid_token"),
         );
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:3000"),
+        );
 
         let before = {
             let cfg_guard = shared_cfg.lock();
@@ -3057,11 +2864,11 @@ mod tests {
             }
         });
 
-        let response = handle_admin_update_config(
+        let response = handle_admin_update_config_wrapper(
             State(state),
             headers,
             Ok(Json(
-                serde_json::from_value::<AdminConfigUpdateRequest>(payload).unwrap(),
+                serde_json::from_value::<admin::AdminConfigUpdateRequest>(payload).unwrap(),
             )),
         )
         .await
@@ -3107,6 +2914,10 @@ mod tests {
             header::AUTHORIZATION,
             HeaderValue::from_static("Bearer zc_valid_token"),
         );
+        headers.insert(
+            header::ORIGIN,
+            HeaderValue::from_static("http://127.0.0.1:3000"),
+        );
 
         let payload = serde_json::json!({
             "default_model": "anthropic/claude-3-5-sonnet",
@@ -3125,11 +2936,11 @@ mod tests {
             }
         });
 
-        let response = handle_admin_update_config(
+        let response = handle_admin_update_config_wrapper(
             State(state),
             headers,
             Ok(Json(
-                serde_json::from_value::<AdminConfigUpdateRequest>(payload).unwrap(),
+                serde_json::from_value::<admin::AdminConfigUpdateRequest>(payload).unwrap(),
             )),
         )
         .await

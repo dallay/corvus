@@ -2,7 +2,7 @@
   "name": "@corvus/chat",
   "version": "0.1.15",
   "private": true,
-  "description": "Corvus Chat \u2014 conversational AI interface",
+  "description": "Corvus Chat — conversational AI interface",
   "type": "module",
   "engines": {
     "node": ">=22.0.0"
@@ -17,6 +17,8 @@
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.2.6",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.5.0",
     "vue": "^3.5.28",
     "vue-i18n": "^11.2.8"
   },

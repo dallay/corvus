@@ -292,54 +292,9 @@ impl AnthropicProvider {
         let mut native_messages = Vec::new();
 
         for msg in messages {
-            match msg.role.as_str() {
-                "system" => {
-                    if system_text.is_none() {
-                        system_text = Some(msg.content.clone());
-                    }
-                }
-                "assistant" => {
-                    if let Some(blocks) = Self::parse_assistant_tool_call_message(&msg.content) {
-                        native_messages.push(NativeMessage {
-                            role: "assistant".to_string(),
-                            content: blocks,
-                        });
-                    } else {
-                        native_messages.push(NativeMessage {
-                            role: "assistant".to_string(),
-                            content: vec![NativeContentOut::Text {
-                                text: msg.content.clone(),
-                                cache_control: None,
-                            }],
-                        });
-                    }
-                }
-                "tool" => {
-                    if let Some(tool_result) = Self::parse_tool_result_message(&msg.content) {
-                        native_messages.push(tool_result);
-                    } else {
-                        native_messages.push(NativeMessage {
-                            role: "user".to_string(),
-                            content: vec![NativeContentOut::Text {
-                                text: msg.content.clone(),
-                                cache_control: None,
-                            }],
-                        });
-                    }
-                }
-                _ => {
-                    native_messages.push(NativeMessage {
-                        role: "user".to_string(),
-                        content: vec![NativeContentOut::Text {
-                            text: msg.content.clone(),
-                            cache_control: None,
-                        }],
-                    });
-                }
-            }
+            Self::process_message(msg, &mut system_text, &mut native_messages);
         }
 
-        // Convert system text to SystemPrompt with cache control if large
         let system_prompt = system_text.map(|text| {
             if Self::should_cache_system(&text) {
                 SystemPrompt::Blocks(vec![SystemBlock {
@@ -353,6 +308,66 @@ impl AnthropicProvider {
         });
 
         (system_prompt, native_messages)
+    }
+
+    fn process_message(
+        msg: &ChatMessage,
+        system_text: &mut Option<String>,
+        native_messages: &mut Vec<NativeMessage>,
+    ) {
+        match msg.role.as_str() {
+            "system" => {
+                if system_text.is_none() {
+                    *system_text = Some(msg.content.clone());
+                }
+            }
+            "assistant" => {
+                native_messages.push(Self::convert_assistant_message(msg));
+            }
+            "tool" => {
+                native_messages.push(Self::convert_tool_message(msg));
+            }
+            _ => {
+                native_messages.push(NativeMessage {
+                    role: "user".to_string(),
+                    content: vec![NativeContentOut::Text {
+                        text: msg.content.clone(),
+                        cache_control: None,
+                    }],
+                });
+            }
+        }
+    }
+
+    fn convert_assistant_message(msg: &ChatMessage) -> NativeMessage {
+        if let Some(blocks) = Self::parse_assistant_tool_call_message(&msg.content) {
+            NativeMessage {
+                role: "assistant".to_string(),
+                content: blocks,
+            }
+        } else {
+            NativeMessage {
+                role: "assistant".to_string(),
+                content: vec![NativeContentOut::Text {
+                    text: msg.content.clone(),
+                    cache_control: None,
+                }],
+            }
+        }
+    }
+
+    fn convert_tool_message(msg: &ChatMessage) -> NativeMessage {
+        if let Some(tool_result) = Self::parse_tool_result_message(&msg.content) {
+            tool_result
+        } else {
+            NativeMessage {
+                role: "user".to_string(),
+                content: vec![NativeContentOut::Text {
+                    text: msg.content.clone(),
+                    cache_control: None,
+                }],
+            }
+        }
     }
 
     fn parse_text_response(response: ChatResponse) -> anyhow::Result<String> {

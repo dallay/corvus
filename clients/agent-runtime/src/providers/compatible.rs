@@ -293,7 +293,16 @@ struct StreamDelta {
     reasoning_content: Option<String>,
 }
 
-/// Parse SSE (Server-Sent Events) stream from OpenAI-compatible providers.
+fn extract_content_from_delta(delta: &StreamDelta) -> Option<String> {
+    delta
+        .content
+        .as_ref()
+        .filter(|c| !c.is_empty())
+        .cloned()
+        .or_else(|| delta.reasoning_content.clone())
+}
+
+/// Parse SSE (Server-Sed Events) stream from OpenAI-compatible providers.
 /// Handles the `data: {...}` format and `[DONE]` sentinel.
 fn parse_sse_line(line: &str) -> StreamResult<Option<String>> {
     let line = line.trim();
@@ -317,14 +326,8 @@ fn parse_sse_line(line: &str) -> StreamResult<Option<String>> {
 
         // Extract content from delta
         if let Some(choice) = chunk.choices.first() {
-            if let Some(content) = &choice.delta.content {
-                if !content.is_empty() {
-                    return Ok(Some(content.clone()));
-                }
-            }
-            // Fallback to reasoning_content for thinking models
-            if let Some(reasoning) = &choice.delta.reasoning_content {
-                return Ok(Some(reasoning.clone()));
+            if let Some(content) = extract_content_from_delta(&choice.delta) {
+                return Ok(Some(content));
             }
         }
     }
@@ -332,83 +335,92 @@ fn parse_sse_line(line: &str) -> StreamResult<Option<String>> {
     Ok(None)
 }
 
+fn send_chunk_to_channel(
+    tx: &tokio::sync::mpsc::Sender<StreamResult<StreamChunk>>,
+    content: String,
+    count_tokens: bool,
+) -> bool {
+    let mut chunk = StreamChunk::delta(content);
+    if count_tokens {
+        chunk = chunk.with_token_estimate();
+    }
+    tx.blocking_send(Ok(chunk)).is_ok()
+}
+
+fn process_bytes_to_text(bytes: bytes::Bytes) -> Result<String, StreamError> {
+    String::from_utf8(bytes.to_vec())
+        .map_err(|e| StreamError::InvalidSse(format!("Invalid UTF-8: {}", e)))
+}
+
+fn process_line_result(
+    line: String,
+    tx: &tokio::sync::mpsc::Sender<StreamResult<StreamChunk>>,
+    count_tokens: bool,
+) -> bool {
+    match parse_sse_line(&line) {
+        Ok(Some(content)) => send_chunk_to_channel(tx, content, count_tokens),
+        Ok(None) => true,
+        Err(e) => {
+            let _ = tx.blocking_send(Err(e));
+            false
+        }
+    }
+}
+
+fn process_buffer(
+    buffer: &mut String,
+    tx: &tokio::sync::mpsc::Sender<StreamResult<StreamChunk>>,
+    count_tokens: bool,
+) {
+    while let Some(pos) = buffer.find('\n') {
+        let line = buffer.drain(..=pos).collect::<String>();
+        if !process_line_result(line, tx, count_tokens) {
+            return;
+        }
+    }
+}
+
 /// Convert SSE byte stream to text chunks.
 fn sse_bytes_to_chunks(
     response: reqwest::Response,
     count_tokens: bool,
 ) -> stream::BoxStream<'static, StreamResult<StreamChunk>> {
-    // Create a channel to send chunks
     let (tx, rx) = tokio::sync::mpsc::channel::<StreamResult<StreamChunk>>(100);
 
     tokio::spawn(async move {
-        // Buffer for incomplete lines
         let mut buffer = String::new();
 
-        // Get response body as bytes stream
-        match response.error_for_status_ref() {
-            Ok(_) => {}
-            Err(e) => {
-                let _ = tx.send(Err(StreamError::Http(e))).await;
-                return;
-            }
+        if let Err(e) = response.error_for_status_ref() {
+            let _ = tx.send(Err(StreamError::Http(e))).await;
+            return;
         }
 
         let mut bytes_stream = response.bytes_stream();
 
         while let Some(item) = bytes_stream.next().await {
-            match item {
-                Ok(bytes) => {
-                    // Convert bytes to string and process line by line
-                    let text = match String::from_utf8(bytes.to_vec()) {
-                        Ok(t) => t,
-                        Err(e) => {
-                            let _ = tx
-                                .send(Err(StreamError::InvalidSse(format!(
-                                    "Invalid UTF-8: {}",
-                                    e
-                                ))))
-                                .await;
-                            break;
-                        }
-                    };
-
-                    buffer.push_str(&text);
-
-                    // Process complete lines
-                    while let Some(pos) = buffer.find('\n') {
-                        let line = buffer.drain(..=pos).collect::<String>();
-                        buffer = buffer[pos + 1..].to_string();
-
-                        match parse_sse_line(&line) {
-                            Ok(Some(content)) => {
-                                let mut chunk = StreamChunk::delta(content);
-                                if count_tokens {
-                                    chunk = chunk.with_token_estimate();
-                                }
-                                if tx.send(Ok(chunk)).await.is_err() {
-                                    return; // Receiver dropped
-                                }
-                            }
-                            Ok(None) => {}
-                            Err(e) => {
-                                let _ = tx.send(Err(e)).await;
-                                return;
-                            }
-                        }
-                    }
-                }
+            let bytes = match item {
+                Ok(b) => b,
                 Err(e) => {
                     let _ = tx.send(Err(StreamError::Http(e))).await;
                     break;
                 }
-            }
+            };
+
+            let text = match process_bytes_to_text(bytes) {
+                Ok(t) => t,
+                Err(e) => {
+                    let _ = tx.send(Err(e)).await;
+                    break;
+                }
+            };
+
+            buffer.push_str(&text);
+            process_buffer(&mut buffer, &tx, count_tokens);
         }
 
-        // Send final chunk
         let _ = tx.send(Ok(StreamChunk::final_chunk())).await;
     });
 
-    // Convert channel receiver to stream
     stream::unfold(rx, |mut rx| async {
         rx.recv().await.map(|chunk| (chunk, rx))
     })

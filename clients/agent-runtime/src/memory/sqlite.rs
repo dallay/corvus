@@ -429,6 +429,175 @@ impl SqliteMemory {
 
         Ok(count)
     }
+
+    fn hybrid_search(
+        conn: &Connection,
+        query: &str,
+        limit: usize,
+        query_embedding: Option<&Vec<f32>>,
+        vector_weight: f32,
+        keyword_weight: f32,
+    ) -> anyhow::Result<Vec<vector::ScoredResult>> {
+        let keyword_results = Self::fts5_search(conn, query, limit).unwrap_or_default();
+
+        let vector_results = query_embedding
+            .map(|qe| Self::vector_search(conn, qe, limit, None, None).unwrap_or_default())
+            .unwrap_or_default();
+
+        if vector_results.is_empty() {
+            return Ok(keyword_results
+                .iter()
+                .map(|(id, score)| vector::ScoredResult {
+                    id: id.clone(),
+                    vector_score: None,
+                    keyword_score: Some(*score),
+                    final_score: *score,
+                })
+                .collect());
+        }
+
+        Ok(vector::hybrid_merge(
+            &vector_results,
+            &keyword_results,
+            vector_weight,
+            keyword_weight,
+            limit,
+        ))
+    }
+
+    fn fetch_and_filter_entries(
+        conn: &Connection,
+        merged: Vec<vector::ScoredResult>,
+        limit: usize,
+        session_filter: Option<&str>,
+    ) -> Vec<MemoryEntry> {
+        if merged.is_empty() {
+            return Vec::new();
+        }
+
+        let entries = Self::fetch_entries_by_ids(conn, &merged).unwrap_or_default();
+        let filtered = Self::filter_by_session(entries, session_filter);
+        filtered.into_iter().take(limit).collect()
+    }
+
+    fn fetch_entries_by_ids(
+        conn: &Connection,
+        merged: &[vector::ScoredResult],
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        let placeholders: String = (1..=merged.len())
+            .map(|i| format!("?{i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sql = format!(
+            "SELECT id, key, content, category, created_at, session_id \
+             FROM memories WHERE id IN ({placeholders})"
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let id_params: Vec<Box<dyn rusqlite::types::ToSql>> = merged
+            .iter()
+            .map(|s| Box::new(s.id.clone()) as Box<dyn rusqlite::types::ToSql>)
+            .collect();
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            id_params.iter().map(AsRef::as_ref).collect();
+        let rows = stmt.query_map(params_ref.as_slice(), |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, Option<String>>(5)?,
+            ))
+        })?;
+
+        let mut entry_map = std::collections::HashMap::new();
+        for row in rows {
+            let (id, key, content, cat, ts, sid) = row?;
+            entry_map.insert(id, (key, content, cat, ts, sid));
+        }
+
+        let mut results = Vec::new();
+        for scored in merged {
+            if let Some((key, content, cat, ts, sid)) = entry_map.remove(&scored.id) {
+                results.push(MemoryEntry {
+                    id: scored.id.clone(),
+                    key,
+                    content,
+                    category: Self::str_to_category(&cat),
+                    timestamp: ts,
+                    session_id: sid,
+                    score: Some(f64::from(scored.final_score)),
+                });
+            }
+        }
+        Ok(results)
+    }
+
+    fn filter_by_session(
+        mut entries: Vec<MemoryEntry>,
+        session_filter: Option<&str>,
+    ) -> Vec<MemoryEntry> {
+        if let Some(sid) = session_filter {
+            entries.retain(|e| e.session_id.as_deref() == Some(sid));
+        }
+        entries
+    }
+
+    fn like_search(
+        conn: &Connection,
+        query: &str,
+        limit: usize,
+        session_filter: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        const MAX_LIKE_KEYWORDS: usize = 8;
+        let keywords: Vec<String> = query
+            .split_whitespace()
+            .take(MAX_LIKE_KEYWORDS)
+            .map(|w| format!("%{w}%"))
+            .collect();
+
+        if keywords.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let conditions: Vec<String> = keywords
+            .iter()
+            .enumerate()
+            .map(|(i, _)| format!("(content LIKE ?{} OR key LIKE ?{})", i * 2 + 1, i * 2 + 2))
+            .collect();
+        let where_clause = conditions.join(" OR ");
+        let sql = format!(
+            "SELECT id, key, content, category, created_at, session_id FROM memories
+             WHERE {where_clause}
+             ORDER BY updated_at DESC
+             LIMIT ?{}",
+            keywords.len() * 2 + 1
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        for kw in &keywords {
+            param_values.push(Box::new(kw.clone()));
+            param_values.push(Box::new(kw.clone()));
+        }
+        #[allow(clippy::cast_possible_wrap)]
+        param_values.push(Box::new(limit as i64));
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+            param_values.iter().map(AsRef::as_ref).collect();
+        let rows = stmt.query_map(params_ref.as_slice(), |row| {
+            Ok(MemoryEntry {
+                id: row.get(0)?,
+                key: row.get(1)?,
+                content: row.get(2)?,
+                category: Self::str_to_category(&row.get::<_, String>(3)?),
+                timestamp: row.get(4)?,
+                session_id: row.get(5)?,
+                score: Some(1.0),
+            })
+        })?;
+
+        let entries: Vec<MemoryEntry> = rows.filter_map(|r| r.ok()).collect();
+        Ok(Self::filter_by_session(entries, session_filter))
+    }
 }
 
 #[async_trait]
@@ -487,7 +656,6 @@ impl Memory for SqliteMemory {
             return Ok(Vec::new());
         }
 
-        // Compute query embedding (async, before blocking work)
         let query_embedding = self.get_or_compute_embedding(query).await?;
 
         let conn = self.conn.clone();
@@ -500,154 +668,20 @@ impl Memory for SqliteMemory {
             let conn = conn.lock();
             let session_ref = session_id.as_deref();
 
-            // FTS5 BM25 keyword search
-            let keyword_results = Self::fts5_search(&conn, &query, limit * 2).unwrap_or_default();
+            let merged = Self::hybrid_search(
+                &conn,
+                &query,
+                limit * 2,
+                query_embedding.as_ref(),
+                vector_weight,
+                keyword_weight,
+            )?;
 
-            // Vector similarity search (if embeddings available)
-            let vector_results = if let Some(ref qe) = query_embedding {
-                Self::vector_search(&conn, qe, limit * 2, None, session_ref).unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-
-            // Hybrid merge
-            let merged = if vector_results.is_empty() {
-                keyword_results
-                    .iter()
-                    .map(|(id, score)| vector::ScoredResult {
-                        id: id.clone(),
-                        vector_score: None,
-                        keyword_score: Some(*score),
-                        final_score: *score,
-                    })
-                    .collect::<Vec<_>>()
-            } else {
-                vector::hybrid_merge(
-                    &vector_results,
-                    &keyword_results,
-                    vector_weight,
-                    keyword_weight,
-                    limit,
-                )
-            };
-
-            // Fetch full entries for merged results in a single query
-            // instead of N round-trips (N+1 pattern).
-            let mut results = Vec::new();
-            if !merged.is_empty() {
-                let placeholders: String = (1..=merged.len())
-                    .map(|i| format!("?{i}"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let sql = format!(
-                    "SELECT id, key, content, category, created_at, session_id \
-                     FROM memories WHERE id IN ({placeholders})"
-                );
-                let mut stmt = conn.prepare(&sql)?;
-                let id_params: Vec<Box<dyn rusqlite::types::ToSql>> = merged
-                    .iter()
-                    .map(|s| Box::new(s.id.clone()) as Box<dyn rusqlite::types::ToSql>)
-                    .collect();
-                let params_ref: Vec<&dyn rusqlite::types::ToSql> =
-                    id_params.iter().map(AsRef::as_ref).collect();
-                let rows = stmt.query_map(params_ref.as_slice(), |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, String>(3)?,
-                        row.get::<_, String>(4)?,
-                        row.get::<_, Option<String>>(5)?,
-                    ))
-                })?;
-
-                let mut entry_map = std::collections::HashMap::new();
-                for row in rows {
-                    let (id, key, content, cat, ts, sid) = row?;
-                    entry_map.insert(id, (key, content, cat, ts, sid));
-                }
-
-                for scored in &merged {
-                    if let Some((key, content, cat, ts, sid)) = entry_map.remove(&scored.id) {
-                        let entry = MemoryEntry {
-                            id: scored.id.clone(),
-                            key,
-                            content,
-                            category: Self::str_to_category(&cat),
-                            timestamp: ts,
-                            session_id: sid,
-                            score: Some(f64::from(scored.final_score)),
-                        };
-                        if let Some(filter_sid) = session_ref {
-                            if entry.session_id.as_deref() != Some(filter_sid) {
-                                continue;
-                            }
-                        }
-                        results.push(entry);
-                    }
-                }
-            }
-
-            // If hybrid returned nothing, fall back to LIKE search.
-            // Cap keyword count so we don't create too many SQL shapes,
-            // which helps prepared-statement cache efficiency.
+            let mut results = Self::fetch_and_filter_entries(&conn, merged, limit, session_ref);
             if results.is_empty() {
-                const MAX_LIKE_KEYWORDS: usize = 8;
-                let keywords: Vec<String> = query
-                    .split_whitespace()
-                    .take(MAX_LIKE_KEYWORDS)
-                    .map(|w| format!("%{w}%"))
-                    .collect();
-                if !keywords.is_empty() {
-                    let conditions: Vec<String> = keywords
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _)| {
-                            format!("(content LIKE ?{} OR key LIKE ?{})", i * 2 + 1, i * 2 + 2)
-                        })
-                        .collect();
-                    let where_clause = conditions.join(" OR ");
-                    let sql = format!(
-                        "SELECT id, key, content, category, created_at, session_id FROM memories
-                         WHERE {where_clause}
-                         ORDER BY updated_at DESC
-                         LIMIT ?{}",
-                        keywords.len() * 2 + 1
-                    );
-                    let mut stmt = conn.prepare(&sql)?;
-                    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-                    for kw in &keywords {
-                        param_values.push(Box::new(kw.clone()));
-                        param_values.push(Box::new(kw.clone()));
-                    }
-                    #[allow(clippy::cast_possible_wrap)]
-                    param_values.push(Box::new(limit as i64));
-                    let params_ref: Vec<&dyn rusqlite::types::ToSql> =
-                        param_values.iter().map(AsRef::as_ref).collect();
-                    let rows = stmt.query_map(params_ref.as_slice(), |row| {
-                        Ok(MemoryEntry {
-                            id: row.get(0)?,
-                            key: row.get(1)?,
-                            content: row.get(2)?,
-                            category: Self::str_to_category(&row.get::<_, String>(3)?),
-                            timestamp: row.get(4)?,
-                            session_id: row.get(5)?,
-                            score: Some(1.0),
-                        })
-                    })?;
-                    for row in rows {
-                        let entry = row?;
-                        if let Some(sid) = session_ref {
-                            if entry.session_id.as_deref() != Some(sid) {
-                                continue;
-                            }
-                        }
-                        results.push(entry);
-                    }
-                }
+                results = Self::like_search(&conn, &query, limit, session_ref).unwrap_or_default();
             }
 
-            results.truncate(limit);
             Ok(results)
         })
         .await?
