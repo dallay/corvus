@@ -636,179 +636,20 @@ async fn main() -> Result<()> {
             temperature,
             peripheral,
         } => {
-            maybe_print_update_notice_bounded(&config).await;
-
-            let canonical_prompt = message
-                .clone()
-                .unwrap_or_else(|| "interactive-session".to_string());
-            let canonical = collect_unified_loop_result(&canonical_prompt).await;
-
-            if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1") {
-                println!("loop_session={}", canonical.session_id);
-                for event in &canonical.events {
-                    let event_kind = loop_event_kind(event);
-                    // Only print non-sensitive event kind, not full event payload
-                    println!("loop_event={event_kind}");
-                    info!(
-                        session_id = %canonical.session_id,
-                        event_kind,
-                        "Unified loop preview event"
-                    );
-                }
-
-                if std::env::var("CORVUS_UNIFIED_LOOP_ONLY").as_deref() == Ok("1") {
-                    return Ok(());
-                }
-            }
-
-            if let Some(tool) = canonical.approval_required {
-                println!(
-                    "[session:{}] approval required for `{tool}`; request blocked",
-                    canonical.session_id
-                );
-                return Err(anyhow!(
-                    "[session:{}] approval required for `{tool}`; request blocked",
-                    canonical.session_id
-                ));
-            }
-
-            if canonical.timeout_aborted {
-                println!(
-                    "[session:{}] request aborted due to timeout semantics",
-                    canonical.session_id
-                );
-                return Err(anyhow!(
-                    "[session:{}] request aborted due to timeout semantics",
-                    canonical.session_id
-                ));
-            }
-
-            if let Some(fallback) = canonical.fallback_response {
-                println!("[session:{}] {fallback}", canonical.session_id);
-                return Err(anyhow!(
-                    "[session:{}] fallback activated: {fallback}",
-                    canonical.session_id
-                ));
-            }
-
-            if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
-                println!("loop_session={}", canonical.session_id);
-                for event in &canonical.events {
-                    let event_kind = loop_event_kind(event);
-                    // Only print non-sensitive event kind, not full event payload
-                    println!("loop_event={event_kind}");
-                }
-                return Ok(());
-            }
-
-            agent::run(config, message, provider, model, temperature, peripheral).await
+            return handle_agent_command(config, message, provider, model, temperature, peripheral)
+                .await;
         }
 
         Commands::Gateway { port, host } => {
-            let port = port.unwrap_or(config.gateway.port);
-            let host = host.unwrap_or_else(|| config.gateway.host.clone());
-            if port == 0 {
-                info!("🚀 Starting Corvus Gateway on {host} (random port)");
-            } else {
-                info!("🚀 Starting Corvus Gateway on {host}:{port}");
-            }
-            gateway::run_gateway(&host, port, config).await
+            return handle_gateway_command(config, port, host).await;
         }
 
         Commands::Daemon { port, host } => {
-            let update_config = config.clone();
-            tokio::spawn(async move {
-                update::maybe_print_update_notice(&update_config).await;
-            });
-            let port = port.unwrap_or(config.gateway.port);
-            let host = host.unwrap_or_else(|| config.gateway.host.clone());
-            if port == 0 {
-                info!("🧠 Starting Corvus Daemon on {host} (random port)");
-            } else {
-                info!("🧠 Starting Corvus Daemon on {host}:{port}");
-            }
-            daemon::run(config, host, port).await
+            return handle_daemon_command(config, port, host).await;
         }
 
         Commands::Status => {
-            maybe_print_update_notice_bounded(&config).await;
-            println!("🦀 Corvus Status");
-            println!();
-            println!("Version:     {}", env!("CARGO_PKG_VERSION"));
-            println!("Workspace:   {}", config.workspace_dir.display());
-            println!("Config:      {}", config.config_path.display());
-            println!();
-            println!(
-                "🤖 Provider:      {}",
-                config.default_provider.as_deref().unwrap_or("openrouter")
-            );
-            println!(
-                "   Model:         {}",
-                config.default_model.as_deref().unwrap_or("(default)")
-            );
-            println!("📊 Observability:  {}", config.observability.backend);
-            println!("🛡️  Autonomy:      {:?}", config.autonomy.level);
-            println!("⚙️  Runtime:       {}", config.runtime.kind);
-            println!(
-                "💓 Heartbeat:      {}",
-                if config.heartbeat.enabled {
-                    format!("every {}min", config.heartbeat.interval_minutes)
-                } else {
-                    "disabled".into()
-                }
-            );
-            println!(
-                "🧠 Memory:         {} (auto-save: {})",
-                config.memory.backend,
-                if config.memory.auto_save { "on" } else { "off" }
-            );
-
-            println!();
-            println!("Security:");
-            println!("  Workspace only:    {}", config.autonomy.workspace_only);
-            println!(
-                "  Allowed commands:  {}",
-                config.autonomy.allowed_commands.join(", ")
-            );
-            println!(
-                "  Max actions/hour:  {}",
-                config.autonomy.max_actions_per_hour
-            );
-            println!(
-                "  Max cost/day:      ${:.2}",
-                f64::from(config.autonomy.max_cost_per_day_cents) / 100.0
-            );
-            println!();
-            println!("Channels:");
-            println!("  CLI:      ✅ always");
-            for (name, configured) in [
-                ("Telegram", config.channels_config.telegram.is_some()),
-                ("Discord", config.channels_config.discord.is_some()),
-                ("Slack", config.channels_config.slack.is_some()),
-                ("Webhook", config.channels_config.webhook.is_some()),
-            ] {
-                println!(
-                    "  {name:9} {}",
-                    if configured {
-                        "✅ configured"
-                    } else {
-                        "❌ not configured"
-                    }
-                );
-            }
-            println!();
-            println!("Peripherals:");
-            println!(
-                "  Enabled:   {}",
-                if config.peripherals.enabled {
-                    "yes"
-                } else {
-                    "no"
-                }
-            );
-            println!("  Boards:    {}", config.peripherals.boards.len());
-
-            Ok(())
+            return handle_status_command(config).await;
         }
 
         Commands::Cron { cron_command } => cron::handle_command(cron_command, &config),
@@ -884,6 +725,193 @@ async fn main() -> Result<()> {
             peripherals::handle_command(peripheral_command.clone(), &config)
         }
     }
+}
+
+async fn handle_agent_command(
+    config: Config,
+    message: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+    temperature: f64,
+    peripheral: Vec<String>,
+) -> Result<()> {
+    maybe_print_update_notice_bounded(&config).await;
+
+    let canonical_prompt = message
+        .clone()
+        .unwrap_or_else(|| "interactive-session".to_string());
+    let canonical = collect_unified_loop_result(&canonical_prompt).await;
+
+    if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1") {
+        print_unified_loop_preview(&canonical);
+        if std::env::var("CORVUS_UNIFIED_LOOP_ONLY").as_deref() == Ok("1") {
+            return Ok(());
+        }
+    }
+
+    if let Some(tool) = canonical.approval_required {
+        return Err(anyhow!(
+            "[session:{}] approval required for `{tool}`; request blocked",
+            canonical.session_id
+        ));
+    }
+
+    if canonical.timeout_aborted {
+        return Err(anyhow!(
+            "[session:{}] request aborted due to timeout semantics",
+            canonical.session_id
+        ));
+    }
+
+    if let Some(fallback) = canonical.fallback_response {
+        return Err(anyhow!(
+            "[session:{}] fallback activated: {fallback}",
+            canonical.session_id
+        ));
+    }
+
+    if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
+        print_canonical_only(&canonical);
+        return Ok(());
+    }
+
+    agent::run(config, message, provider, model, temperature, peripheral).await
+}
+
+fn print_unified_loop_preview(canonical: &crate::agent::unified_entrypoint::CanonicalOutcome) {
+    println!("loop_session={}", canonical.session_id);
+    for event in &canonical.events {
+        let event_kind = loop_event_kind(event);
+        println!("loop_event={event_kind}");
+        info!(
+            session_id = %canonical.session_id,
+            event_kind,
+            "Unified loop preview event"
+        );
+    }
+}
+
+fn print_canonical_only(canonical: &crate::agent::unified_entrypoint::CanonicalOutcome) {
+    println!("loop_session={}", canonical.session_id);
+    for event in &canonical.events {
+        let event_kind = loop_event_kind(event);
+        println!("loop_event={event_kind}");
+    }
+}
+
+async fn handle_gateway_command(
+    config: Config,
+    port: Option<u16>,
+    host: Option<String>,
+) -> Result<()> {
+    let port = port.unwrap_or(config.gateway.port);
+    let host = host.unwrap_or_else(|| config.gateway.host.clone());
+    if port == 0 {
+        info!("🚀 Starting Corvus Gateway on {host} (random port)");
+    } else {
+        info!("🚀 Starting Corvus Gateway on {host}:{port}");
+    }
+    gateway::run_gateway(&host, port, config).await
+}
+
+async fn handle_daemon_command(
+    config: Config,
+    port: Option<u16>,
+    host: Option<String>,
+) -> Result<()> {
+    let update_config = config.clone();
+    tokio::spawn(async move {
+        update::maybe_print_update_notice(&update_config).await;
+    });
+    let port = port.unwrap_or(config.gateway.port);
+    let host = host.unwrap_or_else(|| config.gateway.host.clone());
+    if port == 0 {
+        info!("🧠 Starting Corvus Daemon on {host} (random port)");
+    } else {
+        info!("🧠 Starting Corvus Daemon on {host}:{port}");
+    }
+    daemon::run(config, host, port).await
+}
+
+async fn handle_status_command(config: Config) -> Result<()> {
+    maybe_print_update_notice_bounded(&config).await;
+    println!("🦀 Corvus Status");
+    println!();
+    println!("Version:     {}", env!("CARGO_PKG_VERSION"));
+    println!("Workspace:   {}", config.workspace_dir.display());
+    println!("Config:      {}", config.config_path.display());
+    println!();
+    println!(
+        "🤖 Provider:      {}",
+        config.default_provider.as_deref().unwrap_or("openrouter")
+    );
+    println!(
+        "   Model:         {}",
+        config.default_model.as_deref().unwrap_or("(default)")
+    );
+    println!("📊 Observability:  {}", config.observability.backend);
+    println!("🛡️  Autonomy:      {:?}", config.autonomy.level);
+    println!("⚙️  Runtime:       {}", config.runtime.kind);
+    println!(
+        "💓 Heartbeat:      {}",
+        if config.heartbeat.enabled {
+            format!("every {}min", config.heartbeat.interval_minutes)
+        } else {
+            "disabled".into()
+        }
+    );
+    println!(
+        "🧠 Memory:         {} (auto-save: {})",
+        config.memory.backend,
+        if config.memory.auto_save { "on" } else { "off" }
+    );
+
+    println!();
+    println!("Security:");
+    println!("  Workspace only:    {}", config.autonomy.workspace_only);
+    println!(
+        "  Allowed commands:  {}",
+        config.autonomy.allowed_commands.join(", ")
+    );
+    println!(
+        "  Max actions/hour:  {}",
+        config.autonomy.max_actions_per_hour
+    );
+    println!(
+        "  Max cost/day:      ${:.2}",
+        f64::from(config.autonomy.max_cost_per_day_cents) / 100.0
+    );
+    println!();
+    println!("Channels:");
+    println!("  CLI:      ✅ always");
+    for (name, configured) in [
+        ("Telegram", config.channels_config.telegram.is_some()),
+        ("Discord", config.channels_config.discord.is_some()),
+        ("Slack", config.channels_config.slack.is_some()),
+        ("Webhook", config.channels_config.webhook.is_some()),
+    ] {
+        println!(
+            "  {name:9} {}",
+            if configured {
+                "✅ configured"
+            } else {
+                "❌ not configured"
+            }
+        );
+    }
+    println!();
+    println!("Peripherals:");
+    println!(
+        "  Enabled:   {}",
+        if config.peripherals.enabled {
+            "yes"
+        } else {
+            "no"
+        }
+    );
+    println!("  Boards:    {}", config.peripherals.boards.len());
+
+    Ok(())
 }
 
 async fn maybe_print_update_notice_bounded(config: &Config) {

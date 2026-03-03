@@ -140,72 +140,172 @@ fn parse_path_only_attachment(message: &str) -> Option<TelegramAttachment> {
     })
 }
 
-/// Strip tool_call XML-style tags from message text.
-/// These tags are used internally but must not be sent to Telegram as raw markup,
-/// since Telegram's Markdown parser will reject them (causing status 400 errors).
-fn strip_tool_call_tags(message: &str) -> String {
-    const TOOL_CALL_OPEN_TAGS: [&str; 5] = [
-        "<tool_call>",
-        "<toolcall>",
-        "<tool-call>",
-        "<tool>",
-        "<invoke>",
-    ];
+const TOOL_CALL_OPEN_TAGS: [&str; 5] = [
+    "<tool_call>",
+    "<toolcall>",
+    "<tool-call>",
+    "<tool>",
+    "<invoke>",
+];
 
-    fn find_first_tag<'a>(haystack: &str, tags: &'a [&'a str]) -> Option<(usize, &'a str)> {
-        tags.iter()
-            .filter_map(|tag| haystack.find(tag).map(|idx| (idx, *tag)))
-            .min_by_key(|(idx, _)| *idx)
+fn find_first_tag<'a>(haystack: &'a str, tags: &'a [&'a str]) -> Option<(usize, &'a str)> {
+    tags.iter()
+        .filter_map(|tag| haystack.find(tag).map(|idx| (idx, *tag)))
+        .min_by_key(|(idx, _)| *idx)
+}
+
+fn matching_close_tag(open_tag: &str) -> Option<&'static str> {
+    match open_tag {
+        "<tool_call>" => Some("</tool_call>"),
+        "<toolcall>" => Some("</toolcall>"),
+        "<tool-call>" => Some("</tool-call>"),
+        "<tool>" => Some("</tool>"),
+        "<invoke>" => Some("</invoke>"),
+        _ => None,
     }
+}
 
-    fn matching_close_tag(open_tag: &str) -> Option<&'static str> {
-        match open_tag {
-            "<tool_call>" => Some("</tool_call>"),
-            "<toolcall>" => Some("</toolcall>"),
-            "<tool-call>" => Some("</tool-call>"),
-            "<tool>" => Some("</tool>"),
-            "<invoke>" => Some("</invoke>"),
-            _ => None,
+fn extract_first_json_end(input: &str) -> Option<usize> {
+    let trimmed = input.trim_start();
+    let trim_offset = input.len().saturating_sub(trimmed.len());
+
+    for (byte_idx, ch) in trimmed.char_indices() {
+        if ch != '{' && ch != '[' {
+            continue;
+        }
+
+        let slice = &trimmed[byte_idx..];
+        let mut stream = serde_json::Deserializer::from_str(slice).into_iter::<serde_json::Value>();
+        if let Some(Ok(_value)) = stream.next() {
+            let consumed = stream.byte_offset();
+            if consumed > 0 {
+                return Some(trim_offset + byte_idx + consumed);
+            }
         }
     }
 
-    fn extract_first_json_end(input: &str) -> Option<usize> {
+    None
+}
+
+fn strip_leading_close_tags(mut input: &str) -> &str {
+    loop {
         let trimmed = input.trim_start();
-        let trim_offset = input.len().saturating_sub(trimmed.len());
-
-        for (byte_idx, ch) in trimmed.char_indices() {
-            if ch != '{' && ch != '[' {
-                continue;
-            }
-
-            let slice = &trimmed[byte_idx..];
-            let mut stream =
-                serde_json::Deserializer::from_str(slice).into_iter::<serde_json::Value>();
-            if let Some(Ok(_value)) = stream.next() {
-                let consumed = stream.byte_offset();
-                if consumed > 0 {
-                    return Some(trim_offset + byte_idx + consumed);
-                }
-            }
+        if !trimmed.starts_with("</") {
+            return trimmed;
         }
 
-        None
+        let Some(close_end) = trimmed.find('>') else {
+            return "";
+        };
+        input = &trimmed[close_end + 1..];
     }
+}
 
-    fn strip_leading_close_tags(mut input: &str) -> &str {
-        loop {
-            let trimmed = input.trim_start();
-            if !trimmed.starts_with("</") {
-                return trimmed;
-            }
+fn extract_user_info_from_message(
+    message: &serde_json::Value,
+) -> (String, Option<String>, Option<String>) {
+    let username = message
+        .get("from")
+        .and_then(|from| from.get("username"))
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("unknown")
+        .to_string();
 
-            let Some(close_end) = trimmed.find('>') else {
-                return "";
-            };
-            input = &trimmed[close_end + 1..];
+    let normalized_username = TelegramChannel::normalize_identity(&username);
+
+    let user_id = message
+        .get("from")
+        .and_then(|from| from.get("id"))
+        .and_then(serde_json::Value::as_i64)
+        .map(|id| id.to_string());
+
+    let normalized_user_id = user_id.as_deref().map(TelegramChannel::normalize_identity);
+
+    let chat_id = message
+        .get("chat")
+        .and_then(|chat| chat.get("id"))
+        .and_then(serde_json::Value::as_i64)
+        .map(|id| id.to_string());
+
+    (normalized_username, normalized_user_id, chat_id)
+}
+
+fn get_bind_identity(
+    normalized_user_id: Option<&str>,
+    normalized_username: &str,
+) -> Option<String> {
+    normalized_user_id.map(String::from).or_else(|| {
+        if normalized_username.is_empty() || normalized_username == "unknown" {
+            None
+        } else {
+            Some(normalized_username.to_string())
         }
+    })
+}
+
+fn build_chunk_text(chunk: &str, index: usize, total: usize) -> String {
+    if index == 0 {
+        format!("{chunk}\n\n(continues...)")
+    } else if index == total - 1 {
+        format!("(continued)\n\n{chunk}")
+    } else {
+        format!("(continued)\n\n{chunk}\n\n(continues...)")
+    }
+}
+
+fn create_send_message_body(
+    chat_id: &str,
+    text: &str,
+    thread_id: Option<&str>,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "chat_id": chat_id,
+        "text": text,
+    });
+
+    if let Some(tid) = thread_id {
+        body["message_thread_id"] = serde_json::Value::String(tid.to_string());
     }
 
+    body
+}
+
+async fn send_message_with_fallback(
+    client: &reqwest::Client,
+    api_url: &str,
+    body: serde_json::Value,
+) -> anyhow::Result<reqwest::Response> {
+    let resp = client.post(api_url).json(&body).send().await?;
+
+    if resp.status().is_success() {
+        return Ok(resp);
+    }
+
+    let status = resp.status();
+    let err = resp.text().await.unwrap_or_default();
+    tracing::warn!(status = ?status, "Telegram sendMessage with Markdown failed; retrying without parse_mode");
+
+    let mut plain_body = body.clone();
+    plain_body["parse_mode"] = serde_json::Value::Null;
+
+    let plain_resp = client.post(api_url).json(&plain_body).send().await?;
+
+    if !plain_resp.status().is_success() {
+        let plain_status = plain_resp.status();
+        let plain_err = plain_resp.text().await.unwrap_or_default();
+        anyhow::bail!(
+            "Telegram sendMessage failed (markdown {}: {}; plain {}: {})",
+            status,
+            err,
+            plain_status,
+            plain_err
+        );
+    }
+
+    Ok(plain_resp)
+}
+
+fn strip_tool_call_tags(message: &str) -> String {
     let mut kept_segments = Vec::new();
     let mut remaining = message;
 
@@ -459,37 +559,25 @@ impl TelegramChannel {
     }
 
     async fn handle_unauthorized_message(&self, update: &serde_json::Value) {
-        let Some(message) = update.get("message") else {
-            return;
+        let message = match update.get("message") {
+            Some(m) => m,
+            None => return,
         };
 
-        let Some(text) = message.get("text").and_then(serde_json::Value::as_str) else {
-            return;
+        let text = match message.get("text").and_then(serde_json::Value::as_str) {
+            Some(t) => t,
+            None => return,
         };
 
-        let username_opt = message
-            .get("from")
-            .and_then(|from| from.get("username"))
-            .and_then(serde_json::Value::as_str);
-        let username = username_opt.unwrap_or("unknown");
-        let normalized_username = Self::normalize_identity(username);
+        let (normalized_username, normalized_user_id, chat_id) =
+            extract_user_info_from_message(message);
 
-        let user_id = message
-            .get("from")
-            .and_then(|from| from.get("id"))
-            .and_then(serde_json::Value::as_i64);
-        let user_id_str = user_id.map(|id| id.to_string());
-        let normalized_user_id = user_id_str.as_deref().map(Self::normalize_identity);
-
-        let chat_id = message
-            .get("chat")
-            .and_then(|chat| chat.get("id"))
-            .and_then(serde_json::Value::as_i64)
-            .map(|id| id.to_string());
-
-        let Some(chat_id) = chat_id else {
-            tracing::warn!("Telegram: missing chat_id in message, skipping");
-            return;
+        let chat_id = match chat_id {
+            Some(id) => id,
+            None => {
+                tracing::warn!("Telegram: missing chat_id in message, skipping");
+                return;
+            }
         };
 
         let mut identities = vec![normalized_username.as_str()];
@@ -501,104 +589,134 @@ impl TelegramChannel {
             return;
         }
 
-        if let Some(code) = Self::extract_bind_code(text) {
-            if let Some(pairing) = self.pairing.as_ref() {
-                match pairing.try_pair(code) {
-                    Ok(Some(_token)) => {
-                        let bind_identity = normalized_user_id.clone().or_else(|| {
-                            if normalized_username.is_empty() || normalized_username == "unknown" {
-                                None
-                            } else {
-                                Some(normalized_username.clone())
-                            }
-                        });
+        self.process_telegram_message(
+            text,
+            &chat_id,
+            &normalized_username,
+            normalized_user_id.as_deref(),
+        )
+        .await;
+    }
 
-                        if let Some(identity) = bind_identity {
-                            self.add_allowed_identity_runtime(&identity);
-                            match self.persist_allowed_identity(&identity).await {
-                                Ok(()) => {
-                                    let _ = self
-                                        .send(&SendMessage::new(
-                                            "✅ Telegram account bound successfully. You can talk to Corvus now.",
-                                            &chat_id,
-                                        ))
-                                        .await;
-                                    tracing::info!(
-                                        "Telegram: paired and allowlisted identity={identity}"
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::error!(
-                                        "Telegram: failed to persist allowlist after bind: {e}"
-                                    );
-                                    let _ = self
-                                        .send(&SendMessage::new(
-                                            "⚠️ Bound for this runtime, but failed to persist config. Access may be lost after restart; check config file permissions.",
-                                            &chat_id,
-                                        ))
-                                        .await;
-                                }
-                            }
-                        } else {
+    async fn process_telegram_message(
+        &self,
+        text: &str,
+        chat_id: &str,
+        normalized_username: &str,
+        normalized_user_id: Option<&str>,
+    ) {
+        if let Some(code) = Self::extract_bind_code(text) {
+            self.handle_bind_flow(code, chat_id, normalized_username, normalized_user_id)
+                .await;
+            return;
+        }
+
+        self.send_unauthorized_notification(chat_id, normalized_username, normalized_user_id)
+            .await;
+    }
+
+    async fn handle_bind_flow(
+        &self,
+        code: &str,
+        chat_id: &str,
+        normalized_username: &str,
+        normalized_user_id: Option<&str>,
+    ) {
+        let Some(pairing) = self.pairing.as_ref() else {
+            let _ = self
+                .send(&SendMessage::new(
+                    "ℹ️ Telegram pairing is not active. Ask operator to update allowlist in config.toml.",
+                    chat_id,
+                ))
+                .await;
+            return;
+        };
+
+        match pairing.try_pair(code) {
+            Ok(Some(_token)) => {
+                let bind_identity = get_bind_identity(normalized_user_id, normalized_username);
+
+                if let Some(identity) = bind_identity {
+                    self.add_allowed_identity_runtime(&identity);
+                    match self.persist_allowed_identity(&identity).await {
+                        Ok(()) => {
                             let _ = self
                                 .send(&SendMessage::new(
-                                    "❌ Could not identify your Telegram account. Ensure your account has a username or stable user ID, then retry.",
-                                    &chat_id,
+                                    "✅ Telegram account bound successfully. You can talk to Corvus now.",
+                                    chat_id,
+                                ))
+                                .await;
+                            tracing::info!("Telegram: paired and allowlisted identity={identity}");
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                "Telegram: failed to persist allowlist after bind: {e}"
+                            );
+                            let _ = self
+                                .send(&SendMessage::new(
+                                    "⚠️ Bound for this runtime, but failed to persist config. Access may be lost after restart; check config file permissions.",
+                                    chat_id,
                                 ))
                                 .await;
                         }
                     }
-                    Ok(None) => {
-                        let _ = self
-                            .send(&SendMessage::new(
-                                "❌ Invalid binding code. Ask operator for the latest code and retry.",
-                                &chat_id,
-                            ))
-                            .await;
-                    }
-                    Err(lockout_secs) => {
-                        let _ = self
-                            .send(&SendMessage::new(
-                                format!("⏳ Too many invalid attempts. Retry in {lockout_secs}s."),
-                                &chat_id,
-                            ))
-                            .await;
-                    }
+                } else {
+                    let _ = self
+                        .send(&SendMessage::new(
+                            "❌ Could not identify your Telegram account. Ensure your account has a username or stable user ID, then retry.",
+                            chat_id,
+                        ))
+                        .await;
                 }
-            } else {
+            }
+            Ok(None) => {
                 let _ = self
                     .send(&SendMessage::new(
-                        "ℹ️ Telegram pairing is not active. Ask operator to update allowlist in config.toml.",
-                        &chat_id,
+                        "❌ Invalid binding code. Ask operator for the latest code and retry.",
+                        chat_id,
                     ))
                     .await;
             }
-            return;
+            Err(lockout_secs) => {
+                let _ = self
+                    .send(&SendMessage::new(
+                        format!("⏳ Too many invalid attempts. Retry in {lockout_secs}s."),
+                        chat_id,
+                    ))
+                    .await;
+            }
         }
+    }
 
+    async fn send_unauthorized_notification(
+        &self,
+        chat_id: &str,
+        normalized_username: &str,
+        normalized_user_id: Option<&str>,
+    ) {
         tracing::warn!(
-            "Telegram: ignoring message from unauthorized user: username={username}, user_id={}. \
-Allowlist Telegram username (without '@') or numeric user ID.",
-            user_id_str.as_deref().unwrap_or("unknown")
+            "Telegram: ignoring message from unauthorized user: username={}, user_id={:?}. \
+            Allowlist Telegram username (without '@') or numeric user ID.",
+            normalized_username,
+            normalized_user_id
         );
 
         let suggested_identity = normalized_user_id
-            .clone()
             .or_else(|| {
                 if normalized_username.is_empty() || normalized_username == "unknown" {
                     None
                 } else {
-                    Some(normalized_username.clone())
+                    Some(normalized_username)
                 }
             })
-            .unwrap_or_else(|| "YOUR_TELEGRAM_ID".to_string());
+            .unwrap_or("YOUR_TELEGRAM_ID");
 
         let _ = self
             .send(&SendMessage::new(
                 format!(
                     "🔐 This bot requires operator approval.\n\nCopy this command to operator terminal:\n`corvus channel bind-telegram {suggested_identity}`\n\nAfter operator runs it, send your message again."
                 ),
-                &chat_id,
+                chat_id,
             ))
             .await;
 
@@ -606,7 +724,7 @@ Allowlist Telegram username (without '@') or numeric user ID.",
             let _ = self
                 .send(&SendMessage::new(
                     "ℹ️ If operator provides a one-time pairing code, you can also run `/bind <code>`.",
-                    &chat_id,
+                    chat_id,
                 ))
                 .await;
         }
@@ -692,75 +810,22 @@ Allowlist Telegram username (without '@') or numeric user ID.",
 
         for (index, chunk) in chunks.iter().enumerate() {
             let text = if chunks.len() > 1 {
-                if index == 0 {
-                    format!("{chunk}\n\n(continues...)")
-                } else if index == chunks.len() - 1 {
-                    format!("(continued)\n\n{chunk}")
-                } else {
-                    format!("(continued)\n\n{chunk}\n\n(continues...)")
-                }
+                build_chunk_text(chunk, index, chunks.len())
             } else {
                 chunk.to_string()
             };
 
-            let mut markdown_body = serde_json::json!({
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "Markdown"
-            });
+            let mut body = create_send_message_body(chat_id, &text, thread_id);
+            body["parse_mode"] = serde_json::Value::String("Markdown".to_string());
 
-            // Add message_thread_id for forum topic support
-            if let Some(tid) = thread_id {
-                markdown_body["message_thread_id"] = serde_json::Value::String(tid.to_string());
-            }
+            let api_url = self.api_url("sendMessage");
 
-            let markdown_resp = self
-                .client
-                .post(self.api_url("sendMessage"))
-                .json(&markdown_body)
-                .send()
-                .await?;
-
-            if markdown_resp.status().is_success() {
+            if let Ok(resp) = send_message_with_fallback(&self.client, &api_url, body).await {
                 if index < chunks.len() - 1 {
                     tokio::time::sleep(Duration::from_millis(100)).await;
                 }
+                let _ = resp;
                 continue;
-            }
-
-            let markdown_status = markdown_resp.status();
-            let markdown_err = markdown_resp.text().await.unwrap_or_default();
-            tracing::warn!(
-                status = ?markdown_status,
-                "Telegram sendMessage with Markdown failed; retrying without parse_mode"
-            );
-
-            let mut plain_body = serde_json::json!({
-                "chat_id": chat_id,
-                "text": text,
-            });
-
-            // Add message_thread_id for forum topic support
-            if let Some(tid) = thread_id {
-                plain_body["message_thread_id"] = serde_json::Value::String(tid.to_string());
-            }
-            let plain_resp = self
-                .client
-                .post(self.api_url("sendMessage"))
-                .json(&plain_body)
-                .send()
-                .await?;
-
-            if !plain_resp.status().is_success() {
-                let plain_status = plain_resp.status();
-                let plain_err = plain_resp.text().await.unwrap_or_default();
-                anyhow::bail!(
-                    "Telegram sendMessage failed (markdown {}: {}; plain {}: {})",
-                    markdown_status,
-                    markdown_err,
-                    plain_status,
-                    plain_err
-                );
             }
 
             if index < chunks.len() - 1 {
@@ -1265,6 +1330,51 @@ Allowlist Telegram username (without '@') or numeric user ID.",
         self.send_media_by_url("sendVoice", "voice", chat_id, thread_id, url, caption)
             .await
     }
+
+    async fn poll_telegram_updates(&self, offset: i64) -> anyhow::Result<serde_json::Value> {
+        let url = self.api_url("getUpdates");
+        let body = serde_json::json!({
+            "offset": offset,
+            "timeout": 30,
+            "allowed_updates": ["message"]
+        });
+
+        let resp = self.client.post(&url).json(&body).send().await?;
+        let data: serde_json::Value = resp.json().await?;
+
+        let ok = data
+            .get("ok")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
+
+        if !ok {
+            let error_code = data
+                .get("error_code")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or_default();
+            let description = data
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown Telegram API error");
+
+            if error_code == 409 {
+                tracing::warn!(
+                    "Telegram polling conflict (409): {description}. \
+                    Ensure only one `corvus` process is using this bot token."
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            } else {
+                tracing::warn!(
+                    "Telegram getUpdates API error (code={}): {description}",
+                    error_code
+                );
+                tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+            }
+            anyhow::bail!("Telegram API error: {}", description);
+        }
+
+        Ok(data)
+    }
 }
 
 #[async_trait]
@@ -1567,7 +1677,7 @@ impl Channel for TelegramChannel {
                 if error_code == 409 {
                     tracing::warn!(
                         "Telegram polling conflict (409): {description}. \
-Ensure only one `corvus` process is using this bot token."
+                        Ensure only one `corvus` process is using this bot token."
                     );
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
                 } else {
@@ -1582,7 +1692,6 @@ Ensure only one `corvus` process is using this bot token."
 
             if let Some(results) = data.get("result").and_then(serde_json::Value::as_array) {
                 for update in results {
-                    // Advance offset past this update
                     if let Some(uid) = update.get("update_id").and_then(serde_json::Value::as_i64) {
                         offset = uid + 1;
                     }
@@ -1591,7 +1700,7 @@ Ensure only one `corvus` process is using this bot token."
                         self.handle_unauthorized_message(update).await;
                         continue;
                     };
-                    // Send "typing" indicator immediately when we receive a message
+
                     let typing_body = serde_json::json!({
                         "chat_id": &msg.reply_target,
                         "action": "typing"
@@ -1601,7 +1710,7 @@ Ensure only one `corvus` process is using this bot token."
                         .post(self.api_url("sendChatAction"))
                         .json(&typing_body)
                         .send()
-                        .await; // Ignore errors for typing indicator
+                        .await;
 
                     if tx.send(msg).await.is_err() {
                         return Ok(());

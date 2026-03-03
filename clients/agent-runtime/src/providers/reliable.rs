@@ -131,33 +131,21 @@ impl ReliableProvider {
     /// Compute backoff duration, respecting Retry-After if present.
     fn compute_backoff(&self, base: u64, err: &anyhow::Error) -> u64 {
         if let Some(retry_after) = parse_retry_after_ms(err) {
-            // Use Retry-After but cap at 30s to avoid indefinite waits
             retry_after.min(30_000).max(base)
         } else {
             base
         }
     }
-}
 
-#[async_trait]
-impl Provider for ReliableProvider {
-    async fn warmup(&self) -> anyhow::Result<()> {
-        for (name, provider) in &self.providers {
-            tracing::info!(provider = name, "Warming up provider connection pool");
-            if provider.warmup().await.is_err() {
-                tracing::warn!(provider = name, "Warmup failed (non-fatal)");
-            }
-        }
-        Ok(())
-    }
-
-    async fn chat_with_system(
-        &self,
-        system_prompt: Option<&str>,
-        message: &str,
-        model: &str,
-        temperature: f64,
-    ) -> anyhow::Result<String> {
+    /// Attempt a provider call with retries, fallbacks, and rate-limit handling.
+    async fn execute_with_fallback<'a, T, R>(
+        &'a self,
+        model: &'a str,
+        mut make_request: impl FnMut(&'a dyn Provider, &'a str) -> R,
+    ) -> anyhow::Result<T>
+    where
+        R: std::future::Future<Output = anyhow::Result<T>>,
+    {
         let models = self.model_chain(model);
         let mut failures = Vec::new();
 
@@ -166,10 +154,7 @@ impl Provider for ReliableProvider {
                 let mut backoff_ms = self.base_backoff_ms;
 
                 for attempt in 0..=self.max_retries {
-                    match provider
-                        .chat_with_system(system_prompt, message, current_model, temperature)
-                        .await
-                    {
+                    match make_request(provider.as_ref(), current_model).await {
                         Ok(resp) => {
                             if attempt > 0 || *current_model != model {
                                 tracing::info!(
@@ -199,7 +184,6 @@ impl Provider for ReliableProvider {
                                 self.max_retries + 1
                             ));
 
-                            // On rate-limit, try rotating API key
                             if rate_limited {
                                 if let Some(new_key) = self.rotate_key() {
                                     tracing::info!(
@@ -256,6 +240,32 @@ impl Provider for ReliableProvider {
             failures.join("\n")
         )
     }
+}
+
+#[async_trait]
+impl Provider for ReliableProvider {
+    async fn warmup(&self) -> anyhow::Result<()> {
+        for (name, provider) in &self.providers {
+            tracing::info!(provider = name, "Warming up provider connection pool");
+            if provider.warmup().await.is_err() {
+                tracing::warn!(provider = name, "Warmup failed (non-fatal)");
+            }
+        }
+        Ok(())
+    }
+
+    async fn chat_with_system(
+        &self,
+        system_prompt: Option<&str>,
+        message: &str,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<String> {
+        self.execute_with_fallback(model, |provider, current_model| {
+            provider.chat_with_system(system_prompt, message, current_model, temperature)
+        })
+        .await
+    }
 
     async fn chat_with_history(
         &self,
@@ -263,94 +273,10 @@ impl Provider for ReliableProvider {
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<String> {
-        let models = self.model_chain(model);
-        let mut failures = Vec::new();
-
-        for current_model in &models {
-            for (provider_name, provider) in &self.providers {
-                let mut backoff_ms = self.base_backoff_ms;
-
-                for attempt in 0..=self.max_retries {
-                    match provider
-                        .chat_with_history(messages, current_model, temperature)
-                        .await
-                    {
-                        Ok(resp) => {
-                            if attempt > 0 || *current_model != model {
-                                tracing::info!(
-                                    provider = provider_name,
-                                    model = *current_model,
-                                    attempt,
-                                    original_model = model,
-                                    "Provider recovered (failover/retry)"
-                                );
-                            }
-                            return Ok(resp);
-                        }
-                        Err(e) => {
-                            let non_retryable = is_non_retryable(&e);
-                            let rate_limited = is_rate_limited(&e);
-
-                            let failure_reason = if rate_limited {
-                                "rate_limited"
-                            } else if non_retryable {
-                                "non_retryable"
-                            } else {
-                                "retryable"
-                            };
-                            failures.push(format!(
-                                "provider={provider_name} model={current_model} attempt {}/{}: {failure_reason}",
-                                attempt + 1,
-                                self.max_retries + 1
-                            ));
-
-                            if rate_limited {
-                                if let Some(new_key) = self.rotate_key() {
-                                    tracing::info!(
-                                        provider = provider_name,
-                                        "Rate limited, rotated API key (key ending ...{})",
-                                        &new_key[new_key.len().saturating_sub(4)..]
-                                    );
-                                }
-                            }
-
-                            if non_retryable {
-                                tracing::warn!(
-                                    provider = provider_name,
-                                    model = *current_model,
-                                    "Non-retryable error, moving on"
-                                );
-                                break;
-                            }
-
-                            if attempt < self.max_retries {
-                                let wait = self.compute_backoff(backoff_ms, &e);
-                                tracing::warn!(
-                                    provider = provider_name,
-                                    model = *current_model,
-                                    attempt = attempt + 1,
-                                    backoff_ms = wait,
-                                    "Provider call failed, retrying"
-                                );
-                                tokio::time::sleep(Duration::from_millis(wait)).await;
-                                backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
-                            }
-                        }
-                    }
-                }
-
-                tracing::warn!(
-                    provider = provider_name,
-                    model = *current_model,
-                    "Exhausted retries, trying next provider/model"
-                );
-            }
-        }
-
-        anyhow::bail!(
-            "All providers/models failed. Attempts:\n{}",
-            failures.join("\n")
-        )
+        self.execute_with_fallback(model, |provider, current_model| {
+            provider.chat_with_history(messages, current_model, temperature)
+        })
+        .await
     }
 
     fn supports_native_tools(&self) -> bool {
@@ -367,94 +293,10 @@ impl Provider for ReliableProvider {
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<ChatResponse> {
-        let models = self.model_chain(model);
-        let mut failures = Vec::new();
-
-        for current_model in &models {
-            for (provider_name, provider) in &self.providers {
-                let mut backoff_ms = self.base_backoff_ms;
-
-                for attempt in 0..=self.max_retries {
-                    match provider
-                        .chat_with_tools(messages, tools, current_model, temperature)
-                        .await
-                    {
-                        Ok(resp) => {
-                            if attempt > 0 || *current_model != model {
-                                tracing::info!(
-                                    provider = provider_name,
-                                    model = *current_model,
-                                    attempt,
-                                    original_model = model,
-                                    "Provider recovered (failover/retry)"
-                                );
-                            }
-                            return Ok(resp);
-                        }
-                        Err(e) => {
-                            let non_retryable = is_non_retryable(&e);
-                            let rate_limited = is_rate_limited(&e);
-
-                            let failure_reason = if rate_limited {
-                                "rate_limited"
-                            } else if non_retryable {
-                                "non_retryable"
-                            } else {
-                                "retryable"
-                            };
-                            failures.push(format!(
-                                "{provider_name}/{current_model} attempt {}/{}: {failure_reason}",
-                                attempt + 1,
-                                self.max_retries + 1
-                            ));
-
-                            if rate_limited {
-                                if let Some(new_key) = self.rotate_key() {
-                                    tracing::info!(
-                                        provider = provider_name,
-                                        "Rate limited, rotated API key (key ending ...{})",
-                                        &new_key[new_key.len().saturating_sub(4)..]
-                                    );
-                                }
-                            }
-
-                            if non_retryable {
-                                tracing::warn!(
-                                    provider = provider_name,
-                                    model = *current_model,
-                                    "Non-retryable error, moving on"
-                                );
-                                break;
-                            }
-
-                            if attempt < self.max_retries {
-                                let wait = self.compute_backoff(backoff_ms, &e);
-                                tracing::warn!(
-                                    provider = provider_name,
-                                    model = *current_model,
-                                    attempt = attempt + 1,
-                                    backoff_ms = wait,
-                                    "Provider call failed, retrying"
-                                );
-                                tokio::time::sleep(Duration::from_millis(wait)).await;
-                                backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
-                            }
-                        }
-                    }
-                }
-
-                tracing::warn!(
-                    provider = provider_name,
-                    model = *current_model,
-                    "Exhausted retries, trying next provider/model"
-                );
-            }
-        }
-
-        anyhow::bail!(
-            "All providers/models failed. Attempts:\n{}",
-            failures.join("\n")
-        )
+        self.execute_with_fallback(model, |provider, current_model| {
+            provider.chat_with_tools(messages, tools, current_model, temperature)
+        })
+        .await
     }
 
     fn supports_streaming(&self) -> bool {

@@ -2183,6 +2183,84 @@ fn env_override_optional(var_name: &str, target: &mut Option<String>) {
     }
 }
 
+fn env_override_string(primary: &str, secondary: &str, target: &mut Option<String>) {
+    if let Ok(value) = std::env::var(primary).or_else(|_| std::env::var(secondary)) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            *target = Some(trimmed.to_string());
+        }
+    }
+}
+
+fn env_override_string_plain(primary: &str, secondary: &str, target: &mut String) {
+    if let Ok(value) = std::env::var(primary).or_else(|_| std::env::var(secondary)) {
+        let trimmed = value.trim();
+        if !trimmed.is_empty() {
+            *target = trimmed.to_string();
+        }
+    }
+}
+
+fn env_override_port(primary: &str, secondary: &str, target: &mut u16) {
+    if let Ok(port_str) = std::env::var(primary).or_else(|_| std::env::var(secondary)) {
+        if let Ok(port) = port_str.parse::<u16>() {
+            *target = port;
+        }
+    }
+}
+
+fn env_override_bool(primary: &str, secondary: Option<&str>, target: &mut bool) {
+    let fallback = secondary.and_then(|s| std::env::var(s).ok());
+    let value = std::env::var(primary).ok().or(fallback);
+    if let Some(val) = value {
+        *target = val == "1" || val.eq_ignore_ascii_case("true");
+    }
+}
+
+fn env_override_f64_clamped(primary: &str, min: f64, max: f64, target: &mut f64) {
+    if let Ok(temp_str) = std::env::var(primary) {
+        if let Ok(temp) = temp_str.parse::<f64>() {
+            if (min..=max).contains(&temp) {
+                *target = temp;
+            }
+        }
+    }
+}
+
+fn env_override_usize_clamped(
+    primary: &str,
+    secondary: &str,
+    min: usize,
+    max: usize,
+    target: &mut usize,
+) {
+    if let Ok(value) = std::env::var(primary).or_else(|_| std::env::var(secondary)) {
+        if let Ok(parsed) = value.parse::<usize>() {
+            if (min..=max).contains(&parsed) {
+                *target = parsed;
+            }
+        }
+    }
+}
+
+fn env_override_u64_positive(primary: &str, secondary: &str, target: &mut u64) {
+    if let Ok(value) = std::env::var(primary).or_else(|_| std::env::var(secondary)) {
+        if let Ok(parsed) = value.parse::<u64>() {
+            if parsed > 0 {
+                *target = parsed;
+            }
+        }
+    }
+}
+
+fn env_override_api_key_with_fallback(primary: &str, fallback: &str, target: &mut Option<String>) {
+    if let Ok(key) = std::env::var(primary).or_else(|_| std::env::var(fallback)) {
+        if !key.is_empty() {
+            *target = Some(key);
+        }
+    }
+}
+
 impl Config {
     pub fn load_or_init() -> Result<Self> {
         let (default_corvus_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
@@ -2268,13 +2346,8 @@ impl Config {
 
     /// Apply environment variable overrides to config
     pub fn apply_env_overrides(&mut self) {
-        // API Key: CORVUS_API_KEY or API_KEY (generic)
-        if let Ok(key) = std::env::var("CORVUS_API_KEY").or_else(|_| std::env::var("API_KEY")) {
-            if !key.is_empty() {
-                self.api_key = Some(key);
-            }
-        }
-        // API Key: GLM_API_KEY overrides when provider is a GLM/Zhipu variant.
+        env_override_api_key_with_fallback("CORVUS_API_KEY", "API_KEY", &mut self.api_key);
+
         if self.default_provider.as_deref().is_some_and(is_glm_alias) {
             if let Ok(key) = std::env::var("GLM_API_KEY") {
                 if !key.is_empty() {
@@ -2283,7 +2356,6 @@ impl Config {
             }
         }
 
-        // API Key: ZAI_API_KEY overrides when provider is a Z.AI variant.
         if self.default_provider.as_deref().is_some_and(is_zai_alias) {
             if let Ok(key) = std::env::var("ZAI_API_KEY") {
                 if !key.is_empty() {
@@ -2292,23 +2364,9 @@ impl Config {
             }
         }
 
-        // Provider: CORVUS_PROVIDER or PROVIDER
-        if let Ok(provider) =
-            std::env::var("CORVUS_PROVIDER").or_else(|_| std::env::var("PROVIDER"))
-        {
-            if !provider.is_empty() {
-                self.default_provider = Some(provider);
-            }
-        }
+        env_override_string("CORVUS_PROVIDER", "PROVIDER", &mut self.default_provider);
+        env_override_string("CORVUS_MODEL", "MODEL", &mut self.default_model);
 
-        // Model: CORVUS_MODEL or MODEL
-        if let Ok(model) = std::env::var("CORVUS_MODEL").or_else(|_| std::env::var("MODEL")) {
-            if !model.is_empty() {
-                self.default_model = Some(model);
-            }
-        }
-
-        // Memory backend: CORVUS_MEMORY_BACKEND or MEMORY_BACKEND
         if let Ok(backend) =
             std::env::var("CORVUS_MEMORY_BACKEND").or_else(|_| std::env::var("MEMORY_BACKEND"))
         {
@@ -2329,7 +2387,6 @@ impl Config {
             }
         }
 
-        // Workspace directory: CORVUS_WORKSPACE
         if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
             if !workspace.is_empty() {
                 let (_, workspace_dir) =
@@ -2338,54 +2395,31 @@ impl Config {
             }
         }
 
-        // Gateway port: CORVUS_GATEWAY_PORT or PORT
-        if let Ok(port_str) =
-            std::env::var("CORVUS_GATEWAY_PORT").or_else(|_| std::env::var("PORT"))
-        {
-            if let Ok(port) = port_str.parse::<u16>() {
-                self.gateway.port = port;
-            }
-        }
+        env_override_port("CORVUS_GATEWAY_PORT", "PORT", &mut self.gateway.port);
+        env_override_string_plain("CORVUS_GATEWAY_HOST", "HOST", &mut self.gateway.host);
+        env_override_bool(
+            "CORVUS_ALLOW_PUBLIC_BIND",
+            None,
+            &mut self.gateway.allow_public_bind,
+        );
+        env_override_f64_clamped(
+            "CORVUS_TEMPERATURE",
+            0.0,
+            2.0,
+            &mut self.default_temperature,
+        );
 
-        // Gateway host: CORVUS_GATEWAY_HOST or HOST
-        if let Ok(host) = std::env::var("CORVUS_GATEWAY_HOST").or_else(|_| std::env::var("HOST")) {
-            if !host.is_empty() {
-                self.gateway.host = host;
-            }
-        }
+        env_override_bool(
+            "CORVUS_WEB_SEARCH_ENABLED",
+            Some("WEB_SEARCH_ENABLED"),
+            &mut self.web_search.enabled,
+        );
+        env_override_string_plain(
+            "CORVUS_WEB_SEARCH_PROVIDER",
+            "WEB_SEARCH_PROVIDER",
+            &mut self.web_search.provider,
+        );
 
-        // Allow public bind: CORVUS_ALLOW_PUBLIC_BIND
-        if let Ok(val) = std::env::var("CORVUS_ALLOW_PUBLIC_BIND") {
-            self.gateway.allow_public_bind = val == "1" || val.eq_ignore_ascii_case("true");
-        }
-
-        // Temperature: CORVUS_TEMPERATURE
-        if let Ok(temp_str) = std::env::var("CORVUS_TEMPERATURE") {
-            if let Ok(temp) = temp_str.parse::<f64>() {
-                if (0.0..=2.0).contains(&temp) {
-                    self.default_temperature = temp;
-                }
-            }
-        }
-
-        // Web search enabled: CORVUS_WEB_SEARCH_ENABLED or WEB_SEARCH_ENABLED
-        if let Ok(enabled) = std::env::var("CORVUS_WEB_SEARCH_ENABLED")
-            .or_else(|_| std::env::var("WEB_SEARCH_ENABLED"))
-        {
-            self.web_search.enabled = enabled == "1" || enabled.eq_ignore_ascii_case("true");
-        }
-
-        // Web search provider: CORVUS_WEB_SEARCH_PROVIDER or WEB_SEARCH_PROVIDER
-        if let Ok(provider) = std::env::var("CORVUS_WEB_SEARCH_PROVIDER")
-            .or_else(|_| std::env::var("WEB_SEARCH_PROVIDER"))
-        {
-            let provider = provider.trim();
-            if !provider.is_empty() {
-                self.web_search.provider = provider.to_string();
-            }
-        }
-
-        // Brave API key: CORVUS_BRAVE_API_KEY or BRAVE_API_KEY
         if let Ok(api_key) =
             std::env::var("CORVUS_BRAVE_API_KEY").or_else(|_| std::env::var("BRAVE_API_KEY"))
         {
@@ -2395,27 +2429,18 @@ impl Config {
             }
         }
 
-        // Web search max results: CORVUS_WEB_SEARCH_MAX_RESULTS or WEB_SEARCH_MAX_RESULTS
-        if let Ok(max_results) = std::env::var("CORVUS_WEB_SEARCH_MAX_RESULTS")
-            .or_else(|_| std::env::var("WEB_SEARCH_MAX_RESULTS"))
-        {
-            if let Ok(max_results) = max_results.parse::<usize>() {
-                if (1..=10).contains(&max_results) {
-                    self.web_search.max_results = max_results;
-                }
-            }
-        }
-
-        // Web search timeout: CORVUS_WEB_SEARCH_TIMEOUT_SECS or WEB_SEARCH_TIMEOUT_SECS
-        if let Ok(timeout_secs) = std::env::var("CORVUS_WEB_SEARCH_TIMEOUT_SECS")
-            .or_else(|_| std::env::var("WEB_SEARCH_TIMEOUT_SECS"))
-        {
-            if let Ok(timeout_secs) = timeout_secs.parse::<u64>() {
-                if timeout_secs > 0 {
-                    self.web_search.timeout_secs = timeout_secs;
-                }
-            }
-        }
+        env_override_usize_clamped(
+            "CORVUS_WEB_SEARCH_MAX_RESULTS",
+            "WEB_SEARCH_MAX_RESULTS",
+            1,
+            10,
+            &mut self.web_search.max_results,
+        );
+        env_override_u64_positive(
+            "CORVUS_WEB_SEARCH_TIMEOUT_SECS",
+            "WEB_SEARCH_TIMEOUT_SECS",
+            &mut self.web_search.timeout_secs,
+        );
 
         env_override_optional("CORVUS_SURREALDB_URL", &mut self.memory.surreal.url);
         env_override_optional(

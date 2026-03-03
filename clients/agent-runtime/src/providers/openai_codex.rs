@@ -159,18 +159,21 @@ fn nonempty_preserve(text: Option<&str>) -> Option<String> {
     })
 }
 
+fn find_output_text_content(content: &[ResponsesContent]) -> Option<String> {
+    content
+        .iter()
+        .find(|c| c.kind.as_deref() == Some("output_text"))
+        .and_then(|c| first_nonempty(c.text.as_deref()))
+}
+
 fn extract_responses_text(response: &ResponsesResponse) -> Option<String> {
     if let Some(text) = first_nonempty(response.output_text.as_deref()) {
         return Some(text);
     }
 
     for item in &response.output {
-        for content in &item.content {
-            if content.kind.as_deref() == Some("output_text") {
-                if let Some(text) = first_nonempty(content.text.as_deref()) {
-                    return Some(text);
-                }
-            }
+        if let Some(text) = find_output_text_content(&item.content) {
+            return Some(text);
         }
     }
 
@@ -202,60 +205,82 @@ fn extract_stream_event_text(event: &Value, saw_delta: bool) -> Option<String> {
     }
 }
 
+fn extract_data_lines(chunk: &str) -> Vec<String> {
+    chunk
+        .lines()
+        .filter_map(|line| line.strip_prefix("data:"))
+        .map(|line| line.trim().to_string())
+        .collect()
+}
+
+fn is_valid_sse_data(trimmed: &str) -> bool {
+    !trimmed.is_empty() && trimmed != "[DONE]"
+}
+
+fn parse_event_from_data(trimmed: &str) -> Option<Value> {
+    serde_json::from_str::<Value>(trimmed).ok()
+}
+
+fn try_parse_event(
+    event: &Value,
+    saw_delta: &mut bool,
+    delta_accumulator: &mut String,
+    fallback_text: &mut Option<String>,
+) -> anyhow::Result<()> {
+    if let Some(message) = extract_stream_error_message(event) {
+        return Err(anyhow::anyhow!("OpenAI Codex stream error: {message}"));
+    }
+    if let Some(text) = extract_stream_event_text(event, *saw_delta) {
+        let event_type = event.get("type").and_then(Value::as_str);
+        if event_type == Some("response.output_text.delta") {
+            *saw_delta = true;
+            delta_accumulator.push_str(&text);
+        } else if fallback_text.is_none() {
+            *fallback_text = Some(text);
+        }
+    }
+    Ok(())
+}
+
+fn process_chunk_data(
+    chunk: &str,
+    saw_delta: &mut bool,
+    delta_accumulator: &mut String,
+    fallback_text: &mut Option<String>,
+) -> anyhow::Result<()> {
+    let data_lines = extract_data_lines(chunk);
+    if data_lines.is_empty() {
+        return Ok(());
+    }
+
+    let joined = data_lines.join("\n");
+    let trimmed = joined.trim();
+    if !is_valid_sse_data(trimmed) {
+        return Ok(());
+    }
+
+    if let Some(event) = parse_event_from_data(trimmed) {
+        return try_parse_event(&event, saw_delta, delta_accumulator, fallback_text);
+    }
+
+    for line in data_lines {
+        let line = line.trim();
+        if !is_valid_sse_data(line) {
+            continue;
+        }
+        if let Some(event) = parse_event_from_data(line) {
+            try_parse_event(&event, saw_delta, delta_accumulator, fallback_text)?;
+        }
+    }
+
+    Ok(())
+}
+
 fn parse_sse_text(body: &str) -> anyhow::Result<Option<String>> {
     let mut saw_delta = false;
     let mut delta_accumulator = String::new();
     let mut fallback_text = None;
     let mut buffer = body.to_string();
-
-    let mut process_event = |event: Value| -> anyhow::Result<()> {
-        if let Some(message) = extract_stream_error_message(&event) {
-            return Err(anyhow::anyhow!("OpenAI Codex stream error: {message}"));
-        }
-        if let Some(text) = extract_stream_event_text(&event, saw_delta) {
-            let event_type = event.get("type").and_then(Value::as_str);
-            if event_type == Some("response.output_text.delta") {
-                saw_delta = true;
-                delta_accumulator.push_str(&text);
-            } else if fallback_text.is_none() {
-                fallback_text = Some(text);
-            }
-        }
-        Ok(())
-    };
-
-    let mut process_chunk = |chunk: &str| -> anyhow::Result<()> {
-        let data_lines: Vec<String> = chunk
-            .lines()
-            .filter_map(|line| line.strip_prefix("data:"))
-            .map(|line| line.trim().to_string())
-            .collect();
-        if data_lines.is_empty() {
-            return Ok(());
-        }
-
-        let joined = data_lines.join("\n");
-        let trimmed = joined.trim();
-        if trimmed.is_empty() || trimmed == "[DONE]" {
-            return Ok(());
-        }
-
-        if let Ok(event) = serde_json::from_str::<Value>(trimmed) {
-            return process_event(event);
-        }
-
-        for line in data_lines {
-            let line = line.trim();
-            if line.is_empty() || line == "[DONE]" {
-                continue;
-            }
-            if let Ok(event) = serde_json::from_str::<Value>(line) {
-                process_event(event)?;
-            }
-        }
-
-        Ok(())
-    };
 
     loop {
         let Some(idx) = buffer.find("\n\n") else {
@@ -264,11 +289,21 @@ fn parse_sse_text(body: &str) -> anyhow::Result<Option<String>> {
 
         let chunk = buffer[..idx].to_string();
         buffer = buffer[idx + 2..].to_string();
-        process_chunk(&chunk)?;
+        process_chunk_data(
+            &chunk,
+            &mut saw_delta,
+            &mut delta_accumulator,
+            &mut fallback_text,
+        )?;
     }
 
     if !buffer.trim().is_empty() {
-        process_chunk(&buffer)?;
+        process_chunk_data(
+            &buffer,
+            &mut saw_delta,
+            &mut delta_accumulator,
+            &mut fallback_text,
+        )?;
     }
 
     if saw_delta {

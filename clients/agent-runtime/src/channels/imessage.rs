@@ -2,8 +2,87 @@ use crate::channels::traits::{Channel, ChannelMessage, SendMessage};
 use async_trait::async_trait;
 use directories::UserDirs;
 use rusqlite::{Connection, OpenFlags};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use tokio::sync::mpsc;
+
+fn find_messages_db() -> anyhow::Result<PathBuf> {
+    let db_path = UserDirs::new()
+        .map(|u| u.home_dir().join("Library/Messages/chat.db"))
+        .ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
+
+    if !db_path.exists() {
+        anyhow::bail!(
+            "Messages database not found at {}. Ensure Messages.app is set up and Full Disk Access is granted.",
+            db_path.display()
+        );
+    }
+
+    Ok(db_path.to_path_buf())
+}
+
+async fn open_connection(path: PathBuf) -> anyhow::Result<Connection> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Connection> {
+        Ok(Connection::open_with_flags(
+            &path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?)
+    })
+    .await?
+}
+
+async fn fetch_initial_rowid(conn: Connection) -> anyhow::Result<i64> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<i64> {
+        let mut stmt = conn.prepare("SELECT MAX(ROWID) FROM message WHERE is_from_me = 0")?;
+        let rowid: Option<i64> = stmt.query_row([], |row| row.get(0))?;
+        Ok(rowid.unwrap_or(0))
+    })
+    .await?
+}
+
+async fn query_new_messages(
+    path: PathBuf,
+    since: i64,
+) -> anyhow::Result<Vec<(i64, String, String)>> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<(i64, String, String)>> {
+        let conn = Connection::open_with_flags(
+            &path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        let mut stmt = conn.prepare(
+            "SELECT m.ROWID, h.id, m.text \
+             FROM message m \
+             JOIN handle h ON m.handle_id = h.ROWID \
+             WHERE m.ROWID > ?1 \
+             AND m.is_from_me = 0 \
+             AND m.text IS NOT NULL \
+             ORDER BY m.ROWID ASC \
+             LIMIT 20",
+        )?;
+        let rows = stmt.query_map([since], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?;
+        rows.collect::<Result<Vec<_>, _>>().map_err(Into::into)
+    })
+    .await?
+}
+
+fn create_channel_message(rowid: i64, sender: &str, text: String) -> ChannelMessage {
+    ChannelMessage {
+        id: rowid.to_string(),
+        sender: sender.to_string(),
+        reply_target: sender.to_string(),
+        content: text,
+        channel: "imessage".to_string(),
+        timestamp: std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs(),
+    }
+}
 
 /// iMessage channel using macOS `AppleScript` bridge.
 /// Polls the Messages database for new messages and sends replies via `osascript`.
@@ -28,6 +107,35 @@ impl IMessageChannel {
         self.allowed_contacts
             .iter()
             .any(|u| u.eq_ignore_ascii_case(sender))
+    }
+
+    async fn process_messages(
+        &self,
+        tx: &mpsc::Sender<ChannelMessage>,
+        messages: Vec<(i64, String, String)>,
+        mut last_rowid: i64,
+    ) -> i64 {
+        for (rowid, sender, text) in messages {
+            if rowid <= last_rowid {
+                continue;
+            }
+
+            if !self.should_process_message(&sender, &text) {
+                continue;
+            }
+
+            let msg = create_channel_message(rowid, &sender, text);
+
+            if tx.send(msg).await.is_err() {
+                return last_rowid;
+            }
+            last_rowid = rowid;
+        }
+        last_rowid
+    }
+
+    fn should_process_message(&self, sender: &str, text: &str) -> bool {
+        self.is_contact_allowed(sender) && !text.trim().is_empty()
     }
 }
 
@@ -133,115 +241,25 @@ end tell"#
     async fn listen(&self, tx: mpsc::Sender<ChannelMessage>) -> anyhow::Result<()> {
         tracing::info!("iMessage channel listening (AppleScript bridge)...");
 
-        // Query the Messages SQLite database for new messages
-        // The database is at ~/Library/Messages/chat.db
-        let db_path = UserDirs::new()
-            .map(|u| u.home_dir().join("Library/Messages/chat.db"))
-            .ok_or_else(|| anyhow::anyhow!("Cannot find home directory"))?;
+        let path = find_messages_db()?;
 
-        if !db_path.exists() {
-            anyhow::bail!(
-                "Messages database not found at {}. Ensure Messages.app is set up and Full Disk Access is granted.",
-                db_path.display()
-            );
-        }
+        let conn = open_connection(path.clone()).await?;
 
-        // Open a persistent read-only connection instead of creating
-        // a new one on every 3-second poll cycle.
-        let path = db_path.to_path_buf();
-        let conn = tokio::task::spawn_blocking(move || -> anyhow::Result<Connection> {
-            Ok(Connection::open_with_flags(
-                &path,
-                OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            )?)
-        })
-        .await??;
-
-        // Track the last ROWID we've seen (shuttle conn in and out)
-        let (mut conn, initial_rowid) =
-            tokio::task::spawn_blocking(move || -> anyhow::Result<(Connection, i64)> {
-                let rowid = {
-                    let mut stmt =
-                        conn.prepare("SELECT MAX(ROWID) FROM message WHERE is_from_me = 0")?;
-                    let rowid: Option<i64> = stmt.query_row([], |row| row.get(0))?;
-                    rowid.unwrap_or(0)
-                };
-                Ok((conn, rowid))
-            })
-            .await??;
+        let initial_rowid = fetch_initial_rowid(conn).await?;
         let mut last_rowid = initial_rowid;
 
         loop {
             tokio::time::sleep(tokio::time::Duration::from_secs(self.poll_interval_secs)).await;
 
-            let since = last_rowid;
-            let (returned_conn, poll_result) = tokio::task::spawn_blocking(
-                move || -> (Connection, anyhow::Result<Vec<(i64, String, String)>>) {
-                    let result = (|| -> anyhow::Result<Vec<(i64, String, String)>> {
-                        let mut stmt = conn.prepare(
-                            "SELECT m.ROWID, h.id, m.text \
-                     FROM message m \
-                     JOIN handle h ON m.handle_id = h.ROWID \
-                     WHERE m.ROWID > ?1 \
-                     AND m.is_from_me = 0 \
-                     AND m.text IS NOT NULL \
-                     ORDER BY m.ROWID ASC \
-                     LIMIT 20",
-                        )?;
-                        let rows = stmt.query_map([since], |row| {
-                            Ok((
-                                row.get::<_, i64>(0)?,
-                                row.get::<_, String>(1)?,
-                                row.get::<_, String>(2)?,
-                            ))
-                        })?;
-                        let results = rows.collect::<Result<Vec<_>, _>>()?;
-                        Ok(results)
-                    })();
+            let poll_result = query_new_messages(path.clone(), last_rowid).await;
 
-                    (conn, result)
-                },
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("iMessage poll worker join error: {e}"))?;
-            conn = returned_conn;
-
-            match poll_result {
-                Ok(messages) => {
-                    for (rowid, sender, text) in messages {
-                        if rowid > last_rowid {
-                            last_rowid = rowid;
-                        }
-
-                        if !self.is_contact_allowed(&sender) {
-                            continue;
-                        }
-
-                        if text.trim().is_empty() {
-                            continue;
-                        }
-
-                        let msg = ChannelMessage {
-                            id: rowid.to_string(),
-                            sender: sender.clone(),
-                            reply_target: sender.clone(),
-                            content: text,
-                            channel: "imessage".to_string(),
-                            timestamp: std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs(),
-                        };
-
-                        if tx.send(msg).await.is_err() {
-                            return Ok(());
-                        }
-                    }
-                }
+            last_rowid = match poll_result {
+                Ok(messages) => self.process_messages(&tx, messages, last_rowid).await,
                 Err(e) => {
                     tracing::warn!("iMessage poll error: {e}");
+                    last_rowid
                 }
-            }
+            };
         }
     }
 

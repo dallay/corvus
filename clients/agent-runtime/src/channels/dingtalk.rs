@@ -72,6 +72,102 @@ impl DingTalkChannel {
         }
     }
 
+    fn build_pong_response(message_id: &str) -> String {
+        serde_json::json!({
+            "code": 200,
+            "headers": {
+                "contentType": "application/json",
+                "messageId": message_id,
+            },
+            "message": "OK",
+            "data": "",
+        })
+        .to_string()
+    }
+
+    fn build_ack_response(message_id: &str) -> String {
+        serde_json::json!({
+            "code": 200,
+            "headers": {
+                "contentType": "application/json",
+                "messageId": message_id,
+            },
+            "message": "OK",
+            "data": "",
+        })
+        .to_string()
+    }
+
+    fn extract_message_id(frame: &serde_json::Value) -> &str {
+        frame
+            .get("headers")
+            .and_then(|h| h.get("messageId"))
+            .and_then(|m| m.as_str())
+            .unwrap_or("")
+    }
+
+    async fn handle_system_frame<S>(write: &mut S, frame: &serde_json::Value) -> bool
+    where
+        S: SinkExt<Message> + Unpin,
+        <S as futures::Sink<Message>>::Error: std::fmt::Debug,
+    {
+        let message_id = Self::extract_message_id(frame);
+        let pong = Self::build_pong_response(message_id);
+        match write.send(Message::Text(pong)).await {
+            Ok(()) => true,
+            Err(e) => {
+                tracing::warn!("DingTalk: failed to send pong: {:?}", e);
+                false
+            }
+        }
+    }
+
+    async fn handle_event_callback(&self, frame: &serde_json::Value) -> Option<ChannelMessage> {
+        let data = Self::parse_stream_data(frame)?;
+
+        let content = data
+            .get("text")
+            .and_then(|t| t.get("content"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .trim();
+
+        if content.is_empty() {
+            return None;
+        }
+
+        let sender_id = data
+            .get("senderStaffId")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown");
+
+        if !self.is_user_allowed(sender_id) {
+            tracing::warn!("DingTalk: ignoring message from unauthorized user: {sender_id}");
+            return None;
+        }
+
+        let chat_id = Self::resolve_chat_id(&data, sender_id);
+
+        if let Some(webhook) = data.get("sessionWebhook").and_then(|w| w.as_str()) {
+            let webhook = webhook.to_string();
+            let mut webhooks = self.session_webhooks.write().await;
+            webhooks.insert(chat_id.clone(), webhook.clone());
+            webhooks.insert(sender_id.to_string(), webhook);
+        }
+
+        Some(ChannelMessage {
+            id: Uuid::new_v4().to_string(),
+            sender: sender_id.to_string(),
+            reply_target: chat_id,
+            content: content.to_string(),
+            channel: "dingtalk".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        })
+    }
+
     /// Register a connection with DingTalk's gateway to get a WebSocket endpoint.
     async fn register_connection(&self) -> anyhow::Result<GatewayResponse> {
         let body = serde_json::json!({
@@ -171,103 +267,19 @@ impl Channel for DingTalkChannel {
 
             match frame_type {
                 "SYSTEM" => {
-                    // Respond to system pings to keep the connection alive
-                    let message_id = frame
-                        .get("headers")
-                        .and_then(|h| h.get("messageId"))
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("");
-
-                    let pong = serde_json::json!({
-                        "code": 200,
-                        "headers": {
-                            "contentType": "application/json",
-                            "messageId": message_id,
-                        },
-                        "message": "OK",
-                        "data": "",
-                    });
-
-                    if let Err(e) = write.send(Message::Text(pong.to_string())).await {
-                        tracing::warn!("DingTalk: failed to send pong: {e}");
+                    if !Self::handle_system_frame(&mut write, &frame).await {
                         break;
                     }
                 }
                 "EVENT" | "CALLBACK" => {
-                    // Parse the chatbot callback data from the frame.
-                    let data = match Self::parse_stream_data(&frame) {
-                        Some(v) => v,
-                        None => {
-                            tracing::debug!("DingTalk: frame has no parseable data payload");
-                            continue;
-                        }
+                    let channel_msg = match self.handle_event_callback(&frame).await {
+                        Some(msg) => msg,
+                        None => continue,
                     };
 
-                    // Extract message content
-                    let content = data
-                        .get("text")
-                        .and_then(|t| t.get("content"))
-                        .and_then(|c| c.as_str())
-                        .unwrap_or("")
-                        .trim();
-
-                    if content.is_empty() {
-                        continue;
-                    }
-
-                    let sender_id = data
-                        .get("senderStaffId")
-                        .and_then(|s| s.as_str())
-                        .unwrap_or("unknown");
-
-                    if !self.is_user_allowed(sender_id) {
-                        tracing::warn!(
-                            "DingTalk: ignoring message from unauthorized user: {sender_id}"
-                        );
-                        continue;
-                    }
-
-                    // Private chat uses sender ID, group chat uses conversation ID.
-                    let chat_id = Self::resolve_chat_id(&data, sender_id);
-
-                    // Store session webhook for later replies
-                    if let Some(webhook) = data.get("sessionWebhook").and_then(|w| w.as_str()) {
-                        let webhook = webhook.to_string();
-                        let mut webhooks = self.session_webhooks.write().await;
-                        // Use both keys so reply routing works for both group and private flows.
-                        webhooks.insert(chat_id.clone(), webhook.clone());
-                        webhooks.insert(sender_id.to_string(), webhook);
-                    }
-
-                    // Acknowledge the event
-                    let message_id = frame
-                        .get("headers")
-                        .and_then(|h| h.get("messageId"))
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("");
-
-                    let ack = serde_json::json!({
-                        "code": 200,
-                        "headers": {
-                            "contentType": "application/json",
-                            "messageId": message_id,
-                        },
-                        "message": "OK",
-                        "data": "",
-                    });
-                    let _ = write.send(Message::Text(ack.to_string())).await;
-
-                    let channel_msg = ChannelMessage {
-                        id: Uuid::new_v4().to_string(),
-                        sender: sender_id.to_string(),
-                        reply_target: chat_id,
-                        content: content.to_string(),
-                        channel: "dingtalk".to_string(),
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                    };
+                    let message_id = Self::extract_message_id(&frame);
+                    let ack = Self::build_ack_response(message_id);
+                    let _ = write.send(Message::Text(ack)).await;
 
                     if tx.send(channel_msg).await.is_err() {
                         tracing::warn!("DingTalk: message channel closed");

@@ -783,14 +783,7 @@ impl LarkChannel {
 /// placeholder string to the agent.
 fn parse_post_content(content: &str) -> Option<String> {
     let parsed = serde_json::from_str::<serde_json::Value>(content).ok()?;
-    let locale = parsed
-        .get("zh_cn")
-        .or_else(|| parsed.get("en_us"))
-        .or_else(|| {
-            parsed
-                .as_object()
-                .and_then(|m| m.values().find(|v| v.is_object()))
-        })?;
+    let locale = extract_locale(&parsed)?;
 
     let mut text = String::new();
 
@@ -807,32 +800,7 @@ fn parse_post_content(content: &str) -> Option<String> {
         for para in paragraphs {
             if let Some(elements) = para.as_array() {
                 for el in elements {
-                    match el.get("tag").and_then(|t| t.as_str()).unwrap_or("") {
-                        "text" => {
-                            if let Some(t) = el.get("text").and_then(|t| t.as_str()) {
-                                text.push_str(t);
-                            }
-                        }
-                        "a" => {
-                            text.push_str(
-                                el.get("text")
-                                    .and_then(|t| t.as_str())
-                                    .filter(|s| !s.is_empty())
-                                    .or_else(|| el.get("href").and_then(|h| h.as_str()))
-                                    .unwrap_or(""),
-                            );
-                        }
-                        "at" => {
-                            let n = el
-                                .get("user_name")
-                                .and_then(|n| n.as_str())
-                                .or_else(|| el.get("user_id").and_then(|i| i.as_str()))
-                                .unwrap_or("user");
-                            text.push('@');
-                            text.push_str(n);
-                        }
-                        _ => {}
-                    }
+                    text.push_str(&process_element(el));
                 }
                 text.push('\n');
             }
@@ -844,6 +812,44 @@ fn parse_post_content(content: &str) -> Option<String> {
         None
     } else {
         Some(result)
+    }
+}
+
+fn extract_locale(parsed: &serde_json::Value) -> Option<&serde_json::Value> {
+    parsed
+        .get("zh_cn")
+        .or_else(|| parsed.get("en_us"))
+        .or_else(|| {
+            parsed
+                .as_object()
+                .and_then(|m| m.values().find(|v| v.is_object()))
+        })
+}
+
+fn process_element(el: &serde_json::Value) -> String {
+    let tag = el.get("tag").and_then(|t| t.as_str()).unwrap_or("");
+    match tag {
+        "text" => el
+            .get("text")
+            .and_then(|t| t.as_str())
+            .unwrap_or("")
+            .to_string(),
+        "a" => el
+            .get("text")
+            .and_then(|t| t.as_str())
+            .filter(|s| !s.is_empty())
+            .or_else(|| el.get("href").and_then(|h| h.as_str()))
+            .unwrap_or("")
+            .to_string(),
+        "at" => {
+            let n = el
+                .get("user_name")
+                .and_then(|n| n.as_str())
+                .or_else(|| el.get("user_id").and_then(|i| i.as_str()))
+                .unwrap_or("user");
+            format!("@{}", n)
+        }
+        _ => String::new(),
     }
 }
 

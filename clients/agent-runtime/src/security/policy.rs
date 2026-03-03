@@ -356,39 +356,74 @@ impl SecurityPolicy {
             return false;
         }
 
-        // Block subshell/expansion operators — these allow hiding arbitrary
-        // commands inside an allowed command (e.g. `echo $(rm -rf /)`)
-        if command.contains('`')
+        if self.contains_blocked_operators(command) {
+            return false;
+        }
+
+        self.validate_command_segments(command)
+    }
+
+    fn contains_blocked_operators(&self, command: &str) -> bool {
+        command.contains('`')
             || command.contains("$(")
             || command.contains("${")
             || command.contains("<(")
             || command.contains(">(")
-        {
-            return false;
-        }
+            || command.contains('>')
+            || self.contains_dangerous_commands(command)
+            || contains_single_ampersand(command)
+    }
 
-        // Block output redirections — they can write to arbitrary paths
-        if command.contains('>') {
-            return false;
-        }
-
-        // Block `tee` — it can write to arbitrary files, bypassing the
-        // redirect check above (e.g. `echo secret | tee /etc/crontab`)
-        if command
+    fn contains_dangerous_commands(&self, command: &str) -> bool {
+        command
             .split_whitespace()
             .any(|w| w == "tee" || w.ends_with("/tee"))
+    }
+
+    fn validate_command_segments(&self, command: &str) -> bool {
+        let normalized = self.normalize_command(command);
+
+        let all_segments_valid = normalized.split('\x00').all(|s| self.is_segment_valid(s));
+
+        all_segments_valid && self.has_any_command(&normalized)
+    }
+
+    fn is_segment_valid(&self, segment: &str) -> bool {
+        let segment = segment.trim();
+        if segment.is_empty() {
+            return true;
+        }
+
+        let cmd_part = skip_env_assignments(segment);
+
+        let mut words = cmd_part.split_whitespace();
+        let base_raw = words.next().unwrap_or("");
+        let base_cmd = base_raw.rsplit('/').next().unwrap_or("");
+
+        if base_cmd.is_empty() {
+            return true;
+        }
+
+        if !self
+            .allowed_commands
+            .iter()
+            .any(|allowed| allowed == base_cmd)
         {
             return false;
         }
 
-        // Block background command chaining (`&`), which can hide extra
-        // sub-commands and outlive timeout expectations. Keep `&&` allowed.
-        if contains_single_ampersand(command) {
-            return false;
-        }
+        let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
+        self.is_args_safe(base_cmd, &args)
+    }
 
-        // Split on command separators and validate each sub-command.
-        // We collect segments by scanning for separator characters.
+    fn has_any_command(&self, normalized: &str) -> bool {
+        normalized.split('\x00').any(|s| {
+            let s = skip_env_assignments(s.trim());
+            s.split_whitespace().next().is_some_and(|w| !w.is_empty())
+        })
+    }
+
+    fn normalize_command(&self, command: &str) -> String {
         let mut normalized = command.to_string();
         for sep in ["&&", "||"] {
             normalized = normalized.replace(sep, "\x00");
@@ -396,46 +431,7 @@ impl SecurityPolicy {
         for sep in ['\n', ';', '|'] {
             normalized = normalized.replace(sep, "\x00");
         }
-
-        for segment in normalized.split('\x00') {
-            let segment = segment.trim();
-            if segment.is_empty() {
-                continue;
-            }
-
-            // Strip leading env var assignments (e.g. FOO=bar cmd)
-            let cmd_part = skip_env_assignments(segment);
-
-            let mut words = cmd_part.split_whitespace();
-            let base_raw = words.next().unwrap_or("");
-            let base_cmd = base_raw.rsplit('/').next().unwrap_or("");
-
-            if base_cmd.is_empty() {
-                continue;
-            }
-
-            if !self
-                .allowed_commands
-                .iter()
-                .any(|allowed| allowed == base_cmd)
-            {
-                return false;
-            }
-
-            // Validate arguments for the command
-            let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
-            if !self.is_args_safe(base_cmd, &args) {
-                return false;
-            }
-        }
-
-        // At least one command must be present
-        let has_cmd = normalized.split('\x00').any(|s| {
-            let s = skip_env_assignments(s.trim());
-            s.split_whitespace().next().is_some_and(|w| !w.is_empty())
-        });
-
-        has_cmd
+        normalized
     }
 
     /// Check for dangerous arguments that allow sub-command execution.
