@@ -24,8 +24,8 @@
     "test:dashboard": "pnpm --filter @corvus/dashboard run test"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.4.2",
-    "typescript": "5.9.3"
+    "@biomejs/biome": "catalog:",
+    "typescript": "catalog:"
   },
   "pnpm": {
     "overrides": {
