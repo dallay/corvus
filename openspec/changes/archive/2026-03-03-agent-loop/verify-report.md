@@ -41,7 +41,7 @@ Key note:
 - `cargo test --test agent_loop_integration` -> ✅ passed
 - `cargo test --test legacy_loop_guard` -> ✅ passed
 
-**Coverage**: ➖ Not configured (`coverage_threshold: 0`)
+**Coverage**: ✅ Configured (`coverage_threshold: 30`)
 
 ---
 
@@ -76,7 +76,7 @@ Key note:
 - None.
 
 **WARNING**
-- Verification still requires targeted Cargo tests in addition to `make build` and `make test` due current Gradle task wiring (`:agent-runtime:cargoTest` skipped).
+- Verification still requires targeted Cargo tests in addition to `make build` and `make test` due to current Gradle task wiring (`:agent-runtime:cargoTest` skipped).
 
 ---
 

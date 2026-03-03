@@ -51,7 +51,7 @@ modular loop ownership with shared dispatcher and unified invariants.
 
 | Area | Impact | Description |
 |------|--------|-------------|
-| `clients/agent-runtime/src/agent/loop_.rs` | Modified | Baseline behavior source and migration compatibility layer. |
+| `clients/agent-runtime/src/agent/unified_entrypoint.rs` | Modified | Runtime-selectable canonical/compatibility routing via explicit flags. |
 | `clients/agent-runtime/src/agent/agent.rs` | Modified | Modular runtime responsibilities become canonical over phases. |
 | `clients/agent-runtime/src/agent/dispatcher.rs` | Modified | Shared tool protocol semantics (native/XML) and parsing boundaries. |
 | `clients/agent-runtime/src/main.rs` | Modified | CLI entrypoint alignment with canonical loop contract. |
@@ -83,8 +83,9 @@ modular loop ownership with shared dispatcher and unified invariants.
 
 ## Rollback Plan
 
-If convergence introduces regressions, rollback is executed by restoring entrypoint routing to the current
-`loop_.rs` baseline and disabling convergence-specific behavior flags/adapters added in phased rollout.
+If convergence introduces regressions, rollback is executed by switching entrypoints back to compatibility
+mode via runtime flags (`CORVUS_UNIFIED_LOOP_PREVIEW=0`, `CORVUS_UNIFIED_LOOP_ONLY=0`) and disabling
+convergence-specific adapters while keeping canonical code paths compiled and selectable.
 
 Rollback criteria:
 - Security invariant violations (approval/risk/auth) in any surface.
@@ -102,8 +103,8 @@ runtime reversion.
 
 ## Success Criteria
 
-- [ ] A canonical Agent Loop contract is documented and approved for CLI, channels, and gateway.
-- [ ] Entrypoint behavior differences are either eliminated or explicitly specified with justification.
-- [ ] Session scoping and approval/risk invariants are consistently enforced across all loop surfaces.
-- [ ] Migration achieves parity with existing production behavior before legacy path removal.
-- [ ] No critical security regressions and no unacceptable performance regressions during phased rollout.
+- [ ] Agent Loop contract gate: `ProdBehaviorTests` and KMP/Rust cross-module contract tests pass at 100% across 3 consecutive CI runs.
+- [ ] Entrypoint parity gate: behavior delta matrix shows 0 unapproved discrepancies across CLI/channels/gateway in `ProdBehaviorTests`.
+- [ ] Session and approval/risk gate: `ApprovalConformanceTest` pass rate >= 99.0% over a 200-case suite window, with 0 critical invariant breaks.
+- [ ] Migration parity gate: retry ceiling <= 3 attempts per request and fallback rate <= 1.0% on a 7-day staging window.
+- [ ] Performance and security gates: `PerformanceRegressionTest` shows p95 latency regression <= 10% over 30 runs, and `SecurityGate` reports 0 new High/Critical findings (merge blocked otherwise).

@@ -308,7 +308,8 @@ async fn run_unified_channel_tool_loop(
             )
             .await?;
 
-        let response_for_parse = if params.dispatcher_mode == "xml" {
+        let uses_xml_parsing = !dispatcher.should_send_tool_specs();
+        let response_for_parse = if uses_xml_parsing {
             let normalized_text = response
                 .text
                 .as_deref()
@@ -446,6 +447,9 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         session_id.clone(),
         &msg.content,
         approval_granted,
+        crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
+            enable_test_triggers: cfg!(test),
+        },
     )
     .await;
 
@@ -1723,7 +1727,11 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::sync::LazyLock;
     use tempfile::TempDir;
+
+    static CHANNEL_ENV_MUTEX: LazyLock<tokio::sync::Mutex<()>> =
+        LazyLock::new(|| tokio::sync::Mutex::new(()));
 
     fn make_workspace() -> TempDir {
         let tmp = TempDir::new().unwrap();
@@ -2903,6 +2911,7 @@ mod tests {
 
     #[tokio::test]
     async fn process_channel_message_unblocks_on_approval_override() {
+        let _env_lock = CHANNEL_ENV_MUTEX.lock().await;
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 

@@ -442,7 +442,9 @@ enum IntegrationCommands {
     },
 }
 
-async fn collect_unified_loop_result(prompt: &str) -> crate::agent::unified_entrypoint::CanonicalOutcome {
+async fn collect_unified_loop_result(
+    prompt: &str,
+) -> crate::agent::unified_entrypoint::CanonicalOutcome {
     let session = std::env::var("CORVUS_SESSION_ID").unwrap_or_else(|_| "cli-session".to_string());
     let is_preview = std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
 
@@ -468,6 +470,7 @@ async fn collect_unified_loop_result(prompt: &str) -> crate::agent::unified_entr
                 step_duration,
                 max_retries: 1,
                 backoff_millis: 25,
+                enable_test_triggers: cfg!(test),
             },
         )
         .await;
@@ -505,9 +508,18 @@ async fn collect_unified_loop_result(prompt: &str) -> crate::agent::unified_entr
     }
 
     let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
-    let mut outcome =
-        crate::agent::unified_entrypoint::run_canonical_outcome(session, prompt, approval_granted)
-            .await;
+    // Enable test triggers if running in test mode OR if explicitly enabled via env var
+    let enable_test_triggers =
+        cfg!(test) || std::env::var("CORVUS_UNIFIED_TEST_TRIGGERS").as_deref() == Ok("1");
+    let mut outcome = crate::agent::unified_entrypoint::run_canonical_outcome(
+        session,
+        prompt,
+        approval_granted,
+        crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
+            enable_test_triggers,
+        },
+    )
+    .await;
 
     if outcome.approval_required.is_some()
         && !outcome.events.iter().any(|event| {
@@ -620,6 +632,7 @@ async fn main() -> Result<()> {
                 println!("loop_session={}", canonical.session_id);
                 let preview_events = canonical.events.clone();
                 for event in preview_events {
+                    println!("loop_event={event:?}");
                     let event_kind = match &event {
                         crate::agent::unified_loop::LoopEvent::Start => "start",
                         crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
@@ -638,7 +651,6 @@ async fn main() -> Result<()> {
                         crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
                         crate::agent::unified_loop::LoopEvent::Error(_) => "error",
                     };
-                    println!("loop_event={event:?}");
                     info!(
                         session_id = %canonical.session_id,
                         event_kind,

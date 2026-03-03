@@ -62,6 +62,7 @@ fn cli_non_preview_timeout_abort_is_session_scoped() {
         .env("CORVUS_UNIFIED_LOOP_PREVIEW", "0")
         .env("CORVUS_UNIFIED_LOOP_ONLY", "0")
         .env("CORVUS_UNIFIED_APPROVE", "0")
+        .env("CORVUS_UNIFIED_TEST_TRIGGERS", "1")
         .env("CORVUS_SESSION_ID", "session-cli-prod")
         .env("RUST_LOG", "off")
         .output()

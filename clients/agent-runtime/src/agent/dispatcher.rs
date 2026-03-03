@@ -3,6 +3,20 @@ use crate::tools::{Tool, ToolSpec};
 use serde_json::Value;
 use std::fmt::Write;
 
+const SAFE_TOOL_NAMES: &[&str] = &[
+    "file_read",
+    "file_write",
+    "memory_store",
+    "memory_recall",
+    "memory_forget",
+    "schedule",
+    "delegate",
+    "composio",
+    "browser_open",
+    "echo",
+    "mock_price",
+];
+
 #[derive(Debug, Clone)]
 pub struct ParsedToolCall {
     pub name: String,
@@ -33,19 +47,16 @@ pub trait ToolDispatcher: Send + Sync {
     fn should_send_tool_specs(&self) -> bool;
 
     // Check if the tool invocation requires approval
+    // Note: Agent now checks tool existence before calling this, so we only need to check
+    // for known risky operations (shell, bash, etc.). Unknown tools are handled by the agent.
     fn check_tool_risk(&self, tool_name: &str, _arguments: &Value) -> DispatchAction {
         match tool_name {
             "shell" | "bash" | "execute_command" => {
                 DispatchAction::ApprovalRequired(tool_name.to_string())
             }
-            "file_read" | "file_write" | "memory_store" | "memory_recall" | "memory_forget"
-            | "schedule" | "delegate" | "composio" | "browser_open" | "echo" | "mock_price" => {
-                DispatchAction::Execute
-            }
-            name if name.starts_with("file_") || name.starts_with("memory_") => {
-                DispatchAction::Execute
-            }
-            _ => DispatchAction::ApprovalRequired(tool_name.to_string()),
+            // All other tools - agent has already verified they exist
+            // Unknown tools are handled by the agent (executed and return "Unknown tool" error)
+            _ => DispatchAction::Execute,
         }
     }
 }

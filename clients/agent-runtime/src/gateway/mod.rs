@@ -685,10 +685,11 @@ fn map_loop_event_to_sse_frame(
     let data_lines = if payload.is_empty() {
         "data:\n".to_string()
     } else {
-        payload
-            .lines()
-            .map(|line| format!("data: {line}\n"))
-            .collect::<String>()
+        payload.lines().fold(String::new(), |mut acc, line| {
+            use std::fmt::Write;
+            writeln!(acc, "data: {line}").unwrap();
+            acc
+        })
     };
     format!("id: {session_id}\nevent: {event_name}\n{data_lines}\n")
 }
@@ -709,16 +710,31 @@ fn normalized_session_id(headers: &HeaderMap) -> String {
         .unwrap_or_else(|| format!("webhook-{}", Uuid::new_v4()))
 }
 
+fn env_u64_or(name: &str, default: u64) -> u64 {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(default)
+}
+
+fn env_usize_or(name: &str, default: usize) -> usize {
+    std::env::var(name)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(default)
+}
+
 async fn collect_unified_loop_sse_preview(
     prompt: &str,
     tool_calls: usize,
     session_id: &str,
     step_duration: Duration,
+    timeout: Duration,
 ) -> Vec<String> {
-    let mut config = crate::agent::unified_loop::LoopConfig::default();
-    if prompt.contains("timeout") {
-        config.timeout = Duration::from_millis(1);
-    }
+    let config = crate::agent::unified_loop::LoopConfig {
+        timeout,
+        ..crate::agent::unified_loop::LoopConfig::default()
+    };
 
     let result = crate::agent::unified_entrypoint::execute_with_retry_backoff(
         session_id.to_string(),
@@ -729,6 +745,7 @@ async fn collect_unified_loop_sse_preview(
             step_duration,
             max_retries: 1,
             backoff_millis: 25,
+            enable_test_triggers: cfg!(test),
         },
     )
     .await;
@@ -1727,6 +1744,9 @@ async fn handle_webhook(
             session_id.clone(),
             &scrubbed_message,
             approval_granted,
+            crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
+                enable_test_triggers: cfg!(test),
+            },
         )
         .await;
 
@@ -1826,21 +1846,17 @@ async fn handle_webhook(
                 "session_id": session_id,
             });
             if is_preview {
-                let preview_tool_calls = if scrubbed_message.contains("timeout") {
-                    2
-                } else {
-                    1
-                };
-                let step_duration = if scrubbed_message.contains("timeout") {
-                    Duration::from_millis(2)
-                } else {
-                    Duration::from_millis(1)
-                };
+                let preview_tool_calls = env_usize_or("CORVUS_GATEWAY_PREVIEW_TOOL_CALLS", 1);
+                let step_duration =
+                    Duration::from_millis(env_u64_or("CORVUS_GATEWAY_PREVIEW_STEP_MS", 1));
+                let timeout =
+                    Duration::from_millis(env_u64_or("CORVUS_GATEWAY_PREVIEW_TIMEOUT_MS", 30_000));
                 let frames = collect_unified_loop_sse_preview(
                     &scrubbed_message,
                     preview_tool_calls,
                     &session_id,
                     step_duration,
+                    timeout,
                 )
                 .await;
                 body["events_sse"] = serde_json::json!(frames);
@@ -2062,6 +2078,33 @@ mod tests {
     use http_body_util::BodyExt;
     use parking_lot::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::LazyLock;
+
+    static GATEWAY_ENV_MUTEX: LazyLock<tokio::sync::Mutex<()>> =
+        LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.as_deref() {
+                std::env::set_var(self.key, previous);
+            } else {
+                std::env::remove_var(self.key);
+            }
+        }
+    }
 
     #[test]
     fn security_body_limit_is_64kb() {
@@ -2406,9 +2449,14 @@ mod tests {
 
     #[tokio::test]
     async fn unified_loop_sse_preview_contains_start_and_completion() {
-        let frames =
-            collect_unified_loop_sse_preview("hello", 1, "session-abc", Duration::from_millis(1))
-                .await;
+        let frames = collect_unified_loop_sse_preview(
+            "hello",
+            1,
+            "session-abc",
+            Duration::from_millis(1),
+            Duration::from_secs(30),
+        )
+        .await;
         assert!(frames
             .iter()
             .any(|frame| frame.starts_with("id: session-abc\nevent: start\n")));
@@ -2424,6 +2472,7 @@ mod tests {
             2,
             "session-timeout",
             Duration::from_millis(2),
+            Duration::from_millis(1),
         )
         .await;
 
@@ -2655,6 +2704,7 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_preview_includes_sse_order_timeout_and_session_scope() {
+        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             provider: Arc::new(MockProvider::default()),
@@ -2675,7 +2725,10 @@ mod tests {
         let mut headers = HeaderMap::new();
         headers.insert("X-Session-Id", HeaderValue::from_static("session-e2e"));
 
-        std::env::set_var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "1");
+        let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "1");
+        let _timeout = EnvVarGuard::set("CORVUS_GATEWAY_PREVIEW_TIMEOUT_MS", "1");
+        let _tool_calls = EnvVarGuard::set("CORVUS_GATEWAY_PREVIEW_TOOL_CALLS", "2");
+        let _step = EnvVarGuard::set("CORVUS_GATEWAY_PREVIEW_STEP_MS", "2");
         let response = handle_webhook(
             State(state),
             test_connect_info(),
@@ -2686,7 +2739,6 @@ mod tests {
         )
         .await
         .into_response();
-        std::env::remove_var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW");
 
         assert_eq!(response.status(), StatusCode::OK);
 
@@ -2749,6 +2801,7 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_non_preview_unblocks_with_approval_override() {
+        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             provider: Arc::new(MockProvider::default()),
@@ -2766,7 +2819,7 @@ mod tests {
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
-        std::env::set_var("CORVUS_UNIFIED_APPROVE", "1");
+        let _approve = EnvVarGuard::set("CORVUS_UNIFIED_APPROVE", "1");
         let mut headers = HeaderMap::new();
         headers.insert("X-Session-Id", HeaderValue::from_static("session-prod"));
         let response = handle_webhook(
@@ -2779,7 +2832,6 @@ mod tests {
         )
         .await
         .into_response();
-        std::env::remove_var("CORVUS_UNIFIED_APPROVE");
 
         assert_eq!(response.status(), StatusCode::OK);
     }

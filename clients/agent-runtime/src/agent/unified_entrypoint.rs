@@ -8,6 +8,7 @@ pub struct UnifiedExecutionConfig {
     pub step_duration: Duration,
     pub max_retries: u8,
     pub backoff_millis: u64,
+    pub enable_test_triggers: bool,
 }
 
 impl Default for UnifiedExecutionConfig {
@@ -17,8 +18,14 @@ impl Default for UnifiedExecutionConfig {
             step_duration: Duration::from_millis(1),
             max_retries: 1,
             backoff_millis: 25,
+            enable_test_triggers: false,
         }
     }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct CanonicalOutcomeConfig {
+    pub enable_test_triggers: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -103,8 +110,7 @@ pub async fn execute_with_retry_backoff(
             .saturating_mul(timeout_multiplier)
             .max(Duration::from_millis(1));
 
-        if prompt.contains("tool-failure") {
-            // Preserve deterministic fallback path for tests when failure is semantic.
+        if options.enable_test_triggers && prompt.contains("tool-failure") {
             events.push(LoopEvent::Error(
                 "tool execution failed and requires fallback".to_string(),
             ));
@@ -136,22 +142,35 @@ pub async fn run_canonical_outcome(
     session_id: String,
     prompt: &str,
     approval_granted: bool,
+    config: CanonicalOutcomeConfig,
 ) -> CanonicalOutcome {
-    let mut config = LoopConfig::default();
+    if !config.enable_test_triggers {
+        return CanonicalOutcome {
+            session_id,
+            events: Vec::new(),
+            approval_required: None,
+            timeout_aborted: false,
+            fallback_response: None,
+        };
+    }
+
+    let mut loop_config = LoopConfig::default();
     let mut options = UnifiedExecutionConfig::default();
+    options.enable_test_triggers = true;
 
     if prompt.contains("timeout") {
-        config.timeout = Duration::from_millis(1);
+        loop_config.timeout = Duration::from_millis(1);
         options.tool_calls = 2;
         options.step_duration = Duration::from_millis(2);
         options.max_retries = 0;
     }
 
     if prompt.contains("needs-approval") {
-        config.approval_required_tool = Some("tool-1".to_string());
+        loop_config.approval_required_tool = Some("tool-1".to_string());
     }
 
-    let result = execute_with_retry_backoff(session_id.clone(), prompt, &config, options).await;
+    let result =
+        execute_with_retry_backoff(session_id.clone(), prompt, &loop_config, options).await;
 
     let approval_required = result.events.iter().find_map(|event| match event {
         LoopEvent::ApprovalRequired(tool) => Some(tool.clone()),
@@ -206,6 +225,7 @@ mod tests {
                 step_duration: Duration::from_millis(2),
                 max_retries: 1,
                 backoff_millis: 1,
+                enable_test_triggers: false,
             },
         )
         .await;
@@ -233,6 +253,7 @@ mod tests {
                 step_duration: Duration::from_millis(2),
                 max_retries: 0,
                 backoff_millis: 1,
+                enable_test_triggers: false,
             },
         )
         .await;
@@ -245,16 +266,30 @@ mod tests {
 
     #[tokio::test]
     async fn canonical_outcome_blocks_when_approval_not_granted() {
-        let outcome =
-            run_canonical_outcome("session-approve".to_string(), "needs-approval", false).await;
+        let outcome = run_canonical_outcome(
+            "session-approve".to_string(),
+            "needs-approval",
+            false,
+            CanonicalOutcomeConfig {
+                enable_test_triggers: true,
+            },
+        )
+        .await;
         assert_eq!(outcome.session_id, "session-approve");
         assert_eq!(outcome.approval_required, Some("tool-1".to_string()));
     }
 
     #[tokio::test]
     async fn canonical_outcome_unblocks_when_approval_granted() {
-        let outcome =
-            run_canonical_outcome("session-approve".to_string(), "needs-approval", true).await;
+        let outcome = run_canonical_outcome(
+            "session-approve".to_string(),
+            "needs-approval",
+            true,
+            CanonicalOutcomeConfig {
+                enable_test_triggers: true,
+            },
+        )
+        .await;
         assert_eq!(outcome.approval_required, None);
     }
 }

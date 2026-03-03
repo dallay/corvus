@@ -13,6 +13,7 @@ use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -371,33 +372,33 @@ impl Agent {
     async fn execute_tool_call(&self, call: &ParsedToolCall) -> ToolExecutionResult {
         let start = Instant::now();
 
-        let (result, success) = if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name)
-        {
-            match tool.execute(call.arguments.clone()).await {
-                Ok(r) => {
-                    self.observer.record_event(&ObserverEvent::ToolCall {
-                        tool: call.name.clone(),
-                        duration: start.elapsed(),
-                        success: r.success,
-                    });
-                    if r.success {
-                        (r.output, true)
-                    } else {
-                        (format!("Error: {}", r.error.unwrap_or(r.output)), false)
+        let (result, success) =
+            if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
+                match tool.execute(call.arguments.clone()).await {
+                    Ok(r) => {
+                        self.observer.record_event(&ObserverEvent::ToolCall {
+                            tool: call.name.clone(),
+                            duration: start.elapsed(),
+                            success: r.success,
+                        });
+                        if r.success {
+                            (r.output, true)
+                        } else {
+                            (format!("Error: {}", r.error.unwrap_or(r.output)), false)
+                        }
+                    }
+                    Err(e) => {
+                        self.observer.record_event(&ObserverEvent::ToolCall {
+                            tool: call.name.clone(),
+                            duration: start.elapsed(),
+                            success: false,
+                        });
+                        (format!("Error executing {}: {e}", call.name), false)
                     }
                 }
-                Err(e) => {
-                    self.observer.record_event(&ObserverEvent::ToolCall {
-                        tool: call.name.clone(),
-                        duration: start.elapsed(),
-                        success: false,
-                    });
-                    (format!("Error executing {}: {e}", call.name), false)
-                }
-            }
-        } else {
-            (format!("Unknown tool: {}", call.name), false)
-        };
+            } else {
+                (format!("Unknown tool: {}", call.name), false)
+            };
 
         ToolExecutionResult {
             name: call.name.clone(),
@@ -518,36 +519,84 @@ impl Agent {
             return Ok(Some(final_text));
         }
 
+        // Push assistant text as separate Chat message (for intermediate text preservation)
         if !text.is_empty() {
             self.history
                 .push(ConversationMessage::Chat(ChatMessage::assistant(text)));
         }
 
-        self.history.push(ConversationMessage::AssistantToolCalls {
-            text: response.text.clone(),
-            tool_calls: response.tool_calls.clone(),
-        });
+        // Also push tool calls message
+        if !response.tool_calls.is_empty() {
+            self.history.push(ConversationMessage::AssistantToolCalls {
+                text: response.text.clone(),
+                tool_calls: response.tool_calls.clone(),
+            });
+        }
 
         let mut approved_calls = Vec::new();
-        let mut gated_results = Vec::new();
+        let mut approved_call_keys = Vec::new();
+        let mut results_by_call_id = HashMap::new();
 
-        for call in &calls {
-            match self.tool_dispatcher.check_tool_risk(&call.name, &call.arguments) {
-                DispatchAction::Execute => approved_calls.push(call.clone()),
-                DispatchAction::ApprovalRequired(reason) => {
-                    gated_results.push(ToolExecutionResult {
+        for (index, call) in calls.iter().enumerate() {
+            // Check if tool exists - unknown tools should be executed to return "Unknown tool" error
+            let tool_exists = self.tools.iter().any(|t| t.name() == call.name);
+
+            // Only require approval for known risky tools, not unknown ones
+            let needs_approval = if tool_exists {
+                matches!(
+                    self.tool_dispatcher
+                        .check_tool_risk(&call.name, &call.arguments),
+                    DispatchAction::ApprovalRequired(_)
+                )
+            } else {
+                false // Unknown tools will be executed and return "Unknown tool: {name}"
+            };
+
+            if needs_approval {
+                let key = call
+                    .tool_call_id
+                    .clone()
+                    .unwrap_or_else(|| format!("{}#{index}", call.name));
+                let reason = call.name.clone();
+                results_by_call_id.insert(
+                    key,
+                    ToolExecutionResult {
                         name: call.name.clone(),
                         output: format!("approval required before executing `{reason}`"),
                         success: false,
                         tool_call_id: call.tool_call_id.clone(),
                         action: DispatchAction::ApprovalRequired(reason),
-                    });
-                }
+                    },
+                );
+            } else {
+                approved_calls.push(call.clone());
+                approved_call_keys.push(
+                    call.tool_call_id
+                        .clone()
+                        .unwrap_or_else(|| format!("{}#{index}", call.name)),
+                );
             }
         }
 
-        let mut executed_results = self.execute_tools(&approved_calls).await;
-        gated_results.append(&mut executed_results);
+        for (result, key) in self
+            .execute_tools(&approved_calls)
+            .await
+            .into_iter()
+            .zip(approved_call_keys.into_iter())
+        {
+            results_by_call_id.insert(key, result);
+        }
+
+        let mut gated_results = Vec::new();
+        for (index, call) in calls.iter().enumerate() {
+            let key = call
+                .tool_call_id
+                .clone()
+                .unwrap_or_else(|| format!("{}#{index}", call.name));
+            if let Some(result) = results_by_call_id.remove(&key) {
+                gated_results.push(result);
+            }
+        }
 
         let formatted = self.tool_dispatcher.format_results(&gated_results);
         self.history.push(formatted);
