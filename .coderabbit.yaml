@@ -185,3 +185,6 @@ issue_enrichment:
     enabled: true
   planning:
     enabled: true
+    auto_planning:
+      enabled: true
+      labels: []
