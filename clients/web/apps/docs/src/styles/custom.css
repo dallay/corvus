@@ -3,8 +3,8 @@
    Modern dark design with gradient accents
    ───────────────────────────────────────────── */
 
-/* ── Google Fonts ── */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap");
+/* ── Shared Brand Tokens ── */
+@import "@corvus/shared/tokens.css";
 
 /* ── Root Theme Tokens ── */
 :root {
