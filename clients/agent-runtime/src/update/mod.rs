@@ -9,9 +9,18 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::process::Command;
+use tokio::sync::Mutex;
+
+/// Global mutex that serializes all load → mutate → save sequences on version_check.json.
+/// This prevents concurrent async tasks from racing on the same state file.
+static STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn state_lock() -> &'static Mutex<()> {
+    STATE_LOCK.get_or_init(|| Mutex::new(()))
+}
 
 const VERSION_CHECK_FILE: &str = "version_check.json";
 const VERSION_CHECK_TTL_SECS: u64 = 24 * 60 * 60;
@@ -130,6 +139,8 @@ pub async fn try_handle_channel_update_confirmation(
         return true;
     };
 
+    let _guard = state_lock().lock().await;
+
     let state_path = version_check_path(&config.workspace_dir);
     let mut state = match load_state(&state_path).await {
         Ok(Some(state)) => state,
@@ -170,6 +181,7 @@ pub async fn try_handle_channel_update_confirmation(
         !pending.used
             && pending.nonce_hash == nonce_hash
             && pending.channel.eq_ignore_ascii_case(&msg.channel)
+            && pending.recipient.eq_ignore_ascii_case(&msg.reply_target)
             && pending.expires_at_unix > now_unix_secs()
             && pending
                 .authorized_sender
@@ -212,25 +224,27 @@ pub async fn maybe_send_opportunistic_update_notice(
     msg: &ChannelMessage,
     target_channel: Option<&Arc<dyn Channel>>,
     current_version: &str,
-) -> bool {
+) -> Result<bool> {
     if is_update_check_disabled() || !config.updates.enabled {
-        return false;
+        return Ok(false);
     }
 
     let Some(channel) = target_channel else {
-        return false;
+        return Ok(false);
     };
 
     if !is_sender_authorized(config, &msg.channel, &msg.sender) {
-        return false;
+        return Ok(false);
     }
 
     let Some(current) = normalize_version(current_version) else {
         tracing::warn!(
             "invalid current version for opportunistic update notice: {current_version}"
         );
-        return false;
+        return Ok(false);
     };
+
+    let _guard = state_lock().lock().await;
 
     let state_path = version_check_path(&config.workspace_dir);
     let mut state = match load_state(&state_path).await {
@@ -245,7 +259,7 @@ pub async fn maybe_send_opportunistic_update_notice(
         },
         Err(error) => {
             tracing::warn!("opportunistic update notice skipped: state load failed: {error}");
-            return false;
+            return Ok(false);
         }
     };
 
@@ -269,8 +283,8 @@ pub async fn maybe_send_opportunistic_update_notice(
     if !has_update {
         state.pending_confirmations.clear();
         state.notified_conversations.clear();
-        let _ = save_state(&state_path, &state).await;
-        return false;
+        save_state(&state_path, &state).await?;
+        return Ok(false);
     }
 
     state
@@ -283,8 +297,8 @@ pub async fn maybe_send_opportunistic_update_notice(
             && notice.recipient == msg.reply_target
             && notice.authorized_sender == msg.sender
     }) {
-        let _ = save_state(&state_path, &state).await;
-        return false;
+        save_state(&state_path, &state).await?;
+        return Ok(false);
     }
 
     let now = now_unix_secs();
@@ -320,13 +334,16 @@ pub async fn maybe_send_opportunistic_update_notice(
         });
     }
 
-    let _ = save_state(&state_path, &state).await;
-    sent
+    save_state(&state_path, &state).await?;
+    Ok(sent)
 }
 
 async fn poll_and_notify_update(config: &Config, current_version: &str) -> Result<()> {
     let current = normalize_version(current_version)
         .ok_or_else(|| anyhow::anyhow!("invalid current version: {current_version}"))?;
+
+    let _guard = state_lock().lock().await;
+
     let state_path = version_check_path(&config.workspace_dir);
 
     let mut state = load_state(&state_path).await?.unwrap_or(VersionCheckState {
@@ -816,10 +833,11 @@ async fn send_update_notification_via_channel(
 
     if let Err(error) = result {
         tracing::warn!(
-            "update notification failed: channel={} recipient={} error={error}",
+            "update notification failed: channel={} recipient_len={} error_kind=send_failed",
             channel.name(),
-            recipient
+            recipient.len(),
         );
+        let _ = error;
         return false;
     }
 
@@ -839,10 +857,29 @@ async fn execute_minimal_update_strategy(target_version: &str) -> UpdateExecutio
             .into_iter()
             .filter(|arg| !arg.is_empty())
             .collect::<Vec<_>>();
-        let output = Command::new(bin).args(&filtered_args).output().await;
 
-        let Ok(output) = output else {
-            continue;
+        let output = match Command::new(bin).args(&filtered_args).spawn() {
+            Err(_) => continue,
+            Ok(child) => {
+                // Hold the PID before consuming child so we can signal on timeout.
+                let child_id = child.id();
+                match tokio::time::timeout(Duration::from_secs(60), child.wait_with_output()).await
+                {
+                    Ok(Ok(out)) => out,
+                    Ok(Err(_)) => continue,
+                    Err(_timeout) => {
+                        tracing::warn!("update command timed out: manager={bin}");
+                        // Best-effort kill by PID — child is already consumed by
+                        // wait_with_output, so we use the OS directly.
+                        if let Some(pid) = child_id {
+                            let _ = std::process::Command::new("kill")
+                                .arg(pid.to_string())
+                                .status();
+                        }
+                        continue;
+                    }
+                }
+            }
         };
 
         if output.status.success() {
@@ -859,7 +896,11 @@ async fn execute_minimal_update_strategy(target_version: &str) -> UpdateExecutio
         }
 
         let stderr = String::from_utf8_lossy(&output.stderr);
-        tracing::warn!("update command failed ({bin}): {stderr}");
+        tracing::warn!(
+            "update command failed: manager={} stderr_bytes={}",
+            bin,
+            stderr.len()
+        );
     }
 
     UpdateExecutionResult {
@@ -927,7 +968,7 @@ fn notice_from_state(current_version: String, state: &VersionCheckState) -> Opti
     }
 }
 
-fn is_update_check_disabled() -> bool {
+pub(crate) fn is_update_check_disabled() -> bool {
     std::env::var(UPDATE_CHECK_DISABLE_ENV)
         .ok()
         .is_some_and(|raw| {
@@ -1429,8 +1470,8 @@ mod tests {
         let second =
             maybe_send_opportunistic_update_notice(&cfg, &msg, Some(&channel), "1.0.0").await;
 
-        assert!(first);
-        assert!(!second);
+        assert!(first.unwrap());
+        assert!(!second.unwrap());
 
         let sent = channel_impl.sent_messages.lock().await;
         assert_eq!(sent.len(), 1);
@@ -1489,7 +1530,7 @@ mod tests {
         let sent =
             maybe_send_opportunistic_update_notice(&cfg, &msg, Some(&channel), "1.0.0").await;
 
-        assert!(!sent);
+        assert!(!sent.unwrap());
         assert!(channel_impl.sent_messages.lock().await.is_empty());
     }
 }

@@ -411,6 +411,19 @@ fn spawn_scoped_typing_task(
 }
 
 async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::ChannelMessage) {
+    // Check for update confirmation nonce BEFORE logging or persisting to memory,
+    // so one-time nonce tokens are never printed to console or written to memory store.
+    let target_channel = ctx.channels_by_name.get(&msg.channel).cloned();
+    if crate::update::try_handle_channel_update_confirmation(
+        ctx.config.as_ref(),
+        &msg,
+        target_channel.as_ref(),
+    )
+    .await
+    {
+        return;
+    }
+
     println!(
         "  💬 [{}] from {}: {}",
         msg.channel,
@@ -439,17 +452,6 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
     } else {
         format!("{memory_context}{}", msg.content)
     };
-
-    let target_channel = ctx.channels_by_name.get(&msg.channel).cloned();
-    if crate::update::try_handle_channel_update_confirmation(
-        ctx.config.as_ref(),
-        &msg,
-        target_channel.as_ref(),
-    )
-    .await
-    {
-        return;
-    }
 
     let _ = crate::update::maybe_send_opportunistic_update_notice(
         ctx.config.as_ref(),

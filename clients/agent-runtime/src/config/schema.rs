@@ -1934,10 +1934,16 @@ pub struct UpdateConfig {
     #[serde(default = "default_updates_enabled")]
     pub enabled: bool,
     /// Poll interval for update checks while daemon is running.
-    #[serde(default = "default_update_check_interval_minutes")]
+    #[serde(
+        default = "default_update_check_interval_minutes",
+        deserialize_with = "deserialize_nonzero_u64"
+    )]
     pub check_interval_minutes: u64,
     /// Lifetime for a confirmation nonce before it expires.
-    #[serde(default = "default_update_confirmation_ttl_minutes")]
+    #[serde(
+        default = "default_update_confirmation_ttl_minutes",
+        deserialize_with = "deserialize_nonzero_u64"
+    )]
     pub confirmation_ttl_minutes: u64,
     /// Per-channel destination overrides for update notifications.
     ///
@@ -1945,6 +1951,20 @@ pub struct UpdateConfig {
     /// Value: list of destination identifiers for that channel.
     #[serde(default)]
     pub notify_destinations: HashMap<String, Vec<String>>,
+}
+
+fn deserialize_nonzero_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = u64::deserialize(deserializer)?;
+    if value == 0 {
+        Err(serde::de::Error::custom(
+            "value must be greater than zero (zero would cause a busy-loop or instant TTL expiry)",
+        ))
+    } else {
+        Ok(value)
+    }
 }
 
 fn default_updates_enabled() -> bool {
