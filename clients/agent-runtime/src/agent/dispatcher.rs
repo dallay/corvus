@@ -10,12 +10,19 @@ pub struct ParsedToolCall {
     pub tool_call_id: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum DispatchAction {
+    Execute,
+    ApprovalRequired(String), // e.g. tool name or reason
+}
+
 #[derive(Debug, Clone)]
 pub struct ToolExecutionResult {
     pub name: String,
     pub output: String,
     pub success: bool,
     pub tool_call_id: Option<String>,
+    pub action: DispatchAction,
 }
 
 pub trait ToolDispatcher: Send + Sync {
@@ -24,6 +31,16 @@ pub trait ToolDispatcher: Send + Sync {
     fn prompt_instructions(&self, tools: &[Box<dyn Tool>]) -> String;
     fn to_provider_messages(&self, history: &[ConversationMessage]) -> Vec<ChatMessage>;
     fn should_send_tool_specs(&self) -> bool;
+
+    // Check if the tool invocation requires approval
+    fn check_tool_risk(&self, tool_name: &str, _arguments: &Value) -> DispatchAction {
+        match tool_name {
+            "shell" | "bash" | "execute_command" => {
+                DispatchAction::ApprovalRequired(tool_name.to_string())
+            }
+            _ => DispatchAction::Execute,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -270,6 +287,7 @@ mod tests {
             output: "hello".into(),
             success: true,
             tool_call_id: Some("tc1".into()),
+            action: DispatchAction::Execute,
         }]);
         match msg {
             ConversationMessage::ToolResults(results) => {
@@ -288,6 +306,7 @@ mod tests {
             output: "ok".into(),
             success: true,
             tool_call_id: None,
+            action: DispatchAction::Execute,
         }]);
         let rendered = match msg {
             ConversationMessage::Chat(chat) => chat.content,
@@ -305,6 +324,7 @@ mod tests {
             output: "ok".into(),
             success: true,
             tool_call_id: Some("tc-1".into()),
+            action: DispatchAction::Execute,
         }]);
 
         match msg {
@@ -314,5 +334,13 @@ mod tests {
             }
             _ => panic!("expected ToolResults variant"),
         }
+    }
+
+    #[test]
+    fn test_risk_classification() {
+        // Failing test for TDD
+        let dispatcher = NativeToolDispatcher;
+        let action = dispatcher.check_tool_risk("shell", &serde_json::json!({"command": "rm -rf"}));
+        assert_eq!(action, DispatchAction::ApprovalRequired("shell".into()));
     }
 }

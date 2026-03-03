@@ -30,12 +30,15 @@ pub use telegram::TelegramChannel;
 pub use traits::{Channel, SendMessage};
 pub use whatsapp::WhatsAppChannel;
 
-use crate::agent::loop_::{build_tool_instructions, run_tool_call_loop};
+use crate::agent::dispatcher::{
+    DispatchAction, NativeToolDispatcher, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
+};
 use crate::config::Config;
 use crate::identity;
 use crate::memory::{self, Memory};
 use crate::observability::{self, Observer};
-use crate::providers::{self, ChatMessage, Provider};
+use crate::providers::traits::build_tool_instructions_text;
+use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
 use crate::runtime;
 use crate::security::SecurityPolicy;
 use crate::tools::{self, Tool};
@@ -78,6 +81,7 @@ struct ChannelRuntimeContext {
     model: Arc<String>,
     temperature: f64,
     auto_save_memory: bool,
+    tool_dispatcher_mode: Arc<str>,
     max_tool_iterations: usize,
     min_relevance_score: f64,
     conversation_histories: ConversationHistoryMap,
@@ -87,12 +91,49 @@ fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
     format!("{}_{}_{}", msg.channel, msg.sender, msg.id)
 }
 
+fn channel_session_id(msg: &traits::ChannelMessage) -> String {
+    format!("{}-{}", msg.channel, msg.id)
+}
+
+fn channel_timeout_abort_text(session_id: &str) -> String {
+    format!(
+        "[session:{session_id}] ⚠️ Request timed out while waiting for the model and was aborted. Please try again."
+    )
+}
+
 fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     match channel_name {
         "telegram" => Some(
             "When responding on Telegram, include media markers for files or URLs that should be sent as attachments. Use one marker per attachment with this exact syntax: [IMAGE:<path-or-url>], [DOCUMENT:<path-or-url>], [VIDEO:<path-or-url>], [AUDIO:<path-or-url>], or [VOICE:<path-or-url>]. Keep normal user-facing text outside markers and never wrap markers in code fences.",
         ),
         _ => None,
+    }
+}
+
+fn map_loop_event_to_channel_content(
+    session_id: &str,
+    event: &crate::agent::unified_loop::LoopEvent,
+) -> Option<String> {
+    let prefix = format!("[session:{session_id}] ");
+    match event {
+        crate::agent::unified_loop::LoopEvent::Start => None,
+        crate::agent::unified_loop::LoopEvent::LLMProgress(text)
+        | crate::agent::unified_loop::LoopEvent::Complete(text) => Some(format!("{prefix}{text}")),
+        crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(tool) => {
+            Some(format!("{prefix}Running tool `{tool}`..."))
+        }
+        crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(tool) => {
+            Some(format!("{prefix}Tool `{tool}` completed."))
+        }
+        crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
+            Some(format!("{prefix}Context compacted for stability."))
+        }
+        crate::agent::unified_loop::LoopEvent::ApprovalRequired(tool) => {
+            Some(format!("{prefix}Approval required for `{tool}`"))
+        }
+        crate::agent::unified_loop::LoopEvent::Error(message) => {
+            Some(format!("{prefix}Error: {message}"))
+        }
     }
 }
 
@@ -198,6 +239,146 @@ fn log_worker_join_result(result: Result<(), tokio::task::JoinError>) {
     }
 }
 
+fn create_channel_dispatcher(mode: &str, provider: &dyn Provider) -> Box<dyn ToolDispatcher> {
+    match mode {
+        "native" => Box::new(NativeToolDispatcher),
+        "xml" => Box::new(XmlToolDispatcher),
+        _ if provider.supports_native_tools() => Box::new(NativeToolDispatcher),
+        _ => Box::new(XmlToolDispatcher),
+    }
+}
+
+fn normalize_xml_tool_aliases(raw: &str) -> String {
+    raw.replace("<toolcall>", "<tool_call>")
+        .replace("</toolcall>", "</tool_call>")
+        .replace("<tool-call>", "<tool_call>")
+        .replace("</tool-call>", "</tool_call>")
+        .replace("<invoke>", "<tool_call>")
+        .replace("</invoke>", "</tool_call>")
+}
+
+async fn execute_channel_tool_call(
+    tools_registry: &[Box<dyn Tool>],
+    call_name: &str,
+    call_arguments: &serde_json::Value,
+) -> Result<(bool, String)> {
+    if let Some(tool) = tools_registry.iter().find(|tool| tool.name() == call_name) {
+        let result = tool.execute(call_arguments.clone()).await;
+        return match result {
+            Ok(output) => Ok((output.success, output.output)),
+            Err(error) => Ok((false, format!("tool execution failed: {error}"))),
+        };
+    }
+
+    Ok((false, format!("tool not found: {call_name}")))
+}
+
+struct ChannelLoopParams<'a> {
+    model: &'a str,
+    temperature: f64,
+    max_tool_iterations: usize,
+    dispatcher_mode: &'a str,
+    delta_tx: Option<tokio::sync::mpsc::Sender<String>>,
+}
+
+async fn run_unified_channel_tool_loop(
+    provider: &dyn Provider,
+    tools_registry: &[Box<dyn Tool>],
+    history: &mut Vec<ConversationMessage>,
+    params: ChannelLoopParams<'_>,
+) -> Result<String> {
+    let dispatcher = create_channel_dispatcher(params.dispatcher_mode, provider);
+    let tool_specs: Vec<crate::tools::ToolSpec> =
+        tools_registry.iter().map(|tool| tool.spec()).collect();
+
+    for _ in 0..params.max_tool_iterations {
+        let provider_messages = dispatcher.to_provider_messages(history);
+        let response = provider
+            .chat(
+                ChatRequest {
+                    messages: &provider_messages,
+                    tools: if dispatcher.should_send_tool_specs() {
+                        Some(&tool_specs)
+                    } else {
+                        None
+                    },
+                },
+                params.model,
+                params.temperature,
+            )
+            .await?;
+
+        let response_for_parse = if params.dispatcher_mode == "xml" {
+            let normalized_text = response
+                .text
+                .as_deref()
+                .map(normalize_xml_tool_aliases)
+                .unwrap_or_default();
+            crate::providers::ChatResponse {
+                text: Some(normalized_text),
+                tool_calls: response.tool_calls.clone(),
+            }
+        } else {
+            response.clone()
+        };
+
+        let (text, calls) = dispatcher.parse_response(&response_for_parse);
+        if calls.is_empty() {
+            let final_response = if text.is_empty() {
+                response.text.unwrap_or_default()
+            } else {
+                text
+            };
+
+            if let Some(tx) = params.delta_tx.as_ref() {
+                let _ = tx.send(final_response.clone()).await;
+            }
+            return Ok(final_response);
+        }
+
+        if !text.is_empty() {
+            if let Some(tx) = params.delta_tx.as_ref() {
+                let _ = tx.send(text.clone()).await;
+            }
+        }
+
+        history.push(ConversationMessage::AssistantToolCalls {
+            text: response.text.clone(),
+            tool_calls: response.tool_calls.clone(),
+        });
+
+        let mut results = Vec::with_capacity(calls.len());
+        for call in calls {
+            let action = dispatcher.check_tool_risk(&call.name, &call.arguments);
+            let (success, output) = match action {
+                DispatchAction::Execute => {
+                    execute_channel_tool_call(tools_registry, &call.name, &call.arguments).await?
+                }
+                DispatchAction::ApprovalRequired(ref tool) => (
+                    false,
+                    format!("approval required before executing `{tool}`"),
+                ),
+            };
+
+            results.push(ToolExecutionResult {
+                name: call.name,
+                output,
+                success,
+                tool_call_id: call.tool_call_id,
+                action,
+            });
+        }
+
+        let formatted_results = dispatcher.format_results(&results);
+        history.push(formatted_results);
+    }
+
+    anyhow::bail!(
+        "maximum tool iterations ({}) reached while processing channel message",
+        params.max_tool_iterations
+    )
+}
+
 fn spawn_scoped_typing_task(
     channel: Arc<dyn Channel>,
     recipient: String,
@@ -259,13 +440,53 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
     };
 
     let target_channel = ctx.channels_by_name.get(&msg.channel).cloned();
+    let session_id = channel_session_id(&msg);
+    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1")
+        || msg.content.contains("#approve");
+    let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
+        session_id.clone(),
+        &msg.content,
+        approval_granted,
+    )
+    .await;
+
+    if let Some(tool) = canonical.approval_required {
+        if let Some(channel) = target_channel.as_ref() {
+            let text =
+                format!("[session:{session_id}] approval required for `{tool}`; request blocked");
+            let _ = channel
+                .send(&SendMessage::new(text, &msg.reply_target))
+                .await;
+        }
+        return;
+    }
+
+    if canonical.timeout_aborted {
+        if let Some(channel) = target_channel.as_ref() {
+            let text = channel_timeout_abort_text(&session_id);
+            let _ = channel
+                .send(&SendMessage::new(text, &msg.reply_target))
+                .await;
+        }
+        return;
+    }
+
+    if let Some(fallback) = canonical.fallback_response {
+        if let Some(channel) = target_channel.as_ref() {
+            let text = format!("[session:{session_id}] {fallback}");
+            let _ = channel
+                .send(&SendMessage::new(text, &msg.reply_target))
+                .await;
+        }
+        return;
+    }
 
     println!("  ⏳ Processing message...");
     let started_at = Instant::now();
 
     // Build history from per-sender conversation cache
     let history_key = format!("{}_{}", msg.channel, msg.sender);
-    let mut prior_turns = ctx
+    let prior_turns = ctx
         .conversation_histories
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -273,13 +494,18 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         .cloned()
         .unwrap_or_default();
 
-    let mut history = vec![ChatMessage::system(ctx.system_prompt.as_str())];
-    history.append(&mut prior_turns);
-    history.push(ChatMessage::user(&enriched_message));
+    let mut history = vec![ConversationMessage::Chat(ChatMessage::system(
+        ctx.system_prompt.as_str(),
+    ))];
+    history.extend(prior_turns.into_iter().map(ConversationMessage::Chat));
 
     if let Some(instructions) = channel_delivery_instructions(&msg.channel) {
-        history.push(ChatMessage::system(instructions));
+        history.push(ConversationMessage::Chat(ChatMessage::system(instructions)));
     }
+
+    history.push(ConversationMessage::Chat(ChatMessage::user(
+        &enriched_message,
+    )));
 
     // Determine if this channel supports streaming draft updates
     let use_streaming = target_channel
@@ -351,19 +577,17 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
 
     let llm_result = tokio::time::timeout(
         Duration::from_secs(CHANNEL_MESSAGE_TIMEOUT_SECS),
-        run_tool_call_loop(
+        run_unified_channel_tool_loop(
             ctx.provider.as_ref(),
-            &mut history,
             ctx.tools_registry.as_ref(),
-            ctx.observer.as_ref(),
-            "channel-runtime",
-            ctx.model.as_str(),
-            ctx.temperature,
-            true,
-            None,
-            msg.channel.as_str(),
-            ctx.max_tool_iterations,
-            delta_tx,
+            &mut history,
+            ChannelLoopParams {
+                model: ctx.model.as_str(),
+                temperature: ctx.temperature,
+                max_tool_iterations: ctx.max_tool_iterations,
+                dispatcher_mode: &ctx.tool_dispatcher_mode,
+                delta_tx,
+            },
         ),
     )
     .await;
@@ -461,11 +685,10 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
                 started_at.elapsed().as_millis()
             );
             if let Some(channel) = target_channel.as_ref() {
-                let error_text =
-                    "⚠️ Request timed out while waiting for the model. Please try again.";
+                let error_text = channel_timeout_abort_text(&session_id);
                 if let Some(ref draft_id) = draft_message_id {
                     let _ = channel
-                        .finalize_draft(&msg.reply_target, draft_id, error_text)
+                        .finalize_draft(&msg.reply_target, draft_id, &error_text)
                         .await;
                 } else {
                     let _ = channel
@@ -1280,7 +1503,9 @@ pub async fn start_channels(config: Config) -> Result<()> {
         Some(&config.identity),
         bootstrap_max_chars,
     );
-    system_prompt.push_str(&build_tool_instructions(tools_registry.as_ref()));
+    let tool_specs: Vec<crate::tools::ToolSpec> =
+        tools_registry.iter().map(|tool| tool.spec()).collect();
+    system_prompt.push_str(&build_tool_instructions_text(&tool_specs));
 
     if !skills.is_empty() {
         println!(
@@ -1473,6 +1698,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         model: Arc::new(model.clone()),
         temperature,
         auto_save_memory: config.memory.auto_save,
+        tool_dispatcher_mode: Arc::<str>::from(config.agent.tool_dispatcher.as_str()),
         max_tool_iterations: config.agent.max_tool_iterations,
         min_relevance_score: config.memory.min_relevance_score,
         conversation_histories: Arc::new(Mutex::new(HashMap::new())),
@@ -1745,6 +1971,7 @@ mod tests {
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
@@ -1789,6 +2016,7 @@ mod tests {
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
@@ -1887,6 +2115,7 @@ mod tests {
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
@@ -1949,6 +2178,7 @@ mod tests {
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
             max_tool_iterations: 10,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
@@ -2322,6 +2552,7 @@ mod tests {
             model: Arc::new("test-model".to_string()),
             temperature: 0.0,
             auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
             max_tool_iterations: 5,
             min_relevance_score: 0.0,
             conversation_histories: Arc::new(Mutex::new(HashMap::new())),
@@ -2592,5 +2823,126 @@ mod tests {
             .unwrap_or("")
             .contains("listen boom"));
         assert!(calls.load(Ordering::SeqCst) >= 1);
+    }
+
+    #[test]
+    fn loop_event_mapping_keeps_session_prefix() {
+        let mapped = map_loop_event_to_channel_content(
+            "session-123",
+            &crate::agent::unified_loop::LoopEvent::LLMProgress("thinking".to_string()),
+        )
+        .unwrap();
+
+        assert!(mapped.starts_with("[session:session-123]"));
+        assert!(mapped.contains("thinking"));
+    }
+
+    #[test]
+    fn loop_event_mapping_surfaces_approval_request() {
+        let mapped = map_loop_event_to_channel_content(
+            "session-123",
+            &crate::agent::unified_loop::LoopEvent::ApprovalRequired("shell".to_string()),
+        )
+        .unwrap();
+
+        assert!(mapped.contains("Approval required"));
+        assert!(mapped.contains("shell"));
+    }
+
+    #[test]
+    fn timeout_abort_text_includes_session_and_abort_semantics() {
+        let text = channel_timeout_abort_text("chan-1");
+        assert!(text.contains("[session:chan-1]"));
+        assert!(text.contains("timed out"));
+        assert!(text.contains("aborted"));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_blocks_on_approval_by_default() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "approval-1".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-1".to_string(),
+                content: "needs-approval".to_string(),
+                channel: "test-channel".to_string(),
+                timestamp: 1,
+            },
+        )
+        .await;
+
+        let sent_messages = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent_messages.len(), 1);
+        assert!(sent_messages[0].contains("request blocked"));
+        assert!(sent_messages[0].contains("[session:test-channel-approval-1]"));
+    }
+
+    #[tokio::test]
+    async fn process_channel_message_unblocks_on_approval_override() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "approval-2".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-1".to_string(),
+                content: "needs-approval #approve".to_string(),
+                channel: "test-channel".to_string(),
+                timestamp: 1,
+            },
+        )
+        .await;
+
+        let sent_messages = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent_messages.len(), 1);
+        assert!(!sent_messages[0].contains("request blocked"));
     }
 }

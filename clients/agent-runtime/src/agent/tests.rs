@@ -1124,12 +1124,14 @@ fn xml_format_results_includes_status_and_output() {
             output: "file1.txt\nfile2.txt".into(),
             success: true,
             tool_call_id: None,
+            action: crate::agent::dispatcher::DispatchAction::Execute,
         },
         ToolExecutionResult {
             name: "file_read".into(),
             output: "Error: file not found".into(),
             success: false,
             tool_call_id: None,
+            action: crate::agent::dispatcher::DispatchAction::Execute,
         },
     ];
 
@@ -1155,12 +1157,14 @@ fn native_format_results_maps_tool_call_ids() {
             output: "out1".into(),
             success: true,
             tool_call_id: Some("tc-001".into()),
+            action: crate::agent::dispatcher::DispatchAction::Execute,
         },
         ToolExecutionResult {
             name: "b".into(),
             output: "out2".into(),
             success: true,
             tool_call_id: Some("tc-002".into()),
+            action: crate::agent::dispatcher::DispatchAction::Execute,
         },
     ];
 
@@ -1295,4 +1299,29 @@ async fn run_single_delegates_to_turn() {
         !response.is_empty(),
         "Expected non-empty response from run_single"
     );
+}
+
+#[tokio::test]
+async fn stepwise_generation_handles_tool_then_final_text() {
+    let provider = Box::new(ScriptedProvider::new(vec![
+        tool_response(vec![ToolCall {
+            id: "call-1".into(),
+            name: "echo".into(),
+            arguments: r#"{"message":"hello"}"#.into(),
+        }]),
+        text_response("final answer"),
+    ]));
+    let mut agent = build_agent_with(
+        provider,
+        vec![Box::new(EchoTool)],
+        Box::new(NativeToolDispatcher),
+    );
+
+    let model = agent.prepare_turn("run echo").await.unwrap();
+
+    let first = agent.step(&model, "run echo").await.unwrap();
+    assert!(first.is_none(), "Expected ongoing turn after tool call");
+
+    let second = agent.step(&model, "run echo").await.unwrap();
+    assert_eq!(second, Some("final answer".to_string()));
 }

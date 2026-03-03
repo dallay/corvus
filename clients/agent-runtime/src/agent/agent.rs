@@ -403,6 +403,7 @@ impl Agent {
             output: result,
             success: true,
             tool_call_id: call.tool_call_id.clone(),
+            action: crate::agent::dispatcher::DispatchAction::Execute,
         }
     }
 
@@ -432,7 +433,7 @@ impl Agent {
         self.model_name.clone()
     }
 
-    pub async fn turn(&mut self, user_message: &str) -> Result<String> {
+    pub async fn prepare_turn(&mut self, user_message: &str) -> Result<String> {
         if self.history.is_empty() {
             let system_prompt = self.build_system_prompt()?;
             self.history
@@ -463,76 +464,88 @@ impl Agent {
         self.history
             .push(ConversationMessage::Chat(ChatMessage::user(enriched)));
 
-        let effective_model = self.classify_model(user_message);
+        Ok(self.classify_model(user_message))
+    }
+
+    pub async fn step(
+        &mut self,
+        effective_model: &str,
+        user_message: &str,
+    ) -> Result<Option<String>> {
+        let messages = self.tool_dispatcher.to_provider_messages(&self.history);
+        let response = self
+            .provider
+            .chat(
+                ChatRequest {
+                    messages: &messages,
+                    tools: if self.tool_dispatcher.should_send_tool_specs() {
+                        Some(&self.tool_specs)
+                    } else {
+                        None
+                    },
+                },
+                effective_model,
+                self.temperature,
+            )
+            .await?;
+
+        let (text, calls) = self.tool_dispatcher.parse_response(&response);
+        if calls.is_empty() {
+            let final_text = if text.is_empty() {
+                response.text.unwrap_or_default()
+            } else {
+                text
+            };
+            let final_text = self
+                .enforce_strict_memory_validation(user_message, final_text)
+                .await;
+
+            self.history
+                .push(ConversationMessage::Chat(ChatMessage::assistant(
+                    final_text.clone(),
+                )));
+            self.trim_history();
+
+            if self.auto_save {
+                let summary = truncate_with_ellipsis(&final_text, 100);
+                let _ = self
+                    .memory
+                    .store("assistant_resp", &summary, MemoryCategory::Daily, None)
+                    .await;
+            }
+
+            return Ok(Some(final_text));
+        }
+
+        if !text.is_empty() {
+            self.history
+                .push(ConversationMessage::Chat(ChatMessage::assistant(
+                    text.clone(),
+                )));
+            print!("{text}");
+            let _ = std::io::stdout().flush();
+        }
+
+        self.history.push(ConversationMessage::AssistantToolCalls {
+            text: response.text.clone(),
+            tool_calls: response.tool_calls.clone(),
+        });
+
+        let results = self.execute_tools(&calls).await;
+        let formatted = self.tool_dispatcher.format_results(&results);
+        self.history.push(formatted);
+        self.trim_history();
+
+        Ok(None)
+    }
+
+    pub async fn turn(&mut self, user_message: &str) -> Result<String> {
+        let effective_model = self.prepare_turn(user_message).await?;
 
         for _ in 0..self.config.max_tool_iterations {
-            let messages = self.tool_dispatcher.to_provider_messages(&self.history);
-            let response = match self
-                .provider
-                .chat(
-                    ChatRequest {
-                        messages: &messages,
-                        tools: if self.tool_dispatcher.should_send_tool_specs() {
-                            Some(&self.tool_specs)
-                        } else {
-                            None
-                        },
-                    },
-                    &effective_model,
-                    self.temperature,
-                )
-                .await
-            {
-                Ok(resp) => resp,
-                Err(err) => return Err(err),
-            };
-
-            let (text, calls) = self.tool_dispatcher.parse_response(&response);
-            if calls.is_empty() {
-                let final_text = if text.is_empty() {
-                    response.text.unwrap_or_default()
-                } else {
-                    text
-                };
-                let final_text = self
-                    .enforce_strict_memory_validation(user_message, final_text)
-                    .await;
-
-                self.history
-                    .push(ConversationMessage::Chat(ChatMessage::assistant(
-                        final_text.clone(),
-                    )));
-                self.trim_history();
-
-                if self.auto_save {
-                    let summary = truncate_with_ellipsis(&final_text, 100);
-                    let _ = self
-                        .memory
-                        .store("assistant_resp", &summary, MemoryCategory::Daily, None)
-                        .await;
-                }
-
+            if let Some(final_text) = self.step(&effective_model, user_message).await? {
                 return Ok(final_text);
             }
-
-            if !text.is_empty() {
-                self.history
-                    .push(ConversationMessage::Chat(ChatMessage::assistant(
-                        text.clone(),
-                    )));
-                print!("{text}");
-                let _ = std::io::stdout().flush();
-            }
-
-            self.history.push(ConversationMessage::AssistantToolCalls {
-                text: response.text.clone(),
-                tool_calls: response.tool_calls.clone(),
-            });
-
-            let results = self.execute_tools(&calls).await;
-            let formatted = self.tool_dispatcher.format_results(&results);
-            self.history.push(formatted);
-            self.trim_history();
         }
 
         anyhow::bail!(
@@ -578,6 +591,7 @@ pub async fn run(
     provider_override: Option<String>,
     model_override: Option<String>,
     temperature: f64,
+    _peripheral_overrides: Vec<String>,
 ) -> Result<()> {
     let start = Instant::now();
 
