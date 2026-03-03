@@ -357,135 +357,19 @@ async function saveConfig(): Promise<void> {
     return;
   }
 
-  const trimmedWebhookSecretValue = webhookSecretValue.value.trim();
-  if (webhookSecretMode.value === "replace" && !trimmedWebhookSecretValue) {
-    errorMessage.value = t("auth.emptyWebhookSecret");
+  if (!validateWebhookSecret()) {
     saving.value = false;
     return;
   }
 
-  const secretPayload =
-    webhookSecretMode.value === "replace"
-      ? { mode: "replace", value: trimmedWebhookSecretValue }
-      : webhookSecretMode.value === "clear"
-        ? { mode: "clear" }
-        : { mode: "unchanged" };
-
-  const parsedTemperature = parseFloatSafe(temperature.value);
-  const parsedMaxActions = parseIntSafe(maxActionsPerHour.value);
-  const parsedMaxCost = parseIntSafe(maxCostPerDayCents.value);
-  const parsedSchedulerMaxTasks = parseIntSafe(schedulerMaxTasks.value);
-  const parsedSchedulerMaxConcurrent = parseIntSafe(schedulerMaxConcurrent.value);
-  const parsedGatewayPort = parseIntSafe(gatewayPort.value);
-  const parsedWebhookPort = parseIntSafe(webhookPort.value);
-
+  const parsedValues = parseAllNumericValues();
   if (!initialConfig.value) {
     errorMessage.value = t("form.connectBeforeSave");
     saving.value = false;
     return;
   }
 
-  const snapshot = initialConfig.value;
-  const payload: Record<string, unknown> = {};
-
-  if (provider.value !== snapshot.default_provider) {
-    payload.default_provider = provider.value;
-  }
-  if (model.value !== snapshot.default_model) {
-    payload.default_model = model.value;
-  }
-  if (parsedTemperature !== undefined && parsedTemperature !== snapshot.default_temperature) {
-    payload.default_temperature = parsedTemperature;
-  }
-  if (memoryBackend.value !== snapshot.memory_backend) {
-    payload.memory_backend = memoryBackend.value;
-  }
-
-  const observabilityPayload: Record<string, unknown> = {};
-  if (observabilityBackend.value !== snapshot.observability_backend) {
-    observabilityPayload.backend = observabilityBackend.value;
-  }
-  if (otelEndpoint.value !== snapshot.otel_endpoint) {
-    observabilityPayload.otel_endpoint = otelEndpoint.value;
-  }
-  if (otelServiceName.value !== snapshot.otel_service_name) {
-    observabilityPayload.otel_service_name = otelServiceName.value;
-  }
-  if (Object.keys(observabilityPayload).length > 0) {
-    payload.observability = observabilityPayload;
-  }
-
-  if (runtimeKind.value !== snapshot.runtime_kind) {
-    payload.runtime = { kind: runtimeKind.value };
-  }
-
-  const autonomyPayload: Record<string, unknown> = {};
-  if (autonomyLevel.value !== snapshot.autonomy_level) {
-    autonomyPayload.level = autonomyLevel.value;
-  }
-  if (workspaceOnly.value !== snapshot.autonomy_workspace_only) {
-    autonomyPayload.workspace_only = workspaceOnly.value;
-  }
-  if (
-    parsedMaxActions !== undefined &&
-    parsedMaxActions !== snapshot.autonomy_max_actions_per_hour
-  ) {
-    autonomyPayload.max_actions_per_hour = parsedMaxActions;
-  }
-  if (parsedMaxCost !== undefined && parsedMaxCost !== snapshot.autonomy_max_cost_per_day_cents) {
-    autonomyPayload.max_cost_per_day_cents = parsedMaxCost;
-  }
-  if (Object.keys(autonomyPayload).length > 0) {
-    payload.autonomy = autonomyPayload;
-  }
-
-  const schedulerPayload: Record<string, unknown> = {};
-  if (schedulerEnabled.value !== snapshot.scheduler_enabled) {
-    schedulerPayload.enabled = schedulerEnabled.value;
-  }
-  if (
-    parsedSchedulerMaxTasks !== undefined &&
-    parsedSchedulerMaxTasks !== snapshot.scheduler_max_tasks
-  ) {
-    schedulerPayload.max_tasks = parsedSchedulerMaxTasks;
-  }
-  if (
-    parsedSchedulerMaxConcurrent !== undefined &&
-    parsedSchedulerMaxConcurrent !== snapshot.scheduler_max_concurrent
-  ) {
-    schedulerPayload.max_concurrent = parsedSchedulerMaxConcurrent;
-  }
-  if (Object.keys(schedulerPayload).length > 0) {
-    payload.scheduler = schedulerPayload;
-  }
-
-  const gatewayPayload: Record<string, unknown> = {};
-  if (parsedGatewayPort !== undefined && parsedGatewayPort !== snapshot.gateway_port) {
-    gatewayPayload.port = parsedGatewayPort;
-  }
-  if (gatewayHost.value !== snapshot.gateway_host) {
-    gatewayPayload.host = gatewayHost.value;
-  }
-  if (requirePairing.value !== snapshot.gateway_require_pairing) {
-    gatewayPayload.require_pairing = requirePairing.value;
-  }
-  if (allowPublicBind.value !== snapshot.gateway_allow_public_bind) {
-    gatewayPayload.allow_public_bind = allowPublicBind.value;
-  }
-  if (Object.keys(gatewayPayload).length > 0) {
-    payload.gateway = gatewayPayload;
-  }
-
-  const webhookPayload: Record<string, unknown> = {};
-  if (parsedWebhookPort !== undefined && parsedWebhookPort !== snapshot.webhook_port) {
-    webhookPayload.port = parsedWebhookPort;
-  }
-  if (webhookSecretMode.value !== "unchanged") {
-    webhookPayload.secret = secretPayload;
-  }
-  if (Object.keys(webhookPayload).length > 0) {
-    payload.webhook = webhookPayload;
-  }
+  const payload = buildConfigPayload(parsedValues, initialConfig.value);
 
   if (Object.keys(payload).length === 0) {
     statusMessage.value = t("form.noChanges");
@@ -493,6 +377,193 @@ async function saveConfig(): Promise<void> {
     return;
   }
 
+  await saveConfigToGateway(payload, gatewayBaseUrl);
+}
+
+function validateWebhookSecret(): boolean {
+  if (webhookSecretMode.value === "replace" && !webhookSecretValue.value.trim()) {
+    errorMessage.value = t("auth.emptyWebhookSecret");
+    return false;
+  }
+  return true;
+}
+
+function parseAllNumericValues() {
+  return {
+    temperature: parseFloatSafe(temperature.value),
+    maxActions: parseIntSafe(maxActionsPerHour.value),
+    maxCost: parseIntSafe(maxCostPerDayCents.value),
+    schedulerMaxTasks: parseIntSafe(schedulerMaxTasks.value),
+    schedulerMaxConcurrent: parseIntSafe(schedulerMaxConcurrent.value),
+    gatewayPort: parseIntSafe(gatewayPort.value),
+    webhookPort: parseIntSafe(webhookPort.value),
+  };
+}
+
+interface ParsedValues {
+  temperature: number | undefined;
+  maxActions: number | undefined;
+  maxCost: number | undefined;
+  schedulerMaxTasks: number | undefined;
+  schedulerMaxConcurrent: number | undefined;
+  gatewayPort: number | undefined;
+  webhookPort: number | undefined;
+}
+
+function buildConfigPayload(
+  parsed: ParsedValues,
+  snapshot: InitialConfigSnapshot
+): Record<string, unknown> {
+  const payload: Record<string, unknown> = {};
+
+  conditionallyAdd(payload, "default_provider", provider.value, snapshot.default_provider);
+  conditionallyAdd(payload, "default_model", model.value, snapshot.default_model);
+  conditionallyAdd(
+    payload,
+    "default_temperature",
+    parsed.temperature,
+    snapshot.default_temperature
+  );
+  conditionallyAdd(payload, "memory_backend", memoryBackend.value, snapshot.memory_backend);
+
+  Object.assign(payload, buildObservabilityPayload(parsed, snapshot));
+  conditionallyAdd(
+    payload,
+    "runtime",
+    { kind: runtimeKind.value },
+    { kind: snapshot.runtime_kind }
+  );
+  Object.assign(payload, buildAutonomyPayload(parsed, snapshot));
+  Object.assign(payload, buildSchedulerPayload(parsed, snapshot));
+  Object.assign(payload, buildGatewayPayload(parsed, snapshot));
+  Object.assign(payload, buildWebhookPayload(parsed, snapshot));
+
+  return payload;
+}
+
+function conditionallyAdd<T>(
+  payload: Record<string, unknown>,
+  key: string,
+  newValue: T,
+  oldValue: T
+): void {
+  if (newValue !== undefined && newValue !== oldValue) {
+    payload[key] = newValue;
+  }
+}
+
+function buildObservabilityPayload(
+  parsed: ParsedValues,
+  snapshot: InitialConfigSnapshot
+): Record<string, unknown> {
+  const observability: Record<string, unknown> = {};
+  conditionallyAdd(
+    observability,
+    "backend",
+    observabilityBackend.value,
+    snapshot.observability_backend
+  );
+  conditionallyAdd(observability, "otel_endpoint", otelEndpoint.value, snapshot.otel_endpoint);
+  conditionallyAdd(
+    observability,
+    "otel_service_name",
+    otelServiceName.value,
+    snapshot.otel_service_name
+  );
+  return Object.keys(observability).length > 0 ? { observability } : {};
+}
+
+function buildAutonomyPayload(
+  parsed: ParsedValues,
+  snapshot: InitialConfigSnapshot
+): Record<string, unknown> {
+  const autonomy: Record<string, unknown> = {};
+  conditionallyAdd(autonomy, "level", autonomyLevel.value, snapshot.autonomy_level);
+  conditionallyAdd(
+    autonomy,
+    "workspace_only",
+    workspaceOnly.value,
+    snapshot.autonomy_workspace_only
+  );
+  conditionallyAdd(
+    autonomy,
+    "max_actions_per_hour",
+    parsed.maxActions,
+    snapshot.autonomy_max_actions_per_hour
+  );
+  conditionallyAdd(
+    autonomy,
+    "max_cost_per_day_cents",
+    parsed.maxCost,
+    snapshot.autonomy_max_cost_per_day_cents
+  );
+  return Object.keys(autonomy).length > 0 ? { autonomy } : {};
+}
+
+function buildSchedulerPayload(
+  parsed: ParsedValues,
+  snapshot: InitialConfigSnapshot
+): Record<string, unknown> {
+  const scheduler: Record<string, unknown> = {};
+  conditionallyAdd(scheduler, "enabled", schedulerEnabled.value, snapshot.scheduler_enabled);
+  conditionallyAdd(scheduler, "max_tasks", parsed.schedulerMaxTasks, snapshot.scheduler_max_tasks);
+  conditionallyAdd(
+    scheduler,
+    "max_concurrent",
+    parsed.schedulerMaxConcurrent,
+    snapshot.scheduler_max_concurrent
+  );
+  return Object.keys(scheduler).length > 0 ? { scheduler } : {};
+}
+
+function buildGatewayPayload(
+  parsed: ParsedValues,
+  snapshot: InitialConfigSnapshot
+): Record<string, unknown> {
+  const gateway: Record<string, unknown> = {};
+  conditionallyAdd(gateway, "port", parsed.gatewayPort, snapshot.gateway_port);
+  conditionallyAdd(gateway, "host", gatewayHost.value, snapshot.gateway_host);
+  conditionallyAdd(
+    gateway,
+    "require_pairing",
+    requirePairing.value,
+    snapshot.gateway_require_pairing
+  );
+  conditionallyAdd(
+    gateway,
+    "allow_public_bind",
+    allowPublicBind.value,
+    snapshot.gateway_allow_public_bind
+  );
+  return Object.keys(gateway).length > 0 ? { gateway } : {};
+}
+
+function buildWebhookPayload(
+  parsed: ParsedValues,
+  snapshot: InitialConfigSnapshot
+): Record<string, unknown> {
+  const webhook: Record<string, unknown> = {};
+  conditionallyAdd(webhook, "port", parsed.webhookPort, snapshot.webhook_port);
+  if (webhookSecretMode.value !== "unchanged") {
+    webhook.secret = buildSecretPayload();
+  }
+  return Object.keys(webhook).length > 0 ? { webhook } : {};
+}
+
+function buildSecretPayload(): { mode: string; value?: string } {
+  if (webhookSecretMode.value === "replace") {
+    return { mode: "replace", value: webhookSecretValue.value.trim() };
+  }
+  if (webhookSecretMode.value === "clear") {
+    return { mode: "clear" };
+  }
+  return { mode: "unchanged" };
+}
+
+async function saveConfigToGateway(
+  payload: Record<string, unknown>,
+  gatewayBaseUrl: string
+): Promise<void> {
   try {
     const response = await fetch(new URL("/web/admin/config", gatewayBaseUrl).toString(), {
       method: "PUT",
@@ -501,28 +572,12 @@ async function saveConfig(): Promise<void> {
     });
     if (!response.ok) {
       if (response.status === 409) {
-        const conflict = (await response.json()) as {
-          restart_required?: boolean;
-          fields?: string[];
-        };
-        const fields = Array.isArray(conflict.fields) ? conflict.fields.join(", ") : "";
-        const restartMessage = t("form.restartRequired", { fields });
-        await connectGateway();
-        statusMessage.value = "";
-        errorMessage.value = restartMessage;
+        await handleConflictResponse(response);
         return;
       }
       throw new Error(`${response.status}`);
     }
-    statusMessage.value = t("form.saveSuccess");
-    if (webhookSecretMode.value === "replace") {
-      webhookSecretExists.value = true;
-      webhookSecretValue.value = "";
-    }
-    if (webhookSecretMode.value === "clear") {
-      webhookSecretExists.value = false;
-    }
-    webhookSecretMode.value = "unchanged";
+    handleSaveSuccess();
   } catch (err) {
     console.error("saveConfig failed", err);
     errorMessage.value = t("form.saveError");
@@ -530,13 +585,43 @@ async function saveConfig(): Promise<void> {
     saving.value = false;
   }
 }
+
+async function handleConflictResponse(response: Response): Promise<void> {
+  const conflict = (await response.json()) as {
+    restart_required?: boolean;
+    fields?: string[];
+  };
+  const fields = Array.isArray(conflict.fields) ? conflict.fields.join(", ") : "";
+  const restartMessage = t("form.restartRequired", { fields });
+  await connectGateway();
+  statusMessage.value = "";
+  errorMessage.value = restartMessage;
+}
+
+function handleSaveSuccess(): void {
+  statusMessage.value = t("form.saveSuccess");
+  if (webhookSecretMode.value === "replace") {
+    webhookSecretExists.value = true;
+    webhookSecretValue.value = "";
+  }
+  if (webhookSecretMode.value === "clear") {
+    webhookSecretExists.value = false;
+  }
+  webhookSecretMode.value = "unchanged";
+  saving.value = false;
+}
 </script>
 
 <template>
   <main class="dashboard-shell">
     <header class="header-card">
-      <h1>{{ t("app.title") }}</h1>
-      <p>{{ t("app.subtitle") }}</p>
+      <div class="header-title-row">
+        <img src="/favicon-light.svg" alt="Corvus" width="32" height="32" class="header-logo" />
+        <div>
+          <h1>{{ t("app.title") }}</h1>
+          <p>{{ t("app.subtitle") }}</p>
+        </div>
+      </div>
     </header>
 
     <section class="card">
@@ -741,6 +826,16 @@ async function saveConfig(): Promise<void> {
 .header-card p {
   margin: 6px 0 0;
   color: var(--color-text-secondary);
+}
+
+.header-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.header-logo {
+  flex-shrink: 0;
 }
 
 h2 {

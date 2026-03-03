@@ -97,6 +97,61 @@ function isUrlSafeForSecrets(rawUrl: string): boolean {
   return parsed.protocol === "http:" && ALLOWED_LOCAL_HOSTS.has(parsed.hostname);
 }
 
+function handlePairingError(response: Response): Error {
+  if (response.status === 403) {
+    return new Error(t("form.pairingInvalidError"));
+  }
+  if (response.status === 429) {
+    return new Error(t("form.pairingRateLimitError"));
+  }
+  return new Error(`HTTP ${response.status}`);
+}
+
+async function executePairing(pairingCode: string, gatewayBaseUrl: string): Promise<string> {
+  const controller = new AbortController();
+  requestTimeoutId = setTimeout(() => controller.abort(), 10000);
+
+  try {
+    const pairEndpoint = new URL("/pair", gatewayBaseUrl);
+    const response = await fetch(pairEndpoint.toString(), {
+      method: "POST",
+      headers: {
+        "X-Pairing-Code": pairingCode.trim(),
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw handlePairingError(response);
+    }
+
+    const pairResult = (await response.json()) as {
+      token?: string;
+      paired?: boolean;
+    };
+    if (!pairResult.paired || !pairResult.token) {
+      throw new Error(t("form.pairingMissingTokenError"));
+    }
+
+    return pairResult.token;
+  } finally {
+    if (requestTimeoutId) {
+      clearTimeout(requestTimeoutId);
+      requestTimeoutId = null;
+    }
+  }
+}
+
+function handleSaveError(error: unknown): string {
+  if (error instanceof Error && error.name === "AbortError") {
+    return t("form.timeoutError") || "Request timeout";
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return t("form.saveError");
+}
+
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function captureSecretInput(field: SecretField, value: string): void {
   resetSaveStatus();
@@ -127,70 +182,29 @@ async function saveGatewayConfig(): Promise<void> {
   }
 
   if (!pairingCodeInput.trim()) {
-    saveStatus.value = "success";
-    saveStatusTimeoutId = setTimeout(() => {
-      saveStatus.value = "idle";
-    }, 3000);
+    showSaveSuccess();
     return;
   }
 
-  const controller = new AbortController();
-  requestTimeoutId = setTimeout(() => controller.abort(), 10000);
-
   try {
-    const pairEndpoint = new URL("/pair", gatewayBaseUrl);
-    const response = await fetch(pairEndpoint.toString(), {
-      method: "POST",
-      headers: {
-        "X-Pairing-Code": pairingCodeInput.trim(),
-      },
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      if (response.status === 403) {
-        throw new Error(t("form.pairingInvalidError"));
-      }
-      if (response.status === 429) {
-        throw new Error(t("form.pairingRateLimitError"));
-      }
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    const pairResult = (await response.json()) as {
-      token?: string;
-      paired?: boolean;
-    };
-    if (!pairResult.paired || !pairResult.token) {
-      throw new Error(t("form.pairingMissingTokenError"));
-    }
-
-    bearerTokenInput = pairResult.token;
-
+    const token = await executePairing(pairingCodeInput, gatewayBaseUrl);
+    bearerTokenInput = token;
     pairingCodeInput = "";
     webhookSecretInput = "";
     secretInputNonce.value += 1;
-    saveStatus.value = "success";
-
-    saveStatusTimeoutId = setTimeout(() => {
-      saveStatus.value = "idle";
-    }, 3000);
+    showSaveSuccess();
   } catch (error) {
     saveStatus.value = "error";
-    if (error instanceof Error && error.name === "AbortError") {
-      saveErrorMessage.value = t("form.timeoutError") || "Request timeout";
-    } else if (error instanceof Error && error.message) {
-      saveErrorMessage.value = error.message;
-    } else {
-      saveErrorMessage.value = t("form.saveError");
-    }
+    saveErrorMessage.value = handleSaveError(error);
     console.error("Error saving gateway config", error);
-  } finally {
-    if (requestTimeoutId) {
-      clearTimeout(requestTimeoutId);
-      requestTimeoutId = null;
-    }
   }
+}
+
+function showSaveSuccess(): void {
+  saveStatus.value = "success";
+  saveStatusTimeoutId = setTimeout(() => {
+    saveStatus.value = "idle";
+  }, 3000);
 }
 
 function scrollChatToBottom(): void {
@@ -198,6 +212,56 @@ function scrollChatToBottom(): void {
     return;
   }
   chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
+}
+
+function buildRequestHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Idempotency-Key": createIdempotencyKey(),
+  };
+
+  if (bearerTokenInput.trim()) {
+    headers.Authorization = `Bearer ${bearerTokenInput.trim()}`;
+  }
+  if (webhookSecretInput.trim()) {
+    headers["X-Webhook-Secret"] = webhookSecretInput.trim();
+  }
+
+  return headers;
+}
+
+function handleChatError(error: unknown, normalizedText: string): string {
+  if (error instanceof Error && error.name === "AbortError") {
+    return t("chat.timeoutError");
+  }
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  return t("chat.requestError", {
+    text: normalizedText,
+    modelName,
+  });
+}
+
+function handleChatResponseError(response: Response): Error {
+  if (response.status === 401) {
+    return new Error(t("chat.unauthorizedError"));
+  }
+  if (response.status === 429) {
+    return new Error(t("chat.rateLimitError"));
+  }
+  return new Error(`HTTP ${response.status}`);
+}
+
+function updateAssistantMessage(messageId: number, content: string): void {
+  const messageIndex = messages.value.findIndex((item) => item.id === messageId);
+  if (messageIndex >= 0) {
+    messages.value[messageIndex] = {
+      id: messageId,
+      role: "assistant",
+      content,
+    };
+  }
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -210,7 +274,11 @@ async function sendMessage(): Promise<void> {
   const normalizedText = text.slice(0, MAX_PROMPT_LENGTH);
   const gatewayBaseUrl = baseUrl.value.replace(/\/$/, "");
 
-  messages.value.push({ id: nextMessageId(), role: "user", content: normalizedText });
+  messages.value.push({
+    id: nextMessageId(),
+    role: "user",
+    content: normalizedText,
+  });
 
   const assistantMessageId = nextMessageId();
   messages.value.push({
@@ -232,21 +300,9 @@ async function sendMessage(): Promise<void> {
 
   try {
     const endpoint = new URL("/webhook", gatewayBaseUrl);
-    const headers: Record<string, string> = {
-      "Content-Type": "application/json",
-      "X-Idempotency-Key": createIdempotencyKey(),
-    };
-
-    if (bearerTokenInput.trim()) {
-      headers.Authorization = `Bearer ${bearerTokenInput.trim()}`;
-    }
-    if (webhookSecretInput.trim()) {
-      headers["X-Webhook-Secret"] = webhookSecretInput.trim();
-    }
-
     const response = await fetch(endpoint.toString(), {
       method: "POST",
-      headers,
+      headers: buildRequestHeaders(),
       body: JSON.stringify({
         message: normalizedText,
       }),
@@ -254,13 +310,7 @@ async function sendMessage(): Promise<void> {
     });
 
     if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error(t("chat.unauthorizedError"));
-      }
-      if (response.status === 429) {
-        throw new Error(t("chat.rateLimitError"));
-      }
-      throw new Error(`HTTP ${response.status}`);
+      throw handleChatResponseError(response);
     }
 
     const data = (await response.json()) as {
@@ -270,33 +320,11 @@ async function sendMessage(): Promise<void> {
     };
     const assistantText = data.response ?? data.message ?? data.text ?? t("chat.emptyResponse");
 
-    const messageIndex = messages.value.findIndex((item) => item.id === assistantMessageId);
-    if (messageIndex >= 0) {
-      messages.value[messageIndex] = {
-        id: assistantMessageId,
-        role: "assistant",
-        content: assistantText,
-      };
-    }
+    updateAssistantMessage(assistantMessageId, assistantText);
   } catch (error) {
     console.error("Error sending chat message", error);
-    const messageIndex = messages.value.findIndex((item) => item.id === assistantMessageId);
-    let errorMessage = t("chat.requestError", {
-      text: normalizedText,
-      modelName,
-    });
-    if (error instanceof Error && error.name === "AbortError") {
-      errorMessage = t("chat.timeoutError");
-    } else if (error instanceof Error && error.message) {
-      errorMessage = error.message;
-    }
-    if (messageIndex >= 0) {
-      messages.value[messageIndex] = {
-        id: assistantMessageId,
-        role: "assistant",
-        content: errorMessage,
-      };
-    }
+    const errorMessage = handleChatError(error, normalizedText);
+    updateAssistantMessage(assistantMessageId, errorMessage);
   } finally {
     clearTimeout(timeoutId);
   }
@@ -318,12 +346,7 @@ onUnmounted(() => {
       <!-- Sidebar Header -->
       <div class="sidebar-header">
         <div class="logo-icon animate-pulse-glow">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M12 3 4.5 7.5V16.5L12 21 19.5 16.5V7.5L12 3Z" />
-            <path d="M12 12 19.5 7.5" />
-            <path d="M12 12V21" />
-            <path d="M12 12 4.5 7.5" />
-          </svg>
+          <img src="/favicon-light.svg" alt="Corvus" width="20" height="20" />
         </div>
         <div>
           <h1 class="sidebar-title">Corvus AI</h1>
@@ -363,12 +386,7 @@ onUnmounted(() => {
       <header class="mobile-header">
         <div class="mobile-header-left">
           <div class="logo-icon logo-icon--sm">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M12 3 4.5 7.5V16.5L12 21 19.5 16.5V7.5L12 3Z" />
-              <path d="M12 12 19.5 7.5" />
-              <path d="M12 12V21" />
-              <path d="M12 12 4.5 7.5" />
-            </svg>
+            <img src="/favicon-light.svg" alt="Corvus" width="16" height="16" />
           </div>
           <span class="mobile-title">Corvus AI</span>
         </div>
@@ -469,12 +487,7 @@ onUnmounted(() => {
         <div v-if="messages.length <= 1" class="hero-state">
           <div class="hero-content animate-slide-up">
             <div class="hero-icon animate-pulse-glow">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M12 3 4.5 7.5V16.5L12 21 19.5 16.5V7.5L12 3Z" />
-                <path d="M12 12 19.5 7.5" />
-                <path d="M12 12V21" />
-                <path d="M12 12 4.5 7.5" />
-              </svg>
+              <img src="/favicon-light.svg" alt="Corvus" width="32" height="32" />
             </div>
             <h2 class="hero-title">{{ modelName }}</h2>
             <p class="hero-subtitle">{{ t("chat.welcome", { modelName }) }}</p>

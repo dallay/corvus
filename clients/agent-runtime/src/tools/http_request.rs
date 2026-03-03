@@ -9,6 +9,47 @@ use std::time::Duration;
 const MAX_REQUEST_HEADERS: usize = 64;
 const MAX_HEADER_TOTAL_BYTES: usize = 8 * 1024;
 
+const FORBIDDEN_HEADERS: &[&str] = &[
+    "host",
+    "content-length",
+    "transfer-encoding",
+    "connection",
+    "cookie",
+    "set-cookie",
+];
+
+fn is_header_name_valid(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
+fn is_header_value_valid(value: &str) -> bool {
+    !value.chars().any(|c| c.is_control() && c != '\t')
+}
+
+fn is_header_forbidden(name: &str) -> bool {
+    FORBIDDEN_HEADERS
+        .iter()
+        .any(|&h| name.eq_ignore_ascii_case(h))
+}
+
+fn format_response_headers(headers: &reqwest::header::HeaderMap) -> String {
+    headers
+        .iter()
+        .map(|(k, v)| {
+            let is_sensitive = k.as_str().to_lowercase().contains("set-cookie");
+            if is_sensitive {
+                format!("{}: ***REDACTED***", k.as_str())
+            } else {
+                format!("{}: {:?}", k.as_str(), v)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// Supports GET, POST, PUT, DELETE methods with configurable security.
 pub struct HttpRequestTool {
     security: Arc<SecurityPolicy>,
@@ -83,54 +124,46 @@ impl HttpRequestTool {
         let mut result = Vec::new();
         let mut total_bytes = 0usize;
 
-        if let Some(obj) = headers.as_object() {
-            if obj.len() > MAX_REQUEST_HEADERS {
+        let obj = headers
+            .as_object()
+            .ok_or_else(|| anyhow::anyhow!("Headers must be an object"))?;
+
+        if obj.len() > MAX_REQUEST_HEADERS {
+            anyhow::bail!(
+                "Too many headers: {} (max {})",
+                obj.len(),
+                MAX_REQUEST_HEADERS
+            );
+        }
+
+        for (key, value) in obj {
+            let value_str = value
+                .as_str()
+                .ok_or_else(|| anyhow::anyhow!("Header '{key}' value must be a string"))?;
+
+            if !is_header_name_valid(key) {
+                anyhow::bail!("Invalid header name: {key}");
+            }
+
+            if is_header_forbidden(key) {
+                anyhow::bail!("Header '{key}' is not allowed");
+            }
+
+            if !is_header_value_valid(value_str) {
+                anyhow::bail!("Invalid control character in header '{key}'");
+            }
+
+            total_bytes = total_bytes
+                .saturating_add(key.len())
+                .saturating_add(value_str.len());
+            if total_bytes > MAX_HEADER_TOTAL_BYTES {
                 anyhow::bail!(
-                    "Too many headers: {} (max {})",
-                    obj.len(),
-                    MAX_REQUEST_HEADERS
+                    "Headers exceed max size of {} bytes",
+                    MAX_HEADER_TOTAL_BYTES
                 );
             }
 
-            for (key, value) in obj {
-                let value = value
-                    .as_str()
-                    .ok_or_else(|| anyhow::anyhow!("Header '{key}' value must be a string"))?;
-
-                if key.is_empty()
-                    || !key
-                        .bytes()
-                        .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
-                {
-                    anyhow::bail!("Invalid header name: {key}");
-                }
-
-                if key.eq_ignore_ascii_case("host")
-                    || key.eq_ignore_ascii_case("content-length")
-                    || key.eq_ignore_ascii_case("transfer-encoding")
-                    || key.eq_ignore_ascii_case("connection")
-                    || key.eq_ignore_ascii_case("cookie")
-                    || key.eq_ignore_ascii_case("set-cookie")
-                {
-                    anyhow::bail!("Header '{key}' is not allowed");
-                }
-
-                if value.chars().any(|c| c.is_control() && c != '\t') {
-                    anyhow::bail!("Invalid control character in header '{key}'");
-                }
-
-                total_bytes = total_bytes
-                    .saturating_add(key.len())
-                    .saturating_add(value.len());
-                if total_bytes > MAX_HEADER_TOTAL_BYTES {
-                    anyhow::bail!(
-                        "Headers exceed max size of {} bytes",
-                        MAX_HEADER_TOTAL_BYTES
-                    );
-                }
-
-                result.push((key.clone(), value.to_string()));
-            }
+            result.push((key.clone(), value_str.to_string()));
         }
         Ok(result)
     }

@@ -110,6 +110,12 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     }
 }
 
+struct ResponseContext<'a> {
+    channel: Option<&'a Arc<dyn Channel>>,
+    reply_target: &'a str,
+    draft_id: Option<&'a str>,
+}
+
 fn map_loop_event_to_channel_content(
     session_id: &str,
     event: &crate::agent::unified_loop::LoopEvent,
@@ -462,52 +468,22 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
     .await;
 
     let session_id = channel_session_id(&msg);
-    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
-    let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
-        session_id.clone(),
+
+    if handle_canonical_blocking_outcome(
+        target_channel.as_ref(),
+        &session_id,
+        &msg.reply_target,
         &msg.content,
-        approval_granted,
-        crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
-            enable_test_triggers: cfg!(test),
-        },
     )
-    .await;
-
-    if let Some(tool) = canonical.approval_required {
-        if let Some(channel) = target_channel.as_ref() {
-            let text =
-                format!("[session:{session_id}] approval required for `{tool}`; request blocked");
-            let _ = channel
-                .send(&SendMessage::new(text, &msg.reply_target))
-                .await;
-        }
-        return;
-    }
-
-    if canonical.timeout_aborted {
-        if let Some(channel) = target_channel.as_ref() {
-            let text = channel_timeout_abort_text(&session_id);
-            let _ = channel
-                .send(&SendMessage::new(text, &msg.reply_target))
-                .await;
-        }
-        return;
-    }
-
-    if let Some(fallback) = canonical.fallback_response {
-        if let Some(channel) = target_channel.as_ref() {
-            let text = format!("[session:{session_id}] {fallback}");
-            let _ = channel
-                .send(&SendMessage::new(text, &msg.reply_target))
-                .await;
-        }
+    .await
+    .is_some()
+    {
         return;
     }
 
     println!("  ⏳ Processing message...");
     let started_at = Instant::now();
 
-    // Build history from per-sender conversation cache
     let history_key = format!("{}_{}", msg.channel, msg.sender);
     let prior_turns = ctx
         .conversation_histories
@@ -517,76 +493,10 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         .cloned()
         .unwrap_or_default();
 
-    let mut history = vec![ConversationMessage::Chat(ChatMessage::system(
-        ctx.system_prompt.as_str(),
-    ))];
-    history.extend(prior_turns.into_iter().map(ConversationMessage::Chat));
+    let mut history = build_history(ctx.as_ref(), &enriched_message, &msg.channel, prior_turns);
 
-    if let Some(instructions) = channel_delivery_instructions(&msg.channel) {
-        history.push(ConversationMessage::Chat(ChatMessage::system(instructions)));
-    }
-
-    history.push(ConversationMessage::Chat(ChatMessage::user(
-        &enriched_message,
-    )));
-
-    // Determine if this channel supports streaming draft updates
-    let use_streaming = target_channel
-        .as_ref()
-        .map_or(false, |ch| ch.supports_draft_updates());
-
-    // Set up streaming channel if supported
-    let (delta_tx, delta_rx) = if use_streaming {
-        let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
-        (Some(tx), Some(rx))
-    } else {
-        (None, None)
-    };
-
-    // Send initial draft message if streaming
-    let draft_message_id = if use_streaming {
-        if let Some(channel) = target_channel.as_ref() {
-            match channel
-                .send_draft(&SendMessage::new("...", &msg.reply_target))
-                .await
-            {
-                Ok(id) => id,
-                Err(e) => {
-                    tracing::debug!("Failed to send draft on {}: {e}", channel.name());
-                    None
-                }
-            }
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    // Spawn a task to forward streaming deltas to draft updates
-    let draft_updater = if let (Some(mut rx), Some(draft_id_ref), Some(channel_ref)) = (
-        delta_rx,
-        draft_message_id.as_deref(),
-        target_channel.as_ref(),
-    ) {
-        let channel = Arc::clone(channel_ref);
-        let reply_target = msg.reply_target.clone();
-        let draft_id = draft_id_ref.to_string();
-        Some(tokio::spawn(async move {
-            let mut accumulated = String::new();
-            while let Some(delta) = rx.recv().await {
-                accumulated.push_str(&delta);
-                if let Err(e) = channel
-                    .update_draft(&reply_target, &draft_id, &accumulated)
-                    .await
-                {
-                    tracing::debug!("Draft update failed: {e}");
-                }
-            }
-        }))
-    } else {
-        None
-    };
+    let (delta_tx, draft_message_id, draft_updater) =
+        setup_streaming(target_channel.as_ref(), &msg.reply_target).await;
 
     let typing_cancellation = target_channel.as_ref().map(|_| CancellationToken::new());
     let typing_task = match (target_channel.as_ref(), typing_cancellation.as_ref()) {
@@ -615,7 +525,164 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
     )
     .await;
 
-    // Wait for draft updater to finish
+    cleanup_async_tasks(draft_updater, typing_cancellation, typing_task).await;
+
+    let response_ctx = ResponseContext {
+        channel: target_channel.as_ref(),
+        reply_target: &msg.reply_target,
+        draft_id: draft_message_id.as_deref(),
+    };
+
+    match llm_result {
+        Ok(Ok(response)) => {
+            handle_successful_response(
+                ctx.as_ref(),
+                &history_key,
+                &enriched_message,
+                response,
+                started_at,
+                response_ctx,
+            )
+            .await;
+        }
+        Ok(Err(e)) => {
+            handle_llm_error(e, started_at, response_ctx).await;
+        }
+        Err(_) => {
+            handle_timeout(session_id, started_at, response_ctx).await;
+        }
+    }
+}
+
+fn build_history(
+    ctx: &ChannelRuntimeContext,
+    enriched_message: &str,
+    channel_name: &str,
+    prior_turns: Vec<ChatMessage>,
+) -> Vec<ConversationMessage> {
+    let mut history = vec![ConversationMessage::Chat(ChatMessage::system(
+        ctx.system_prompt.as_str(),
+    ))];
+    history.extend(prior_turns.into_iter().map(ConversationMessage::Chat));
+
+    if let Some(instructions) = channel_delivery_instructions(channel_name) {
+        history.push(ConversationMessage::Chat(ChatMessage::system(instructions)));
+    }
+
+    history.push(ConversationMessage::Chat(ChatMessage::user(
+        enriched_message,
+    )));
+    history
+}
+
+async fn handle_canonical_blocking_outcome(
+    channel: Option<&Arc<dyn Channel>>,
+    session_id: &str,
+    reply_target: &str,
+    content: &str,
+) -> Option<()> {
+    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
+    let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
+        session_id.to_string(),
+        content,
+        approval_granted,
+        crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
+            enable_test_triggers: cfg!(test),
+        },
+    )
+    .await;
+
+    if let Some(tool) = canonical.approval_required {
+        if let Some(ch) = channel {
+            let text =
+                format!("[session:{session_id}] approval required for `{tool}`; request blocked");
+            let _ = ch.send(&SendMessage::new(text, reply_target)).await;
+        }
+        return Some(());
+    }
+
+    if canonical.timeout_aborted {
+        if let Some(ch) = channel {
+            let text = channel_timeout_abort_text(session_id);
+            let _ = ch.send(&SendMessage::new(text, reply_target)).await;
+        }
+        return Some(());
+    }
+
+    if let Some(fallback) = canonical.fallback_response {
+        if let Some(ch) = channel {
+            let text = format!("[session:{session_id}] {fallback}");
+            let _ = ch.send(&SendMessage::new(text, reply_target)).await;
+        }
+        return Some(());
+    }
+
+    None
+}
+
+async fn setup_streaming(
+    channel: Option<&Arc<dyn Channel>>,
+    reply_target: &str,
+) -> (
+    Option<tokio::sync::mpsc::Sender<String>>,
+    Option<String>,
+    Option<tokio::task::JoinHandle<()>>,
+) {
+    let use_streaming = channel.map_or(false, |ch| ch.supports_draft_updates());
+
+    let (delta_tx, delta_rx) = if use_streaming {
+        let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
+        (Some(tx), Some(rx))
+    } else {
+        (None, None)
+    };
+
+    let draft_message_id: Option<String> = if use_streaming {
+        if let Some(ch) = channel {
+            match ch.send_draft(&SendMessage::new("...", reply_target)).await {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::debug!("Failed to send draft on {}: {e}", ch.name());
+                    None
+                }
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let draft_updater = if use_streaming {
+        if let (Some(mut rx), Some(draft_id), Some(channel_ref)) =
+            (delta_rx, draft_message_id.clone(), channel)
+        {
+            let ch = Arc::clone(channel_ref);
+            let reply = reply_target.to_string();
+            Some(tokio::spawn(async move {
+                let mut accumulated = String::new();
+                while let Some(delta) = rx.recv().await {
+                    accumulated.push_str(&delta);
+                    if let Err(e) = ch.update_draft(&reply, &draft_id, &accumulated).await {
+                        tracing::debug!("Draft update failed: {e}");
+                    }
+                }
+            }))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    (delta_tx, draft_message_id, draft_updater)
+}
+
+async fn cleanup_async_tasks(
+    draft_updater: Option<tokio::task::JoinHandle<()>>,
+    typing_cancellation: Option<CancellationToken>,
+    typing_task: Option<tokio::task::JoinHandle<()>>,
+) {
     if let Some(handle) = draft_updater {
         let _ = handle.await;
     }
@@ -626,99 +693,111 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
     if let Some(handle) = typing_task {
         log_worker_join_result(handle.await);
     }
+}
 
-    match llm_result {
-        Ok(Ok(response)) => {
-            let response = enforce_strict_memory_validation(
-                ctx.memory.as_ref(),
-                ctx.provider.as_ref(),
-                ctx.model.as_str(),
-                ctx.temperature,
-                &msg.content,
-                response,
-            )
-            .await;
+async fn handle_successful_response(
+    ctx: &ChannelRuntimeContext,
+    history_key: &str,
+    enriched_message: &str,
+    mut response: String,
+    started_at: Instant,
+    response_ctx: ResponseContext<'_>,
+) {
+    response = enforce_strict_memory_validation(
+        ctx.memory.as_ref(),
+        ctx.provider.as_ref(),
+        ctx.model.as_str(),
+        ctx.temperature,
+        enriched_message,
+        response,
+    )
+    .await;
 
-            // Save user + assistant turn to per-sender history
-            {
-                let mut histories = ctx
-                    .conversation_histories
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner());
-                let turns = histories.entry(history_key).or_default();
-                turns.push(ChatMessage::user(&enriched_message));
-                turns.push(ChatMessage::assistant(&response));
-                // Trim to MAX_CHANNEL_HISTORY (keep recent turns)
-                while turns.len() > MAX_CHANNEL_HISTORY {
-                    turns.remove(0);
-                }
-            }
-            println!(
-                "  🤖 Reply ({}ms): {}",
-                started_at.elapsed().as_millis(),
-                truncate_with_ellipsis(&response, 80)
-            );
-            if let Some(channel) = target_channel.as_ref() {
-                if let Some(ref draft_id) = draft_message_id {
-                    if let Err(e) = channel
-                        .finalize_draft(&msg.reply_target, draft_id, &response)
-                        .await
-                    {
-                        tracing::warn!("Failed to finalize draft: {e}; sending as new message");
-                        let _ = channel
-                            .send(&SendMessage::new(&response, &msg.reply_target))
-                            .await;
-                    }
-                } else if let Err(e) = channel
-                    .send(&SendMessage::new(response, &msg.reply_target))
-                    .await
-                {
-                    eprintln!("  ❌ Failed to reply on {}: {e}", channel.name());
-                }
-            }
+    {
+        let mut histories = ctx
+            .conversation_histories
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        let turns = histories.entry(history_key.to_string()).or_default();
+        turns.push(ChatMessage::user(enriched_message));
+        turns.push(ChatMessage::assistant(&response));
+        while turns.len() > MAX_CHANNEL_HISTORY {
+            turns.remove(0);
         }
-        Ok(Err(e)) => {
-            eprintln!(
-                "  ❌ LLM error after {}ms: {e}",
-                started_at.elapsed().as_millis()
-            );
-            if let Some(channel) = target_channel.as_ref() {
-                if let Some(ref draft_id) = draft_message_id {
-                    let _ = channel
-                        .finalize_draft(&msg.reply_target, draft_id, &format!("⚠️ Error: {e}"))
-                        .await;
-                } else {
-                    let _ = channel
-                        .send(&SendMessage::new(
-                            format!("⚠️ Error: {e}"),
-                            &msg.reply_target,
-                        ))
-                        .await;
-                }
+    }
+
+    println!(
+        "  🤖 Reply ({}ms): {}",
+        started_at.elapsed().as_millis(),
+        truncate_with_ellipsis(&response, 80)
+    );
+
+    send_channel_response(
+        response_ctx.channel,
+        response_ctx.reply_target,
+        response_ctx.draft_id,
+        &response,
+    )
+    .await;
+}
+
+async fn handle_llm_error(
+    error: anyhow::Error,
+    started_at: Instant,
+    response_ctx: ResponseContext<'_>,
+) {
+    eprintln!(
+        "  ❌ LLM error after {}ms: {error}",
+        started_at.elapsed().as_millis()
+    );
+    let text = format!("⚠️ Error: {error}");
+    send_channel_response(
+        response_ctx.channel,
+        response_ctx.reply_target,
+        response_ctx.draft_id,
+        &text,
+    )
+    .await;
+}
+
+async fn handle_timeout(
+    session_id: String,
+    started_at: Instant,
+    response_ctx: ResponseContext<'_>,
+) {
+    let timeout_msg = format!(
+        "LLM response timed out after {}s",
+        CHANNEL_MESSAGE_TIMEOUT_SECS
+    );
+    eprintln!(
+        "  ❌ {} (elapsed: {}ms)",
+        timeout_msg,
+        started_at.elapsed().as_millis()
+    );
+    let error_text = channel_timeout_abort_text(&session_id);
+    send_channel_response(
+        response_ctx.channel,
+        response_ctx.reply_target,
+        response_ctx.draft_id,
+        &error_text,
+    )
+    .await;
+}
+
+async fn send_channel_response(
+    channel: Option<&Arc<dyn Channel>>,
+    reply_target: &str,
+    draft_id: Option<&str>,
+    text: &str,
+) {
+    if let Some(ch) = channel {
+        if let Some(id) = draft_id {
+            if let Err(e) = ch.finalize_draft(reply_target, id, text).await {
+                tracing::warn!("Failed to finalize draft: {e}; sending as new message");
+                let _ = ch.send(&SendMessage::new(text, reply_target)).await;
             }
-        }
-        Err(_) => {
-            let timeout_msg = format!(
-                "LLM response timed out after {}s",
-                CHANNEL_MESSAGE_TIMEOUT_SECS
-            );
-            eprintln!(
-                "  ❌ {} (elapsed: {}ms)",
-                timeout_msg,
-                started_at.elapsed().as_millis()
-            );
-            if let Some(channel) = target_channel.as_ref() {
-                let error_text = channel_timeout_abort_text(&session_id);
-                if let Some(ref draft_id) = draft_message_id {
-                    let _ = channel
-                        .finalize_draft(&msg.reply_target, draft_id, &error_text)
-                        .await;
-                } else {
-                    let _ = channel
-                        .send(&SendMessage::new(error_text, &msg.reply_target))
-                        .await;
-                }
-            }
+        } else if let Err(e) = ch.send(&SendMessage::new(text, reply_target)).await {
+            eprintln!("  ❌ Failed to reply on {}: {e}", ch.name());
         }
     }
 }

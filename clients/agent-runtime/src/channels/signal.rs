@@ -261,6 +261,130 @@ impl SignalChannel {
             timestamp: timestamp / 1000, // millis → secs
         })
     }
+
+    async fn connect_sse(&self, url: &reqwest::Url) -> Result<reqwest::Response, ()> {
+        let resp = self
+            .client
+            .get(url.clone())
+            .header("Accept", "text/event-stream")
+            .send()
+            .await;
+
+        match resp {
+            Ok(r) if r.status().is_success() => Ok(r),
+            Ok(r) => {
+                let status = r.status();
+                let body = r.text().await.unwrap_or_default();
+                tracing::warn!("Signal SSE returned {status}: {body}");
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                Err(())
+            }
+            Err(e) => {
+                tracing::warn!("Signal SSE connect error: {e}, retrying...");
+                tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
+                Err(())
+            }
+        }
+    }
+
+    async fn process_sse_chunk(
+        &self,
+        chunk: Result<bytes::Bytes, reqwest::Error>,
+        buffer: &mut String,
+        current_data: &mut String,
+        tx: &mpsc::Sender<ChannelMessage>,
+    ) -> Result<(), ()> {
+        let chunk = match chunk {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::debug!("Signal SSE chunk error, reconnecting: {e}");
+                return Err(());
+            }
+        };
+
+        let text = match String::from_utf8(chunk.to_vec()) {
+            Ok(t) => t,
+            Err(e) => {
+                tracing::debug!("Signal SSE invalid UTF-8, skipping chunk: {}", e);
+                return Ok(());
+            }
+        };
+
+        buffer.push_str(&text);
+
+        while let Some(newline_pos) = buffer.find('\n') {
+            let line = buffer[..newline_pos].trim_end_matches('\r').to_string();
+            buffer.drain(..=newline_pos);
+
+            self.process_line(line.as_str(), current_data, tx).await?;
+        }
+
+        Ok(())
+    }
+
+    async fn process_line(
+        &self,
+        line: &str,
+        current_data: &mut String,
+        tx: &mpsc::Sender<ChannelMessage>,
+    ) -> Result<(), ()> {
+        if line.starts_with(':') {
+            return Ok(());
+        }
+
+        if line.is_empty() {
+            if !current_data.is_empty() {
+                match serde_json::from_str::<SseEnvelope>(current_data) {
+                    Ok(sse) => {
+                        if let Some(ref envelope) = sse.envelope {
+                            if let Some(msg) = self.process_envelope(envelope) {
+                                if tx.send(msg).await.is_err() {
+                                    return Err(());
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tracing::debug!("Signal SSE parse skip: {e}");
+                    }
+                }
+                current_data.clear();
+            }
+            return Ok(());
+        }
+
+        if let Some(data) = line.strip_prefix("data:") {
+            if !current_data.is_empty() {
+                current_data.push('\n');
+            }
+            current_data.push_str(data.trim_start());
+        }
+
+        Ok(())
+    }
+
+    async fn dispatch_pending_envelope(
+        &self,
+        current_data: &str,
+        tx: &mpsc::Sender<ChannelMessage>,
+    ) {
+        if current_data.is_empty() {
+            return;
+        }
+
+        match serde_json::from_str::<SseEnvelope>(current_data) {
+            Ok(sse) => {
+                if let Some(ref envelope) = sse.envelope {
+                    if let Some(msg) = self.process_envelope(envelope) {
+                        let _ = tx.send(msg).await;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::debug!("Signal SSE trailing parse skip: {e}");
+            }
+        }
+    }
 }
 
 #[async_trait]
@@ -297,26 +421,11 @@ impl Channel for SignalChannel {
         let max_delay_secs = 60u64;
 
         loop {
-            let resp = self
-                .client
-                .get(url.clone())
-                .header("Accept", "text/event-stream")
-                .send()
-                .await;
+            let resp = self.connect_sse(&url).await;
 
             let resp = match resp {
-                Ok(r) if r.status().is_success() => r,
-                Ok(r) => {
-                    let status = r.status();
-                    let body = r.text().await.unwrap_or_default();
-                    tracing::warn!("Signal SSE returned {status}: {body}");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(retry_delay_secs)).await;
-                    retry_delay_secs = (retry_delay_secs * 2).min(max_delay_secs);
-                    continue;
-                }
-                Err(e) => {
-                    tracing::warn!("Signal SSE connect error: {e}, retrying...");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(retry_delay_secs)).await;
+                Ok(r) => r,
+                Err(()) => {
                     retry_delay_secs = (retry_delay_secs * 2).min(max_delay_secs);
                     continue;
                 }
@@ -329,76 +438,16 @@ impl Channel for SignalChannel {
             let mut current_data = String::new();
 
             while let Some(chunk) = bytes_stream.next().await {
-                let chunk = match chunk {
-                    Ok(c) => c,
-                    Err(e) => {
-                        tracing::debug!("Signal SSE chunk error, reconnecting: {e}");
-                        break;
-                    }
-                };
-
-                let text = match String::from_utf8(chunk.to_vec()) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        tracing::debug!("Signal SSE invalid UTF-8, skipping chunk: {}", e);
-                        continue;
-                    }
-                };
-
-                buffer.push_str(&text);
-
-                while let Some(newline_pos) = buffer.find('\n') {
-                    let line = buffer[..newline_pos].trim_end_matches('\r').to_string();
-                    buffer = buffer[newline_pos + 1..].to_string();
-
-                    // Skip SSE comments (keepalive)
-                    if line.starts_with(':') {
-                        continue;
-                    }
-
-                    if line.is_empty() {
-                        // Empty line = event boundary, dispatch accumulated data
-                        if !current_data.is_empty() {
-                            match serde_json::from_str::<SseEnvelope>(&current_data) {
-                                Ok(sse) => {
-                                    if let Some(ref envelope) = sse.envelope {
-                                        if let Some(msg) = self.process_envelope(envelope) {
-                                            if tx.send(msg).await.is_err() {
-                                                return Ok(());
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::debug!("Signal SSE parse skip: {e}");
-                                }
-                            }
-                            current_data.clear();
-                        }
-                    } else if let Some(data) = line.strip_prefix("data:") {
-                        if !current_data.is_empty() {
-                            current_data.push('\n');
-                        }
-                        current_data.push_str(data.trim_start());
-                    }
-                    // Ignore "event:", "id:", "retry:" lines
+                if self
+                    .process_sse_chunk(chunk, &mut buffer, &mut current_data, &tx)
+                    .await
+                    .is_err()
+                {
+                    break;
                 }
             }
 
-            if !current_data.is_empty() {
-                match serde_json::from_str::<SseEnvelope>(&current_data) {
-                    Ok(sse) => {
-                        if let Some(ref envelope) = sse.envelope {
-                            if let Some(msg) = self.process_envelope(envelope) {
-                                let _ = tx.send(msg).await;
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::debug!("Signal SSE trailing parse skip: {e}");
-                    }
-                }
-            }
+            self.dispatch_pending_envelope(&current_data, &tx).await;
 
             tracing::debug!("Signal SSE stream ended, reconnecting...");
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;

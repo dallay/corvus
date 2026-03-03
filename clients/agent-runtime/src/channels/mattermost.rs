@@ -116,64 +116,28 @@ impl Channel for MattermostChannel {
             .ok_or_else(|| anyhow::anyhow!("Mattermost channel_id required for listening"))?;
 
         let bot_user_id = self.get_bot_user_id().await.unwrap_or_default();
-        #[allow(clippy::cast_possible_truncation)]
-        let mut last_create_at = (std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis()) as i64;
+        let mut last_create_at = current_timestamp_millis();
 
         tracing::info!("Mattermost channel listening on {}...", channel_id);
 
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-            let resp = match self
-                .client
-                .get(format!(
-                    "{}/api/v4/channels/{}/posts",
-                    self.base_url, channel_id
-                ))
-                .bearer_auth(&self.bot_token)
-                .query(&[("since", last_create_at.to_string())])
-                .send()
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::warn!("Mattermost poll error: {e}");
-                    continue;
-                }
+            let Some(posts) = fetch_channel_posts(
+                &self.client,
+                &self.base_url,
+                &self.bot_token,
+                &channel_id,
+                last_create_at,
+            )
+            .await
+            else {
+                continue;
             };
 
-            let data: serde_json::Value = match resp.json().await {
-                Ok(d) => d,
-                Err(e) => {
-                    tracing::warn!("Mattermost parse error: {e}");
-                    continue;
-                }
-            };
-
-            if let Some(posts) = data.get("posts").and_then(|p| p.as_object()) {
-                // Process in chronological order
-                let mut post_list: Vec<_> = posts.values().collect();
-                post_list.sort_by_key(|p| p.get("create_at").and_then(|c| c.as_i64()).unwrap_or(0));
-
-                for post in post_list {
-                    let msg =
-                        self.parse_mattermost_post(post, &bot_user_id, last_create_at, &channel_id);
-                    let create_at = post
-                        .get("create_at")
-                        .and_then(|c| c.as_i64())
-                        .unwrap_or(last_create_at);
-                    last_create_at = last_create_at.max(create_at);
-
-                    if let Some(channel_msg) = msg {
-                        if tx.send(channel_msg).await.is_err() {
-                            return Ok(());
-                        }
-                    }
-                }
-            }
+            last_create_at =
+                process_and_send_posts(self, posts, &bot_user_id, last_create_at, &channel_id, &tx)
+                    .await;
         }
     }
 
@@ -288,6 +252,75 @@ impl MattermostChannel {
             timestamp: (create_at / 1000) as u64,
         })
     }
+}
+
+#[allow(clippy::cast_possible_truncation)]
+fn current_timestamp_millis() -> i64 {
+    (std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis()) as i64
+}
+
+async fn fetch_channel_posts(
+    client: &reqwest::Client,
+    base_url: &str,
+    bot_token: &str,
+    channel_id: &str,
+    since: i64,
+) -> Option<serde_json::Map<String, serde_json::Value>> {
+    let resp = client
+        .get(format!("{}/api/v4/channels/{}/posts", base_url, channel_id))
+        .bearer_auth(bot_token)
+        .query(&[("since", since.to_string())])
+        .send()
+        .await
+        .ok()?;
+
+    if !resp.status().is_success() {
+        tracing::warn!("Mattermost poll error: status {}", resp.status());
+        return None;
+    }
+
+    let data: serde_json::Value = match resp.json().await {
+        Ok(d) => d,
+        Err(e) => {
+            tracing::warn!("Mattermost parse error: {e}");
+            return None;
+        }
+    };
+
+    data.get("posts")
+        .and_then(serde_json::Value::as_object)
+        .cloned()
+}
+
+async fn process_and_send_posts(
+    channel: &MattermostChannel,
+    posts: serde_json::Map<String, serde_json::Value>,
+    bot_user_id: &str,
+    mut last_create_at: i64,
+    channel_id: &str,
+    tx: &tokio::sync::mpsc::Sender<ChannelMessage>,
+) -> i64 {
+    let mut post_list: Vec<_> = posts.values().collect();
+    post_list.sort_by_key(|p| p.get("create_at").and_then(|c| c.as_i64()).unwrap_or(0));
+
+    for post in post_list {
+        let msg = channel.parse_mattermost_post(post, bot_user_id, last_create_at, channel_id);
+        let create_at = post
+            .get("create_at")
+            .and_then(|c| c.as_i64())
+            .unwrap_or(last_create_at);
+        last_create_at = last_create_at.max(create_at);
+
+        if let Some(channel_msg) = msg {
+            if tx.send(channel_msg).await.is_err() {
+                return last_create_at;
+            }
+        }
+    }
+    last_create_at
 }
 
 #[cfg(test)]

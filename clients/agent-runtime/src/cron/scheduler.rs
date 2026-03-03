@@ -152,14 +152,7 @@ async fn persist_job_result(
 ) -> bool {
     let duration_ms = (finished_at - started_at).num_milliseconds();
 
-    if let Err(e) = deliver_if_configured(config, job, output).await {
-        if job.delivery.best_effort {
-            tracing::warn!("Cron delivery failed (best_effort): {e}");
-        } else {
-            success = false;
-            tracing::warn!("Cron delivery failed: {e}");
-        }
-    }
+    success = handle_delivery(config, job, output, success).await;
 
     let _ = record_run(
         config,
@@ -172,30 +165,52 @@ async fn persist_job_result(
     );
 
     if is_one_shot_auto_delete(job) {
-        if success {
-            if let Err(e) = remove_job(config, &job.id) {
-                tracing::warn!("Failed to remove one-shot cron job after success: {e}");
-            }
-        } else {
-            let _ = record_last_run(config, &job.id, finished_at, false, output);
-            if let Err(e) = update_job(
-                config,
-                &job.id,
-                CronJobPatch {
-                    enabled: Some(false),
-                    ..CronJobPatch::default()
-                },
-            ) {
-                tracing::warn!("Failed to disable failed one-shot cron job: {e}");
-            }
-        }
-        return success;
+        return handle_one_shot_job(config, job, success, finished_at, output);
     }
 
     if let Err(e) = reschedule_after_run(config, job, success, output) {
         tracing::warn!("Failed to persist scheduler run result: {e}");
     }
 
+    success
+}
+
+async fn handle_delivery(config: &Config, job: &CronJob, output: &str, mut success: bool) -> bool {
+    if let Err(e) = deliver_if_configured(config, job, output).await {
+        if job.delivery.best_effort {
+            tracing::warn!("Cron delivery failed (best_effort): {e}");
+        } else {
+            success = false;
+            tracing::warn!("Cron delivery failed: {e}");
+        }
+    }
+    success
+}
+
+fn handle_one_shot_job(
+    config: &Config,
+    job: &CronJob,
+    success: bool,
+    finished_at: DateTime<Utc>,
+    output: &str,
+) -> bool {
+    if success {
+        if let Err(e) = remove_job(config, &job.id) {
+            tracing::warn!("Failed to remove one-shot cron job after success: {e}");
+        }
+    } else {
+        let _ = record_last_run(config, &job.id, finished_at, false, output);
+        if let Err(e) = update_job(
+            config,
+            &job.id,
+            CronJobPatch {
+                enabled: Some(false),
+                ..CronJobPatch::default()
+            },
+        ) {
+            tracing::warn!("Failed to disable failed one-shot cron job: {e}");
+        }
+    }
     success
 }
 

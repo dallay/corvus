@@ -1465,27 +1465,21 @@ fn setup_workspace() -> Result<(PathBuf, PathBuf)> {
     Ok((workspace_dir, config_path))
 }
 
-// ── Step 2: Provider & API Key ───────────────────────────────────
+// ── Provider Tier Helpers ───────────────────────────────────────────
 
-#[allow(clippy::too_many_lines)]
-fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Option<String>)> {
-    // ── Tier selection ──
-    let tiers = vec![
+fn tier_options() -> Vec<&'static str> {
+    vec![
         "⭐ Recommended (OpenRouter, Venice, Anthropic, OpenAI, Gemini, GitHub Copilot)",
         "⚡ Fast inference (Groq, Fireworks, Together AI, NVIDIA NIM)",
         "🌐 Gateway / proxy (Vercel AI, Cloudflare AI, Amazon Bedrock)",
         "🔬 Specialized (Moonshot/Kimi, GLM/Zhipu, MiniMax, Qwen/DashScope, Qianfan, Z.AI, Synthetic, OpenCode Zen, Cohere)",
         "🏠 Local / private (Ollama — no API key needed)",
         "🔧 Custom — bring your own OpenAI-compatible API",
-    ];
+    ]
+}
 
-    let tier_idx = Select::new()
-        .with_prompt("  Select provider category")
-        .items(&tiers)
-        .default(0)
-        .interact()?;
-
-    let providers: Vec<(&str, &str)> = match tier_idx {
+fn providers_for_tier(tier_idx: usize) -> Vec<(&'static str, &'static str)> {
+    match tier_idx {
         0 => vec![
             (
                 "openrouter",
@@ -1550,49 +1544,304 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             ("cohere", "Cohere — Command R+ & embeddings"),
         ],
         4 => vec![("ollama", "Ollama — local models (Llama, Mistral, Phi)")],
-        _ => vec![], // Custom — handled below
-    };
+        _ => vec![],
+    }
+}
 
-    // ── Custom / BYOP flow ──
-    if providers.is_empty() {
-        println!();
-        println!(
-            "  {} {}",
-            style("Custom Provider Setup").white().bold(),
-            style("— any OpenAI-compatible API").dim()
-        );
-        print_bullet("Corvus works with ANY API that speaks the OpenAI chat completions format.");
-        print_bullet("Examples: LiteLLM, LocalAI, vLLM, text-generation-webui, LM Studio, etc.");
-        println!();
+fn api_key_url_for_provider(provider_name: &str) -> &'static str {
+    if is_moonshot_alias(provider_name) {
+        "https://platform.moonshot.cn/console/api-keys"
+    } else if is_glm_cn_alias(provider_name) || is_zai_cn_alias(provider_name) {
+        "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys"
+    } else if is_glm_alias(provider_name) || is_zai_alias(provider_name) {
+        "https://platform.z.ai/"
+    } else if is_minimax_alias(provider_name) {
+        "https://www.minimaxi.com/user-center/basic-information"
+    } else if is_qwen_alias(provider_name) {
+        "https://help.aliyun.com/zh/model-studio/developer-reference/get-api-key"
+    } else if is_qianfan_alias(provider_name) {
+        "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/7lm0vxo78"
+    } else {
+        match provider_name {
+            "openrouter" => "https://openrouter.ai/keys",
+            "openai" => "https://platform.openai.com/api-keys",
+            "venice" => "https://venice.ai/settings/api",
+            "groq" => "https://console.groq.com/keys",
+            "mistral" => "https://console.mistral.ai/api-keys",
+            "deepseek" => "https://platform.deepseek.com/api_keys",
+            "together-ai" => "https://api.together.xyz/settings/api-keys",
+            "fireworks" => "https://fireworks.ai/account/api-keys",
+            "perplexity" => "https://www.perplexity.ai/settings/api",
+            "xai" => "https://console.x.ai",
+            "cohere" => "https://dashboard.cohere.com/api-keys",
+            "vercel" => "https://vercel.com/account/tokens",
+            "cloudflare" => "https://dash.cloudflare.com/profile/api-tokens",
+            "nvidia" | "nvidia-nim" | "build.nvidia.com" => "https://build.nvidia.com/",
+            "bedrock" => "https://console.aws.amazon.com/iam",
+            "gemini" => "https://aistudio.google.com/app/apikey",
+            "astrai" => "https://as-trai.com",
+            _ => "",
+        }
+    }
+}
 
-        let base_url: String = Input::new()
-            .with_prompt("  API base URL (e.g. http://localhost:1234 or https://my-api.com)")
-            .interact_text()?;
+fn setup_custom_provider() -> Result<(String, String, String)> {
+    println!();
+    println!(
+        "  {} {}",
+        style("Custom Provider Setup").white().bold(),
+        style("— any OpenAI-compatible API").dim()
+    );
+    print_bullet("Corvus works with ANY API that speaks the OpenAI chat completions format.");
+    print_bullet("Examples: LiteLLM, LocalAI, vLLM, text-generation-webui, LM Studio, etc.");
+    println!();
 
-        let base_url = base_url.trim().trim_end_matches('/').to_string();
-        if base_url.is_empty() {
-            anyhow::bail!("Custom provider requires a base URL.");
+    let base_url: String = Input::new()
+        .with_prompt("  API base URL (e.g. http://localhost:1234 or https://my-api.com)")
+        .interact_text()?;
+
+    let base_url = base_url.trim().trim_end_matches('/').to_string();
+    if base_url.is_empty() {
+        anyhow::bail!("Custom provider requires a base URL.");
+    }
+
+    let api_key: String = Input::new()
+        .with_prompt("  API key (or Enter to skip if not needed)")
+        .allow_empty(true)
+        .interact_text()?;
+
+    let model: String = Input::new()
+        .with_prompt("  Model name (e.g. llama3, gpt-4o, mistral)")
+        .default("default".into())
+        .interact_text()?;
+
+    let provider_name = format!("custom:{base_url}");
+
+    println!(
+        "  {} Provider: {} | Model: {}",
+        style("✓").green().bold(),
+        style(&provider_name).green(),
+        style(&model).green()
+    );
+
+    Ok((provider_name, api_key, model))
+}
+
+fn setup_ollama_api_key() -> Result<(String, Option<String>)> {
+    let use_remote_ollama = Confirm::new()
+        .with_prompt("  Use a remote Ollama endpoint (for example Ollama Cloud)?")
+        .default(false)
+        .interact()
+        .unwrap_or(false);
+
+    if use_remote_ollama {
+        let raw_url: String = Input::new()
+            .with_prompt("  Remote Ollama endpoint URL")
+            .default("https://ollama.com".into())
+            .interact_text()
+            .unwrap_or_default();
+
+        let normalized_url = raw_url.trim().trim_end_matches('/').to_string();
+        if normalized_url.is_empty() {
+            anyhow::bail!("Remote Ollama endpoint URL cannot be empty.");
         }
 
-        let api_key: String = Input::new()
-            .with_prompt("  API key (or Enter to skip if not needed)")
+        print_bullet(&format!(
+            "Remote endpoint configured: {}",
+            style(&normalized_url).cyan()
+        ));
+        print_bullet(&format!(
+            "If you use cloud-only models, append {} to the model ID.",
+            style(":cloud").yellow()
+        ));
+
+        let key: String = Input::new()
+            .with_prompt("  API key for remote Ollama endpoint (or Enter to skip)")
             .allow_empty(true)
-            .interact_text()?;
+            .interact_text()
+            .unwrap_or_default();
 
-        let model: String = Input::new()
-            .with_prompt("  Model name (e.g. llama3, gpt-4o, mistral)")
-            .default("default".into())
-            .interact_text()?;
+        if key.trim().is_empty() {
+            print_bullet(&format!(
+                "No API key provided. Set {} later if required by your endpoint.",
+                style("OLLAMA_API_KEY").yellow()
+            ));
+        }
 
-        let provider_name = format!("custom:{base_url}");
+        Ok((key, Some(normalized_url)))
+    } else {
+        print_bullet("Using local Ollama at http://localhost:11434 (no API key needed).");
+        Ok((String::new(), None))
+    }
+}
 
-        println!(
-            "  {} Provider: {} | Model: {}",
-            style("✓").green().bold(),
-            style(&provider_name).green(),
-            style(&model).green()
-        );
+fn setup_gemini_api_key() -> String {
+    if crate::providers::gemini::GeminiProvider::has_cli_credentials() {
+        print_bullet(&format!(
+            "{} Gemini CLI credentials detected! You can skip the API key.",
+            style("✓").green().bold()
+        ));
+        print_bullet("Corvus will reuse your existing Gemini CLI authentication.");
+        println!();
 
+        let use_cli: bool = dialoguer::Confirm::new()
+            .with_prompt("  Use existing Gemini CLI authentication?")
+            .default(true)
+            .interact()
+            .unwrap_or(true);
+
+        if use_cli {
+            println!(
+                "  {} Using Gemini CLI OAuth tokens",
+                style("✓").green().bold()
+            );
+            return String::new();
+        }
+        print_bullet("Get your API key at: https://aistudio.google.com/app/apikey");
+    } else if std::env::var("GEMINI_API_KEY").is_ok() {
+        print_bullet(&format!(
+            "{} GEMINI_API_KEY environment variable detected!",
+            style("✓").green().bold()
+        ));
+        return String::new();
+    } else {
+        print_bullet("Get your API key at: https://aistudio.google.com/app/apikey");
+        print_bullet("Or run `gemini` CLI to authenticate (tokens will be reused).");
+        println!();
+    }
+
+    Input::new()
+        .with_prompt("  Paste your Gemini API key (or press Enter to skip)")
+        .allow_empty(true)
+        .interact_text()
+        .unwrap_or_default()
+}
+
+fn setup_anthropic_api_key() -> String {
+    if std::env::var("ANTHROPIC_OAUTH_TOKEN").is_ok() {
+        print_bullet(&format!(
+            "{} ANTHROPIC_OAUTH_TOKEN environment variable detected!",
+            style("✓").green().bold()
+        ));
+        String::new()
+    } else if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+        print_bullet(&format!(
+            "{} ANTHROPIC_API_KEY environment variable detected!",
+            style("✓").green().bold()
+        ));
+        String::new()
+    } else {
+        print_bullet(&format!(
+            "Get your API key at: {}",
+            style("https://console.anthropic.com/settings/keys")
+                .cyan()
+                .underlined()
+        ));
+        print_bullet("Or run `claude setup-token` to get an OAuth setup-token.");
+        println!();
+
+        let key: String = Input::new()
+            .with_prompt("  Paste your API key or setup-token (or press Enter to skip)")
+            .allow_empty(true)
+            .interact_text()
+            .unwrap_or_default();
+
+        if key.is_empty() {
+            print_bullet(&format!(
+                "Skipped. Set {} or {} or edit config.toml later.",
+                style("ANTHROPIC_API_KEY").yellow(),
+                style("ANTHROPIC_OAUTH_TOKEN").yellow()
+            ));
+        }
+
+        key
+    }
+}
+
+fn setup_copilot_api_key() -> String {
+    if std::env::var("GITHUB_TOKEN").is_ok() || std::env::var("GH_TOKEN").is_ok() {
+        print_bullet(&format!(
+            "{} GitHub token environment variable detected!",
+            style("✓").green().bold()
+        ));
+        String::new()
+    } else {
+        print_bullet("Corvus can authenticate with GitHub Copilot automatically via device code.");
+        print_bullet("Optional: paste a GitHub token now to skip browser login.");
+        println!();
+
+        Input::new()
+            .with_prompt("  Paste GitHub token (or press Enter to use OAuth device login)")
+            .allow_empty(true)
+            .interact_text()
+            .unwrap_or_default()
+    }
+}
+
+fn setup_generic_api_key(provider_name: &str) -> String {
+    let key_url = api_key_url_for_provider(provider_name);
+
+    println!();
+    if !key_url.is_empty() {
+        print_bullet(&format!(
+            "Get your API key at: {}",
+            style(key_url).cyan().underlined()
+        ));
+    }
+    print_bullet("You can also set it later via env var or config file.");
+    println!();
+
+    let key: String = Input::new()
+        .with_prompt("  Paste your API key (or press Enter to skip)")
+        .allow_empty(true)
+        .interact_text()
+        .unwrap_or_default();
+
+    if key.is_empty() {
+        let env_var = provider_env_var(provider_name);
+        print_bullet(&format!(
+            "Skipped. Set {} or edit config.toml later.",
+            style(env_var).yellow()
+        ));
+    }
+
+    key
+}
+
+fn collect_api_key(provider_name: &str) -> Result<(String, Option<String>)> {
+    let mut provider_api_url: Option<String> = None;
+
+    let api_key = if provider_name == "ollama" {
+        let (key, url) = setup_ollama_api_key()?;
+        provider_api_url = url;
+        key
+    } else if canonical_provider_name(provider_name) == "gemini" {
+        setup_gemini_api_key()
+    } else if canonical_provider_name(provider_name) == "anthropic" {
+        setup_anthropic_api_key()
+    } else if canonical_provider_name(provider_name) == "copilot" {
+        setup_copilot_api_key()
+    } else {
+        setup_generic_api_key(provider_name)
+    };
+
+    Ok((api_key, provider_api_url))
+}
+
+// ── Step 2: Provider & API Key ───────────────────────────────────
+
+#[allow(clippy::too_many_lines)]
+fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Option<String>)> {
+    let tier_idx = Select::new()
+        .with_prompt("  Select provider category")
+        .items(tier_options())
+        .default(0)
+        .interact()?;
+
+    let providers = providers_for_tier(tier_idx);
+
+    if providers.is_empty() {
+        let (provider_name, api_key, model) = setup_custom_provider()?;
         return Ok((provider_name, api_key, model, None));
     }
 
@@ -1606,215 +1855,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
 
     let provider_name = providers[provider_idx].0;
 
-    // ── API key / endpoint ──
-    let mut provider_api_url: Option<String> = None;
-    let api_key = if provider_name == "ollama" {
-        let use_remote_ollama = Confirm::new()
-            .with_prompt("  Use a remote Ollama endpoint (for example Ollama Cloud)?")
-            .default(false)
-            .interact()?;
-
-        if use_remote_ollama {
-            let raw_url: String = Input::new()
-                .with_prompt("  Remote Ollama endpoint URL")
-                .default("https://ollama.com".into())
-                .interact_text()?;
-
-            let normalized_url = raw_url.trim().trim_end_matches('/').to_string();
-            if normalized_url.is_empty() {
-                anyhow::bail!("Remote Ollama endpoint URL cannot be empty.");
-            }
-
-            provider_api_url = Some(normalized_url.clone());
-
-            print_bullet(&format!(
-                "Remote endpoint configured: {}",
-                style(&normalized_url).cyan()
-            ));
-            print_bullet(&format!(
-                "If you use cloud-only models, append {} to the model ID.",
-                style(":cloud").yellow()
-            ));
-
-            let key: String = Input::new()
-                .with_prompt("  API key for remote Ollama endpoint (or Enter to skip)")
-                .allow_empty(true)
-                .interact_text()?;
-
-            if key.trim().is_empty() {
-                print_bullet(&format!(
-                    "No API key provided. Set {} later if required by your endpoint.",
-                    style("OLLAMA_API_KEY").yellow()
-                ));
-            }
-
-            key
-        } else {
-            print_bullet("Using local Ollama at http://localhost:11434 (no API key needed).");
-            String::new()
-        }
-    } else if canonical_provider_name(provider_name) == "gemini" {
-        // Special handling for Gemini: check for CLI auth first
-        if crate::providers::gemini::GeminiProvider::has_cli_credentials() {
-            print_bullet(&format!(
-                "{} Gemini CLI credentials detected! You can skip the API key.",
-                style("✓").green().bold()
-            ));
-            print_bullet("Corvus will reuse your existing Gemini CLI authentication.");
-            println!();
-
-            let use_cli: bool = dialoguer::Confirm::new()
-                .with_prompt("  Use existing Gemini CLI authentication?")
-                .default(true)
-                .interact()?;
-
-            if use_cli {
-                println!(
-                    "  {} Using Gemini CLI OAuth tokens",
-                    style("✓").green().bold()
-                );
-                String::new() // Empty key = will use CLI tokens
-            } else {
-                print_bullet("Get your API key at: https://aistudio.google.com/app/apikey");
-                Input::new()
-                    .with_prompt("  Paste your Gemini API key")
-                    .allow_empty(true)
-                    .interact_text()?
-            }
-        } else if std::env::var("GEMINI_API_KEY").is_ok() {
-            print_bullet(&format!(
-                "{} GEMINI_API_KEY environment variable detected!",
-                style("✓").green().bold()
-            ));
-            String::new()
-        } else {
-            print_bullet("Get your API key at: https://aistudio.google.com/app/apikey");
-            print_bullet("Or run `gemini` CLI to authenticate (tokens will be reused).");
-            println!();
-
-            Input::new()
-                .with_prompt("  Paste your Gemini API key (or press Enter to skip)")
-                .allow_empty(true)
-                .interact_text()?
-        }
-    } else if canonical_provider_name(provider_name) == "anthropic" {
-        if std::env::var("ANTHROPIC_OAUTH_TOKEN").is_ok() {
-            print_bullet(&format!(
-                "{} ANTHROPIC_OAUTH_TOKEN environment variable detected!",
-                style("✓").green().bold()
-            ));
-            String::new()
-        } else if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-            print_bullet(&format!(
-                "{} ANTHROPIC_API_KEY environment variable detected!",
-                style("✓").green().bold()
-            ));
-            String::new()
-        } else {
-            print_bullet(&format!(
-                "Get your API key at: {}",
-                style("https://console.anthropic.com/settings/keys")
-                    .cyan()
-                    .underlined()
-            ));
-            print_bullet("Or run `claude setup-token` to get an OAuth setup-token.");
-            println!();
-
-            let key: String = Input::new()
-                .with_prompt("  Paste your API key or setup-token (or press Enter to skip)")
-                .allow_empty(true)
-                .interact_text()?;
-
-            if key.is_empty() {
-                print_bullet(&format!(
-                    "Skipped. Set {} or {} or edit config.toml later.",
-                    style("ANTHROPIC_API_KEY").yellow(),
-                    style("ANTHROPIC_OAUTH_TOKEN").yellow()
-                ));
-            }
-
-            key
-        }
-    } else if canonical_provider_name(provider_name) == "copilot" {
-        if std::env::var("GITHUB_TOKEN").is_ok() || std::env::var("GH_TOKEN").is_ok() {
-            print_bullet(&format!(
-                "{} GitHub token environment variable detected!",
-                style("✓").green().bold()
-            ));
-            String::new()
-        } else {
-            print_bullet(
-                "Corvus can authenticate with GitHub Copilot automatically via device code.",
-            );
-            print_bullet("Optional: paste a GitHub token now to skip browser login.");
-            println!();
-
-            Input::new()
-                .with_prompt("  Paste GitHub token (or press Enter to use OAuth device login)")
-                .allow_empty(true)
-                .interact_text()?
-        }
-    } else {
-        let key_url = if is_moonshot_alias(provider_name) {
-            "https://platform.moonshot.cn/console/api-keys"
-        } else if is_glm_cn_alias(provider_name) || is_zai_cn_alias(provider_name) {
-            "https://open.bigmodel.cn/usercenter/proj-mgmt/apikeys"
-        } else if is_glm_alias(provider_name) || is_zai_alias(provider_name) {
-            "https://platform.z.ai/"
-        } else if is_minimax_alias(provider_name) {
-            "https://www.minimaxi.com/user-center/basic-information"
-        } else if is_qwen_alias(provider_name) {
-            "https://help.aliyun.com/zh/model-studio/developer-reference/get-api-key"
-        } else if is_qianfan_alias(provider_name) {
-            "https://cloud.baidu.com/doc/WENXINWORKSHOP/s/7lm0vxo78"
-        } else {
-            match provider_name {
-                "openrouter" => "https://openrouter.ai/keys",
-                "openai" => "https://platform.openai.com/api-keys",
-                "venice" => "https://venice.ai/settings/api",
-                "groq" => "https://console.groq.com/keys",
-                "mistral" => "https://console.mistral.ai/api-keys",
-                "deepseek" => "https://platform.deepseek.com/api_keys",
-                "together-ai" => "https://api.together.xyz/settings/api-keys",
-                "fireworks" => "https://fireworks.ai/account/api-keys",
-                "perplexity" => "https://www.perplexity.ai/settings/api",
-                "xai" => "https://console.x.ai",
-                "cohere" => "https://dashboard.cohere.com/api-keys",
-                "vercel" => "https://vercel.com/account/tokens",
-                "cloudflare" => "https://dash.cloudflare.com/profile/api-tokens",
-                "nvidia" | "nvidia-nim" | "build.nvidia.com" => "https://build.nvidia.com/",
-                "bedrock" => "https://console.aws.amazon.com/iam",
-                "gemini" => "https://aistudio.google.com/app/apikey",
-                "astrai" => "https://as-trai.com",
-                _ => "",
-            }
-        };
-
-        println!();
-        if !key_url.is_empty() {
-            print_bullet(&format!(
-                "Get your API key at: {}",
-                style(key_url).cyan().underlined()
-            ));
-        }
-        print_bullet("You can also set it later via env var or config file.");
-        println!();
-
-        let key: String = Input::new()
-            .with_prompt("  Paste your API key (or press Enter to skip)")
-            .allow_empty(true)
-            .interact_text()?;
-
-        if key.is_empty() {
-            let env_var = provider_env_var(provider_name);
-            print_bullet(&format!(
-                "Skipped. Set {} or edit config.toml later.",
-                style(env_var).yellow()
-            ));
-        }
-
-        key
-    };
+    let (api_key, provider_api_url) = collect_api_key(provider_name)?;
 
     // ── Model selection ──
     let canonical_provider = canonical_provider_name(provider_name);
@@ -2769,6 +2810,994 @@ fn setup_memory() -> Result<MemoryConfig> {
 // ── Step 3: Channels ────────────────────────────────────────────
 
 #[allow(clippy::too_many_lines)]
+fn setup_telegram_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("Telegram Setup").white().bold(),
+        style("— talk to Corvus from Telegram").dim()
+    );
+    print_bullet("1. Open Telegram and message @BotFather");
+    print_bullet("2. Send /newbot and follow the prompts");
+    print_bullet("3. Copy the bot token and paste it below");
+    println!();
+
+    let token: String = match Input::new()
+        .with_prompt("  Bot token (from @BotFather)")
+        .interact_text()
+    {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+
+    if token.trim().is_empty() {
+        println!("  {} Skipped", style("→").dim());
+        return false;
+    }
+
+    print!("  {} Testing connection... ", style("⏳").dim());
+    let token_clone = token.clone();
+    let thread_result = std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::new();
+        let url = format!("https://api.telegram.org/bot{token_clone}/getMe");
+        let resp = client.get(&url).send()?;
+        let ok = resp.status().is_success();
+        let data: serde_json::Value = resp.json().unwrap_or_default();
+        let bot_name = data
+            .get("result")
+            .and_then(|r| r.get("username"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        Ok::<_, reqwest::Error>((ok, bot_name))
+    })
+    .join();
+
+    match thread_result {
+        Ok(Ok((true, bot_name))) => {
+            println!(
+                "\r  {} Connected as @{bot_name}        ",
+                style("✅").green().bold()
+            );
+        }
+        _ => {
+            println!(
+                "\r  {} Connection failed — check your token and try again",
+                style("❌").red().bold()
+            );
+            return false;
+        }
+    }
+
+    print_bullet(
+        "Allowlist your own Telegram identity first (recommended for secure + fast setup).",
+    );
+    print_bullet(
+        "Use your @username without '@' (example: argenis), or your numeric Telegram user ID.",
+    );
+    print_bullet("Use '*' only for temporary open testing.");
+
+    let users_str: String = match Input::new()
+        .with_prompt(
+            "  Allowed Telegram identities (comma-separated: username without '@' and/or numeric user ID, '*' for all)",
+        )
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let allowed_users = if users_str.trim() == "*" {
+        vec!["*".into()]
+    } else {
+        users_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+
+    if allowed_users.is_empty() {
+        println!(
+            "  {} No users allowlisted — Telegram inbound messages will be denied until you add your username/user ID or '*'.",
+            style("⚠").yellow().bold()
+        );
+    }
+
+    config.telegram = Some(TelegramConfig {
+        bot_token: token,
+        allowed_users,
+        stream_mode: StreamMode::default(),
+        draft_update_interval_ms: 1000,
+    });
+    true
+}
+
+fn setup_discord_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("Discord Setup").white().bold(),
+        style("— talk to Corvus from Discord").dim()
+    );
+    print_bullet("1. Go to https://discord.com/developers/applications");
+    print_bullet("2. Create a New Application → Bot → Copy token");
+    print_bullet("3. Enable MESSAGE CONTENT intent under Bot settings");
+    print_bullet("4. Invite bot to your server with messages permission");
+    println!();
+
+    let token: String = match Input::new().with_prompt("  Bot token").interact_text() {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+
+    if token.trim().is_empty() {
+        println!("  {} Skipped", style("→").dim());
+        return false;
+    }
+
+    print!("  {} Testing connection... ", style("⏳").dim());
+    let token_clone = token.clone();
+    let thread_result = std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .get("https://discord.com/api/v10/users/@me")
+            .header("Authorization", format!("Bot {token_clone}"))
+            .send()?;
+        let ok = resp.status().is_success();
+        let data: serde_json::Value = resp.json().unwrap_or_default();
+        let bot_name = data
+            .get("username")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        Ok::<_, reqwest::Error>((ok, bot_name))
+    })
+    .join();
+
+    match thread_result {
+        Ok(Ok((true, bot_name))) => {
+            println!(
+                "\r  {} Connected as {bot_name}        ",
+                style("✅").green().bold()
+            );
+        }
+        _ => {
+            println!(
+                "\r  {} Connection failed — check your token and try again",
+                style("❌").red().bold()
+            );
+            return false;
+        }
+    }
+
+    let guild: String = match Input::new()
+        .with_prompt("  Server (guild) ID (optional, Enter to skip)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    print_bullet("Allowlist your own Discord user ID first (recommended).");
+    print_bullet(
+        "Get it in Discord: Settings -> Advanced -> Developer Mode (ON), then right-click your profile -> Copy User ID.",
+    );
+    print_bullet("Use '*' only for temporary open testing.");
+
+    let allowed_users_str: String = match Input::new()
+        .with_prompt(
+            "  Allowed Discord user IDs (comma-separated, recommended: your own ID, '*' for all)",
+        )
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let allowed_users = if allowed_users_str.trim().is_empty() {
+        vec![]
+    } else {
+        allowed_users_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+
+    if allowed_users.is_empty() {
+        println!(
+            "  {} No users allowlisted — Discord inbound messages will be denied until you add IDs or '*'.",
+            style("⚠").yellow().bold()
+        );
+    }
+
+    config.discord = Some(DiscordConfig {
+        bot_token: token,
+        guild_id: if guild.is_empty() { None } else { Some(guild) },
+        allowed_users,
+        listen_to_bots: false,
+        mention_only: false,
+    });
+    true
+}
+
+fn setup_slack_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("Slack Setup").white().bold(),
+        style("— talk to Corvus from Slack").dim()
+    );
+    print_bullet("1. Go to https://api.slack.com/apps → Create New App");
+    print_bullet("2. Add Bot Token Scopes: chat:write, channels:history");
+    print_bullet("3. Install to workspace and copy the Bot Token");
+    println!();
+
+    let token: String = match Input::new()
+        .with_prompt("  Bot token (xoxb-...)")
+        .interact_text()
+    {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+
+    if token.trim().is_empty() {
+        println!("  {} Skipped", style("→").dim());
+        return false;
+    }
+
+    print!("  {} Testing connection... ", style("⏳").dim());
+    let token_clone = token.clone();
+    let thread_result = std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .get("https://slack.com/api/auth.test")
+            .bearer_auth(&token_clone)
+            .send()?;
+        let ok = resp.status().is_success();
+        let data: serde_json::Value = resp.json().unwrap_or_default();
+        let api_ok = data
+            .get("ok")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false);
+        let team = data
+            .get("team")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown")
+            .to_string();
+        let err = data
+            .get("error")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("unknown error")
+            .to_string();
+        Ok::<_, reqwest::Error>((ok, api_ok, team, err))
+    })
+    .join();
+
+    match thread_result {
+        Ok(Ok((true, true, team, _))) => {
+            println!(
+                "\r  {} Connected to workspace: {team}        ",
+                style("✅").green().bold()
+            );
+        }
+        Ok(Ok((true, false, _, err))) => {
+            println!("\r  {} Slack error: {err}", style("❌").red().bold());
+            return false;
+        }
+        _ => {
+            println!(
+                "\r  {} Connection failed — check your token",
+                style("❌").red().bold()
+            );
+            return false;
+        }
+    }
+
+    let app_token: String = match Input::new()
+        .with_prompt("  App token (xapp-..., optional, Enter to skip)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let channel: String = match Input::new()
+        .with_prompt("  Default channel ID (optional, Enter to skip)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    print_bullet("Allowlist your own Slack member ID first (recommended).");
+    print_bullet(
+        "Member IDs usually start with 'U' (open your Slack profile -> More -> Copy member ID).",
+    );
+    print_bullet("Use '*' only for temporary open testing.");
+
+    let allowed_users_str: String = match Input::new()
+        .with_prompt(
+            "  Allowed Slack user IDs (comma-separated, recommended: your own member ID, '*' for all)",
+        )
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let allowed_users = if allowed_users_str.trim().is_empty() {
+        vec![]
+    } else {
+        allowed_users_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+
+    if allowed_users.is_empty() {
+        println!(
+            "  {} No users allowlisted — Slack inbound messages will be denied until you add IDs or '*'.",
+            style("⚠").yellow().bold()
+        );
+    }
+
+    config.slack = Some(SlackConfig {
+        bot_token: token,
+        app_token: if app_token.is_empty() {
+            None
+        } else {
+            Some(app_token)
+        },
+        channel_id: if channel.is_empty() {
+            None
+        } else {
+            Some(channel)
+        },
+        allowed_users,
+    });
+    true
+}
+
+fn setup_imessage_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("iMessage Setup").white().bold(),
+        style("— macOS only, reads from Messages.app").dim()
+    );
+
+    if !cfg!(target_os = "macos") {
+        println!(
+            "  {} iMessage is only available on macOS.",
+            style("⚠").yellow().bold()
+        );
+        return false;
+    }
+
+    print_bullet("Corvus reads your iMessage database and replies via AppleScript.");
+    print_bullet("You need to grant Full Disk Access to your terminal in System Settings.");
+    println!();
+
+    let contacts_str: String = match Input::new()
+        .with_prompt("  Allowed contacts (comma-separated phone/email, or * for all)")
+        .default("*".into())
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let allowed_contacts = if contacts_str.trim() == "*" {
+        vec!["*".into()]
+    } else {
+        contacts_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect()
+    };
+
+    config.imessage = Some(IMessageConfig { allowed_contacts });
+    println!(
+        "  {} iMessage configured (contacts: {})",
+        style("✅").green().bold(),
+        style(&contacts_str).cyan()
+    );
+    true
+}
+
+fn setup_matrix_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("Matrix Setup").white().bold(),
+        style("— self-hosted, federated chat").dim()
+    );
+    print_bullet("You need a Matrix account and an access token.");
+    print_bullet("Get a token via Element → Settings → Help & About → Access Token.");
+    println!();
+
+    let homeserver: String = match Input::new()
+        .with_prompt("  Homeserver URL (e.g. https://matrix.org)")
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    if homeserver.trim().is_empty() {
+        println!("  {} Skipped", style("→").dim());
+        return false;
+    }
+
+    let access_token: String = match Input::new().with_prompt("  Access token").interact_text() {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+
+    if access_token.trim().is_empty() {
+        println!("  {} Skipped — token required", style("→").dim());
+        return false;
+    }
+
+    let hs = homeserver.trim_end_matches('/');
+    print!("  {} Testing connection... ", style("⏳").dim());
+    let hs_owned = hs.to_string();
+    let access_token_clone = access_token.clone();
+    let thread_result = std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .get(format!("{hs_owned}/_matrix/client/v3/account/whoami"))
+            .header("Authorization", format!("Bearer {access_token_clone}"))
+            .send()?;
+        let ok = resp.status().is_success();
+        Ok::<_, reqwest::Error>(ok)
+    })
+    .join();
+
+    match thread_result {
+        Ok(Ok(true)) => {
+            println!(
+                "\r  {} Connection verified        ",
+                style("✅").green().bold()
+            );
+        }
+        _ => {
+            println!(
+                "\r  {} Connection failed — check homeserver URL and token",
+                style("❌").red().bold()
+            );
+            return false;
+        }
+    }
+
+    let room_id: String = match Input::new()
+        .with_prompt("  Room ID (e.g. !abc123:matrix.org)")
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let users_str: String = match Input::new()
+        .with_prompt("  Allowed users (comma-separated @user:server, or * for all)")
+        .default("*".into())
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let allowed_users = if users_str.trim() == "*" {
+        vec!["*".into()]
+    } else {
+        users_str.split(',').map(|s| s.trim().to_string()).collect()
+    };
+
+    config.matrix = Some(MatrixConfig {
+        homeserver: homeserver.trim_end_matches('/').to_string(),
+        access_token,
+        room_id,
+        allowed_users,
+    });
+    true
+}
+
+fn setup_whatsapp_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("WhatsApp Setup").white().bold(),
+        style("— Business Cloud API").dim()
+    );
+    print_bullet("1. Go to developers.facebook.com and create a WhatsApp app");
+    print_bullet("2. Add the WhatsApp product and get your phone number ID");
+    print_bullet("3. Generate a temporary access token (System User)");
+    print_bullet("4. Configure webhook URL to: https://your-domain/whatsapp");
+    println!();
+
+    let access_token: String = match Input::new()
+        .with_prompt("  Access token (from Meta Developers)")
+        .interact_text()
+    {
+        Ok(t) => t,
+        Err(_) => return false,
+    };
+
+    if access_token.trim().is_empty() {
+        println!("  {} Skipped", style("→").dim());
+        return false;
+    }
+
+    let phone_number_id: String = match Input::new()
+        .with_prompt("  Phone number ID (from WhatsApp app settings)")
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    if phone_number_id.trim().is_empty() {
+        println!("  {} Skipped — phone number ID required", style("→").dim());
+        return false;
+    }
+
+    let verify_token: String = match Input::new()
+        .with_prompt("  Webhook verify token (create your own)")
+        .default("corvus-whatsapp-verify".into())
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    print!("  {} Testing connection... ", style("⏳").dim());
+    let phone_number_id_clone = phone_number_id.clone();
+    let access_token_clone = access_token.clone();
+    let thread_result = std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::new();
+        let url = format!(
+            "https://graph.facebook.com/v18.0/{}",
+            phone_number_id_clone.trim()
+        );
+        let resp = client
+            .get(&url)
+            .header(
+                "Authorization",
+                format!("Bearer {}", access_token_clone.trim()),
+            )
+            .send()?;
+        Ok::<_, reqwest::Error>(resp.status().is_success())
+    })
+    .join();
+
+    match thread_result {
+        Ok(Ok(true)) => {
+            println!(
+                "\r  {} Connected to WhatsApp API        ",
+                style("✅").green().bold()
+            );
+        }
+        _ => {
+            println!(
+                "\r  {} Connection failed — check access token and phone number ID",
+                style("❌").red().bold()
+            );
+            return false;
+        }
+    }
+
+    let users_str: String = match Input::new()
+        .with_prompt("  Allowed phone numbers (comma-separated +1234567890, or * for all)")
+        .default("*".into())
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let allowed_numbers = if users_str.trim() == "*" {
+        vec!["*".into()]
+    } else {
+        users_str.split(',').map(|s| s.trim().to_string()).collect()
+    };
+
+    config.whatsapp = Some(WhatsAppConfig {
+        access_token: access_token.trim().to_string(),
+        phone_number_id: phone_number_id.trim().to_string(),
+        verify_token: verify_token.trim().to_string(),
+        app_secret: None,
+        allowed_numbers,
+    });
+    true
+}
+
+fn setup_irc_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("IRC Setup").white().bold(),
+        style("— IRC over TLS").dim()
+    );
+    print_bullet("IRC connects over TLS to any IRC server");
+    print_bullet("Supports SASL PLAIN and NickServ authentication");
+    println!();
+
+    let server: String = match Input::new()
+        .with_prompt("  IRC server (hostname)")
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    if server.trim().is_empty() {
+        println!("  {} Skipped", style("→").dim());
+        return false;
+    }
+
+    let port_str: String = match Input::new()
+        .with_prompt("  Port")
+        .default("6697".into())
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let port: u16 = match port_str.trim().parse() {
+        Ok(p) => p,
+        Err(_) => {
+            println!("  {} Invalid port, using 6697", style("→").dim());
+            6697
+        }
+    };
+
+    let nickname: String = match Input::new().with_prompt("  Bot nickname").interact_text() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    if nickname.trim().is_empty() {
+        println!("  {} Skipped — nickname required", style("→").dim());
+        return false;
+    }
+
+    let channels_str: String = match Input::new()
+        .with_prompt("  Channels to join (comma-separated: #channel1,#channel2)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let channels = if channels_str.trim().is_empty() {
+        vec![]
+    } else {
+        channels_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+
+    print_bullet("Allowlist nicknames that can interact with the bot (case-insensitive).");
+    print_bullet("Use '*' to allow anyone (not recommended for production).");
+
+    let users_str: String = match Input::new()
+        .with_prompt("  Allowed nicknames (comma-separated, or * for all)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let allowed_users = if users_str.trim() == "*" {
+        vec!["*".into()]
+    } else {
+        users_str
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    };
+
+    if allowed_users.is_empty() {
+        print_bullet("⚠️  Empty allowlist — only you can interact. Add nicknames above.");
+    }
+
+    println!();
+    print_bullet("Optional authentication (press Enter to skip each):");
+
+    let server_password: String = match Input::new()
+        .with_prompt("  Server password (for bouncers like ZNC, leave empty if none)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let nickserv_password: String = match Input::new()
+        .with_prompt("  NickServ password (leave empty if none)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let sasl_password: String = match Input::new()
+        .with_prompt("  SASL PLAIN password (leave empty if none)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let verify_tls: bool = match Confirm::new()
+        .with_prompt("  Verify TLS certificate?")
+        .default(true)
+        .interact()
+    {
+        Ok(b) => b,
+        Err(_) => return false,
+    };
+
+    println!(
+        "  {} IRC configured as {}@{}:{}",
+        style("✅").green().bold(),
+        style(&nickname).cyan(),
+        style(&server).cyan(),
+        style(port).cyan()
+    );
+
+    config.irc = Some(IrcConfig {
+        server: server.trim().to_string(),
+        port,
+        nickname: nickname.trim().to_string(),
+        username: None,
+        channels,
+        allowed_users,
+        server_password: if server_password.trim().is_empty() {
+            None
+        } else {
+            Some(server_password.trim().to_string())
+        },
+        nickserv_password: if nickserv_password.trim().is_empty() {
+            None
+        } else {
+            Some(nickserv_password.trim().to_string())
+        },
+        sasl_password: if sasl_password.trim().is_empty() {
+            None
+        } else {
+            Some(sasl_password.trim().to_string())
+        },
+        verify_tls: Some(verify_tls),
+    });
+    true
+}
+
+fn setup_webhook_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("Webhook Setup").white().bold(),
+        style("— HTTP endpoint for custom integrations").dim()
+    );
+
+    let port: String = match Input::new()
+        .with_prompt("  Port")
+        .default("8080".into())
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let secret: String = match Input::new()
+        .with_prompt("  Secret (optional, Enter to skip)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    config.webhook = Some(WebhookConfig {
+        port: port.parse().unwrap_or(8080),
+        secret: if secret.is_empty() {
+            None
+        } else {
+            Some(secret)
+        },
+    });
+    println!(
+        "  {} Webhook on port {}",
+        style("✅").green().bold(),
+        style(&port).cyan()
+    );
+    true
+}
+
+fn setup_dingtalk_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("DingTalk Setup").white().bold(),
+        style("— DingTalk Stream Mode").dim()
+    );
+    print_bullet("1. Go to DingTalk developer console (open.dingtalk.com)");
+    print_bullet("2. Create an app and enable the Stream Mode bot");
+    print_bullet("3. Copy the Client ID (AppKey) and Client Secret (AppSecret)");
+    println!();
+
+    let client_id: String = match Input::new()
+        .with_prompt("  Client ID (AppKey)")
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    if client_id.trim().is_empty() {
+        println!("  {} Skipped", style("→").dim());
+        return false;
+    }
+
+    let client_secret: String = match Input::new()
+        .with_prompt("  Client Secret (AppSecret)")
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    print!("  {} Testing connection... ", style("⏳").dim());
+    let client = reqwest::blocking::Client::new();
+    let body = serde_json::json!({
+        "clientId": client_id,
+        "clientSecret": client_secret,
+    });
+    match client
+        .post("https://api.dingtalk.com/v1.0/gateway/connections/open")
+        .json(&body)
+        .send()
+    {
+        Ok(resp) if resp.status().is_success() => {
+            println!(
+                "\r  {} DingTalk credentials verified        ",
+                style("✅").green().bold()
+            );
+        }
+        _ => {
+            println!(
+                "\r  {} Connection failed — check your credentials",
+                style("❌").red().bold()
+            );
+            return false;
+        }
+    }
+
+    let users_str: String = match Input::new()
+        .with_prompt("  Allowed staff IDs (comma-separated, '*' for all)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let allowed_users: Vec<String> = users_str
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    config.dingtalk = Some(DingTalkConfig {
+        client_id,
+        client_secret,
+        allowed_users,
+    });
+    true
+}
+
+fn setup_qq_channel(config: &mut ChannelsConfig) -> bool {
+    println!();
+    println!(
+        "  {} {}",
+        style("QQ Official Setup").white().bold(),
+        style("— Tencent QQ Bot SDK").dim()
+    );
+    print_bullet("1. Go to QQ Bot developer console (q.qq.com)");
+    print_bullet("2. Create a bot application");
+    print_bullet("3. Copy the App ID and App Secret");
+    println!();
+
+    let app_id: String = match Input::new().with_prompt("  App ID").interact_text() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    if app_id.trim().is_empty() {
+        println!("  {} Skipped", style("→").dim());
+        return false;
+    }
+
+    let app_secret: String = match Input::new().with_prompt("  App Secret").interact_text() {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    print!("  {} Testing connection... ", style("⏳").dim());
+    let client = reqwest::blocking::Client::new();
+    let body = serde_json::json!({
+        "appId": app_id,
+        "clientSecret": app_secret,
+    });
+    match client
+        .post("https://bots.qq.com/app/getAppAccessToken")
+        .json(&body)
+        .send()
+    {
+        Ok(resp) if resp.status().is_success() => {
+            let data: serde_json::Value = resp.json().unwrap_or_default();
+            if data.get("access_token").is_some() {
+                println!(
+                    "\r  {} QQ Bot credentials verified        ",
+                    style("✅").green().bold()
+                );
+            } else {
+                println!(
+                    "\r  {} Auth error — check your credentials",
+                    style("❌").red().bold()
+                );
+                return false;
+            }
+        }
+        _ => {
+            println!(
+                "\r  {} Connection failed — check your credentials",
+                style("❌").red().bold()
+            );
+            return false;
+        }
+    }
+
+    let users_str: String = match Input::new()
+        .with_prompt("  Allowed user IDs (comma-separated, '*' for all)")
+        .allow_empty(true)
+        .interact_text()
+    {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+
+    let allowed_users: Vec<String> = users_str
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    config.qq = Some(QQConfig {
+        app_id,
+        app_secret,
+        allowed_users,
+    });
+    true
+}
 fn setup_channels() -> Result<ChannelsConfig> {
     print_bullet("Channels let you talk to Corvus from anywhere.");
     print_bullet("CLI is always available. Connect more channels now.");
@@ -2885,867 +3914,40 @@ fn setup_channels() -> Result<ChannelsConfig> {
 
         match choice {
             0 => {
-                // ── Telegram ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("Telegram Setup").white().bold(),
-                    style("— talk to Corvus from Telegram").dim()
-                );
-                print_bullet("1. Open Telegram and message @BotFather");
-                print_bullet("2. Send /newbot and follow the prompts");
-                print_bullet("3. Copy the bot token and paste it below");
-                println!();
-
-                let token: String = Input::new()
-                    .with_prompt("  Bot token (from @BotFather)")
-                    .interact_text()?;
-
-                if token.trim().is_empty() {
-                    println!("  {} Skipped", style("→").dim());
-                    continue;
-                }
-
-                // Test connection (run entirely in separate thread — reqwest::blocking Response
-                // must be used and dropped there to avoid "Cannot drop a runtime" panic)
-                print!("  {} Testing connection... ", style("⏳").dim());
-                let token_clone = token.clone();
-                let thread_result = std::thread::spawn(move || {
-                    let client = reqwest::blocking::Client::new();
-                    let url = format!("https://api.telegram.org/bot{token_clone}/getMe");
-                    let resp = client.get(&url).send()?;
-                    let ok = resp.status().is_success();
-                    let data: serde_json::Value = resp.json().unwrap_or_default();
-                    let bot_name = data
-                        .get("result")
-                        .and_then(|r| r.get("username"))
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("unknown")
-                        .to_string();
-                    Ok::<_, reqwest::Error>((ok, bot_name))
-                })
-                .join();
-                match thread_result {
-                    Ok(Ok((true, bot_name))) => {
-                        println!(
-                            "\r  {} Connected as @{bot_name}        ",
-                            style("✅").green().bold()
-                        );
-                    }
-                    _ => {
-                        println!(
-                            "\r  {} Connection failed — check your token and try again",
-                            style("❌").red().bold()
-                        );
-                        continue;
-                    }
-                }
-
-                print_bullet(
-                    "Allowlist your own Telegram identity first (recommended for secure + fast setup).",
-                );
-                print_bullet(
-                    "Use your @username without '@' (example: argenis), or your numeric Telegram user ID.",
-                );
-                print_bullet("Use '*' only for temporary open testing.");
-
-                let users_str: String = Input::new()
-                    .with_prompt(
-                        "  Allowed Telegram identities (comma-separated: username without '@' and/or numeric user ID, '*' for all)",
-                    )
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let allowed_users = if users_str.trim() == "*" {
-                    vec!["*".into()]
-                } else {
-                    users_str
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                };
-
-                if allowed_users.is_empty() {
-                    println!(
-                        "  {} No users allowlisted — Telegram inbound messages will be denied until you add your username/user ID or '*'.",
-                        style("⚠").yellow().bold()
-                    );
-                }
-
-                config.telegram = Some(TelegramConfig {
-                    bot_token: token,
-                    allowed_users,
-                    stream_mode: StreamMode::default(),
-                    draft_update_interval_ms: 1000,
-                });
+                setup_telegram_channel(&mut config);
             }
             1 => {
-                // ── Discord ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("Discord Setup").white().bold(),
-                    style("— talk to Corvus from Discord").dim()
-                );
-                print_bullet("1. Go to https://discord.com/developers/applications");
-                print_bullet("2. Create a New Application → Bot → Copy token");
-                print_bullet("3. Enable MESSAGE CONTENT intent under Bot settings");
-                print_bullet("4. Invite bot to your server with messages permission");
-                println!();
-
-                let token: String = Input::new().with_prompt("  Bot token").interact_text()?;
-
-                if token.trim().is_empty() {
-                    println!("  {} Skipped", style("→").dim());
-                    continue;
-                }
-
-                // Test connection (run entirely in separate thread — Response must be used/dropped there)
-                print!("  {} Testing connection... ", style("⏳").dim());
-                let token_clone = token.clone();
-                let thread_result = std::thread::spawn(move || {
-                    let client = reqwest::blocking::Client::new();
-                    let resp = client
-                        .get("https://discord.com/api/v10/users/@me")
-                        .header("Authorization", format!("Bot {token_clone}"))
-                        .send()?;
-                    let ok = resp.status().is_success();
-                    let data: serde_json::Value = resp.json().unwrap_or_default();
-                    let bot_name = data
-                        .get("username")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("unknown")
-                        .to_string();
-                    Ok::<_, reqwest::Error>((ok, bot_name))
-                })
-                .join();
-                match thread_result {
-                    Ok(Ok((true, bot_name))) => {
-                        println!(
-                            "\r  {} Connected as {bot_name}        ",
-                            style("✅").green().bold()
-                        );
-                    }
-                    _ => {
-                        println!(
-                            "\r  {} Connection failed — check your token and try again",
-                            style("❌").red().bold()
-                        );
-                        continue;
-                    }
-                }
-
-                let guild: String = Input::new()
-                    .with_prompt("  Server (guild) ID (optional, Enter to skip)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                print_bullet("Allowlist your own Discord user ID first (recommended).");
-                print_bullet(
-                    "Get it in Discord: Settings -> Advanced -> Developer Mode (ON), then right-click your profile -> Copy User ID.",
-                );
-                print_bullet("Use '*' only for temporary open testing.");
-
-                let allowed_users_str: String = Input::new()
-                    .with_prompt(
-                        "  Allowed Discord user IDs (comma-separated, recommended: your own ID, '*' for all)",
-                    )
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let allowed_users = if allowed_users_str.trim().is_empty() {
-                    vec![]
-                } else {
-                    allowed_users_str
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                };
-
-                if allowed_users.is_empty() {
-                    println!(
-                        "  {} No users allowlisted — Discord inbound messages will be denied until you add IDs or '*'.",
-                        style("⚠").yellow().bold()
-                    );
-                }
-
-                config.discord = Some(DiscordConfig {
-                    bot_token: token,
-                    guild_id: if guild.is_empty() { None } else { Some(guild) },
-                    allowed_users,
-                    listen_to_bots: false,
-                    mention_only: false,
-                });
+                setup_discord_channel(&mut config);
             }
             2 => {
-                // ── Slack ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("Slack Setup").white().bold(),
-                    style("— talk to Corvus from Slack").dim()
-                );
-                print_bullet("1. Go to https://api.slack.com/apps → Create New App");
-                print_bullet("2. Add Bot Token Scopes: chat:write, channels:history");
-                print_bullet("3. Install to workspace and copy the Bot Token");
-                println!();
-
-                let token: String = Input::new()
-                    .with_prompt("  Bot token (xoxb-...)")
-                    .interact_text()?;
-
-                if token.trim().is_empty() {
-                    println!("  {} Skipped", style("→").dim());
-                    continue;
-                }
-
-                // Test connection (run entirely in separate thread — Response must be used/dropped there)
-                print!("  {} Testing connection... ", style("⏳").dim());
-                let token_clone = token.clone();
-                let thread_result = std::thread::spawn(move || {
-                    let client = reqwest::blocking::Client::new();
-                    let resp = client
-                        .get("https://slack.com/api/auth.test")
-                        .bearer_auth(&token_clone)
-                        .send()?;
-                    let ok = resp.status().is_success();
-                    let data: serde_json::Value = resp.json().unwrap_or_default();
-                    let api_ok = data
-                        .get("ok")
-                        .and_then(serde_json::Value::as_bool)
-                        .unwrap_or(false);
-                    let team = data
-                        .get("team")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("unknown")
-                        .to_string();
-                    let err = data
-                        .get("error")
-                        .and_then(serde_json::Value::as_str)
-                        .unwrap_or("unknown error")
-                        .to_string();
-                    Ok::<_, reqwest::Error>((ok, api_ok, team, err))
-                })
-                .join();
-                match thread_result {
-                    Ok(Ok((true, true, team, _))) => {
-                        println!(
-                            "\r  {} Connected to workspace: {team}        ",
-                            style("✅").green().bold()
-                        );
-                    }
-                    Ok(Ok((true, false, _, err))) => {
-                        println!("\r  {} Slack error: {err}", style("❌").red().bold());
-                        continue;
-                    }
-                    _ => {
-                        println!(
-                            "\r  {} Connection failed — check your token",
-                            style("❌").red().bold()
-                        );
-                        continue;
-                    }
-                }
-
-                let app_token: String = Input::new()
-                    .with_prompt("  App token (xapp-..., optional, Enter to skip)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let channel: String = Input::new()
-                    .with_prompt("  Default channel ID (optional, Enter to skip)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                print_bullet("Allowlist your own Slack member ID first (recommended).");
-                print_bullet(
-                    "Member IDs usually start with 'U' (open your Slack profile -> More -> Copy member ID).",
-                );
-                print_bullet("Use '*' only for temporary open testing.");
-
-                let allowed_users_str: String = Input::new()
-                    .with_prompt(
-                        "  Allowed Slack user IDs (comma-separated, recommended: your own member ID, '*' for all)",
-                    )
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let allowed_users = if allowed_users_str.trim().is_empty() {
-                    vec![]
-                } else {
-                    allowed_users_str
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                };
-
-                if allowed_users.is_empty() {
-                    println!(
-                        "  {} No users allowlisted — Slack inbound messages will be denied until you add IDs or '*'.",
-                        style("⚠").yellow().bold()
-                    );
-                }
-
-                config.slack = Some(SlackConfig {
-                    bot_token: token,
-                    app_token: if app_token.is_empty() {
-                        None
-                    } else {
-                        Some(app_token)
-                    },
-                    channel_id: if channel.is_empty() {
-                        None
-                    } else {
-                        Some(channel)
-                    },
-                    allowed_users,
-                });
+                setup_slack_channel(&mut config);
             }
             3 => {
-                // ── iMessage ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("iMessage Setup").white().bold(),
-                    style("— macOS only, reads from Messages.app").dim()
-                );
-
-                if !cfg!(target_os = "macos") {
-                    println!(
-                        "  {} iMessage is only available on macOS.",
-                        style("⚠").yellow().bold()
-                    );
-                    continue;
-                }
-
-                print_bullet("Corvus reads your iMessage database and replies via AppleScript.");
-                print_bullet(
-                    "You need to grant Full Disk Access to your terminal in System Settings.",
-                );
-                println!();
-
-                let contacts_str: String = Input::new()
-                    .with_prompt("  Allowed contacts (comma-separated phone/email, or * for all)")
-                    .default("*".into())
-                    .interact_text()?;
-
-                let allowed_contacts = if contacts_str.trim() == "*" {
-                    vec!["*".into()]
-                } else {
-                    contacts_str
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .collect()
-                };
-
-                config.imessage = Some(IMessageConfig { allowed_contacts });
-                println!(
-                    "  {} iMessage configured (contacts: {})",
-                    style("✅").green().bold(),
-                    style(&contacts_str).cyan()
-                );
+                setup_imessage_channel(&mut config);
             }
             4 => {
-                // ── Matrix ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("Matrix Setup").white().bold(),
-                    style("— self-hosted, federated chat").dim()
-                );
-                print_bullet("You need a Matrix account and an access token.");
-                print_bullet("Get a token via Element → Settings → Help & About → Access Token.");
-                println!();
-
-                let homeserver: String = Input::new()
-                    .with_prompt("  Homeserver URL (e.g. https://matrix.org)")
-                    .interact_text()?;
-
-                if homeserver.trim().is_empty() {
-                    println!("  {} Skipped", style("→").dim());
-                    continue;
-                }
-
-                let access_token: String =
-                    Input::new().with_prompt("  Access token").interact_text()?;
-
-                if access_token.trim().is_empty() {
-                    println!("  {} Skipped — token required", style("→").dim());
-                    continue;
-                }
-
-                // Test connection (run entirely in separate thread — Response must be used/dropped there)
-                let hs = homeserver.trim_end_matches('/');
-                print!("  {} Testing connection... ", style("⏳").dim());
-                let hs_owned = hs.to_string();
-                let access_token_clone = access_token.clone();
-                let thread_result = std::thread::spawn(move || {
-                    let client = reqwest::blocking::Client::new();
-                    let resp = client
-                        .get(format!("{hs_owned}/_matrix/client/v3/account/whoami"))
-                        .header("Authorization", format!("Bearer {access_token_clone}"))
-                        .send()?;
-                    let ok = resp.status().is_success();
-                    Ok::<_, reqwest::Error>(ok)
-                })
-                .join();
-                match thread_result {
-                    Ok(Ok(true)) => println!(
-                        "\r  {} Connection verified        ",
-                        style("✅").green().bold()
-                    ),
-                    _ => {
-                        println!(
-                            "\r  {} Connection failed — check homeserver URL and token",
-                            style("❌").red().bold()
-                        );
-                        continue;
-                    }
-                }
-
-                let room_id: String = Input::new()
-                    .with_prompt("  Room ID (e.g. !abc123:matrix.org)")
-                    .interact_text()?;
-
-                let users_str: String = Input::new()
-                    .with_prompt("  Allowed users (comma-separated @user:server, or * for all)")
-                    .default("*".into())
-                    .interact_text()?;
-
-                let allowed_users = if users_str.trim() == "*" {
-                    vec!["*".into()]
-                } else {
-                    users_str.split(',').map(|s| s.trim().to_string()).collect()
-                };
-
-                config.matrix = Some(MatrixConfig {
-                    homeserver: homeserver.trim_end_matches('/').to_string(),
-                    access_token,
-                    room_id,
-                    allowed_users,
-                });
+                setup_matrix_channel(&mut config);
             }
             5 => {
-                // ── WhatsApp ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("WhatsApp Setup").white().bold(),
-                    style("— Business Cloud API").dim()
-                );
-                print_bullet("1. Go to developers.facebook.com and create a WhatsApp app");
-                print_bullet("2. Add the WhatsApp product and get your phone number ID");
-                print_bullet("3. Generate a temporary access token (System User)");
-                print_bullet("4. Configure webhook URL to: https://your-domain/whatsapp");
-                println!();
-
-                let access_token: String = Input::new()
-                    .with_prompt("  Access token (from Meta Developers)")
-                    .interact_text()?;
-
-                if access_token.trim().is_empty() {
-                    println!("  {} Skipped", style("→").dim());
-                    continue;
-                }
-
-                let phone_number_id: String = Input::new()
-                    .with_prompt("  Phone number ID (from WhatsApp app settings)")
-                    .interact_text()?;
-
-                if phone_number_id.trim().is_empty() {
-                    println!("  {} Skipped — phone number ID required", style("→").dim());
-                    continue;
-                }
-
-                let verify_token: String = Input::new()
-                    .with_prompt("  Webhook verify token (create your own)")
-                    .default("corvus-whatsapp-verify".into())
-                    .interact_text()?;
-
-                // Test connection (run entirely in separate thread — Response must be used/dropped there)
-                print!("  {} Testing connection... ", style("⏳").dim());
-                let phone_number_id_clone = phone_number_id.clone();
-                let access_token_clone = access_token.clone();
-                let thread_result = std::thread::spawn(move || {
-                    let client = reqwest::blocking::Client::new();
-                    let url = format!(
-                        "https://graph.facebook.com/v18.0/{}",
-                        phone_number_id_clone.trim()
-                    );
-                    let resp = client
-                        .get(&url)
-                        .header(
-                            "Authorization",
-                            format!("Bearer {}", access_token_clone.trim()),
-                        )
-                        .send()?;
-                    Ok::<_, reqwest::Error>(resp.status().is_success())
-                })
-                .join();
-                match thread_result {
-                    Ok(Ok(true)) => {
-                        println!(
-                            "\r  {} Connected to WhatsApp API        ",
-                            style("✅").green().bold()
-                        );
-                    }
-                    _ => {
-                        println!(
-                            "\r  {} Connection failed — check access token and phone number ID",
-                            style("❌").red().bold()
-                        );
-                        continue;
-                    }
-                }
-
-                let users_str: String = Input::new()
-                    .with_prompt(
-                        "  Allowed phone numbers (comma-separated +1234567890, or * for all)",
-                    )
-                    .default("*".into())
-                    .interact_text()?;
-
-                let allowed_numbers = if users_str.trim() == "*" {
-                    vec!["*".into()]
-                } else {
-                    users_str.split(',').map(|s| s.trim().to_string()).collect()
-                };
-
-                config.whatsapp = Some(WhatsAppConfig {
-                    access_token: access_token.trim().to_string(),
-                    phone_number_id: phone_number_id.trim().to_string(),
-                    verify_token: verify_token.trim().to_string(),
-                    app_secret: None, // Can be set via CORVUS_WHATSAPP_APP_SECRET env var
-                    allowed_numbers,
-                });
+                setup_whatsapp_channel(&mut config);
             }
             6 => {
-                // ── IRC ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("IRC Setup").white().bold(),
-                    style("— IRC over TLS").dim()
-                );
-                print_bullet("IRC connects over TLS to any IRC server");
-                print_bullet("Supports SASL PLAIN and NickServ authentication");
-                println!();
-
-                let server: String = Input::new()
-                    .with_prompt("  IRC server (hostname)")
-                    .interact_text()?;
-
-                if server.trim().is_empty() {
-                    println!("  {} Skipped", style("→").dim());
-                    continue;
-                }
-
-                let port_str: String = Input::new()
-                    .with_prompt("  Port")
-                    .default("6697".into())
-                    .interact_text()?;
-
-                let port: u16 = match port_str.trim().parse() {
-                    Ok(p) => p,
-                    Err(_) => {
-                        println!("  {} Invalid port, using 6697", style("→").dim());
-                        6697
-                    }
-                };
-
-                let nickname: String =
-                    Input::new().with_prompt("  Bot nickname").interact_text()?;
-
-                if nickname.trim().is_empty() {
-                    println!("  {} Skipped — nickname required", style("→").dim());
-                    continue;
-                }
-
-                let channels_str: String = Input::new()
-                    .with_prompt("  Channels to join (comma-separated: #channel1,#channel2)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let channels = if channels_str.trim().is_empty() {
-                    vec![]
-                } else {
-                    channels_str
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                };
-
-                print_bullet(
-                    "Allowlist nicknames that can interact with the bot (case-insensitive).",
-                );
-                print_bullet("Use '*' to allow anyone (not recommended for production).");
-
-                let users_str: String = Input::new()
-                    .with_prompt("  Allowed nicknames (comma-separated, or * for all)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let allowed_users = if users_str.trim() == "*" {
-                    vec!["*".into()]
-                } else {
-                    users_str
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                };
-
-                if allowed_users.is_empty() {
-                    print_bullet(
-                        "⚠️  Empty allowlist — only you can interact. Add nicknames above.",
-                    );
-                }
-
-                println!();
-                print_bullet("Optional authentication (press Enter to skip each):");
-
-                let server_password: String = Input::new()
-                    .with_prompt("  Server password (for bouncers like ZNC, leave empty if none)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let nickserv_password: String = Input::new()
-                    .with_prompt("  NickServ password (leave empty if none)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let sasl_password: String = Input::new()
-                    .with_prompt("  SASL PLAIN password (leave empty if none)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let verify_tls: bool = Confirm::new()
-                    .with_prompt("  Verify TLS certificate?")
-                    .default(true)
-                    .interact()?;
-
-                println!(
-                    "  {} IRC configured as {}@{}:{}",
-                    style("✅").green().bold(),
-                    style(&nickname).cyan(),
-                    style(&server).cyan(),
-                    style(port).cyan()
-                );
-
-                config.irc = Some(IrcConfig {
-                    server: server.trim().to_string(),
-                    port,
-                    nickname: nickname.trim().to_string(),
-                    username: None,
-                    channels,
-                    allowed_users,
-                    server_password: if server_password.trim().is_empty() {
-                        None
-                    } else {
-                        Some(server_password.trim().to_string())
-                    },
-                    nickserv_password: if nickserv_password.trim().is_empty() {
-                        None
-                    } else {
-                        Some(nickserv_password.trim().to_string())
-                    },
-                    sasl_password: if sasl_password.trim().is_empty() {
-                        None
-                    } else {
-                        Some(sasl_password.trim().to_string())
-                    },
-                    verify_tls: Some(verify_tls),
-                });
+                setup_irc_channel(&mut config);
             }
             7 => {
-                // ── Webhook ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("Webhook Setup").white().bold(),
-                    style("— HTTP endpoint for custom integrations").dim()
-                );
-
-                let port: String = Input::new()
-                    .with_prompt("  Port")
-                    .default("8080".into())
-                    .interact_text()?;
-
-                let secret: String = Input::new()
-                    .with_prompt("  Secret (optional, Enter to skip)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                config.webhook = Some(WebhookConfig {
-                    port: port.parse().unwrap_or(8080),
-                    secret: if secret.is_empty() {
-                        None
-                    } else {
-                        Some(secret)
-                    },
-                });
-                println!(
-                    "  {} Webhook on port {}",
-                    style("✅").green().bold(),
-                    style(&port).cyan()
-                );
+                setup_webhook_channel(&mut config);
             }
             8 => {
-                // ── DingTalk ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("DingTalk Setup").white().bold(),
-                    style("— DingTalk Stream Mode").dim()
-                );
-                print_bullet("1. Go to DingTalk developer console (open.dingtalk.com)");
-                print_bullet("2. Create an app and enable the Stream Mode bot");
-                print_bullet("3. Copy the Client ID (AppKey) and Client Secret (AppSecret)");
-                println!();
-
-                let client_id: String = Input::new()
-                    .with_prompt("  Client ID (AppKey)")
-                    .interact_text()?;
-
-                if client_id.trim().is_empty() {
-                    println!("  {} Skipped", style("→").dim());
-                    continue;
-                }
-
-                let client_secret: String = Input::new()
-                    .with_prompt("  Client Secret (AppSecret)")
-                    .interact_text()?;
-
-                // Test connection
-                print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                let body = serde_json::json!({
-                    "clientId": client_id,
-                    "clientSecret": client_secret,
-                });
-                match client
-                    .post("https://api.dingtalk.com/v1.0/gateway/connections/open")
-                    .json(&body)
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        println!(
-                            "\r  {} DingTalk credentials verified        ",
-                            style("✅").green().bold()
-                        );
-                    }
-                    _ => {
-                        println!(
-                            "\r  {} Connection failed — check your credentials",
-                            style("❌").red().bold()
-                        );
-                        continue;
-                    }
-                }
-
-                let users_str: String = Input::new()
-                    .with_prompt("  Allowed staff IDs (comma-separated, '*' for all)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let allowed_users: Vec<String> = users_str
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-
-                config.dingtalk = Some(DingTalkConfig {
-                    client_id,
-                    client_secret,
-                    allowed_users,
-                });
+                setup_dingtalk_channel(&mut config);
             }
             9 => {
-                // ── QQ Official ──
-                println!();
-                println!(
-                    "  {} {}",
-                    style("QQ Official Setup").white().bold(),
-                    style("— Tencent QQ Bot SDK").dim()
-                );
-                print_bullet("1. Go to QQ Bot developer console (q.qq.com)");
-                print_bullet("2. Create a bot application");
-                print_bullet("3. Copy the App ID and App Secret");
-                println!();
-
-                let app_id: String = Input::new().with_prompt("  App ID").interact_text()?;
-
-                if app_id.trim().is_empty() {
-                    println!("  {} Skipped", style("→").dim());
-                    continue;
-                }
-
-                let app_secret: String =
-                    Input::new().with_prompt("  App Secret").interact_text()?;
-
-                // Test connection
-                print!("  {} Testing connection... ", style("⏳").dim());
-                let client = reqwest::blocking::Client::new();
-                let body = serde_json::json!({
-                    "appId": app_id,
-                    "clientSecret": app_secret,
-                });
-                match client
-                    .post("https://bots.qq.com/app/getAppAccessToken")
-                    .json(&body)
-                    .send()
-                {
-                    Ok(resp) if resp.status().is_success() => {
-                        let data: serde_json::Value = resp.json().unwrap_or_default();
-                        if data.get("access_token").is_some() {
-                            println!(
-                                "\r  {} QQ Bot credentials verified        ",
-                                style("✅").green().bold()
-                            );
-                        } else {
-                            println!(
-                                "\r  {} Auth error — check your credentials",
-                                style("❌").red().bold()
-                            );
-                            continue;
-                        }
-                    }
-                    _ => {
-                        println!(
-                            "\r  {} Connection failed — check your credentials",
-                            style("❌").red().bold()
-                        );
-                        continue;
-                    }
-                }
-
-                let users_str: String = Input::new()
-                    .with_prompt("  Allowed user IDs (comma-separated, '*' for all)")
-                    .allow_empty(true)
-                    .interact_text()?;
-
-                let allowed_users: Vec<String> = users_str
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .filter(|s| !s.is_empty())
-                    .collect();
-
-                config.qq = Some(QQConfig {
-                    app_id,
-                    app_secret,
-                    allowed_users,
-                });
+                setup_qq_channel(&mut config);
             }
-            _ => break, // Done
+            _ => break,
         }
         println!();
     }
 
-    // Summary line
     let mut active: Vec<&str> = vec!["CLI"];
     if config.telegram.is_some() {
         active.push("Telegram");

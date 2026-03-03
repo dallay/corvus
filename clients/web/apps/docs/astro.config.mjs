@@ -38,6 +38,10 @@ export default defineConfig({
   integrations: [
     starlight({
       title: "Corvus",
+      logo: {
+        light: "./public/favicon.svg",
+        dark: "./public/favicon-light.svg",
+      },
       defaultLocale: "en",
       locales: {
         en: { label: "English", lang: "en" },
