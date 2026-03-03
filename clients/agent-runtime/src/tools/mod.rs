@@ -16,6 +16,7 @@ pub mod hardware_memory_map;
 pub mod hardware_memory_read;
 pub mod http_request;
 pub mod image_info;
+pub mod mcp;
 pub mod memory_forget;
 pub mod memory_recall;
 pub mod memory_store;
@@ -63,8 +64,24 @@ use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+
+fn redact_runtime_error(raw: &str) -> String {
+    let mut sanitized = raw.to_string();
+    for (key, value) in std::env::vars() {
+        let upper = key.to_ascii_uppercase();
+        let sensitive = upper.contains("TOKEN")
+            || upper.contains("SECRET")
+            || upper.contains("PASSWORD")
+            || upper.contains("API_KEY")
+            || upper.contains("AUTH");
+        if sensitive && !value.is_empty() {
+            sanitized = sanitized.replace(&value, "[REDACTED]");
+        }
+    }
+    sanitized
+}
 
 /// Create the default tool registry
 pub fn default_tools(security: Arc<SecurityPolicy>) -> Vec<Box<dyn Tool>> {
@@ -232,13 +249,48 @@ pub fn all_tools_with_runtime(
         )));
     }
 
+    if root_config.mcp.enabled {
+        match mcp::discover_tools(&root_config.mcp) {
+            Ok(mcp_tools) => {
+                let mut existing_names: HashSet<String> =
+                    tools.iter().map(|tool| tool.name().to_string()).collect();
+                let mut detected_collision: Option<String> = None;
+
+                for mcp_tool in &mcp_tools {
+                    let name = mcp_tool.name();
+                    if !existing_names.insert(name.to_string()) {
+                        detected_collision = Some(name.to_string());
+                        break;
+                    }
+                }
+
+                if let Some(collision) = detected_collision {
+                    tracing::warn!(
+                        collision = %collision,
+                        "MCP registration skipped due to tool-name collision"
+                    );
+                } else {
+                    tools.extend(mcp_tools);
+                }
+            }
+            Err(error) => {
+                let redacted = redact_runtime_error(&error.to_string());
+                tracing::warn!(
+                    error = %redacted,
+                    "mcp.enabled is true but MCP tool discovery failed"
+                );
+            }
+        }
+    }
+
     tools
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BrowserConfig, Config, MemoryConfig};
+    use crate::config::{BrowserConfig, Config, McpConfig, McpServerConfig, MemoryConfig};
+    use std::collections::BTreeMap;
     use tempfile::TempDir;
 
     fn test_config(tmp: &TempDir) -> Config {
@@ -246,6 +298,21 @@ mod tests {
             workspace_dir: tmp.path().join("workspace"),
             config_path: tmp.path().join("config.toml"),
             ..Config::default()
+        }
+    }
+
+    fn mock_mcp_server(name: &str, tool_name: &str) -> McpServerConfig {
+        McpServerConfig {
+            name: name.to_string(),
+            enabled: true,
+            command: "__mcp_mock__".to_string(),
+            args: vec![format!(
+                r#"{{"tools":[{{"name":"{tool_name}","description":"Mock tool","parameters":{{"type":"object"}}}}]}}"#
+            )],
+            env: BTreeMap::new(),
+            startup_timeout_ms: 100,
+            call_timeout_ms: 500,
+            output_limit_bytes: 1024,
         }
     }
 
@@ -420,6 +487,7 @@ mod tests {
             name: "test".into(),
             description: "A test tool".into(),
             parameters: serde_json::json!({"type": "object"}),
+            source: None,
         };
         let json = serde_json::to_string(&spec).unwrap();
         let parsed: ToolSpec = serde_json::from_str(&json).unwrap();
@@ -502,5 +570,121 @@ mod tests {
         );
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(!names.contains(&"delegate"));
+    }
+
+    #[test]
+    fn all_tools_registers_mcp_tools_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = crate::config::HttpRequestConfig::default();
+        let mut cfg = test_config(&tmp);
+        cfg.mcp = McpConfig {
+            enabled: true,
+            servers: vec![mock_mcp_server("docs", "search")],
+        };
+
+        let tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(names.contains(&"mcp.docs.search"));
+    }
+
+    #[test]
+    fn all_tools_skips_disabled_mcp_servers() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = crate::config::HttpRequestConfig::default();
+        let mut cfg = test_config(&tmp);
+        let mut server = mock_mcp_server("docs", "search");
+        server.enabled = false;
+        cfg.mcp = McpConfig {
+            enabled: true,
+            servers: vec![server],
+        };
+
+        let tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(!names.iter().any(|name| name.starts_with("mcp.")));
+    }
+
+    #[test]
+    fn all_tools_fails_closed_on_mcp_name_collisions() {
+        let tmp = TempDir::new().unwrap();
+        let security = Arc::new(SecurityPolicy::default());
+        let mem_cfg = MemoryConfig {
+            backend: "markdown".into(),
+            ..MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> =
+            Arc::from(crate::memory::create_memory(&mem_cfg, tmp.path(), None).unwrap());
+
+        let browser = BrowserConfig::default();
+        let http = crate::config::HttpRequestConfig::default();
+        let mut cfg = test_config(&tmp);
+        cfg.mcp = McpConfig {
+            enabled: true,
+            servers: vec![
+                mock_mcp_server("docs", "search"),
+                mock_mcp_server("docs", "search"),
+            ],
+        };
+
+        let tools = all_tools(
+            Arc::new(Config::default()),
+            &security,
+            mem,
+            None,
+            None,
+            &browser,
+            &http,
+            tmp.path(),
+            &HashMap::new(),
+            None,
+            &cfg,
+        );
+
+        let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
+        assert!(!names.iter().any(|name| name.starts_with("mcp.")));
     }
 }

@@ -161,8 +161,10 @@ windows-sys = { version = "0.59", features = [
 ] }
 
 [features]
-default = ["hardware"]
+default = ["hardware", "mcp-runtime"]
 hardware = ["nusb", "tokio-serial"]
+# MCP runtime support (stdio tool discovery + execution adapters)
+mcp-runtime = []
 peripheral-rpi = ["rppal"]
 # Browser backend feature alias used by cfg(feature = "browser-native")
 browser-native = ["dep:fantoccini"]

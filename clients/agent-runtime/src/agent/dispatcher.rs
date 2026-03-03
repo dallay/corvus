@@ -1,4 +1,5 @@
 use crate::providers::{ChatMessage, ChatResponse, ConversationMessage, ToolResultMessage};
+use crate::security::source_kind_for_tool;
 use crate::tools::{Tool, ToolSpec};
 use serde_json::Value;
 use std::fmt::Write;
@@ -44,19 +45,29 @@ pub trait ToolDispatcher: Send + Sync {
     // FAIL-CLOSED: Unknown tools require approval by default for safety
     // Only explicitly safe tools can execute without approval
     fn check_tool_risk(&self, tool_name: &str, _arguments: &Value) -> DispatchAction {
-        // First check if it's a known risky operation
-        match tool_name {
-            "shell" | "bash" | "execute_command" => {
+        evaluate_tool_risk(tool_name)
+    }
+}
+
+pub fn evaluate_tool_risk(tool_name: &str) -> DispatchAction {
+    match source_kind_for_tool(tool_name) {
+        crate::security::ToolSourceKind::Mcp => {
+            return DispatchAction::ApprovalRequired(format!(
+                "mcp tool '{tool_name}' requires explicit approval"
+            ));
+        }
+        crate::security::ToolSourceKind::Unknown | crate::security::ToolSourceKind::Native => {}
+    }
+
+    match tool_name {
+        "shell" | "bash" | "execute_command" => {
+            DispatchAction::ApprovalRequired(tool_name.to_string())
+        }
+        _ => {
+            if SAFE_TOOL_NAMES.contains(&tool_name) {
+                DispatchAction::Execute
+            } else {
                 DispatchAction::ApprovalRequired(tool_name.to_string())
-            }
-            _ => {
-                // Fail-closed: only tools in SAFE_TOOL_NAMES are allowed without approval
-                if SAFE_TOOL_NAMES.contains(&tool_name) {
-                    DispatchAction::Execute
-                } else {
-                    // Unknown tools require approval by default
-                    DispatchAction::ApprovalRequired(tool_name.to_string())
-                }
             }
         }
     }
@@ -369,5 +380,13 @@ mod tests {
             unknown_action,
             DispatchAction::ApprovalRequired("unknown_tool".into())
         );
+
+        let mcp_action = dispatcher.check_tool_risk("mcp.docs.search", &serde_json::json!({}));
+        match mcp_action {
+            DispatchAction::ApprovalRequired(reason) => {
+                assert!(reason.contains("mcp tool 'mcp.docs.search'"));
+            }
+            DispatchAction::Execute => panic!("mcp tools must require approval"),
+        }
     }
 }

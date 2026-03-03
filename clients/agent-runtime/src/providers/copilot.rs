@@ -1025,6 +1025,7 @@ mod tests {
                 },
                 "required": ["a", "b"]
             }),
+            source: None,
         }];
 
         let native = CopilotProvider::convert_tools(Some(&tools)).expect("tools must map");

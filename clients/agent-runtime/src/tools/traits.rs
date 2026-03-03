@@ -15,6 +15,19 @@ pub struct ToolSpec {
     pub name: String,
     pub description: String,
     pub parameters: serde_json::Value,
+    #[serde(default)]
+    pub source: Option<ToolSourceMetadata>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolSourceMetadata {
+    pub kind: String,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub server: Option<String>,
+    #[serde(default)]
+    pub original_name: Option<String>,
 }
 
 /// Core tool trait — implement for any capability
@@ -38,6 +51,7 @@ pub trait Tool: Send + Sync {
             name: self.name().to_string(),
             description: self.description().to_string(),
             parameters: self.parameters_schema(),
+            source: None,
         }
     }
 }

@@ -1341,6 +1341,7 @@ mod tests {
                 "properties": {"command": {"type": "string"}},
                 "required": ["command"]
             }),
+            source: None,
         }];
 
         let tools = OpenAiCompatibleProvider::tool_specs_to_openai_format(&specs);
