@@ -4,7 +4,7 @@
    ───────────────────────────────────────────────────────────── */
 
 /* ── Google Fonts ── */
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap");
+@import "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap";
 
 /* ── Brand Tokens ── */
 :root {
@@ -23,6 +23,7 @@
 	/* Text */
 	--corvus-text: #f1f5f9;
 	--corvus-text-muted: #94a3b8;
+	--corvus-testimonial-text: #d7ebfe;
 
 	/* Accent — sky blue */
 	--corvus-accent: #38bdf8;

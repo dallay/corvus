@@ -415,7 +415,7 @@ nav a:hover,
 }
 
 .testimonial-card p {
-  color: #d7ebfe;
+  color: var(--corvus-testimonial-text);
   line-height: 1.6;
 }
 
