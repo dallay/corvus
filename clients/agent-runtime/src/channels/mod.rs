@@ -71,6 +71,7 @@ const CHANNEL_TYPING_REFRESH_INTERVAL_SECS: u64 = 4;
 
 #[derive(Clone)]
 struct ChannelRuntimeContext {
+    config: Arc<Config>,
     channels_by_name: Arc<HashMap<String, Arc<dyn Channel>>>,
     provider: Arc<dyn Provider>,
     memory: Arc<dyn Memory>,
@@ -440,6 +441,24 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
     };
 
     let target_channel = ctx.channels_by_name.get(&msg.channel).cloned();
+    if crate::update::try_handle_channel_update_confirmation(
+        ctx.config.as_ref(),
+        &msg,
+        target_channel.as_ref(),
+    )
+    .await
+    {
+        return;
+    }
+
+    let _ = crate::update::maybe_send_opportunistic_update_notice(
+        ctx.config.as_ref(),
+        &msg,
+        target_channel.as_ref(),
+        env!("CARGO_PKG_VERSION"),
+    )
+    .await;
+
     let session_id = channel_session_id(&msg);
     let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
     let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
@@ -1691,6 +1710,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
     println!("  🚦 In-flight message limit: {max_in_flight_messages}");
 
     let runtime_ctx = Arc::new(ChannelRuntimeContext {
+        config: Arc::new(config.clone()),
         channels_by_name,
         provider: Arc::clone(&provider),
         memory: Arc::clone(&mem),
@@ -1968,6 +1988,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
             memory: Arc::new(NoopMemory),
@@ -2013,6 +2034,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingAliasProvider),
             memory: Arc::new(NoopMemory),
@@ -2110,6 +2132,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(250),
@@ -2173,6 +2196,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(20),
@@ -2549,6 +2573,7 @@ mod tests {
         let provider_impl = Arc::new(HistoryCaptureProvider::default());
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             memory: Arc::new(NoopMemory),
@@ -2865,6 +2890,9 @@ mod tests {
 
     #[tokio::test]
     async fn process_channel_message_blocks_on_approval_by_default() {
+        let _env_lock = CHANNEL_ENV_MUTEX.lock().await;
+        std::env::remove_var("CORVUS_UNIFIED_APPROVE");
+
         let channel_impl = Arc::new(RecordingChannel::default());
         let channel: Arc<dyn Channel> = channel_impl.clone();
 
@@ -2872,6 +2900,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(1),
@@ -2918,6 +2947,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(1),

@@ -502,11 +502,9 @@ async fn turn_handles_unknown_tool_gracefully() {
 
     // Unknown tools should fail-closed and require explicit approval
     let has_tool_result = agent.history().iter().any(|msg| match msg {
-        ConversationMessage::ToolResults(results) => {
-            results
-                .iter()
-                .any(|r| r.content.contains("approval required before executing"))
-        }
+        ConversationMessage::ToolResults(results) => results
+            .iter()
+            .any(|r| r.content.contains("approval required before executing")),
         _ => false,
     });
     assert!(

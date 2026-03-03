@@ -146,6 +146,7 @@ pub fn run_wizard() -> Result<Config> {
         heartbeat: HeartbeatConfig::default(),
         cron: crate::config::CronConfig::default(),
         channels_config,
+        updates: crate::config::UpdateConfig::default(),
         memory: memory_config, // User-selected memory backend
         tunnel: tunnel_config,
         gateway: crate::config::GatewayConfig::default(),
@@ -374,6 +375,7 @@ pub fn run_quick_setup(
         heartbeat: HeartbeatConfig::default(),
         cron: crate::config::CronConfig::default(),
         channels_config: ChannelsConfig::default(),
+        updates: crate::config::UpdateConfig::default(),
         memory: memory_config,
         tunnel: crate::config::TunnelConfig::default(),
         gateway: crate::config::GatewayConfig::default(),
