@@ -22,9 +22,9 @@ fn cli_preview_outputs_loop_lifecycle_with_approval_interruption() {
     );
 
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("loop_event=Start"));
-    assert!(stdout.contains("loop_event=ApprovalRequired(\"tool-1\")"));
-    assert!(stdout.contains("loop_event=Error(\"approval denied\")"));
+    assert!(stdout.contains("loop_event=start"));
+    assert!(stdout.contains("loop_event=approval_required"));
+    assert!(stdout.contains("loop_event=error"));
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn cli_preview_propagates_session_and_timeout_abort_semantics() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("loop_session=session-cli-e2e"));
-    assert!(stdout.contains("retrying after recoverable error"));
+    assert!(stdout.contains("loop_event=error"));
 }
 
 #[test]

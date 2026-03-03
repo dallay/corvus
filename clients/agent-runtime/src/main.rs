@@ -631,7 +631,6 @@ async fn main() -> Result<()> {
             if std::env::var("CORVUS_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1") {
                 println!("loop_session={}", canonical.session_id);
                 for event in &canonical.events {
-                    println!("loop_event={event:?}");
                     let event_kind = match event {
                         crate::agent::unified_loop::LoopEvent::Start => "start",
                         crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
@@ -650,6 +649,8 @@ async fn main() -> Result<()> {
                         crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
                         crate::agent::unified_loop::LoopEvent::Error(_) => "error",
                     };
+                    // Only print non-sensitive event kind, not full event payload
+                    println!("loop_event={event_kind}");
                     info!(
                         session_id = %canonical.session_id,
                         event_kind,
@@ -694,8 +695,27 @@ async fn main() -> Result<()> {
 
             if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
                 println!("loop_session={}", canonical.session_id);
-                for event in canonical.events {
-                    println!("loop_event={event:?}");
+                for event in &canonical.events {
+                    let event_kind = match event {
+                        crate::agent::unified_loop::LoopEvent::Start => "start",
+                        crate::agent::unified_loop::LoopEvent::LLMProgress(_) => "llm_progress",
+                        crate::agent::unified_loop::LoopEvent::ToolDispatchStarted(_) => {
+                            "tool_dispatch_started"
+                        }
+                        crate::agent::unified_loop::LoopEvent::ToolDispatchCompleted(_) => {
+                            "tool_dispatch_completed"
+                        }
+                        crate::agent::unified_loop::LoopEvent::CompactionTriggered => {
+                            "compaction_triggered"
+                        }
+                        crate::agent::unified_loop::LoopEvent::ApprovalRequired(_) => {
+                            "approval_required"
+                        }
+                        crate::agent::unified_loop::LoopEvent::Complete(_) => "complete",
+                        crate::agent::unified_loop::LoopEvent::Error(_) => "error",
+                    };
+                    // Only print non-sensitive event kind, not full event payload
+                    println!("loop_event={event_kind}");
                 }
                 return Ok(());
             }

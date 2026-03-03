@@ -519,17 +519,15 @@ impl Agent {
             return Ok(Some(final_text));
         }
 
-        // Push assistant text as separate Chat message (for intermediate text preservation)
-        if !text.is_empty() {
-            self.history
-                .push(ConversationMessage::Chat(ChatMessage::assistant(text)));
-        }
-
-        // Also push tool calls message
-        if !response.tool_calls.is_empty() {
+        if response.tool_calls.is_empty() {
+            if !text.is_empty() {
+                self.history
+                    .push(ConversationMessage::Chat(ChatMessage::assistant(text)));
+            }
+        } else {
             self.history.push(ConversationMessage::AssistantToolCalls {
-                text: response.text.clone(),
-                tool_calls: response.tool_calls.clone(),
+                text: response.text,
+                tool_calls: response.tool_calls,
             });
         }
 

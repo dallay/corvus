@@ -15,6 +15,7 @@ const SAFE_TOOL_NAMES: &[&str] = &[
     "browser_open",
     "echo",
     "mock_price",
+    "counter",
 ];
 
 #[derive(Debug, Clone)]
@@ -47,17 +48,23 @@ pub trait ToolDispatcher: Send + Sync {
     fn should_send_tool_specs(&self) -> bool;
 
     // Check if the tool invocation requires approval
-    // Only risky tools (shell, bash, execute_command) require approval
-    // The agent handles unknown tools separately (executes them to return "Unknown tool" error)
+    // FAIL-CLOSED: Unknown tools require approval by default for safety
+    // Only explicitly safe tools can execute without approval
     fn check_tool_risk(&self, tool_name: &str, _arguments: &Value) -> DispatchAction {
-        // Only these specific commands require approval - they're the only truly risky operations
+        // First check if it's a known risky operation
         match tool_name {
             "shell" | "bash" | "execute_command" => {
                 DispatchAction::ApprovalRequired(tool_name.to_string())
             }
-            // All other tools - including those not in SAFE_TOOL_NAMES - are allowed
-            // The agent checks tool existence separately and handles unknown tools appropriately
-            _ => DispatchAction::Execute,
+            _ => {
+                // Fail-closed: only tools in SAFE_TOOL_NAMES are allowed without approval
+                if SAFE_TOOL_NAMES.contains(&tool_name) {
+                    DispatchAction::Execute
+                } else {
+                    // Unknown tools require approval by default
+                    DispatchAction::ApprovalRequired(tool_name.to_string())
+                }
+            }
         }
     }
 }
