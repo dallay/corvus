@@ -1,83 +1,170 @@
 # CodeRabbit configuration for Corvus
 # Documentation: https://docs.coderabbit.ai/reference/configuration
+# Priorities: security first, performance second, and TDD-oriented reviews.
 
 language: en-US
 early_access: false
+tone_instructions: >
+  Be concise and actionable. Prioritize security and behavioral regressions before style nits.
 
 reviews:
-  # Request changes workflow
+  profile: assertive
   request_changes_workflow: false
 
-  # High level summary of the PR
   high_level_summary: true
-
-  # Generate sequence diagrams
+  high_level_summary_in_walkthrough: true
   sequence_diagrams: true
+  review_status: true
+  review_details: true
+
+  suggested_labels: true
+  labeling_instructions:
+    - label: "risk:security"
+      instructions: >
+        Changes touching secrets, authN/authZ, crypto, network boundaries, untrusted input,
+        deserialization, command execution, or dependency security.
+    - label: "risk:performance"
+      instructions: >
+        Changes with algorithmic complexity impact, startup/memory regressions, I/O hot paths,
+        render loops, or extra allocations in critical code.
+    - label: "risk:high"
+      instructions: >
+        Broad architectural impact, migration risk, rollback complexity, or multi-module contract
+        changes.
+    - label: "area:kotlin"
+      instructions: Kotlin/JVM/KMP source or tests are modified.
+    - label: "area:rust"
+      instructions: Rust crates, FFI boundaries, runtime internals, or Rust tests are modified.
+    - label: "area:gradle"
+      instructions: Build logic, version catalogs, plugins, CI build config, or lockfiles change.
+    - label: "area:docs"
+      instructions: Documentation, guides, architecture notes, or MD/MDX content changed.
+    - label: "area:ci"
+      instructions: GitHub Actions, release pipelines, Docker, or automation scripts changed.
+  auto_apply_labels: true
+
+  suggested_reviewers: true
+  auto_assign_reviewers: false
 
   # Auto-review configuration
   auto_review:
     enabled: true
-    # Only review PRs targeting these branches
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 3
     base_branches:
       - main
       - develop
-    # Skip reviews for draft PRs or WIP
+    labels:
+      - "!wip"
+      - "!do-not-review"
+    ignore_title_keywords:
+      - WIP
+      - DO NOT REVIEW
     drafts: false
 
-  # Poem configuration
   poem: false
 
-  # Reviewer suggestions
-  suggested_reviewers: true
-  auto_assign_reviewers: false
-
-  # Enable finishing touches
   finishing_touches:
-    # Generate docstrings
     docstrings:
       enabled: true
-    # Generate unit tests
     unit_tests:
       enabled: true
 
-  # Tools configuration
+  pre_merge_checks:
+    title:
+      mode: warning
+      requirements: >
+        Use clear imperative titles; prefer Conventional Commit-style prefixes when possible
+        (feat/fix/refactor/docs/chore/test).
+    description:
+      mode: warning
+    issue_assessment:
+      mode: warning
+
   tools:
     clippy:
       enabled: true
     detekt:
       enabled: true
+    markdownlint:
+      enabled: true
+    actionlint:
+      enabled: true
+    hadolint:
+      enabled: true
+    checkmake:
+      enabled: true
+    gitleaks:
+      enabled: true
+    trufflehog:
+      enabled: true
+    osvScanner:
+      enabled: true
 
-  # Path filters - ignore generated files and build artifacts
+  # Ignore generated/cached artifacts, but keep lockfiles visible for supply-chain review.
   path_filters:
     - "!**/target/**"
     - "!**/build/**"
     - "!**/node_modules/**"
     - "!**/.gradle/**"
     - "!**/.cargo/**"
-    - "!**/Cargo.lock"
-    - "!**/pnpm-lock.yaml"
-    - "!**/*.lockfile"
 
-  # Unified review instructions for the multi-module project
   path_instructions:
     - path: "**/*.rs"
       instructions: |
-        Focus on Rust best practices and idiomatic code.
-        Focus on memory safety, proper use of lifetimes, and avoiding unnecessary clones.
-        Ensure proper error handling with Result types and idiomatic anyhow/thiserror usage.
+        Focus on Rust idioms, memory safety, and ownership/borrowing correctness.
+        Flag unnecessary clones, unchecked panics in production paths, and weak error context.
+        Prioritize unsafe blocks, FFI boundaries, concurrency races, and secret handling.
     - path: "**/*.kt"
       instructions: |
-        Focus on Kotlin best practices and idiomatic code.
-        Emphasize null safety, avoiding the !! operator, and using idiomatic Kotlin patterns like expression bodies.
-        Use sealed interfaces/classes for results and state representation.
-        Ensure proper use of coroutines and avoid blocking calls in suspend functions.
+        Enforce null safety (no !!), structured concurrency, and non-blocking suspend code.
+        Prefer idiomatic Kotlin (expression bodies, sealed types, value classes when justified).
+        Verify tests follow TDD intent and use backtick test names where applicable.
+    - path: "**/*.gradle.kts"
+      instructions: |
+        Prefer tasks.register/configureEach, avoid afterEvaluate, and preserve configuration cache.
+        Ensure dependencies come from version catalogs and avoid eager task realization.
+        Review plugin/config changes for supply-chain and reproducibility risks.
+    - path: "**/*.{md,mdx}"
+      instructions: |
+        Verify technical accuracy and that docs stay aligned with code changes.
+        For user-facing docs, check EN/ES parity or explicitly note pending translation gaps.
     - path: "**/*"
       instructions: |
-        Focus on project-wide best practices.
-        Security: Check for vulnerabilities in encryption, crypto code, and configuration handling.
-        Testing: Verify that tests cover critical paths and follow established naming conventions (e.g., backticks for Kotlin tests).
-        Architecture: Ensure changes respect the multi-module structure and contract boundaries between KMP and Rust sidecars.
+        Security first, performance second.
+        Validate input boundaries, auth/authz implications, and secret management.
+        Look for behavioral regressions, missing tests, and contract breaks across modules.
 
-# Chat configuration
 chat:
   auto_reply: true
+  art: false
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - .github/copilot-instructions.md
+      - AGENTS.md
+      - CLAUDE.md
+      - GEMINI.md
+  web_search:
+    enabled: true
+
+code_generation:
+  docstrings:
+    language: en-US
+    path_instructions:
+      - path: "**/*.kt"
+        instructions: >
+          Use concise KDoc, document nullability/side effects, and avoid restating obvious names.
+      - path: "**/*.rs"
+        instructions: >
+          Use rustdoc with safety notes for unsafe code and clear error/return semantics.
+  unit_tests:
+    path_instructions:
+      - path: "**/*.kt"
+        instructions: >
+          Follow Red-Green-Refactor mindset; include edge cases and coroutine behavior.
+      - path: "**/*.rs"
+        instructions: >
+          Cover ownership/lifetime-sensitive paths, error variants, and concurrency scenarios.
