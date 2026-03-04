@@ -2261,6 +2261,21 @@ fn env_override_api_key_with_fallback(primary: &str, fallback: &str, target: &mu
     }
 }
 
+fn env_override_provider_api_key(
+    provider: Option<&String>,
+    provider_check: impl Fn(&str) -> bool,
+    var_name: &str,
+    target: &mut Option<String>,
+) {
+    if provider.is_some_and(|s| provider_check(s)) {
+        if let Ok(key) = std::env::var(var_name) {
+            if !key.is_empty() {
+                *target = Some(key);
+            }
+        }
+    }
+}
+
 impl Config {
     pub fn load_or_init() -> Result<Self> {
         let (default_corvus_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
@@ -2348,52 +2363,24 @@ impl Config {
     pub fn apply_env_overrides(&mut self) {
         env_override_api_key_with_fallback("CORVUS_API_KEY", "API_KEY", &mut self.api_key);
 
-        if self.default_provider.as_deref().is_some_and(is_glm_alias) {
-            if let Ok(key) = std::env::var("GLM_API_KEY") {
-                if !key.is_empty() {
-                    self.api_key = Some(key);
-                }
-            }
-        }
-
-        if self.default_provider.as_deref().is_some_and(is_zai_alias) {
-            if let Ok(key) = std::env::var("ZAI_API_KEY") {
-                if !key.is_empty() {
-                    self.api_key = Some(key);
-                }
-            }
-        }
+        env_override_provider_api_key(
+            self.default_provider.as_ref(),
+            is_glm_alias,
+            "GLM_API_KEY",
+            &mut self.api_key,
+        );
+        env_override_provider_api_key(
+            self.default_provider.as_ref(),
+            is_zai_alias,
+            "ZAI_API_KEY",
+            &mut self.api_key,
+        );
 
         env_override_string("CORVUS_PROVIDER", "PROVIDER", &mut self.default_provider);
         env_override_string("CORVUS_MODEL", "MODEL", &mut self.default_model);
 
-        if let Ok(backend) =
-            std::env::var("CORVUS_MEMORY_BACKEND").or_else(|_| std::env::var("MEMORY_BACKEND"))
-        {
-            let backend_raw = backend.trim();
-            if !backend_raw.is_empty() {
-                let backend = backend_raw.to_ascii_lowercase();
-                if matches!(
-                    backend.as_str(),
-                    "sqlite" | "lucid" | "surreal-graphs" | "markdown" | "surreal" | "none"
-                ) {
-                    self.memory.backend = backend;
-                } else {
-                    tracing::warn!(
-                        "ignoring unknown memory backend override '{}'; allowed: sqlite, lucid, surreal-graphs, markdown, surreal, none",
-                        backend_raw
-                    );
-                }
-            }
-        }
-
-        if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
-            if !workspace.is_empty() {
-                let (_, workspace_dir) =
-                    resolve_config_dir_for_workspace(&PathBuf::from(workspace));
-                self.workspace_dir = workspace_dir;
-            }
-        }
+        self.apply_memory_backend_override();
+        self.apply_workspace_override();
 
         env_override_port("CORVUS_GATEWAY_PORT", "PORT", &mut self.gateway.port);
         env_override_string_plain("CORVUS_GATEWAY_HOST", "HOST", &mut self.gateway.host);
@@ -2460,6 +2447,38 @@ impl Config {
             &mut self.memory.surreal.password,
         );
         env_override_optional("CORVUS_SURREALDB_TOKEN", &mut self.memory.surreal.token);
+    }
+
+    fn apply_memory_backend_override(&mut self) {
+        if let Ok(backend) =
+            std::env::var("CORVUS_MEMORY_BACKEND").or_else(|_| std::env::var("MEMORY_BACKEND"))
+        {
+            let backend_raw = backend.trim();
+            if !backend_raw.is_empty() {
+                let backend = backend_raw.to_ascii_lowercase();
+                if matches!(
+                    backend.as_str(),
+                    "sqlite" | "lucid" | "surreal-graphs" | "markdown" | "surreal" | "none"
+                ) {
+                    self.memory.backend = backend;
+                } else {
+                    tracing::warn!(
+                        "ignoring unknown memory backend override '{}'; allowed: sqlite, lucid, surreal-graphs, markdown, surreal, none",
+                        backend_raw
+                    );
+                }
+            }
+        }
+    }
+
+    fn apply_workspace_override(&mut self) {
+        if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
+            if !workspace.is_empty() {
+                let (_, workspace_dir) =
+                    resolve_config_dir_for_workspace(&PathBuf::from(workspace));
+                self.workspace_dir = workspace_dir;
+            }
+        }
     }
 
     pub fn save(&self) -> Result<()> {

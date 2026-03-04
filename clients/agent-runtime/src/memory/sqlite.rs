@@ -731,7 +731,6 @@ impl Memory for SqliteMemory {
         tokio::task::spawn_blocking(move || -> anyhow::Result<Vec<MemoryEntry>> {
             let conn = conn.lock();
             let session_ref = session_id.as_deref();
-            let mut results = Vec::new();
 
             let row_mapper = |row: &rusqlite::Row| -> rusqlite::Result<MemoryEntry> {
                 Ok(MemoryEntry {
@@ -745,37 +744,36 @@ impl Memory for SqliteMemory {
                 })
             };
 
-            if let Some(ref cat) = category {
-                let cat_str = Self::category_to_str(cat);
-                let mut stmt = conn.prepare(
+            let query = match &category {
+                Some(_) => {
                     "SELECT id, key, content, category, created_at, session_id FROM memories
-                     WHERE category = ?1 ORDER BY updated_at DESC LIMIT ?2",
-                )?;
-                let rows = stmt.query_map(params![cat_str, DEFAULT_LIST_LIMIT], row_mapper)?;
-                for row in rows {
-                    let entry = row?;
-                    if let Some(sid) = session_ref {
-                        if entry.session_id.as_deref() != Some(sid) {
-                            continue;
-                        }
-                    }
-                    results.push(entry);
+                     WHERE category = ?1 ORDER BY updated_at DESC LIMIT ?2"
                 }
-            } else {
-                let mut stmt = conn.prepare(
+                None => {
                     "SELECT id, key, content, category, created_at, session_id FROM memories
-                     ORDER BY updated_at DESC LIMIT ?1",
-                )?;
-                let rows = stmt.query_map(params![DEFAULT_LIST_LIMIT], row_mapper)?;
-                for row in rows {
-                    let entry = row?;
-                    if let Some(sid) = session_ref {
-                        if entry.session_id.as_deref() != Some(sid) {
-                            continue;
-                        }
-                    }
-                    results.push(entry);
+                     ORDER BY updated_at DESC LIMIT ?1"
                 }
+            };
+
+            let mut stmt = conn.prepare(query)?;
+            let mut results = Vec::new();
+
+            let rows = match &category {
+                Some(cat) => {
+                    let cat_str = Self::category_to_str(cat);
+                    stmt.query_map(params![cat_str, DEFAULT_LIST_LIMIT], row_mapper)?
+                }
+                None => stmt.query_map(params![DEFAULT_LIST_LIMIT], row_mapper)?,
+            };
+
+            for row in rows {
+                let entry = row?;
+                if let Some(sid) = session_ref {
+                    if entry.session_id.as_deref() != Some(sid) {
+                        continue;
+                    }
+                }
+                results.push(entry);
             }
 
             Ok(results)

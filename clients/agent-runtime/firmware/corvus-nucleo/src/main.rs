@@ -62,6 +62,98 @@ fn parse_arg(line: &[u8], key: &[u8]) -> Option<i32> {
     None
 }
 
+fn handle_ping(id_str: &str) -> String<128> {
+    let mut resp: String<128> = String::new();
+    let _ = write!(
+        resp,
+        "{{\"id\":\"{}\",\"ok\":true,\"result\":\"pong\"}}",
+        id_str
+    );
+    resp
+}
+
+fn handle_capabilities(id_str: &str) -> String<128> {
+    let mut resp: String<128> = String::new();
+    let _ = write!(
+        resp,
+        "{{\"id\":\"{}\",\"ok\":true,\"result\":\"{{\\\"gpio\\\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13],\\\"led_pin\\\":13}}\"}}",
+        id_str
+    );
+    resp
+}
+
+fn handle_gpio_read(id_str: &str, pin: i32) -> String<128> {
+    let mut resp: String<128> = String::new();
+    if pin == LED_PIN as i32 || (0..=13).contains(&pin) {
+        let _ = write!(
+            resp,
+            "{{\"id\":\"{}\",\"ok\":true,\"result\":\"0\"}}",
+            id_str
+        );
+    } else {
+        let _ = write!(
+            resp,
+            "{{\"id\":\"{}\",\"ok\":false,\"result\":\"\",\"error\":\"Invalid pin {}\"}}",
+            id_str, pin
+        );
+    }
+    resp
+}
+
+fn handle_gpio_write(id_str: &str, pin: i32, value: i32) -> (String<128>, Option<(i32, i32)>) {
+    let mut resp: String<128> = String::new();
+    let led_action = if pin == LED_PIN as i32 {
+        let _ = write!(
+            resp,
+            "{{\"id\":\"{}\",\"ok\":true,\"result\":\"done\"}}",
+            id_str
+        );
+        Some((LED_PIN as i32, value))
+    } else if (0..=13).contains(&pin) {
+        let _ = write!(
+            resp,
+            "{{\"id\":\"{}\",\"ok\":true,\"result\":\"done\"}}",
+            id_str
+        );
+        None
+    } else {
+        let _ = write!(
+            resp,
+            "{{\"id\":\"{}\",\"ok\":false,\"result\":\"\",\"error\":\"Invalid pin {}\"}}",
+            id_str, pin
+        );
+        None
+    };
+    (resp, led_action)
+}
+
+fn handle_unknown_cmd(id_str: &str) -> String<128> {
+    let mut resp: String<128> = String::new();
+    let _ = write!(
+        resp,
+        "{{\"id\":\"{}\",\"ok\":false,\"result\":\"\",\"error\":\"Unknown command\"}}",
+        id_str
+    );
+    resp
+}
+
+fn process_command(line_buf: &[u8], id_str: &str) -> String<128> {
+    if has_cmd(line_buf, b"ping") {
+        handle_ping(id_str)
+    } else if has_cmd(line_buf, b"capabilities") {
+        handle_capabilities(id_str)
+    } else if has_cmd(line_buf, b"gpio_read") {
+        let pin = parse_arg(line_buf, b"pin").unwrap_or(-1);
+        handle_gpio_read(id_str, pin)
+    } else if has_cmd(line_buf, b"gpio_write") {
+        let pin = parse_arg(line_buf, b"pin").unwrap_or(-1);
+        let value = parse_arg(line_buf, b"value").unwrap_or(0);
+        handle_gpio_write(id_str, pin, value).0
+    } else {
+        handle_unknown_cmd(id_str)
+    }
+}
+
 fn has_cmd(line: &[u8], cmd: &[u8]) -> bool {
     let mut pat: [u8; 64] = [0; 64];
     pat[0..7].copy_from_slice(b"\"cmd\":\"");
@@ -118,7 +210,6 @@ async fn main(_spawner: Spawner) {
 
     let mut line_buf: heapless::Vec<u8, 256> = heapless::Vec::new();
     let mut id_buf = [0u8; 16];
-    let mut resp_buf: String<128> = String::new();
 
     loop {
         let mut byte = [0u8; 1];
@@ -129,50 +220,16 @@ async fn main(_spawner: Spawner) {
                     let id_len = copy_id(&line_buf, &mut id_buf);
                     let id_str = str::from_utf8(&id_buf[..id_len]).unwrap_or("0");
 
-                    resp_buf.clear();
-                    if has_cmd(&line_buf, b"ping") {
-                        let _ = write!(resp_buf, "{{\"id\":\"{}\",\"ok\":true,\"result\":\"pong\"}}", id_str);
-                    } else if has_cmd(&line_buf, b"capabilities") {
-                        let _ = write!(
-                            resp_buf,
-                            "{{\"id\":\"{}\",\"ok\":true,\"result\":\"{{\\\"gpio\\\":[0,1,2,3,4,5,6,7,8,9,10,11,12,13],\\\"led_pin\\\":13}}\"}}",
-                            id_str
-                        );
-                    } else if has_cmd(&line_buf, b"gpio_read") {
-                        let pin = parse_arg(&line_buf, b"pin").unwrap_or(-1);
-                        if pin == LED_PIN as i32 {
-                            // Output doesn't support read; return 0 (LED state not readable)
-                            let _ = write!(resp_buf, "{{\"id\":\"{}\",\"ok\":true,\"result\":\"0\"}}", id_str);
-                        } else if pin >= 0 && pin <= 13 {
-                            let _ = write!(resp_buf, "{{\"id\":\"{}\",\"ok\":true,\"result\":\"0\"}}", id_str);
-                        } else {
-                            let _ = write!(
-                                resp_buf,
-                                "{{\"id\":\"{}\",\"ok\":false,\"result\":\"\",\"error\":\"Invalid pin {}\"}}",
-                                id_str, pin
-                            );
-                        }
-                    } else if has_cmd(&line_buf, b"gpio_write") {
+                    let (resp_buf, led_action) = if has_cmd(&line_buf, b"gpio_write") {
                         let pin = parse_arg(&line_buf, b"pin").unwrap_or(-1);
                         let value = parse_arg(&line_buf, b"value").unwrap_or(0);
-                        if pin == LED_PIN as i32 {
-                            led.set_level(if value != 0 { Level::High } else { Level::Low });
-                            let _ = write!(resp_buf, "{{\"id\":\"{}\",\"ok\":true,\"result\":\"done\"}}", id_str);
-                        } else if pin >= 0 && pin <= 13 {
-                            let _ = write!(resp_buf, "{{\"id\":\"{}\",\"ok\":true,\"result\":\"done\"}}", id_str);
-                        } else {
-                            let _ = write!(
-                                resp_buf,
-                                "{{\"id\":\"{}\",\"ok\":false,\"result\":\"\",\"error\":\"Invalid pin {}\"}}",
-                                id_str, pin
-                            );
-                        }
+                        handle_gpio_write(id_str, pin, value)
                     } else {
-                        let _ = write!(
-                            resp_buf,
-                            "{{\"id\":\"{}\",\"ok\":false,\"result\":\"\",\"error\":\"Unknown command\"}}",
-                            id_str
-                        );
+                        (process_command(&line_buf, id_str), None)
+                    };
+
+                    if let Some((_, value)) = led_action {
+                        led.set_level(if value != 0 { Level::High } else { Level::Low });
                     }
 
                     let _ = usart.blocking_write(resp_buf.as_bytes());

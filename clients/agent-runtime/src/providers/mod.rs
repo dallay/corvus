@@ -291,6 +291,13 @@ pub async fn api_error(provider: &str, response: reqwest::Response) -> anyhow::E
 ///
 /// For Anthropic, the provider-specific env var is `ANTHROPIC_OAUTH_TOKEN` (for setup-tokens)
 /// followed by `ANTHROPIC_API_KEY` (for regular API keys).
+fn get_env_var(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .map(|v| v.trim().to_string())
+}
+
 fn resolve_provider_credential(name: &str, credential_override: Option<&str>) -> Option<String> {
     if let Some(raw_override) = credential_override {
         let trimmed_override = raw_override.trim();
@@ -299,7 +306,25 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         }
     }
 
-    let provider_env_candidates: Vec<&str> = match name {
+    let provider_env_candidates: Vec<&str> = get_env_vars_for_provider(name);
+
+    for env_var in provider_env_candidates {
+        if let Some(value) = get_env_var(env_var) {
+            return Some(value);
+        }
+    }
+
+    for env_var in ["CORVUS_API_KEY", "API_KEY"] {
+        if let Some(value) = get_env_var(env_var) {
+            return Some(value);
+        }
+    }
+
+    None
+}
+
+fn get_env_vars_for_provider(name: &str) -> Vec<&'static str> {
+    match name {
         "anthropic" => vec!["ANTHROPIC_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],
         "openrouter" => vec!["OPENROUTER_API_KEY"],
         "openai" => vec!["OPENAI_API_KEY"],
@@ -314,12 +339,12 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "fireworks" | "fireworks-ai" => vec!["FIREWORKS_API_KEY"],
         "perplexity" => vec!["PERPLEXITY_API_KEY"],
         "cohere" => vec!["COHERE_API_KEY"],
-        name if is_moonshot_alias(name) => vec!["MOONSHOT_API_KEY"],
-        name if is_glm_alias(name) => vec!["GLM_API_KEY"],
-        name if is_minimax_alias(name) => vec!["MINIMAX_API_KEY"],
-        name if is_qianfan_alias(name) => vec!["QIANFAN_API_KEY"],
-        name if is_qwen_alias(name) => vec!["DASHSCOPE_API_KEY"],
-        name if is_zai_alias(name) => vec!["ZAI_API_KEY"],
+        _ if is_moonshot_alias(name) => vec!["MOONSHOT_API_KEY"],
+        _ if is_glm_alias(name) => vec!["GLM_API_KEY"],
+        _ if is_minimax_alias(name) => vec!["MINIMAX_API_KEY"],
+        _ if is_qianfan_alias(name) => vec!["QIANFAN_API_KEY"],
+        _ if is_qwen_alias(name) => vec!["DASHSCOPE_API_KEY"],
+        _ if is_zai_alias(name) => vec!["ZAI_API_KEY"],
         "nvidia" | "nvidia-nim" | "build.nvidia.com" => vec!["NVIDIA_API_KEY"],
         "synthetic" => vec!["SYNTHETIC_API_KEY"],
         "opencode" | "opencode-zen" => vec!["OPENCODE_API_KEY"],
@@ -327,27 +352,7 @@ fn resolve_provider_credential(name: &str, credential_override: Option<&str>) ->
         "cloudflare" | "cloudflare-ai" => vec!["CLOUDFLARE_API_KEY"],
         "astrai" => vec!["ASTRAI_API_KEY"],
         _ => vec![],
-    };
-
-    for env_var in provider_env_candidates {
-        if let Ok(value) = std::env::var(env_var) {
-            let value = value.trim();
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
     }
-
-    for env_var in ["CORVUS_API_KEY", "API_KEY"] {
-        if let Ok(value) = std::env::var(env_var) {
-            let value = value.trim();
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-
-    None
 }
 
 fn parse_custom_provider_url(
