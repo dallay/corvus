@@ -148,15 +148,28 @@ webApps.forEach { appName ->
     }
 
   // Test coverage task
-  val appTestCoverage =
+  val pkgJson = file("${appDir}/package.json")
+  val hasCoverageScript = if (pkgJson.exists()) {
+    val pkg = groovy.json.JsonSlurper().parseText(pkgJson.readText()) as Map<*, *>
+    val scripts = pkg["scripts"] as? Map<*, *>
+    scripts?.containsKey("test:coverage") == true
+  } else false
+
+  if (hasCoverageScript) {
     tasks.register<Exec>("${appName}TestCoverage") {
       group = "web"
       description = "Run tests with coverage for ${appName}"
       dependsOn(appInstall)
       workingDir = appDir
       commandLine(pnpmShim, "run", "test:coverage")
-      isIgnoreExitValue = true // Not all apps might have tests
     }
+  } else {
+    // Fallback empty task to avoid breaking aggregate tasks
+    tasks.register("${appName}TestCoverage") {
+      group = "web"
+      description = "No coverage script found for ${appName}"
+    }
+  }
 
 
   // Distribution zip

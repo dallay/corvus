@@ -102,7 +102,7 @@
 - [x] Update CLI docs with missing subcommands (high priority) - DONE (both en/es)
 - [x] Audit and document missing CLI flags/commands from agent-runtime - DONE
 
-## Codecov Web Configuration (2025-03-04)
+## Codecov Web Configuration (2026-03-04)
 
 - Configured Vitest coverage in `clients/web/apps/chat` and `clients/web/apps/dashboard` using `v8` provider.
 - Added `test:coverage` script to `package.json` of these apps.
