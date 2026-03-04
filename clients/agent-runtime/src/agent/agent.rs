@@ -3,13 +3,17 @@ use crate::agent::dispatcher::{
     XmlToolDispatcher,
 };
 use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
+use crate::agent::mission::{
+    MissionCoordinator, MissionOutcome, MissionPlan, MissionResumeMetadata, MissionState,
+    MissionTerminationReason,
+};
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
-use crate::observability::{self, Observer, ObserverEvent};
+use crate::observability::{self, redact_observer_payload, Observer, ObserverEvent};
 use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
 use crate::runtime;
-use crate::security::SecurityPolicy;
+use crate::security::{ExecutionOrigin, SecurityPolicy};
 use crate::tools::{self, Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
@@ -27,6 +31,7 @@ pub struct Agent {
     tool_dispatcher: Box<dyn ToolDispatcher>,
     memory_loader: Box<dyn MemoryLoader>,
     config: crate::config::AgentConfig,
+    mission_config: crate::config::MissionConfig,
     model_name: String,
     temperature: f64,
     workspace_dir: std::path::PathBuf,
@@ -36,6 +41,7 @@ pub struct Agent {
     history: Vec<ConversationMessage>,
     classification_config: crate::config::QueryClassificationConfig,
     available_hints: Vec<String>,
+    mission_execution_context: bool,
 }
 
 pub struct AgentBuilder {
@@ -47,6 +53,7 @@ pub struct AgentBuilder {
     tool_dispatcher: Option<Box<dyn ToolDispatcher>>,
     memory_loader: Option<Box<dyn MemoryLoader>>,
     config: Option<crate::config::AgentConfig>,
+    mission_config: Option<crate::config::MissionConfig>,
     model_name: Option<String>,
     temperature: Option<f64>,
     workspace_dir: Option<std::path::PathBuf>,
@@ -68,6 +75,7 @@ impl AgentBuilder {
             tool_dispatcher: None,
             memory_loader: None,
             config: None,
+            mission_config: None,
             model_name: None,
             temperature: None,
             workspace_dir: None,
@@ -121,6 +129,11 @@ impl AgentBuilder {
 
     pub fn model_name(mut self, model_name: String) -> Self {
         self.model_name = Some(model_name);
+        self
+    }
+
+    pub fn mission_config(mut self, mission_config: crate::config::MissionConfig) -> Self {
+        self.mission_config = Some(mission_config);
         self
     }
 
@@ -190,6 +203,7 @@ impl AgentBuilder {
                 .memory_loader
                 .unwrap_or_else(|| Box::new(DefaultMemoryLoader::default())),
             config: self.config.unwrap_or_default(),
+            mission_config: self.mission_config.unwrap_or_default(),
             model_name: self
                 .model_name
                 .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".into()),
@@ -203,6 +217,7 @@ impl AgentBuilder {
             history: Vec::new(),
             classification_config: self.classification_config.unwrap_or_default(),
             available_hints: self.available_hints.unwrap_or_default(),
+            mission_execution_context: false,
         })
     }
 }
@@ -302,6 +317,7 @@ impl Agent {
             )))
             .prompt_builder(SystemPromptBuilder::with_defaults())
             .config(config.agent.clone())
+            .mission_config(config.mission.clone())
             .model_name(model_name)
             .temperature(config.default_temperature)
             .workspace_dir(config.workspace_dir.clone())
@@ -541,11 +557,16 @@ impl Agent {
         let mut approved_calls = Vec::new();
         let mut approved_call_keys = Vec::new();
         let mut results_by_call_id = HashMap::new();
+        let execution_origin = if self.mission_execution_context {
+            ExecutionOrigin::Mission
+        } else {
+            ExecutionOrigin::Standard
+        };
 
         for (index, call) in calls.iter().enumerate() {
             let (needs_approval, extracted_reason) = match self
                 .tool_dispatcher
-                .check_tool_risk(&call.name, &call.arguments)
+                .check_tool_risk_for_origin(&call.name, &call.arguments, execution_origin)
             {
                 DispatchAction::ApprovalRequired(reason) => (true, reason),
                 DispatchAction::Execute => (false, String::new()),
@@ -599,6 +620,14 @@ impl Agent {
             }
         }
 
+        if self.mission_execution_context
+            && gated_results
+                .iter()
+                .any(|result| matches!(result.action, DispatchAction::ApprovalRequired(_)))
+        {
+            anyhow::bail!("mission_policy_denied: delegated tool action denied")
+        }
+
         let formatted = self.tool_dispatcher.format_results(&gated_results);
         self.history.push(formatted);
         self.trim_history();
@@ -619,6 +648,378 @@ impl Agent {
             "Agent exceeded maximum tool iterations ({})",
             self.config.max_tool_iterations
         )
+    }
+
+    fn mission_id() -> String {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |duration| duration.as_nanos());
+        format!("mission-{nanos}")
+    }
+
+    fn build_mission_coordinator(&self) -> MissionCoordinator {
+        MissionCoordinator::new(self.mission_config.clone().into())
+    }
+
+    fn build_mission_plan(&self, objective: &str, resume_from: Option<u32>) -> MissionPlan {
+        let mut plan = MissionCoordinator::plan_for_objective(objective);
+        plan.resume.last_successful_checkpoint = resume_from;
+        plan
+    }
+
+    async fn execute_mission_checkpoint(
+        &mut self,
+        checkpoint: &crate::agent::mission::MissionCheckpoint,
+    ) -> Result<String> {
+        self.mission_execution_context = true;
+        let result = self.turn(&checkpoint.objective_fragment).await;
+        self.mission_execution_context = false;
+        result
+    }
+
+    fn replan_after_failure(
+        &self,
+        plan: &MissionPlan,
+        _failed_checkpoint: u32,
+        _reason: &str,
+    ) -> MissionPlan {
+        plan.clone()
+    }
+
+    fn mission_error(reason: MissionTerminationReason) -> anyhow::Error {
+        anyhow::anyhow!("mission lifecycle error: {reason:?}")
+    }
+
+    fn mission_reason_label(reason: &MissionTerminationReason) -> &'static str {
+        match reason {
+            MissionTerminationReason::BudgetExhausted => "budget_exhausted",
+            MissionTerminationReason::SlaExceeded => "sla_exceeded",
+            MissionTerminationReason::PolicyDenied => "policy_denied",
+            MissionTerminationReason::ApprovalDenied => "approval_denied",
+            MissionTerminationReason::GuardrailViolation => "guardrail_violation",
+            MissionTerminationReason::Unrecoverable => "unrecoverable",
+            MissionTerminationReason::GovernanceConstraintViolated => {
+                "governance_constraint_violated"
+            }
+            MissionTerminationReason::InvalidStateTransition => "invalid_state_transition",
+            MissionTerminationReason::AlreadyTerminalState => "already_terminal_state",
+        }
+    }
+
+    fn mission_termination_reason_from_error(error_text: &str) -> MissionTerminationReason {
+        if error_text.contains("mission_policy_denied") {
+            return MissionTerminationReason::PolicyDenied;
+        }
+        if error_text.contains("approval_required") {
+            return MissionTerminationReason::ApprovalDenied;
+        }
+        MissionTerminationReason::Unrecoverable
+    }
+
+    fn sanitize_observer_error(
+        raw_message: &str,
+        headers: &[(String, String)],
+        diagnostic: &str,
+    ) -> String {
+        let runtime_redacted = crate::tools::redact_runtime_error(raw_message);
+        let redacted_headers = crate::tools::http_request::redact_headers_for_display(headers);
+        let redacted_headers_json = serde_json::to_string(&redacted_headers).unwrap_or_default();
+
+        #[cfg(feature = "mcp-runtime")]
+        let diagnostic_redacted = crate::tools::mcp::client::redact_diagnostic(
+            diagnostic,
+            headers
+                .iter()
+                .map(|(key, value)| (key.as_str(), value.as_str())),
+        );
+
+        #[cfg(not(feature = "mcp-runtime"))]
+        let diagnostic_redacted = diagnostic.to_string();
+
+        let payload = format!(
+            "{runtime_redacted}; headers={redacted_headers_json}; diagnostic={diagnostic_redacted}"
+        );
+        redact_observer_payload(&payload)
+    }
+
+    fn terminated_mission_outcome(
+        &self,
+        coordinator: &MissionCoordinator,
+        mission_id: &str,
+        reason: MissionTerminationReason,
+        mission_start: Instant,
+        checkpoint_index: Option<u32>,
+        rollback: bool,
+    ) -> Result<MissionOutcome> {
+        let _ = coordinator.transition(MissionState::Terminated);
+        let resume_metadata = coordinator.resume_metadata().map_err(Self::mission_error)?;
+        let checkpoints_completed = resume_metadata
+            .last_successful_checkpoint
+            .map_or(0, |index| index + 1);
+        let duration = mission_start.elapsed();
+        let termination_reason = Self::mission_reason_label(&reason).to_string();
+
+        self.observer
+            .record_event(&ObserverEvent::MissionGuardrailViolation {
+                mission_id: mission_id.to_string(),
+                checkpoint_index,
+                guardrail: "mission_governance".to_string(),
+                termination_reason: termination_reason.clone(),
+                detail: redact_observer_payload(&termination_reason),
+            });
+        self.observer
+            .record_event(&ObserverEvent::MissionTerminated {
+                mission_id: mission_id.to_string(),
+                checkpoint_index,
+                termination_reason,
+                duration,
+                rollback,
+            });
+
+        Ok(MissionOutcome {
+            mission_id: mission_id.to_string(),
+            state: MissionState::Terminated,
+            termination: Some(reason),
+            checkpoints_completed,
+            resume_metadata,
+        })
+    }
+
+    async fn run_mission_plan(
+        &mut self,
+        coordinator: &MissionCoordinator,
+        mission_id: &str,
+        mission_start: Instant,
+        mut plan: MissionPlan,
+    ) -> Result<MissionOutcome> {
+        if let Err(reason) = coordinator.validate_governance() {
+            return self.terminated_mission_outcome(
+                coordinator,
+                mission_id,
+                reason,
+                mission_start,
+                None,
+                false,
+            );
+        }
+
+        if let Some(resume_index) = plan.resume.last_successful_checkpoint {
+            coordinator
+                .record_checkpoint_success(resume_index)
+                .map_err(Self::mission_error)?;
+        }
+
+        coordinator
+            .transition(MissionState::Planned)
+            .map_err(Self::mission_error)?;
+        coordinator
+            .transition(MissionState::Active)
+            .map_err(Self::mission_error)?;
+
+        let start_index = plan
+            .resume
+            .last_successful_checkpoint
+            .and_then(|index| usize::try_from(index).ok())
+            .map_or(0, |index| index.saturating_add(1));
+
+        let mut checkpoint_position = start_index;
+
+        while checkpoint_position < plan.checkpoints.len() {
+            let pending_checkpoint_index = plan
+                .checkpoints
+                .get(checkpoint_position)
+                .map(|checkpoint| checkpoint.index);
+            if let Err(reason) = coordinator.enforce_pre_checkpoint() {
+                return self.terminated_mission_outcome(
+                    coordinator,
+                    mission_id,
+                    reason,
+                    mission_start,
+                    pending_checkpoint_index,
+                    false,
+                );
+            }
+
+            let checkpoint = plan.checkpoints[checkpoint_position].clone();
+            let checkpoint_start = Instant::now();
+            self.observer
+                .record_event(&ObserverEvent::MissionCheckpointProgress {
+                    mission_id: mission_id.to_string(),
+                    checkpoint_index: checkpoint.index,
+                    status: "started".to_string(),
+                    duration: std::time::Duration::ZERO,
+                });
+            match self.execute_mission_checkpoint(&checkpoint).await {
+                Ok(_) => {
+                    let checkpoint_elapsed_ms =
+                        u64::try_from(checkpoint_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    if let Err(reason) =
+                        coordinator.record_checkpoint_accounting(checkpoint_elapsed_ms, 0)
+                    {
+                        return self.terminated_mission_outcome(
+                            coordinator,
+                            mission_id,
+                            reason,
+                            mission_start,
+                            Some(checkpoint.index),
+                            false,
+                        );
+                    }
+
+                    coordinator
+                        .record_checkpoint_success(checkpoint.index)
+                        .map_err(Self::mission_error)?;
+                    self.observer
+                        .record_event(&ObserverEvent::MissionCheckpointProgress {
+                            mission_id: mission_id.to_string(),
+                            checkpoint_index: checkpoint.index,
+                            status: "completed".to_string(),
+                            duration: checkpoint_start.elapsed(),
+                        });
+                    checkpoint_position = checkpoint_position.saturating_add(1);
+                }
+                Err(error) => {
+                    let checkpoint_elapsed_ms =
+                        u64::try_from(checkpoint_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                    if let Err(reason) =
+                        coordinator.record_checkpoint_accounting(checkpoint_elapsed_ms, 0)
+                    {
+                        return self.terminated_mission_outcome(
+                            coordinator,
+                            mission_id,
+                            reason,
+                            mission_start,
+                            Some(checkpoint.index),
+                            false,
+                        );
+                    }
+
+                    let reason_text = error.to_string();
+                    self.observer.record_event(&ObserverEvent::Error {
+                        component: "mission".to_string(),
+                        message: Self::sanitize_observer_error(
+                            &reason_text,
+                            &[("X-Mission-Context".to_string(), "checkpoint".to_string())],
+                            &reason_text,
+                        ),
+                    });
+                    let recoverable = coordinator.should_replan(&reason_text);
+                    self.observer
+                        .record_event(&ObserverEvent::MissionCheckpointProgress {
+                            mission_id: mission_id.to_string(),
+                            checkpoint_index: checkpoint.index,
+                            status: "failed".to_string(),
+                            duration: checkpoint_start.elapsed(),
+                        });
+                    coordinator
+                        .record_checkpoint_failure(
+                            checkpoint.index,
+                            reason_text.clone(),
+                            recoverable,
+                        )
+                        .map_err(Self::mission_error)?;
+
+                    if recoverable {
+                        coordinator
+                            .transition(MissionState::Replanning)
+                            .map_err(Self::mission_error)?;
+                        self.observer
+                            .record_event(&ObserverEvent::MissionCheckpointProgress {
+                                mission_id: mission_id.to_string(),
+                                checkpoint_index: checkpoint.index,
+                                status: "replanning".to_string(),
+                                duration: std::time::Duration::ZERO,
+                            });
+                        plan = self.replan_after_failure(&plan, checkpoint.index, &reason_text);
+                        coordinator
+                            .transition(MissionState::Planned)
+                            .map_err(Self::mission_error)?;
+                        coordinator
+                            .transition(MissionState::Active)
+                            .map_err(Self::mission_error)?;
+                        continue;
+                    }
+                    return self.terminated_mission_outcome(
+                        coordinator,
+                        mission_id,
+                        Self::mission_termination_reason_from_error(&reason_text),
+                        mission_start,
+                        Some(checkpoint.index),
+                        false,
+                    );
+                }
+            }
+        }
+
+        coordinator
+            .transition(MissionState::Completed)
+            .map_err(Self::mission_error)?;
+        let resume_metadata = coordinator.resume_metadata().map_err(Self::mission_error)?;
+        let checkpoints_completed = resume_metadata
+            .last_successful_checkpoint
+            .map_or(0, |index| index + 1);
+        self.observer
+            .record_event(&ObserverEvent::MissionCompleted {
+                mission_id: mission_id.to_string(),
+                checkpoints_completed,
+                duration: mission_start.elapsed(),
+            });
+
+        Ok(MissionOutcome {
+            mission_id: mission_id.to_string(),
+            state: MissionState::Completed,
+            termination: None,
+            checkpoints_completed,
+            resume_metadata,
+        })
+    }
+
+    pub async fn run_mission(
+        &mut self,
+        objective: &str,
+        resume_from: Option<u32>,
+    ) -> Result<MissionOutcome> {
+        if objective.trim().is_empty() {
+            anyhow::bail!("mission objective must not be empty");
+        }
+
+        let mission_id = Self::mission_id();
+        if !self.mission_config.enabled {
+            if resume_from.is_some() {
+                self.observer
+                    .record_event(&ObserverEvent::MissionTerminated {
+                        mission_id: mission_id.clone(),
+                        checkpoint_index: resume_from,
+                        termination_reason: "mission_disabled_rollback".to_string(),
+                        duration: std::time::Duration::ZERO,
+                        rollback: true,
+                    });
+            }
+            let _ = self.turn(objective).await?;
+            return Ok(MissionOutcome {
+                mission_id,
+                state: MissionState::Completed,
+                termination: None,
+                checkpoints_completed: 0,
+                resume_metadata: MissionResumeMetadata::default(),
+            });
+        }
+
+        self.observer.record_event(&ObserverEvent::MissionStarted {
+            mission_id: mission_id.clone(),
+            checkpoint_count: u32::try_from(
+                MissionCoordinator::plan_for_objective(objective)
+                    .checkpoints
+                    .len(),
+            )
+            .unwrap_or(u32::MAX),
+            resume_from,
+        });
+
+        let coordinator = self.build_mission_coordinator();
+        let plan = self.build_mission_plan(objective, resume_from);
+        self.run_mission_plan(&coordinator, &mission_id, Instant::now(), plan)
+            .await
     }
 
     pub async fn run_single(&mut self, message: &str) -> Result<String> {

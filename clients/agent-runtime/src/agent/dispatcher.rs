@@ -1,5 +1,6 @@
 use crate::providers::{ChatMessage, ChatResponse, ConversationMessage, ToolResultMessage};
 use crate::security::source_kind_for_tool;
+use crate::security::ExecutionOrigin;
 use crate::tools::{Tool, ToolSpec};
 use serde_json::Value;
 use std::fmt::Write;
@@ -44,12 +45,25 @@ pub trait ToolDispatcher: Send + Sync {
     // Check if the tool invocation requires approval
     // FAIL-CLOSED: Unknown tools require approval by default for safety
     // Only explicitly safe tools can execute without approval
-    fn check_tool_risk(&self, tool_name: &str, _arguments: &Value) -> DispatchAction {
-        evaluate_tool_risk(tool_name)
+    fn check_tool_risk(&self, tool_name: &str, arguments: &Value) -> DispatchAction {
+        self.check_tool_risk_for_origin(tool_name, arguments, ExecutionOrigin::Standard)
+    }
+
+    fn check_tool_risk_for_origin(
+        &self,
+        tool_name: &str,
+        _arguments: &Value,
+        origin: ExecutionOrigin,
+    ) -> DispatchAction {
+        evaluate_tool_risk_for_origin(tool_name, origin)
     }
 }
 
 pub fn evaluate_tool_risk(tool_name: &str) -> DispatchAction {
+    evaluate_tool_risk_for_origin(tool_name, ExecutionOrigin::Standard)
+}
+
+pub fn evaluate_tool_risk_for_origin(tool_name: &str, _origin: ExecutionOrigin) -> DispatchAction {
     match source_kind_for_tool(tool_name) {
         crate::security::ToolSourceKind::Mcp => {
             return DispatchAction::ApprovalRequired(format!(
@@ -388,5 +402,17 @@ mod tests {
             }
             DispatchAction::Execute => panic!("mcp tools must require approval"),
         }
+    }
+
+    #[test]
+    fn mission_origin_risk_classification_matches_standard_path() {
+        assert_eq!(
+            evaluate_tool_risk_for_origin("shell", ExecutionOrigin::Mission),
+            evaluate_tool_risk_for_origin("shell", ExecutionOrigin::Standard)
+        );
+        assert_eq!(
+            evaluate_tool_risk_for_origin("echo", ExecutionOrigin::Mission),
+            DispatchAction::Execute
+        );
     }
 }

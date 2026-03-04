@@ -263,7 +263,7 @@ impl McpClient {
     }
 }
 
-fn redact_diagnostic<'a>(
+pub(crate) fn redact_diagnostic<'a>(
     input: &str,
     extra_env: impl IntoIterator<Item = (&'a str, &'a str)>,
 ) -> String {

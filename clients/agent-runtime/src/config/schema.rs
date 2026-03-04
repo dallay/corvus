@@ -44,6 +44,9 @@ pub struct Config {
     #[serde(default)]
     pub agent: AgentConfig,
 
+    #[serde(default)]
+    pub mission: MissionConfig,
+
     /// Model routing rules — route `hint:<name>` to specific provider+model combos.
     #[serde(default)]
     pub model_routes: Vec<ModelRouteConfig>,
@@ -241,6 +244,41 @@ impl Default for AgentConfig {
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
             tool_dispatcher: default_agent_tool_dispatcher(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MissionConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_mission_max_runtime_ms")]
+    pub max_runtime_ms: u64,
+    #[serde(default = "default_mission_max_steps")]
+    pub max_steps: u32,
+    #[serde(default = "default_mission_max_estimated_cost_cents")]
+    pub max_estimated_cost_cents: u32,
+}
+
+fn default_mission_max_runtime_ms() -> u64 {
+    300_000
+}
+
+fn default_mission_max_steps() -> u32 {
+    10
+}
+
+fn default_mission_max_estimated_cost_cents() -> u32 {
+    100
+}
+
+impl Default for MissionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_runtime_ms: default_mission_max_runtime_ms(),
+            max_steps: default_mission_max_steps(),
+            max_estimated_cost_cents: default_mission_max_estimated_cost_cents(),
         }
     }
 }
@@ -1963,6 +2001,7 @@ impl Default for Config {
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),
             agent: AgentConfig::default(),
+            mission: MissionConfig::default(),
             model_routes: Vec::new(),
             heartbeat: HeartbeatConfig::default(),
             cron: CronConfig::default(),
@@ -2801,6 +2840,30 @@ mod tests {
     }
 
     #[test]
+    fn mission_config_defaults_fail_closed() {
+        let mission = MissionConfig::default();
+        assert!(!mission.enabled);
+        assert_eq!(mission.max_runtime_ms, 300_000);
+        assert_eq!(mission.max_steps, 10);
+        assert_eq!(mission.max_estimated_cost_cents, 100);
+    }
+
+    #[test]
+    fn config_defaults_mission_when_section_missing() {
+        let toml_str = r#"
+workspace_dir = "/tmp/workspace"
+config_path = "/tmp/config.toml"
+default_temperature = 0.7
+"#;
+
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(!parsed.mission.enabled);
+        assert_eq!(parsed.mission.max_runtime_ms, 300_000);
+        assert_eq!(parsed.mission.max_steps, 10);
+        assert_eq!(parsed.mission.max_estimated_cost_cents, 100);
+    }
+
+    #[test]
     fn heartbeat_config_default() {
         let h = HeartbeatConfig::default();
         assert!(!h.enabled);
@@ -2923,6 +2986,7 @@ default_temperature = 0.7
             },
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),
+            mission: MissionConfig::default(),
             model_routes: Vec::new(),
             query_classification: QueryClassificationConfig::default(),
             heartbeat: HeartbeatConfig {
@@ -3060,6 +3124,7 @@ tool_dispatcher = "xml"
             runtime: RuntimeConfig::default(),
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),
+            mission: MissionConfig::default(),
             model_routes: Vec::new(),
             query_classification: QueryClassificationConfig::default(),
             heartbeat: HeartbeatConfig::default(),

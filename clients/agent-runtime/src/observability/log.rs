@@ -79,6 +79,79 @@ impl Observer for LogObserver {
                     "llm.response"
                 );
             }
+            ObserverEvent::MissionStarted {
+                mission_id,
+                checkpoint_count,
+                resume_from,
+            } => {
+                info!(
+                    mission_id = %mission_id,
+                    checkpoint_count = checkpoint_count,
+                    resume_from = ?resume_from,
+                    "mission.started"
+                );
+            }
+            ObserverEvent::MissionCheckpointProgress {
+                mission_id,
+                checkpoint_index,
+                status,
+                duration,
+            } => {
+                let ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+                info!(
+                    mission_id = %mission_id,
+                    checkpoint_index = checkpoint_index,
+                    status = %status,
+                    duration_ms = ms,
+                    "mission.checkpoint"
+                );
+            }
+            ObserverEvent::MissionGuardrailViolation {
+                mission_id,
+                checkpoint_index,
+                guardrail,
+                termination_reason,
+                detail,
+            } => {
+                info!(
+                    mission_id = %mission_id,
+                    checkpoint_index = ?checkpoint_index,
+                    guardrail = %guardrail,
+                    termination_reason = %termination_reason,
+                    detail = %detail,
+                    "mission.guardrail_violation"
+                );
+            }
+            ObserverEvent::MissionCompleted {
+                mission_id,
+                checkpoints_completed,
+                duration,
+            } => {
+                let ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+                info!(
+                    mission_id = %mission_id,
+                    checkpoints_completed = checkpoints_completed,
+                    duration_ms = ms,
+                    "mission.completed"
+                );
+            }
+            ObserverEvent::MissionTerminated {
+                mission_id,
+                checkpoint_index,
+                termination_reason,
+                duration,
+                rollback,
+            } => {
+                let ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+                info!(
+                    mission_id = %mission_id,
+                    checkpoint_index = ?checkpoint_index,
+                    termination_reason = %termination_reason,
+                    duration_ms = ms,
+                    rollback = rollback,
+                    "mission.terminated"
+                );
+            }
         }
     }
 
