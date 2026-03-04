@@ -1,7 +1,7 @@
 {
   "name": "@corvus/docs",
   "type": "module",
-  "version": "0.2.0",
+  "version": "0.1.15",
   "scripts": {
     "dev": "astro dev",
     "start": "astro dev",
@@ -13,15 +13,15 @@
     "check": "biome check src astro.config.mjs package.json tsconfig.json"
   },
   "dependencies": {
-    "@astrojs/starlight": "catalog:",
+    "@astrojs/starlight": "^0.37.6",
     "@corvus/shared": "workspace:*",
-    "astro": "catalog:",
-    "sharp": "catalog:"
+    "astro": "^5.17.2",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
-    "@astrojs/check": "catalog:",
-    "astro-vtbot": "catalog:",
-    "typescript": "catalog:",
+    "astro-vtbot": "2.1.11",
+    "@astrojs/check": "latest",
+    "typescript": "latest",
     "vite": "6.4.1"
   }
 }

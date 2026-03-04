@@ -453,7 +453,7 @@ function conditionallyAdd<T>(
 }
 
 function buildObservabilityPayload(
-  _parsed: ParsedValues,
+  parsed: ParsedValues,
   snapshot: InitialConfigSnapshot
 ): Record<string, unknown> {
   const observability: Record<string, unknown> = {};

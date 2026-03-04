@@ -1021,13 +1021,11 @@ mod tests {
                 name: "tool1".to_string(),
                 description: "First tool".to_string(),
                 parameters: serde_json::json!({"type": "object"}),
-                source: None,
             },
             ToolSpec {
                 name: "tool2".to_string(),
                 description: "Second tool".to_string(),
                 parameters: serde_json::json!({"type": "object"}),
-                source: None,
             },
         ];
 
@@ -1044,7 +1042,6 @@ mod tests {
             name: "tool1".to_string(),
             description: "Only tool".to_string(),
             parameters: serde_json::json!({"type": "object"}),
-            source: None,
         }];
 
         let native_tools = AnthropicProvider::convert_tools(Some(&tools)).unwrap();

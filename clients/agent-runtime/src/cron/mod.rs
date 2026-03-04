@@ -62,7 +62,7 @@ pub fn handle_command(command: crate::CronCommands, config: &Config) -> Result<(
                 expr: expression,
                 tz,
             };
-            let job = add_shell_job(config, None, schedule, &command, false)?;
+            let job = add_shell_job(config, None, schedule, &command)?;
             println!("✅ Added cron job {}", job.id);
             println!("  Expr: {}", job.expression);
             println!("  Next: {}", job.next_run.to_rfc3339());
@@ -74,7 +74,7 @@ pub fn handle_command(command: crate::CronCommands, config: &Config) -> Result<(
                 .map_err(|e| anyhow::anyhow!("Invalid RFC3339 timestamp for --at: {e}"))?
                 .with_timezone(&chrono::Utc);
             let schedule = Schedule::At { at };
-            let job = add_shell_job(config, None, schedule, &command, false)?;
+            let job = add_shell_job(config, None, schedule, &command)?;
             println!("✅ Added one-shot cron job {}", job.id);
             println!("  At  : {}", job.next_run.to_rfc3339());
             println!("  Cmd : {}", job.command);
@@ -82,7 +82,7 @@ pub fn handle_command(command: crate::CronCommands, config: &Config) -> Result<(
         }
         crate::CronCommands::AddEvery { every_ms, command } => {
             let schedule = Schedule::Every { every_ms };
-            let job = add_shell_job(config, None, schedule, &command, false)?;
+            let job = add_shell_job(config, None, schedule, &command)?;
             println!("✅ Added interval cron job {}", job.id);
             println!("  Every(ms): {every_ms}");
             println!("  Next     : {}", job.next_run.to_rfc3339());
@@ -122,7 +122,7 @@ pub fn add_once_at(
     command: &str,
 ) -> Result<CronJob> {
     let schedule = Schedule::At { at };
-    add_shell_job(config, None, schedule, command, false)
+    add_shell_job(config, None, schedule, command)
 }
 
 pub fn pause_job(config: &Config, id: &str) -> Result<CronJob> {

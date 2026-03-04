@@ -346,86 +346,71 @@ impl CopilotProvider {
     }
 
     fn convert_messages(messages: &[ChatMessage]) -> Vec<ApiMessage> {
-        messages.iter().map(Self::convert_message).collect()
-    }
+        messages
+            .iter()
+            .map(|message| {
+                if message.role == "assistant" {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content) {
+                        if let Some(tool_calls_value) = value.get("tool_calls") {
+                            if let Ok(parsed_calls) =
+                                serde_json::from_value::<Vec<ProviderToolCall>>(tool_calls_value.clone())
+                            {
+                                let tool_calls = parsed_calls
+                                    .into_iter()
+                                    .map(|tool_call| NativeToolCall {
+                                        id: Some(tool_call.id),
+                                        kind: Some("function".to_string()),
+                                        function: NativeFunctionCall {
+                                            name: tool_call.name,
+                                            arguments: tool_call.arguments,
+                                        },
+                                    })
+                                    .collect::<Vec<_>>();
 
-    fn convert_message(message: &ChatMessage) -> ApiMessage {
-        match message.role.as_str() {
-            "assistant" => Self::convert_assistant_message(message),
-            "tool" => Self::convert_tool_message(message),
-            _ => Self::fallback_message(message),
-        }
-    }
+                                let content = value
+                                    .get("content")
+                                    .and_then(serde_json::Value::as_str)
+                                    .map(ToString::to_string);
 
-    fn convert_assistant_message(message: &ChatMessage) -> ApiMessage {
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content) else {
-            return Self::fallback_message(message);
-        };
+                                return ApiMessage {
+                                    role: "assistant".to_string(),
+                                    content,
+                                    tool_call_id: None,
+                                    tool_calls: Some(tool_calls),
+                                };
+                            }
+                        }
+                    }
+                }
 
-        let Some(tool_calls_value) = value.get("tool_calls") else {
-            return Self::fallback_message(message);
-        };
+                if message.role == "tool" {
+                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content) {
+                        let tool_call_id = value
+                            .get("tool_call_id")
+                            .and_then(serde_json::Value::as_str)
+                            .map(ToString::to_string);
+                        let content = value
+                            .get("content")
+                            .and_then(serde_json::Value::as_str)
+                            .map(ToString::to_string);
 
-        let Ok(parsed_calls) =
-            serde_json::from_value::<Vec<ProviderToolCall>>(tool_calls_value.clone())
-        else {
-            return Self::fallback_message(message);
-        };
+                        return ApiMessage {
+                            role: "tool".to_string(),
+                            content,
+                            tool_call_id,
+                            tool_calls: None,
+                        };
+                    }
+                }
 
-        let tool_calls = parsed_calls
-            .into_iter()
-            .map(|tool_call| NativeToolCall {
-                id: Some(tool_call.id),
-                kind: Some("function".to_string()),
-                function: NativeFunctionCall {
-                    name: tool_call.name,
-                    arguments: tool_call.arguments,
-                },
+                ApiMessage {
+                    role: message.role.clone(),
+                    content: Some(message.content.clone()),
+                    tool_call_id: None,
+                    tool_calls: None,
+                }
             })
-            .collect::<Vec<_>>();
-
-        let content = value
-            .get("content")
-            .and_then(serde_json::Value::as_str)
-            .map(ToString::to_string);
-
-        ApiMessage {
-            role: "assistant".to_string(),
-            content,
-            tool_call_id: None,
-            tool_calls: Some(tool_calls),
-        }
-    }
-
-    fn convert_tool_message(message: &ChatMessage) -> ApiMessage {
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&message.content) else {
-            return Self::fallback_message(message);
-        };
-
-        let tool_call_id = value
-            .get("tool_call_id")
-            .and_then(serde_json::Value::as_str)
-            .map(ToString::to_string);
-        let content = value
-            .get("content")
-            .and_then(serde_json::Value::as_str)
-            .map(ToString::to_string);
-
-        ApiMessage {
-            role: "tool".to_string(),
-            content,
-            tool_call_id,
-            tool_calls: None,
-        }
-    }
-
-    fn fallback_message(message: &ChatMessage) -> ApiMessage {
-        ApiMessage {
-            role: message.role.clone(),
-            content: Some(message.content.clone()),
-            tool_call_id: None,
-            tool_calls: None,
-        }
+            .collect()
     }
 
     /// Send a chat completions request with required Copilot headers.
@@ -1040,7 +1025,6 @@ mod tests {
                 },
                 "required": ["a", "b"]
             }),
-            source: None,
         }];
 
         let native = CopilotProvider::convert_tools(Some(&tools)).expect("tools must map");

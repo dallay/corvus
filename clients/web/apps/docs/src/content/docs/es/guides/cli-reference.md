@@ -157,7 +157,6 @@ corvus auth list
 Gestiona los catálogos de modelos de los proveedores.
 
 - `refresh`: Actualiza y cachea los modelos del proveedor.
-  - `--provider <NAME>`: Nombre del proveedor (por defecto es el proveedor configurado).
   - `--force`: Fuerza la actualización en vivo.
 
 **Ejemplo:**
@@ -220,7 +219,6 @@ Descubre e introspecciona el hardware USB.
 - `discover`: Enumera los dispositivos USB y muestra las placas conocidas.
 - `introspect <PATH>`: Detalles sobre un dispositivo en una ruta específica.
 - `info`: Obtiene información del chip vía USB (probe-rs).
-  - `--chip <CHIP>`: Nombre del chip (ej., `STM32F401RETx`).
 
 **Ejemplo:**
 ```bash
@@ -234,8 +232,6 @@ Gestiona periféricos de hardware (STM32, RPi, etc.).
 - `add <BOARD> <PATH>`: Añade un periférico.
 - `flash-nucleo`: Flashea el firmware de Corvus al Nucleo-F401RE.
 - `flash`: Flashea el firmware de Corvus al Arduino.
-- `setup-uno-q`: Configura la aplicación Arduino Uno Q Bridge (despliega bridge GPIO).
-  - `--host <IP>`: Dirección IP de Uno Q.
 
 **Ejemplo:**
 ```bash
@@ -250,8 +246,6 @@ corvus peripheral add nucleo-f401re /dev/ttyACM0
 Migra datos desde otros runtimes de agentes.
 
 - `openclaw`: Importa memoria desde un espacio de trabajo de OpenClaw.
-  - `--source <PATH>`: Ruta opcional al espacio de trabajo de OpenClaw.
-  - `--dry-run`: Valida y previsualiza la migración sin escribir datos.
 
 **Ejemplo:**
 ```bash

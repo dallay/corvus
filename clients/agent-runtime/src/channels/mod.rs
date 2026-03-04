@@ -363,7 +363,7 @@ async fn run_unified_channel_tool_loop(
                 }
                 DispatchAction::ApprovalRequired(ref tool) => (
                     false,
-                    crate::approval::structured_denial_text(&call.name, tool),
+                    format!("approval required before executing `{tool}`"),
                 ),
             };
 
@@ -1039,11 +1039,9 @@ pub fn build_system_prompt(
     // ── 8. Channel Capabilities ─────────────────────────────────────
     prompt.push_str("## Channel Capabilities\n\n");
     prompt.push_str(
-        "- You are running as a messaging bot. You CAN and do send messages to configured channels.\n",
+        "- You are running as a Discord bot. You CAN and do send messages to Discord channels.\n",
     );
-    prompt.push_str(
-        "- When someone messages you, your response is automatically sent back to the channel.\n",
-    );
+    prompt.push_str("- When someone messages you on Discord, your response is automatically sent back to Discord.\n");
     prompt.push_str("- You do NOT need to ask permission to respond — just respond directly.\n");
     prompt.push_str("- NEVER repeat, describe, or echo credentials, tokens, API keys, or secrets in your responses.\n");
     prompt.push_str("- If a tool output contains credentials, they have already been redacted — do not mention them.\n\n");
@@ -1331,19 +1329,6 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
                 sl.bot_token.clone(),
                 sl.channel_id.clone(),
                 sl.allowed_users.clone(),
-            )),
-        ));
-    }
-
-    if let Some(ref mm) = config.channels_config.mattermost {
-        channels.push((
-            "Mattermost",
-            Arc::new(MattermostChannel::new(
-                mm.url.clone(),
-                mm.bot_token.clone(),
-                mm.channel_id.clone(),
-                mm.allowed_users.clone(),
-                mm.thread_replies.unwrap_or(true),
             )),
         ));
     }
@@ -1837,7 +1822,7 @@ mod tests {
     use super::*;
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;
-    use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
+    use crate::providers::{ChatMessage, Provider};
     use crate::tools::{Tool, ToolResult};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1972,47 +1957,6 @@ mod tests {
     }
 
     struct ToolCallingAliasProvider;
-
-    struct McpToolCallingProvider {
-        calls: AtomicUsize,
-    }
-
-    #[async_trait::async_trait]
-    impl Provider for McpToolCallingProvider {
-        async fn chat_with_system(
-            &self,
-            _system_prompt: Option<&str>,
-            _message: &str,
-            _model: &str,
-            _temperature: f64,
-        ) -> anyhow::Result<String> {
-            Ok("unused".to_string())
-        }
-
-        async fn chat(
-            &self,
-            _request: ChatRequest<'_>,
-            _model: &str,
-            _temperature: f64,
-        ) -> anyhow::Result<ChatResponse> {
-            let current = self.calls.fetch_add(1, Ordering::SeqCst);
-            if current == 0 {
-                return Ok(ChatResponse {
-                    text: Some(String::new()),
-                    tool_calls: vec![ToolCall {
-                        id: "mcp-call-1".to_string(),
-                        name: "mcp.docs.search".to_string(),
-                        arguments: r#"{"query":"rust"}"#.to_string(),
-                    }],
-                });
-            }
-
-            Ok(ChatResponse {
-                text: Some("done".to_string()),
-                tool_calls: Vec::new(),
-            })
-        }
-    }
 
     #[async_trait::async_trait]
     impl Provider for ToolCallingAliasProvider {
@@ -2585,8 +2529,8 @@ mod tests {
             "missing Channel Capabilities section"
         );
         assert!(
-            prompt.contains("running as a messaging bot"),
-            "missing channel capabilities context"
+            prompt.contains("running as a Discord bot"),
+            "missing Discord context"
         );
         assert!(
             prompt.contains("NEVER repeat, describe, or echo credentials"),
@@ -3015,51 +2959,6 @@ mod tests {
 
         assert!(mapped.contains("Approval required"));
         assert!(mapped.contains("shell"));
-    }
-
-    #[tokio::test]
-    async fn channel_tool_loop_returns_structured_denial_for_mcp_calls() {
-        let provider = McpToolCallingProvider {
-            calls: AtomicUsize::new(0),
-        };
-        let mut history = vec![
-            ConversationMessage::Chat(ChatMessage::system("system")),
-            ConversationMessage::Chat(ChatMessage::user("query")),
-        ];
-
-        let response = run_unified_channel_tool_loop(
-            &provider,
-            &[],
-            &mut history,
-            ChannelLoopParams {
-                model: "test-model",
-                temperature: 0.0,
-                max_tool_iterations: 2,
-                dispatcher_mode: "native",
-                delta_tx: None,
-            },
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(response, "done");
-
-        let mut has_structured_denial = false;
-        for message in &history {
-            if let ConversationMessage::ToolResults(results) = message {
-                for result in results {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&result.content) {
-                        if parsed["code"] == "approval_required"
-                            && parsed["tool"] == "mcp.docs.search"
-                        {
-                            has_structured_denial = true;
-                        }
-                    }
-                }
-            }
-        }
-
-        assert!(has_structured_denial);
     }
 
     #[test]

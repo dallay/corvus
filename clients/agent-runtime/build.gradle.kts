@@ -77,6 +77,7 @@ val cargoClippy =
     description = "Run cargo clippy for embedded Corvus core.",
     "clippy",
     "--all-targets",
+    "--all-features",
     "--",
     "-D",
     "warnings",

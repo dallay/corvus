@@ -22,7 +22,7 @@ gpg --full-gen-key
 **Recommended configuration:**
 
 - **Key type:** RSA and RSA (default)
-- **Recommended key size:** `4096` bits — recommended for stronger security and follows Apache Maven guidance
+- **Key size:** `4096` bits (minimum required by Maven Central)
 - **Validity:** `0` = no expiration (or your preferred duration)
 - **Name:** Your real name
 - **Email:** Your GitHub-associated email
@@ -72,8 +72,8 @@ gpg> quit
 **Option A: Subkey only (RECOMMENDED for CI/CD)**
 
 ```bash
-# Export only subkeys with a primary-key stub to keep primary key material offline
-gpg --export-secret-subkeys --armor YOUR_SUBKEY_ID > private-subkey.asc
+# Export the PRIVATE KEY (subkey) in ASCII format
+gpg --export-secret-keys --armor YOUR_SUBKEY_ID > private-subkey.asc
 
 # Verify it starts with:
 # -----BEGIN PGP PRIVATE KEY BLOCK-----

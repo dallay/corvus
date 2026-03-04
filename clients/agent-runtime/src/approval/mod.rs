@@ -4,7 +4,7 @@
 //! with session-scoped "Always" allowlists and audit logging.
 
 use crate::config::AutonomyConfig;
-use crate::security::{AutonomyLevel, ExecutionOrigin};
+use crate::security::AutonomyLevel;
 use chrono::Utc;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -40,39 +40,6 @@ pub struct ApprovalLogEntry {
     pub arguments_summary: String,
     pub decision: ApprovalResponse,
     pub channel: String,
-}
-
-/// Structured denial payload for blocked tool execution.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ApprovalDenial {
-    pub code: String,
-    pub tool: String,
-    pub reason: String,
-}
-
-pub fn requires_explicit_mcp_approval(tool_name: &str) -> bool {
-    tool_name.starts_with("mcp.")
-}
-
-pub fn structured_denial_payload(tool_name: &str, reason: &str) -> serde_json::Value {
-    structured_denial_payload_for_origin(tool_name, reason, ExecutionOrigin::Standard)
-}
-
-pub fn structured_denial_payload_for_origin(
-    tool_name: &str,
-    reason: &str,
-    _origin: ExecutionOrigin,
-) -> serde_json::Value {
-    let denial = ApprovalDenial {
-        code: "approval_required".to_string(),
-        tool: tool_name.to_string(),
-        reason: reason.to_string(),
-    };
-    serde_json::to_value(denial).expect("ApprovalDenial should serialize to JSON")
-}
-
-pub fn structured_denial_text(tool_name: &str, reason: &str) -> String {
-    structured_denial_payload(tool_name, reason).to_string()
 }
 
 // ── ApprovalManager ──────────────────────────────────────────────
@@ -111,10 +78,6 @@ impl ApprovalManager {
     ///
     /// Returns `true` if the call needs a prompt, `false` if it can proceed.
     pub fn needs_approval(&self, tool_name: &str) -> bool {
-        self.needs_approval_for_origin(tool_name, ExecutionOrigin::Standard)
-    }
-
-    pub fn needs_approval_for_origin(&self, tool_name: &str, _origin: ExecutionOrigin) -> bool {
         // Full autonomy never prompts.
         if self.autonomy_level == AutonomyLevel::Full {
             return false;
@@ -459,43 +422,5 @@ mod tests {
         let json = serde_json::to_string(&req).unwrap();
         let parsed: ApprovalRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.tool_name, "shell");
-    }
-
-    #[test]
-    fn mcp_tools_require_explicit_approval() {
-        assert!(requires_explicit_mcp_approval("mcp.docs.search"));
-        assert!(!requires_explicit_mcp_approval("file_read"));
-    }
-
-    #[test]
-    fn structured_denial_payload_contains_stable_fields() {
-        let denial = structured_denial_payload("mcp.docs.search", "approval required");
-        assert_eq!(denial["code"], "approval_required");
-        assert_eq!(denial["tool"], "mcp.docs.search");
-        assert_eq!(denial["reason"], "approval required");
-    }
-
-    #[test]
-    fn mission_origin_preserves_deny_payload_semantics() {
-        let standard = structured_denial_payload_for_origin(
-            "mcp.docs.search",
-            "approval required",
-            ExecutionOrigin::Standard,
-        );
-        let mission = structured_denial_payload_for_origin(
-            "mcp.docs.search",
-            "approval required",
-            ExecutionOrigin::Mission,
-        );
-        assert_eq!(standard, mission);
-    }
-
-    #[test]
-    fn mission_origin_approval_gate_matches_standard_path() {
-        let mgr = ApprovalManager::from_config(&supervised_config());
-        assert_eq!(
-            mgr.needs_approval_for_origin("shell", ExecutionOrigin::Mission),
-            mgr.needs_approval_for_origin("shell", ExecutionOrigin::Standard)
-        );
     }
 }

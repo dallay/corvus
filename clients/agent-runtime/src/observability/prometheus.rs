@@ -167,12 +167,7 @@ impl Observer for PrometheusObserver {
             ObserverEvent::ToolCallStart { tool: _ }
             | ObserverEvent::TurnComplete
             | ObserverEvent::LlmRequest { .. }
-            | ObserverEvent::LlmResponse { .. }
-            | ObserverEvent::MissionStarted { .. }
-            | ObserverEvent::MissionCheckpointProgress { .. }
-            | ObserverEvent::MissionGuardrailViolation { .. }
-            | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. } => {}
+            | ObserverEvent::LlmResponse { .. } => {}
             ObserverEvent::ToolCall {
                 tool,
                 duration,

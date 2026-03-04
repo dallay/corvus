@@ -72,6 +72,10 @@ internal fun passwordTextField(
   modifier: Modifier = Modifier,
 ) {
   var isVisible by remember { mutableStateOf(false) }
+  val visualTransformation =
+    remember(isVisible) {
+      if (isVisible) VisualTransformation.None else PasswordVisualTransformation()
+    }
 
   OutlinedTextField(
     value = value,
@@ -80,8 +84,7 @@ internal fun passwordTextField(
     placeholder = { Text(placeholder) },
     singleLine = true,
     modifier = modifier.fillMaxWidth(),
-    visualTransformation =
-      if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
+    visualTransformation = visualTransformation,
     trailingIcon = {
       IconButton(onClick = { isVisible = !isVisible }) {
         Icon(

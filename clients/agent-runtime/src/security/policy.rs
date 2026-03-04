@@ -31,36 +31,6 @@ pub enum ToolOperation {
     Act,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolSourceKind {
-    Native,
-    Mcp,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ToolPolicyDecision {
-    Allow,
-    ApprovalRequired,
-    Deny,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ExecutionOrigin {
-    Standard,
-    Mission,
-}
-
-pub fn source_kind_for_tool(tool_name: &str) -> ToolSourceKind {
-    if tool_name.starts_with("mcp.") {
-        ToolSourceKind::Mcp
-    } else if tool_name.is_empty() {
-        ToolSourceKind::Unknown
-    } else {
-        ToolSourceKind::Native
-    }
-}
-
 /// Sliding-window action tracker for rate limiting.
 #[derive(Debug)]
 pub struct ActionTracker {
@@ -215,25 +185,6 @@ fn contains_single_ampersand(s: &str) -> bool {
 }
 
 impl SecurityPolicy {
-    pub fn evaluate_tool_policy(&self, tool_name: &str) -> ToolPolicyDecision {
-        self.evaluate_tool_policy_for_origin(tool_name, ExecutionOrigin::Standard)
-    }
-
-    pub fn evaluate_tool_policy_for_origin(
-        &self,
-        tool_name: &str,
-        _origin: ExecutionOrigin,
-    ) -> ToolPolicyDecision {
-        if self.autonomy == AutonomyLevel::ReadOnly {
-            return ToolPolicyDecision::Deny;
-        }
-
-        match source_kind_for_tool(tool_name) {
-            ToolSourceKind::Native => ToolPolicyDecision::Allow,
-            ToolSourceKind::Mcp | ToolSourceKind::Unknown => ToolPolicyDecision::ApprovalRequired,
-        }
-    }
-
     /// Classify command risk. Any high-risk segment marks the whole command high.
     pub fn command_risk_level(&self, command: &str) -> CommandRiskLevel {
         let mut normalized = command.to_string();
@@ -1316,52 +1267,6 @@ mod tests {
         let policy = SecurityPolicy::from_config(&autonomy_config, &workspace);
         assert_eq!(policy.tracker.count(), 0);
         assert!(!policy.is_rate_limited());
-    }
-
-    #[test]
-    fn source_kind_distinguishes_mcp_from_native() {
-        assert_eq!(source_kind_for_tool("mcp.docs.search"), ToolSourceKind::Mcp);
-        assert_eq!(source_kind_for_tool("file_read"), ToolSourceKind::Native);
-        assert_eq!(source_kind_for_tool(""), ToolSourceKind::Unknown);
-    }
-
-    #[test]
-    fn evaluate_tool_policy_requires_approval_for_mcp_by_default() {
-        let policy = default_policy();
-        assert_eq!(
-            policy.evaluate_tool_policy("mcp.docs.search"),
-            ToolPolicyDecision::ApprovalRequired
-        );
-        assert_eq!(
-            policy.evaluate_tool_policy("file_read"),
-            ToolPolicyDecision::Allow
-        );
-    }
-
-    #[test]
-    fn evaluate_tool_policy_denies_all_tools_in_read_only_mode() {
-        let policy = readonly_policy();
-        assert_eq!(
-            policy.evaluate_tool_policy("mcp.docs.search"),
-            ToolPolicyDecision::Deny
-        );
-        assert_eq!(
-            policy.evaluate_tool_policy("file_read"),
-            ToolPolicyDecision::Deny
-        );
-    }
-
-    #[test]
-    fn mission_origin_policy_evaluation_matches_standard_path() {
-        let policy = default_policy();
-        assert_eq!(
-            policy.evaluate_tool_policy_for_origin("mcp.docs.search", ExecutionOrigin::Mission),
-            policy.evaluate_tool_policy_for_origin("mcp.docs.search", ExecutionOrigin::Standard)
-        );
-        assert_eq!(
-            policy.evaluate_tool_policy_for_origin("file_read", ExecutionOrigin::Mission),
-            ToolPolicyDecision::Allow
-        );
     }
 
     // ══════════════════════════════════════════════════════════

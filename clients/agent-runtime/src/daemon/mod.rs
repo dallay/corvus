@@ -66,7 +66,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
             max_backoff,
             move || {
                 let cfg = heartbeat_cfg.clone();
-                Box::pin(run_heartbeat_worker(cfg))
+                async move { run_heartbeat_worker(cfg).await }
             },
         ));
     }
@@ -87,23 +87,6 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         tracing::info!("Cron disabled; scheduler supervisor not started");
     }
 
-    let mission_scheduler_started = mission_checkpoint_supervision_enabled(&config);
-    if mission_scheduler_started {
-        let mission_cfg = config.clone();
-        handles.push(spawn_component_supervisor(
-            "mission-checkpoints",
-            initial_backoff,
-            max_backoff,
-            move || {
-                let cfg = mission_cfg.clone();
-                async move { run_mission_checkpoint_worker(cfg).await }
-            },
-        ));
-    } else {
-        crate::health::mark_component_ok("mission-checkpoints");
-        tracing::info!("Mission mode disabled; mission checkpoint supervisor not started");
-    }
-
     let updater_started = config.updates.enabled && !crate::update::is_update_check_disabled();
     if updater_started {
         let update_cfg = config.clone();
@@ -122,9 +105,6 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     }
 
     let mut component_list = vec!["gateway", "channels", "heartbeat", "scheduler"];
-    if mission_scheduler_started {
-        component_list.push("mission-checkpoints");
-    }
     if updater_started {
         component_list.push("updater");
     }
@@ -266,16 +246,6 @@ async fn run_heartbeat_worker(config: Config) -> Result<()> {
     }
 }
 
-async fn run_mission_checkpoint_worker(config: Config) -> Result<()> {
-    let poll_seconds = config.reliability.scheduler_poll_secs.max(1);
-    let mut interval = tokio::time::interval(Duration::from_secs(poll_seconds));
-
-    loop {
-        interval.tick().await;
-        crate::health::mark_component_ok("mission-checkpoints");
-    }
-}
-
 fn has_supervised_channels(config: &Config) -> bool {
     config.channels_config.telegram.is_some()
         || config.channels_config.discord.is_some()
@@ -288,10 +258,6 @@ fn has_supervised_channels(config: &Config) -> bool {
         || config.channels_config.irc.is_some()
         || config.channels_config.lark.is_some()
         || config.channels_config.dingtalk.is_some()
-}
-
-fn mission_checkpoint_supervision_enabled(config: &Config) -> bool {
-    config.mission.enabled
 }
 
 #[cfg(test)]
@@ -424,15 +390,5 @@ mod tests {
             allowed_users: vec!["*".into()],
         });
         assert!(has_supervised_channels(&config));
-    }
-
-    #[test]
-    fn mission_checkpoint_supervision_follows_mission_enablement() {
-        let mut config = Config::default();
-        config.mission.enabled = false;
-        assert!(!mission_checkpoint_supervision_enabled(&config));
-
-        config.mission.enabled = true;
-        assert!(mission_checkpoint_supervision_enabled(&config));
     }
 }

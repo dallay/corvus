@@ -210,66 +210,53 @@ fn parse_snapshot(input: &str) -> Vec<(String, String)> {
     let mut current_content = String::new();
 
     for line in input.lines() {
-        if let Some(key) = extract_key_from_line(line) {
-            flush_current_entry(&mut entries, &mut current_key, &current_content);
-            current_key = Some(key);
-            current_content = String::new();
+        let trimmed = line.trim();
+
+        // Match: ### 🔑 `key_name`
+        if trimmed.starts_with("### 🔑 `") && trimmed.ends_with('`') {
+            // Save previous entry
+            if let Some(key) = current_key.take() {
+                let content = current_content.trim().to_string();
+                if !content.is_empty() {
+                    entries.push((key, content));
+                }
+            }
+
+            // Extract new key
+            let key = trimmed
+                .strip_prefix("### 🔑 `")
+                .and_then(|s| s.strip_suffix('`'))
+                .unwrap_or("")
+                .to_string();
+
+            if !key.is_empty() {
+                current_key = Some(key);
+                current_content = String::new();
+            }
         } else if current_key.is_some() {
-            if is_metadata_line(line) {
+            // Skip metadata lines and separators
+            if trimmed.starts_with("*Created:") || trimmed == "---" {
                 continue;
             }
-            append_content_line(&mut current_content, line);
+            // Accumulate content
+            if !current_content.is_empty() || !trimmed.is_empty() {
+                if !current_content.is_empty() {
+                    current_content.push('\n');
+                }
+                current_content.push_str(line);
+            }
         }
     }
 
-    flush_current_entry(&mut entries, &mut current_key, &current_content);
-    entries
-}
-
-fn extract_key_from_line(line: &str) -> Option<String> {
-    let trimmed = line.trim();
-    if !trimmed.starts_with("### 🔑 `") || !trimmed.ends_with('`') {
-        return None;
-    }
-
-    let key = trimmed
-        .strip_prefix("### 🔑 `")
-        .and_then(|s| s.strip_suffix('`'))
-        .unwrap_or("");
-
-    if key.is_empty() {
-        None
-    } else {
-        Some(key.to_string())
-    }
-}
-
-fn is_metadata_line(line: &str) -> bool {
-    let trimmed = line.trim();
-    trimmed.starts_with("*Created:") || trimmed == "---"
-}
-
-fn append_content_line(current_content: &mut String, line: &str) {
-    let trimmed = line.trim();
-    if !current_content.is_empty() || !trimmed.is_empty() {
-        if !current_content.is_empty() {
-            current_content.push('\n');
-        }
-        current_content.push_str(line);
-    }
-}
-
-fn flush_current_entry(
-    entries: &mut Vec<(String, String)>,
-    current_key: &mut Option<String>,
-    current_content: &str,
-) {
-    if let Some(key) = current_key.take() {
+    // Don't forget the last entry
+    if let Some(key) = current_key {
         let content = current_content.trim().to_string();
         if !content.is_empty() {
             entries.push((key, content));
         }
     }
+
+    entries
 }
 
 #[cfg(test)]

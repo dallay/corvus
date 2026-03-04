@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "corvus"
-version = "0.2.0"
+version = "0.1.15"
 edition = "2021"
 authors = ["theonlyhennygod"]
 license = "Apache-2.0"
@@ -161,10 +161,8 @@ windows-sys = { version = "0.59", features = [
 ] }
 
 [features]
-default = ["hardware", "mcp-runtime"]
+default = ["hardware"]
 hardware = ["nusb", "tokio-serial"]
-# MCP runtime support (stdio tool discovery + execution adapters)
-mcp-runtime = []
 peripheral-rpi = ["rppal"]
 # Browser backend feature alias used by cfg(feature = "browser-native")
 browser-native = ["dep:fantoccini"]

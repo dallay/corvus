@@ -4,16 +4,18 @@ import { AHREFS_KEY } from "astro:env/client";
 import Analytics from "../components/Analytics.astro";
 
 interface Props {
-  title?: string;
-  description?: string;
+	title?: string;
+	description?: string;
 }
 
 const {
-  title = "Corvus | Autonomous AI Infrastructure",
-  description = "Corvus is a lightweight autonomous AI runtime designed for secure operations, tiny footprint, and fast deployment.",
+	title = "Corvus | Autonomous AI Infrastructure",
+	description = "Corvus is a lightweight autonomous AI runtime designed for secure operations, tiny footprint, and fast deployment.",
 } = Astro.props;
 
-const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).toString() : undefined;
+const canonical = Astro.site
+	? new URL(Astro.url.pathname, Astro.site).toString()
+	: undefined;
 ---
 
 <!doctype html>

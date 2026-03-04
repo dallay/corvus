@@ -1,6 +1,6 @@
 {
   "name": "@corvus/web-monorepo",
-  "version": "0.2.0",
+  "version": "0.1.15",
   "private": true,
   "description": "Corvus Web Apps Monorepo - Marketing, Docs, Chat, Dashboard",
   "type": "module",
@@ -24,8 +24,8 @@
     "test:dashboard": "pnpm --filter @corvus/dashboard run test"
   },
   "devDependencies": {
-    "@biomejs/biome": "catalog:",
-    "typescript": "catalog:"
+    "@biomejs/biome": "2.4.2",
+    "typescript": "5.9.3"
   },
   "pnpm": {
     "overrides": {

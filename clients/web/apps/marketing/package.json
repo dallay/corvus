@@ -1,6 +1,6 @@
 {
   "name": "@corvus/marketing",
-  "version": "0.2.0",
+  "version": "0.1.15",
   "private": true,
   "description": "Corvus Marketing Site built with Astro",
   "type": "module",
@@ -15,13 +15,13 @@
     "clean": "rm -rf dist .astro"
   },
   "dependencies": {
-    "@astrojs/partytown": "catalog:",
+    "@astrojs/partytown": "^2.1.4",
     "@corvus/shared": "workspace:*",
-    "astro": "catalog:",
-    "sharp": "catalog:"
+    "astro": "^5.17.2",
+    "sharp": "^0.34.5"
   },
   "devDependencies": {
-    "typescript": "catalog:",
-    "vite": "catalog:"
+    "typescript": "5.9.3",
+    "vite": "6.4.1"
   }
 }

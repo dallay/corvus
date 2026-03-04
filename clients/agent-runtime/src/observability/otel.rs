@@ -186,12 +186,7 @@ impl Observer for OtelObserver {
             }
             ObserverEvent::LlmRequest { .. }
             | ObserverEvent::ToolCallStart { .. }
-            | ObserverEvent::TurnComplete
-            | ObserverEvent::MissionStarted { .. }
-            | ObserverEvent::MissionCheckpointProgress { .. }
-            | ObserverEvent::MissionGuardrailViolation { .. }
-            | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. } => {}
+            | ObserverEvent::TurnComplete => {}
             ObserverEvent::LlmResponse {
                 provider,
                 model,

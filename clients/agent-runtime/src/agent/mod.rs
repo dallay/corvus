@@ -3,7 +3,6 @@ pub mod agent;
 pub mod classifier;
 pub mod dispatcher;
 pub mod memory_loader;
-pub mod mission;
 pub mod prompt;
 pub mod unified_entrypoint;
 pub mod unified_loop;
