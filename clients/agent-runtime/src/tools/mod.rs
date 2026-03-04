@@ -68,7 +68,7 @@ use crate::security::SecurityPolicy;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-fn redact_runtime_error(raw: &str) -> String {
+pub(crate) fn redact_runtime_error(raw: &str) -> String {
     let mut sanitized = raw.to_string();
     for (key, value) in std::env::vars() {
         let upper = key.to_ascii_uppercase();

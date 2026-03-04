@@ -1,5 +1,24 @@
 use std::time::Duration;
 
+const SENSITIVE_PAYLOAD_MARKERS: [&str; 5] = ["password", "token", "secret", "api_key", "auth"];
+
+pub fn redact_observer_payload(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let lower = trimmed.to_ascii_lowercase();
+    if SENSITIVE_PAYLOAD_MARKERS
+        .iter()
+        .any(|marker| lower.contains(marker))
+    {
+        return "***REDACTED***".to_string();
+    }
+
+    trimmed.to_string()
+}
+
 /// Events the observer can record
 #[derive(Debug, Clone)]
 pub enum ObserverEvent {
@@ -50,6 +69,39 @@ pub enum ObserverEvent {
     Error {
         component: String,
         message: String,
+    },
+    /// Mission lifecycle started with deterministic mission id.
+    MissionStarted {
+        mission_id: String,
+        checkpoint_count: u32,
+        resume_from: Option<u32>,
+    },
+    /// Mission checkpoint progress update emitted on start/finish.
+    MissionCheckpointProgress {
+        mission_id: String,
+        checkpoint_index: u32,
+        status: String,
+        duration: Duration,
+    },
+    /// Mission guardrail violation with secret-safe details.
+    MissionGuardrailViolation {
+        mission_id: String,
+        checkpoint_index: Option<u32>,
+        guardrail: String,
+        termination_reason: String,
+        detail: String,
+    },
+    MissionCompleted {
+        mission_id: String,
+        checkpoints_completed: u32,
+        duration: Duration,
+    },
+    MissionTerminated {
+        mission_id: String,
+        checkpoint_index: Option<u32>,
+        termination_reason: String,
+        duration: Duration,
+        rollback: bool,
     },
 }
 
@@ -150,5 +202,15 @@ mod tests {
 
         assert!(matches!(cloned_event, ObserverEvent::ToolCall { .. }));
         assert!(matches!(cloned_metric, ObserverMetric::RequestLatency(_)));
+    }
+
+    #[test]
+    fn redact_observer_payload_masks_secret_markers() {
+        assert_eq!(redact_observer_payload("token=abc123"), "***REDACTED***");
+        assert_eq!(redact_observer_payload("password:123"), "***REDACTED***");
+        assert_eq!(
+            redact_observer_payload("checkpoint timeout"),
+            "checkpoint timeout"
+        );
     }
 }

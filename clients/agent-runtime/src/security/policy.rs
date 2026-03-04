@@ -45,6 +45,12 @@ pub enum ToolPolicyDecision {
     Deny,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionOrigin {
+    Standard,
+    Mission,
+}
+
 pub fn source_kind_for_tool(tool_name: &str) -> ToolSourceKind {
     if tool_name.starts_with("mcp.") {
         ToolSourceKind::Mcp
@@ -210,6 +216,14 @@ fn contains_single_ampersand(s: &str) -> bool {
 
 impl SecurityPolicy {
     pub fn evaluate_tool_policy(&self, tool_name: &str) -> ToolPolicyDecision {
+        self.evaluate_tool_policy_for_origin(tool_name, ExecutionOrigin::Standard)
+    }
+
+    pub fn evaluate_tool_policy_for_origin(
+        &self,
+        tool_name: &str,
+        _origin: ExecutionOrigin,
+    ) -> ToolPolicyDecision {
         if self.autonomy == AutonomyLevel::ReadOnly {
             return ToolPolicyDecision::Deny;
         }
@@ -1334,6 +1348,19 @@ mod tests {
         assert_eq!(
             policy.evaluate_tool_policy("file_read"),
             ToolPolicyDecision::Deny
+        );
+    }
+
+    #[test]
+    fn mission_origin_policy_evaluation_matches_standard_path() {
+        let policy = default_policy();
+        assert_eq!(
+            policy.evaluate_tool_policy_for_origin("mcp.docs.search", ExecutionOrigin::Mission),
+            policy.evaluate_tool_policy_for_origin("mcp.docs.search", ExecutionOrigin::Standard)
+        );
+        assert_eq!(
+            policy.evaluate_tool_policy_for_origin("file_read", ExecutionOrigin::Mission),
+            ToolPolicyDecision::Allow
         );
     }
 
