@@ -534,6 +534,22 @@ pub fn restart_required_updates(
 ) -> Vec<&'static str> {
     let mut fields = Vec::new();
 
+    collect_core_restart_fields(cfg, patch, &mut fields);
+    collect_runtime_identity_restart_fields(cfg, patch, &mut fields);
+    collect_scheduler_gateway_restart_fields(cfg, patch, &mut fields);
+    collect_webhook_restart_fields(cfg, patch, &mut fields);
+    collect_secret_restart_fields(cfg, patch, &mut fields);
+
+    fields.sort_unstable();
+    fields.dedup();
+    fields
+}
+
+fn collect_core_restart_fields(
+    cfg: &Config,
+    patch: &AdminConfigUpdateRequest,
+    fields: &mut Vec<&'static str>,
+) {
     if let Some(provider) = patch.default_provider.as_ref() {
         let next = normalize_optional_string(provider);
         if next.as_deref() != cfg.default_provider.as_deref() {
@@ -562,13 +578,13 @@ pub fn restart_required_updates(
             fields.push("memory_backend");
         }
     }
-    if let Some(provider) = patch.provider.as_ref() {
-        if let Some(api_key) = provider.api_key.as_ref() {
-            if secret_update_changes(cfg.api_key.as_deref(), api_key) {
-                fields.push("provider.api_key");
-            }
-        }
-    }
+}
+
+fn collect_runtime_identity_restart_fields(
+    cfg: &Config,
+    patch: &AdminConfigUpdateRequest,
+    fields: &mut Vec<&'static str>,
+) {
     if let Some(runtime) = patch.runtime.as_ref() {
         if let Some(kind) = runtime.kind.as_ref() {
             if kind.trim().to_ascii_lowercase() != cfg.runtime.kind {
@@ -576,6 +592,7 @@ pub fn restart_required_updates(
             }
         }
     }
+
     if let Some(identity) = patch.identity.as_ref() {
         if let Some(format) = identity.format.as_ref() {
             if format.trim().to_ascii_lowercase() != cfg.identity.format {
@@ -589,6 +606,13 @@ pub fn restart_required_updates(
             }
         }
     }
+}
+
+fn collect_scheduler_gateway_restart_fields(
+    cfg: &Config,
+    patch: &AdminConfigUpdateRequest,
+    fields: &mut Vec<&'static str>,
+) {
     if let Some(scheduler) = patch.scheduler.as_ref() {
         if let Some(enabled) = scheduler.enabled {
             if enabled != cfg.scheduler.enabled {
@@ -606,6 +630,7 @@ pub fn restart_required_updates(
             }
         }
     }
+
     if let Some(gateway) = patch.gateway.as_ref() {
         if let Some(port) = gateway.port {
             if port != cfg.gateway.port {
@@ -638,6 +663,13 @@ pub fn restart_required_updates(
             }
         }
     }
+}
+
+fn collect_webhook_restart_fields(
+    cfg: &Config,
+    patch: &AdminConfigUpdateRequest,
+    fields: &mut Vec<&'static str>,
+) {
     let channel_webhook = patch
         .channels
         .as_ref()
@@ -671,6 +703,20 @@ pub fn restart_required_updates(
             }
         }
     }
+}
+
+fn collect_secret_restart_fields(
+    cfg: &Config,
+    patch: &AdminConfigUpdateRequest,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(provider) = patch.provider.as_ref() {
+        if let Some(api_key) = provider.api_key.as_ref() {
+            if secret_update_changes(cfg.api_key.as_deref(), api_key) {
+                fields.push("provider.api_key");
+            }
+        }
+    }
 
     if let Some(composio) = patch.composio.as_ref() {
         if let Some(api_key) = composio.api_key.as_ref() {
@@ -679,6 +725,7 @@ pub fn restart_required_updates(
             }
         }
     }
+
     if let Some(web_search) = patch.web_search.as_ref() {
         if let Some(api_key) = web_search.brave_api_key.as_ref() {
             if secret_update_changes(cfg.web_search.brave_api_key.as_deref(), api_key) {
@@ -686,6 +733,7 @@ pub fn restart_required_updates(
             }
         }
     }
+
     if let Some(browser) = patch.browser.as_ref() {
         if let Some(api_key) = browser.computer_use_api_key.as_ref() {
             if secret_update_changes(cfg.browser.computer_use.api_key.as_deref(), api_key) {
@@ -693,6 +741,7 @@ pub fn restart_required_updates(
             }
         }
     }
+
     if let Some(memory) = patch.memory.as_ref() {
         if let Some(surreal) = memory.surreal.as_ref() {
             if let Some(username) = surreal.username.as_ref() {
@@ -712,13 +761,23 @@ pub fn restart_required_updates(
             }
         }
     }
-
-    fields.sort_unstable();
-    fields.dedup();
-    fields
 }
 
 fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(), AdminResponse> {
+    apply_core_patch(cfg, patch)?;
+    apply_runtime_identity_patch(cfg, patch)?;
+    apply_scheduler_gateway_patch(cfg, patch)?;
+    apply_channels_patch(cfg, patch)?;
+    apply_integrations_patch(cfg, patch)?;
+    apply_memory_patch(cfg, patch)?;
+
+    Ok(())
+}
+
+fn apply_core_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
     if let Some(provider) = patch.default_provider.as_ref() {
         cfg.default_provider = normalize_optional_string(provider);
     }
@@ -763,6 +822,13 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
             cfg.observability.otel_service_name = normalize_optional_string(service_name);
         }
     }
+    Ok(())
+}
+
+fn apply_runtime_identity_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
     if let Some(runtime) = patch.runtime.as_ref() {
         if let Some(kind) = runtime.kind.as_ref() {
             let kind = kind.trim().to_ascii_lowercase();
@@ -772,6 +838,7 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
             cfg.runtime.kind = kind;
         }
     }
+
     if let Some(autonomy) = patch.autonomy.as_ref() {
         if let Some(level) = autonomy.level {
             cfg.autonomy.level = level;
@@ -798,6 +865,7 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
             cfg.autonomy.always_ask = always_ask.clone();
         }
     }
+
     if let Some(identity) = patch.identity.as_ref() {
         if let Some(format) = identity.format.as_ref() {
             let format = format.trim().to_ascii_lowercase();
@@ -812,6 +880,14 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
             cfg.identity.aieos_path = normalize_optional_string(aieos_path);
         }
     }
+
+    Ok(())
+}
+
+fn apply_scheduler_gateway_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
     if let Some(scheduler) = patch.scheduler.as_ref() {
         if let Some(enabled) = scheduler.enabled {
             cfg.scheduler.enabled = enabled;
@@ -829,6 +905,7 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
             cfg.scheduler.max_concurrent = max_concurrent;
         }
     }
+
     if let Some(gateway) = patch.gateway.as_ref() {
         if let Some(port) = gateway.port {
             if port == 0 {
@@ -888,6 +965,13 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
         }
     }
 
+    Ok(())
+}
+
+fn apply_channels_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
     if let Some(channels) = patch.channels.as_ref() {
         if let Some(cli) = channels.cli {
             cfg.channels_config.cli = cli;
@@ -899,7 +983,13 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
     if let Some(webhook) = patch.webhook.as_ref() {
         apply_webhook_patch(cfg, webhook)?;
     }
+    Ok(())
+}
 
+fn apply_integrations_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
     if let Some(composio) = patch.composio.as_ref() {
         if let Some(enabled) = composio.enabled {
             cfg.composio.enabled = enabled;
@@ -915,6 +1005,7 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
             apply_secret_update(&mut cfg.composio.api_key, api_key, "composio.api_key")?;
         }
     }
+
     if let Some(web_search) = patch.web_search.as_ref() {
         if let Some(enabled) = web_search.enabled {
             cfg.web_search.enabled = enabled;
@@ -950,6 +1041,7 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
             )?;
         }
     }
+
     if let Some(browser) = patch.browser.as_ref() {
         if let Some(computer_use_api_key) = browser.computer_use_api_key.as_ref() {
             apply_secret_update(
@@ -959,6 +1051,14 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
             )?;
         }
     }
+
+    Ok(())
+}
+
+fn apply_memory_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
     if let Some(memory) = patch.memory.as_ref() {
         if let Some(backend) = memory.backend.as_ref() {
             let backend = backend.trim().to_ascii_lowercase();

@@ -7,11 +7,12 @@ set -e
 usage() {
   echo "Usage: $0 <file_or_directory>" >&2
   echo "Analyzes HTML files for web quality issues." >&2
-  exit 1
+  return 1
 }
 
 if [[ -z "$1" ]]; then
   usage
+  exit 1
 fi
 
 TARGET="$1"

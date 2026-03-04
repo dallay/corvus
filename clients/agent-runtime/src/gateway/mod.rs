@@ -2586,7 +2586,12 @@ mod tests {
             .into_response();
         assert_eq!(pair_response.status(), StatusCode::OK);
 
-        let pair_body = pair_response.into_body().collect().await.unwrap().to_bytes();
+        let pair_body = pair_response
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
         let pair_json: serde_json::Value = serde_json::from_slice(&pair_body).unwrap();
         let issued_token = pair_json["token"]
             .as_str()

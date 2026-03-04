@@ -71,13 +71,13 @@ jobs:
 
       - name: 🦀 Setup Rust
         if: env.SONAR_TOKEN != ''
-        uses: dtolnay/rust-toolchain@HEAD
+        uses: dtolnay/rust-toolchain@efa25f7f19611383d5b0ccf2d1c8914531636bf9 # HEAD as of 2026-03-04
         with:
           toolchain: 1.92
 
       - name: 📦 Install cargo-llvm-cov
         if: env.SONAR_TOKEN != ''
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@2834d6555cea49e0759c35c2a877ea0228e73e06 # cargo-llvm-cov
 
       - name: 📁 Create coverage directory
         if: env.SONAR_TOKEN != ''
