@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import type { InputTypeHTMLAttribute } from "vue";
+
 defineOptions({ inheritAttrs: false });
 
 defineProps<{
   modelValue?: string;
   placeholder?: string;
-  type?: HTMLInputTypeAttribute;
+  type?: InputTypeHTMLAttribute;
 }>();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.

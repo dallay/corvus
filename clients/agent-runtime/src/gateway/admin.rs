@@ -11,14 +11,26 @@ use axum::{
 pub struct AdminConfigView {
     pub default_provider: Option<String>,
     pub default_model: Option<String>,
+    pub api_url: Option<String>,
     pub default_temperature: f64,
     pub memory_backend: String,
+    pub provider: AdminProviderView,
     pub observability: AdminObservabilityView,
     pub runtime: AdminRuntimeView,
     pub autonomy: AdminAutonomyView,
+    pub identity: AdminIdentityView,
     pub scheduler: AdminSchedulerView,
     pub gateway: AdminGatewayView,
     pub channels: AdminChannelsView,
+    pub composio: AdminComposioView,
+    pub web_search: AdminWebSearchView,
+    pub memory: AdminMemoryView,
+    pub browser: AdminBrowserView,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminProviderView {
+    pub has_api_key: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -39,6 +51,17 @@ pub struct AdminAutonomyView {
     pub workspace_only: bool,
     pub max_actions_per_hour: u32,
     pub max_cost_per_day_cents: u32,
+    pub require_approval_for_medium_risk: bool,
+    pub block_high_risk_commands: bool,
+    pub auto_approve: Vec<String>,
+    pub always_ask: Vec<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminIdentityView {
+    pub format: String,
+    pub aieos_path: Option<String>,
+    pub has_aieos_inline: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -64,37 +87,71 @@ pub struct AdminGatewayView {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
-#[allow(clippy::struct_excessive_bools)]
 pub struct AdminChannelsView {
     pub cli: bool,
-    pub has_telegram: bool,
-    pub has_discord: bool,
-    pub has_slack: bool,
-    pub has_mattermost: bool,
-    pub has_webhook: bool,
-    pub has_imessage: bool,
-    pub has_matrix: bool,
-    pub has_signal: bool,
-    pub has_whatsapp: bool,
-    pub has_email: bool,
-    pub has_irc: bool,
-    pub has_lark: bool,
-    pub has_dingtalk: bool,
-    pub has_qq: bool,
-    pub webhook_port: Option<u16>,
-    pub webhook_has_secret: bool,
+    pub webhook: AdminWebhookView,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminWebhookView {
+    pub enabled: bool,
+    pub port: u16,
+    pub has_secret: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminComposioView {
+    pub enabled: bool,
+    pub entity_id: String,
+    pub has_api_key: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminWebSearchView {
+    pub enabled: bool,
+    pub provider: String,
+    pub max_results: usize,
+    pub timeout_secs: u64,
+    pub has_brave_api_key: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminMemoryView {
+    pub backend: String,
+    pub surreal: AdminSurrealMemoryView,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminSurrealMemoryView {
+    pub url: Option<String>,
+    pub namespace: Option<String>,
+    pub database: Option<String>,
+    pub has_username: bool,
+    pub has_password: bool,
+    pub has_token: bool,
+    pub allow_http_loopback: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminBrowserView {
+    pub has_computer_use_api_key: bool,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminConfigUpdateRequest {
     #[serde(default)]
     pub default_provider: Option<String>,
     #[serde(default)]
     pub default_model: Option<String>,
     #[serde(default)]
+    pub api_url: Option<String>,
+    #[serde(default)]
     pub default_temperature: Option<f64>,
     #[serde(default)]
     pub memory_backend: Option<String>,
+    #[serde(default)]
+    pub provider: Option<AdminProviderPatch>,
     #[serde(default)]
     pub observability: Option<AdminObservabilityPatch>,
     #[serde(default)]
@@ -102,14 +159,34 @@ pub struct AdminConfigUpdateRequest {
     #[serde(default)]
     pub autonomy: Option<AdminAutonomyPatch>,
     #[serde(default)]
+    pub identity: Option<AdminIdentityPatch>,
+    #[serde(default)]
     pub scheduler: Option<AdminSchedulerPatch>,
     #[serde(default)]
     pub gateway: Option<AdminGatewayPatch>,
     #[serde(default)]
+    pub channels: Option<AdminChannelsPatch>,
+    #[serde(default)]
     pub webhook: Option<AdminWebhookPatch>,
+    #[serde(default)]
+    pub composio: Option<AdminComposioPatch>,
+    #[serde(default)]
+    pub web_search: Option<AdminWebSearchPatch>,
+    #[serde(default)]
+    pub browser: Option<AdminBrowserPatch>,
+    #[serde(default)]
+    pub memory: Option<AdminMemoryPatch>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminProviderPatch {
+    #[serde(default)]
+    pub api_key: Option<AdminSecretUpdate>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminGatewayPatch {
     #[serde(default)]
     pub port: Option<u16>,
@@ -134,6 +211,7 @@ pub struct AdminGatewayPatch {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminObservabilityPatch {
     #[serde(default)]
     pub backend: Option<String>,
@@ -144,12 +222,14 @@ pub struct AdminObservabilityPatch {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminRuntimePatch {
     #[serde(default)]
     pub kind: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminAutonomyPatch {
     #[serde(default)]
     pub level: Option<AutonomyLevel>,
@@ -159,9 +239,27 @@ pub struct AdminAutonomyPatch {
     pub max_actions_per_hour: Option<u32>,
     #[serde(default)]
     pub max_cost_per_day_cents: Option<u32>,
+    #[serde(default)]
+    pub require_approval_for_medium_risk: Option<bool>,
+    #[serde(default)]
+    pub block_high_risk_commands: Option<bool>,
+    #[serde(default)]
+    pub auto_approve: Option<Vec<String>>,
+    #[serde(default)]
+    pub always_ask: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminIdentityPatch {
+    #[serde(default)]
+    pub format: Option<String>,
+    #[serde(default)]
+    pub aieos_path: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminSchedulerPatch {
     #[serde(default)]
     pub enabled: Option<bool>,
@@ -172,7 +270,19 @@ pub struct AdminSchedulerPatch {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminChannelsPatch {
+    #[serde(default)]
+    pub cli: Option<bool>,
+    #[serde(default)]
+    pub webhook: Option<AdminWebhookPatch>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AdminWebhookPatch {
+    #[serde(default)]
+    pub enabled: Option<bool>,
     #[serde(default)]
     pub port: Option<u16>,
     #[serde(default)]
@@ -180,7 +290,68 @@ pub struct AdminWebhookPatch {
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
-#[serde(tag = "mode", rename_all = "snake_case")]
+#[serde(deny_unknown_fields)]
+pub struct AdminComposioPatch {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub entity_id: Option<String>,
+    #[serde(default)]
+    pub api_key: Option<AdminSecretUpdate>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminWebSearchPatch {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub max_results: Option<usize>,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub brave_api_key: Option<AdminSecretUpdate>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminBrowserPatch {
+    #[serde(default)]
+    pub computer_use_api_key: Option<AdminSecretUpdate>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminMemoryPatch {
+    #[serde(default)]
+    pub backend: Option<String>,
+    #[serde(default)]
+    pub surreal: Option<AdminSurrealMemoryPatch>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminSurrealMemoryPatch {
+    #[serde(default)]
+    pub url: Option<String>,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub allow_http_loopback: Option<bool>,
+    #[serde(default)]
+    pub username: Option<AdminSecretUpdate>,
+    #[serde(default)]
+    pub password: Option<AdminSecretUpdate>,
+    #[serde(default)]
+    pub token: Option<AdminSecretUpdate>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(tag = "mode", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AdminSecretUpdate {
     Unchanged,
     Clear,
@@ -196,284 +367,75 @@ fn bad_request(message: &str) -> AdminResponse {
     )
 }
 
-fn collect_restart_required_defaults(
-    cfg: &Config,
-    patch: &AdminConfigUpdateRequest,
-    fields: &mut Vec<&'static str>,
-) {
-    if let Some(provider) = patch.default_provider.as_ref() {
-        let provider = provider.trim();
-        let next = (!provider.is_empty()).then_some(provider);
-        let current = cfg.default_provider.as_deref();
-        if next != current {
-            fields.push("default_provider");
-        }
-    }
-
-    if let Some(model) = patch.default_model.as_ref() {
-        let model = model.trim();
-        let next = (!model.is_empty()).then_some(model);
-        let current = cfg.default_model.as_deref();
-        if next != current {
-            fields.push("default_model");
-        }
-    }
-
-    if let Some(temperature) = patch.default_temperature {
-        if temperature != cfg.default_temperature {
-            fields.push("default_temperature");
-        }
-    }
-
-    if let Some(memory_backend) = patch.memory_backend.as_ref() {
-        let backend = memory_backend.trim().to_ascii_lowercase();
-        if backend != cfg.memory.backend {
-            fields.push("memory_backend");
-        }
-    }
+fn normalize_optional_string(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }
 
-fn collect_restart_required_observability(
-    cfg: &Config,
-    observability: &AdminObservabilityPatch,
-    fields: &mut Vec<&'static str>,
-) {
-    if let Some(backend) = observability.backend.as_ref() {
-        let backend = backend.trim().to_ascii_lowercase();
-        if backend != cfg.observability.backend {
-            fields.push("observability.backend");
-        }
-    }
-
-    if let Some(endpoint) = observability.otel_endpoint.as_ref() {
-        let endpoint = endpoint.trim();
-        let next = (!endpoint.is_empty()).then_some(endpoint);
-        let current = cfg.observability.otel_endpoint.as_deref();
-        if next != current {
-            fields.push("observability.otel_endpoint");
-        }
-    }
-
-    if let Some(service_name) = observability.otel_service_name.as_ref() {
-        let service_name = service_name.trim();
-        let next = (!service_name.is_empty()).then_some(service_name);
-        let current = cfg.observability.otel_service_name.as_deref();
-        if next != current {
-            fields.push("observability.otel_service_name");
-        }
-    }
+fn has_secret(value: Option<&str>) -> bool {
+    value.map(|v| !v.trim().is_empty()).unwrap_or(false)
 }
 
-fn collect_restart_required_runtime(
-    cfg: &Config,
-    runtime: &AdminRuntimePatch,
-    fields: &mut Vec<&'static str>,
-) {
-    if let Some(kind) = runtime.kind.as_ref() {
-        let kind = kind.trim().to_ascii_lowercase();
-        if kind != cfg.runtime.kind {
-            fields.push("runtime.kind");
+fn apply_secret_update(
+    current: &mut Option<String>,
+    update: &AdminSecretUpdate,
+    field: &'static str,
+) -> Result<(), AdminResponse> {
+    match update {
+        AdminSecretUpdate::Unchanged => Ok(()),
+        AdminSecretUpdate::Clear => {
+            *current = None;
+            Ok(())
         }
-    }
-}
-
-fn collect_restart_required_autonomy(
-    cfg: &Config,
-    autonomy: &AdminAutonomyPatch,
-    fields: &mut Vec<&'static str>,
-) {
-    if let Some(level) = autonomy.level {
-        if level != cfg.autonomy.level {
-            fields.push("autonomy.level");
-        }
-    }
-
-    if let Some(workspace_only) = autonomy.workspace_only {
-        if workspace_only != cfg.autonomy.workspace_only {
-            fields.push("autonomy.workspace_only");
-        }
-    }
-
-    if let Some(max_actions_per_hour) = autonomy.max_actions_per_hour {
-        if max_actions_per_hour != cfg.autonomy.max_actions_per_hour {
-            fields.push("autonomy.max_actions_per_hour");
-        }
-    }
-
-    if let Some(max_cost_per_day_cents) = autonomy.max_cost_per_day_cents {
-        if max_cost_per_day_cents != cfg.autonomy.max_cost_per_day_cents {
-            fields.push("autonomy.max_cost_per_day_cents");
-        }
-    }
-}
-
-fn check_and_push<T: PartialEq>(
-    new_val: Option<T>,
-    old_val: T,
-    field_name: &'static str,
-    fields: &mut Vec<&'static str>,
-) {
-    if let Some(val) = new_val {
-        if val != old_val {
-            fields.push(field_name);
-        }
-    }
-}
-
-fn check_and_push_with<T: PartialOrd>(
-    new_val: Option<T>,
-    old_val: T,
-    field_name: &'static str,
-    fields: &mut Vec<&'static str>,
-    normalize: impl Fn(T) -> T,
-) {
-    if let Some(val) = new_val {
-        if normalize(val) != old_val {
-            fields.push(field_name);
-        }
-    }
-}
-
-fn collect_restart_required_gateway(
-    cfg: &Config,
-    gateway: &AdminGatewayPatch,
-    fields: &mut Vec<&'static str>,
-) {
-    check_and_push(gateway.port, cfg.gateway.port, "gateway.port", fields);
-    check_and_push(
-        gateway.host.as_ref().map(|h| h.trim().to_string()),
-        cfg.gateway.host.clone(),
-        "gateway.host",
-        fields,
-    );
-    check_and_push(
-        gateway.require_pairing,
-        cfg.gateway.require_pairing,
-        "gateway.require_pairing",
-        fields,
-    );
-    check_and_push(
-        gateway.allow_public_bind,
-        cfg.gateway.allow_public_bind,
-        "gateway.allow_public_bind",
-        fields,
-    );
-    check_and_push(
-        gateway.pair_rate_limit_per_minute,
-        cfg.gateway.pair_rate_limit_per_minute,
-        "gateway.pair_rate_limit_per_minute",
-        fields,
-    );
-    check_and_push(
-        gateway.webhook_rate_limit_per_minute,
-        cfg.gateway.webhook_rate_limit_per_minute,
-        "gateway.webhook_rate_limit_per_minute",
-        fields,
-    );
-    check_and_push(
-        gateway.trust_forwarded_headers,
-        cfg.gateway.trust_forwarded_headers,
-        "gateway.trust_forwarded_headers",
-        fields,
-    );
-
-    check_and_push_with(
-        gateway.rate_limit_max_keys,
-        cfg.gateway.rate_limit_max_keys,
-        "gateway.rate_limit_max_keys",
-        fields,
-        |v| gateway::utils::normalize_max_keys(v, cfg.gateway.rate_limit_max_keys),
-    );
-
-    if let Some(ttl) = gateway.idempotency_ttl_secs {
-        let normalized_ttl = if ttl == 0 {
-            cfg.gateway.idempotency_ttl_secs
-        } else {
-            ttl
-        };
-        if normalized_ttl != cfg.gateway.idempotency_ttl_secs {
-            fields.push("gateway.idempotency_ttl_secs");
-        }
-    }
-
-    check_and_push_with(
-        gateway.idempotency_max_keys,
-        cfg.gateway.idempotency_max_keys,
-        "gateway.idempotency_max_keys",
-        fields,
-        |v| gateway::utils::normalize_max_keys(v, cfg.gateway.idempotency_max_keys),
-    );
-}
-
-fn collect_restart_required_scheduler(
-    cfg: &Config,
-    scheduler: &AdminSchedulerPatch,
-    fields: &mut Vec<&'static str>,
-) {
-    if let Some(enabled) = scheduler.enabled {
-        if enabled != cfg.scheduler.enabled {
-            fields.push("scheduler.enabled");
-        }
-    }
-
-    if let Some(max_tasks) = scheduler.max_tasks {
-        if max_tasks.max(1) != cfg.scheduler.max_tasks {
-            fields.push("scheduler.max_tasks");
-        }
-    }
-
-    if let Some(max_concurrent) = scheduler.max_concurrent {
-        if max_concurrent.max(1) != cfg.scheduler.max_concurrent {
-            fields.push("scheduler.max_concurrent");
-        }
-    }
-}
-
-fn collect_restart_required_webhook(
-    cfg: &Config,
-    webhook: &AdminWebhookPatch,
-    fields: &mut Vec<&'static str>,
-) {
-    if let Some(port) = webhook.port {
-        let current_port = cfg
-            .channels_config
-            .webhook
-            .as_ref()
-            .map_or(3000, |w| w.port);
-        if port != current_port {
-            fields.push("webhook.port");
-        }
-    }
-
-    if let Some(secret) = webhook.secret.as_ref() {
-        match secret {
-            AdminSecretUpdate::Unchanged => {}
-            AdminSecretUpdate::Clear => {
-                if cfg
-                    .channels_config
-                    .webhook
-                    .as_ref()
-                    .and_then(|w| w.secret.as_ref())
-                    .map(|value| !value.trim().is_empty())
-                    .unwrap_or(false)
-                {
-                    fields.push("webhook.secret");
-                }
+        AdminSecretUpdate::Replace { value } => {
+            let next = value.trim();
+            if next.is_empty() {
+                return Err(bad_request(&format!(
+                    "{field} replace value cannot be empty"
+                )));
             }
-            AdminSecretUpdate::Replace { value } => {
-                let next = value.trim();
-                let current = cfg
-                    .channels_config
-                    .webhook
-                    .as_ref()
-                    .and_then(|w| w.secret.as_deref())
-                    .unwrap_or("");
-                if next != current {
-                    fields.push("webhook.secret");
-                }
-            }
+            *current = Some(next.to_string());
+            Ok(())
         }
     }
+}
+
+fn secret_update_changes(current: Option<&str>, update: &AdminSecretUpdate) -> bool {
+    match update {
+        AdminSecretUpdate::Unchanged => false,
+        AdminSecretUpdate::Clear => has_secret(current),
+        AdminSecretUpdate::Replace { value } => current.unwrap_or("") != value.trim(),
+    }
+}
+
+pub fn admin_options_payload() -> serde_json::Value {
+    serde_json::json!({
+        "memory_backends": ["sqlite", "lucid", "surreal-graphs", "markdown", "surreal", "none"],
+        "observability_backends": ["none", "log", "prometheus", "otel"],
+        "runtime_kinds": ["native", "docker"],
+        "autonomy_levels": ["readonly", "supervised", "full"],
+        "provider_hints": [
+            "openrouter",
+            "anthropic",
+            "openai",
+            "openai-codex",
+            "google",
+            "ollama",
+            "xai",
+            "zai",
+            "glm"
+        ],
+        "gateway": {
+            "default_port": 3000,
+            "default_host": "127.0.0.1",
+            "default_pair_rate_limit_per_minute": 10,
+            "default_webhook_rate_limit_per_minute": 60,
+            "default_idempotency_ttl_secs": 300,
+            "default_rate_limit_max_keys": 10000,
+            "default_idempotency_max_keys": 10000
+        },
+        "webhook_secret_modes": ["unchanged", "replace", "clear"]
+    })
 }
 
 pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
@@ -481,8 +443,12 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
     AdminConfigView {
         default_provider: cfg.default_provider.clone(),
         default_model: cfg.default_model.clone(),
+        api_url: cfg.api_url.clone(),
         default_temperature: cfg.default_temperature,
         memory_backend: cfg.memory.backend.clone(),
+        provider: AdminProviderView {
+            has_api_key: has_secret(cfg.api_key.as_deref()),
+        },
         observability: AdminObservabilityView {
             backend: cfg.observability.backend.clone(),
             otel_endpoint: cfg.observability.otel_endpoint.clone(),
@@ -496,6 +462,15 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
             workspace_only: cfg.autonomy.workspace_only,
             max_actions_per_hour: cfg.autonomy.max_actions_per_hour,
             max_cost_per_day_cents: cfg.autonomy.max_cost_per_day_cents,
+            require_approval_for_medium_risk: cfg.autonomy.require_approval_for_medium_risk,
+            block_high_risk_commands: cfg.autonomy.block_high_risk_commands,
+            auto_approve: cfg.autonomy.auto_approve.clone(),
+            always_ask: cfg.autonomy.always_ask.clone(),
+        },
+        identity: AdminIdentityView {
+            format: cfg.identity.format.clone(),
+            aieos_path: cfg.identity.aieos_path.clone(),
+            has_aieos_inline: has_secret(cfg.identity.aieos_inline.as_deref()),
         },
         scheduler: AdminSchedulerView {
             enabled: cfg.scheduler.enabled,
@@ -517,25 +492,38 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
         },
         channels: AdminChannelsView {
             cli: cfg.channels_config.cli,
-            has_telegram: cfg.channels_config.telegram.is_some(),
-            has_discord: cfg.channels_config.discord.is_some(),
-            has_slack: cfg.channels_config.slack.is_some(),
-            has_mattermost: cfg.channels_config.mattermost.is_some(),
-            has_webhook: webhook.is_some(),
-            has_imessage: cfg.channels_config.imessage.is_some(),
-            has_matrix: cfg.channels_config.matrix.is_some(),
-            has_signal: cfg.channels_config.signal.is_some(),
-            has_whatsapp: cfg.channels_config.whatsapp.is_some(),
-            has_email: cfg.channels_config.email.is_some(),
-            has_irc: cfg.channels_config.irc.is_some(),
-            has_lark: cfg.channels_config.lark.is_some(),
-            has_dingtalk: cfg.channels_config.dingtalk.is_some(),
-            has_qq: cfg.channels_config.qq.is_some(),
-            webhook_port: webhook.map(|w| w.port),
-            webhook_has_secret: webhook
-                .and_then(|w| w.secret.as_ref())
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false),
+            webhook: AdminWebhookView {
+                enabled: webhook.is_some(),
+                port: webhook.map(|w| w.port).unwrap_or(3000),
+                has_secret: has_secret(webhook.and_then(|w| w.secret.as_deref())),
+            },
+        },
+        composio: AdminComposioView {
+            enabled: cfg.composio.enabled,
+            entity_id: cfg.composio.entity_id.clone(),
+            has_api_key: has_secret(cfg.composio.api_key.as_deref()),
+        },
+        web_search: AdminWebSearchView {
+            enabled: cfg.web_search.enabled,
+            provider: cfg.web_search.provider.clone(),
+            max_results: cfg.web_search.max_results,
+            timeout_secs: cfg.web_search.timeout_secs,
+            has_brave_api_key: has_secret(cfg.web_search.brave_api_key.as_deref()),
+        },
+        memory: AdminMemoryView {
+            backend: cfg.memory.backend.clone(),
+            surreal: AdminSurrealMemoryView {
+                url: cfg.memory.surreal.url.clone(),
+                namespace: cfg.memory.surreal.namespace.clone(),
+                database: cfg.memory.surreal.database.clone(),
+                has_username: has_secret(cfg.memory.surreal.username.as_deref()),
+                has_password: has_secret(cfg.memory.surreal.password.as_deref()),
+                has_token: has_secret(cfg.memory.surreal.token.as_deref()),
+                allow_http_loopback: cfg.memory.surreal.allow_http_loopback,
+            },
+        },
+        browser: AdminBrowserView {
+            has_computer_use_api_key: has_secret(cfg.browser.computer_use.api_key.as_deref()),
         },
     }
 }
@@ -546,30 +534,515 @@ pub fn restart_required_updates(
 ) -> Vec<&'static str> {
     let mut fields = Vec::new();
 
-    collect_restart_required_defaults(cfg, patch, &mut fields);
-
-    if let Some(observability) = patch.observability.as_ref() {
-        collect_restart_required_observability(cfg, observability, &mut fields);
+    if let Some(provider) = patch.default_provider.as_ref() {
+        let next = normalize_optional_string(provider);
+        if next.as_deref() != cfg.default_provider.as_deref() {
+            fields.push("default_provider");
+        }
+    }
+    if let Some(model) = patch.default_model.as_ref() {
+        let next = normalize_optional_string(model);
+        if next.as_deref() != cfg.default_model.as_deref() {
+            fields.push("default_model");
+        }
+    }
+    if let Some(api_url) = patch.api_url.as_ref() {
+        let next = normalize_optional_string(api_url);
+        if next.as_deref() != cfg.api_url.as_deref() {
+            fields.push("api_url");
+        }
+    }
+    if let Some(temperature) = patch.default_temperature {
+        if temperature != cfg.default_temperature {
+            fields.push("default_temperature");
+        }
+    }
+    if let Some(memory_backend) = patch.memory_backend.as_ref() {
+        if memory_backend.trim().to_ascii_lowercase() != cfg.memory.backend {
+            fields.push("memory_backend");
+        }
+    }
+    if let Some(provider) = patch.provider.as_ref() {
+        if let Some(api_key) = provider.api_key.as_ref() {
+            if secret_update_changes(cfg.api_key.as_deref(), api_key) {
+                fields.push("provider.api_key");
+            }
+        }
     }
     if let Some(runtime) = patch.runtime.as_ref() {
-        collect_restart_required_runtime(cfg, runtime, &mut fields);
+        if let Some(kind) = runtime.kind.as_ref() {
+            if kind.trim().to_ascii_lowercase() != cfg.runtime.kind {
+                fields.push("runtime.kind");
+            }
+        }
     }
-    if let Some(autonomy) = patch.autonomy.as_ref() {
-        collect_restart_required_autonomy(cfg, autonomy, &mut fields);
-    }
-    if let Some(gateway_patch) = patch.gateway.as_ref() {
-        collect_restart_required_gateway(cfg, gateway_patch, &mut fields);
+    if let Some(identity) = patch.identity.as_ref() {
+        if let Some(format) = identity.format.as_ref() {
+            if format.trim().to_ascii_lowercase() != cfg.identity.format {
+                fields.push("identity.format");
+            }
+        }
+        if let Some(aieos_path) = identity.aieos_path.as_ref() {
+            let next = normalize_optional_string(aieos_path);
+            if next.as_deref() != cfg.identity.aieos_path.as_deref() {
+                fields.push("identity.aieos_path");
+            }
+        }
     }
     if let Some(scheduler) = patch.scheduler.as_ref() {
-        collect_restart_required_scheduler(cfg, scheduler, &mut fields);
+        if let Some(enabled) = scheduler.enabled {
+            if enabled != cfg.scheduler.enabled {
+                fields.push("scheduler.enabled");
+            }
+        }
+        if let Some(max_tasks) = scheduler.max_tasks {
+            if max_tasks != cfg.scheduler.max_tasks {
+                fields.push("scheduler.max_tasks");
+            }
+        }
+        if let Some(max_concurrent) = scheduler.max_concurrent {
+            if max_concurrent != cfg.scheduler.max_concurrent {
+                fields.push("scheduler.max_concurrent");
+            }
+        }
     }
-    if let Some(webhook) = patch.webhook.as_ref() {
-        collect_restart_required_webhook(cfg, webhook, &mut fields);
+    if let Some(gateway) = patch.gateway.as_ref() {
+        if let Some(port) = gateway.port {
+            if port != cfg.gateway.port {
+                fields.push("gateway.port");
+            }
+        }
+        if let Some(host) = gateway.host.as_ref() {
+            if host.trim() != cfg.gateway.host {
+                fields.push("gateway.host");
+            }
+        }
+        if let Some(require_pairing) = gateway.require_pairing {
+            if require_pairing != cfg.gateway.require_pairing {
+                fields.push("gateway.require_pairing");
+            }
+        }
+        if let Some(allow_public_bind) = gateway.allow_public_bind {
+            if allow_public_bind != cfg.gateway.allow_public_bind {
+                fields.push("gateway.allow_public_bind");
+            }
+        }
+        if let Some(limit) = gateway.pair_rate_limit_per_minute {
+            if limit != cfg.gateway.pair_rate_limit_per_minute {
+                fields.push("gateway.pair_rate_limit_per_minute");
+            }
+        }
+        if let Some(limit) = gateway.webhook_rate_limit_per_minute {
+            if limit != cfg.gateway.webhook_rate_limit_per_minute {
+                fields.push("gateway.webhook_rate_limit_per_minute");
+            }
+        }
+    }
+    let channel_webhook = patch
+        .channels
+        .as_ref()
+        .and_then(|channels| channels.webhook.as_ref())
+        .or(patch.webhook.as_ref());
+    if let Some(webhook) = channel_webhook {
+        if let Some(enabled) = webhook.enabled {
+            if enabled != cfg.channels_config.webhook.is_some() {
+                fields.push("channels.webhook.enabled");
+            }
+        }
+        if let Some(port) = webhook.port {
+            let current_port = cfg
+                .channels_config
+                .webhook
+                .as_ref()
+                .map(|c| c.port)
+                .unwrap_or(3000);
+            if port != current_port {
+                fields.push("channels.webhook.port");
+            }
+        }
+        if let Some(secret) = webhook.secret.as_ref() {
+            let current = cfg
+                .channels_config
+                .webhook
+                .as_ref()
+                .and_then(|w| w.secret.as_deref());
+            if secret_update_changes(current, secret) {
+                fields.push("channels.webhook.secret");
+            }
+        }
+    }
+
+    if let Some(composio) = patch.composio.as_ref() {
+        if let Some(api_key) = composio.api_key.as_ref() {
+            if secret_update_changes(cfg.composio.api_key.as_deref(), api_key) {
+                fields.push("composio.api_key");
+            }
+        }
+    }
+    if let Some(web_search) = patch.web_search.as_ref() {
+        if let Some(api_key) = web_search.brave_api_key.as_ref() {
+            if secret_update_changes(cfg.web_search.brave_api_key.as_deref(), api_key) {
+                fields.push("web_search.brave_api_key");
+            }
+        }
+    }
+    if let Some(browser) = patch.browser.as_ref() {
+        if let Some(api_key) = browser.computer_use_api_key.as_ref() {
+            if secret_update_changes(cfg.browser.computer_use.api_key.as_deref(), api_key) {
+                fields.push("browser.computer_use.api_key");
+            }
+        }
+    }
+    if let Some(memory) = patch.memory.as_ref() {
+        if let Some(surreal) = memory.surreal.as_ref() {
+            if let Some(username) = surreal.username.as_ref() {
+                if secret_update_changes(cfg.memory.surreal.username.as_deref(), username) {
+                    fields.push("memory.surreal.username");
+                }
+            }
+            if let Some(password) = surreal.password.as_ref() {
+                if secret_update_changes(cfg.memory.surreal.password.as_deref(), password) {
+                    fields.push("memory.surreal.password");
+                }
+            }
+            if let Some(token) = surreal.token.as_ref() {
+                if secret_update_changes(cfg.memory.surreal.token.as_deref(), token) {
+                    fields.push("memory.surreal.token");
+                }
+            }
+        }
     }
 
     fields.sort_unstable();
     fields.dedup();
     fields
+}
+
+fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(), AdminResponse> {
+    if let Some(provider) = patch.default_provider.as_ref() {
+        cfg.default_provider = normalize_optional_string(provider);
+    }
+    if let Some(model) = patch.default_model.as_ref() {
+        cfg.default_model = normalize_optional_string(model);
+    }
+    if let Some(api_url) = patch.api_url.as_ref() {
+        cfg.api_url = normalize_optional_string(api_url);
+    }
+    if let Some(temperature) = patch.default_temperature {
+        if !(0.0..=2.0).contains(&temperature) {
+            return Err(bad_request(
+                "default_temperature must be in range [0.0, 2.0]",
+            ));
+        }
+        cfg.default_temperature = temperature;
+    }
+    if let Some(memory_backend) = patch.memory_backend.as_ref() {
+        let backend = memory_backend.trim().to_ascii_lowercase();
+        if !gateway::utils::validate_memory_backend(&backend) {
+            return Err(bad_request("Invalid memory_backend"));
+        }
+        cfg.memory.backend = backend;
+    }
+    if let Some(provider) = patch.provider.as_ref() {
+        if let Some(api_key) = provider.api_key.as_ref() {
+            apply_secret_update(&mut cfg.api_key, api_key, "provider.api_key")?;
+        }
+    }
+    if let Some(observability) = patch.observability.as_ref() {
+        if let Some(backend) = observability.backend.as_ref() {
+            let backend = backend.trim().to_ascii_lowercase();
+            if !gateway::utils::validate_observability_backend(&backend) {
+                return Err(bad_request("Invalid observability.backend"));
+            }
+            cfg.observability.backend = backend;
+        }
+        if let Some(endpoint) = observability.otel_endpoint.as_ref() {
+            cfg.observability.otel_endpoint = normalize_optional_string(endpoint);
+        }
+        if let Some(service_name) = observability.otel_service_name.as_ref() {
+            cfg.observability.otel_service_name = normalize_optional_string(service_name);
+        }
+    }
+    if let Some(runtime) = patch.runtime.as_ref() {
+        if let Some(kind) = runtime.kind.as_ref() {
+            let kind = kind.trim().to_ascii_lowercase();
+            if !gateway::utils::validate_runtime_kind(&kind) {
+                return Err(bad_request("Invalid runtime.kind. Allowed: native, docker"));
+            }
+            cfg.runtime.kind = kind;
+        }
+    }
+    if let Some(autonomy) = patch.autonomy.as_ref() {
+        if let Some(level) = autonomy.level {
+            cfg.autonomy.level = level;
+        }
+        if let Some(workspace_only) = autonomy.workspace_only {
+            cfg.autonomy.workspace_only = workspace_only;
+        }
+        if let Some(max_actions_per_hour) = autonomy.max_actions_per_hour {
+            cfg.autonomy.max_actions_per_hour = max_actions_per_hour;
+        }
+        if let Some(max_cost_per_day_cents) = autonomy.max_cost_per_day_cents {
+            cfg.autonomy.max_cost_per_day_cents = max_cost_per_day_cents;
+        }
+        if let Some(require_approval_for_medium_risk) = autonomy.require_approval_for_medium_risk {
+            cfg.autonomy.require_approval_for_medium_risk = require_approval_for_medium_risk;
+        }
+        if let Some(block_high_risk_commands) = autonomy.block_high_risk_commands {
+            cfg.autonomy.block_high_risk_commands = block_high_risk_commands;
+        }
+        if let Some(auto_approve) = autonomy.auto_approve.as_ref() {
+            cfg.autonomy.auto_approve = auto_approve.clone();
+        }
+        if let Some(always_ask) = autonomy.always_ask.as_ref() {
+            cfg.autonomy.always_ask = always_ask.clone();
+        }
+    }
+    if let Some(identity) = patch.identity.as_ref() {
+        if let Some(format) = identity.format.as_ref() {
+            let format = format.trim().to_ascii_lowercase();
+            if format != "openclaw" && format != "aieos" {
+                return Err(bad_request(
+                    "identity.format must be one of: openclaw, aieos",
+                ));
+            }
+            cfg.identity.format = format;
+        }
+        if let Some(aieos_path) = identity.aieos_path.as_ref() {
+            cfg.identity.aieos_path = normalize_optional_string(aieos_path);
+        }
+    }
+    if let Some(scheduler) = patch.scheduler.as_ref() {
+        if let Some(enabled) = scheduler.enabled {
+            cfg.scheduler.enabled = enabled;
+        }
+        if let Some(max_tasks) = scheduler.max_tasks {
+            if max_tasks == 0 {
+                return Err(bad_request("scheduler.max_tasks must be >= 1"));
+            }
+            cfg.scheduler.max_tasks = max_tasks;
+        }
+        if let Some(max_concurrent) = scheduler.max_concurrent {
+            if max_concurrent == 0 {
+                return Err(bad_request("scheduler.max_concurrent must be >= 1"));
+            }
+            cfg.scheduler.max_concurrent = max_concurrent;
+        }
+    }
+    if let Some(gateway) = patch.gateway.as_ref() {
+        if let Some(port) = gateway.port {
+            if port == 0 {
+                return Err(bad_request("gateway.port must be in range [1, 65535]"));
+            }
+            cfg.gateway.port = port;
+        }
+        if let Some(host) = gateway.host.as_ref() {
+            let host = host.trim();
+            if host.is_empty() {
+                return Err(bad_request("gateway.host cannot be empty"));
+            }
+            cfg.gateway.host = host.to_string();
+        }
+        if let Some(require_pairing) = gateway.require_pairing {
+            cfg.gateway.require_pairing = require_pairing;
+        }
+        if let Some(allow_public_bind) = gateway.allow_public_bind {
+            cfg.gateway.allow_public_bind = allow_public_bind;
+        }
+        if let Some(limit) = gateway.pair_rate_limit_per_minute {
+            if limit == 0 {
+                return Err(bad_request(
+                    "gateway.pair_rate_limit_per_minute must be >= 1",
+                ));
+            }
+            cfg.gateway.pair_rate_limit_per_minute = limit;
+        }
+        if let Some(limit) = gateway.webhook_rate_limit_per_minute {
+            if limit == 0 {
+                return Err(bad_request(
+                    "gateway.webhook_rate_limit_per_minute must be >= 1",
+                ));
+            }
+            cfg.gateway.webhook_rate_limit_per_minute = limit;
+        }
+        if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
+            cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
+        }
+        if let Some(rate_limit_max_keys) = gateway.rate_limit_max_keys {
+            cfg.gateway.rate_limit_max_keys = gateway::utils::normalize_max_keys(
+                rate_limit_max_keys,
+                cfg.gateway.rate_limit_max_keys,
+            );
+        }
+        if let Some(idempotency_ttl_secs) = gateway.idempotency_ttl_secs {
+            if idempotency_ttl_secs == 0 {
+                return Err(bad_request("gateway.idempotency_ttl_secs must be >= 1"));
+            }
+            cfg.gateway.idempotency_ttl_secs = idempotency_ttl_secs;
+        }
+        if let Some(idempotency_max_keys) = gateway.idempotency_max_keys {
+            cfg.gateway.idempotency_max_keys = gateway::utils::normalize_max_keys(
+                idempotency_max_keys,
+                cfg.gateway.idempotency_max_keys,
+            );
+        }
+    }
+
+    if let Some(channels) = patch.channels.as_ref() {
+        if let Some(cli) = channels.cli {
+            cfg.channels_config.cli = cli;
+        }
+        if let Some(webhook) = channels.webhook.as_ref() {
+            apply_webhook_patch(cfg, webhook)?;
+        }
+    }
+    if let Some(webhook) = patch.webhook.as_ref() {
+        apply_webhook_patch(cfg, webhook)?;
+    }
+
+    if let Some(composio) = patch.composio.as_ref() {
+        if let Some(enabled) = composio.enabled {
+            cfg.composio.enabled = enabled;
+        }
+        if let Some(entity_id) = composio.entity_id.as_ref() {
+            let entity_id = entity_id.trim();
+            if entity_id.is_empty() {
+                return Err(bad_request("composio.entity_id cannot be empty"));
+            }
+            cfg.composio.entity_id = entity_id.to_string();
+        }
+        if let Some(api_key) = composio.api_key.as_ref() {
+            apply_secret_update(&mut cfg.composio.api_key, api_key, "composio.api_key")?;
+        }
+    }
+    if let Some(web_search) = patch.web_search.as_ref() {
+        if let Some(enabled) = web_search.enabled {
+            cfg.web_search.enabled = enabled;
+        }
+        if let Some(provider) = web_search.provider.as_ref() {
+            let provider = provider.trim().to_ascii_lowercase();
+            if provider != "duckduckgo" && provider != "brave" {
+                return Err(bad_request(
+                    "web_search.provider must be one of: duckduckgo, brave",
+                ));
+            }
+            cfg.web_search.provider = provider;
+        }
+        if let Some(max_results) = web_search.max_results {
+            if !(1..=10).contains(&max_results) {
+                return Err(bad_request(
+                    "web_search.max_results must be in range [1, 10]",
+                ));
+            }
+            cfg.web_search.max_results = max_results;
+        }
+        if let Some(timeout_secs) = web_search.timeout_secs {
+            if timeout_secs == 0 {
+                return Err(bad_request("web_search.timeout_secs must be >= 1"));
+            }
+            cfg.web_search.timeout_secs = timeout_secs;
+        }
+        if let Some(brave_api_key) = web_search.brave_api_key.as_ref() {
+            apply_secret_update(
+                &mut cfg.web_search.brave_api_key,
+                brave_api_key,
+                "web_search.brave_api_key",
+            )?;
+        }
+    }
+    if let Some(browser) = patch.browser.as_ref() {
+        if let Some(computer_use_api_key) = browser.computer_use_api_key.as_ref() {
+            apply_secret_update(
+                &mut cfg.browser.computer_use.api_key,
+                computer_use_api_key,
+                "browser.computer_use.api_key",
+            )?;
+        }
+    }
+    if let Some(memory) = patch.memory.as_ref() {
+        if let Some(backend) = memory.backend.as_ref() {
+            let backend = backend.trim().to_ascii_lowercase();
+            if !gateway::utils::validate_memory_backend(&backend) {
+                return Err(bad_request("Invalid memory.backend"));
+            }
+            cfg.memory.backend = backend;
+        }
+        if let Some(surreal) = memory.surreal.as_ref() {
+            if let Some(url) = surreal.url.as_ref() {
+                cfg.memory.surreal.url = normalize_optional_string(url);
+            }
+            if let Some(namespace) = surreal.namespace.as_ref() {
+                cfg.memory.surreal.namespace = normalize_optional_string(namespace);
+            }
+            if let Some(database) = surreal.database.as_ref() {
+                cfg.memory.surreal.database = normalize_optional_string(database);
+            }
+            if let Some(allow_http_loopback) = surreal.allow_http_loopback {
+                cfg.memory.surreal.allow_http_loopback = allow_http_loopback;
+            }
+            if let Some(username) = surreal.username.as_ref() {
+                apply_secret_update(
+                    &mut cfg.memory.surreal.username,
+                    username,
+                    "memory.surreal.username",
+                )?;
+            }
+            if let Some(password) = surreal.password.as_ref() {
+                apply_secret_update(
+                    &mut cfg.memory.surreal.password,
+                    password,
+                    "memory.surreal.password",
+                )?;
+            }
+            if let Some(token) = surreal.token.as_ref() {
+                apply_secret_update(&mut cfg.memory.surreal.token, token, "memory.surreal.token")?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn apply_webhook_patch(cfg: &mut Config, patch: &AdminWebhookPatch) -> Result<(), AdminResponse> {
+    if let Some(enabled) = patch.enabled {
+        if enabled && cfg.channels_config.webhook.is_none() {
+            cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
+                port: 3000,
+                secret: None,
+            });
+        }
+        if !enabled {
+            cfg.channels_config.webhook = None;
+            return Ok(());
+        }
+    }
+
+    if patch.port.is_none() && patch.secret.is_none() {
+        return Ok(());
+    }
+
+    if cfg.channels_config.webhook.is_none() {
+        cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
+            port: 3000,
+            secret: None,
+        });
+    }
+
+    if let Some(webhook) = cfg.channels_config.webhook.as_mut() {
+        if let Some(port) = patch.port {
+            if port == 0 {
+                return Err(bad_request(
+                    "channels.webhook.port must be in range [1, 65535]",
+                ));
+            }
+            webhook.port = port;
+        }
+        if let Some(secret) = patch.secret.as_ref() {
+            apply_secret_update(&mut webhook.secret, secret, "channels.webhook.secret")?;
+        }
+    }
+
+    Ok(())
 }
 
 #[allow(clippy::unused_async)]
@@ -605,249 +1078,7 @@ pub async fn handle_admin_options(
         return rejection;
     }
 
-    let body = serde_json::json!({
-        "memory_backends": ["sqlite", "lucid", "surreal-graphs", "markdown", "surreal", "none"],
-        "observability_backends": ["none", "log", "prometheus", "otel"],
-        "runtime_kinds": ["native", "docker"],
-        "autonomy_levels": ["readonly", "supervised", "full"],
-        "provider_hints": [
-            "openrouter",
-            "anthropic",
-            "openai",
-            "openai-codex",
-            "google",
-            "ollama",
-            "xai",
-            "zai",
-            "glm"
-        ],
-        "gateway": {
-            "default_port": 3000,
-            "default_host": "127.0.0.1",
-            "default_pair_rate_limit_per_minute": 10,
-            "default_webhook_rate_limit_per_minute": 60,
-            "default_idempotency_ttl_secs": 300,
-            "default_rate_limit_max_keys": 10000,
-            "default_idempotency_max_keys": 10000
-        },
-        "webhook_secret_modes": ["unchanged", "replace", "clear"]
-    });
-
-    (StatusCode::OK, Json(body))
-}
-
-fn apply_defaults_patch(
-    cfg: &mut Config,
-    patch: &AdminConfigUpdateRequest,
-) -> Result<(), AdminResponse> {
-    if let Some(provider) = patch.default_provider.as_ref() {
-        let provider = provider.trim();
-        cfg.default_provider = (!provider.is_empty()).then(|| provider.to_string());
-    }
-
-    if let Some(model) = patch.default_model.as_ref() {
-        let model = model.trim();
-        cfg.default_model = (!model.is_empty()).then(|| model.to_string());
-    }
-
-    if let Some(temperature) = patch.default_temperature {
-        if !(0.0..=2.0).contains(&temperature) {
-            return Err(bad_request(
-                "default_temperature must be in range [0.0, 2.0]",
-            ));
-        }
-        cfg.default_temperature = temperature;
-    }
-
-    if let Some(memory_backend) = patch.memory_backend.as_ref() {
-        let backend = memory_backend.trim().to_ascii_lowercase();
-        if !gateway::utils::validate_memory_backend(&backend) {
-            return Err(bad_request(
-                "Invalid memory_backend. Allowed: sqlite, lucid, surreal-graphs, markdown, surreal, none",
-            ));
-        }
-        cfg.memory.backend = backend;
-    }
-
-    Ok(())
-}
-
-fn apply_observability_patch(
-    cfg: &mut Config,
-    patch: Option<&AdminObservabilityPatch>,
-) -> Result<(), AdminResponse> {
-    let Some(observability_patch) = patch else {
-        return Ok(());
-    };
-
-    if let Some(backend) = observability_patch.backend.as_ref() {
-        let backend = backend.trim().to_ascii_lowercase();
-        if !gateway::utils::validate_observability_backend(&backend) {
-            return Err(bad_request(
-                "Invalid observability.backend. Allowed: none, log, prometheus, otel",
-            ));
-        }
-        cfg.observability.backend = backend;
-    }
-
-    if let Some(endpoint) = observability_patch.otel_endpoint.as_ref() {
-        let endpoint = endpoint.trim();
-        cfg.observability.otel_endpoint = (!endpoint.is_empty()).then(|| endpoint.to_string());
-    }
-
-    if let Some(service_name) = observability_patch.otel_service_name.as_ref() {
-        let service_name = service_name.trim();
-        cfg.observability.otel_service_name =
-            (!service_name.is_empty()).then(|| service_name.to_string());
-    }
-
-    Ok(())
-}
-
-fn apply_runtime_patch(
-    cfg: &mut Config,
-    patch: Option<&AdminRuntimePatch>,
-) -> Result<(), AdminResponse> {
-    let Some(runtime_patch) = patch else {
-        return Ok(());
-    };
-
-    if let Some(kind) = runtime_patch.kind.as_ref() {
-        let kind = kind.trim().to_ascii_lowercase();
-        if !gateway::utils::validate_runtime_kind(&kind) {
-            return Err(bad_request("Invalid runtime.kind. Allowed: native, docker"));
-        }
-        cfg.runtime.kind = kind;
-    }
-
-    Ok(())
-}
-
-fn apply_autonomy_patch(cfg: &mut Config, patch: Option<&AdminAutonomyPatch>) {
-    let Some(autonomy_patch) = patch else {
-        return;
-    };
-
-    if let Some(level) = autonomy_patch.level {
-        cfg.autonomy.level = level;
-    }
-    if let Some(workspace_only) = autonomy_patch.workspace_only {
-        cfg.autonomy.workspace_only = workspace_only;
-    }
-    if let Some(max_actions_per_hour) = autonomy_patch.max_actions_per_hour {
-        cfg.autonomy.max_actions_per_hour = max_actions_per_hour;
-    }
-    if let Some(max_cost_per_day_cents) = autonomy_patch.max_cost_per_day_cents {
-        cfg.autonomy.max_cost_per_day_cents = max_cost_per_day_cents;
-    }
-}
-
-fn apply_scheduler_patch(cfg: &mut Config, patch: Option<&AdminSchedulerPatch>) {
-    let Some(scheduler_patch) = patch else {
-        return;
-    };
-
-    if let Some(enabled) = scheduler_patch.enabled {
-        cfg.scheduler.enabled = enabled;
-    }
-    if let Some(max_tasks) = scheduler_patch.max_tasks {
-        cfg.scheduler.max_tasks = max_tasks.max(1);
-    }
-    if let Some(max_concurrent) = scheduler_patch.max_concurrent {
-        cfg.scheduler.max_concurrent = max_concurrent.max(1);
-    }
-}
-
-fn apply_gateway_patch(
-    cfg: &mut Config,
-    patch: Option<&AdminGatewayPatch>,
-) -> Result<(), AdminResponse> {
-    let Some(gateway_patch) = patch else {
-        return Ok(());
-    };
-
-    if let Some(port) = gateway_patch.port {
-        cfg.gateway.port = port;
-    }
-    if let Some(host) = gateway_patch.host.as_ref() {
-        let host = host.trim();
-        if host.is_empty() {
-            return Err(bad_request("gateway.host cannot be empty"));
-        }
-        cfg.gateway.host = host.to_string();
-    }
-    if let Some(require_pairing) = gateway_patch.require_pairing {
-        cfg.gateway.require_pairing = require_pairing;
-    }
-    if let Some(allow_public_bind) = gateway_patch.allow_public_bind {
-        cfg.gateway.allow_public_bind = allow_public_bind;
-    }
-    if let Some(limit) = gateway_patch.pair_rate_limit_per_minute {
-        cfg.gateway.pair_rate_limit_per_minute = limit;
-    }
-    if let Some(limit) = gateway_patch.webhook_rate_limit_per_minute {
-        cfg.gateway.webhook_rate_limit_per_minute = limit;
-    }
-    if let Some(trust_forwarded_headers) = gateway_patch.trust_forwarded_headers {
-        cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
-    }
-    if let Some(max_keys) = gateway_patch.rate_limit_max_keys {
-        cfg.gateway.rate_limit_max_keys =
-            gateway::utils::normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
-    }
-    if let Some(ttl_secs) = gateway_patch.idempotency_ttl_secs {
-        if ttl_secs != 0 {
-            cfg.gateway.idempotency_ttl_secs = ttl_secs;
-        }
-    }
-    if let Some(max_keys) = gateway_patch.idempotency_max_keys {
-        cfg.gateway.idempotency_max_keys =
-            gateway::utils::normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
-    }
-
-    Ok(())
-}
-
-fn apply_webhook_patch(
-    cfg: &mut Config,
-    patch: Option<&AdminWebhookPatch>,
-) -> Result<(), AdminResponse> {
-    let Some(webhook_patch) = patch else {
-        return Ok(());
-    };
-
-    if webhook_patch.port.is_none() && webhook_patch.secret.is_none() {
-        return Ok(());
-    }
-
-    if cfg.channels_config.webhook.is_none() {
-        cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
-            port: 3000,
-            secret: None,
-        });
-    }
-
-    if let Some(webhook) = cfg.channels_config.webhook.as_mut() {
-        if let Some(port) = webhook_patch.port {
-            webhook.port = port;
-        }
-
-        if let Some(secret_mode) = webhook_patch.secret.as_ref() {
-            match secret_mode {
-                AdminSecretUpdate::Unchanged => {}
-                AdminSecretUpdate::Clear => webhook.secret = None,
-                AdminSecretUpdate::Replace { value } => {
-                    let trimmed = value.trim();
-                    if trimmed.is_empty() {
-                        return Err(bad_request("webhook.secret replace value cannot be empty"));
-                    }
-                    webhook.secret = Some(trimmed.to_string());
-                }
-            }
-        }
-    }
-
-    Ok(())
+    (StatusCode::OK, Json(admin_options_payload()))
 }
 
 #[allow(clippy::unused_async)]
@@ -889,32 +1120,20 @@ pub async fn handle_admin_update_config(
         );
     }
 
-    let mut cfg = current_cfg;
-
-    if let Err(response) = apply_defaults_patch(&mut cfg, &patch) {
+    let mut next_cfg = current_cfg;
+    if let Err(response) = apply_patch(&mut next_cfg, &patch) {
         return response;
     }
-    if let Err(response) = apply_observability_patch(&mut cfg, patch.observability.as_ref()) {
-        return response;
-    }
-    if let Err(response) = apply_runtime_patch(&mut cfg, patch.runtime.as_ref()) {
-        return response;
-    }
-    apply_autonomy_patch(&mut cfg, patch.autonomy.as_ref());
-    apply_scheduler_patch(&mut cfg, patch.scheduler.as_ref());
-    if let Err(response) = apply_gateway_patch(&mut cfg, patch.gateway.as_ref()) {
-        return response;
-    }
-    if let Err(response) = apply_webhook_patch(&mut cfg, patch.webhook.as_ref()) {
-        return response;
+    if let Err(error) = next_cfg.validate_for_runtime() {
+        return bad_request(&error.to_string());
     }
 
-    let updated_view = admin_config_view(&cfg);
-    match cfg.save() {
+    let updated_view = admin_config_view(&next_cfg);
+    match next_cfg.save() {
         Ok(()) => (
             {
                 let mut shared_cfg = state.config.lock();
-                *shared_cfg = cfg;
+                *shared_cfg = next_cfg;
                 StatusCode::OK
             },
             Json(serde_json::json!({"updated": true, "config": updated_view})),
@@ -934,195 +1153,139 @@ pub async fn handle_admin_update_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::Config;
-    use crate::gateway::AppState;
-    use crate::security::pairing::PairingGuard;
     use crate::security::AutonomyLevel;
-    use parking_lot::Mutex;
-    use std::sync::Arc;
 
-    fn test_config() -> Config {
+    #[test]
+    fn admin_config_view_contract_covers_expanded_sections() {
         let mut cfg = Config::default();
-        cfg.gateway.port = 3000;
-        cfg.gateway.host = "127.0.0.1".to_string();
-        cfg.memory.backend = "sqlite".to_string();
-        cfg.observability.backend = "log".to_string();
-        cfg.runtime.kind = "native".to_string();
-        cfg.autonomy.level = AutonomyLevel::Supervised;
-        cfg.scheduler.enabled = true;
-        cfg.scheduler.max_tasks = 10;
-        cfg.scheduler.max_concurrent = 5;
-        cfg.default_temperature = 0.7;
-        cfg
+        cfg.api_key = Some("secret-key".into());
+        cfg.composio.api_key = Some("composio-key".into());
+        cfg.web_search.brave_api_key = Some("brave-key".into());
+        cfg.browser.computer_use.api_key = Some("computer-use-key".into());
+        cfg.memory.surreal.username = Some("surreal-user".into());
+        cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
+            port: 3009,
+            secret: Some("webhook-secret".into()),
+        });
+
+        let view = admin_config_view(&cfg);
+        let serialized = serde_json::to_value(view).expect("serialize admin view");
+        assert!(serialized.get("provider").is_some());
+        assert!(serialized.get("identity").is_some());
+        assert!(serialized.get("channels").is_some());
+        assert!(serialized.get("composio").is_some());
+        assert!(serialized.get("web_search").is_some());
+        assert!(serialized.get("memory").is_some());
+        assert!(serialized.get("browser").is_some());
+        assert_eq!(
+            serialized.pointer("/provider/has_api_key"),
+            Some(&serde_json::json!(true))
+        );
+        let text = serialized.to_string();
+        assert!(!text.contains("secret-key"));
+        assert!(!text.contains("composio-key"));
+        assert!(!text.contains("webhook-secret"));
     }
 
     #[test]
-    fn test_restart_required_updates_table() {
-        let cfg = test_config();
-
-        // Re-implementing correctly without zeroed for safety
-        let mut patch = AdminConfigUpdateRequest {
-            default_provider: None,
-            default_model: None,
-            default_temperature: None,
-            memory_backend: None,
-            observability: None,
-            runtime: None,
-            autonomy: None,
-            scheduler: None,
-            gateway: None,
-            webhook: None,
-        };
-
-        // Test lowercase normalization
-        patch.memory_backend = Some("SQLITE".into());
-        assert!(restart_required_updates(&cfg, &patch).is_empty());
-
-        patch.memory_backend = Some("lucid".into());
-        assert_eq!(
-            restart_required_updates(&cfg, &patch),
-            vec!["memory_backend"]
-        );
-
-        // Test scheduler bounds
-        patch.memory_backend = None;
-        patch.scheduler = Some(AdminSchedulerPatch {
-            enabled: None,
-            max_tasks: Some(10), // Same as default
-            max_concurrent: None,
+    fn admin_update_contract_deserializes_expanded_and_rejects_unknown_fields() {
+        let payload = serde_json::json!({
+            "default_provider": "openrouter",
+            "provider": { "api_key": { "mode": "replace", "value": "new-key" } },
+            "identity": { "format": "aieos", "aieos_path": "identity.json" },
+            "channels": {
+                "webhook": {
+                    "enabled": true,
+                    "port": 3010,
+                    "secret": { "mode": "clear" }
+                }
+            },
+            "memory": {
+                "surreal": {
+                    "username": { "mode": "replace", "value": "u" },
+                    "password": { "mode": "unchanged" }
+                }
+            }
         });
-        assert!(restart_required_updates(&cfg, &patch).is_empty());
 
-        patch.scheduler = Some(AdminSchedulerPatch {
-            enabled: None,
-            max_tasks: Some(1), // max(1) applies, but it's different from 10
-            max_concurrent: None,
-        });
-        assert_eq!(
-            restart_required_updates(&cfg, &patch),
-            vec!["scheduler.max_tasks"]
-        );
+        let parsed: AdminConfigUpdateRequest =
+            serde_json::from_value(payload).expect("valid request");
+        assert!(parsed.provider.is_some());
+        assert!(parsed.identity.is_some());
+        assert!(parsed.channels.is_some());
+        assert!(parsed.memory.is_some());
+
+        let invalid = serde_json::json!({ "identity": { "format": "openclaw", "extra": true } });
+        assert!(serde_json::from_value::<AdminConfigUpdateRequest>(invalid).is_err());
     }
 
-    #[tokio::test]
-    async fn test_handle_admin_update_config_rollback_on_persistence_failure() {
-        let mut cfg = test_config();
-        // Point to a non-existent/unwritable path to simulate persistence failure
-        cfg.config_path = std::path::PathBuf::from("/nonexistent/config.toml");
+    #[test]
+    fn secret_update_transitions_and_validation_work() {
+        let mut current = Some("abc".to_string());
+        apply_secret_update(
+            &mut current,
+            &AdminSecretUpdate::Unchanged,
+            "provider.api_key",
+        )
+        .unwrap();
+        assert_eq!(current.as_deref(), Some("abc"));
 
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            axum::http::header::AUTHORIZATION,
-            axum::http::HeaderValue::from_static("Bearer valid_token"),
-        );
+        apply_secret_update(&mut current, &AdminSecretUpdate::Clear, "provider.api_key").unwrap();
+        assert_eq!(current, None);
 
-        let state = AppState {
-            config: Arc::new(Mutex::new(cfg.clone())),
-            provider: Arc::new(crate::gateway::tests::MockProvider::default()),
-            model: "model".into(),
-            temperature: 0.5,
-            mem: Arc::new(crate::gateway::tests::MockMemory),
-            auto_save: false,
-            webhook_secret_hash: None,
-            pairing: Arc::new(PairingGuard::new(true, &["valid_token".into()])),
-            trust_forwarded_headers: false,
-            rate_limiter: Arc::new(crate::gateway::GatewayRateLimiter::new(100, 100, 1000)),
-            idempotency_store: Arc::new(crate::gateway::IdempotencyStore::new(
-                std::time::Duration::from_secs(60),
-                100,
-            )),
-            whatsapp: None,
-            whatsapp_app_secret: None,
-            observer: Arc::new(crate::observability::NoopObserver),
-        };
+        let error = apply_secret_update(
+            &mut current,
+            &AdminSecretUpdate::Replace { value: " ".into() },
+            "provider.api_key",
+        )
+        .expect_err("empty replace must fail");
+        assert_eq!(error.0, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn restart_required_detects_secret_intent() {
+        let mut cfg = Config::default();
+        cfg.api_key = Some("old".into());
+        cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
+            port: 3000,
+            secret: Some("old-webhook".into()),
+        });
+        cfg.autonomy.level = AutonomyLevel::Supervised;
 
         let patch = AdminConfigUpdateRequest {
             default_provider: None,
             default_model: None,
+            api_url: None,
             default_temperature: None,
             memory_backend: None,
-            observability: None,
-            runtime: None,
-            autonomy: None,
-            scheduler: None,
-            gateway: Some(AdminGatewayPatch {
-                port: None,
-                host: None,
-                require_pairing: None,
-                allow_public_bind: None,
-                pair_rate_limit_per_minute: None,
-                webhook_rate_limit_per_minute: None,
-                trust_forwarded_headers: None,
-                rate_limit_max_keys: Some(10_000), // Same as default, no 409
-                idempotency_ttl_secs: None,
-                idempotency_max_keys: None,
+            provider: Some(AdminProviderPatch {
+                api_key: Some(AdminSecretUpdate::Replace {
+                    value: "new".into(),
+                }),
             }),
-            webhook: None,
-        };
-
-        let mut headers = HeaderMap::new();
-        headers.insert(
-            axum::http::header::ORIGIN,
-            axum::http::HeaderValue::from_static("http://127.0.0.1:4321"),
-        );
-        headers.insert(
-            axum::http::header::AUTHORIZATION,
-            axum::http::HeaderValue::from_static("Bearer valid_token"),
-        );
-
-        let response = handle_admin_update_config(State(state.clone()), headers, Ok(Json(patch)))
-            .await
-            .into_response();
-
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-
-        // Assert rollback: in-memory config should NOT have been updated
-        assert_eq!(state.config.lock().default_temperature, 0.7);
-    }
-
-    #[test]
-    fn test_admin_secret_update_logic() {
-        let mut cfg = test_config();
-        cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
-            port: 3000,
-            secret: Some("old-secret".into()),
-        });
-
-        let mut patch = AdminConfigUpdateRequest {
-            default_provider: None,
-            default_model: None,
-            default_temperature: None,
-            memory_backend: None,
             observability: None,
             runtime: None,
             autonomy: None,
+            identity: None,
             scheduler: None,
             gateway: None,
-            webhook: Some(AdminWebhookPatch {
-                port: None,
-                secret: Some(AdminSecretUpdate::Unchanged),
+            channels: Some(AdminChannelsPatch {
+                cli: None,
+                webhook: Some(AdminWebhookPatch {
+                    enabled: None,
+                    port: None,
+                    secret: Some(AdminSecretUpdate::Clear),
+                }),
             }),
+            webhook: None,
+            composio: None,
+            web_search: None,
+            browser: None,
+            memory: None,
         };
 
-        assert!(restart_required_updates(&cfg, &patch).is_empty());
-
-        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Replace {
-            value: "old-secret".into(),
-        });
-        assert!(restart_required_updates(&cfg, &patch).is_empty());
-
-        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Replace {
-            value: "new-secret".into(),
-        });
-        assert_eq!(
-            restart_required_updates(&cfg, &patch),
-            vec!["webhook.secret"]
-        );
-
-        patch.webhook.as_mut().unwrap().secret = Some(AdminSecretUpdate::Clear);
-        assert_eq!(
-            restart_required_updates(&cfg, &patch),
-            vec!["webhook.secret"]
-        );
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(fields.contains(&"provider.api_key"));
+        assert!(fields.contains(&"channels.webhook.secret"));
     }
 }

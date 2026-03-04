@@ -21,7 +21,9 @@
     "clean": "pnpm -r run clean",
     "test": "pnpm -r run test",
     "test:chat": "pnpm --filter @corvus/chat run test",
-    "test:dashboard": "pnpm --filter @corvus/dashboard run test"
+    "test:dashboard": "pnpm --filter @corvus/dashboard run test",
+    "test:dashboard:e2e": "pnpm --filter @corvus/dashboard run test:e2e",
+    "test:dashboard:e2e:install": "pnpm --filter @corvus/dashboard run test:e2e:install"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

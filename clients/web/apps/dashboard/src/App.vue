@@ -1,615 +1,39 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import GeneralSettings from "@/components/config/GeneralSettings.vue";
+import GatewaySettings from "@/components/config/GatewaySettings.vue";
+import ObservabilitySettings from "@/components/config/ObservabilitySettings.vue";
+import RuntimeSettings from "@/components/config/RuntimeSettings.vue";
+import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
+import SecuritySettings from "@/components/config/SecuritySettings.vue";
+import WebhookSettings from "@/components/config/WebhookSettings.vue";
 import Button from "@/components/ui/button/Button.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import Input from "@/components/ui/input/Input.vue";
-
-const ALLOWED_LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
-
-type SecretMode = "unchanged" | "replace" | "clear";
-
-interface AdminOptionsResponse {
-  memory_backends?: string[];
-  observability_backends?: string[];
-  runtime_kinds?: string[];
-  autonomy_levels?: string[];
-}
-
-interface AdminConfigResponse {
-  config?: {
-    default_provider?: string | null;
-    default_model?: string | null;
-    default_temperature?: number;
-    memory_backend?: string;
-    observability?: {
-      backend?: string;
-      otel_endpoint?: string | null;
-      otel_service_name?: string | null;
-    };
-    runtime?: {
-      kind?: string;
-    };
-    autonomy?: {
-      level?: string;
-      workspace_only?: boolean;
-      max_actions_per_hour?: number;
-      max_cost_per_day_cents?: number;
-    };
-    scheduler?: {
-      enabled?: boolean;
-      max_tasks?: number;
-      max_concurrent?: number;
-    };
-    gateway?: {
-      port?: number;
-      host?: string;
-      require_pairing?: boolean;
-      allow_public_bind?: boolean;
-    };
-    channels?: {
-      webhook_port?: number;
-      webhook_has_secret?: boolean;
-    };
-  };
-}
-
-interface InitialConfigSnapshot {
-  default_provider: string;
-  default_model: string;
-  default_temperature: number;
-  memory_backend: string;
-  observability_backend: string;
-  otel_endpoint: string;
-  otel_service_name: string;
-  runtime_kind: string;
-  autonomy_level: string;
-  autonomy_workspace_only: boolean;
-  autonomy_max_actions_per_hour: number;
-  autonomy_max_cost_per_day_cents: number;
-  scheduler_enabled: boolean;
-  scheduler_max_tasks: number;
-  scheduler_max_concurrent: number;
-  gateway_port: number;
-  gateway_host: string;
-  gateway_require_pairing: boolean;
-  gateway_allow_public_bind: boolean;
-  webhook_port: number;
-}
+import { useConfig } from "@/composables/useConfig";
 
 const { t } = useI18n();
 
-const baseUrl = ref("http://127.0.0.1:3000");
-const pairingCode = ref("");
-const bearerToken = ref("");
+const config = useConfig(t);
+const {
+  baseUrl,
+  pairingCode,
+  bearerToken,
+  loading,
+  statusMessage,
+  errorMessage,
+  form,
+  canSave,
+  sectionSaving,
+  pairGateway,
+  connectGateway,
+  saveSection,
+} = config;
 
-const provider = ref("");
-const model = ref("");
-const temperature = ref("0.7");
-const memoryBackend = ref("sqlite");
-const memoryBackendOptions = ref<string[]>([
-  "sqlite",
-  "lucid",
-  "surreal-graphs",
-  "markdown",
-  "surreal",
-  "none",
-]);
-const observabilityBackend = ref("none");
-const observabilityBackendOptions = ref<string[]>(["none", "log", "prometheus", "otel"]);
-const otelEndpoint = ref("");
-const otelServiceName = ref("");
-
-const runtimeKind = ref("native");
-const runtimeKindOptions = ref<string[]>(["native", "docker"]);
-
-const autonomyLevel = ref("supervised");
-const autonomyLevelOptions = ref<string[]>(["readonly", "supervised", "full"]);
-const workspaceOnly = ref(true);
-const maxActionsPerHour = ref("20");
-const maxCostPerDayCents = ref("500");
-
-const schedulerEnabled = ref(true);
-const schedulerMaxTasks = ref("64");
-const schedulerMaxConcurrent = ref("4");
-
-const gatewayPort = ref("3000");
-const gatewayHost = ref("127.0.0.1");
-const requirePairing = ref(true);
-const allowPublicBind = ref(false);
-
-const webhookPort = ref("3001");
-const webhookSecretMode = ref<SecretMode>("unchanged");
-const webhookSecretValue = ref("");
-const webhookSecretExists = ref(false);
-
-const loading = ref(false);
-const saving = ref(false);
-const statusMessage = ref("");
-const errorMessage = ref("");
-const initialConfig = ref<InitialConfigSnapshot | null>(null);
-
-const canSave = computed(() => !loading.value && !saving.value && !!bearerToken.value.trim());
-
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const webhookSecretStatusLabel = computed(() =>
-  webhookSecretExists.value ? t("webhook.statusConfigured") : t("webhook.statusNotConfigured")
+  form.webhook_secret_exists ? t("webhook.statusConfigured") : t("webhook.statusNotConfigured"),
 );
-
-function isUrlSafeForSecrets(rawUrl: string): boolean {
-  let parsed: URL;
-  try {
-    parsed = new URL(rawUrl);
-  } catch {
-    return false;
-  }
-  if (parsed.protocol === "https:") {
-    return true;
-  }
-  return parsed.protocol === "http:" && ALLOWED_LOCAL_HOSTS.has(parsed.hostname);
-}
-
-function normalizeBaseUrl(): string {
-  return baseUrl.value.trim().replace(/\/$/, "");
-}
-
-function authHeaders(): Record<string, string> {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (bearerToken.value.trim()) {
-    headers.Authorization = `Bearer ${bearerToken.value.trim()}`;
-  }
-  return headers;
-}
-
-function parseFloatSafe(value: string): number | undefined {
-  const parsed = Number.parseFloat(value);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-function parseIntSafe(value: string): number | undefined {
-  if (!value.trim()) {
-    return undefined;
-  }
-  const parsed = Number.parseInt(value, 10);
-  return Number.isFinite(parsed) ? parsed : undefined;
-}
-
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
-async function pairGateway(): Promise<void> {
-  errorMessage.value = "";
-  statusMessage.value = "";
-
-  const code = pairingCode.value.trim();
-  if (!code) {
-    return;
-  }
-  const gatewayBaseUrl = normalizeBaseUrl();
-  if (!isUrlSafeForSecrets(gatewayBaseUrl)) {
-    errorMessage.value = t("auth.insecureUrlError");
-    return;
-  }
-
-  loading.value = true;
-  try {
-    const endpoint = new URL("/pair", gatewayBaseUrl);
-    const response = await fetch(endpoint.toString(), {
-      method: "POST",
-      headers: {
-        "X-Pairing-Code": code,
-      },
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP_${response.status}`);
-    }
-
-    const data = (await response.json()) as { token?: string };
-    if (!data.token) {
-      throw new Error("Missing token");
-    }
-    bearerToken.value = data.token;
-    pairingCode.value = "";
-    statusMessage.value = t("auth.pairSuccess");
-  } catch (err) {
-    console.error("pairGateway failed", err);
-    if (err instanceof TypeError || (err instanceof Error && err.name === "AbortError")) {
-      errorMessage.value = t("auth.networkError");
-    } else if (err instanceof Error && err.message.startsWith("HTTP_")) {
-      const status = Number.parseInt(err.message.replace("HTTP_", ""), 10);
-      errorMessage.value =
-        status === 401 || status === 403 ? t("auth.unauthorized") : t("auth.loadError");
-    } else {
-      errorMessage.value = t("auth.loadError");
-    }
-  } finally {
-    loading.value = false;
-  }
-}
-
-async function connectGateway(): Promise<void> {
-  loading.value = true;
-  errorMessage.value = "";
-  statusMessage.value = "";
-  const gatewayBaseUrl = normalizeBaseUrl();
-  const safeForSecrets = isUrlSafeForSecrets(gatewayBaseUrl);
-  const headers = safeForSecrets ? authHeaders() : { "Content-Type": "application/json" };
-
-  if (!safeForSecrets && bearerToken.value.trim()) {
-    errorMessage.value = t("auth.insecureUrlError");
-    loading.value = false;
-    return;
-  }
-
-  try {
-    const optionsResponse = await fetch(new URL("/web/admin/options", gatewayBaseUrl).toString(), {
-      method: "GET",
-      headers,
-    });
-    if (!optionsResponse.ok) {
-      throw new Error(`options-${optionsResponse.status}`);
-    }
-    const options = (await optionsResponse.json()) as AdminOptionsResponse;
-    if (Array.isArray(options.memory_backends) && options.memory_backends.length > 0) {
-      memoryBackendOptions.value = options.memory_backends;
-    }
-    if (
-      Array.isArray(options.observability_backends) &&
-      options.observability_backends.length > 0
-    ) {
-      observabilityBackendOptions.value = options.observability_backends;
-    }
-    if (Array.isArray(options.runtime_kinds) && options.runtime_kinds.length > 0) {
-      runtimeKindOptions.value = options.runtime_kinds;
-    }
-    if (Array.isArray(options.autonomy_levels) && options.autonomy_levels.length > 0) {
-      autonomyLevelOptions.value = options.autonomy_levels;
-    }
-
-    const configResponse = await fetch(new URL("/web/admin/config", gatewayBaseUrl).toString(), {
-      method: "GET",
-      headers,
-    });
-    if (!configResponse.ok) {
-      throw new Error(`config-${configResponse.status}`);
-    }
-
-    const configData = (await configResponse.json()) as AdminConfigResponse;
-    const cfg = configData.config;
-    if (!cfg) {
-      throw new Error("missing-config");
-    }
-
-    provider.value = cfg.default_provider ?? "";
-    model.value = cfg.default_model ?? "";
-    temperature.value = `${cfg.default_temperature ?? 0.7}`;
-    memoryBackend.value = cfg.memory_backend ?? "sqlite";
-    observabilityBackend.value = cfg.observability?.backend ?? "none";
-    otelEndpoint.value = cfg.observability?.otel_endpoint ?? "";
-    otelServiceName.value = cfg.observability?.otel_service_name ?? "";
-
-    runtimeKind.value = cfg.runtime?.kind ?? "native";
-
-    autonomyLevel.value = cfg.autonomy?.level ?? "supervised";
-    workspaceOnly.value = cfg.autonomy?.workspace_only ?? true;
-    maxActionsPerHour.value = `${cfg.autonomy?.max_actions_per_hour ?? 20}`;
-    maxCostPerDayCents.value = `${cfg.autonomy?.max_cost_per_day_cents ?? 500}`;
-
-    schedulerEnabled.value = cfg.scheduler?.enabled ?? true;
-    schedulerMaxTasks.value = `${cfg.scheduler?.max_tasks ?? 64}`;
-    schedulerMaxConcurrent.value = `${cfg.scheduler?.max_concurrent ?? 4}`;
-
-    gatewayPort.value = `${cfg.gateway?.port ?? 3000}`;
-    gatewayHost.value = cfg.gateway?.host ?? "127.0.0.1";
-    requirePairing.value = cfg.gateway?.require_pairing ?? true;
-    allowPublicBind.value = cfg.gateway?.allow_public_bind ?? false;
-
-    webhookPort.value = `${cfg.channels?.webhook_port ?? 3001}`;
-    webhookSecretExists.value = cfg.channels?.webhook_has_secret ?? false;
-
-    initialConfig.value = {
-      default_provider: cfg.default_provider ?? "",
-      default_model: cfg.default_model ?? "",
-      default_temperature: cfg.default_temperature ?? 0.7,
-      memory_backend: cfg.memory_backend ?? "sqlite",
-      observability_backend: cfg.observability?.backend ?? "none",
-      otel_endpoint: cfg.observability?.otel_endpoint ?? "",
-      otel_service_name: cfg.observability?.otel_service_name ?? "",
-      runtime_kind: cfg.runtime?.kind ?? "native",
-      autonomy_level: cfg.autonomy?.level ?? "supervised",
-      autonomy_workspace_only: cfg.autonomy?.workspace_only ?? true,
-      autonomy_max_actions_per_hour: cfg.autonomy?.max_actions_per_hour ?? 20,
-      autonomy_max_cost_per_day_cents: cfg.autonomy?.max_cost_per_day_cents ?? 500,
-      scheduler_enabled: cfg.scheduler?.enabled ?? true,
-      scheduler_max_tasks: cfg.scheduler?.max_tasks ?? 64,
-      scheduler_max_concurrent: cfg.scheduler?.max_concurrent ?? 4,
-      gateway_port: cfg.gateway?.port ?? 3000,
-      gateway_host: cfg.gateway?.host ?? "127.0.0.1",
-      gateway_require_pairing: cfg.gateway?.require_pairing ?? true,
-      gateway_allow_public_bind: cfg.gateway?.allow_public_bind ?? false,
-      webhook_port: cfg.channels?.webhook_port ?? 3001,
-    };
-    statusMessage.value = t("auth.connected");
-  } catch (err) {
-    console.error("connectGateway failed", err);
-    errorMessage.value = t("auth.loadError");
-  } finally {
-    loading.value = false;
-  }
-}
-
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
-async function saveConfig(): Promise<void> {
-  if (!canSave.value) {
-    return;
-  }
-
-  errorMessage.value = "";
-  statusMessage.value = "";
-  saving.value = true;
-
-  const gatewayBaseUrl = normalizeBaseUrl();
-  if (!isUrlSafeForSecrets(gatewayBaseUrl)) {
-    errorMessage.value = t("auth.insecureUrlError");
-    saving.value = false;
-    return;
-  }
-
-  if (!validateWebhookSecret()) {
-    saving.value = false;
-    return;
-  }
-
-  const parsedValues = parseAllNumericValues();
-  if (!initialConfig.value) {
-    errorMessage.value = t("form.connectBeforeSave");
-    saving.value = false;
-    return;
-  }
-
-  const payload = buildConfigPayload(parsedValues, initialConfig.value);
-
-  if (Object.keys(payload).length === 0) {
-    statusMessage.value = t("form.noChanges");
-    saving.value = false;
-    return;
-  }
-
-  await saveConfigToGateway(payload, gatewayBaseUrl);
-}
-
-function validateWebhookSecret(): boolean {
-  if (webhookSecretMode.value === "replace" && !webhookSecretValue.value.trim()) {
-    errorMessage.value = t("auth.emptyWebhookSecret");
-    return false;
-  }
-  return true;
-}
-
-function parseAllNumericValues() {
-  return {
-    temperature: parseFloatSafe(temperature.value),
-    maxActions: parseIntSafe(maxActionsPerHour.value),
-    maxCost: parseIntSafe(maxCostPerDayCents.value),
-    schedulerMaxTasks: parseIntSafe(schedulerMaxTasks.value),
-    schedulerMaxConcurrent: parseIntSafe(schedulerMaxConcurrent.value),
-    gatewayPort: parseIntSafe(gatewayPort.value),
-    webhookPort: parseIntSafe(webhookPort.value),
-  };
-}
-
-interface ParsedValues {
-  temperature: number | undefined;
-  maxActions: number | undefined;
-  maxCost: number | undefined;
-  schedulerMaxTasks: number | undefined;
-  schedulerMaxConcurrent: number | undefined;
-  gatewayPort: number | undefined;
-  webhookPort: number | undefined;
-}
-
-function buildConfigPayload(
-  parsed: ParsedValues,
-  snapshot: InitialConfigSnapshot
-): Record<string, unknown> {
-  const payload: Record<string, unknown> = {};
-
-  conditionallyAdd(payload, "default_provider", provider.value, snapshot.default_provider);
-  conditionallyAdd(payload, "default_model", model.value, snapshot.default_model);
-  conditionallyAdd(
-    payload,
-    "default_temperature",
-    parsed.temperature,
-    snapshot.default_temperature
-  );
-  conditionallyAdd(payload, "memory_backend", memoryBackend.value, snapshot.memory_backend);
-
-  Object.assign(payload, buildObservabilityPayload(parsed, snapshot));
-  conditionallyAdd(
-    payload,
-    "runtime",
-    { kind: runtimeKind.value },
-    { kind: snapshot.runtime_kind }
-  );
-  Object.assign(payload, buildAutonomyPayload(parsed, snapshot));
-  Object.assign(payload, buildSchedulerPayload(parsed, snapshot));
-  Object.assign(payload, buildGatewayPayload(parsed, snapshot));
-  Object.assign(payload, buildWebhookPayload(parsed, snapshot));
-
-  return payload;
-}
-
-function conditionallyAdd<T>(
-  payload: Record<string, unknown>,
-  key: string,
-  newValue: T,
-  oldValue: T
-): void {
-  if (newValue !== undefined && newValue !== oldValue) {
-    payload[key] = newValue;
-  }
-}
-
-function buildObservabilityPayload(
-  _parsed: ParsedValues,
-  snapshot: InitialConfigSnapshot
-): Record<string, unknown> {
-  const observability: Record<string, unknown> = {};
-  conditionallyAdd(
-    observability,
-    "backend",
-    observabilityBackend.value,
-    snapshot.observability_backend
-  );
-  conditionallyAdd(observability, "otel_endpoint", otelEndpoint.value, snapshot.otel_endpoint);
-  conditionallyAdd(
-    observability,
-    "otel_service_name",
-    otelServiceName.value,
-    snapshot.otel_service_name
-  );
-  return Object.keys(observability).length > 0 ? { observability } : {};
-}
-
-function buildAutonomyPayload(
-  parsed: ParsedValues,
-  snapshot: InitialConfigSnapshot
-): Record<string, unknown> {
-  const autonomy: Record<string, unknown> = {};
-  conditionallyAdd(autonomy, "level", autonomyLevel.value, snapshot.autonomy_level);
-  conditionallyAdd(
-    autonomy,
-    "workspace_only",
-    workspaceOnly.value,
-    snapshot.autonomy_workspace_only
-  );
-  conditionallyAdd(
-    autonomy,
-    "max_actions_per_hour",
-    parsed.maxActions,
-    snapshot.autonomy_max_actions_per_hour
-  );
-  conditionallyAdd(
-    autonomy,
-    "max_cost_per_day_cents",
-    parsed.maxCost,
-    snapshot.autonomy_max_cost_per_day_cents
-  );
-  return Object.keys(autonomy).length > 0 ? { autonomy } : {};
-}
-
-function buildSchedulerPayload(
-  parsed: ParsedValues,
-  snapshot: InitialConfigSnapshot
-): Record<string, unknown> {
-  const scheduler: Record<string, unknown> = {};
-  conditionallyAdd(scheduler, "enabled", schedulerEnabled.value, snapshot.scheduler_enabled);
-  conditionallyAdd(scheduler, "max_tasks", parsed.schedulerMaxTasks, snapshot.scheduler_max_tasks);
-  conditionallyAdd(
-    scheduler,
-    "max_concurrent",
-    parsed.schedulerMaxConcurrent,
-    snapshot.scheduler_max_concurrent
-  );
-  return Object.keys(scheduler).length > 0 ? { scheduler } : {};
-}
-
-function buildGatewayPayload(
-  parsed: ParsedValues,
-  snapshot: InitialConfigSnapshot
-): Record<string, unknown> {
-  const gateway: Record<string, unknown> = {};
-  conditionallyAdd(gateway, "port", parsed.gatewayPort, snapshot.gateway_port);
-  conditionallyAdd(gateway, "host", gatewayHost.value, snapshot.gateway_host);
-  conditionallyAdd(
-    gateway,
-    "require_pairing",
-    requirePairing.value,
-    snapshot.gateway_require_pairing
-  );
-  conditionallyAdd(
-    gateway,
-    "allow_public_bind",
-    allowPublicBind.value,
-    snapshot.gateway_allow_public_bind
-  );
-  return Object.keys(gateway).length > 0 ? { gateway } : {};
-}
-
-function buildWebhookPayload(
-  parsed: ParsedValues,
-  snapshot: InitialConfigSnapshot
-): Record<string, unknown> {
-  const webhook: Record<string, unknown> = {};
-  conditionallyAdd(webhook, "port", parsed.webhookPort, snapshot.webhook_port);
-  if (webhookSecretMode.value !== "unchanged") {
-    webhook.secret = buildSecretPayload();
-  }
-  return Object.keys(webhook).length > 0 ? { webhook } : {};
-}
-
-function buildSecretPayload(): { mode: string; value?: string } {
-  if (webhookSecretMode.value === "replace") {
-    return { mode: "replace", value: webhookSecretValue.value.trim() };
-  }
-  if (webhookSecretMode.value === "clear") {
-    return { mode: "clear" };
-  }
-  return { mode: "unchanged" };
-}
-
-async function saveConfigToGateway(
-  payload: Record<string, unknown>,
-  gatewayBaseUrl: string
-): Promise<void> {
-  try {
-    const response = await fetch(new URL("/web/admin/config", gatewayBaseUrl).toString(), {
-      method: "PUT",
-      headers: authHeaders(),
-      body: JSON.stringify(payload),
-    });
-    if (!response.ok) {
-      if (response.status === 409) {
-        await handleConflictResponse(response);
-        return;
-      }
-      throw new Error(`${response.status}`);
-    }
-    handleSaveSuccess();
-  } catch (err) {
-    console.error("saveConfig failed", err);
-    errorMessage.value = t("form.saveError");
-  } finally {
-    saving.value = false;
-  }
-}
-
-async function handleConflictResponse(response: Response): Promise<void> {
-  const conflict = (await response.json()) as {
-    restart_required?: boolean;
-    fields?: string[];
-  };
-  const fields = Array.isArray(conflict.fields) ? conflict.fields.join(", ") : "";
-  const restartMessage = t("form.restartRequired", { fields });
-  await connectGateway();
-  statusMessage.value = "";
-  errorMessage.value = restartMessage;
-}
-
-function handleSaveSuccess(): void {
-  statusMessage.value = t("form.saveSuccess");
-  if (webhookSecretMode.value === "replace") {
-    webhookSecretExists.value = true;
-    webhookSecretValue.value = "";
-  }
-  if (webhookSecretMode.value === "clear") {
-    webhookSecretExists.value = false;
-  }
-  webhookSecretMode.value = "unchanged";
-  saving.value = false;
-}
 </script>
 
 <template>
@@ -642,159 +66,74 @@ function handleSaveSuccess(): void {
       </div>
       <div class="actions">
         <Button :disabled="loading" @click="pairGateway">{{ t("auth.pair") }}</Button>
-        <Button :disabled="loading" variant="outline" @click="connectGateway">{{ t("auth.connect") }}</Button>
+        <Button :disabled="loading" variant="outline" @click="connectGateway">
+          {{ t("auth.connect") }}
+        </Button>
       </div>
     </section>
 
-    <section class="card">
-      <h2>{{ t("sections.core") }}</h2>
-      <div class="grid">
-        <label>
-          <span>{{ t("form.provider") }}</span>
-          <Input v-model="provider" />
-        </label>
-        <label>
-          <span>{{ t("form.model") }}</span>
-          <Input v-model="model" />
-        </label>
-        <label>
-          <span>{{ t("form.temperature") }}</span>
-          <Input v-model="temperature" type="number" step="0.1" min="0" max="2" />
-        </label>
-        <label>
-          <span>{{ t("form.memoryBackend") }}</span>
-          <select v-model="memoryBackend" class="select-input">
-            <option v-for="backend in memoryBackendOptions" :key="backend" :value="backend">
-              {{ backend }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>{{ t("form.observabilityBackend") }}</span>
-          <select v-model="observabilityBackend" class="select-input">
-            <option v-for="backend in observabilityBackendOptions" :key="backend" :value="backend">
-              {{ backend }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>{{ t("form.otelEndpoint") }}</span>
-          <Input v-model="otelEndpoint" placeholder="http://localhost:4318" />
-        </label>
-        <label>
-          <span>{{ t("form.otelServiceName") }}</span>
-          <Input v-model="otelServiceName" placeholder="corvus" />
-        </label>
-      </div>
-    </section>
+    <GeneralSettings
+      :model-value="form"
+      :memory-backend-options="config.memoryBackendOptions.value"
+      :disabled="!canSave"
+      :saving="sectionSaving.general"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('general')"
+    />
+
+    <SecuritySettings
+      :model-value="form"
+      :autonomy-level-options="config.autonomyLevelOptions.value"
+      :disabled="!canSave"
+      :saving="sectionSaving.security"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('security')"
+    />
+
+    <ObservabilitySettings
+      :model-value="form"
+      :observability-backend-options="config.observabilityBackendOptions.value"
+      :disabled="!canSave"
+      :saving="sectionSaving.observability"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('observability')"
+    />
+
+    <RuntimeSettings
+      :model-value="form"
+      :runtime-kind-options="config.runtimeKindOptions.value"
+      :disabled="!canSave"
+      :saving="sectionSaving.runtime"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('runtime')"
+    />
+
+    <SchedulerSettings
+      :model-value="form"
+      :disabled="!canSave"
+      :saving="sectionSaving.scheduler"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('scheduler')"
+    />
+
+    <GatewaySettings
+      :model-value="form"
+      :disabled="!canSave"
+      :saving="sectionSaving.gateway"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('gateway')"
+    />
+
+    <WebhookSettings
+      :model-value="form"
+      :disabled="!canSave"
+      :saving="sectionSaving.webhook"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('webhook')"
+    />
 
     <section class="card">
-      <h2>{{ t("sections.runtime") }}</h2>
-      <div class="grid">
-        <label>
-          <span>{{ t("form.runtimeKind") }}</span>
-          <select v-model="runtimeKind" class="select-input">
-            <option v-for="kind in runtimeKindOptions" :key="kind" :value="kind">
-              {{ kind }}
-            </option>
-          </select>
-        </label>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>{{ t("sections.autonomy") }}</h2>
-      <div class="grid">
-        <label>
-          <span>{{ t("form.autonomyLevel") }}</span>
-          <select v-model="autonomyLevel" class="select-input">
-            <option v-for="level in autonomyLevelOptions" :key="level" :value="level">
-              {{ level }}
-            </option>
-          </select>
-        </label>
-        <label>
-          <span>{{ t("form.maxActionsPerHour") }}</span>
-          <Input v-model="maxActionsPerHour" type="number" min="0" />
-        </label>
-        <label>
-          <span>{{ t("form.maxCostPerDayCents") }}</span>
-          <Input v-model="maxCostPerDayCents" type="number" min="0" />
-        </label>
-        <label class="switch-row">
-          <input v-model="workspaceOnly" type="checkbox" />
-          <span>{{ t("form.workspaceOnly") }}</span>
-        </label>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>{{ t("sections.scheduler") }}</h2>
-      <div class="grid">
-        <label class="switch-row">
-          <input v-model="schedulerEnabled" type="checkbox" />
-          <span>{{ t("form.schedulerEnabled") }}</span>
-        </label>
-        <label>
-          <span>{{ t("form.schedulerMaxTasks") }}</span>
-          <Input v-model="schedulerMaxTasks" type="number" min="1" />
-        </label>
-        <label>
-          <span>{{ t("form.schedulerMaxConcurrent") }}</span>
-          <Input v-model="schedulerMaxConcurrent" type="number" min="1" />
-        </label>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>{{ t("sections.gateway") }}</h2>
-      <div class="grid">
-        <label>
-          <span>{{ t("form.gatewayPort") }}</span>
-          <Input v-model="gatewayPort" type="number" min="1" max="65535" />
-        </label>
-        <label>
-          <span>{{ t("form.gatewayHost") }}</span>
-          <Input v-model="gatewayHost" />
-        </label>
-        <label class="switch-row">
-          <input v-model="requirePairing" type="checkbox" />
-          <span>{{ t("form.requirePairing") }}</span>
-        </label>
-        <label class="switch-row">
-          <input v-model="allowPublicBind" type="checkbox" />
-          <span>{{ t("form.allowPublicBind") }}</span>
-        </label>
-      </div>
-    </section>
-
-    <section class="card">
-      <h2>{{ t("sections.webhook") }}</h2>
-      <div class="grid">
-        <label>
-          <span>{{ t("form.webhookPort") }}</span>
-          <Input v-model="webhookPort" type="number" min="1" max="65535" />
-        </label>
-        <label>
-          <span>{{ t("form.webhookSecretMode") }}</span>
-          <select v-model="webhookSecretMode" class="select-input">
-            <option value="unchanged">{{ t("form.secretUnchanged") }}</option>
-            <option value="replace">{{ t("form.secretReplace") }}</option>
-            <option value="clear">{{ t("form.secretClear") }}</option>
-          </select>
-        </label>
-        <label v-if="webhookSecretMode === 'replace'">
-          <span>{{ t("form.webhookSecretValue") }}</span>
-          <Input v-model="webhookSecretValue" type="password" />
-        </label>
-      </div>
       <p class="helper">{{ t("webhook.secretStatus", { status: webhookSecretStatusLabel }) }}</p>
-    </section>
-
-    <section class="card">
-      <div class="actions">
-        <Button :disabled="!canSave" @click="saveConfig">{{ t("form.save") }}</Button>
-      </div>
       <p v-if="statusMessage" class="ok">{{ statusMessage }}</p>
       <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </section>

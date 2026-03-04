@@ -3,6 +3,7 @@ packages:
   - "packages/*"
 
 catalog:
+  "@playwright/test": "1.57.0"
   "@astrojs/check": "0.9.6"
   "@astrojs/partytown": "2.1.4"
   "@astrojs/starlight": "0.37.6"
