@@ -8,7 +8,6 @@ use crate::security::AutonomyLevel;
 use chrono::Utc;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::collections::HashSet;
 use std::io::{self, BufRead, Write};
 
@@ -56,11 +55,12 @@ pub fn requires_explicit_mcp_approval(tool_name: &str) -> bool {
 }
 
 pub fn structured_denial_payload(tool_name: &str, reason: &str) -> serde_json::Value {
-    json!({
-        "code": "approval_required",
-        "tool": tool_name,
-        "reason": reason,
-    })
+    let denial = ApprovalDenial {
+        code: "approval_required".to_string(),
+        tool: tool_name.to_string(),
+        reason: reason.to_string(),
+    };
+    serde_json::to_value(denial).expect("ApprovalDenial should serialize to JSON")
 }
 
 pub fn structured_denial_text(tool_name: &str, reason: &str) -> String {

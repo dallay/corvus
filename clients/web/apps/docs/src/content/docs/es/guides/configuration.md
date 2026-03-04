@@ -36,9 +36,9 @@ Algunas funcionalidades pueden requerir variables de entorno, especialmente para
 especializadas (por ejemplo, llaves GPG para la firma, credenciales de repositorio para la
 publicación).
 
-## Configuracion MCP del Agent Runtime
+## Configuración MCP del Agent Runtime
 
-El `agent-runtime` soporta servidores Model Context Protocol (MCP) detras de un control de despliegue explicito.
+El `agent-runtime` soporta servidores Model Context Protocol (MCP) detrás de un control de despliegue explícito.
 
 ```toml
 [mcp]
@@ -54,12 +54,12 @@ call_timeout_ms = 30000
 output_limit_bytes = 65536
 ```
 
-- `mcp.enabled = false` es el valor seguro por defecto y desactiva descubrimiento/ejecucion MCP.
+- `mcp.enabled = false` es el valor seguro por defecto y desactiva descubrimiento/ejecución MCP.
 - Las herramientas MCP usan namespace `mcp.<server>.<tool>`.
 - Las llamadas MCP son deny-by-default en flujos supervisados y devuelven payload estructurado
-  `approval_required` hasta recibir aprobacion explicita.
-- Si un servidor MCP falla al iniciar, los servidores sanos siguen registrandose; los errores se
-  registran con diagnosticos redactados.
+  `approval_required` hasta recibir aprobación explícita.
+- Si un servidor MCP falla al iniciar, los servidores sanos siguen registrándose; los errores se
+  registran con diagnósticos redactados.
 
 ### Rollback
 

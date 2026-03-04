@@ -46,7 +46,7 @@ This change adds a secure v1 MCP runtime path that integrates into existing tool
    - Extend config schema with an `mcp.servers` collection, initially stdio-only.
    - Define server identity, command/args, environment references, startup and per-call timeouts,
      output limits, and enabled/disabled flags.
-   - Validate config strictly at load time and fail safe for malformed or unsafe definitions.
+   - Validate config strictly at load time and fail-safe for malformed or unsafe definitions.
 
 3. Tool naming and dispatch
    - Map MCP tools to canonical namespaced identifiers (for example `mcp.<server>.<tool>`).

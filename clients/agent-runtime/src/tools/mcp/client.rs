@@ -34,7 +34,7 @@ impl McpClient {
     pub async fn call_tool(
         &self,
         name: &str,
-        _arguments: serde_json::Value,
+        arguments: serde_json::Value,
     ) -> anyhow::Result<String> {
         tracing::debug!(
             server = %self.server.name,
@@ -45,15 +45,19 @@ impl McpClient {
         );
 
         match self.server.command.as_str() {
-            "__mcp_mock_sleep__" => self.call_tool_mock_sleep(name),
-            "__mcp_mock_output__" => self.call_tool_mock_output(),
-            "__mcp_mock_error__" => self.call_tool_mock_error(name),
+            "__mcp_mock_sleep__" => self.call_tool_mock_sleep(name, &arguments),
+            "__mcp_mock_output__" => self.call_tool_mock_output(&arguments),
+            "__mcp_mock_error__" => self.call_tool_mock_error(name, &arguments),
             "__mcp_mock__" => Ok("mock-ok".to_string()),
-            _ => self.call_tool_from_command(name).await,
+            _ => self.call_tool_from_command(name, arguments).await,
         }
     }
 
-    fn call_tool_mock_sleep(&self, name: &str) -> anyhow::Result<String> {
+    fn call_tool_mock_sleep(
+        &self,
+        name: &str,
+        _arguments: &serde_json::Value,
+    ) -> anyhow::Result<String> {
         let delay_ms = self
             .server
             .args
@@ -84,7 +88,7 @@ impl McpClient {
         Ok("mock-sleep-ok".to_string())
     }
 
-    fn call_tool_mock_output(&self) -> anyhow::Result<String> {
+    fn call_tool_mock_output(&self, _arguments: &serde_json::Value) -> anyhow::Result<String> {
         let output_len = self
             .server
             .args
@@ -94,7 +98,11 @@ impl McpClient {
         Ok("x".repeat(output_len))
     }
 
-    fn call_tool_mock_error(&self, name: &str) -> anyhow::Result<String> {
+    fn call_tool_mock_error(
+        &self,
+        name: &str,
+        _arguments: &serde_json::Value,
+    ) -> anyhow::Result<String> {
         let reason = format!(
             "mock MCP transport failure for '{}:{}'",
             self.server.name, name
@@ -111,7 +119,11 @@ impl McpClient {
         )
     }
 
-    async fn call_tool_from_command(&self, name: &str) -> anyhow::Result<String> {
+    async fn call_tool_from_command(
+        &self,
+        name: &str,
+        _arguments: serde_json::Value,
+    ) -> anyhow::Result<String> {
         use tokio::process::Command as TokioCommand;
 
         let mut command = TokioCommand::new(&self.server.command);
@@ -119,7 +131,8 @@ impl McpClient {
             .args(&self.server.args)
             .envs(self.server.env.clone())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .kill_on_drop(true);
 
         let child = command
             .spawn()
@@ -147,7 +160,10 @@ impl McpClient {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let redacted = redact_diagnostic(stderr.as_ref());
+            let redacted = redact_diagnostic(
+                stderr.as_ref(),
+                self.server.env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+            );
             anyhow::bail!(
                 "{}",
                 json!({
@@ -244,8 +260,13 @@ impl McpClient {
     }
 }
 
-fn redact_diagnostic(input: &str) -> String {
+fn redact_diagnostic<'a>(
+    input: &str,
+    extra_env: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> String {
     let mut sanitized = input.to_string();
+
+    // Redact from process environment variables
     for (key, value) in std::env::vars() {
         let upper = key.to_ascii_uppercase();
         let looks_sensitive = upper.contains("TOKEN")
@@ -257,6 +278,14 @@ fn redact_diagnostic(input: &str) -> String {
             sanitized = sanitized.replace(&value, "[REDACTED]");
         }
     }
+
+    // Redact from extra server env values
+    for (_, value) in extra_env {
+        if !value.is_empty() {
+            sanitized = sanitized.replace(value, "[REDACTED]");
+        }
+    }
+
     sanitized
 }
 

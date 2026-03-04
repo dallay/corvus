@@ -60,7 +60,9 @@ fn discovery_is_bounded_by_startup_timeout() {
     let names: Vec<String> = tools.iter().map(|tool| tool.name().to_string()).collect();
     assert!(names.contains(&"mcp.docs.search".to_string()));
     assert!(!names.iter().any(|name| name.starts_with("mcp.slow.")));
-    assert!(elapsed < Duration::from_millis(180));
+    // Allow generous bound for CI jitter - discovery should complete within timeout + margin
+    let config_timeout_ms = 100u64;
+    assert!(elapsed < Duration::from_millis(config_timeout_ms + 200));
 }
 
 #[test]

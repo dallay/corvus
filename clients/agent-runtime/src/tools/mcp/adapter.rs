@@ -3,6 +3,7 @@ use super::normalize;
 use crate::config::McpServerConfig;
 use crate::tools::traits::{Tool, ToolResult, ToolSpec};
 use async_trait::async_trait;
+use serde_json::Map;
 
 #[derive(Clone)]
 pub struct McpToolAdapter {
@@ -47,10 +48,28 @@ impl McpToolAdapter {
             bytes.len()
         );
         let max_body = self.output_limit_bytes.saturating_sub(marker.len());
-        let mut truncated = output;
-        truncated.truncate(max_body);
-        truncated.push_str(&marker);
-        truncated
+
+        // Find a valid UTF-8 char boundary <= max_body
+        let truncated = if max_body >= bytes.len() {
+            output.clone()
+        } else {
+            output
+                .chars()
+                .take_while(|_| true)
+                .scan(0usize, |acc, c| {
+                    let next = *acc + c.len_utf8();
+                    if next <= max_body {
+                        Some(next)
+                    } else {
+                        None
+                    }
+                })
+                .last()
+                .map(|end| output[..end].to_string())
+                .unwrap_or_else(|| output[..max_body].to_string())
+        };
+
+        format!("{}{}", truncated, marker)
     }
 }
 
@@ -77,7 +96,33 @@ impl Tool for McpToolAdapter {
             "MCP adapter execute"
         );
 
-        match self.client.call_tool(&self.original_name, args).await {
+        // Validate and sanitize input args
+        let validated_args = match &args {
+            serde_json::Value::Object(_) => args,
+            serde_json::Value::Null => serde_json::Value::Object(Map::new()),
+            _ => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("MCP tool arguments must be a JSON object".to_string()),
+                });
+            }
+        };
+
+        // Check output limit bounds to prevent abuse
+        if self.output_limit_bytes > 10 * 1024 * 1024 {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("output_limit_bytes exceeds maximum allowed (10MB)".to_string()),
+            });
+        }
+
+        match self
+            .client
+            .call_tool(&self.original_name, validated_args)
+            .await
+        {
             Ok(output) => Ok(ToolResult {
                 success: true,
                 output: self.enforce_output_limit(output),

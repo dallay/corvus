@@ -16,6 +16,7 @@ pub mod hardware_memory_map;
 pub mod hardware_memory_read;
 pub mod http_request;
 pub mod image_info;
+#[cfg(feature = "mcp-runtime")]
 pub mod mcp;
 pub mod memory_forget;
 pub mod memory_recall;
@@ -249,6 +250,7 @@ pub fn all_tools_with_runtime(
         )));
     }
 
+    #[cfg(feature = "mcp-runtime")]
     if root_config.mcp.enabled {
         match mcp::discover_tools(&root_config.mcp) {
             Ok(mcp_tools) => {

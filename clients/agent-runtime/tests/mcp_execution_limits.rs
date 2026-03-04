@@ -39,11 +39,9 @@ async fn mcp_call_timeout_returns_structured_timeout_failure() {
         .unwrap();
 
     assert!(!result.success);
-    assert!(result
-        .error
-        .as_deref()
-        .unwrap_or_default()
-        .contains("timeout"));
+    let error = result.error.unwrap_or_default();
+    let payload: serde_json::Value = serde_json::from_str(&error).unwrap();
+    assert_eq!(payload["code"], "mcp_timeout");
 }
 
 #[tokio::test]

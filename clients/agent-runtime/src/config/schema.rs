@@ -2556,6 +2556,10 @@ impl Config {
                 anyhow::bail!("{base}.command must be non-empty");
             }
 
+            if server.command.contains('\0') {
+                anyhow::bail!("{base}.command contains an invalid value");
+            }
+
             if server.startup_timeout_ms == 0 {
                 anyhow::bail!("{base}.startup_timeout_ms must be greater than zero");
             }
@@ -2568,12 +2572,12 @@ impl Config {
                 anyhow::bail!("{base}.output_limit_bytes must be greater than zero");
             }
 
-            for key in server.env.keys() {
-                if key.trim().is_empty() {
-                    anyhow::bail!("{base}.env contains an empty key");
-                }
+            for (key, value) in &server.env {
                 if key.contains('\0') {
                     anyhow::bail!("{base}.env contains an invalid key");
+                }
+                if value.contains('\0') {
+                    anyhow::bail!("{base}.env contains an invalid value");
                 }
             }
         }

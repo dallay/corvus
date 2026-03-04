@@ -33,12 +33,14 @@ fn rejects_malformed_server_definition() {
 
 #[test]
 fn rejects_non_positive_timeouts_and_limits() {
+    // Test output_limit_bytes separately since startup_timeout_ms and call_timeout_ms
+    // may fail first and prevent output_limit_bytes validation from running
     let config = Config {
         mcp: McpConfig {
             enabled: true,
             servers: vec![McpServerConfig {
-                startup_timeout_ms: 0,
-                call_timeout_ms: 0,
+                startup_timeout_ms: 1000,
+                call_timeout_ms: 1000,
                 output_limit_bytes: 0,
                 ..valid_server()
             }],
@@ -47,7 +49,7 @@ fn rejects_non_positive_timeouts_and_limits() {
     };
 
     let err = config.validate_for_runtime().unwrap_err().to_string();
-    assert!(err.contains("startup_timeout_ms") || err.contains("call_timeout_ms"));
+    assert!(err.contains("output_limit_bytes") || err.contains("output_limit"));
 }
 
 #[test]

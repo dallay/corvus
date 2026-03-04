@@ -12,7 +12,7 @@ discovery only. MCP resources/prompts, hot reload, and long-lived server orchest
 scope.
 
 Spec mapping: this approach directly satisfies all requirements in
-`openspec/changes/support-mcps-agent-runtime/specs/mcp-runtime/spec.md` by placing config
+`openspec/specs/mcp-runtime/spec.md` by placing config
 validation, registration, policy/approval gating, and execution limits at the runtime/tool layer.
 
 ## V1 Boundaries
