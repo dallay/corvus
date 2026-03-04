@@ -1,6 +1,6 @@
 {
   "name": "@corvus/marketing",
-  "version": "0.1.15",
+  "version": "0.2.0",
   "private": true,
   "description": "Corvus Marketing Site built with Astro",
   "type": "module",

@@ -86,7 +86,7 @@ jobs:
       - name: 🧪 Generate Rust coverage
         if: env.SONAR_TOKEN != ''
         working-directory: clients/agent-runtime
-        run: cargo llvm-cov --cobertura --output-path ../../coverage/agent-runtime-coverage.xml
+        run: cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov
 
       - name: 🧮 Compute Sonar project key
         if: env.SONAR_TOKEN != ''
@@ -106,7 +106,8 @@ jobs:
             -Dsonar.projectName=${{ github.event.repository.name }}
             -Dsonar.sources=.
             -Dsonar.exclusions=**/.git/**,**/.gradle/**,**/build/**,**/dist/**,**/coverage/**,**/node_modules/**,**/.next/**,**/.turbo/**,**/target/**,**/vendor/**,**/generated/**,**/clients/agent-runtime/target/**
-            -Dsonar.coverage.jacoco.xmlReportPaths=${{ github.workspace }}/coverage/agent-runtime-coverage.xml,${{ github.workspace }}/modules/agent-core-kmp/build/reports/kover/report.xml,${{ github.workspace }}/clients/composeApp/build/reports/kover/report.xml
+            -Dsonar.coverage.jacoco.xmlReportPaths=${{ github.workspace }}/modules/agent-core-kmp/build/reports/kover/report.xml,${{ github.workspace }}/clients/composeApp/build/reports/kover/report.xml
+            -Dsonar.rust.lcov.reportPaths=${{ github.workspace }}/coverage/agent-runtime-coverage.lcov
 
       - name: 🚦 SonarQube Quality Gate
         if: >-
@@ -120,4 +121,4 @@ jobs:
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
         with:
-          pollingTimeoutSec: 300
+          scanMetadataReportFile: .scannerwork/report-task.txt
