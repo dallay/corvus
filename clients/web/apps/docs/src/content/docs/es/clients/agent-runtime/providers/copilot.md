@@ -1,0 +1,15 @@
+---
+title: GitHub Copilot
+---
+
+# Proveedor GitHub Copilot
+
+Los modelos de GitHub Copilot están disponibles a través de su API oficial.
+
+## Configuración
+
+Configure su token:
+
+```bash
+export COPILOT_TOKEN=...
+```

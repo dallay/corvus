@@ -89,80 +89,59 @@ export default defineConfig({
       ],
       sidebar: [
         {
-          label: "Guides",
+          label: "Getting Started",
           translations: {
-            es: "Guías",
+            es: "Empezando",
           },
           items: [
             {
-              label: "Getting Started",
-              slug: "guides/getting-started",
+              label: "Introduction",
+              slug: "intro/introduction",
               translations: {
-                es: "Primeros Pasos",
-              },
-            },
-            {
-              label: "Project Structure",
-              slug: "guides/structure",
-              translations: {
-                es: "Estructura del Proyecto",
-              },
-            },
-            {
-              label: "Features",
-              slug: "guides/features",
-              translations: {
-                es: "Funcionalidades",
-              },
-            },
-            {
-              label: "Development",
-              slug: "guides/development",
-              translations: {
-                es: "Desarrollo",
-              },
-            },
-            {
-              label: "Configuration",
-              slug: "guides/configuration",
-              translations: {
-                es: "Configuración",
-              },
-            },
-            {
-              label: "Template Customization",
-              slug: "guides/customization",
-              translations: {
-                es: "Personalización de la Plantilla",
-              },
-            },
-            {
-              label: "Release Process",
-              slug: "guides/release",
-              translations: {
-                es: "Proceso de Release",
-              },
-            },
-            {
-              label: "CLI Reference",
-              slug: "guides/cli-reference",
-              translations: {
-                es: "Referencia de la CLI",
+                es: "Introducción",
               },
             },
           ],
         },
         {
-          label: "Architecture",
+          label: "Agent Runtime",
           translations: {
-            es: "Arquitectura",
+            es: "Agent Runtime",
           },
           items: [
             {
-              label: "Architecture Overview",
-              slug: "guides/architecture",
+              label: "Overview",
+              slug: "clients/agent-runtime",
               translations: {
                 es: "Visión General",
+              },
+            },
+            {
+              label: "Architecture",
+              slug: "clients/agent-runtime/architecture",
+              translations: {
+                es: "Arquitectura",
+              },
+            },
+            {
+              label: "Providers",
+              slug: "clients/agent-runtime/providers",
+              translations: {
+                es: "Proveedores",
+              },
+            },
+            {
+              label: "PR Workflow",
+              slug: "clients/agent-runtime/pr-workflow",
+              translations: {
+                es: "Flujo de trabajo de PR",
+              },
+            },
+            {
+              label: "CI Map",
+              slug: "clients/agent-runtime/ci-map",
+              translations: {
+                es: "Mapa de CI",
               },
             },
           ],
