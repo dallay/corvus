@@ -938,7 +938,7 @@ pub struct GatewayRateLimiter {
 }
 
 impl GatewayRateLimiter {
-    fn new(pair_per_minute: u32, webhook_per_minute: u32, max_keys: usize) -> Self {
+    pub fn new(pair_per_minute: u32, webhook_per_minute: u32, max_keys: usize) -> Self {
         let window = Duration::from_secs(RATE_LIMIT_WINDOW_SECS);
         Self {
             pair: SlidingWindowRateLimiter::new(pair_per_minute, window, max_keys),
@@ -963,7 +963,7 @@ pub struct IdempotencyStore {
 }
 
 impl IdempotencyStore {
-    fn new(ttl: Duration, max_keys: usize) -> Self {
+    pub fn new(ttl: Duration, max_keys: usize) -> Self {
         Self {
             ttl,
             max_keys: max_keys.max(1),
@@ -1457,7 +1457,7 @@ async fn handle_admin_get_config(
     let cfg = state.config.lock().clone();
     (
         StatusCode::OK,
-        Json(serde_json::json!({"config": admin_config_view(&cfg)})),
+        Json(serde_json::json!({"config": admin::admin_config_view(&cfg)})),
     )
 }
 
@@ -1474,35 +1474,7 @@ async fn handle_admin_options(
         return rejection;
     }
 
-    let body = serde_json::json!({
-        "memory_backends": ["sqlite", "lucid", "surreal-graphs", "markdown", "surreal", "none"],
-        "observability_backends": ["none", "log", "prometheus", "otel"],
-        "runtime_kinds": ["native", "docker"],
-        "autonomy_levels": ["readonly", "supervised", "full"],
-        "provider_hints": [
-            "openrouter",
-            "anthropic",
-            "openai",
-            "openai-codex",
-            "google",
-            "ollama",
-            "xai",
-            "zai",
-            "glm"
-        ],
-        "gateway": {
-            "default_port": 3000,
-            "default_host": "127.0.0.1",
-            "default_pair_rate_limit_per_minute": 10,
-            "default_webhook_rate_limit_per_minute": 60,
-            "default_idempotency_ttl_secs": 300,
-            "default_rate_limit_max_keys": 10000,
-            "default_idempotency_max_keys": 10000
-        },
-        "webhook_secret_modes": ["unchanged", "replace", "clear"]
-    });
-
-    (StatusCode::OK, Json(body))
+    (StatusCode::OK, Json(admin::admin_options_payload()))
 }
 
 async fn handle_admin_update_config_wrapper(
@@ -2577,6 +2549,63 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn pair_endpoint_allows_unpaired_runtime_to_auth_admin_endpoint() {
+        let mut cfg = temp_config();
+        cfg.gateway.require_pairing = true;
+        cfg.gateway.paired_tokens.clear();
+        cfg.save().unwrap();
+
+        let pairing = Arc::new(PairingGuard::new(true, &[]));
+        let expected_code = pairing.pairing_code().expect("pairing code available");
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(cfg)),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing,
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut pair_headers = HeaderMap::new();
+        pair_headers.insert(
+            "X-Pairing-Code",
+            HeaderValue::from_str(&expected_code).expect("valid pairing code header"),
+        );
+
+        let pair_response = handle_pair(State(state.clone()), test_connect_info(), pair_headers)
+            .await
+            .into_response();
+        assert_eq!(pair_response.status(), StatusCode::OK);
+
+        let pair_body = pair_response.into_body().collect().await.unwrap().to_bytes();
+        let pair_json: serde_json::Value = serde_json::from_slice(&pair_body).unwrap();
+        let issued_token = pair_json["token"]
+            .as_str()
+            .expect("pair endpoint returns bearer token");
+
+        let mut admin_headers = HeaderMap::new();
+        admin_headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_str(&format!("Bearer {issued_token}"))
+                .expect("valid authorization header"),
+        );
+
+        let admin_response = handle_admin_get_config(State(state), admin_headers)
+            .await
+            .into_response();
+        assert_eq!(admin_response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
     async fn webhook_preview_includes_sse_order_timeout_and_session_scope() {
         let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
         let state = AppState {
@@ -2800,11 +2829,11 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(payload["config"]["default_provider"], "openrouter");
-        assert_eq!(payload["config"]["channels"]["webhook_port"], 3030);
-        assert_eq!(payload["config"]["channels"]["webhook_has_secret"], true);
+        assert_eq!(payload["config"]["channels"]["webhook"]["port"], 3030);
+        assert_eq!(payload["config"]["channels"]["webhook"]["has_secret"], true);
         assert_eq!(payload["config"]["gateway"]["paired_tokens_count"], 2);
         assert_eq!(payload["config"]["runtime"]["kind"], "native");
-        assert!(payload.to_string().contains("webhook_has_secret"));
+        assert!(payload.to_string().contains("has_secret"));
         assert!(!payload.to_string().contains("top-secret"));
         assert!(!payload.to_string().contains("hash1"));
     }
@@ -2899,7 +2928,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn admin_config_update_zeros_do_not_trigger_restart_or_change_limits() {
+    async fn admin_config_update_zeros_are_rejected() {
         let cfg = temp_config();
         cfg.save().unwrap();
 
@@ -2957,7 +2986,7 @@ mod tests {
         .await
         .into_response();
 
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
         let after = {
             let cfg_guard = shared_cfg.lock();
@@ -3039,7 +3068,9 @@ mod tests {
             .to_string()
             .contains("gateway.require_pairing"));
         assert!(result["fields"].to_string().contains("scheduler.max_tasks"));
-        assert!(result["fields"].to_string().contains("webhook.secret"));
+        assert!(result["fields"]
+            .to_string()
+            .contains("channels.webhook.secret"));
     }
 
     #[tokio::test]

@@ -13,8 +13,10 @@
     "preview": "vite preview --port 4324",
     "format": "biome format --write src package.json components.json tsconfig*.json vite.config.ts index.html",
     "check": "biome check src package.json components.json tsconfig*.json vite.config.ts index.html",
-    "test": "vitest --run",
-    "test:coverage": "vitest --run --coverage"
+    "test": "vitest --run --environment happy-dom --exclude e2e/**",
+    "test:coverage": "vitest --run --environment happy-dom --exclude e2e/** --coverage",
+    "test:e2e": "pnpm exec playwright test",
+    "test:e2e:install": "pnpm exec playwright install chromium"
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.2.6",
@@ -23,6 +25,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@playwright/test": "catalog:",
     "@tailwindcss/postcss": "catalog:",
     "@tsconfig/node22": "catalog:",
     "@types/node": "catalog:",
