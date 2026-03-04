@@ -113,3 +113,8 @@
 
 - Optimized Gradle web tasks to be configuration-cache compliant by deferring package.json script checks to execution time using `onlyIf`.
 - Improved Codecov reliability in CI by using `directory` parameter for web coverage uploads, ensuring all `lcov.info` files are discovered without relying on runner-side glob expansion.
+
+- Pinned C4-PlantUML include to v2.13.0 for documentation stability.
+- Localized actor labels in Spanish container diagrams.
+- Corrected GPG setup documentation regarding key sizes and CI/CD subkey export commands.
+- Added language tags to PGP blocks in Spanish documentation to satisfy linting.
