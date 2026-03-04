@@ -1,0 +1,55 @@
+@startuml
+' C4 Container Diagram - Corvus Platform
+' Generated: 2026-02-16
+' Skill: c4-diagrams
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.13.0/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+' External Actors
+Person(developer, "Developer", "Configures and operates the platform")
+Person(endUser, "End User", "Final agent user")
+
+' External Systems
+System_Ext(openai, "OpenAI API", "LLM Provider")
+System_Ext(anthropic, "Anthropic API", "LLM Provider")
+System_Ext(neo4j, "Neo4j Cloud", "Graph Database")
+System_Ext(web, "Web Sources", "Information scraping")
+
+' Corvus System
+System_Boundary(corvus, "Corvus Platform") {
+    Container(webApp, "Web Dashboard", "Astro + Vue", "Operator dashboard and observability")
+    Container(androidApp, "Android App", "Kotlin + Compose", "Native mobile app")
+    Container(iosApp, "iOS App", "SwiftUI + KMP", "Native mobile app")
+
+    Container(agentRuntime, "Agent Runtime", "Kotlin + Spring Boot", "Reactive agent orchestrator")
+    Container(rustSidecar, "Rust Sidecar", "Rust", "Scraping and sandboxed execution")
+
+    ContainerDb(graphDb, "Graph DB", "Neo4j", "Persistent knowledge memory")
+
+    Container(coreKmp, "Agent Core KMP", "Kotlin Multiplatform", "Shared business logic")
+    Container(composeUi, "Compose UI", "Compose Multiplatform", "Shared cross-platform UI")
+}
+
+' Relationships
+Rel(developer, webApp, "Operates and monitors", "HTTPS")
+Rel(endUser, androidApp, "Uses", "UI")
+Rel(endUser, iosApp, "Uses", "UI")
+Rel(endUser, webApp, "Uses", "HTTPS")
+
+Rel(webApp, agentRuntime, "Sends commands", "REST/WebSocket")
+Rel(androidApp, composeUi, "Uses", "KMP")
+Rel(iosApp, composeUi, "Uses", "KMP")
+
+Rel(agentRuntime, coreKmp, "Uses", "Internal")
+Rel(composeUi, coreKmp, "Uses", "KMP")
+
+Rel(agentRuntime, graphDb, "Reads/Writes knowledge", "Bolt Protocol")
+Rel(agentRuntime, rustSidecar, "Executes sandboxed tasks", "gRPC/FFI")
+
+Rel(agentRuntime, openai, "Queries LLM", "HTTPS/REST")
+Rel(agentRuntime, anthropic, "Queries LLM", "HTTPS/REST")
+Rel(rustSidecar, web, "Performs scraping", "HTTPS")
+
+@enduml

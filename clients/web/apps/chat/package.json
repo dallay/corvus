@@ -13,13 +13,14 @@
     "preview": "vite preview --port 4323",
     "format": "biome format --write src package.json components.json tsconfig*.json vite.config.ts index.html",
     "check": "biome check src package.json components.json tsconfig*.json vite.config.ts index.html",
-    "test": "vitest --run"
+    "test": "vitest --run",
+    "test:coverage": "vitest --run --coverage"
   },
   "dependencies": {
     "@fontsource-variable/inter": "5.2.6",
+    "tailwind-merge": "catalog:",
     "vue": "catalog:",
-    "vue-i18n": "catalog:",
-    "tailwind-merge": "catalog:"
+    "vue-i18n": "catalog:"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
@@ -27,6 +28,7 @@
     "@tsconfig/node22": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
+    "@vitest/coverage-v8": "catalog:",
     "@vue/test-utils": "catalog:",
     "@vue/tsconfig": "catalog:",
     "happy-dom": "catalog:",

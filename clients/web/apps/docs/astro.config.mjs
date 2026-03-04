@@ -89,89 +89,80 @@ export default defineConfig({
       ],
       sidebar: [
         {
-          label: "Getting Started",
+          label: "Guides",
           translations: {
-            es: "Empezando",
+            es: "Guías",
           },
           items: [
             {
-              label: "Introduction",
-              slug: "intro/introduction",
+              label: "Getting Started",
+              slug: "guides/getting-started",
               translations: {
-                es: "Introducción",
+                es: "Primeros Pasos",
+              },
+            },
+            {
+              label: "Project Structure",
+              slug: "guides/structure",
+              translations: {
+                es: "Estructura del Proyecto",
+              },
+            },
+            {
+              label: "Features",
+              slug: "guides/features",
+              translations: {
+                es: "Funcionalidades",
+              },
+            },
+            {
+              label: "Development",
+              slug: "guides/development",
+              translations: {
+                es: "Desarrollo",
+              },
+            },
+            {
+              label: "Configuration",
+              slug: "guides/configuration",
+              translations: {
+                es: "Configuración",
+              },
+            },
+            {
+              label: "Template Customization",
+              slug: "guides/customization",
+              translations: {
+                es: "Personalización de la Plantilla",
+              },
+            },
+            {
+              label: "Release Process",
+              slug: "guides/release",
+              translations: {
+                es: "Proceso de Release",
+              },
+            },
+            {
+              label: "CLI Reference",
+              slug: "guides/cli-reference",
+              translations: {
+                es: "Referencia de la CLI",
               },
             },
           ],
         },
         {
-          label: "Agent Runtime",
+          label: "Architecture",
           translations: {
-            es: "Agent Runtime",
+            es: "Arquitectura",
           },
           items: [
             {
-              label: "Overview",
-              slug: "clients/agent-runtime",
+              label: "Architecture Overview",
+              slug: "guides/architecture",
               translations: {
                 es: "Visión General",
-              },
-            },
-            {
-              label: "Architecture",
-              slug: "clients/agent-runtime/architecture",
-              translations: {
-                es: "Arquitectura",
-              },
-            },
-            {
-              label: "Providers",
-              translations: {
-                es: "Proveedores",
-              },
-              items: [
-                { label: "Overview", slug: "clients/agent-runtime/providers" },
-                { label: "Anthropic", slug: "clients/agent-runtime/providers/anthropic" },
-                { label: "Astra AI", slug: "clients/agent-runtime/providers/astrai" },
-                { label: "Cloudflare", slug: "clients/agent-runtime/providers/cloudflare" },
-                { label: "Cohere", slug: "clients/agent-runtime/providers/cohere" },
-                { label: "Copilot", slug: "clients/agent-runtime/providers/copilot" },
-                { label: "DeepSeek", slug: "clients/agent-runtime/providers/deepseek" },
-                { label: "Fireworks", slug: "clients/agent-runtime/providers/fireworks" },
-                { label: "Gemini", slug: "clients/agent-runtime/providers/gemini" },
-                { label: "GLM", slug: "clients/agent-runtime/providers/glm" },
-                { label: "Groq", slug: "clients/agent-runtime/providers/groq" },
-                { label: "LM Studio", slug: "clients/agent-runtime/providers/lmstudio" },
-                { label: "Minimax", slug: "clients/agent-runtime/providers/minimax" },
-                { label: "Mistral", slug: "clients/agent-runtime/providers/mistral" },
-                { label: "Moonshot", slug: "clients/agent-runtime/providers/moonshot" },
-                { label: "NVIDIA", slug: "clients/agent-runtime/providers/nvidia" },
-                { label: "Ollama", slug: "clients/agent-runtime/providers/ollama" },
-                { label: "OpenAI", slug: "clients/agent-runtime/providers/openai" },
-                { label: "OpenCode", slug: "clients/agent-runtime/providers/opencode" },
-                { label: "OpenRouter", slug: "clients/agent-runtime/providers/openrouter" },
-                { label: "Perplexity", slug: "clients/agent-runtime/providers/perplexity" },
-                { label: "Qianfan", slug: "clients/agent-runtime/providers/qianfan" },
-                { label: "Qwen", slug: "clients/agent-runtime/providers/qwen" },
-                { label: "Synthetic", slug: "clients/agent-runtime/providers/synthetic" },
-                { label: "Together", slug: "clients/agent-runtime/providers/together" },
-                { label: "Venice", slug: "clients/agent-runtime/providers/venice" },
-                { label: "Vercel", slug: "clients/agent-runtime/providers/vercel" },
-                { label: "xAI", slug: "clients/agent-runtime/providers/xai" },
-                { label: "Zai", slug: "clients/agent-runtime/providers/zai" },
-              ],
-            },
-            {
-              label: "PR Workflow",
-              slug: "clients/agent-runtime/pr-workflow",
-              translations: {
-                es: "Flujo de trabajo de PR",
-              },
-            },
-            {
-              label: "CI Map",
-              slug: "clients/agent-runtime/ci-map",
-              translations: {
-                es: "Mapa de CI",
               },
             },
           ],

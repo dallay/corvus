@@ -6,7 +6,7 @@ hero:
   tagline: Build long-running, proactive agents with Kotlin, Spring Boot, Neo4j, Rust sidecars, and a transparent control panel.
   actions:
     - text: Get Started
-      link: intro/introduction/
+      link: guides/getting-started/
       icon: right-arrow
     - text: View on GitHub
       link: https://github.com/dallay/corvus
@@ -37,7 +37,13 @@ import {Card, CardGrid, LinkCard} from '@astrojs/starlight/components';
 ## Explore the Docs
 
 <CardGrid>
-  <LinkCard title="Agent Runtime"
-            description="High-performance Rust sidecar for secure sandbox operations."
-            href="clients/agent-runtime/"/>
+  <LinkCard title="Project Structure"
+            description="Understand module layout and where responsibilities live."
+            href="guides/structure/"/>
+  <LinkCard title="Features Checklist" description="Review enabled tooling and quality guardrails."
+            href="guides/features/"/>
+  <LinkCard title="Architecture" description="See core design decisions and runtime model."
+            href="guides/architecture/"/>
+  <LinkCard title="Development Workflow" description="Build, test, lint, and release procedures."
+            href="guides/development/"/>
 </CardGrid>
