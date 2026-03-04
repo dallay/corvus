@@ -100,7 +100,17 @@ The user has two options for version management:
    - `clients/web/apps/*/package.json`
    - `clients/web/packages/*/package.json`
 4. Update `clients/agent-runtime/Cargo.toml` `version` field
-5. Update runtime npm package versions:
+5. **Regenerate `Cargo.lock`** — the CI build uses `--locked`, so the lockfile must be
+   committed and in sync with `Cargo.toml` before pushing the tag:
+   ```bash
+   cd clients/agent-runtime
+   cargo generate-lockfile
+   cd -
+   git add clients/agent-runtime/Cargo.lock
+   ```
+   > **Why this matters**: `cargo build --locked` fails with exit code 101 if `Cargo.lock`
+   > is stale. Always regenerate and commit it as part of the version bump commit.
+6. Update runtime npm package versions:
    - `clients/agent-runtime/npm/corvus-cli/package.json`
    - `clients/agent-runtime/npm/corvus/package.json`
    - `clients/agent-runtime/npm/corvus-darwin-arm64/package.json`
@@ -109,7 +119,7 @@ The user has two options for version management:
    - `clients/agent-runtime/npm/corvus-linux-x64/package.json`
    - `clients/agent-runtime/npm/corvus-windows-arm64/package.json`
    - `clients/agent-runtime/npm/corvus-windows-x64/package.json`
-6. In `clients/agent-runtime/npm/corvus/package.json`, keep `optionalDependencies` versions aligned with the same release version
+7. In `clients/agent-runtime/npm/corvus/package.json`, keep `optionalDependencies` versions aligned with the same release version
 
 **Option B - Sync from Git tag (if tag exists first):**
 
@@ -181,6 +191,10 @@ Snapshots use version with `-SNAPSHOT` suffix (e.g., `1.2.3-SNAPSHOT`).
 - **Build failed**: Run `./gradlew check` locally first
 - **Version mismatch**: Git tag must match Gradle, web monorepo, Cargo, and all runtime npm package versions (`clients/agent-runtime/npm/*`)
 - **Missing release secret**: cargo/npm/docker secrets missing for release workflow
+- **`cargo build --locked` fails (exit 101)**: `Cargo.lock` is stale — run
+  `cargo generate-lockfile` inside `clients/agent-runtime/`, commit the result, and
+  push **before** creating the release tag. See [Step 2](#step-2-update-version) for
+  the full procedure.
 
 ### Version already exists
 
@@ -203,6 +217,7 @@ Before publishing, verify:
 
 - [ ] All tests pass locally (`./gradlew check`)
 - [ ] Version updated in all release targets (Gradle, web monorepo, Cargo, runtime npm package matrix)
+- [ ] **`Cargo.lock` regenerated and committed** (`cd clients/agent-runtime && cargo generate-lockfile`)
 - [ ] CHANGELOG.md updated (if maintained)
 - [ ] GPG key valid and not expired
 - [ ] Maven Central credentials current
@@ -218,6 +233,10 @@ make sync-version
 
 # Verify current version
 rg '^VERSION=' gradle.properties
+
+# Regenerate Cargo.lock after bumping Cargo.toml version (REQUIRED before tagging)
+cd clients/agent-runtime && cargo generate-lockfile && cd -
+git add clients/agent-runtime/Cargo.lock
 
 # Run all checks before release
 ./gradlew check
