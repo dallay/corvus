@@ -1,6 +1,6 @@
 {
   "name": "@corvus/dashboard",
-  "version": "0.1.15",
+  "version": "0.2.0",
   "private": true,
   "description": "Corvus Dashboard - secure gateway administration UI",
   "type": "module",
