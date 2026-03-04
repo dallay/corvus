@@ -79,6 +79,10 @@ jobs:
         if: env.SONAR_TOKEN != ''
         uses: taiki-e/install-action@cargo-llvm-cov
 
+      - name: 📁 Create coverage directory
+        if: env.SONAR_TOKEN != ''
+        run: mkdir -p coverage
+
       - name: 🧪 Generate Rust coverage
         if: env.SONAR_TOKEN != ''
         working-directory: clients/agent-runtime
