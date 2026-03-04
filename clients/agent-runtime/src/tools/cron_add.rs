@@ -161,7 +161,8 @@ impl Tool for CronAddTool {
                     )));
                 }
 
-                let result = cron::add_shell_job(&self.config, name, schedule, command);
+                let result =
+                    cron::add_shell_job(&self.config, name, schedule, command, delete_after_run);
                 Ok(Self::handle_job_result(result))
             }
             JobType::Agent => {
@@ -172,12 +173,18 @@ impl Tool for CronAddTool {
                     }
                 };
 
-                let session_target = Self::parse_session_target(&args)?;
+                let session_target = match Self::parse_session_target(&args) {
+                    Ok(st) => st,
+                    Err(e) => return Ok(Self::error_result(&e.to_string())),
+                };
                 let model = args
                     .get("model")
                     .and_then(serde_json::Value::as_str)
                     .map(str::to_string);
-                let delivery = Self::parse_delivery(&args)?;
+                let delivery = match Self::parse_delivery(&args) {
+                    Ok(d) => d,
+                    Err(e) => return Ok(Self::error_result(&e.to_string())),
+                };
 
                 let result = cron::add_agent_job(
                     &self.config,

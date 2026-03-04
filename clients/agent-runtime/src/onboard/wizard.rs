@@ -506,162 +506,9 @@ fn canonical_provider_name(provider_name: &str) -> &str {
     }
 }
 
-fn models_for_provider(canonical_provider: &str) -> Vec<(&'static str, &'static str)> {
-    match canonical_provider {
-        "openrouter" => vec![
-            (
-                "anthropic/claude-sonnet-4",
-                "Claude Sonnet 4 (balanced, recommended)",
-            ),
-            (
-                "anthropic/claude-3.5-sonnet",
-                "Claude 3.5 Sonnet (fast, affordable)",
-            ),
-            ("openai/gpt-4o", "GPT-4o (OpenAI flagship)"),
-            ("openai/gpt-4o-mini", "GPT-4o Mini (fast, cheap)"),
-            (
-                "google/gemini-2.0-flash-001",
-                "Gemini 2.0 Flash (Google, fast)",
-            ),
-            (
-                "meta-llama/llama-3.3-70b-instruct",
-                "Llama 3.3 70B (open source)",
-            ),
-            ("deepseek/deepseek-chat", "DeepSeek Chat (affordable)"),
-        ],
-        "anthropic" => vec![
-            (
-                "claude-sonnet-4-20250514",
-                "Claude Sonnet 4 (balanced, recommended)",
-            ),
-            ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet (fast)"),
-            (
-                "claude-3-5-haiku-20241022",
-                "Claude 3.5 Haiku (fastest, cheapest)",
-            ),
-        ],
-        "openai" => vec![
-            ("gpt-4o", "GPT-4o (flagship)"),
-            ("gpt-4o-mini", "GPT-4o Mini (fast, cheap)"),
-            ("o1-mini", "o1-mini (reasoning)"),
-        ],
-        "openai-codex" => vec![
-            ("gpt-5-codex", "GPT-5 Codex (recommended)"),
-            ("o4-mini", "o4-mini (fallback)"),
-        ],
-        "venice" => vec![
-            ("llama-3.3-70b", "Llama 3.3 70B (default, fast)"),
-            ("claude-opus-45", "Claude Opus 4.5 via Venice (strongest)"),
-            ("llama-3.1-405b", "Llama 3.1 405B (largest open source)"),
-        ],
-        "groq" => vec![
-            (
-                "llama-3.3-70b-versatile",
-                "Llama 3.3 70B (fast, recommended)",
-            ),
-            ("llama-3.1-8b-instant", "Llama 3.1 8B (instant)"),
-            ("mixtral-8x7b-32768", "Mixtral 8x7B (32K context)"),
-        ],
-        "mistral" => vec![
-            ("mistral-large-latest", "Mistral Large (flagship)"),
-            ("codestral-latest", "Codestral (code-focused)"),
-            ("mistral-small-latest", "Mistral Small (fast, cheap)"),
-        ],
-        "deepseek" => vec![
-            ("deepseek-chat", "DeepSeek Chat (V3, recommended)"),
-            ("deepseek-reasoner", "DeepSeek Reasoner (R1)"),
-        ],
-        "xai" => vec![
-            ("grok-3", "Grok 3 (flagship)"),
-            ("grok-3-mini", "Grok 3 Mini (fast)"),
-        ],
-        "perplexity" => vec![
-            ("sonar-pro", "Sonar Pro (search + reasoning)"),
-            ("sonar", "Sonar (search, fast)"),
-        ],
-        "fireworks" => vec![
-            (
-                "accounts/fireworks/models/llama-v3p3-70b-instruct",
-                "Llama 3.3 70B",
-            ),
-            (
-                "accounts/fireworks/models/mixtral-8x22b-instruct",
-                "Mixtral 8x22B",
-            ),
-        ],
-        "together-ai" => vec![
-            (
-                "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-                "Llama 3.1 70B Turbo",
-            ),
-            (
-                "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-                "Llama 3.1 8B Turbo",
-            ),
-            ("mistralai/Mixtral-8x22B-Instruct-v0.1", "Mixtral 8x22B"),
-        ],
-        "nvidia" | "nvidia-nim" | "build.nvidia.com" => vec![
-            ("deepseek-ai/DeepSeek-R1", "DeepSeek R1 (reasoning)"),
-            ("meta/llama-3.1-70b-instruct", "Llama 3.1 70B Instruct"),
-            ("mistralai/Mistral-7B-Instruct-v0.3", "Mistral 7B Instruct"),
-            ("meta/llama-3.1-405b-instruct", "Llama 3.1 405B Instruct"),
-        ],
-        "cohere" => vec![
-            ("command-r-plus", "Command R+ (flagship)"),
-            ("command-r", "Command R (fast)"),
-        ],
-        "moonshot" => vec![
-            ("moonshot-v1-128k", "Moonshot V1 128K"),
-            ("moonshot-v1-32k", "Moonshot V1 32K"),
-        ],
-        "glm" | "zai" => vec![
-            ("glm-5", "GLM-5 (latest)"),
-            ("glm-4-plus", "GLM-4 Plus (flagship)"),
-            ("glm-4-flash", "GLM-4 Flash (fast)"),
-        ],
-        "minimax" => MINIMAX_ONBOARD_MODELS.to_vec(),
-        "qwen" => vec![
-            ("qwen-plus", "Qwen Plus (balanced default)"),
-            ("qwen-max", "Qwen Max (highest quality)"),
-            ("qwen-turbo", "Qwen Turbo (fast and cost-efficient)"),
-        ],
-        "ollama" => vec![
-            ("llama3.2", "Llama 3.2 (recommended local)"),
-            ("mistral", "Mistral 7B"),
-            ("codellama", "Code Llama"),
-            ("phi3", "Phi-3 (small, fast)"),
-        ],
-        "gemini" | "google" | "google-gemini" => vec![
-            ("gemini-2.0-flash", "Gemini 2.0 Flash (fast, recommended)"),
-            (
-                "gemini-2.0-flash-lite",
-                "Gemini 2.0 Flash Lite (fastest, cheapest)",
-            ),
-            ("gemini-1.5-pro", "Gemini 1.5 Pro (best quality)"),
-            ("gemini-1.5-flash", "Gemini 1.5 Flash (balanced)"),
-        ],
-        "copilot" => vec![
-            ("gpt-4o", "GPT-4o (stable default for Copilot)"),
-            (
-                "claude-3.5-sonnet",
-                "Claude 3.5 Sonnet (strong coding quality)",
-            ),
-            ("o3-mini", "o3-mini (fast reasoning fallback)"),
-        ],
-        "astrai" => vec![
-            ("auto", "Auto — Astrai best execution routing (recommended)"),
-            ("gpt-4o", "GPT-4o (OpenAI via Astrai)"),
-            (
-                "claude-sonnet-4.5",
-                "Claude Sonnet 4.5 (Anthropic via Astrai)",
-            ),
-            ("deepseek-v3", "DeepSeek V3 (best value via Astrai)"),
-            ("llama-3.3-70b", "Llama 3.3 70B (open source via Astrai)"),
-        ],
-        _ => vec![("default", "Default model")],
-    }
+fn models_for_provider(canonical_provider: &str) -> Vec<(String, String)> {
+    curated_models_for_provider(canonical_provider)
 }
-
 /// Pick a sensible default model for the given provider.
 const MINIMAX_ONBOARD_MODELS: [(&str, &str); 5] = [
     ("MiniMax-M2.5", "MiniMax M2.5 (latest, recommended)"),
@@ -1529,10 +1376,8 @@ fn fetch_live_model_options(
                 print_bullet("Provider returned no models; using curated list.");
             }
             Err(error) => {
-                print_bullet(&format!(
-                    "Live fetch failed ({}); using cached/curated list.",
-                    style(error.to_string()).yellow()
-                ));
+                print_bullet("Live fetch failed; using cached/curated list.");
+                tracing::debug!("Live model fetch error: {error}");
 
                 if live_options.is_none() {
                     if let Some(stale) =
@@ -2124,12 +1969,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
 
     // ── Model selection ──
     let canonical_provider = canonical_provider_name(provider_name);
-    let models = models_for_provider(canonical_provider);
-
-    let mut model_options: Vec<(String, String)> = models
-        .into_iter()
-        .map(|(model_id, label)| (model_id.to_string(), label.to_string()))
-        .collect();
+    let mut model_options: Vec<(String, String)> = models_for_provider(canonical_provider);
 
     let live_options = fetch_live_model_options(workspace_dir, provider_name, &api_key)?;
 
@@ -3343,24 +3183,35 @@ fn prompt_non_empty(prompt: &str, default: Option<&str>) -> Option<String> {
 fn test_whatsapp_connection(phone_number_id: &str, access_token: &str) -> bool {
     let phone_id = phone_number_id.to_string();
     let token = access_token.to_string();
-    let thread_result = std::thread::spawn(move || {
-        let client = reqwest::blocking::Client::new();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_default();
         let url = format!("https://graph.facebook.com/v18.0/{}", phone_id.trim());
-        let resp = client
+        let result = client
             .get(&url)
             .header("Authorization", format!("Bearer {}", token.trim()))
-            .send()?;
-        Ok::<_, reqwest::Error>(resp.status().is_success())
-    })
-    .join();
-    matches!(thread_result, Ok(Ok(true)))
+            .send()
+            .map(|resp| resp.status().is_success())
+            .unwrap_or(false);
+        let _ = tx.send(result);
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(15))
+        .unwrap_or(false)
 }
 
 fn parse_allowed_numbers(input: &str) -> Vec<String> {
     if input.trim() == "*" {
         vec!["*".into()]
     } else {
-        input.split(',').map(|s| s.trim().to_string()).collect()
+        input
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
     }
 }
 

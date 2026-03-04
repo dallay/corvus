@@ -590,6 +590,7 @@ fn collect_notification_targets(config: &Config) -> Vec<NotificationTarget> {
         left.channel
             .cmp(&right.channel)
             .then(left.recipient.cmp(&right.recipient))
+            .then(left.authorized_sender.cmp(&right.authorized_sender))
     });
     targets.dedup_by(|left, right| {
         left.channel == right.channel
@@ -625,6 +626,9 @@ fn collect_from_registered_channels(
     collect_email_targets(config, push_target);
     collect_telegram_targets(config, push_target);
     collect_discord_targets(config, push_target);
+    collect_lark_targets(config, push_target);
+    collect_dingtalk_targets(config, push_target);
+    collect_qq_targets(config, push_target);
 }
 
 fn collect_slack_targets(
@@ -737,7 +741,11 @@ fn collect_telegram_targets(
 }
 
 fn is_numeric_user(user: &str) -> bool {
-    user != "*" && user.chars().all(|ch| ch.is_ascii_digit())
+    if user == "*" {
+        return false;
+    }
+    let digits = user.strip_prefix('-').unwrap_or(user);
+    !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit())
 }
 
 fn collect_discord_targets(
@@ -753,11 +761,46 @@ fn collect_discord_targets(
     }
 }
 
+fn collect_lark_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(lark) = &config.channels_config.lark {
+        for user in &lark.allowed_users {
+            if user != "*" {
+                push_target("lark", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+}
+
+fn collect_dingtalk_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(dingtalk) = &config.channels_config.dingtalk {
+        for user in &dingtalk.allowed_users {
+            if user != "*" {
+                push_target("dingtalk", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+}
+
+fn collect_qq_targets(config: &Config, push_target: &mut impl FnMut(&str, String, Option<String>)) {
+    if let Some(qq) = &config.channels_config.qq {
+        for user in &qq.allowed_users {
+            if user != "*" {
+                push_target("qq", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+}
+
 fn infer_authorized_sender(channel: &str, recipient: &str) -> Option<String> {
     match channel {
-        "telegram" | "signal" | "whatsapp" | "imessage" | "email" | "discord" => {
-            Some(recipient.to_string())
-        }
+        "telegram" | "signal" | "whatsapp" | "imessage" | "email" | "discord" | "lark"
+        | "dingtalk" | "qq" => Some(recipient.to_string()),
         _ => None,
     }
 }

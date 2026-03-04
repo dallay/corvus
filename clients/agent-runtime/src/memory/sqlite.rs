@@ -744,12 +744,20 @@ impl Memory for SqliteMemory {
                 })
             };
 
-            let query = match &category {
-                Some(_) => {
+            let query = match (&category, &session_ref) {
+                (Some(_), Some(_)) => {
+                    "SELECT id, key, content, category, created_at, session_id FROM memories
+                     WHERE category = ?1 AND session_id = ?2 ORDER BY updated_at DESC LIMIT ?3"
+                }
+                (Some(_), None) => {
                     "SELECT id, key, content, category, created_at, session_id FROM memories
                      WHERE category = ?1 ORDER BY updated_at DESC LIMIT ?2"
                 }
-                None => {
+                (None, Some(_)) => {
+                    "SELECT id, key, content, category, created_at, session_id FROM memories
+                     WHERE session_id = ?1 ORDER BY updated_at DESC LIMIT ?2"
+                }
+                (None, None) => {
                     "SELECT id, key, content, category, created_at, session_id FROM memories
                      ORDER BY updated_at DESC LIMIT ?1"
                 }
@@ -758,23 +766,25 @@ impl Memory for SqliteMemory {
             let mut stmt = conn.prepare(query)?;
             let mut results = Vec::new();
 
-            let rows = match &category {
-                Some(cat) => {
+            let rows: Vec<MemoryEntry> = match (&category, &session_ref) {
+                (Some(cat), Some(sid)) => {
+                    let cat_str = Self::category_to_str(cat);
+                    stmt.query_map(params![cat_str, sid, DEFAULT_LIST_LIMIT], row_mapper)?
+                        .collect::<rusqlite::Result<Vec<_>>>()?
+                }
+                (Some(cat), None) => {
                     let cat_str = Self::category_to_str(cat);
                     stmt.query_map(params![cat_str, DEFAULT_LIST_LIMIT], row_mapper)?
+                        .collect::<rusqlite::Result<Vec<_>>>()?
                 }
-                None => stmt.query_map(params![DEFAULT_LIST_LIMIT], row_mapper)?,
+                (None, Some(sid)) => stmt
+                    .query_map(params![sid, DEFAULT_LIST_LIMIT], row_mapper)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?,
+                (None, None) => stmt
+                    .query_map(params![DEFAULT_LIST_LIMIT], row_mapper)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?,
             };
-
-            for row in rows {
-                let entry = row?;
-                if let Some(sid) = session_ref {
-                    if entry.session_id.as_deref() != Some(sid) {
-                        continue;
-                    }
-                }
-                results.push(entry);
-            }
+            results.extend(rows);
 
             Ok(results)
         })

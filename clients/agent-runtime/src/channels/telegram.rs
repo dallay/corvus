@@ -820,13 +820,7 @@ impl TelegramChannel {
 
             let api_url = self.api_url("sendMessage");
 
-            if let Ok(resp) = send_message_with_fallback(&self.client, &api_url, body).await {
-                if index < chunks.len() - 1 {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                let _ = resp;
-                continue;
-            }
+            send_message_with_fallback(&self.client, &api_url, body).await?;
 
             if index < chunks.len() - 1 {
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1431,10 +1425,14 @@ impl TelegramChannel {
     }
 
     async fn send_typing_action(&self, chat_id: &str) {
-        let typing_body = serde_json::json!({
-            "chat_id": chat_id,
+        let (parsed_chat_id, thread_id) = Self::parse_reply_target(chat_id);
+        let mut typing_body = serde_json::json!({
+            "chat_id": parsed_chat_id,
             "action": "typing"
         });
+        if let Some(tid) = thread_id {
+            typing_body["message_thread_id"] = serde_json::Value::String(tid.to_string());
+        }
         let _ = self
             .client
             .post(self.api_url("sendChatAction"))
@@ -1725,7 +1723,7 @@ impl Channel for TelegramChannel {
                 }
                 Err(e) => {
                     tracing::warn!("Telegram poll error: {e}");
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+                    return Err(e);
                 }
             }
         }
@@ -1894,11 +1892,11 @@ mod tests {
             .with_streaming(StreamMode::Partial, 0);
         let long_text = "a".repeat(TELEGRAM_MAX_MESSAGE_LENGTH + 64);
 
-        // For oversized text + invalid draft message_id, finalize_draft should
-        // fall back to chunked send instead of returning early.
-        // send_text_chunks silences individual chunk errors and always returns Ok.
+        // For oversized text + invalid draft message_id, finalize_draft falls back to
+        // chunked send. send_text_chunks now propagates errors, so the network failure
+        // with a fake token is expected to return Err.
         let result = ch.finalize_draft("123", "not-a-number", &long_text).await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
     }
 
     #[test]

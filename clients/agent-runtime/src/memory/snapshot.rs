@@ -211,7 +211,7 @@ fn parse_snapshot(input: &str) -> Vec<(String, String)> {
 
     for line in input.lines() {
         if let Some(key) = extract_key_from_line(line) {
-            flush_current_entry(&mut entries, &mut current_key, &mut current_content);
+            flush_current_entry(&mut entries, &mut current_key, &current_content);
             current_key = Some(key);
             current_content = String::new();
         } else if current_key.is_some() {
@@ -222,7 +222,7 @@ fn parse_snapshot(input: &str) -> Vec<(String, String)> {
         }
     }
 
-    flush_current_entry(&mut entries, &mut current_key, &mut current_content);
+    flush_current_entry(&mut entries, &mut current_key, &current_content);
     entries
 }
 
@@ -259,11 +259,10 @@ fn append_content_line(current_content: &mut String, line: &str) {
     }
 }
 
-#[allow(clippy::ptr_arg)]
 fn flush_current_entry(
     entries: &mut Vec<(String, String)>,
     current_key: &mut Option<String>,
-    current_content: &mut String,
+    current_content: &str,
 ) {
     if let Some(key) = current_key.take() {
         let content = current_content.trim().to_string();

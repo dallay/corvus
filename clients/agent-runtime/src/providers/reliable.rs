@@ -280,18 +280,14 @@ impl ReliableProvider {
         info: &ErrorInfo,
     ) -> anyhow::Result<(), String> {
         if info.rate_limited {
-            if let Some(new_key) = self.rotate_key() {
-                tracing::info!(
-                    provider = provider_name,
-                    "Rate limited, rotated API key (key ending ...{})",
-                    &new_key[new_key.len().saturating_sub(4)..]
-                );
+            if let Some(_new_key) = self.rotate_key() {
+                tracing::info!(provider = provider_name, "Rate limited, rotated API key");
             }
         }
 
         if info.non_retryable {
             tracing::warn!(provider = provider_name, "Non-retryable error, moving on");
-            return Err("non_retryable".to_string());
+            return Err(format!("non_retryable: {}", info.reason));
         }
 
         Ok(())

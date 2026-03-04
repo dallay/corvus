@@ -102,6 +102,14 @@ fn handle_gpio_read(id_str: &str, pin: i32) -> String<128> {
 
 fn handle_gpio_write(id_str: &str, pin: i32, value: i32) -> (String<128>, Option<(i32, i32)>) {
     let mut resp: String<128> = String::new();
+    if value != 0 && value != 1 {
+        let _ = write!(
+            resp,
+            "{{\"id\":\"{}\",\"ok\":false,\"result\":\"\",\"error\":\"Invalid value {}; expected 0 or 1\"}}",
+            id_str, value
+        );
+        return (resp, None);
+    }
     let led_action = if pin == LED_PIN as i32 {
         let _ = write!(
             resp,
@@ -137,20 +145,20 @@ fn handle_unknown_cmd(id_str: &str) -> String<128> {
     resp
 }
 
-fn process_command(line_buf: &[u8], id_str: &str) -> String<128> {
+fn process_command(line_buf: &[u8], id_str: &str) -> (String<128>, Option<(i32, i32)>) {
     if has_cmd(line_buf, b"ping") {
-        handle_ping(id_str)
+        (handle_ping(id_str), None)
     } else if has_cmd(line_buf, b"capabilities") {
-        handle_capabilities(id_str)
+        (handle_capabilities(id_str), None)
     } else if has_cmd(line_buf, b"gpio_read") {
         let pin = parse_arg(line_buf, b"pin").unwrap_or(-1);
-        handle_gpio_read(id_str, pin)
+        (handle_gpio_read(id_str, pin), None)
     } else if has_cmd(line_buf, b"gpio_write") {
         let pin = parse_arg(line_buf, b"pin").unwrap_or(-1);
         let value = parse_arg(line_buf, b"value").unwrap_or(0);
-        handle_gpio_write(id_str, pin, value).0
+        handle_gpio_write(id_str, pin, value)
     } else {
-        handle_unknown_cmd(id_str)
+        (handle_unknown_cmd(id_str), None)
     }
 }
 
@@ -220,13 +228,7 @@ async fn main(_spawner: Spawner) {
                     let id_len = copy_id(&line_buf, &mut id_buf);
                     let id_str = str::from_utf8(&id_buf[..id_len]).unwrap_or("0");
 
-                    let (resp_buf, led_action) = if has_cmd(&line_buf, b"gpio_write") {
-                        let pin = parse_arg(&line_buf, b"pin").unwrap_or(-1);
-                        let value = parse_arg(&line_buf, b"value").unwrap_or(0);
-                        handle_gpio_write(id_str, pin, value)
-                    } else {
-                        (process_command(&line_buf, id_str), None)
-                    };
+                    let (resp_buf, led_action) = process_command(&line_buf, id_str);
 
                     if let Some((_, value)) = led_action {
                         led.set_level(if value != 0 { Level::High } else { Level::Low });

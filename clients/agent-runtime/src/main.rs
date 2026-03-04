@@ -632,7 +632,7 @@ async fn main() -> Result<()> {
 
 async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
     match command {
-        Commands::Onboard { .. } => unreachable!(),
+        Commands::Onboard { .. } => anyhow::bail!("Onboard command should not reach dispatch"),
 
         Commands::Agent {
             message,
@@ -1143,7 +1143,7 @@ async fn handle_login(
                     .await
             }
             Err(e) => {
-                println!("Device-code flow unavailable: {e}. Falling back to browser/paste flow.");
+                return Err(anyhow::anyhow!("Device-code flow failed: {e}"));
             }
         }
     }
@@ -1208,11 +1208,7 @@ async fn handle_browser_flow_login(
     {
         Ok(code) => code,
         Err(e) => {
-            println!("Callback capture failed: {e}");
-            println!(
-                "Run `corvus auth paste-redirect --provider openai-codex --profile {profile}`"
-            );
-            return Ok(());
+            return Err(anyhow::anyhow!("Callback capture failed: {}", e));
         }
     };
 
