@@ -110,3 +110,6 @@
 - Extended the Gradle build in `clients/web/build.gradle.kts` to include an aggregate task `testCoverageAllWebApps`.
 - Updated `.github/workflows/pull-request-check.yml` to execute web coverage tests and upload `lcov.info` files to Codecov.
 - Standardized `@vitest/coverage-v8` version in `clients/web/pnpm-workspace.yaml` catalog.
+
+- Optimized Gradle web tasks to be configuration-cache compliant by deferring package.json script checks to execution time using `onlyIf`.
+- Improved Codecov reliability in CI by using `directory` parameter for web coverage uploads, ensuring all `lcov.info` files are discovered without relying on runner-side glob expansion.

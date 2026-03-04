@@ -147,32 +147,35 @@ webApps.forEach { appName ->
       isIgnoreExitValue = true // Some apps may not have check script yet
     }
 
-  // Test coverage task
-  val pkgJson = file("${appDir}/package.json")
-  val hasCoverageScript = if (pkgJson.exists()) {
-    val pkg = groovy.json.JsonSlurper().parseText(pkgJson.readText()) as Map<*, *>
-    val scripts = pkg["scripts"] as? Map<*, *>
-    scripts?.containsKey("test:coverage") == true
-  } else false
 
-  if (hasCoverageScript) {
-    tasks.register<Exec>("${appName}TestCoverage") {
-      group = "web"
-      description = "Run tests with coverage for ${appName}"
-      dependsOn(appInstall)
-      workingDir = appDir
-      commandLine(pnpmShim, "run", "test:coverage")
+
+
+  // Test coverage task
+  tasks.register<Exec>("${appName}TestCoverage") {
+    group = "web"
+    description = "Run tests with coverage for ${appName}"
+    dependsOn(appInstall)
+
+    // Use local variables to avoid capturing the task or project object in onlyIf closure
+    val shim = pnpmShim
+    val dir = appDir
+
+    workingDir = dir
+
+    // Defer script check to execution time to support configuration cache
+    onlyIf {
+        val pkgJson = java.io.File(dir, "package.json")
+        if (pkgJson.exists()) {
+            val pkg = groovy.json.JsonSlurper().parseText(pkgJson.readText()) as Map<*, *>
+            val scripts = pkg["scripts"] as? Map<*, *>
+            scripts?.containsKey("test:coverage") == true
+        } else false
     }
-  } else {
-    // Fallback empty task to avoid breaking aggregate tasks
-    tasks.register("${appName}TestCoverage") {
-      group = "web"
-      description = "No coverage script found for ${appName}"
-    }
+
+    commandLine(shim, "run", "test:coverage")
   }
 
 
-  // Distribution zip
   tasks.register<Zip>("${appName}DistZip") {
     group = "web"
     description = "Zip ${appName} distribution"

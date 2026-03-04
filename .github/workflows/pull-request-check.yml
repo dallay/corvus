@@ -110,6 +110,6 @@ jobs:
           fail_ci_if_error: true
           verbose: true
           flags: web
-          files: ./clients/web/apps/*/coverage/lcov.info
+          directory: ./clients/web/apps
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

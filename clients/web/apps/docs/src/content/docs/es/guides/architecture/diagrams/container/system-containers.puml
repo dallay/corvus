@@ -1,0 +1,55 @@
+@startuml
+' C4 Container Diagram - Corvus Platform
+' Generated: 2026-02-16
+' Skill: c4-diagrams
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+' External Actors
+Person(developer, "Developer", "Configura y opera la plataforma")
+Person(endUser, "End User", "Usuario final del agente")
+
+' External Systems
+System_Ext(openai, "OpenAI API", "Proveedor de LLM")
+System_Ext(anthropic, "Anthropic API", "Proveedor de LLM")
+System_Ext(neo4j, "Neo4j Cloud", "Base de datos de grafo")
+System_Ext(web, "Fuentes Web", "Scraping de información")
+
+' Corvus System
+System_Boundary(corvus, "Corvus Platform") {
+    Container(webApp, "Web Dashboard", "Astro + Vue", "Panel de operadores y observabilidad")
+    Container(androidApp, "Android App", "Kotlin + Compose", "App móvil nativa")
+    Container(iosApp, "iOS App", "SwiftUI + KMP", "App móvil nativa")
+
+    Container(agentRuntime, "Agent Runtime", "Kotlin + Spring Boot", "Orquestador reactivo de agentes")
+    Container(rustSidecar, "Rust Sidecar", "Rust", "Scraping y ejecución sandboxed")
+
+    ContainerDb(graphDb, "Graph DB", "Neo4j", "Memoria de conocimiento persistente")
+
+    Container(coreKmp, "Agent Core KMP", "Kotlin Multiplatform", "Lógica de negocio compartida")
+    Container(composeUi, "Compose UI", "Compose Multiplatform", "UI compartida multiplataforma")
+}
+
+' Relationships
+Rel(developer, webApp, "Opera y monitorea", "HTTPS")
+Rel(endUser, androidApp, "Usa", "UI")
+Rel(endUser, iosApp, "Usa", "UI")
+Rel(endUser, webApp, "Usa", "HTTPS")
+
+Rel(webApp, agentRuntime, "Envía comandos", "REST/WebSocket")
+Rel(androidApp, composeUi, "Usa", "KMP")
+Rel(iosApp, composeUi, "Usa", "KMP")
+
+Rel(agentRuntime, coreKmp, "Usa", "Internal")
+Rel(composeUi, coreKmp, "Usa", "KMP")
+
+Rel(agentRuntime, graphDb, "Lee/Escribe conocimiento", "Bolt Protocol")
+Rel(agentRuntime, rustSidecar, "Ejecuta tareas sandboxed", "gRPC/FFI")
+
+Rel(agentRuntime, openai, "Consulta LLM", "HTTPS/REST")
+Rel(agentRuntime, anthropic, "Consulta LLM", "HTTPS/REST")
+Rel(rustSidecar, web, "Realiza scraping", "HTTPS")
+
+@enduml
