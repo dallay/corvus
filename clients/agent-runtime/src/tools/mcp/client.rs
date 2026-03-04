@@ -162,7 +162,10 @@ impl McpClient {
             let stderr = String::from_utf8_lossy(&output.stderr);
             let redacted = redact_diagnostic(
                 stderr.as_ref(),
-                self.server.env.iter().map(|(k, v)| (k.as_str(), v.as_str())),
+                self.server
+                    .env
+                    .iter()
+                    .map(|(k, v)| (k.as_str(), v.as_str())),
             );
             anyhow::bail!(
                 "{}",
