@@ -448,65 +448,80 @@ fn compare_gateway_fields(
     fields: &mut Vec<&'static str>,
 ) {
     if let Some(gw) = gateway {
-        compare_primitive(gw.port, cfg.gateway.port, "gateway.port", fields);
-        compare_trimmed_string(
-            gw.host.as_ref(),
-            Some(&cfg.gateway.host),
-            "gateway.host",
-            fields,
-        );
-        compare_primitive(
-            gw.require_pairing,
-            cfg.gateway.require_pairing,
-            "gateway.require_pairing",
-            fields,
-        );
-        compare_primitive(
-            gw.allow_public_bind,
-            cfg.gateway.allow_public_bind,
-            "gateway.allow_public_bind",
-            fields,
-        );
-        compare_primitive(
-            gw.pair_rate_limit_per_minute,
-            cfg.gateway.pair_rate_limit_per_minute,
-            "gateway.pair_rate_limit_per_minute",
-            fields,
-        );
-        compare_primitive(
-            gw.webhook_rate_limit_per_minute,
-            cfg.gateway.webhook_rate_limit_per_minute,
-            "gateway.webhook_rate_limit_per_minute",
-            fields,
-        );
-        compare_primitive(
-            gw.trust_forwarded_headers,
-            cfg.gateway.trust_forwarded_headers,
-            "gateway.trust_forwarded_headers",
-            fields,
-        );
+        compare_gateway_basic_fields(gw, cfg, fields);
+        compare_gateway_limits_fields(gw, cfg, fields);
+    }
+}
 
-        if let Some(max_keys) = gw.rate_limit_max_keys {
-            let normalized = normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
-            if normalized != cfg.gateway.rate_limit_max_keys {
-                fields.push("gateway.rate_limit_max_keys");
-            }
+fn compare_gateway_basic_fields(
+    gw: &AdminGatewayPatch,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
+    compare_primitive(gw.port, cfg.gateway.port, "gateway.port", fields);
+    compare_trimmed_string(
+        gw.host.as_ref(),
+        Some(&cfg.gateway.host),
+        "gateway.host",
+        fields,
+    );
+    compare_primitive(
+        gw.require_pairing,
+        cfg.gateway.require_pairing,
+        "gateway.require_pairing",
+        fields,
+    );
+    compare_primitive(
+        gw.allow_public_bind,
+        cfg.gateway.allow_public_bind,
+        "gateway.allow_public_bind",
+        fields,
+    );
+    compare_primitive(
+        gw.pair_rate_limit_per_minute,
+        cfg.gateway.pair_rate_limit_per_minute,
+        "gateway.pair_rate_limit_per_minute",
+        fields,
+    );
+    compare_primitive(
+        gw.webhook_rate_limit_per_minute,
+        cfg.gateway.webhook_rate_limit_per_minute,
+        "gateway.webhook_rate_limit_per_minute",
+        fields,
+    );
+    compare_primitive(
+        gw.trust_forwarded_headers,
+        cfg.gateway.trust_forwarded_headers,
+        "gateway.trust_forwarded_headers",
+        fields,
+    );
+}
+
+fn compare_gateway_limits_fields(
+    gw: &AdminGatewayPatch,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(max_keys) = gw.rate_limit_max_keys {
+        let normalized = normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
+        if normalized != cfg.gateway.rate_limit_max_keys {
+            fields.push("gateway.rate_limit_max_keys");
         }
-        if let Some(ttl) = gw.idempotency_ttl_secs {
-            let normalized_ttl = if ttl == 0 {
-                cfg.gateway.idempotency_ttl_secs
-            } else {
-                ttl
-            };
-            if normalized_ttl != cfg.gateway.idempotency_ttl_secs {
-                fields.push("gateway.idempotency_ttl_secs");
-            }
+    }
+    if let Some(ttl) = gw.idempotency_ttl_secs {
+        let normalized_ttl = if ttl == 0 {
+            cfg.gateway.idempotency_ttl_secs
+        } else {
+            ttl
+        };
+        if normalized_ttl != cfg.gateway.idempotency_ttl_secs {
+            fields.push("gateway.idempotency_ttl_secs");
         }
-        if let Some(max_keys) = gw.idempotency_max_keys {
-            let normalized = normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
-            if normalized != cfg.gateway.idempotency_max_keys {
-                fields.push("gateway.idempotency_max_keys");
-            }
+    }
+    if let Some(max_keys) = gw.idempotency_max_keys {
+        let normalized = normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
+        if normalized != cfg.gateway.idempotency_max_keys {
+            fields.push("gateway.idempotency_max_keys");
         }
     }
 }
@@ -553,32 +568,40 @@ fn compare_webhook_fields(
             }
         }
 
-        if let Some(secret) = wh.secret.as_ref() {
-            match secret {
-                AdminSecretUpdate::Unchanged => {}
-                AdminSecretUpdate::Clear => {
-                    if cfg
-                        .channels_config
-                        .webhook
-                        .as_ref()
-                        .and_then(|w| w.secret.as_ref())
-                        .map(|value| !value.trim().is_empty())
-                        .unwrap_or(false)
-                    {
-                        fields.push("webhook.secret");
-                    }
+        compare_webhook_secret_field(wh, cfg, fields);
+    }
+}
+
+fn compare_webhook_secret_field(
+    wh: &AdminWebhookPatch,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(secret) = wh.secret.as_ref() {
+        match secret {
+            AdminSecretUpdate::Unchanged => {}
+            AdminSecretUpdate::Clear => {
+                if cfg
+                    .channels_config
+                    .webhook
+                    .as_ref()
+                    .and_then(|w| w.secret.as_ref())
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
+                {
+                    fields.push("webhook.secret");
                 }
-                AdminSecretUpdate::Replace { value } => {
-                    let next = value.trim();
-                    let current = cfg
-                        .channels_config
-                        .webhook
-                        .as_ref()
-                        .and_then(|w| w.secret.as_deref())
-                        .unwrap_or("");
-                    if next != current {
-                        fields.push("webhook.secret");
-                    }
+            }
+            AdminSecretUpdate::Replace { value } => {
+                let next = value.trim();
+                let current = cfg
+                    .channels_config
+                    .webhook
+                    .as_ref()
+                    .and_then(|w| w.secret.as_deref())
+                    .unwrap_or("");
+                if next != current {
+                    fields.push("webhook.secret");
                 }
             }
         }
