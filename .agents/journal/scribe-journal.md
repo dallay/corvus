@@ -101,3 +101,12 @@
 - [ ] Consider CSS !important warnings (optional, may need Biome config)
 - [x] Update CLI docs with missing subcommands (high priority) - DONE (both en/es)
 - [x] Audit and document missing CLI flags/commands from agent-runtime - DONE
+
+## Codecov Web Configuration (2025-03-04)
+
+- Configured Vitest coverage in `clients/web/apps/chat` and `clients/web/apps/dashboard` using `v8` provider.
+- Added `test:coverage` script to `package.json` of these apps.
+- Updated `.github/codecov.yml` with flags for `rust`, `kotlin`, and `web`.
+- Extended the Gradle build in `clients/web/build.gradle.kts` to include an aggregate task `testCoverageAllWebApps`.
+- Updated `.github/workflows/pull-request-check.yml` to execute web coverage tests and upload `lcov.info` files to Codecov.
+- Standardized `@vitest/coverage-v8` version in `clients/web/pnpm-workspace.yaml` catalog.

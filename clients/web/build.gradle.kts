@@ -147,6 +147,18 @@ webApps.forEach { appName ->
       isIgnoreExitValue = true // Some apps may not have check script yet
     }
 
+  // Test coverage task
+  val appTestCoverage =
+    tasks.register<Exec>("${appName}TestCoverage") {
+      group = "web"
+      description = "Run tests with coverage for ${appName}"
+      dependsOn(appInstall)
+      workingDir = appDir
+      commandLine(pnpmShim, "run", "test:coverage")
+      isIgnoreExitValue = true // Not all apps might have tests
+    }
+
+
   // Distribution zip
   tasks.register<Zip>("${appName}DistZip") {
     group = "web"
@@ -176,6 +188,13 @@ tasks.register("buildAllWebApps") {
   description = "Build all web applications"
   dependsOn(webApps.map { "${it}Build" })
 }
+
+tasks.register("testCoverageAllWebApps") {
+  group = "web"
+  description = "Run tests with coverage for all web applications"
+  dependsOn(webApps.map { "${it}TestCoverage" })
+}
+
 
 tasks.register("cleanAllWebApps") {
   group = "web"
