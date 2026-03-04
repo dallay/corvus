@@ -8,7 +8,6 @@ usage() {
   echo "Usage: $0 <file_or_directory>" >&2
   echo "Analyzes HTML files for web quality issues." >&2
   exit 1
-  return 1
 }
 
 if [[ -z "$1" ]]; then
@@ -63,9 +62,9 @@ analyze_html() {
 
 # Process files
 if [[ -d "$TARGET" ]]; then
-  find "$TARGET" -name "*.html" -o -name "*.htm" | while read -r file; do
+  while IFS= read -r -d '' file; do
     analyze_html "$file"
-  done
+  done < <(find "$TARGET" \( -name "*.html" -o -name "*.htm" \) -print0)
 elif [[ -f "$TARGET" ]]; then
   analyze_html "$TARGET"
 else
