@@ -71,3 +71,24 @@ Incremental baseline: ~10.7s → Incremental post-optimization: ~1.4s. Verified 
 
 **Benchmark:**
 Incremental build time: ~1.8s. All checks passed.
+
+## 2025-02-18 - KMP - List & Input Optimization
+
+**Location:**
+- `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatWorkspace.kt`
+- `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatComponents.kt`
+
+**Issue:**
+1. Inefficient list recycling: `LazyColumn` in `ChatPanel` didn't specify `contentType`, leading to less efficient item reuse when role-based bubbles are recomposed.
+2. Redundant allocations: `PasswordVisualTransformation` was instantiated on every keystroke in the configuration panel.
+
+**Solution:**
+1. Added `contentType = { it.role }` to the `items` call in `ChatWorkspace.kt`.
+2. Wrapped `PasswordVisualTransformation()` in a `remember(isVisible)` block in `ChatComponents.kt`.
+
+**Impact:**
+- **Improved Scroll Performance**: Faster and more efficient list recycling in the chat panel.
+- **Reduced GC Pressure**: Prevented redundant object allocations during configuration editing.
+
+**Benchmark:**
+Incremental build time: ~1.6s. Functional correctness verified with `:composeApp:check`.
