@@ -307,53 +307,84 @@ fn collect_restart_required_autonomy(
     }
 }
 
+fn check_and_push<T: PartialEq>(
+    new_val: Option<T>,
+    old_val: T,
+    field_name: &'static str,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(val) = new_val {
+        if val != old_val {
+            fields.push(field_name);
+        }
+    }
+}
+
+fn check_and_push_with<T: PartialOrd>(
+    new_val: Option<T>,
+    old_val: T,
+    field_name: &'static str,
+    fields: &mut Vec<&'static str>,
+    normalize: impl Fn(T) -> T,
+) {
+    if let Some(val) = new_val {
+        if normalize(val) != old_val {
+            fields.push(field_name);
+        }
+    }
+}
+
 fn collect_restart_required_gateway(
     cfg: &Config,
     gateway: &AdminGatewayPatch,
     fields: &mut Vec<&'static str>,
 ) {
-    if let Some(port) = gateway.port {
-        if port != cfg.gateway.port {
-            fields.push("gateway.port");
-        }
-    }
-    if let Some(host) = gateway.host.as_ref() {
-        if host.trim() != cfg.gateway.host {
-            fields.push("gateway.host");
-        }
-    }
-    if let Some(require_pairing) = gateway.require_pairing {
-        if require_pairing != cfg.gateway.require_pairing {
-            fields.push("gateway.require_pairing");
-        }
-    }
-    if let Some(allow_public_bind) = gateway.allow_public_bind {
-        if allow_public_bind != cfg.gateway.allow_public_bind {
-            fields.push("gateway.allow_public_bind");
-        }
-    }
-    if let Some(pair_limit) = gateway.pair_rate_limit_per_minute {
-        if pair_limit != cfg.gateway.pair_rate_limit_per_minute {
-            fields.push("gateway.pair_rate_limit_per_minute");
-        }
-    }
-    if let Some(limit) = gateway.webhook_rate_limit_per_minute {
-        if limit != cfg.gateway.webhook_rate_limit_per_minute {
-            fields.push("gateway.webhook_rate_limit_per_minute");
-        }
-    }
-    if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
-        if trust_forwarded_headers != cfg.gateway.trust_forwarded_headers {
-            fields.push("gateway.trust_forwarded_headers");
-        }
-    }
-    if let Some(max_keys) = gateway.rate_limit_max_keys {
-        let normalized =
-            gateway::utils::normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
-        if normalized != cfg.gateway.rate_limit_max_keys {
-            fields.push("gateway.rate_limit_max_keys");
-        }
-    }
+    check_and_push(gateway.port, cfg.gateway.port, "gateway.port", fields);
+    check_and_push(
+        gateway.host.as_ref().map(|h| h.trim().to_string()),
+        cfg.gateway.host.clone(),
+        "gateway.host",
+        fields,
+    );
+    check_and_push(
+        gateway.require_pairing,
+        cfg.gateway.require_pairing,
+        "gateway.require_pairing",
+        fields,
+    );
+    check_and_push(
+        gateway.allow_public_bind,
+        cfg.gateway.allow_public_bind,
+        "gateway.allow_public_bind",
+        fields,
+    );
+    check_and_push(
+        gateway.pair_rate_limit_per_minute,
+        cfg.gateway.pair_rate_limit_per_minute,
+        "gateway.pair_rate_limit_per_minute",
+        fields,
+    );
+    check_and_push(
+        gateway.webhook_rate_limit_per_minute,
+        cfg.gateway.webhook_rate_limit_per_minute,
+        "gateway.webhook_rate_limit_per_minute",
+        fields,
+    );
+    check_and_push(
+        gateway.trust_forwarded_headers,
+        cfg.gateway.trust_forwarded_headers,
+        "gateway.trust_forwarded_headers",
+        fields,
+    );
+
+    check_and_push_with(
+        gateway.rate_limit_max_keys,
+        cfg.gateway.rate_limit_max_keys,
+        "gateway.rate_limit_max_keys",
+        fields,
+        |v| gateway::utils::normalize_max_keys(v, cfg.gateway.rate_limit_max_keys),
+    );
+
     if let Some(ttl) = gateway.idempotency_ttl_secs {
         let normalized_ttl = if ttl == 0 {
             cfg.gateway.idempotency_ttl_secs
@@ -364,13 +395,14 @@ fn collect_restart_required_gateway(
             fields.push("gateway.idempotency_ttl_secs");
         }
     }
-    if let Some(max_keys) = gateway.idempotency_max_keys {
-        let normalized =
-            gateway::utils::normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
-        if normalized != cfg.gateway.idempotency_max_keys {
-            fields.push("gateway.idempotency_max_keys");
-        }
-    }
+
+    check_and_push_with(
+        gateway.idempotency_max_keys,
+        cfg.gateway.idempotency_max_keys,
+        "gateway.idempotency_max_keys",
+        fields,
+        |v| gateway::utils::normalize_max_keys(v, cfg.gateway.idempotency_max_keys),
+    );
 }
 
 fn collect_restart_required_scheduler(

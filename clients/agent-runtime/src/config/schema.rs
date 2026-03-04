@@ -2459,6 +2459,9 @@ impl Config {
     pub fn apply_env_overrides(&mut self) {
         env_override_api_key_with_fallback("CORVUS_API_KEY", "API_KEY", &mut self.api_key);
 
+        env_override_string("CORVUS_PROVIDER", "PROVIDER", &mut self.default_provider);
+        env_override_string("CORVUS_MODEL", "MODEL", &mut self.default_model);
+
         if self.default_provider.as_deref().is_some_and(is_glm_alias) {
             if let Ok(key) = std::env::var("GLM_API_KEY") {
                 if !key.is_empty() {
@@ -2474,9 +2477,6 @@ impl Config {
                 }
             }
         }
-
-        env_override_string("CORVUS_PROVIDER", "PROVIDER", &mut self.default_provider);
-        env_override_string("CORVUS_MODEL", "MODEL", &mut self.default_model);
 
         if let Ok(backend) =
             std::env::var("CORVUS_MEMORY_BACKEND").or_else(|_| std::env::var("MEMORY_BACKEND"))

@@ -506,6 +506,9 @@ fn canonical_provider_name(provider_name: &str) -> &str {
     }
 }
 
+fn models_for_provider(canonical_provider: &str) -> Vec<(String, String)> {
+    curated_models_for_provider(canonical_provider)
+}
 /// Pick a sensible default model for the given provider.
 const MINIMAX_ONBOARD_MODELS: [(&str, &str); 5] = [
     ("MiniMax-M2.5", "MiniMax M2.5 (latest, recommended)"),
@@ -1299,6 +1302,109 @@ fn build_model_options(model_ids: Vec<String>, source: &str) -> Vec<(String, Str
         .collect()
 }
 
+fn fetch_live_model_options(
+    workspace_dir: &Path,
+    provider_name: &str,
+    api_key: &str,
+) -> Result<Option<Vec<(String, String)>>> {
+    if !supports_live_model_fetch(provider_name) {
+        return Ok(None);
+    }
+
+    let can_fetch_without_key = matches!(provider_name, "openrouter" | "ollama");
+    let has_api_key = resolve_live_model_api_key(provider_name, api_key).is_some();
+
+    if !can_fetch_without_key && !has_api_key {
+        print_bullet("No API key detected, so using curated model list.");
+        print_bullet("Tip: add an API key and rerun onboarding to fetch live models.");
+        return Ok(None);
+    }
+
+    let mut live_options: Option<Vec<(String, String)>> = None;
+
+    if let Some(cached) =
+        load_cached_models_for_provider(workspace_dir, provider_name, MODEL_CACHE_TTL_SECS)?
+    {
+        let shown_count = cached.models.len().min(LIVE_MODEL_MAX_OPTIONS);
+        print_bullet(&format!(
+            "Found cached models ({shown_count}) updated {} ago.",
+            humanize_age(cached.age_secs)
+        ));
+
+        live_options = Some(build_model_options(
+            cached
+                .models
+                .into_iter()
+                .take(LIVE_MODEL_MAX_OPTIONS)
+                .collect(),
+            "cached",
+        ));
+    }
+
+    let should_fetch_now = Confirm::new()
+        .with_prompt(if live_options.is_some() {
+            "  Refresh models from provider now?"
+        } else {
+            "  Fetch latest models from provider now?"
+        })
+        .default(live_options.is_none())
+        .interact()?;
+
+    if should_fetch_now {
+        match fetch_live_models_for_provider(provider_name, api_key) {
+            Ok(live_model_ids) if !live_model_ids.is_empty() => {
+                cache_live_models_for_provider(workspace_dir, provider_name, &live_model_ids)?;
+
+                let fetched_count = live_model_ids.len();
+                let shown_count = fetched_count.min(LIVE_MODEL_MAX_OPTIONS);
+                let shown_models: Vec<String> = live_model_ids
+                    .into_iter()
+                    .take(LIVE_MODEL_MAX_OPTIONS)
+                    .collect();
+
+                if shown_count < fetched_count {
+                    print_bullet(&format!(
+                        "Fetched {fetched_count} models. Showing first {shown_count}."
+                    ));
+                } else {
+                    print_bullet(&format!("Fetched {shown_count} live models."));
+                }
+
+                live_options = Some(build_model_options(shown_models, "live"));
+            }
+            Ok(_) => {
+                print_bullet("Provider returned no models; using curated list.");
+            }
+            Err(error) => {
+                print_bullet("Live fetch failed; using cached/curated list.");
+                tracing::debug!("Live model fetch error: {error}");
+
+                if live_options.is_none() {
+                    if let Some(stale) =
+                        load_any_cached_models_for_provider(workspace_dir, provider_name)?
+                    {
+                        print_bullet(&format!(
+                            "Loaded stale cache from {} ago.",
+                            humanize_age(stale.age_secs)
+                        ));
+
+                        live_options = Some(build_model_options(
+                            stale
+                                .models
+                                .into_iter()
+                                .take(LIVE_MODEL_MAX_OPTIONS)
+                                .collect(),
+                            "stale-cache",
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(live_options)
+}
+
 fn print_model_preview(models: &[String]) {
     for model in models.iter().take(MODEL_PREVIEW_LIMIT) {
         println!("  {} {model}", style("-"));
@@ -1863,261 +1969,9 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
 
     // ── Model selection ──
     let canonical_provider = canonical_provider_name(provider_name);
-    let models: Vec<(&str, &str)> = match canonical_provider {
-        "openrouter" => vec![
-            (
-                "anthropic/claude-sonnet-4",
-                "Claude Sonnet 4 (balanced, recommended)",
-            ),
-            (
-                "anthropic/claude-3.5-sonnet",
-                "Claude 3.5 Sonnet (fast, affordable)",
-            ),
-            ("openai/gpt-4o", "GPT-4o (OpenAI flagship)"),
-            ("openai/gpt-4o-mini", "GPT-4o Mini (fast, cheap)"),
-            (
-                "google/gemini-2.0-flash-001",
-                "Gemini 2.0 Flash (Google, fast)",
-            ),
-            (
-                "meta-llama/llama-3.3-70b-instruct",
-                "Llama 3.3 70B (open source)",
-            ),
-            ("deepseek/deepseek-chat", "DeepSeek Chat (affordable)"),
-        ],
-        "anthropic" => vec![
-            (
-                "claude-sonnet-4-20250514",
-                "Claude Sonnet 4 (balanced, recommended)",
-            ),
-            ("claude-3-5-sonnet-20241022", "Claude 3.5 Sonnet (fast)"),
-            (
-                "claude-3-5-haiku-20241022",
-                "Claude 3.5 Haiku (fastest, cheapest)",
-            ),
-        ],
-        "openai" => vec![
-            ("gpt-4o", "GPT-4o (flagship)"),
-            ("gpt-4o-mini", "GPT-4o Mini (fast, cheap)"),
-            ("o1-mini", "o1-mini (reasoning)"),
-        ],
-        "openai-codex" => vec![
-            ("gpt-5-codex", "GPT-5 Codex (recommended)"),
-            ("o4-mini", "o4-mini (fallback)"),
-        ],
-        "venice" => vec![
-            ("llama-3.3-70b", "Llama 3.3 70B (default, fast)"),
-            ("claude-opus-45", "Claude Opus 4.5 via Venice (strongest)"),
-            ("llama-3.1-405b", "Llama 3.1 405B (largest open source)"),
-        ],
-        "groq" => vec![
-            (
-                "llama-3.3-70b-versatile",
-                "Llama 3.3 70B (fast, recommended)",
-            ),
-            ("llama-3.1-8b-instant", "Llama 3.1 8B (instant)"),
-            ("mixtral-8x7b-32768", "Mixtral 8x7B (32K context)"),
-        ],
-        "mistral" => vec![
-            ("mistral-large-latest", "Mistral Large (flagship)"),
-            ("codestral-latest", "Codestral (code-focused)"),
-            ("mistral-small-latest", "Mistral Small (fast, cheap)"),
-        ],
-        "deepseek" => vec![
-            ("deepseek-chat", "DeepSeek Chat (V3, recommended)"),
-            ("deepseek-reasoner", "DeepSeek Reasoner (R1)"),
-        ],
-        "xai" => vec![
-            ("grok-3", "Grok 3 (flagship)"),
-            ("grok-3-mini", "Grok 3 Mini (fast)"),
-        ],
-        "perplexity" => vec![
-            ("sonar-pro", "Sonar Pro (search + reasoning)"),
-            ("sonar", "Sonar (search, fast)"),
-        ],
-        "fireworks" => vec![
-            (
-                "accounts/fireworks/models/llama-v3p3-70b-instruct",
-                "Llama 3.3 70B",
-            ),
-            (
-                "accounts/fireworks/models/mixtral-8x22b-instruct",
-                "Mixtral 8x22B",
-            ),
-        ],
-        "together-ai" => vec![
-            (
-                "meta-llama/Meta-Llama-3.1-70B-Instruct-Turbo",
-                "Llama 3.1 70B Turbo",
-            ),
-            (
-                "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-                "Llama 3.1 8B Turbo",
-            ),
-            ("mistralai/Mixtral-8x22B-Instruct-v0.1", "Mixtral 8x22B"),
-        ],
-        "nvidia" | "nvidia-nim" | "build.nvidia.com" => vec![
-            ("deepseek-ai/DeepSeek-R1", "DeepSeek R1 (reasoning)"),
-            ("meta/llama-3.1-70b-instruct", "Llama 3.1 70B Instruct"),
-            ("mistralai/Mistral-7B-Instruct-v0.3", "Mistral 7B Instruct"),
-            ("meta/llama-3.1-405b-instruct", "Llama 3.1 405B Instruct"),
-        ],
-        "cohere" => vec![
-            ("command-r-plus", "Command R+ (flagship)"),
-            ("command-r", "Command R (fast)"),
-        ],
-        "moonshot" => vec![
-            ("moonshot-v1-128k", "Moonshot V1 128K"),
-            ("moonshot-v1-32k", "Moonshot V1 32K"),
-        ],
-        "glm" | "zai" => vec![
-            ("glm-5", "GLM-5 (latest)"),
-            ("glm-4-plus", "GLM-4 Plus (flagship)"),
-            ("glm-4-flash", "GLM-4 Flash (fast)"),
-        ],
-        "minimax" => MINIMAX_ONBOARD_MODELS.to_vec(),
-        "qwen" => vec![
-            ("qwen-plus", "Qwen Plus (balanced default)"),
-            ("qwen-max", "Qwen Max (highest quality)"),
-            ("qwen-turbo", "Qwen Turbo (fast and cost-efficient)"),
-        ],
-        "ollama" => vec![
-            ("llama3.2", "Llama 3.2 (recommended local)"),
-            ("mistral", "Mistral 7B"),
-            ("codellama", "Code Llama"),
-            ("phi3", "Phi-3 (small, fast)"),
-        ],
-        "gemini" | "google" | "google-gemini" => vec![
-            ("gemini-2.0-flash", "Gemini 2.0 Flash (fast, recommended)"),
-            (
-                "gemini-2.0-flash-lite",
-                "Gemini 2.0 Flash Lite (fastest, cheapest)",
-            ),
-            ("gemini-1.5-pro", "Gemini 1.5 Pro (best quality)"),
-            ("gemini-1.5-flash", "Gemini 1.5 Flash (balanced)"),
-        ],
-        "copilot" => vec![
-            ("gpt-4o", "GPT-4o (stable default for Copilot)"),
-            (
-                "claude-3.5-sonnet",
-                "Claude 3.5 Sonnet (strong coding quality)",
-            ),
-            ("o3-mini", "o3-mini (fast reasoning fallback)"),
-        ],
-        "astrai" => vec![
-            ("auto", "Auto — Astrai best execution routing (recommended)"),
-            ("gpt-4o", "GPT-4o (OpenAI via Astrai)"),
-            (
-                "claude-sonnet-4.5",
-                "Claude Sonnet 4.5 (Anthropic via Astrai)",
-            ),
-            ("deepseek-v3", "DeepSeek V3 (best value via Astrai)"),
-            ("llama-3.3-70b", "Llama 3.3 70B (open source via Astrai)"),
-        ],
-        _ => vec![("default", "Default model")],
-    };
+    let mut model_options: Vec<(String, String)> = models_for_provider(canonical_provider);
 
-    let mut model_options: Vec<(String, String)> = models
-        .into_iter()
-        .map(|(model_id, label)| (model_id.to_string(), label.to_string()))
-        .collect();
-    let mut live_options: Option<Vec<(String, String)>> = None;
-
-    if supports_live_model_fetch(provider_name) {
-        let can_fetch_without_key = matches!(provider_name, "openrouter" | "ollama");
-        let has_api_key = resolve_live_model_api_key(provider_name, &api_key).is_some();
-
-        if can_fetch_without_key || has_api_key {
-            if let Some(cached) =
-                load_cached_models_for_provider(workspace_dir, provider_name, MODEL_CACHE_TTL_SECS)?
-            {
-                let shown_count = cached.models.len().min(LIVE_MODEL_MAX_OPTIONS);
-                print_bullet(&format!(
-                    "Found cached models ({shown_count}) updated {} ago.",
-                    humanize_age(cached.age_secs)
-                ));
-
-                live_options = Some(build_model_options(
-                    cached
-                        .models
-                        .into_iter()
-                        .take(LIVE_MODEL_MAX_OPTIONS)
-                        .collect(),
-                    "cached",
-                ));
-            }
-
-            let should_fetch_now = Confirm::new()
-                .with_prompt(if live_options.is_some() {
-                    "  Refresh models from provider now?"
-                } else {
-                    "  Fetch latest models from provider now?"
-                })
-                .default(live_options.is_none())
-                .interact()?;
-
-            if should_fetch_now {
-                match fetch_live_models_for_provider(provider_name, &api_key) {
-                    Ok(live_model_ids) if !live_model_ids.is_empty() => {
-                        cache_live_models_for_provider(
-                            workspace_dir,
-                            provider_name,
-                            &live_model_ids,
-                        )?;
-
-                        let fetched_count = live_model_ids.len();
-                        let shown_count = fetched_count.min(LIVE_MODEL_MAX_OPTIONS);
-                        let shown_models: Vec<String> = live_model_ids
-                            .into_iter()
-                            .take(LIVE_MODEL_MAX_OPTIONS)
-                            .collect();
-
-                        if shown_count < fetched_count {
-                            print_bullet(&format!(
-                                "Fetched {fetched_count} models. Showing first {shown_count}."
-                            ));
-                        } else {
-                            print_bullet(&format!("Fetched {shown_count} live models."));
-                        }
-
-                        live_options = Some(build_model_options(shown_models, "live"));
-                    }
-                    Ok(_) => {
-                        print_bullet("Provider returned no models; using curated list.");
-                    }
-                    Err(error) => {
-                        print_bullet(&format!(
-                            "Live fetch failed ({}); using cached/curated list.",
-                            style(error.to_string()).yellow()
-                        ));
-
-                        if live_options.is_none() {
-                            if let Some(stale) =
-                                load_any_cached_models_for_provider(workspace_dir, provider_name)?
-                            {
-                                print_bullet(&format!(
-                                    "Loaded stale cache from {} ago.",
-                                    humanize_age(stale.age_secs)
-                                ));
-
-                                live_options = Some(build_model_options(
-                                    stale
-                                        .models
-                                        .into_iter()
-                                        .take(LIVE_MODEL_MAX_OPTIONS)
-                                        .collect(),
-                                    "stale-cache",
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            print_bullet("No API key detected, so using curated model list.");
-            print_bullet("Tip: add an API key and rerun onboarding to fetch live models.");
-        }
-    }
+    let live_options = fetch_live_model_options(workspace_dir, provider_name, &api_key)?;
 
     if let Some(live_model_options) = live_options {
         let source_options = vec![
@@ -3315,6 +3169,52 @@ fn setup_matrix_channel(config: &mut ChannelsConfig) -> bool {
     true
 }
 
+fn prompt_non_empty(prompt: &str, default: Option<&str>) -> Option<String> {
+    let mut input: dialoguer::Input<String> = Input::new().with_prompt(prompt);
+    if let Some(def) = default {
+        input = input.default(def.into());
+    }
+    match input.interact_text() {
+        Ok(s) if !s.trim().is_empty() => Some(s),
+        _ => None,
+    }
+}
+
+fn test_whatsapp_connection(phone_number_id: &str, access_token: &str) -> bool {
+    let phone_id = phone_number_id.to_string();
+    let token = access_token.to_string();
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .connect_timeout(std::time::Duration::from_secs(5))
+            .build()
+            .unwrap_or_default();
+        let url = format!("https://graph.facebook.com/v18.0/{}", phone_id.trim());
+        let result = client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", token.trim()))
+            .send()
+            .map(|resp| resp.status().is_success())
+            .unwrap_or(false);
+        let _ = tx.send(result);
+    });
+    rx.recv_timeout(std::time::Duration::from_secs(15))
+        .unwrap_or(false)
+}
+
+fn parse_allowed_numbers(input: &str) -> Vec<String> {
+    if input.trim() == "*" {
+        vec!["*".into()]
+    } else {
+        input
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    }
+}
+
 fn setup_whatsapp_channel(config: &mut ChannelsConfig) -> bool {
     println!();
     println!(
@@ -3328,91 +3228,52 @@ fn setup_whatsapp_channel(config: &mut ChannelsConfig) -> bool {
     print_bullet("4. Configure webhook URL to: https://your-domain/whatsapp");
     println!();
 
-    let access_token: String = match Input::new()
-        .with_prompt("  Access token (from Meta Developers)")
-        .interact_text()
-    {
-        Ok(t) => t,
-        Err(_) => return false,
-    };
-
-    if access_token.trim().is_empty() {
-        println!("  {} Skipped", style("→").dim());
-        return false;
-    }
-
-    let phone_number_id: String = match Input::new()
-        .with_prompt("  Phone number ID (from WhatsApp app settings)")
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-
-    if phone_number_id.trim().is_empty() {
-        println!("  {} Skipped — phone number ID required", style("→").dim());
-        return false;
-    }
-
-    let verify_token: String = match Input::new()
-        .with_prompt("  Webhook verify token (create your own)")
-        .default("corvus-whatsapp-verify".into())
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-
-    print!("  {} Testing connection... ", style("⏳").dim());
-    let phone_number_id_clone = phone_number_id.clone();
-    let access_token_clone = access_token.clone();
-    let thread_result = std::thread::spawn(move || {
-        let client = reqwest::blocking::Client::new();
-        let url = format!(
-            "https://graph.facebook.com/v18.0/{}",
-            phone_number_id_clone.trim()
-        );
-        let resp = client
-            .get(&url)
-            .header(
-                "Authorization",
-                format!("Bearer {}", access_token_clone.trim()),
-            )
-            .send()?;
-        Ok::<_, reqwest::Error>(resp.status().is_success())
-    })
-    .join();
-
-    match thread_result {
-        Ok(Ok(true)) => {
-            println!(
-                "\r  {} Connected to WhatsApp API        ",
-                style("✅").green().bold()
-            );
-        }
-        _ => {
-            println!(
-                "\r  {} Connection failed — check access token and phone number ID",
-                style("❌").red().bold()
-            );
+    let access_token = match prompt_non_empty("  Access token (from Meta Developers)", None) {
+        Some(t) => t,
+        None => {
+            println!("  {} Skipped", style("→").dim());
             return false;
         }
+    };
+
+    let phone_number_id =
+        match prompt_non_empty("  Phone number ID (from WhatsApp app settings)", None) {
+            Some(s) => s,
+            None => {
+                println!("  {} Skipped — phone number ID required", style("→").dim());
+                return false;
+            }
+        };
+
+    let verify_token = prompt_non_empty(
+        "  Webhook verify token (create your own)",
+        Some("corvus-whatsapp-verify"),
+    )
+    .unwrap_or_else(|| "corvus-whatsapp-verify".into());
+
+    print!("  {} Testing connection... ", style("⏳").dim());
+    let connected = test_whatsapp_connection(&phone_number_id, &access_token);
+
+    if connected {
+        println!(
+            "\r  {} Connected to WhatsApp API        ",
+            style("✅").green().bold()
+        );
+    } else {
+        println!(
+            "\r  {} Connection failed — check access token and phone number ID",
+            style("❌").red().bold()
+        );
+        return false;
     }
 
-    let users_str: String = match Input::new()
-        .with_prompt("  Allowed phone numbers (comma-separated +1234567890, or * for all)")
-        .default("*".into())
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
+    let users_str = prompt_non_empty(
+        "  Allowed phone numbers (comma-separated +1234567890, or * for all)",
+        Some("*"),
+    )
+    .unwrap_or_else(|| "*".into());
 
-    let allowed_numbers = if users_str.trim() == "*" {
-        vec!["*".into()]
-    } else {
-        users_str.split(',').map(|s| s.trim().to_string()).collect()
-    };
+    let allowed_numbers = parse_allowed_numbers(&users_str);
 
     config.whatsapp = Some(WhatsAppConfig {
         access_token: access_token.trim().to_string(),
