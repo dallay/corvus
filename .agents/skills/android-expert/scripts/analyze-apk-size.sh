@@ -21,7 +21,7 @@ DEFAULT_APK="amethyst/build/outputs/apk/release/amethyst-release.apk"
 APK_PATH="${1:-$DEFAULT_APK}"
 
 # Check if APK exists
-if [ ! -f "$APK_PATH" ]; then
+if [[ ! -f "$APK_PATH" ]]; then
     echo -e "${RED}Error: APK not found at $APK_PATH${NC}"
     echo "Build the APK first: ./gradlew :amethyst:assembleRelease"
     exit 1
@@ -58,7 +58,7 @@ echo -e "${BLUE}  DEX Files (Code)${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
 DEX_TOTAL=0
 for dex in "$TEMP_DIR"/*.dex; do
-    if [ -f "$dex" ]; then
+    if [[ -f "$dex" ]]; then
         DEX_NAME=$(basename "$dex")
         DEX_SIZE=$(stat -f%z "$dex" 2>/dev/null || stat -c%s "$dex" 2>/dev/null)
         DEX_SIZE_MB=$(echo "scale=2; $DEX_SIZE / 1024 / 1024" | bc)
@@ -74,7 +74,7 @@ echo
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  Resources${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
-if [ -d "$TEMP_DIR/res" ]; then
+if [[ -d "$TEMP_DIR/res" ]]; then
     RES_SIZE=$(du -sh "$TEMP_DIR/res" | cut -f1)
     echo -e "  res/: ${GREEN}$RES_SIZE${NC}"
 
@@ -85,7 +85,7 @@ fi
 
 # Analyze assets
 echo
-if [ -d "$TEMP_DIR/assets" ]; then
+if [[ -d "$TEMP_DIR/assets" ]]; then
     ASSETS_SIZE=$(du -sh "$TEMP_DIR/assets" | cut -f1)
     echo -e "  assets/: ${GREEN}$ASSETS_SIZE${NC}"
 
@@ -99,13 +99,13 @@ echo
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  Native Libraries${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
-if [ -d "$TEMP_DIR/lib" ]; then
+if [[ -d "$TEMP_DIR/lib" ]]; then
     LIB_SIZE=$(du -sh "$TEMP_DIR/lib" | cut -f1)
     echo -e "  lib/: ${GREEN}$LIB_SIZE${NC}"
 
     # By architecture
     for arch in "$TEMP_DIR/lib"/*; do
-        if [ -d "$arch" ]; then
+        if [[ -d "$arch" ]]; then
             ARCH_NAME=$(basename "$arch")
             ARCH_SIZE=$(du -sh "$arch" | cut -f1)
             echo -e "    $ARCH_NAME: ${GREEN}$ARCH_SIZE${NC}"
@@ -123,7 +123,7 @@ echo
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
 echo -e "${BLUE}  Kotlin Metadata${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
-if [ -d "$TEMP_DIR/kotlin" ]; then
+if [[ -d "$TEMP_DIR/kotlin" ]]; then
     KOTLIN_SIZE=$(du -sh "$TEMP_DIR/kotlin" | cut -f1)
     echo -e "  kotlin/: ${GREEN}$KOTLIN_SIZE${NC}"
 fi
@@ -137,10 +137,10 @@ echo -e "${BLUE}═════════════════════�
 # Try to find dexdump
 DEXDUMP=$(which dexdump 2>/dev/null || find "$ANDROID_HOME/build-tools" -name dexdump 2>/dev/null | head -1 || echo "")
 
-if [ -n "$DEXDUMP" ] && [ -x "$DEXDUMP" ]; then
+if [[ -n "$DEXDUMP" && -x "$DEXDUMP" ]]; then
     TOTAL_METHODS=0
     for dex in "$TEMP_DIR"/*.dex; do
-        if [ -f "$dex" ]; then
+        if [[ -f "$dex" ]]; then
             DEX_NAME=$(basename "$dex")
             METHOD_COUNT=$("$DEXDUMP" -l xml "$dex" | grep -c "<method " || echo "0")
             echo -e "  $DEX_NAME: ${GREEN}$METHOD_COUNT methods${NC}"
@@ -150,7 +150,7 @@ if [ -n "$DEXDUMP" ] && [ -x "$DEXDUMP" ]; then
     echo -e "${YELLOW}Total methods: $TOTAL_METHODS${NC}"
 
     # Check multidex threshold
-    if [ $TOTAL_METHODS -gt 65536 ]; then
+    if [[ $TOTAL_METHODS -gt 65536 ]]; then
         echo -e "${RED}  ⚠ Exceeded 64K method limit (multidex required)${NC}"
     else
         REMAINING=$((65536 - TOTAL_METHODS))
@@ -192,7 +192,7 @@ echo -e "${BLUE}  Optimization Recommendations${NC}"
 echo -e "${BLUE}═══════════════════════════════════════════════════════${NC}"
 
 # Check if resources are large
-if [ $(echo "$RES_PCT > 30" | bc 2>/dev/null || echo "0") -eq 1 ]; then
+if [[ $(echo "$RES_PCT > 30" | bc 2>/dev/null || echo "0") -eq 1 ]]; then
     echo -e "${YELLOW}  • Resources are ${RES_PCT}% of APK - consider:${NC}"
     echo "    - Enable resource shrinking (shrinkResources = true)"
     echo "    - Use WebP for images instead of PNG/JPG"
@@ -200,14 +200,14 @@ if [ $(echo "$RES_PCT > 30" | bc 2>/dev/null || echo "0") -eq 1 ]; then
 fi
 
 # Check if native libs are large
-if [ $(echo "$LIB_PCT > 40" | bc 2>/dev/null || echo "0") -eq 1 ]; then
+if [[ $(echo "$LIB_PCT > 40" | bc 2>/dev/null || echo "0") -eq 1 ]]; then
     echo -e "${YELLOW}  • Native libraries are ${LIB_PCT}% of APK - consider:${NC}"
     echo "    - Use App Bundle to serve ABI-specific APKs"
     echo "    - Remove unused ABIs"
 fi
 
 # Check if code is large
-if [ $(echo "$CODE_PCT > 40" | bc 2>/dev/null || echo "0") -eq 1 ]; then
+if [[ $(echo "$CODE_PCT > 40" | bc 2>/dev/null || echo "0") -eq 1 ]]; then
     echo -e "${YELLOW}  • Code is ${CODE_PCT}% of APK - consider:${NC}"
     echo "    - Enable Proguard/R8 (minifyEnabled = true)"
     echo "    - Review dependencies for bloat"
