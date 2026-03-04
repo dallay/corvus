@@ -10,7 +10,7 @@ usage() {
   exit 1
 }
 
-if [ -z "$1" ]; then
+if [[ -z "$1" ]]; then
   usage
 fi
 
@@ -56,14 +56,16 @@ analyze_html() {
   if grep -qE 'http://' "$file"; then
     WARNINGS+=("$file: Contains non-HTTPS URLs")
   fi
+
+  return 0
 }
 
 # Process files
-if [ -d "$TARGET" ]; then
-  find "$TARGET" -name "*.html" -o -name "*.htm" | while read -r file; do
+if [[ -d "$TARGET" ]]; then
+  while IFS= read -r -d '' file; do
     analyze_html "$file"
-  done
-elif [ -f "$TARGET" ]; then
+  done < <(find "$TARGET" \( -name "*.html" -o -name "*.htm" \) -print0)
+elif [[ -f "$TARGET" ]]; then
   analyze_html "$TARGET"
 else
   echo "Error: $TARGET is not a valid file or directory" >&2
@@ -74,14 +76,14 @@ fi
 echo '{'
 echo '  "issues": ['
 for i in "${!ISSUES[@]}"; do
-  if [ $i -gt 0 ]; then echo ','; fi
+  if [[ $i -gt 0 ]]; then echo ','; fi
   echo -n "    \"${ISSUES[$i]}\""
 done
 echo ''
 echo '  ],'
 echo '  "warnings": ['
 for i in "${!WARNINGS[@]}"; do
-  if [ $i -gt 0 ]; then echo ','; fi
+  if [[ $i -gt 0 ]]; then echo ','; fi
   echo -n "    \"${WARNINGS[$i]}\""
 done
 echo ''

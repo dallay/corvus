@@ -4,8 +4,8 @@ use crate::agent::dispatcher::{
 };
 use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
 use crate::agent::mission::{
-    MissionCoordinator, MissionOutcome, MissionPlan, MissionResumeMetadata, MissionState,
-    MissionTerminationReason,
+    MissionCheckpoint, MissionCoordinator, MissionOutcome, MissionPlan, MissionResumeMetadata,
+    MissionState, MissionTerminationReason,
 };
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
 use crate::config::Config;
@@ -829,6 +829,7 @@ impl Agent {
                 .checkpoints
                 .get(checkpoint_position)
                 .map(|checkpoint| checkpoint.index);
+
             if let Err(reason) = coordinator.enforce_pre_checkpoint() {
                 return self.terminated_mission_outcome(
                     coordinator,
@@ -841,113 +842,23 @@ impl Agent {
             }
 
             let checkpoint = plan.checkpoints[checkpoint_position].clone();
-            let checkpoint_start = Instant::now();
-            self.observer
-                .record_event(&ObserverEvent::MissionCheckpointProgress {
-                    mission_id: mission_id.to_string(),
-                    checkpoint_index: checkpoint.index,
-                    status: "started".to_string(),
-                    duration: std::time::Duration::ZERO,
-                });
-            match self.execute_mission_checkpoint(&checkpoint).await {
-                Ok(_) => {
-                    let checkpoint_elapsed_ms =
-                        u64::try_from(checkpoint_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                    if let Err(reason) =
-                        coordinator.record_checkpoint_accounting(checkpoint_elapsed_ms, 0)
-                    {
-                        return self.terminated_mission_outcome(
-                            coordinator,
-                            mission_id,
-                            reason,
-                            mission_start,
-                            Some(checkpoint.index),
-                            false,
-                        );
-                    }
+            let (next_plan, outcome, increment) = self
+                .process_mission_checkpoint(
+                    coordinator,
+                    mission_id,
+                    mission_start,
+                    plan,
+                    &checkpoint,
+                )
+                .await?;
 
-                    coordinator
-                        .record_checkpoint_success(checkpoint.index)
-                        .map_err(Self::mission_error)?;
-                    self.observer
-                        .record_event(&ObserverEvent::MissionCheckpointProgress {
-                            mission_id: mission_id.to_string(),
-                            checkpoint_index: checkpoint.index,
-                            status: "completed".to_string(),
-                            duration: checkpoint_start.elapsed(),
-                        });
-                    checkpoint_position = checkpoint_position.saturating_add(1);
-                }
-                Err(error) => {
-                    let checkpoint_elapsed_ms =
-                        u64::try_from(checkpoint_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-                    if let Err(reason) =
-                        coordinator.record_checkpoint_accounting(checkpoint_elapsed_ms, 0)
-                    {
-                        return self.terminated_mission_outcome(
-                            coordinator,
-                            mission_id,
-                            reason,
-                            mission_start,
-                            Some(checkpoint.index),
-                            false,
-                        );
-                    }
+            plan = next_plan;
+            if let Some(outcome) = outcome {
+                return Ok(outcome);
+            }
 
-                    let reason_text = error.to_string();
-                    self.observer.record_event(&ObserverEvent::Error {
-                        component: "mission".to_string(),
-                        message: Self::sanitize_observer_error(
-                            &reason_text,
-                            &[("X-Mission-Context".to_string(), "checkpoint".to_string())],
-                            &reason_text,
-                        ),
-                    });
-                    let recoverable = coordinator.should_replan(&reason_text);
-                    self.observer
-                        .record_event(&ObserverEvent::MissionCheckpointProgress {
-                            mission_id: mission_id.to_string(),
-                            checkpoint_index: checkpoint.index,
-                            status: "failed".to_string(),
-                            duration: checkpoint_start.elapsed(),
-                        });
-                    coordinator
-                        .record_checkpoint_failure(
-                            checkpoint.index,
-                            reason_text.clone(),
-                            recoverable,
-                        )
-                        .map_err(Self::mission_error)?;
-
-                    if recoverable {
-                        coordinator
-                            .transition(MissionState::Replanning)
-                            .map_err(Self::mission_error)?;
-                        self.observer
-                            .record_event(&ObserverEvent::MissionCheckpointProgress {
-                                mission_id: mission_id.to_string(),
-                                checkpoint_index: checkpoint.index,
-                                status: "replanning".to_string(),
-                                duration: std::time::Duration::ZERO,
-                            });
-                        plan = self.replan_after_failure(&plan, checkpoint.index, &reason_text);
-                        coordinator
-                            .transition(MissionState::Planned)
-                            .map_err(Self::mission_error)?;
-                        coordinator
-                            .transition(MissionState::Active)
-                            .map_err(Self::mission_error)?;
-                        continue;
-                    }
-                    return self.terminated_mission_outcome(
-                        coordinator,
-                        mission_id,
-                        Self::mission_termination_reason_from_error(&reason_text),
-                        mission_start,
-                        Some(checkpoint.index),
-                        false,
-                    );
-                }
+            if increment {
+                checkpoint_position = checkpoint_position.saturating_add(1);
             }
         }
 
@@ -972,6 +883,135 @@ impl Agent {
             checkpoints_completed,
             resume_metadata,
         })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn process_mission_checkpoint(
+        &mut self,
+        coordinator: &MissionCoordinator,
+        mission_id: &str,
+        mission_start: Instant,
+        mut plan: MissionPlan,
+        checkpoint: &MissionCheckpoint,
+    ) -> Result<(MissionPlan, Option<MissionOutcome>, bool)> {
+        let checkpoint_start = Instant::now();
+        self.observer
+            .record_event(&ObserverEvent::MissionCheckpointProgress {
+                mission_id: mission_id.to_string(),
+                checkpoint_index: checkpoint.index,
+                status: "started".to_string(),
+                duration: std::time::Duration::ZERO,
+            });
+
+        match self.execute_mission_checkpoint(checkpoint).await {
+            Ok(_) => {
+                let checkpoint_elapsed_ms =
+                    u64::try_from(checkpoint_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                if let Err(reason) =
+                    coordinator.record_checkpoint_accounting(checkpoint_elapsed_ms, 0)
+                {
+                    return Ok((
+                        plan,
+                        Some(self.terminated_mission_outcome(
+                            coordinator,
+                            mission_id,
+                            reason,
+                            mission_start,
+                            Some(checkpoint.index),
+                            false,
+                        )?),
+                        false,
+                    ));
+                }
+
+                coordinator
+                    .record_checkpoint_success(checkpoint.index)
+                    .map_err(Self::mission_error)?;
+                self.observer
+                    .record_event(&ObserverEvent::MissionCheckpointProgress {
+                        mission_id: mission_id.to_string(),
+                        checkpoint_index: checkpoint.index,
+                        status: "completed".to_string(),
+                        duration: checkpoint_start.elapsed(),
+                    });
+                Ok((plan, None, true))
+            }
+            Err(error) => {
+                let checkpoint_elapsed_ms =
+                    u64::try_from(checkpoint_start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                if let Err(reason) =
+                    coordinator.record_checkpoint_accounting(checkpoint_elapsed_ms, 0)
+                {
+                    return Ok((
+                        plan,
+                        Some(self.terminated_mission_outcome(
+                            coordinator,
+                            mission_id,
+                            reason,
+                            mission_start,
+                            Some(checkpoint.index),
+                            false,
+                        )?),
+                        false,
+                    ));
+                }
+
+                let reason_text = error.to_string();
+                self.observer.record_event(&ObserverEvent::Error {
+                    component: "mission".to_string(),
+                    message: Self::sanitize_observer_error(
+                        &reason_text,
+                        &[("X-Mission-Context".to_string(), "checkpoint".to_string())],
+                        &reason_text,
+                    ),
+                });
+                let recoverable = coordinator.should_replan(&reason_text);
+                self.observer
+                    .record_event(&ObserverEvent::MissionCheckpointProgress {
+                        mission_id: mission_id.to_string(),
+                        checkpoint_index: checkpoint.index,
+                        status: "failed".to_string(),
+                        duration: checkpoint_start.elapsed(),
+                    });
+                coordinator
+                    .record_checkpoint_failure(checkpoint.index, reason_text.clone(), recoverable)
+                    .map_err(Self::mission_error)?;
+
+                if recoverable {
+                    coordinator
+                        .transition(MissionState::Replanning)
+                        .map_err(Self::mission_error)?;
+                    self.observer
+                        .record_event(&ObserverEvent::MissionCheckpointProgress {
+                            mission_id: mission_id.to_string(),
+                            checkpoint_index: checkpoint.index,
+                            status: "replanning".to_string(),
+                            duration: std::time::Duration::ZERO,
+                        });
+                    plan = self.replan_after_failure(&plan, checkpoint.index, &reason_text);
+                    coordinator
+                        .transition(MissionState::Planned)
+                        .map_err(Self::mission_error)?;
+                    coordinator
+                        .transition(MissionState::Active)
+                        .map_err(Self::mission_error)?;
+                    return Ok((plan, None, false));
+                }
+
+                Ok((
+                    plan,
+                    Some(self.terminated_mission_outcome(
+                        coordinator,
+                        mission_id,
+                        Self::mission_termination_reason_from_error(&reason_text),
+                        mission_start,
+                        Some(checkpoint.index),
+                        false,
+                    )?),
+                    false,
+                ))
+            }
+        }
     }
 
     pub async fn run_mission(
