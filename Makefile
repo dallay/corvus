@@ -1,5 +1,5 @@
 # ====================================================================================
-# STARTER-GRADLE MAKEFILE
+# CORVUS MONOREPO - MAKEFILE
 #
 # Standardized commands for all developers and operating systems.
 # Run `make help` to see all available commands.
@@ -17,7 +17,7 @@ ifeq ($(OS),Windows_NT)
     # Find bash.exe and convert to short path (8.3) to avoid space issues
     SHELL_PATH := $(shell for /f "delims=" %i in ('where bash.exe 2^>NUL') do @(for %j in ("%i") do @echo %~sj & exit /b 0))
     ifeq ($(SHELL_PATH),)
-        $(error ❌ A bash-compatible shell (Git Bash, WSL) is required on Windows. See README.md)
+        $(error ❌ A bash-compatible shell (Git Bash, WSL) is required on Windows.)
     endif
     SHELL := $(SHELL_PATH)
 else
@@ -31,319 +31,339 @@ DEV_NULL := /dev/null
 MKDIR_P := mkdir -p
 
 # Module Names
-APP_MODULE := composeApp
-DOCS_MODULE := web
+APP_MODULE   := :composeApp
+RUST_MODULE  := :agent-runtime
+WEB_MODULE   := :web
+ANDROID_APP  := :androidApp
+CORE_MODULE  := :agent-core-kmp
+
+# ------------------------------------------------------------------------------------
+# VISUALS & COLORS
+# ------------------------------------------------------------------------------------
+BOLD := $(shell tput bold 2>/dev/null || echo "")
+SGR0 := $(shell tput sgr0 2>/dev/null || echo "")
+CYAN := $(shell tput setaf 6 2>/dev/null || echo "")
+GREEN := $(shell tput setaf 2 2>/dev/null || echo "")
+YELLOW := $(shell tput setaf 3 2>/dev/null || echo "")
+RED   := $(shell tput setaf 1 2>/dev/null || echo "")
 
 # ------------------------------------------------------------------------------------
 # CORE & HELP
 # ------------------------------------------------------------------------------------
 
 help: ## Show this help message
-	@echo "╔═══════════════════════════════════════════════════════════════════════╗"
-	@echo "║              STARTER-GRADLE - AVAILABLE COMMANDS                      ║"
-	@echo "╚═══════════════════════════════════════════════════════════════════════╝"
+	@if [ "$(DETECTED_OS)" = "Windows" ]; then \
+		echo "-----------------------------------------------------------------------"; \
+		echo "                 CORVUS - MONOREPO COMMAND CENTER                      "; \
+		echo "-----------------------------------------------------------------------"; \
+	else \
+		echo "$(BOLD)╔═══════════════════════════════════════════════════════════════════════╗$(SGR0)"; \
+		echo "$(BOLD)║                 CORVUS - MONOREPO COMMAND CENTER                      ║$(SGR0)"; \
+		echo "$(BOLD)╚═══════════════════════════════════════════════════════════════════════╝$(SGR0)"; \
+	fi
 	@echo ""
-	@echo "Usage: make [target]"
+	@echo "$(BOLD)Usage:$(SGR0) make $(CYAN)[target]$(SGR0)"
 	@echo ""
-	@echo "$(shell tput bold)Quick Start:$(shell tput sgr0)"
-	@echo "  make run           - Run the main application"
-	@echo "  make build         - Build the entire project"
-	@echo "  make test          - Run all tests"
-	@echo "  make check         - Run all checks (format, lint, tests)"
+	@echo "$(BOLD)Quick Start:$(SGR0)"
+	@echo "  $(CYAN)make run$(SGR0)           - Run the main Desktop application"
+	@echo "  $(CYAN)make setup$(SGR0)         - Initial project setup and tool validation"
+	@echo "  $(CYAN)make build$(SGR0)         - Build the entire project"
+	@echo "  $(CYAN)make test$(SGR0)          - Run all project tests"
 	@echo ""
-	@echo "$(shell tput bold)Targets:$(shell tput sgr0)"
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@echo "$(BOLD)Available Commands:$(SGR0)"
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$|^# --- .* ---$$' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*?## "}; \
+			/^# --- / { \
+				section = $$0; \
+				gsub(/^# --- /, "", section); \
+				gsub(/ ---$$/, "", section); \
+				printf "\n\033[1m%s\033[0m\n", section; \
+				next; \
+			} \
+			/^[a-zA-Z0-9_-]+:/ { \
+				printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2; \
+			}'
 
-# ------------------------------------------------------------------------------------
-# ENVIRONMENT & SETUP
-# ------------------------------------------------------------------------------------
+h: help ## Alias for help
 
-check-tools: ## Verify required tools are installed
+# --- ENVIRONMENT & SETUP ---
+
+check-tools: ## Verify toolchain (Java 21, Node 22, pnpm 10, Rust 1.75)
 	@echo "🔍 Checking required tools and versions..."
-	@bash -ec '\
+	@bash -ec ' \
 		require_cmd() { \
-			command -v "$$1" >/dev/null 2>&1 || { echo "❌ Error: '\''$$1'\'' is not installed."; exit 1; }; \
+			command -v "$$1" >/dev/null 2>&1 || { echo "$(RED)❌ Error: '\''$$1'\'' is not installed.$(SGR0)"; return 1; }; \
 		}; \
-		require_cmd java; \
-		require_cmd git; \
-		require_cmd node; \
-		require_cmd pnpm; \
-		require_cmd rustc; \
-		require_cmd cargo; \
-		java_major=$$(java -version 2>&1 | sed -nE '\''s/.*version "([0-9]+).*/\1/p'\'' | head -n1); \
-		node_major=$$(node -p "process.versions.node.split('\''.'\'')[0]"); \
-		pnpm_major=$$(pnpm --version | awk -F. '\''{print $$1}'\''); \
-		rust_ver=$$(rustc --version | awk '\''{print $$2}'\''); \
-		rust_major=$${rust_ver%%.*}; \
-		rust_minor_part=$${rust_ver#*.}; \
+		require_cmd java && require_cmd git && require_cmd node && require_cmd pnpm && require_cmd rustc && require_cmd cargo || exit 1; \
+		java_ver=$$(java -version 2>&1 | sed -nE '\''s/.*version \"([0-9]+).*/\1/p'\'' | head -n1); \
+		if [ -z "$$java_ver" ]; then java_ver=$$(java -version 2>&1 | head -n 1 | awk -F '\''"'\'' '\''{print $$2}'\'' | cut -d. -f1); fi; \
+		node_ver=$$(node -p "process.versions.node.split(\".\")[0]"); \
+		pnpm_ver=$$(pnpm --version | awk -F. '\''{print $$1}'\''); \
+		rust_full_ver=$$(rustc --version | awk '\''{print $$2}'\''); \
+		rust_major=$${rust_full_ver%%.*}; \
+		rust_minor_part=$${rust_full_ver#*.}; \
 		rust_minor=$${rust_minor_part%%.*}; \
-		if [ -z "$$java_major" ] || [ "$$java_major" -lt 21 ]; then \
-			echo "❌ Error: JDK 21+ required. Current java major: $${java_major:-unknown}"; \
-			exit 1; \
+		if [ -z "$$java_ver" ] || [ "$$java_ver" -lt 21 ]; then \
+			echo "$(RED)❌ Error: JDK 21+ required. Found: $${java_ver:-unknown}$(SGR0)"; exit 1; \
 		fi; \
-		if [ "$$node_major" -lt 22 ]; then \
-			echo "❌ Error: Node.js 22+ required. Current Node major: $$node_major"; \
-			exit 1; \
+		if [ "$$node_ver" -lt 22 ]; then \
+			echo "$(RED)❌ Error: Node.js 22+ required. Found: $$node_ver$(SGR0)"; exit 1; \
 		fi; \
-		if [ "$$pnpm_major" -lt 10 ]; then \
-			echo "❌ Error: pnpm 10+ required. Current pnpm major: $$pnpm_major"; \
-			exit 1; \
+		if [ "$$pnpm_ver" -lt 10 ]; then \
+			echo "$(RED)❌ Error: pnpm 10+ required. Found: $$pnpm_ver$(SGR0)"; exit 1; \
 		fi; \
 		if [ "$$rust_major" -lt 1 ] || { [ "$$rust_major" -eq 1 ] && [ "$$rust_minor" -lt 75 ]; }; then \
-			echo "❌ Error: Rust 1.75+ required. Current rustc: $$rust_ver"; \
-			exit 1; \
+			echo "$(RED)❌ Error: Rust 1.75+ required. Found: $$rust_full_ver$(SGR0)"; exit 1; \
 		fi; \
 		if ! command -v docker >/dev/null 2>&1; then \
-			echo "⚠️  Docker is not installed (optional; required for sandbox/dev containers)."; \
+			echo "$(YELLOW)⚠️  Docker is not installed (optional; required for sandbox/dev containers).$(SGR0)"; \
 		fi; \
 		if [ "$$(uname -s 2>/dev/null || echo unknown)" = "Darwin" ]; then \
 			if ! command -v xcodebuild >/dev/null 2>&1; then \
-				echo "⚠️  Xcode CLI tools not found (optional; required for iOS development)."; \
+				echo "$(YELLOW)⚠️  Xcode CLI tools not found (optional; required for iOS development).$(SGR0)"; \
 			fi; \
 		fi; \
-		echo "✅ Toolchain OK: java=$$java_major, node=$$node_major, pnpm=$$pnpm_major, rustc=$$rust_ver"; \
+		echo "$(GREEN)✅ Toolchain OK: java=$$java_ver, node=$$node_ver, pnpm=$$pnpm_ver, rustc=$$rust_full_ver$(SGR0)"; \
 	'
 
-setup: check-tools ## Initial project setup (chmod +x gradlew)
-	@echo "🔧 Setting up project..."
+setup: check-tools ## Initial project setup (agents, web deps, rust check)
+	@echo "🔧 $(BOLD)Setting up project...$(SGR0)"
 	@chmod +x gradlew
-	@git update-index --chmod=+x gradlew || \
-		echo "⚠️  Could not update git index permissions for gradlew (continuing)."
-	@echo "📦 Initializing Gradle wrapper..."
-	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) --version >/dev/null
-	@echo "🤖 Synchronizing AI agents..."
-	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) agentsyncApply
-	@echo "📦 Installing web workspace dependencies..."
-	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) :web:workspaceInstall
-	@echo "🦀 Validating Rust workspace (agent runtime)..."
-	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) :agent-runtime:cargoCheck
-	@echo "✅ Project setup complete: tools validated, agents synced, web deps installed, Rust checked"
+	@$(GRADLEW) agentsyncApply
+	@$(GRADLEW) $(WEB_MODULE):workspaceInstall
+	@$(GRADLEW) $(RUST_MODULE):cargoCheck -PenableRustTasks=true
+	@echo "$(GREEN)✅ Project setup complete!$(SGR0)"
 
-sync-agents: check-tools ## Synchronize AI agent configurations (agentsync)
-	@echo "🤖 Synchronizing AI agents..."
-	@GRADLE_USER_HOME=$${GRADLE_USER_HOME:-$(CURDIR)/.gradle} $(GRADLEW) agentsyncApply
+sync-agents: ## Sync AI agent configurations (agentsync)
+	@$(GRADLEW) agentsyncApply
 
 wrapper: ## Update Gradle wrapper
 	@$(GRADLEW) wrapper --gradle-version $(shell grep -E '^gradle\s*=' gradle/libs.versions.toml | sed 's/.*= "\(.*\)".*/\1/')
 
-# ------------------------------------------------------------------------------------
-# BUILD
-# ------------------------------------------------------------------------------------
+# --- BUILD & CLEAN ---
 
 build: check-tools ## Build the entire project
-	@echo "🏗️  Building project..."
+	@echo "🏗️  $(BOLD)Building project...$(SGR0)"
 	@$(GRADLEW) build
 
-build-fast: check-tools ## Build without running tests (faster)
-	@echo "🏗️  Building project (skip tests)..."
+build-fast: ## Build skipping tests
+	@echo "🏗️  $(BOLD)Building project (skip tests)...$(SGR0)"
 	@$(GRADLEW) build -x test
 
 clean: ## Clean build artifacts
-	@echo "🧹 Cleaning build artifacts..."
+	@echo "🧹 $(BOLD)Cleaning build artifacts...$(SGR0)"
 	@$(GRADLEW) clean
 
-clean-all: clean ## Clean everything including Gradle caches
-	@echo "🧹 Cleaning Gradle caches..."
+clean-all: clean ## Deep clean including caches
+	@echo "🧹 $(BOLD)Wiping caches...$(SGR0)"
 	@rm -rf .gradle
-	@echo "✅ All artifacts cleaned"
+	@echo "$(GREEN)✅ Clean complete$(SGR0)"
 
-# ------------------------------------------------------------------------------------
-# DEVELOPMENT
-# ------------------------------------------------------------------------------------
+# --- DESKTOP APPLICATION ---
 
-run: check-tools ## Run the main application (compose desktop module)
-	@echo "🚀 Running application..."
+run: check-tools ## Run the desktop application
+	@echo "🚀 $(BOLD)Running application...$(SGR0)"
 	@$(GRADLEW) $(APP_MODULE):run
 
-dev: run ## Alias for 'make run'
+dev: run ## Alias for run
 
-# ------------------------------------------------------------------------------------
-# DEV ENVIRONMENT (Docker)
-# ------------------------------------------------------------------------------------
+# --- ANDROID ---
 
-dev-up: ## Start dev environment (Agent + Sandbox containers)
-	@echo "🚀 Starting Dev Environment..."
-	@./dev/cli.sh up
+android-build: ## Build Android application (debug)
+	@$(GRADLEW) $(ANDROID_APP):assembleDebug
 
-dev-down: ## Stop dev containers
-	@echo "🛑 Stopping dev containers..."
-	@docker compose -f dev/docker-compose.yml down
+android-lint: ## Run Android lint
+	@$(GRADLEW) $(ANDROID_APP):lint
 
-dev-shell: ## Enter Sandbox (Ubuntu) - simulate user environment
-	@echo "💻 Entering Sandbox..."
-	@./dev/cli.sh shell
+# --- RUST AGENT RUNTIME ---
 
-dev-agent: ## Enter Agent container (Corvus CLI) - debug the binary
-	@echo "🤖 Entering Agent container..."
-	@./dev/cli.sh agent
+rust-check: ## Run cargo check for agent runtime
+	@$(GRADLEW) $(RUST_MODULE):cargoCheck -PenableRustTasks=true
 
-dev-logs: ## View dev container logs (follow mode)
-	@echo "📜 Following logs..."
-	@docker compose -f dev/docker-compose.yml logs -f
+rust-test: ## Run cargo tests for agent runtime
+	@$(GRADLEW) $(RUST_MODULE):cargoTest -PenableRustTasks=true
 
-dev-build: ## Rebuild dev images and restart
-	@echo "🔨 Rebuilding dev images..."
-	@./dev/cli.sh build
+rust-clippy: ## Run clippy for agent runtime
+	@$(GRADLEW) $(RUST_MODULE):cargoClippy -PenableRustTasks=true
 
-dev-clean: ## Stop containers and wipe workspace data
-	@echo "⚠️  Cleaning dev environment..."
-	@./dev/cli.sh clean
+rust-fmt: ## Check Rust formatting
+	@$(GRADLEW) $(RUST_MODULE):cargoFmtCheck -PenableRustTasks=true
 
-dev-status: ## Show dev container status
-	@docker compose -f dev/docker-compose.yml ps
+rust-build: ## Build agent runtime binary
+	@$(GRADLEW) $(RUST_MODULE):cargoBuild -PenableRustTasks=true
 
-# ------------------------------------------------------------------------------------
-# TESTING
-# ------------------------------------------------------------------------------------
+# --- WEB APPLICATIONS ---
 
-test: check-tools ## Run all tests
-	@echo "🧪 Running all tests..."
-	@$(GRADLEW) test
+web-install: ## Install web workspace dependencies
+	@$(GRADLEW) $(WEB_MODULE):workspaceInstall
 
-test-app: check-tools ## Run tests for app module only
-	@echo "🧪 Running app tests..."
-	@$(GRADLEW) $(APP_MODULE):jvmTest
+# Docs site
+docs-dev: ## Run Docs dev server
+	@$(GRADLEW) $(WEB_MODULE):docsDev
+docs-build: ## Build Docs site
+	@$(GRADLEW) $(WEB_MODULE):docsBuild
+docs-check: ## Lint/Format check Docs (Biome)
+	@$(GRADLEW) $(WEB_MODULE):docsCheck
+docs-format: ## Format Docs (Biome)
+	@$(GRADLEW) $(WEB_MODULE):docsFormat
 
-test-coverage: check-tools ## Run tests with coverage report (Kover)
-	@echo "🧪 Running tests with coverage..."
-	@$(GRADLEW) koverHtmlReport
-	@echo "📊 Coverage report: $(APP_MODULE)/build/reports/kover/html/index.html"
+# Chat app
+chat-dev: ## Run Chat app dev server
+	@$(GRADLEW) $(WEB_MODULE):chatDev
+chat-build: ## Build Chat app
+	@$(GRADLEW) $(WEB_MODULE):chatBuild
+chat-check: ## Check Chat app
+	@$(GRADLEW) $(WEB_MODULE):chatCheck
+chat-test: ## Run Chat app tests
+	@$(GRADLEW) $(WEB_MODULE):chatTestCoverage
 
-test-verbose: check-tools ## Run tests with verbose output
-	@echo "🧪 Running tests (verbose)..."
-	@$(GRADLEW) test --info
+# Dashboard
+dashboard-dev: ## Run Dashboard dev server
+	@$(GRADLEW) $(WEB_MODULE):dashboardDev
+dashboard-build: ## Build Dashboard app
+	@$(GRADLEW) $(WEB_MODULE):dashboardBuild
+dashboard-check: ## Check Dashboard app
+	@$(GRADLEW) $(WEB_MODULE):dashboardCheck
+dashboard-test: ## Run Dashboard app tests
+	@$(GRADLEW) $(WEB_MODULE):dashboardTestCoverage
 
-# ------------------------------------------------------------------------------------
-# CODE QUALITY & FORMATTING
-# ------------------------------------------------------------------------------------
+# Marketing
+marketing-dev: ## Run Marketing site dev server
+	@$(GRADLEW) $(WEB_MODULE):marketingDev
+marketing-build: ## Build Marketing site
+	@$(GRADLEW) $(WEB_MODULE):marketingBuild
+marketing-check: ## Check Marketing site
+	@$(GRADLEW) $(WEB_MODULE):marketingCheck
 
-format: check-tools ## Format all code (Spotless)
-	@echo "✨ Formatting code..."
+web-build-all: ## Build all web applications
+	@$(GRADLEW) $(WEB_MODULE):buildAllWebApps
+
+web-clean-all: ## Clean all web applications
+	@$(GRADLEW) $(WEB_MODULE):cleanAllWebApps
+
+web-test-all: ## Run all web application tests
+	@$(GRADLEW) $(WEB_MODULE):testCoverageAllWebApps
+
+# --- QUALITY & LINTING ---
+
+format: ## Apply formatting (Spotless)
 	@$(GRADLEW) spotlessApply
 
-check-format: check-tools ## Check code formatting without fixing
-	@echo "🔍 Checking code formatting..."
+check-format: ## Check code formatting without fixing
 	@$(GRADLEW) spotlessCheck
 
-lint-kotlin: check-tools ## Run Kotlin static analysis (via qualityCheck)
-	@echo "🔍 Running Kotlin static analysis (qualityCheck)..."
-	@$(GRADLEW) qualityCheck
-
-lint-java: check-tools ## Run Java static analysis (via qualityCheck)
-	@echo "🔍 Running Java static analysis (qualityCheck)..."
-	@$(GRADLEW) qualityCheck
-
-lint-rust: check-tools ## Run Rust static analysis (Clippy)
-	@echo "🔍 Running Rust static analysis (Clippy)..."
-	@$(GRADLEW) :agent-runtime:cargoClippy -PenableRustTasks=true
-
-lint-android: check-tools ## Run Android static analysis (Lint)
-	@echo "🔍 Running Android static analysis (Lint)..."
-	@$(GRADLEW) :androidApp:lint
-
-lint-all: lint-kotlin lint-java lint-rust lint-android ## Run all static analysis
-
-check: check-tools ## Run all checks (format, lint, tests, Rust, Android)
-	@echo "🔍 Running Gradle check (includes tests, format, quality checks)..."
+check: ## Run all quality checks (lint, tests, etc)
 	@$(GRADLEW) check -PenableRustTasks=true
-	@echo ""
-	@echo "🔍 Running Android Lint..."
-	@$(GRADLEW) :androidApp:lint
 
-# ------------------------------------------------------------------------------------
-# DOCUMENTATION
-# ------------------------------------------------------------------------------------
+lint-kotlin: ## Run Kotlin static analysis
+	@$(GRADLEW) qualityCheck
 
-docs: check-tools ## Generate documentation (Dokka)
-	@echo "📚 Generating documentation..."
+lint-rust: ## Run Rust clippy
+	@$(GRADLEW) $(RUST_MODULE):cargoClippy -PenableRustTasks=true
+
+lint-android: ## Run Android lint
+	@$(GRADLEW) $(ANDROID_APP):lint
+
+lint-all: lint-kotlin lint-rust lint-android ## Run all linters
+
+# --- TESTING ---
+
+test: ## Run all tests
+	@$(GRADLEW) test
+
+test-app: ## Run tests for desktop app
+	@$(GRADLEW) $(APP_MODULE):jvmTest
+
+test-core: ## Run tests for core module
+	@$(GRADLEW) $(CORE_MODULE):jvmTest
+
+test-verbose: ## Run tests with verbose output
+	@$(GRADLEW) test --info
+
+test-coverage: ## Run tests with Kover coverage report
+	@$(GRADLEW) koverHtmlReport
+	@echo "📊 Report: $(APP_MODULE)/build/reports/kover/html/index.html"
+
+# --- DOCUMENTATION ---
+
+docs-code: ## Generate Kotlin documentation (Dokka)
 	@$(GRADLEW) dokkaHtml
 
-docs-serve: docs ## Generate and serve documentation locally
-	@echo "📚 Documentation generated in: build/dokka/html/"
-	@echo "📖 Open the index.html file in your browser"
+# --- DEPENDENCY MANAGEMENT ---
 
-docs-web-build: check-tools ## Build website docs (Astro/Starlight)
-	@echo "🌐 Building website docs..."
-	@$(GRADLEW) :$(DOCS_MODULE):docsBuild
-
-docs-web-check: check-tools ## Check website docs formatting/lint (Biome)
-	@echo "🔎 Checking website docs..."
-	@$(GRADLEW) :$(DOCS_MODULE):docsCheck
-
-docs-web-format: check-tools ## Format website docs (Biome)
-	@echo "✨ Formatting website docs..."
-	@$(GRADLEW) :$(DOCS_MODULE):docsFormat
-
-docs-web-dev: check-tools ## Run website docs dev server
-	@echo "🌐 Starting docs dev server..."
-	@cd $(DOCS_MODULE)/website && pnpm run dev
-
-# ------------------------------------------------------------------------------------
-# DEPENDENCY MANAGEMENT
-# ------------------------------------------------------------------------------------
-
-deps: check-tools ## Show project dependencies
-	@echo "📦 Project dependencies:"
+deps: ## Show project dependencies
 	@$(GRADLEW) dependencies
 
-deps-app: check-tools ## Show app module dependencies
-	@echo "📦 App module dependencies:"
+deps-app: ## Show app module dependencies
 	@$(GRADLEW) $(APP_MODULE):dependencies
 
-deps-analysis: check-tools ## Run dependency analysis
-	@echo "🔍 Analyzing dependencies..."
+deps-analysis: ## Run dependency analysis
 	@$(GRADLEW) buildHealth
 
-deps-update: check-tools ## Check for dependency updates
-	@echo "🔄 Checking for updates..."
+deps-update: ## Check for dependency updates
 	@$(GRADLEW) dependencyUpdates
 
-# ------------------------------------------------------------------------------------
-# UTILITY
-# ------------------------------------------------------------------------------------
+# --- DEV ENVIRONMENT (Docker) ---
 
-tasks: check-tools ## List all available Gradle tasks
-	@$(GRADLEW) tasks
+dev-up: ## Start Docker dev environment
+	@./dev/cli.sh up
+dev-down: ## Stop Docker dev environment
+	@docker compose -f dev/docker-compose.yml down
+dev-shell: ## Enter Sandbox container
+	@./dev/cli.sh shell
+dev-agent: ## Enter Agent container
+	@./dev/cli.sh agent
+dev-logs: ## Follow Docker logs
+	@docker compose -f dev/docker-compose.yml logs -f
+dev-status: ## Show dev container status
+	@docker compose -f dev/docker-compose.yml ps
+dev-build: ## Rebuild dev images
+	@./dev/cli.sh build
+dev-clean: ## Stop and wipe dev environment
+	@./dev/cli.sh clean
 
-info: check-tools ## Show project information
-	@echo "📋 Project Information:"
-	@echo "   OS: $(DETECTED_OS)"
-	@echo "   Shell: $(SHELL)"
-	@$(GRADLEW) --version
+# --- CONTINUOUS INTEGRATION ---
 
-version: check-tools ## Show project version
-	@$(GRADLEW) --quiet version 2>/dev/null || echo "Run './gradlew version' for version info"
-
-# ------------------------------------------------------------------------------------
-# CONTINUOUS INTEGRATION
-# ------------------------------------------------------------------------------------
-
-ci-build: check-tools ## CI: Build without daemon
+ci-build: ## CI: Build without daemon
 	@$(GRADLEW) build --no-daemon
 
-ci-test: check-tools ## CI: Run tests without daemon
+ci-test: ## CI: Run tests without daemon
 	@$(GRADLEW) test --no-daemon
 
-ci-check: check-tools ## CI: Run all checks without daemon
+ci-check: ## CI: Run all checks without daemon
 	@$(GRADLEW) check -PenableRustTasks=true --no-daemon
 
-# ------------------------------------------------------------------------------------
-# FULL WORKFLOWS
-# ------------------------------------------------------------------------------------
+# --- FULL WORKFLOWS ---
 
-all: clean build check ## Run full CI pipeline (clean, build, check)
-	@echo "✨ Full CI pipeline completed successfully!"
+all: clean build check ## Run full pipeline (clean, build, check)
+	@echo "$(GREEN)✨ Full pipeline completed!$(SGR0)"
 
-quick: format build-fast ## Quick development cycle (format + build without tests)
-	@echo "✨ Quick build completed!"
+quick: format build-fast ## Quick cycle (format + build-fast)
+	@echo "$(GREEN)✨ Quick build completed!$(SGR0)"
 
-sync-version: ## Sync VERSION in gradle.properties with the latest git tag (vX.Y.Z)
+# --- UTILITIES ---
+
+tasks: ## List all available Gradle tasks
+	@$(GRADLEW) tasks
+
+info: ## Show project information
+	@echo "$(BOLD)📋 Project Information:$(SGR0)"
+	@echo "   OS: $(DETECTED_OS)"
+	@$(GRADLEW) --version
+
+version: ## Show project version
+	@$(GRADLEW) --quiet version 2>/dev/null || echo "Run './gradlew version' for version info"
+
+sync-version: ## Sync VERSION with git tag
 	@bash ./sync-version-with-tag.sh
 
-.PHONY: help check-tools setup wrapper build build-fast clean clean-all run dev \
-        dev-up dev-down dev-shell dev-agent dev-logs dev-build dev-clean dev-status \
-        test test-app test-coverage test-verbose \
-        format check-format lint-kotlin lint-java lint-rust lint-android lint-all check docs docs-serve \
-        docs-web-build docs-web-check docs-web-format docs-web-dev \
-        deps deps-app deps-analysis deps-update tasks info version ci-build \
-        ci-test ci-check all quick sync-version
+.PHONY: help h check-tools setup sync-agents wrapper build build-fast clean clean-all run dev \
+        android-build android-lint rust-check rust-test rust-clippy rust-fmt rust-build \
+        web-install docs-dev docs-build docs-check docs-format \
+        chat-dev chat-build chat-check chat-test dashboard-dev dashboard-build dashboard-check dashboard-test \
+        marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all \
+        format check-format check lint-kotlin lint-rust lint-android lint-all \
+        test test-app test-core test-verbose test-coverage docs-code \
+        deps deps-app deps-analysis deps-update \
+        dev-up dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean \
+        ci-build ci-test ci-check all quick tasks info version sync-version
