@@ -22,7 +22,7 @@ gpg --full-gen-key
 **Recommended configuration:**
 
 - **Key type:** RSA and RSA (default)
-- **Key size:** `4096` bits (minimum required by Maven Central)
+- **Recommended key size:** `4096` bits — recommended for stronger security and follows Apache Maven guidance
 - **Validity:** `0` = no expiration (or your preferred duration)
 - **Name:** Your real name
 - **Email:** Your GitHub-associated email
@@ -72,8 +72,8 @@ gpg> quit
 **Option A: Subkey only (RECOMMENDED for CI/CD)**
 
 ```bash
-# Export the PRIVATE KEY (subkey) in ASCII format
-gpg --export-secret-keys --armor YOUR_SUBKEY_ID > private-subkey.asc
+# Export only subkeys with a primary-key stub to keep primary key material offline
+gpg --export-secret-subkeys --armor YOUR_SUBKEY_ID > private-subkey.asc
 
 # Verify it starts with:
 # -----BEGIN PGP PRIVATE KEY BLOCK-----
@@ -237,5 +237,3 @@ gpg --keyserver keyserver.ubuntu.com --send-keys YOUR_KEY_ID
 - [Maven Central: GPG Signing Requirements](https://central.sonatype.org/publish/requirements/gpg/)
 - [GitHub: Use secrets in workflows](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)
 - [GnuPG Documentation](https://gnupg.org/documentation/)
-
-

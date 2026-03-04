@@ -7,6 +7,7 @@
 //! - Request timeouts (30s) to prevent slow-loris attacks
 //! - Header sanitization (handled by axum/hyper)
 
+use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
 use crate::channels::{Channel, SendMessage, WhatsAppChannel};
 use crate::config::Config;
 use crate::memory::{self, Memory, MemoryCategory};
@@ -1590,8 +1591,19 @@ async fn handle_webhook(
         .await;
 
         if let Some(tool) = canonical.approval_required {
+            let denial_reason = match evaluate_tool_risk(&tool) {
+                DispatchAction::ApprovalRequired(reason) => {
+                    if reason.trim().is_empty() {
+                        format!("approval required before executing `{tool}`")
+                    } else {
+                        reason
+                    }
+                }
+                DispatchAction::Execute => format!("approval required for `{tool}`"),
+            };
+            let denial = crate::approval::structured_denial_payload(&tool, &denial_reason);
             let err = serde_json::json!({
-                "error": format!("approval required for `{tool}`"),
+                "error": denial,
                 "session_id": session_id,
             });
             return (StatusCode::FORBIDDEN, Json(err));
@@ -2636,6 +2648,14 @@ mod tests {
         let body = response.into_body().collect().await.unwrap().to_bytes();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(payload["session_id"], "session-prod");
+        assert_eq!(payload["error"]["code"], "approval_required");
+        // Check that tool field exists (may be empty or contain tool identifier)
+        assert!(payload["error"]["tool"].is_string());
+        // Check that reason field exists and is non-empty
+        assert!(!payload["error"]["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .is_empty());
     }
 
     #[tokio::test]

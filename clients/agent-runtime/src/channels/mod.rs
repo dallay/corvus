@@ -31,8 +31,7 @@ pub use traits::{Channel, SendMessage};
 pub use whatsapp::WhatsAppChannel;
 
 use crate::agent::dispatcher::{
-    DispatchAction, NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult,
-    XmlToolDispatcher,
+    DispatchAction, NativeToolDispatcher, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
 use crate::config::Config;
 use crate::identity;
@@ -288,16 +287,6 @@ struct ChannelLoopParams<'a> {
     delta_tx: Option<tokio::sync::mpsc::Sender<String>>,
 }
 
-struct ToolIterationContext<'a> {
-    provider: &'a dyn Provider,
-    dispatcher: &'a dyn ToolDispatcher,
-    tools_registry: &'a [Box<dyn Tool>],
-    tool_specs: &'a [crate::tools::ToolSpec],
-    model: &'a str,
-    temperature: f64,
-    delta_tx: Option<&'a tokio::sync::mpsc::Sender<String>>,
-}
-
 async fn run_unified_channel_tool_loop(
     provider: &dyn Provider,
     tools_registry: &[Box<dyn Tool>],
@@ -309,133 +298,92 @@ async fn run_unified_channel_tool_loop(
         tools_registry.iter().map(|tool| tool.spec()).collect();
 
     for _ in 0..params.max_tool_iterations {
-        let ctx = ToolIterationContext {
-            provider,
-            dispatcher: dispatcher.as_ref(),
-            tools_registry,
-            tool_specs: &tool_specs,
-            model: params.model,
-            temperature: params.temperature,
-            delta_tx: params.delta_tx.as_ref(),
-        };
-        let result = execute_tool_iteration(ctx, history).await?;
+        let provider_messages = dispatcher.to_provider_messages(history);
+        let response = provider
+            .chat(
+                ChatRequest {
+                    messages: &provider_messages,
+                    tools: if dispatcher.should_send_tool_specs() {
+                        Some(&tool_specs)
+                    } else {
+                        None
+                    },
+                },
+                params.model,
+                params.temperature,
+            )
+            .await?;
 
-        if let Some(response) = result {
-            return Ok(response);
+        let uses_xml_parsing = !dispatcher.should_send_tool_specs();
+        let response_for_parse = if uses_xml_parsing {
+            let normalized_text = response
+                .text
+                .as_deref()
+                .map(normalize_xml_tool_aliases)
+                .unwrap_or_default();
+            crate::providers::ChatResponse {
+                text: Some(normalized_text),
+                tool_calls: response.tool_calls.clone(),
+            }
+        } else {
+            response.clone()
+        };
+
+        let (text, calls) = dispatcher.parse_response(&response_for_parse);
+        if calls.is_empty() {
+            let final_response = if text.is_empty() {
+                response.text.unwrap_or_default()
+            } else {
+                text
+            };
+
+            if let Some(tx) = params.delta_tx.as_ref() {
+                let _ = tx.send(final_response.clone()).await;
+            }
+            return Ok(final_response);
         }
+
+        if !text.is_empty() {
+            if let Some(tx) = params.delta_tx.as_ref() {
+                let _ = tx.send(text.clone()).await;
+            }
+        }
+
+        history.push(ConversationMessage::AssistantToolCalls {
+            text: response.text.clone(),
+            tool_calls: response.tool_calls.clone(),
+        });
+
+        let mut results = Vec::with_capacity(calls.len());
+        for call in calls {
+            let action = dispatcher.check_tool_risk(&call.name, &call.arguments);
+            let (success, output) = match action {
+                DispatchAction::Execute => {
+                    execute_channel_tool_call(tools_registry, &call.name, &call.arguments).await?
+                }
+                DispatchAction::ApprovalRequired(ref tool) => (
+                    false,
+                    crate::approval::structured_denial_text(&call.name, tool),
+                ),
+            };
+
+            results.push(ToolExecutionResult {
+                name: call.name,
+                output,
+                success,
+                tool_call_id: call.tool_call_id,
+                action,
+            });
+        }
+
+        let formatted_results = dispatcher.format_results(&results);
+        history.push(formatted_results);
     }
 
     anyhow::bail!(
         "maximum tool iterations ({}) reached while processing channel message",
         params.max_tool_iterations
     )
-}
-
-async fn execute_tool_iteration(
-    ctx: ToolIterationContext<'_>,
-    history: &mut Vec<ConversationMessage>,
-) -> Result<Option<String>> {
-    let provider_messages = ctx.dispatcher.to_provider_messages(history);
-    let response = ctx
-        .provider
-        .chat(
-            ChatRequest {
-                messages: &provider_messages,
-                tools: if ctx.dispatcher.should_send_tool_specs() {
-                    Some(ctx.tool_specs)
-                } else {
-                    None
-                },
-            },
-            ctx.model,
-            ctx.temperature,
-        )
-        .await?;
-
-    let response_for_parse =
-        normalize_response(&response, !ctx.dispatcher.should_send_tool_specs());
-    let (text, calls) = ctx.dispatcher.parse_response(&response_for_parse);
-
-    if calls.is_empty() {
-        let final_response = if text.is_empty() {
-            response.text.unwrap_or_default()
-        } else {
-            text
-        };
-
-        if let Some(tx) = ctx.delta_tx {
-            let _ = tx.send(final_response.clone()).await;
-        }
-        return Ok(Some(final_response));
-    }
-
-    if !text.is_empty() {
-        if let Some(tx) = ctx.delta_tx {
-            let _ = tx.send(text.clone()).await;
-        }
-    }
-
-    history.push(ConversationMessage::AssistantToolCalls {
-        text: response.text.clone(),
-        tool_calls: response.tool_calls.clone(),
-    });
-
-    let results = execute_tool_calls(ctx.dispatcher, ctx.tools_registry, calls).await?;
-
-    let formatted_results = ctx.dispatcher.format_results(&results);
-    history.push(formatted_results);
-
-    Ok(None)
-}
-
-fn normalize_response(
-    response: &crate::providers::ChatResponse,
-    uses_xml_parsing: bool,
-) -> crate::providers::ChatResponse {
-    if uses_xml_parsing {
-        let normalized_text = response
-            .text
-            .as_deref()
-            .map(normalize_xml_tool_aliases)
-            .unwrap_or_default();
-        crate::providers::ChatResponse {
-            text: Some(normalized_text),
-            tool_calls: response.tool_calls.clone(),
-        }
-    } else {
-        response.clone()
-    }
-}
-
-async fn execute_tool_calls(
-    dispatcher: &dyn ToolDispatcher,
-    tools_registry: &[Box<dyn Tool>],
-    calls: Vec<ParsedToolCall>,
-) -> Result<Vec<ToolExecutionResult>> {
-    let mut results = Vec::with_capacity(calls.len());
-
-    for call in calls {
-        let action = dispatcher.check_tool_risk(&call.name, &call.arguments);
-        let (success, output) = match action {
-            DispatchAction::Execute => {
-                execute_channel_tool_call(tools_registry, &call.name, &call.arguments).await?
-            }
-            DispatchAction::ApprovalRequired(ref tool) => (
-                false,
-                format!("approval required before executing `{tool}`"),
-            ),
-        };
-
-        results.push(ToolExecutionResult {
-            name: call.name,
-            output,
-            success,
-            tool_call_id: call.tool_call_id,
-            action,
-        });
-    }
-
-    Ok(results)
 }
 
 fn spawn_scoped_typing_task(
@@ -682,83 +630,52 @@ async fn setup_streaming(
 ) {
     let use_streaming = channel.map_or(false, |ch| ch.supports_draft_updates());
 
-    let (delta_tx, delta_rx) = create_mpsc_channels(use_streaming);
-    let draft_message_id = send_draft_message(use_streaming, channel, reply_target).await;
-    let draft_updater = spawn_draft_updater(
-        use_streaming,
-        delta_rx,
-        draft_message_id.clone(),
-        channel,
-        reply_target,
-    );
-
-    (delta_tx, draft_message_id, draft_updater)
-}
-
-fn create_mpsc_channels(
-    use_streaming: bool,
-) -> (
-    Option<tokio::sync::mpsc::Sender<String>>,
-    Option<tokio::sync::mpsc::Receiver<String>>,
-) {
-    if use_streaming {
+    let (delta_tx, delta_rx) = if use_streaming {
         let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
         (Some(tx), Some(rx))
     } else {
         (None, None)
-    }
-}
+    };
 
-async fn send_draft_message(
-    use_streaming: bool,
-    channel: Option<&Arc<dyn Channel>>,
-    reply_target: &str,
-) -> Option<String> {
-    if !use_streaming {
-        return None;
-    }
-
-    if let Some(ch) = channel {
-        match ch.send_draft(&SendMessage::new("...", reply_target)).await {
-            Ok(id) => id,
-            Err(e) => {
-                tracing::debug!("Failed to send draft on {}: {e}", ch.name());
-                None
+    let draft_message_id: Option<String> = if use_streaming {
+        if let Some(ch) = channel {
+            match ch.send_draft(&SendMessage::new("...", reply_target)).await {
+                Ok(id) => id,
+                Err(e) => {
+                    tracing::debug!("Failed to send draft on {}: {e}", ch.name());
+                    None
+                }
             }
+        } else {
+            None
         }
     } else {
         None
-    }
-}
+    };
 
-fn spawn_draft_updater(
-    use_streaming: bool,
-    delta_rx: Option<tokio::sync::mpsc::Receiver<String>>,
-    draft_message_id: Option<String>,
-    channel: Option<&Arc<dyn Channel>>,
-    reply_target: &str,
-) -> Option<tokio::task::JoinHandle<()>> {
-    if !use_streaming {
-        return None;
-    }
-
-    if let (Some(mut rx), Some(draft_id), Some(channel_ref)) =
-        (delta_rx, draft_message_id.clone(), channel)
-    {
-        let ch = Arc::clone(channel_ref);
-        let reply = reply_target.to_string();
-        Some(tokio::spawn(async move {
-            let mut accumulated = String::new();
-            while let Some(delta) = rx.recv().await {
-                accumulated.push_str(&delta);
-                if let Err(e) = ch.update_draft(&reply, &draft_id, &accumulated).await {
-                    tracing::debug!("Draft update failed: {e}");
+    let draft_updater = if use_streaming {
+        if let (Some(mut rx), Some(draft_id), Some(channel_ref)) =
+            (delta_rx, draft_message_id.clone(), channel)
+        {
+            let ch = Arc::clone(channel_ref);
+            let reply = reply_target.to_string();
+            Some(tokio::spawn(async move {
+                let mut accumulated = String::new();
+                while let Some(delta) = rx.recv().await {
+                    accumulated.push_str(&delta);
+                    if let Err(e) = ch.update_draft(&reply, &draft_id, &accumulated).await {
+                        tracing::debug!("Draft update failed: {e}");
+                    }
                 }
-            }
-        }))
+            }))
+        } else {
+            None
+        }
     } else {
         None
-    }
+    };
+
+    (delta_tx, draft_message_id, draft_updater)
 }
 
 async fn cleanup_async_tasks(
@@ -972,50 +889,26 @@ pub fn build_system_prompt(
     identity_config: Option<&crate::config::IdentityConfig>,
     bootstrap_max_chars: Option<usize>,
 ) -> String {
+    use std::fmt::Write;
     let mut prompt = String::with_capacity(8192);
 
-    append_tooling_section(&mut prompt, tools);
-    append_hardware_section(&mut prompt, tools);
-    append_action_instruction(&mut prompt);
-    append_safety_section(&mut prompt);
-    append_skills_section(&mut prompt, skills, workspace_dir);
-    append_workspace_section(&mut prompt, workspace_dir);
-    append_bootstrap_section(
-        &mut prompt,
-        workspace_dir,
-        identity_config,
-        bootstrap_max_chars,
-    );
-    append_datetime_section(&mut prompt);
-    append_runtime_section(&mut prompt, model_name);
-    append_channel_capabilities(&mut prompt);
-
-    if prompt.is_empty() {
-        "You are Corvus, a fast and efficient AI assistant built in Rust. Be helpful, concise, and direct.".to_string()
-    } else {
+    // ── 1. Tooling ──────────────────────────────────────────────
+    if !tools.is_empty() {
+        prompt.push_str("## Tools\n\n");
+        prompt.push_str("You have access to the following tools:\n\n");
+        for (name, desc) in tools {
+            let _ = writeln!(prompt, "- **{name}**: {desc}");
+        }
+        prompt.push_str("\n## Tool Use Protocol\n\n");
+        prompt.push_str("To use a tool, wrap a JSON object in <tool_call></tool_call> tags:\n\n");
+        prompt.push_str("```\n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n</tool_call>\n```\n\n");
+        prompt.push_str("You may use multiple tool calls in a single response. ");
+        prompt.push_str("After tool execution, results appear in <tool_result> tags. ");
         prompt
+            .push_str("Continue reasoning with the results until you can give a final answer.\n\n");
     }
-}
 
-fn append_tooling_section(prompt: &mut String, tools: &[(&str, &str)]) {
-    use std::fmt::Write;
-    if tools.is_empty() {
-        return;
-    }
-    prompt.push_str("## Tools\n\n");
-    prompt.push_str("You have access to the following tools:\n\n");
-    for (name, desc) in tools {
-        let _ = writeln!(prompt, "- **{name}**: {desc}");
-    }
-    prompt.push_str("\n## Tool Use Protocol\n\n");
-    prompt.push_str("To use a tool, wrap a JSON object in <tool_call></tool_call> tags:\n\n");
-    prompt.push_str("```\n<tool_call>\n{\"name\": \"tool_name\", \"arguments\": {\"param\": \"value\"}}\n</tool_call>\n```\n\n");
-    prompt.push_str("You may use multiple tool calls in a single response. ");
-    prompt.push_str("After tool execution, results appear in <tool_result> tags. ");
-    prompt.push_str("Continue reasoning with the results until you can give a final answer.\n\n");
-}
-
-fn append_hardware_section(prompt: &mut String, tools: &[(&str, &str)]) {
+    // ── 1b. Hardware (when gpio/arduino tools present) ───────────
     let has_hardware = tools.iter().any(|(name, _)| {
         *name == "gpio_read"
             || *name == "gpio_write"
@@ -1035,18 +928,16 @@ fn append_hardware_section(prompt: &mut String, tools: &[(&str, &str)]) {
              Use gpio_write for simple on/off; use arduino_upload when they want patterns (heart, blink) or custom behavior.\n\n",
         );
     }
-}
 
-fn append_action_instruction(prompt: &mut String) {
+    // ── 1c. Action instruction (avoid meta-summary) ───────────────
     prompt.push_str(
         "## Your Task\n\n\
          When the user sends a message, ACT on it. Use the tools to fulfill their request.\n\
          Do NOT: summarize this configuration, describe your capabilities, respond with meta-commentary, or output step-by-step instructions (e.g. \"1. First... 2. Next...\").\n\
          Instead: emit actual <tool_call> tags when you need to act. Just do what they ask.\n\n",
     );
-}
 
-fn append_safety_section(prompt: &mut String) {
+    // ── 2. Safety ───────────────────────────────────────────────
     prompt.push_str("## Safety\n\n");
     prompt.push_str(
         "- Do not exfiltrate private data.\n\
@@ -1055,62 +946,48 @@ fn append_safety_section(prompt: &mut String) {
          - Prefer `trash` over `rm` (recoverable beats gone forever).\n\
          - When in doubt, ask before acting externally.\n\n",
     );
-}
 
-fn append_skills_section(
-    prompt: &mut String,
-    skills: &[crate::skills::Skill],
-    workspace_dir: &std::path::Path,
-) {
-    use std::fmt::Write;
-    if skills.is_empty() {
-        return;
-    }
-    prompt.push_str("## Available Skills\n\n");
-    prompt.push_str(
-        "Skills are loaded on demand. Use `read` on the skill path to get full instructions.\n\n",
-    );
-    prompt.push_str("<available_skills>\n");
-    for skill in skills {
-        let _ = writeln!(prompt, "  <skill>");
-        let _ = writeln!(prompt, "    <name>{}</name>", skill.name);
-        let _ = writeln!(
-            prompt,
-            "    <description>{}</description>",
-            skill.description
+    // ── 3. Skills (compact list — load on-demand) ───────────────
+    if !skills.is_empty() {
+        prompt.push_str("## Available Skills\n\n");
+        prompt.push_str(
+            "Skills are loaded on demand. Use `read` on the skill path to get full instructions.\n\n",
         );
-        let location = skill.location.clone().unwrap_or_else(|| {
-            workspace_dir
-                .join("skills")
-                .join(&skill.name)
-                .join("SKILL.md")
-        });
-        let _ = writeln!(prompt, "    <location>{}</location>", location.display());
-        let _ = writeln!(prompt, "  </skill>");
+        prompt.push_str("<available_skills>\n");
+        for skill in skills {
+            let _ = writeln!(prompt, "  <skill>");
+            let _ = writeln!(prompt, "    <name>{}</name>", skill.name);
+            let _ = writeln!(
+                prompt,
+                "    <description>{}</description>",
+                skill.description
+            );
+            let location = skill.location.clone().unwrap_or_else(|| {
+                workspace_dir
+                    .join("skills")
+                    .join(&skill.name)
+                    .join("SKILL.md")
+            });
+            let _ = writeln!(prompt, "    <location>{}</location>", location.display());
+            let _ = writeln!(prompt, "  </skill>");
+        }
+        prompt.push_str("</available_skills>\n\n");
     }
-    prompt.push_str("</available_skills>\n\n");
-}
 
-fn append_workspace_section(prompt: &mut String, workspace_dir: &std::path::Path) {
+    // ── 4. Workspace ────────────────────────────────────────────
     let _ = writeln!(
         prompt,
         "## Workspace\n\nWorking directory: `{}`\n",
         workspace_dir.display()
     );
-}
 
-fn append_bootstrap_section(
-    prompt: &mut String,
-    workspace_dir: &std::path::Path,
-    identity_config: Option<&crate::config::IdentityConfig>,
-    bootstrap_max_chars: Option<usize>,
-) {
+    // ── 5. Bootstrap files (injected into context) ──────────────
     prompt.push_str("## Project Context\n\n");
 
-    let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
-
+    // Check if AIEOS identity is configured
     if let Some(config) = identity_config {
         if identity::is_aieos_configured(config) {
+            // Load AIEOS identity
             match identity::load_aieos_identity(config, workspace_dir) {
                 Ok(Some(aieos_identity)) => {
                     let aieos_prompt = identity::aieos_to_system_prompt(&aieos_identity);
@@ -1120,32 +997,37 @@ fn append_bootstrap_section(
                     }
                 }
                 Ok(None) => {
-                    load_openclaw_bootstrap_files(prompt, workspace_dir, max_chars);
+                    // No AIEOS identity loaded (shouldn't happen if is_aieos_configured returned true)
+                    // Fall back to OpenClaw bootstrap files
+                    let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
+                    load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars);
                 }
                 Err(e) => {
+                    // Log error but don't fail - fall back to OpenClaw
                     eprintln!(
                         "Warning: Failed to load AIEOS identity: {e}. Using OpenClaw format."
                     );
-                    load_openclaw_bootstrap_files(prompt, workspace_dir, max_chars);
+                    let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
+                    load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars);
                 }
             }
         } else {
-            load_openclaw_bootstrap_files(prompt, workspace_dir, max_chars);
+            // OpenClaw format
+            let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
+            load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars);
         }
     } else {
-        load_openclaw_bootstrap_files(prompt, workspace_dir, max_chars);
+        // No identity config - use OpenClaw format
+        let max_chars = bootstrap_max_chars.unwrap_or(BOOTSTRAP_MAX_CHARS);
+        load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars);
     }
-}
 
-fn append_datetime_section(prompt: &mut String) {
-    use std::fmt::Write;
+    // ── 6. Date & Time ──────────────────────────────────────────
     let now = chrono::Local::now();
     let tz = now.format("%Z").to_string();
     let _ = writeln!(prompt, "## Current Date & Time\n\nTimezone: {tz}\n");
-}
 
-fn append_runtime_section(prompt: &mut String, model_name: &str) {
-    use std::fmt::Write;
+    // ── 7. Runtime ──────────────────────────────────────────────
     let host =
         hostname::get().map_or_else(|_| "unknown".into(), |h| h.to_string_lossy().to_string());
     let _ = writeln!(
@@ -1153,9 +1035,8 @@ fn append_runtime_section(prompt: &mut String, model_name: &str) {
         "## Runtime\n\nHost: {host} | OS: {} | Model: {model_name}\n",
         std::env::consts::OS,
     );
-}
 
-fn append_channel_capabilities(prompt: &mut String) {
+    // ── 8. Channel Capabilities ─────────────────────────────────────
     prompt.push_str("## Channel Capabilities\n\n");
     prompt.push_str(
         "- You are running as a Discord bot. You CAN and do send messages to Discord channels.\n",
@@ -1164,6 +1045,12 @@ fn append_channel_capabilities(prompt: &mut String) {
     prompt.push_str("- You do NOT need to ask permission to respond — just respond directly.\n");
     prompt.push_str("- NEVER repeat, describe, or echo credentials, tokens, API keys, or secrets in your responses.\n");
     prompt.push_str("- If a tool output contains credentials, they have already been redacted — do not mention them.\n\n");
+
+    if prompt.is_empty() {
+        "You are Corvus, a fast and efficient AI assistant built in Rust. Be helpful, concise, and direct.".to_string()
+    } else {
+        prompt
+    }
 }
 
 /// Inject a single workspace file into the prompt with truncation and missing-file markers.
@@ -1410,17 +1297,6 @@ fn classify_health_result(
 
 /// Run health checks for configured channels.
 pub async fn doctor_channels(config: Config) -> Result<()> {
-    let channels = build_channel_list(&config);
-
-    if channels.is_empty() {
-        println!("No real-time channels configured. Run `corvus onboard` first.");
-        return Ok(());
-    }
-
-    run_channel_health_checks(channels, &config).await
-}
-
-fn build_channel_list(config: &Config) -> Vec<(&'static str, Arc<dyn Channel>)> {
     let mut channels: Vec<(&'static str, Arc<dyn Channel>)> = Vec::new();
 
     if let Some(ref tg) = config.channels_config.telegram {
@@ -1550,13 +1426,11 @@ fn build_channel_list(config: &Config) -> Vec<(&'static str, Arc<dyn Channel>)> 
         ));
     }
 
-    channels
-}
+    if channels.is_empty() {
+        println!("No real-time channels configured. Run `corvus onboard` first.");
+        return Ok(());
+    }
 
-async fn run_channel_health_checks(
-    channels: Vec<(&'static str, Arc<dyn Channel>)>,
-    config: &Config,
-) -> Result<()> {
     println!("🩺 Corvus Channel Doctor");
     println!();
 
@@ -1593,6 +1467,7 @@ async fn run_channel_health_checks(
     Ok(())
 }
 
+/// Start all configured channels and route messages to the agent
 #[allow(clippy::too_many_lines)]
 pub async fn start_channels(config: Config) -> Result<()> {
     let provider_name = config
@@ -1662,96 +1537,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     let skills = crate::skills::load_skills(&workspace);
 
-    let tool_descs = build_tool_descriptions(&config);
-
-    let bootstrap_max_chars = if config.agent.compact_context {
-        Some(6000)
-    } else {
-        None
-    };
-    let system_prompt = build_system_prompt(
-        &workspace,
-        &model,
-        &tool_descs,
-        &skills,
-        Some(&config.identity),
-        bootstrap_max_chars,
-    );
-
-    print_skills_info(&skills);
-    let channels = build_active_channels(&config);
-
-    if channels.is_empty() {
-        println!("No channels configured. Run `corvus onboard` to set up channels.");
-        return Ok(());
-    }
-
-    print_channel_server_info(&model, &config, &channels);
-
-    crate::health::mark_component_ok("channels");
-
-    let initial_backoff_secs = config
-        .reliability
-        .channel_initial_backoff_secs
-        .max(DEFAULT_CHANNEL_INITIAL_BACKOFF_SECS);
-    let max_backoff_secs = config
-        .reliability
-        .channel_max_backoff_secs
-        .max(DEFAULT_CHANNEL_MAX_BACKOFF_SECS);
-
-    // Single message bus — all channels send messages here
-    let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(100);
-
-    // Spawn a listener for each channel
-    let mut handles = Vec::new();
-    for ch in &channels {
-        handles.push(spawn_supervised_listener(
-            ch.clone(),
-            tx.clone(),
-            initial_backoff_secs,
-            max_backoff_secs,
-        ));
-    }
-    drop(tx); // Drop our copy so rx closes when all channels stop
-
-    let channels_by_name = Arc::new(
-        channels
-            .iter()
-            .map(|ch| (ch.name().to_string(), Arc::clone(ch)))
-            .collect::<HashMap<_, _>>(),
-    );
-    let max_in_flight_messages = compute_max_in_flight_messages(channels.len());
-
-    println!("  🚦 In-flight message limit: {max_in_flight_messages}");
-
-    let runtime_ctx = Arc::new(ChannelRuntimeContext {
-        config: Arc::new(config.clone()),
-        channels_by_name,
-        provider: Arc::clone(&provider),
-        memory: Arc::clone(&mem),
-        tools_registry: Arc::clone(&tools_registry),
-        observer,
-        system_prompt: Arc::new(system_prompt),
-        model: Arc::new(model.clone()),
-        temperature,
-        auto_save_memory: config.memory.auto_save,
-        tool_dispatcher_mode: Arc::<str>::from(config.agent.tool_dispatcher.as_str()),
-        max_tool_iterations: config.agent.max_tool_iterations,
-        min_relevance_score: config.memory.min_relevance_score,
-        conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-    });
-
-    run_message_dispatch_loop(rx, runtime_ctx, max_in_flight_messages).await;
-
-    // Wait for all channel tasks
-    for h in handles {
-        let _ = h.await;
-    }
-
-    Ok(())
-}
-
-fn build_tool_descriptions(config: &Config) -> Vec<(&'static str, &'static str)> {
+    // Collect tool descriptions for the prompt
     let mut tool_descs: Vec<(&str, &str)> = vec![
         (
             "shell",
@@ -1806,10 +1592,23 @@ fn build_tool_descriptions(config: &Config) -> Vec<(&'static str, &'static str)>
         ));
     }
 
-    tool_descs
-}
+    let bootstrap_max_chars = if config.agent.compact_context {
+        Some(6000)
+    } else {
+        None
+    };
+    let system_prompt = build_system_prompt(
+        &workspace,
+        &model,
+        &tool_descs,
+        &skills,
+        Some(&config.identity),
+        bootstrap_max_chars,
+    );
 
-fn print_skills_info(skills: &[crate::skills::Skill]) {
+    // Note: build_system_prompt already includes tool descriptions and protocol instructions,
+    // so we don't add additional tool_specs here to avoid duplication.
+
     if !skills.is_empty() {
         println!(
             "  🧩 Skills:   {}",
@@ -1820,9 +1619,8 @@ fn print_skills_info(skills: &[crate::skills::Skill]) {
                 .join(", ")
         );
     }
-}
 
-fn build_active_channels(config: &Config) -> Vec<Arc<dyn Channel>> {
+    // Collect active channels
     let mut channels: Vec<Arc<dyn Channel>> = Vec::new();
 
     if let Some(ref tg) = config.channels_config.telegram {
@@ -1932,10 +1730,11 @@ fn build_active_channels(config: &Config) -> Vec<Arc<dyn Channel>> {
         )));
     }
 
-    channels
-}
+    if channels.is_empty() {
+        println!("No channels configured. Run `corvus onboard` to set up channels.");
+        return Ok(());
+    }
 
-fn print_channel_server_info(model: &str, config: &Config, channels: &[Arc<dyn Channel>]) {
     println!("🦀 Corvus Channel Server");
     println!("  🤖 Model:    {model}");
     println!(
@@ -1954,6 +1753,68 @@ fn print_channel_server_info(model: &str, config: &Config, channels: &[Arc<dyn C
     println!();
     println!("  Listening for messages... (Ctrl+C to stop)");
     println!();
+
+    crate::health::mark_component_ok("channels");
+
+    let initial_backoff_secs = config
+        .reliability
+        .channel_initial_backoff_secs
+        .max(DEFAULT_CHANNEL_INITIAL_BACKOFF_SECS);
+    let max_backoff_secs = config
+        .reliability
+        .channel_max_backoff_secs
+        .max(DEFAULT_CHANNEL_MAX_BACKOFF_SECS);
+
+    // Single message bus — all channels send messages here
+    let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(100);
+
+    // Spawn a listener for each channel
+    let mut handles = Vec::new();
+    for ch in &channels {
+        handles.push(spawn_supervised_listener(
+            ch.clone(),
+            tx.clone(),
+            initial_backoff_secs,
+            max_backoff_secs,
+        ));
+    }
+    drop(tx); // Drop our copy so rx closes when all channels stop
+
+    let channels_by_name = Arc::new(
+        channels
+            .iter()
+            .map(|ch| (ch.name().to_string(), Arc::clone(ch)))
+            .collect::<HashMap<_, _>>(),
+    );
+    let max_in_flight_messages = compute_max_in_flight_messages(channels.len());
+
+    println!("  🚦 In-flight message limit: {max_in_flight_messages}");
+
+    let runtime_ctx = Arc::new(ChannelRuntimeContext {
+        config: Arc::new(config.clone()),
+        channels_by_name,
+        provider: Arc::clone(&provider),
+        memory: Arc::clone(&mem),
+        tools_registry: Arc::clone(&tools_registry),
+        observer,
+        system_prompt: Arc::new(system_prompt),
+        model: Arc::new(model.clone()),
+        temperature,
+        auto_save_memory: config.memory.auto_save,
+        tool_dispatcher_mode: Arc::<str>::from(config.agent.tool_dispatcher.as_str()),
+        max_tool_iterations: config.agent.max_tool_iterations,
+        min_relevance_score: config.memory.min_relevance_score,
+        conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    run_message_dispatch_loop(rx, runtime_ctx, max_in_flight_messages).await;
+
+    // Wait for all channel tasks
+    for h in handles {
+        let _ = h.await;
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -1961,7 +1822,7 @@ mod tests {
     use super::*;
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;
-    use crate::providers::{ChatMessage, Provider};
+    use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
     use crate::tools::{Tool, ToolResult};
     use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2096,6 +1957,47 @@ mod tests {
     }
 
     struct ToolCallingAliasProvider;
+
+    struct McpToolCallingProvider {
+        calls: AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for McpToolCallingProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("unused".to_string())
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            let current = self.calls.fetch_add(1, Ordering::SeqCst);
+            if current == 0 {
+                return Ok(ChatResponse {
+                    text: Some(String::new()),
+                    tool_calls: vec![ToolCall {
+                        id: "mcp-call-1".to_string(),
+                        name: "mcp.docs.search".to_string(),
+                        arguments: r#"{"query":"rust"}"#.to_string(),
+                    }],
+                });
+            }
+
+            Ok(ChatResponse {
+                text: Some("done".to_string()),
+                tool_calls: Vec::new(),
+            })
+        }
+    }
 
     #[async_trait::async_trait]
     impl Provider for ToolCallingAliasProvider {
@@ -3098,6 +3000,51 @@ mod tests {
 
         assert!(mapped.contains("Approval required"));
         assert!(mapped.contains("shell"));
+    }
+
+    #[tokio::test]
+    async fn channel_tool_loop_returns_structured_denial_for_mcp_calls() {
+        let provider = McpToolCallingProvider {
+            calls: AtomicUsize::new(0),
+        };
+        let mut history = vec![
+            ConversationMessage::Chat(ChatMessage::system("system")),
+            ConversationMessage::Chat(ChatMessage::user("query")),
+        ];
+
+        let response = run_unified_channel_tool_loop(
+            &provider,
+            &[],
+            &mut history,
+            ChannelLoopParams {
+                model: "test-model",
+                temperature: 0.0,
+                max_tool_iterations: 2,
+                dispatcher_mode: "native",
+                delta_tx: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response, "done");
+
+        let mut has_structured_denial = false;
+        for message in &history {
+            if let ConversationMessage::ToolResults(results) = message {
+                for result in results {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&result.content) {
+                        if parsed["code"] == "approval_required"
+                            && parsed["tool"] == "mcp.docs.search"
+                        {
+                            has_structured_denial = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        assert!(has_structured_denial);
     }
 
     #[test]

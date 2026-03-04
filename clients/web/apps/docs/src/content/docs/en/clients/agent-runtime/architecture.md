@@ -128,6 +128,21 @@ The memory system (`memory/`) is one of the most differentiating components of t
 
 The `tools/` module defines the agent's executive capabilities. Each tool is an implementation of the `Tool` trait that receives structured parameters, executes an operation, and returns a structured result. Built-in tools include shell command execution, filesystem access, web browser control, Composio integration for external tools, and memory tools for persisting and retrieving information.
 
+#### MCP Tool Runtime
+
+MCP tools are integrated as first-class `Tool` adapters through `tools/mcp/` with a strict
+namespace contract: `mcp.<server>.<tool>`. Registration happens at startup only when
+`mcp.enabled = true`.
+
+Security and resilience behavior:
+
+- Discovery is fail-isolated per server (one broken server does not block healthy servers).
+- Name collisions fail closed for MCP registration to avoid ambiguous dispatch.
+- MCP tool calls are classified as risk-bearing and require explicit approval by default.
+- Runtime enforces per-call timeouts and output byte caps.
+- Transport and timeout failures return structured machine-readable errors.
+- Diagnostics are redacted before logging to avoid credential leakage.
+
 ### Peripherals
 
 The `peripherals/` module extends the agent to the physical world. It allows controlling devices such as Arduino development boards, Raspberry Pi via GPIO, STM32 Nucleo microcontrollers, generic serial devices, and firmware flash capabilities. This module enables the agent to interact with real hardware, opening possibilities for physical automation.
@@ -167,6 +182,10 @@ Memory consumption is controlled through configurable limits in the memory syste
 ## Security Model
 
 The Agent Runtime security model follows the principle of least privilege. Each operation requires explicit permissions. Users can define policies that restrict what files the agent can access, what commands it can execute, what network it can reach, and what peripherals it can control.
+
+For MCP specifically, the default posture is conservative: MCP tools are denied for direct
+execution unless an approval path explicitly allows the call. This keeps remote tool providers
+behind the same oversight boundary as other high-risk operations.
 
 Policies express in a declarative language that allows granular configurations. For example, a policy can allow read access to a specific directory but deny all access to paths outside that directory. The audit system records every policy decision for security review.
 

@@ -22,7 +22,7 @@ gpg --full-gen-key
 **Configuración recomendada:**
 
 - **Tipo de clave:** RSA y RSA (por defecto)
-- **Tamaño:** `4096` bits (mínimo requerido por Maven Central)
+- **Tamaño:** `4096` bits (recomendado, no obligatorio)
 - **Validez:** `0` = sin expiración (o la duración que prefieras)
 - **Nombre:** Tu nombre real
 - **Correo:** El correo asociado a tu cuenta de GitHub
@@ -72,8 +72,8 @@ gpg> quit
 **Opción A: Solo subclave (RECOMENDADO para CI/CD)**
 
 ```bash
-# Exportar la CLAVE PRIVADA (subclave) en formato ASCII
-gpg --export-secret-keys --armor TU_ID_SUBCLAVE > private-subkey.asc
+# Exporta solo las subclaves con un stub de la clave primaria para mantener el material de la clave primaria fuera de línea
+gpg --export-secret-subkeys --armor TU_ID_SUBCLAVE > private-subkey.asc
 
 # Verifica que comience con:
 # -----BEGIN PGP PRIVATE KEY BLOCK-----
@@ -156,7 +156,7 @@ Ve a **GitHub → Repositorio → Settings → Secrets and variables → Actions
 
 Asegúrate de que tu secret `SIGNING_IN_MEMORY_KEY` contenga:
 
-```
+```text
 -----BEGIN PGP PRIVATE KEY BLOCK-----
 
 lQHYBF...  (clave codificada en base64)
@@ -236,4 +236,3 @@ gpg --keyserver keyserver.ubuntu.com --send-keys TU_ID_DE_CLAVE
 - [Maven Central: GPG Signing Requirements](https://central.sonatype.org/publish/requirements/gpg/)
 - [GitHub: Usar secretos en workflows](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets)
 - [GnuPG Documentation](https://gnupg.org/documentation/)
-

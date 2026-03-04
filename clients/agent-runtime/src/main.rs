@@ -640,7 +640,17 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             model,
             temperature,
             peripheral,
-        } => handle_agent_command(config, message, provider, model, temperature, peripheral).await,
+        } => {
+            Box::pin(handle_agent_command(
+                config,
+                message,
+                provider,
+                model,
+                temperature,
+                peripheral,
+            ))
+            .await
+        }
 
         Commands::Gateway { port, host } => handle_gateway_command(config, port, host).await,
 
