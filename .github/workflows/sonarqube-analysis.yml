@@ -82,7 +82,7 @@ jobs:
       - name: 🧪 Generate Rust coverage
         if: env.SONAR_TOKEN != ''
         working-directory: clients/agent-runtime
-        run: cargo llvm-cov --xml --output-path ../../coverage/agent-runtime-coverage.xml
+        run: cargo llvm-cov --cobertura --output-path ../../coverage/agent-runtime-coverage.xml
 
       - name: 🧮 Compute Sonar project key
         if: env.SONAR_TOKEN != ''
