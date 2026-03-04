@@ -20,7 +20,8 @@ pub use detect::create_sandbox;
 pub use pairing::PairingGuard;
 #[allow(unused_imports)]
 pub use policy::{
-    source_kind_for_tool, AutonomyLevel, SecurityPolicy, ToolPolicyDecision, ToolSourceKind,
+    source_kind_for_tool, AutonomyLevel, ExecutionOrigin, SecurityPolicy, ToolPolicyDecision,
+    ToolSourceKind,
 };
 #[allow(unused_imports)]
 pub use secrets::SecretStore;

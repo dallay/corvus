@@ -101,3 +101,20 @@
 - [ ] Consider CSS !important warnings (optional, may need Biome config)
 - [x] Update CLI docs with missing subcommands (high priority) - DONE (both en/es)
 - [x] Audit and document missing CLI flags/commands from agent-runtime - DONE
+
+## Codecov Web Configuration (2026-03-04)
+
+- Configured Vitest coverage in `clients/web/apps/chat` and `clients/web/apps/dashboard` using `v8` provider.
+- Added `test:coverage` script to `package.json` of these apps.
+- Updated `.github/codecov.yml` with flags for `rust`, `kotlin`, and `web`.
+- Extended the Gradle build in `clients/web/build.gradle.kts` to include an aggregate task `testCoverageAllWebApps`.
+- Updated `.github/workflows/pull-request-check.yml` to execute web coverage tests and upload `lcov.info` files to Codecov.
+- Standardized `@vitest/coverage-v8` version in `clients/web/pnpm-workspace.yaml` catalog.
+
+- Optimized Gradle web tasks to be configuration-cache compliant by deferring package.json script checks to execution time using `onlyIf`.
+- Improved Codecov reliability in CI by using `directory` parameter for web coverage uploads, ensuring all `lcov.info` files are discovered without relying on runner-side glob expansion.
+
+- Pinned C4-PlantUML include to v2.13.0 for documentation stability.
+- Localized actor labels in Spanish container diagrams.
+- Corrected GPG setup documentation regarding key sizes and CI/CD subkey export commands.
+- Added language tags to PGP blocks in Spanish documentation to satisfy linting.

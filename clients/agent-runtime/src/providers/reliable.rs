@@ -70,6 +70,12 @@ fn parse_retry_after_ms(err: &anyhow::Error) -> Option<u64> {
     None
 }
 
+struct ErrorInfo {
+    rate_limited: bool,
+    non_retryable: bool,
+    reason: &'static str,
+}
+
 /// Provider wrapper with retry, fallback, auth rotation, and model failover.
 pub struct ReliableProvider {
     providers: Vec<(String, Box<dyn Provider>)>,
@@ -151,79 +157,36 @@ impl ReliableProvider {
 
         for current_model in &models {
             for (provider_name, provider) in &self.providers {
-                let mut backoff_ms = self.base_backoff_ms;
+                let result = self
+                    .execute_single_provider(
+                        provider_name.as_str(),
+                        provider.as_ref(),
+                        current_model,
+                        &mut make_request,
+                    )
+                    .await;
 
-                for attempt in 0..=self.max_retries {
-                    match make_request(provider.as_ref(), current_model).await {
-                        Ok(resp) => {
-                            if attempt > 0 || *current_model != model {
-                                tracing::info!(
-                                    provider = provider_name,
-                                    model = *current_model,
-                                    attempt,
-                                    original_model = model,
-                                    "Provider recovered (failover/retry)"
-                                );
-                            }
-                            return Ok(resp);
+                match result {
+                    Ok(resp) => {
+                        if *current_model != model {
+                            tracing::info!(
+                                provider = provider_name,
+                                model = *current_model,
+                                original_model = model,
+                                "Provider recovered (failover)"
+                            );
                         }
-                        Err(e) => {
-                            let non_retryable = is_non_retryable(&e);
-                            let rate_limited = is_rate_limited(&e);
-
-                            let failure_reason = if rate_limited {
-                                "rate_limited"
-                            } else if non_retryable {
-                                "non_retryable"
-                            } else {
-                                "retryable"
-                            };
-                            failures.push(format!(
-                                "provider={provider_name} model={current_model} attempt {}/{}: {failure_reason}",
-                                attempt + 1,
-                                self.max_retries + 1
-                            ));
-
-                            if rate_limited {
-                                if let Some(new_key) = self.rotate_key() {
-                                    tracing::info!(
-                                        provider = provider_name,
-                                        "Rate limited, rotated API key (key ending ...{})",
-                                        &new_key[new_key.len().saturating_sub(4)..]
-                                    );
-                                }
-                            }
-
-                            if non_retryable {
-                                tracing::warn!(
-                                    provider = provider_name,
-                                    model = *current_model,
-                                    "Non-retryable error, moving on"
-                                );
-                                break;
-                            }
-
-                            if attempt < self.max_retries {
-                                let wait = self.compute_backoff(backoff_ms, &e);
-                                tracing::warn!(
-                                    provider = provider_name,
-                                    model = *current_model,
-                                    attempt = attempt + 1,
-                                    backoff_ms = wait,
-                                    "Provider call failed, retrying"
-                                );
-                                tokio::time::sleep(Duration::from_millis(wait)).await;
-                                backoff_ms = (backoff_ms.saturating_mul(2)).min(10_000);
-                            }
-                        }
+                        return Ok(resp);
+                    }
+                    Err(err) => {
+                        failures.push(err);
+                        tracing::warn!(
+                            provider = provider_name,
+                            model = *current_model,
+                            "Exhausted retries, trying next provider/model"
+                        );
                     }
                 }
-
-                tracing::warn!(
-                    provider = provider_name,
-                    model = *current_model,
-                    "Exhausted retries, trying next provider/model"
-                );
             }
 
             if *current_model != model {
@@ -239,6 +202,106 @@ impl ReliableProvider {
             "All providers/models failed. Attempts:\n{}",
             failures.join("\n")
         )
+    }
+
+    async fn execute_single_provider<'a, T, R>(
+        &'a self,
+        provider_name: &str,
+        provider: &'a dyn Provider,
+        current_model: &'a str,
+        make_request: &mut impl FnMut(&'a dyn Provider, &'a str) -> R,
+    ) -> anyhow::Result<T, String>
+    where
+        R: std::future::Future<Output = anyhow::Result<T>>,
+    {
+        let mut backoff_ms = self.base_backoff_ms;
+
+        for attempt in 0..=self.max_retries {
+            let result = make_request(provider, current_model).await;
+
+            match result {
+                Ok(resp) => return Ok(resp),
+                Err(e) => {
+                    let error_info = self.classify_error(&e);
+
+                    self.log_failure(provider_name, current_model, attempt, &error_info);
+                    self.handle_error_actions(provider_name, &error_info)?;
+
+                    if !error_info.non_retryable && attempt < self.max_retries {
+                        backoff_ms = self.wait_and_backoff(backoff_ms, &e, attempt).await;
+                    }
+                }
+            }
+        }
+
+        Err(format!(
+            "provider={} model={} attempts exhausted",
+            provider_name, current_model
+        ))
+    }
+
+    fn classify_error(&self, err: &anyhow::Error) -> ErrorInfo {
+        let rate_limited = is_rate_limited(err);
+        let non_retryable = is_non_retryable(err);
+
+        ErrorInfo {
+            rate_limited,
+            non_retryable,
+            reason: if rate_limited {
+                "rate_limited"
+            } else if non_retryable {
+                "non_retryable"
+            } else {
+                "retryable"
+            },
+        }
+    }
+
+    fn log_failure(
+        &self,
+        provider_name: &str,
+        current_model: &str,
+        attempt: u32,
+        info: &ErrorInfo,
+    ) {
+        tracing::warn!(
+            provider = provider_name,
+            model = current_model,
+            attempt = attempt + 1,
+            max_attempts = self.max_retries + 1,
+            reason = info.reason,
+            "Provider call failed"
+        );
+    }
+
+    fn handle_error_actions(
+        &self,
+        provider_name: &str,
+        info: &ErrorInfo,
+    ) -> anyhow::Result<(), String> {
+        if info.rate_limited {
+            if let Some(_new_key) = self.rotate_key() {
+                tracing::info!(provider = provider_name, "Rate limited, rotated API key");
+            }
+        }
+
+        if info.non_retryable {
+            tracing::warn!(provider = provider_name, "Non-retryable error, moving on");
+            return Err(format!("non_retryable: {}", info.reason));
+        }
+
+        Ok(())
+    }
+
+    async fn wait_and_backoff(&self, backoff_ms: u64, err: &anyhow::Error, attempt: u32) -> u64 {
+        let wait = self.compute_backoff(backoff_ms, err);
+        tracing::warn!(
+            attempt = attempt + 1,
+            backoff_ms = wait,
+            "Provider call failed, retrying"
+        );
+        tokio::time::sleep(Duration::from_millis(wait)).await;
+        (backoff_ms.saturating_mul(2)).min(10_000)
     }
 }
 

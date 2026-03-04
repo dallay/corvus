@@ -583,85 +583,14 @@ fn collect_notification_targets(config: &Config) -> Vec<NotificationTarget> {
         });
     };
 
-    for (channel, recipients) in &config.updates.notify_destinations {
-        for recipient in recipients {
-            let authorized_sender = infer_authorized_sender(channel, recipient);
-            push_target(channel, recipient.clone(), authorized_sender);
-        }
-    }
-
-    if let Some(slack) = &config.channels_config.slack {
-        if let Some(channel_id) = &slack.channel_id {
-            push_target("slack", channel_id.clone(), None);
-        }
-    }
-
-    if let Some(mattermost) = &config.channels_config.mattermost {
-        if let Some(channel_id) = &mattermost.channel_id {
-            push_target("mattermost", channel_id.clone(), None);
-        }
-    }
-
-    if let Some(matrix) = &config.channels_config.matrix {
-        push_target("matrix", matrix.room_id.clone(), None);
-    }
-
-    if let Some(signal) = &config.channels_config.signal {
-        if let Some(group_id) = &signal.group_id {
-            push_target("signal", format!("group:{group_id}"), None);
-        }
-    }
-
-    if let Some(irc) = &config.channels_config.irc {
-        for room in &irc.channels {
-            push_target("irc", room.clone(), None);
-        }
-    }
-
-    if let Some(imessage) = &config.channels_config.imessage {
-        for contact in &imessage.allowed_contacts {
-            if contact != "*" {
-                push_target("imessage", contact.clone(), Some(contact.clone()));
-            }
-        }
-    }
-
-    if let Some(whatsapp) = &config.channels_config.whatsapp {
-        for number in &whatsapp.allowed_numbers {
-            if number != "*" {
-                push_target("whatsapp", number.clone(), Some(number.clone()));
-            }
-        }
-    }
-
-    if let Some(email) = &config.channels_config.email {
-        for sender in &email.allowed_senders {
-            if sender.contains('@') && sender != "*" && !sender.starts_with('@') {
-                push_target("email", sender.clone(), Some(sender.clone()));
-            }
-        }
-    }
-
-    if let Some(telegram) = &config.channels_config.telegram {
-        for user in &telegram.allowed_users {
-            if user != "*" && user.chars().all(|ch| ch.is_ascii_digit()) {
-                push_target("telegram", user.clone(), Some(user.clone()));
-            }
-        }
-    }
-
-    if let Some(discord) = &config.channels_config.discord {
-        for user in &discord.allowed_users {
-            if user != "*" {
-                push_target("discord", user.clone(), Some(user.clone()));
-            }
-        }
-    }
+    collect_from_notify_destinations(config, &mut push_target);
+    collect_from_registered_channels(config, &mut push_target);
 
     targets.sort_by(|left, right| {
         left.channel
             .cmp(&right.channel)
             .then(left.recipient.cmp(&right.recipient))
+            .then(left.authorized_sender.cmp(&right.authorized_sender))
     });
     targets.dedup_by(|left, right| {
         left.channel == right.channel
@@ -671,11 +600,207 @@ fn collect_notification_targets(config: &Config) -> Vec<NotificationTarget> {
     targets
 }
 
+fn collect_from_notify_destinations(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    for (channel, recipients) in &config.updates.notify_destinations {
+        for recipient in recipients {
+            let authorized_sender = infer_authorized_sender(channel, recipient);
+            push_target(channel, recipient.clone(), authorized_sender);
+        }
+    }
+}
+
+fn collect_from_registered_channels(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    collect_slack_targets(config, push_target);
+    collect_mattermost_targets(config, push_target);
+    collect_matrix_targets(config, push_target);
+    collect_signal_targets(config, push_target);
+    collect_irc_targets(config, push_target);
+    collect_imessage_targets(config, push_target);
+    collect_whatsapp_targets(config, push_target);
+    collect_email_targets(config, push_target);
+    collect_telegram_targets(config, push_target);
+    collect_discord_targets(config, push_target);
+    collect_lark_targets(config, push_target);
+    collect_dingtalk_targets(config, push_target);
+    collect_qq_targets(config, push_target);
+}
+
+fn collect_slack_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(slack) = &config.channels_config.slack {
+        if let Some(channel_id) = &slack.channel_id {
+            push_target("slack", channel_id.clone(), None);
+        }
+    }
+}
+
+fn collect_mattermost_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(mattermost) = &config.channels_config.mattermost {
+        if let Some(channel_id) = &mattermost.channel_id {
+            push_target("mattermost", channel_id.clone(), None);
+        }
+    }
+}
+
+fn collect_matrix_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(matrix) = &config.channels_config.matrix {
+        push_target("matrix", matrix.room_id.clone(), None);
+    }
+}
+
+fn collect_signal_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(signal) = &config.channels_config.signal {
+        if let Some(group_id) = &signal.group_id {
+            push_target("signal", format!("group:{group_id}"), None);
+        }
+    }
+}
+
+fn collect_irc_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(irc) = &config.channels_config.irc {
+        for room in &irc.channels {
+            push_target("irc", room.clone(), None);
+        }
+    }
+}
+
+fn collect_imessage_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(imessage) = &config.channels_config.imessage {
+        for contact in &imessage.allowed_contacts {
+            if contact != "*" {
+                push_target("imessage", contact.clone(), Some(contact.clone()));
+            }
+        }
+    }
+}
+
+fn collect_whatsapp_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(whatsapp) = &config.channels_config.whatsapp {
+        for number in &whatsapp.allowed_numbers {
+            if number != "*" {
+                push_target("whatsapp", number.clone(), Some(number.clone()));
+            }
+        }
+    }
+}
+
+fn collect_email_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(email) = &config.channels_config.email {
+        for sender in &email.allowed_senders {
+            if is_valid_email_sender(sender) {
+                push_target("email", sender.clone(), Some(sender.clone()));
+            }
+        }
+    }
+}
+
+fn is_valid_email_sender(sender: &str) -> bool {
+    sender.contains('@') && sender != "*" && !sender.starts_with('@')
+}
+
+fn collect_telegram_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(telegram) = &config.channels_config.telegram {
+        for user in &telegram.allowed_users {
+            if is_numeric_user(user) {
+                push_target("telegram", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+}
+
+fn is_numeric_user(user: &str) -> bool {
+    if user == "*" {
+        return false;
+    }
+    let digits = user.strip_prefix('-').unwrap_or(user);
+    !digits.is_empty() && digits.chars().all(|ch| ch.is_ascii_digit())
+}
+
+fn collect_discord_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(discord) = &config.channels_config.discord {
+        for user in &discord.allowed_users {
+            if user != "*" {
+                push_target("discord", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+}
+
+fn collect_lark_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(lark) = &config.channels_config.lark {
+        for user in &lark.allowed_users {
+            if user != "*" {
+                push_target("lark", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+}
+
+fn collect_dingtalk_targets(
+    config: &Config,
+    push_target: &mut impl FnMut(&str, String, Option<String>),
+) {
+    if let Some(dingtalk) = &config.channels_config.dingtalk {
+        for user in &dingtalk.allowed_users {
+            if user != "*" {
+                push_target("dingtalk", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+}
+
+fn collect_qq_targets(config: &Config, push_target: &mut impl FnMut(&str, String, Option<String>)) {
+    if let Some(qq) = &config.channels_config.qq {
+        for user in &qq.allowed_users {
+            if user != "*" {
+                push_target("qq", user.clone(), Some(user.clone()));
+            }
+        }
+    }
+}
+
 fn infer_authorized_sender(channel: &str, recipient: &str) -> Option<String> {
     match channel {
-        "telegram" | "signal" | "whatsapp" | "imessage" | "email" | "discord" => {
-            Some(recipient.to_string())
-        }
+        "telegram" | "signal" | "whatsapp" | "imessage" | "email" | "discord" | "lark"
+        | "dingtalk" | "qq" => Some(recipient.to_string()),
         _ => None,
     }
 }

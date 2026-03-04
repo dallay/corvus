@@ -147,7 +147,35 @@ webApps.forEach { appName ->
       isIgnoreExitValue = true // Some apps may not have check script yet
     }
 
-  // Distribution zip
+
+
+
+  // Test coverage task
+  tasks.register<Exec>("${appName}TestCoverage") {
+    group = "web"
+    description = "Run tests with coverage for ${appName}"
+    dependsOn(appInstall)
+
+    // Use local variables to avoid capturing the task or project object in onlyIf closure
+    val shim = pnpmShim
+    val dir = appDir
+
+    workingDir = dir
+
+    // Defer script check to execution time to support configuration cache
+    onlyIf {
+        val pkgJson = java.io.File(dir, "package.json")
+        if (pkgJson.exists()) {
+            val pkg = groovy.json.JsonSlurper().parseText(pkgJson.readText()) as Map<*, *>
+            val scripts = pkg["scripts"] as? Map<*, *>
+            scripts?.containsKey("test:coverage") == true
+        } else false
+    }
+
+    commandLine(shim, "run", "test:coverage")
+  }
+
+
   tasks.register<Zip>("${appName}DistZip") {
     group = "web"
     description = "Zip ${appName} distribution"
@@ -176,6 +204,13 @@ tasks.register("buildAllWebApps") {
   description = "Build all web applications"
   dependsOn(webApps.map { "${it}Build" })
 }
+
+tasks.register("testCoverageAllWebApps") {
+  group = "web"
+  description = "Run tests with coverage for all web applications"
+  dependsOn(webApps.map { "${it}TestCoverage" })
+}
+
 
 tasks.register("cleanAllWebApps") {
   group = "web"

@@ -333,134 +333,166 @@ fn validate_runtime_kind(value: &str) -> bool {
 fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> Vec<&'static str> {
     let mut fields = Vec::new();
 
+    compare_root_fields(patch, cfg, &mut fields);
+    compare_observability_fields(patch.observability.as_ref(), cfg, &mut fields);
+    compare_runtime_fields(patch.runtime.as_ref(), cfg, &mut fields);
+    compare_autonomy_fields(patch.autonomy.as_ref(), cfg, &mut fields);
+    compare_gateway_fields(patch.gateway.as_ref(), cfg, &mut fields);
+    compare_scheduler_fields(patch.scheduler.as_ref(), cfg, &mut fields);
+    compare_webhook_fields(patch.webhook.as_ref(), cfg, &mut fields);
+
+    fields.sort_unstable();
+    fields.dedup();
+    fields
+}
+
+fn compare_root_fields(
+    patch: &AdminConfigUpdateRequest,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
     compare_trimmed_string(
         patch.default_provider.as_ref(),
         cfg.default_provider.as_ref(),
         "default_provider",
-        &mut fields,
+        fields,
     );
     compare_trimmed_string(
         patch.default_model.as_ref(),
         cfg.default_model.as_ref(),
         "default_model",
-        &mut fields,
+        fields,
     );
     compare_primitive(
         patch.default_temperature,
         cfg.default_temperature,
         "default_temperature",
-        &mut fields,
+        fields,
     );
     compare_ascii_lowercase(
         patch.memory_backend.as_ref(),
         &cfg.memory.backend,
         "memory_backend",
-        &mut fields,
+        fields,
     );
+}
 
-    if let Some(observability) = patch.observability.as_ref() {
+fn compare_observability_fields(
+    observability: Option<&AdminObservabilityPatch>,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(obs) = observability {
         compare_ascii_lowercase(
-            observability.backend.as_ref(),
+            obs.backend.as_ref(),
             &cfg.observability.backend,
             "observability.backend",
-            &mut fields,
+            fields,
         );
         compare_trimmed_string(
-            observability.otel_endpoint.as_ref(),
+            obs.otel_endpoint.as_ref(),
             cfg.observability.otel_endpoint.as_ref(),
             "observability.otel_endpoint",
-            &mut fields,
+            fields,
         );
         compare_trimmed_string(
-            observability.otel_service_name.as_ref(),
+            obs.otel_service_name.as_ref(),
             cfg.observability.otel_service_name.as_ref(),
             "observability.otel_service_name",
-            &mut fields,
+            fields,
         );
     }
+}
 
-    if let Some(runtime) = patch.runtime.as_ref() {
-        compare_ascii_lowercase(
-            runtime.kind.as_ref(),
-            &cfg.runtime.kind,
-            "runtime.kind",
-            &mut fields,
-        );
+fn compare_runtime_fields(
+    runtime: Option<&AdminRuntimePatch>,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(rt) = runtime {
+        compare_ascii_lowercase(rt.kind.as_ref(), &cfg.runtime.kind, "runtime.kind", fields);
     }
+}
 
-    if let Some(autonomy) = patch.autonomy.as_ref() {
+fn compare_autonomy_fields(
+    autonomy: Option<&AdminAutonomyPatch>,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(aut) = autonomy {
+        compare_primitive(aut.level, cfg.autonomy.level, "autonomy.level", fields);
         compare_primitive(
-            autonomy.level,
-            cfg.autonomy.level,
-            "autonomy.level",
-            &mut fields,
-        );
-        compare_primitive(
-            autonomy.workspace_only,
+            aut.workspace_only,
             cfg.autonomy.workspace_only,
             "autonomy.workspace_only",
-            &mut fields,
+            fields,
         );
         compare_primitive(
-            autonomy.max_actions_per_hour,
+            aut.max_actions_per_hour,
             cfg.autonomy.max_actions_per_hour,
             "autonomy.max_actions_per_hour",
-            &mut fields,
+            fields,
         );
         compare_primitive(
-            autonomy.max_cost_per_day_cents,
+            aut.max_cost_per_day_cents,
             cfg.autonomy.max_cost_per_day_cents,
             "autonomy.max_cost_per_day_cents",
-            &mut fields,
+            fields,
         );
     }
+}
 
-    if let Some(gateway) = patch.gateway.as_ref() {
-        compare_primitive(gateway.port, cfg.gateway.port, "gateway.port", &mut fields);
+fn compare_gateway_fields(
+    gateway: Option<&AdminGatewayPatch>,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(gw) = gateway {
+        compare_primitive(gw.port, cfg.gateway.port, "gateway.port", fields);
         compare_trimmed_string(
-            gateway.host.as_ref(),
+            gw.host.as_ref(),
             Some(&cfg.gateway.host),
             "gateway.host",
-            &mut fields,
+            fields,
         );
         compare_primitive(
-            gateway.require_pairing,
+            gw.require_pairing,
             cfg.gateway.require_pairing,
             "gateway.require_pairing",
-            &mut fields,
+            fields,
         );
         compare_primitive(
-            gateway.allow_public_bind,
+            gw.allow_public_bind,
             cfg.gateway.allow_public_bind,
             "gateway.allow_public_bind",
-            &mut fields,
+            fields,
         );
         compare_primitive(
-            gateway.pair_rate_limit_per_minute,
+            gw.pair_rate_limit_per_minute,
             cfg.gateway.pair_rate_limit_per_minute,
             "gateway.pair_rate_limit_per_minute",
-            &mut fields,
+            fields,
         );
         compare_primitive(
-            gateway.webhook_rate_limit_per_minute,
+            gw.webhook_rate_limit_per_minute,
             cfg.gateway.webhook_rate_limit_per_minute,
             "gateway.webhook_rate_limit_per_minute",
-            &mut fields,
+            fields,
         );
         compare_primitive(
-            gateway.trust_forwarded_headers,
+            gw.trust_forwarded_headers,
             cfg.gateway.trust_forwarded_headers,
             "gateway.trust_forwarded_headers",
-            &mut fields,
+            fields,
         );
 
-        if let Some(max_keys) = gateway.rate_limit_max_keys {
+        if let Some(max_keys) = gw.rate_limit_max_keys {
             let normalized = normalize_max_keys(max_keys, cfg.gateway.rate_limit_max_keys);
             if normalized != cfg.gateway.rate_limit_max_keys {
                 fields.push("gateway.rate_limit_max_keys");
             }
         }
-        if let Some(ttl) = gateway.idempotency_ttl_secs {
+        if let Some(ttl) = gw.idempotency_ttl_secs {
             let normalized_ttl = if ttl == 0 {
                 cfg.gateway.idempotency_ttl_secs
             } else {
@@ -470,35 +502,47 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
                 fields.push("gateway.idempotency_ttl_secs");
             }
         }
-        if let Some(max_keys) = gateway.idempotency_max_keys {
+        if let Some(max_keys) = gw.idempotency_max_keys {
             let normalized = normalize_max_keys(max_keys, cfg.gateway.idempotency_max_keys);
             if normalized != cfg.gateway.idempotency_max_keys {
                 fields.push("gateway.idempotency_max_keys");
             }
         }
     }
+}
 
-    if let Some(scheduler) = patch.scheduler.as_ref() {
+fn compare_scheduler_fields(
+    scheduler: Option<&AdminSchedulerPatch>,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(sched) = scheduler {
         compare_primitive(
-            scheduler.enabled,
+            sched.enabled,
             cfg.scheduler.enabled,
             "scheduler.enabled",
-            &mut fields,
+            fields,
         );
-        if let Some(max_tasks) = scheduler.max_tasks {
+        if let Some(max_tasks) = sched.max_tasks {
             if max_tasks.max(1) != cfg.scheduler.max_tasks {
                 fields.push("scheduler.max_tasks");
             }
         }
-        if let Some(max_concurrent) = scheduler.max_concurrent {
+        if let Some(max_concurrent) = sched.max_concurrent {
             if max_concurrent.max(1) != cfg.scheduler.max_concurrent {
                 fields.push("scheduler.max_concurrent");
             }
         }
     }
+}
 
-    if let Some(webhook) = patch.webhook.as_ref() {
-        if let Some(port) = webhook.port {
+fn compare_webhook_fields(
+    webhook: Option<&AdminWebhookPatch>,
+    cfg: &Config,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(wh) = webhook {
+        if let Some(port) = wh.port {
             let current_port = cfg
                 .channels_config
                 .webhook
@@ -509,7 +553,7 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
             }
         }
 
-        if let Some(secret) = webhook.secret.as_ref() {
+        if let Some(secret) = wh.secret.as_ref() {
             match secret {
                 AdminSecretUpdate::Unchanged => {}
                 AdminSecretUpdate::Clear => {
@@ -539,10 +583,6 @@ fn restart_required_updates(cfg: &Config, patch: &AdminConfigUpdateRequest) -> V
             }
         }
     }
-
-    fields.sort_unstable();
-    fields.dedup();
-    fields
 }
 
 fn compare_trimmed_string(

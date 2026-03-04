@@ -820,13 +820,7 @@ impl TelegramChannel {
 
             let api_url = self.api_url("sendMessage");
 
-            if let Ok(resp) = send_message_with_fallback(&self.client, &api_url, body).await {
-                if index < chunks.len() - 1 {
-                    tokio::time::sleep(Duration::from_millis(100)).await;
-                }
-                let _ = resp;
-                continue;
-            }
+            send_message_with_fallback(&self.client, &api_url, body).await?;
 
             if index < chunks.len() - 1 {
                 tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1375,6 +1369,77 @@ impl TelegramChannel {
 
         Ok(data)
     }
+
+    async fn poll_updates(&self, offset: i64) -> anyhow::Result<Vec<serde_json::Value>> {
+        let url = self.api_url("getUpdates");
+        let body = serde_json::json!({
+            "offset": offset,
+            "timeout": 30,
+            "allowed_updates": ["message"]
+        });
+
+        let resp = self.client.post(&url).json(&body).send().await?;
+        let data: serde_json::Value = resp.json().await?;
+
+        let ok = data
+            .get("ok")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true);
+
+        if !ok {
+            let error_code = data
+                .get("error_code")
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or_default();
+            let description = data
+                .get("description")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("unknown Telegram API error");
+
+            return Err(self.handle_api_error(error_code, description));
+        }
+
+        let results = data
+            .get("result")
+            .and_then(serde_json::Value::as_array)
+            .map(|arr| arr.to_vec())
+            .unwrap_or_default();
+
+        Ok(results)
+    }
+
+    fn handle_api_error(&self, error_code: i64, description: &str) -> anyhow::Error {
+        if error_code == 409 {
+            tracing::warn!(
+                "Telegram polling conflict (409): {description}. \
+                Ensure only one `corvus` process is using this bot token."
+            );
+            anyhow::anyhow!("Telegram polling conflict: {}", description)
+        } else {
+            tracing::warn!(
+                "Telegram getUpdates API error (code={}): {description}",
+                error_code
+            );
+            anyhow::anyhow!("Telegram API error ({}): {}", error_code, description)
+        }
+    }
+
+    async fn send_typing_action(&self, chat_id: &str) {
+        let (parsed_chat_id, thread_id) = Self::parse_reply_target(chat_id);
+        let mut typing_body = serde_json::json!({
+            "chat_id": parsed_chat_id,
+            "action": "typing"
+        });
+        if let Some(tid) = thread_id {
+            typing_body["message_thread_id"] = serde_json::Value::String(tid.to_string());
+        }
+        let _ = self
+            .client
+            .post(self.api_url("sendChatAction"))
+            .json(&typing_body)
+            .send()
+            .await;
+    }
 }
 
 #[async_trait]
@@ -1635,86 +1700,30 @@ impl Channel for TelegramChannel {
         tracing::info!("Telegram channel listening for messages...");
 
         loop {
-            let url = self.api_url("getUpdates");
-            let body = serde_json::json!({
-                "offset": offset,
-                "timeout": 30,
-                "allowed_updates": ["message"]
-            });
+            match self.poll_updates(offset).await {
+                Ok(updates) => {
+                    for update in updates {
+                        if let Some(uid) =
+                            update.get("update_id").and_then(serde_json::Value::as_i64)
+                        {
+                            offset = uid + 1;
+                        }
 
-            let resp = match self.client.post(&url).json(&body).send().await {
-                Ok(r) => r,
+                        let Some(msg) = self.parse_update_message(&update) else {
+                            self.handle_unauthorized_message(&update).await;
+                            continue;
+                        };
+
+                        self.send_typing_action(&msg.reply_target).await;
+
+                        if tx.send(msg).await.is_err() {
+                            return Ok(());
+                        }
+                    }
+                }
                 Err(e) => {
                     tracing::warn!("Telegram poll error: {e}");
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    continue;
-                }
-            };
-
-            let data: serde_json::Value = match resp.json().await {
-                Ok(d) => d,
-                Err(e) => {
-                    tracing::warn!("Telegram parse error: {e}");
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                    continue;
-                }
-            };
-
-            let ok = data
-                .get("ok")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(true);
-            if !ok {
-                let error_code = data
-                    .get("error_code")
-                    .and_then(serde_json::Value::as_i64)
-                    .unwrap_or_default();
-                let description = data
-                    .get("description")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("unknown Telegram API error");
-
-                if error_code == 409 {
-                    tracing::warn!(
-                        "Telegram polling conflict (409): {description}. \
-                        Ensure only one `corvus` process is using this bot token."
-                    );
-                    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-                } else {
-                    tracing::warn!(
-                        "Telegram getUpdates API error (code={}): {description}",
-                        error_code
-                    );
-                    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-                }
-                continue;
-            }
-
-            if let Some(results) = data.get("result").and_then(serde_json::Value::as_array) {
-                for update in results {
-                    if let Some(uid) = update.get("update_id").and_then(serde_json::Value::as_i64) {
-                        offset = uid + 1;
-                    }
-
-                    let Some(msg) = self.parse_update_message(update) else {
-                        self.handle_unauthorized_message(update).await;
-                        continue;
-                    };
-
-                    let typing_body = serde_json::json!({
-                        "chat_id": &msg.reply_target,
-                        "action": "typing"
-                    });
-                    let _ = self
-                        .client
-                        .post(self.api_url("sendChatAction"))
-                        .json(&typing_body)
-                        .send()
-                        .await;
-
-                    if tx.send(msg).await.is_err() {
-                        return Ok(());
-                    }
+                    return Err(e);
                 }
             }
         }
@@ -1883,10 +1892,11 @@ mod tests {
             .with_streaming(StreamMode::Partial, 0);
         let long_text = "a".repeat(TELEGRAM_MAX_MESSAGE_LENGTH + 64);
 
-        // For oversized text + invalid draft message_id, finalize_draft should
-        // fall back to chunked send instead of returning early.
+        // For oversized text + invalid draft message_id, finalize_draft falls back to
+        // chunked send. send_text_chunks now propagates errors, so the network failure
+        // with a fake token is expected to return Err.
         let result = ch.finalize_draft("123", "not-a-number", &long_text).await;
-        assert!(result.is_ok());
+        assert!(result.is_err());
     }
 
     #[test]

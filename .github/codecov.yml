@@ -16,3 +16,17 @@ ignore:
   - ".*/nocheck/.*"
   - ".*/autogen/.*"
   - ".*/generated/.*"
+
+flags:
+  rust:
+    paths:
+      - clients/agent-runtime
+  kotlin:
+    paths:
+      - modules/
+      - clients/composeApp
+      - clients/androidApp
+      - clients/iosApp
+  web:
+    paths:
+      - clients/web
