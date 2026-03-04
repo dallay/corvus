@@ -69,6 +69,25 @@ jobs:
         if: env.SONAR_TOKEN != ''
         run: ./gradlew test jvmTest :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
 
+      - name: 🦀 Setup Rust
+        if: env.SONAR_TOKEN != ''
+        uses: dtolnay/rust-toolchain@HEAD
+        with:
+          toolchain: 1.92
+
+      - name: 📦 Install cargo-llvm-cov
+        if: env.SONAR_TOKEN != ''
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: 📁 Create coverage directory
+        if: env.SONAR_TOKEN != ''
+        run: mkdir -p coverage
+
+      - name: 🧪 Generate Rust coverage
+        if: env.SONAR_TOKEN != ''
+        working-directory: clients/agent-runtime
+        run: cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov
+
       - name: 🧮 Compute Sonar project key
         if: env.SONAR_TOKEN != ''
         id: sonar_meta
@@ -86,8 +105,9 @@ jobs:
             -Dsonar.projectKey=${{ steps.sonar_meta.outputs.key }}
             -Dsonar.projectName=${{ github.event.repository.name }}
             -Dsonar.sources=.
-            -Dsonar.exclusions=**/.git/**,**/.gradle/**,**/build/**,**/dist/**,**/coverage/**,**/node_modules/**,**/.next/**,**/.turbo/**,**/target/**,**/vendor/**,**/generated/**
-            -Dsonar.coverage.jacoco.xmlReportPaths=modules/agent-core-kmp/build/reports/kover/report.xml,clients/composeApp/build/reports/kover/report.xml
+            -Dsonar.exclusions=**/.git/**,**/.gradle/**,**/build/**,**/dist/**,**/coverage/**,**/node_modules/**,**/.next/**,**/.turbo/**,**/target/**,**/vendor/**,**/generated/**,**/clients/agent-runtime/target/**
+            -Dsonar.coverage.jacoco.xmlReportPaths=${{ github.workspace }}/modules/agent-core-kmp/build/reports/kover/report.xml,${{ github.workspace }}/clients/composeApp/build/reports/kover/report.xml
+            -Dsonar.rust.lcov.reportPaths=${{ github.workspace }}/coverage/agent-runtime-coverage.lcov
 
       - name: 🚦 SonarQube Quality Gate
         if: >-
@@ -101,4 +121,4 @@ jobs:
         env:
           SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
         with:
-          pollingTimeoutSec: 300
+          scanMetadataReportFile: .scannerwork/report-task.txt

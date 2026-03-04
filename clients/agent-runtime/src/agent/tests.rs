@@ -502,14 +502,59 @@ async fn turn_handles_unknown_tool_gracefully() {
 
     // Unknown tools should fail-closed and require explicit approval
     let has_tool_result = agent.history().iter().any(|msg| match msg {
-        ConversationMessage::ToolResults(results) => results
-            .iter()
-            .any(|r| r.content.contains("approval required before executing")),
+        ConversationMessage::ToolResults(results) => results.iter().any(|r| {
+            serde_json::from_str::<serde_json::Value>(&r.content)
+                .ok()
+                .and_then(|value| value.get("code").cloned())
+                == Some(serde_json::Value::String("approval_required".to_string()))
+        }),
         _ => false,
     });
     assert!(
         has_tool_result,
         "Expected tool result with approval-required message"
+    );
+}
+
+#[tokio::test]
+async fn turn_blocks_mcp_tool_by_default_with_structured_denial_payload() {
+    let provider = Box::new(ScriptedProvider::new(vec![
+        tool_response(vec![ToolCall {
+            id: "tc-mcp-1".into(),
+            name: "mcp.docs.search".into(),
+            arguments: r#"{"query":"rust"}"#.into(),
+        }]),
+        text_response("MCP request blocked"),
+    ]));
+
+    let mut agent = build_agent_with(
+        provider,
+        vec![Box::new(EchoTool)],
+        Box::new(NativeToolDispatcher),
+    );
+
+    let _ = agent.turn("use mcp").await.unwrap();
+
+    let mut has_structured_denial = false;
+    for message in agent.history() {
+        if let ConversationMessage::ToolResults(results) = message {
+            for result in results {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&result.content) {
+                    if parsed.get("code")
+                        == Some(&serde_json::Value::String("approval_required".into()))
+                        && parsed.get("tool")
+                            == Some(&serde_json::Value::String("mcp.docs.search".into()))
+                    {
+                        has_structured_denial = true;
+                    }
+                }
+            }
+        }
+    }
+
+    assert!(
+        has_structured_denial,
+        "Expected structured denial payload for blocked MCP call"
     );
 }
 

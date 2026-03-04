@@ -371,34 +371,41 @@ impl Agent {
 
     async fn execute_tool_call(&self, call: &ParsedToolCall) -> ToolExecutionResult {
         let start = Instant::now();
+        if call.name.starts_with("mcp.") {
+            tracing::debug!(tool = %call.name, "Agent executing MCP tool call");
+        }
 
-        let (result, success) =
-            if let Some(tool) = self.tools.iter().find(|t| t.name() == call.name) {
-                match tool.execute(call.arguments.clone()).await {
-                    Ok(r) => {
-                        self.observer.record_event(&ObserverEvent::ToolCall {
-                            tool: call.name.clone(),
-                            duration: start.elapsed(),
-                            success: r.success,
-                        });
-                        if r.success {
-                            (r.output, true)
-                        } else {
-                            (format!("Error: {}", r.error.unwrap_or(r.output)), false)
-                        }
+        let (result, success) = if let Some(tool) =
+            self.tools.iter().find(|t| t.name() == call.name)
+        {
+            match tool.execute(call.arguments.clone()).await {
+                Ok(r) => {
+                    if call.name.starts_with("mcp.") && !r.success {
+                        tracing::warn!(tool = %call.name, "MCP tool call returned failure status");
                     }
-                    Err(e) => {
-                        self.observer.record_event(&ObserverEvent::ToolCall {
-                            tool: call.name.clone(),
-                            duration: start.elapsed(),
-                            success: false,
-                        });
-                        (format!("Error executing {}: {e}", call.name), false)
+                    self.observer.record_event(&ObserverEvent::ToolCall {
+                        tool: call.name.clone(),
+                        duration: start.elapsed(),
+                        success: r.success,
+                    });
+                    if r.success {
+                        (r.output, true)
+                    } else {
+                        (format!("Error: {}", r.error.unwrap_or(r.output)), false)
                     }
                 }
-            } else {
-                (format!("Unknown tool: {}", call.name), false)
-            };
+                Err(e) => {
+                    self.observer.record_event(&ObserverEvent::ToolCall {
+                        tool: call.name.clone(),
+                        duration: start.elapsed(),
+                        success: false,
+                    });
+                    (format!("Error executing {}: {e}", call.name), false)
+                }
+            }
+        } else {
+            (format!("Unknown tool: {}", call.name), false)
+        };
 
         ToolExecutionResult {
             name: call.name.clone(),
@@ -553,7 +560,10 @@ impl Agent {
                     key,
                     ToolExecutionResult {
                         name: call.name.clone(),
-                        output: format!("approval required before executing `{extracted_reason}`"),
+                        output: crate::approval::structured_denial_text(
+                            &call.name,
+                            &extracted_reason,
+                        ),
                         success: false,
                         tool_call_id: call.tool_call_id.clone(),
                         action: DispatchAction::ApprovalRequired(extracted_reason),

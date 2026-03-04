@@ -18,7 +18,10 @@ pub use audit::{AuditEvent, AuditEventType, AuditLogger};
 pub use detect::create_sandbox;
 #[allow(unused_imports)]
 pub use pairing::PairingGuard;
-pub use policy::{AutonomyLevel, SecurityPolicy};
+#[allow(unused_imports)]
+pub use policy::{
+    source_kind_for_tool, AutonomyLevel, SecurityPolicy, ToolPolicyDecision, ToolSourceKind,
+};
 #[allow(unused_imports)]
 pub use secrets::SecretStore;
 #[allow(unused_imports)]

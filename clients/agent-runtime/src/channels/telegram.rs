@@ -1886,7 +1886,7 @@ mod tests {
         // For oversized text + invalid draft message_id, finalize_draft should
         // fall back to chunked send instead of returning early.
         let result = ch.finalize_draft("123", "not-a-number", &long_text).await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
     }
 
     #[test]

@@ -16,8 +16,7 @@ body {
   min-height: 100%;
   background:
     radial-gradient(circle at 15% -10%, #152033 0%, transparent 40%),
-    radial-gradient(circle at 80% 0%, #1a1044 0%, transparent 34%),
-    var(--corvus-bg);
+    radial-gradient(circle at 80% 0%, #1a1044 0%, transparent 34%), var(--corvus-bg);
   color: var(--corvus-text);
   font-family: var(--corvus-font-sans);
   letter-spacing: -0.01em;
@@ -522,13 +521,25 @@ nav a:hover,
   }
 
   @keyframes vt-fade-out {
-    from { opacity: 1; filter: blur(0); }
-    to { opacity: 0; filter: blur(2px); }
+    from {
+      opacity: 1;
+      filter: blur(0);
+    }
+    to {
+      opacity: 0;
+      filter: blur(2px);
+    }
   }
 
   @keyframes vt-fade-in {
-    from { opacity: 0; filter: blur(2px); }
-    to { opacity: 1; filter: blur(0); }
+    from {
+      opacity: 0;
+      filter: blur(2px);
+    }
+    to {
+      opacity: 1;
+      filter: blur(0);
+    }
   }
 }
 
