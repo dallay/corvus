@@ -1,8 +1,8 @@
 ---
-title: Deepseek
+title: DeepSeek
 ---
 
-# Deepseek Provider
+# DeepSeek Provider
 
 Deepseek provides advanced AI models.
 

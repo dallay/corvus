@@ -4,7 +4,7 @@ title: Moonshot
 
 # Moonshot Provider
 
-Moonshot provides advanced AI models.
+Moonshot provides advanced AI models and infrastructure.
 
 ## Configuration
 

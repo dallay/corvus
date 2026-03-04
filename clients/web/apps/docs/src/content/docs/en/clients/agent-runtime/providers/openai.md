@@ -17,5 +17,5 @@ export OPENAI_API_KEY=sk-...
 ## Supported Models
 
 - gpt-4o
-- gpt-4-turbo
-- gpt-3.5-turbo
+- gpt-4o-mini
+- gpt-4-turbo-2024-04-09

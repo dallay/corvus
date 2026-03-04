@@ -14,6 +14,6 @@ Configure su clave API:
 export OPENROUTER_API_KEY=sk-or-...
 ```
 
-## Modelos Compatibles
+## Modelos compatibles
 
 Acceda a cualquier modelo disponible en OpenRouter usando el prefijo `openrouter/`.

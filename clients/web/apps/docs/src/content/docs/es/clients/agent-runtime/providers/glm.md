@@ -1,8 +1,8 @@
 ---
-title: Glm
+title: GLM
 ---
 
-# Proveedor Glm
+# Proveedor GLM
 
 Glm ofrece modelos de IA avanzados e infraestructura.
 

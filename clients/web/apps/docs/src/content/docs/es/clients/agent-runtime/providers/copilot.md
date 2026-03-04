@@ -11,5 +11,5 @@ Los modelos de GitHub Copilot están disponibles a través de su API oficial.
 Configure su token:
 
 ```bash
-export COPILOT_TOKEN=...
+export GITHUB_TOKEN=...
 ```

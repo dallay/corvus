@@ -11,7 +11,7 @@ Anthropic ofrece la familia de modelos Claude, conocidos por sus sólidas capaci
 Configure su clave API:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export ANTHROPIC_API_KEY=<YOUR_ANTHROPIC_API_KEY>
 ```
 
 ## Modelos Compatibles

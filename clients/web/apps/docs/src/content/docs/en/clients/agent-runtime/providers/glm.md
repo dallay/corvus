@@ -1,8 +1,8 @@
 ---
-title: Glm
+title: GLM
 ---
 
-# Glm Provider
+# GLM Provider
 
 Glm provides advanced AI models.
 

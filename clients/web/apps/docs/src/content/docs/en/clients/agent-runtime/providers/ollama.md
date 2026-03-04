@@ -8,11 +8,13 @@ Ollama allows you to run open-source models locally.
 
 ## Configuration
 
-By default, Corvus expects Ollama to be running on `http://localhost:11434`.
+Set your API key (if required):
 
 ```bash
-export OLLAMA_HOST=http://localhost:11434
+export OLLAMA_API_KEY=...
 ```
+
+To configure a custom endpoint (e.g., for a remote Ollama instance), set the `api_url` field in your Corvus configuration file. The `OLLAMA_HOST` environment variable is not used for endpoint overrides in the Agent Runtime.
 
 ## Supported Models
 

@@ -11,5 +11,5 @@ Qwen ofrece modelos de IA avanzados e infraestructura.
 Configure su clave API:
 
 ```bash
-export QWEN_API_KEY=...
+export DASHSCOPE_API_KEY=...
 ```

@@ -1,8 +1,8 @@
 ---
-title: Deepseek
+title: DeepSeek
 ---
 
-# Proveedor Deepseek
+# Proveedor DeepSeek
 
 Deepseek ofrece modelos de IA avanzados e infraestructura.
 

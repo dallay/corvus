@@ -4,7 +4,7 @@ title: Minimax
 
 # Proveedor Minimax
 
-Minimax ofrece modelos de IA avanzados e infraestructura.
+Minimax ofrece modelos de IA avanzados.
 
 ## Configuración
 

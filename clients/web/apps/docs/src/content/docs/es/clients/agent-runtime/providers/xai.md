@@ -1,8 +1,8 @@
 ---
-title: Xai
+title: xAI
 ---
 
-# Proveedor Xai
+# Proveedor xAI
 
 Xai ofrece modelos de IA avanzados e infraestructura.
 

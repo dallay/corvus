@@ -14,7 +14,7 @@ Por defecto, Corvus espera que Ollama se esté ejecutando en `http://localhost:1
 export OLLAMA_HOST=http://localhost:11434
 ```
 
-## Modelos Compatibles
+## Modelos compatibles
 
 - llama3
 - mistral

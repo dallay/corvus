@@ -1,8 +1,8 @@
 ---
-title: Xai
+title: xAI
 ---
 
-# Xai Provider
+# xAI Provider
 
 Xai provides advanced AI models.
 
