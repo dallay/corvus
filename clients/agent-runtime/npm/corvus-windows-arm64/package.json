@@ -1,6 +1,6 @@
 {
   "name": "@dallay/corvus-windows-arm64",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Corvus runtime CLI for Windows ARM64",
   "license": "Apache-2.0",
   "os": [
