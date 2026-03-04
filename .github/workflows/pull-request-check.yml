@@ -90,14 +90,26 @@ jobs:
 
       - name: 📈 Generate Code Coverage Report
         if: github.event_name != 'pull_request'
-        run: ./gradlew testCodeCoverageReport
+        run: ./gradlew testCodeCoverageReport testCoverageAllWebApps
 
-      - name: 📤 Upload coverage to Codecov
+      - name: 📤 Upload Kotlin/Rust coverage to Codecov
         if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
         uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
         with:
           fail_ci_if_error: true
           verbose: true
+          flags: rust,kotlin
           files: ./gradle/aggregation/build/reports/coverage/coverage.xml
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+      - name: 📤 Upload Web coverage to Codecov
+        if: github.event_name != 'pull_request' && github.actor != 'dependabot[bot]'
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de # v5.5.2
+        with:
+          fail_ci_if_error: true
+          verbose: true
+          flags: web
+          directory: ./clients/web/apps
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

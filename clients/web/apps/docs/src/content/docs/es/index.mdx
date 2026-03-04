@@ -1,12 +1,12 @@
 ---
 title: Corvus
-description: Plataforma de agentes reactivos para orquestación siempre activa en la JVM.
+description: Plataforma reactiva de agentes siempre activos sobre JVM.
 template: splash
 hero:
-  tagline: Construye agentes proactivos de larga duración con Kotlin, Spring Boot, Neo4j, sidecars de Rust y un panel de control transparente.
+  tagline: Construye agentes proactivos y de larga duración con Kotlin, Spring Boot, Neo4j, sidecars en Rust y un panel transparente.
   actions:
-    - text: Empezar
-      link: intro/introduction/
+    - text: Primeros Pasos
+      link: guides/getting-started/
       icon: right-arrow
     - text: Ver en GitHub
       link: https://github.com/dallay/corvus
@@ -21,23 +21,31 @@ import {Card, CardGrid, LinkCard} from '@astrojs/starlight/components';
 
 <CardGrid stagger>
   <Card title="Orquestador Reactivo" icon="setting">
-    Kotlin + Spring Boot + Coroutines/WebFlux para flujos de trabajo no bloqueantes y siempre activos.
+    Kotlin + Spring Boot + Coroutines/WebFlux para flujos no bloqueantes y siempre activos.
   </Card>
-  <Card title="Memoria de Grafos" icon="open-book">
-    Arquitectura centrada en el conocimiento usando Neo4j para contexto conectado y memoria duradera.
+  <Card title="Memoria de Grafo" icon="open-book">
+    Arquitectura orientada a conocimiento con Neo4j para contexto conectado y memoria durable.
   </Card>
-  <Card title="Sidecars de Rust" icon="rocket">
-    Binarios de alto rendimiento para scraping y operaciones seguras en sandbox.
+  <Card title="Sidecars en Rust" icon="rocket">
+    Binarios de alto rendimiento para scraping y operaciones seguras de sandbox.
   </Card>
-  <Card title="Operaciones Transparentes" icon="approve-check">
-    Observabilidad en tiempo real a través de una superficie de control Astro/Vue y streaming de eventos.
+  <Card title="Operación Transparente" icon="approve-check">
+    Observabilidad en tiempo real con Astro/Vue y streaming de eventos.
   </Card>
 </CardGrid>
 
-## Explora la documentación
+## Explora la Documentación
 
 <CardGrid>
-  <LinkCard title="Agent Runtime"
-            description="Sidecar de Rust de alto rendimiento para operaciones seguras en sandbox."
-            href="clients/agent-runtime/"/>
+  <LinkCard title="Estructura del Proyecto"
+            description="Entiende la distribución de módulos y responsabilidades."
+            href="guides/structure/"/>
+  <LinkCard title="Lista de Funcionalidades"
+            description="Revisa herramientas habilitadas y guardrails de calidad."
+            href="guides/features/"/>
+  <LinkCard title="Arquitectura" description="Consulta decisiones de diseño y modelo de ejecución."
+            href="guides/architecture/"/>
+  <LinkCard title="Flujo de Desarrollo"
+            description="Procedimientos para build, test, lint y release."
+            href="guides/development/"/>
 </CardGrid>
