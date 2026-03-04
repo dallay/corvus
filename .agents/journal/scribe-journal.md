@@ -70,9 +70,32 @@
 
 ---
 
+## 2026-05-22 - CLI Reference Audit & Update - COMPLETE
+
+**Verification:**
+- Audited `clients/agent-runtime/src/main.rs` and `lib.rs` to identify undocumented CLI features.
+- Found missing items: `peripheral setup-uno-q`, `migrate openclaw` (with `--dry-run` and `--source`), `hardware info --chip`, and `models refresh --provider`.
+
+**Changes:**
+- Updated `en/guides/cli-reference.md` and `es/guides/cli-reference.md` to include the missing commands and flags.
+- Ensured 1:1 parity between English and Spanish versions.
+- Refined formatting for better readability of technical specs.
+
+**Validation:**
+- ✅ `./gradlew :web:docsCheck`: Biome linting passed.
+- ✅ `./gradlew :web:docsBuild`: Documentation site built successfully with no broken links.
+- ✅ Visual Verification: Used Playwright to capture and inspect screenshots of the rendered pages (`cli_docs_en.png`, `cli_docs_es.png`). Layout and translations verified.
+
+**Notes:**
+- Glossary: "Dry run" consistently translated as "Simulación" in Spanish docs.
+- Parity: Maintained strict alignment of section IDs and heading levels for the language switcher.
+
+---
+
 ## TODO
 - [x] Verify CLI reference against actual code implementation - DONE (gaps found)
 - [x] Do deep comparison of en/es content parity - DONE
 - [ ] Fix duplicate ID warnings (optional, low priority)
 - [ ] Consider CSS !important warnings (optional, may need Biome config)
 - [x] Update CLI docs with missing subcommands (high priority) - DONE (both en/es)
+- [x] Audit and document missing CLI flags/commands from agent-runtime - DONE
