@@ -3,7 +3,7 @@ use crate::security::AutonomyLevel;
 use anyhow::{Context, Result};
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
@@ -87,6 +87,9 @@ pub struct Config {
 
     #[serde(default)]
     pub web_search: WebSearchConfig,
+
+    #[serde(default)]
+    pub mcp: McpConfig,
 
     #[serde(default)]
     pub identity: IdentityConfig,
@@ -769,6 +772,61 @@ impl Default for WebSearchConfig {
             brave_api_key: None,
             max_results: default_web_search_max_results(),
             timeout_secs: default_web_search_timeout_secs(),
+        }
+    }
+}
+
+// -- MCP ---------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct McpConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default)]
+    pub servers: Vec<McpServerConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServerConfig {
+    pub name: String,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
+    #[serde(default = "default_mcp_startup_timeout_ms")]
+    pub startup_timeout_ms: u64,
+    #[serde(default = "default_mcp_call_timeout_ms")]
+    pub call_timeout_ms: u64,
+    #[serde(default = "default_mcp_output_limit_bytes")]
+    pub output_limit_bytes: usize,
+}
+
+fn default_mcp_startup_timeout_ms() -> u64 {
+    5_000
+}
+
+fn default_mcp_call_timeout_ms() -> u64 {
+    30_000
+}
+
+fn default_mcp_output_limit_bytes() -> usize {
+    64 * 1024
+}
+
+impl Default for McpServerConfig {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            enabled: true,
+            command: String::new(),
+            args: Vec::new(),
+            env: BTreeMap::new(),
+            startup_timeout_ms: default_mcp_startup_timeout_ms(),
+            call_timeout_ms: default_mcp_call_timeout_ms(),
+            output_limit_bytes: default_mcp_output_limit_bytes(),
         }
     }
 }
@@ -1918,6 +1976,7 @@ impl Default for Config {
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
             web_search: WebSearchConfig::default(),
+            mcp: McpConfig::default(),
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
             peripherals: PeripheralsConfig::default(),
@@ -2261,6 +2320,17 @@ fn env_override_api_key_with_fallback(primary: &str, fallback: &str, target: &mu
     }
 }
 
+fn is_valid_mcp_identifier(value: &str) -> bool {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("mcp") {
+        return false;
+    }
+
+    trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+}
+
 impl Config {
     pub fn load_or_init() -> Result<Self> {
         let (default_corvus_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
@@ -2332,6 +2402,7 @@ impl Config {
             }
 
             config.apply_env_overrides();
+            config.validate_for_runtime()?;
             Ok(config)
         } else {
             let mut config = Config::default();
@@ -2340,6 +2411,7 @@ impl Config {
             config.save()?;
 
             config.apply_env_overrides();
+            config.validate_for_runtime()?;
             Ok(config)
         }
     }
@@ -2460,6 +2532,57 @@ impl Config {
             &mut self.memory.surreal.password,
         );
         env_override_optional("CORVUS_SURREALDB_TOKEN", &mut self.memory.surreal.token);
+    }
+
+    pub fn validate_for_runtime(&self) -> Result<()> {
+        self.validate_mcp_servers()
+    }
+
+    fn validate_mcp_servers(&self) -> Result<()> {
+        if !self.mcp.enabled {
+            return Ok(());
+        }
+
+        for (idx, server) in self.mcp.servers.iter().enumerate() {
+            let base = format!("mcp.servers[{idx}]");
+
+            if !is_valid_mcp_identifier(&server.name) {
+                anyhow::bail!(
+                    "{base}.name must be a non-empty identifier using [a-zA-Z0-9_-] and cannot be 'mcp'"
+                );
+            }
+
+            if server.command.trim().is_empty() {
+                anyhow::bail!("{base}.command must be non-empty");
+            }
+
+            if server.command.contains('\0') {
+                anyhow::bail!("{base}.command contains an invalid value");
+            }
+
+            if server.startup_timeout_ms == 0 {
+                anyhow::bail!("{base}.startup_timeout_ms must be greater than zero");
+            }
+
+            if server.call_timeout_ms == 0 {
+                anyhow::bail!("{base}.call_timeout_ms must be greater than zero");
+            }
+
+            if server.output_limit_bytes == 0 {
+                anyhow::bail!("{base}.output_limit_bytes must be greater than zero");
+            }
+
+            for (key, value) in &server.env {
+                if key.contains('\0') {
+                    anyhow::bail!("{base}.env contains an invalid key");
+                }
+                if value.contains('\0') {
+                    anyhow::bail!("{base}.env contains an invalid value");
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub fn save(&self) -> Result<()> {
@@ -2838,6 +2961,7 @@ default_temperature = 0.7
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
             web_search: WebSearchConfig::default(),
+            mcp: McpConfig::default(),
             agent: AgentConfig::default(),
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),
@@ -2950,6 +3074,7 @@ tool_dispatcher = "xml"
             browser: BrowserConfig::default(),
             http_request: HttpRequestConfig::default(),
             web_search: WebSearchConfig::default(),
+            mcp: McpConfig::default(),
             agent: AgentConfig::default(),
             identity: IdentityConfig::default(),
             cost: CostConfig::default(),

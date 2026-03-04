@@ -602,6 +602,7 @@ mod tests {
                         "command": {"type": "string"}
                     }
                 }),
+                source: None,
             },
             ToolSpec {
                 name: "file_read".to_string(),
@@ -612,6 +613,7 @@ mod tests {
                         "path": {"type": "string"}
                     }
                 }),
+                source: None,
             },
         ];
 
@@ -676,6 +678,7 @@ mod tests {
             name: "test_tool".to_string(),
             description: "A test tool".to_string(),
             parameters: serde_json::json!({"type": "object"}),
+            source: None,
         }];
 
         let payload = provider.convert_tools(&tools);
@@ -699,6 +702,7 @@ mod tests {
             name: "shell".to_string(),
             description: "Run commands".to_string(),
             parameters: serde_json::json!({"type": "object"}),
+            source: None,
         }];
 
         let request = ChatRequest {
@@ -813,6 +817,7 @@ mod tests {
             name: "shell".to_string(),
             description: "Run commands".to_string(),
             parameters: serde_json::json!({"type": "object"}),
+            source: None,
         }];
 
         let request = ChatRequest {
@@ -838,6 +843,7 @@ mod tests {
             name: "shell".to_string(),
             description: "Run commands".to_string(),
             parameters: serde_json::json!({"type": "object"}),
+            source: None,
         }];
 
         let request = ChatRequest {
@@ -860,6 +866,7 @@ mod tests {
             name: "shell".to_string(),
             description: "Run commands".to_string(),
             parameters: serde_json::json!({"type": "object"}),
+            source: None,
         }];
 
         let request = ChatRequest {

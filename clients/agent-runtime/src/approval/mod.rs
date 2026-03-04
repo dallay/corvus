@@ -42,6 +42,31 @@ pub struct ApprovalLogEntry {
     pub channel: String,
 }
 
+/// Structured denial payload for blocked tool execution.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ApprovalDenial {
+    pub code: String,
+    pub tool: String,
+    pub reason: String,
+}
+
+pub fn requires_explicit_mcp_approval(tool_name: &str) -> bool {
+    tool_name.starts_with("mcp.")
+}
+
+pub fn structured_denial_payload(tool_name: &str, reason: &str) -> serde_json::Value {
+    let denial = ApprovalDenial {
+        code: "approval_required".to_string(),
+        tool: tool_name.to_string(),
+        reason: reason.to_string(),
+    };
+    serde_json::to_value(denial).expect("ApprovalDenial should serialize to JSON")
+}
+
+pub fn structured_denial_text(tool_name: &str, reason: &str) -> String {
+    structured_denial_payload(tool_name, reason).to_string()
+}
+
 // ── ApprovalManager ──────────────────────────────────────────────
 
 /// Manages the interactive approval workflow.
@@ -422,5 +447,19 @@ mod tests {
         let json = serde_json::to_string(&req).unwrap();
         let parsed: ApprovalRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.tool_name, "shell");
+    }
+
+    #[test]
+    fn mcp_tools_require_explicit_approval() {
+        assert!(requires_explicit_mcp_approval("mcp.docs.search"));
+        assert!(!requires_explicit_mcp_approval("file_read"));
+    }
+
+    #[test]
+    fn structured_denial_payload_contains_stable_fields() {
+        let denial = structured_denial_payload("mcp.docs.search", "approval required");
+        assert_eq!(denial["code"], "approval_required");
+        assert_eq!(denial["tool"], "mcp.docs.search");
+        assert_eq!(denial["reason"], "approval required");
     }
 }

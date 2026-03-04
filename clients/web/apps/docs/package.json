@@ -13,15 +13,15 @@
     "check": "biome check src astro.config.mjs package.json tsconfig.json"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.37.6",
+    "@astrojs/starlight": "catalog:",
     "@corvus/shared": "workspace:*",
-    "astro": "^5.17.2",
-    "sharp": "^0.34.5"
+    "astro": "catalog:",
+    "sharp": "catalog:"
   },
   "devDependencies": {
-    "astro-vtbot": "2.1.11",
-    "@astrojs/check": "latest",
-    "typescript": "latest",
+    "@astrojs/check": "catalog:",
+    "astro-vtbot": "catalog:",
+    "typescript": "catalog:",
     "vite": "6.4.1"
   }
 }
