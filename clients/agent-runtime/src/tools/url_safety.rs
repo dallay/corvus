@@ -1,19 +1,19 @@
 use url::{Host, Url};
 
-pub(crate) fn normalize_allowed_domains(domains: Vec<String>) -> Vec<String> {
-    let mut normalized = domains
-        .into_iter()
-        .filter_map(|domain| normalize_domain(&domain))
-        .collect::<Vec<_>>();
+pub(crate) fn normalize_allowed_domains(domains: Vec<String>) -> anyhow::Result<Vec<String>> {
+    let mut normalized = Vec::new();
+    for domain in domains {
+        normalized.push(normalize_domain(&domain)?);
+    }
     normalized.sort_unstable();
     normalized.dedup();
-    normalized
+    Ok(normalized)
 }
 
-pub(crate) fn normalize_domain(raw: &str) -> Option<String> {
+pub(crate) fn normalize_domain(raw: &str) -> anyhow::Result<String> {
     let mut domain = raw.trim().to_lowercase();
     if domain.is_empty() {
-        return None;
+        anyhow::bail!("Domain cannot be empty");
     }
 
     if let Some(stripped) = domain.strip_prefix("https://") {
@@ -32,14 +32,14 @@ pub(crate) fn normalize_domain(raw: &str) -> Option<String> {
         .to_string();
 
     if domain.contains(':') {
-        return None;
+        anyhow::bail!("Domain cannot contain a port: {}", domain);
     }
 
     if domain.is_empty() || domain.chars().any(char::is_whitespace) {
-        return None;
+        anyhow::bail!("Invalid domain: {}", domain);
     }
 
-    Some(domain)
+    Ok(domain)
 }
 
 pub(crate) fn extract_host(
@@ -81,4 +81,28 @@ pub(crate) fn host_matches_allowlist(host: &str, allowed_domains: &[String]) -> 
                 .strip_suffix(domain)
                 .is_some_and(|prefix| prefix.ends_with('.'))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_domain() {
+        assert_eq!(normalize_domain("HTTPS://EXAMPLE.COM/path").unwrap(), "example.com".to_string());
+        assert!(normalize_domain("example.com:8080").is_err());
+        assert_eq!(normalize_domain("  .example.com.  ").unwrap(), "example.com".to_string());
+        assert!(normalize_domain("example com").is_err());
+        assert!(normalize_domain("").is_err());
+    }
+
+    #[test]
+    fn test_normalize_allowed_domains() {
+        let domains = vec!["example.com".into(), "EXAMPLE.COM".into(), "https://google.com/".into()];
+        let normalized = normalize_allowed_domains(domains).unwrap();
+        assert_eq!(normalized, vec!["example.com".to_string(), "google.com".to_string()]);
+
+        let bad_domains = vec!["example.com".into(), "localhost:8080".into()];
+        assert!(normalize_allowed_domains(bad_domains).is_err());
+    }
 }

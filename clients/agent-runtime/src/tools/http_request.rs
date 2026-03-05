@@ -70,7 +70,7 @@ impl HttpRequestTool {
     ) -> Self {
         Self {
             security,
-            allowed_domains: normalize_allowed_domains(allowed_domains),
+            allowed_domains: normalize_allowed_domains(allowed_domains).expect("Invalid allowlist entries"),
             max_response_size,
             timeout_secs,
         }
@@ -472,7 +472,7 @@ mod tests {
             "EXAMPLE.COM".into(),
             "https://example.com/".into(),
         ]);
-        assert_eq!(got, vec!["example.com".to_string()]);
+        assert_eq!(got.unwrap(), vec!["example.com".to_string()]);
     }
 
     #[test]

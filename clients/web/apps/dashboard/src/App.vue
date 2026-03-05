@@ -1,29 +1,20 @@
 <script setup lang="ts">
-// biome-ignore lint/correctness/noUnusedImports: Template usage
-// biome-ignore lint/correctness/noUnusedVariables: Template usage
+/* biome-ignore-all lint/correctness/noUnusedImports: used in template */
+/* biome-ignore-all lint/correctness/noUnusedVariables: used in template */
 import { Button, Input } from "@corvus/ui";
 import { useI18n } from "vue-i18n";
 
-// biome-ignore lint/correctness/noUnusedImports: Template usage
 import GatewaySettings from "@/components/config/GatewaySettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Template usage
 import GeneralSettings from "@/components/config/GeneralSettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Template usage
 import ObservabilitySettings from "@/components/config/ObservabilitySettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Template usage
 import RuntimeSettings from "@/components/config/RuntimeSettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Template usage
 import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Template usage
 import SecuritySettings from "@/components/config/SecuritySettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Template usage
 import WebhookSettings from "@/components/config/WebhookSettings.vue";
 import { useConfig } from "@/composables/useConfig";
 
-// biome-ignore lint/correctness/noUnusedVariables: Template usage
 const { t } = useI18n();
 
-// biome-ignore lint/correctness/noUnusedVariables: Template usage
 const {
   baseUrl,
   pairingCode,
@@ -40,7 +31,7 @@ const {
   autonomyLevelOptions,
   pairGateway,
   connectGateway,
-  saveSection
+  saveSection,
 } = useConfig(t);
 </script>
 

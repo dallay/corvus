@@ -8,6 +8,7 @@ import { createAdminConfigForm } from "@/test/adminConfigFormFactory";
 
 describe("SecuritySettings", () => {
   it("renders identity-focused controls", () => {
+    const i18n = createI18n(i18nConfig);
     const wrapper = mount(SecuritySettings, {
       props: {
         modelValue: createAdminConfigForm({
@@ -23,11 +24,11 @@ describe("SecuritySettings", () => {
         saving: false,
       },
       global: {
-        plugins: [createI18n(i18nConfig)],
+        plugins: [i18n],
       },
     });
 
-    expect(wrapper.text()).toContain("Formato de identidad");
-    expect(wrapper.text()).toContain("Ruta AIEOS de identidad");
+    expect(wrapper.text()).toContain(i18n.global.t("security.identity_format"));
+    expect(wrapper.text()).toContain(i18n.global.t("security.identity_aieos_path"));
   });
 });

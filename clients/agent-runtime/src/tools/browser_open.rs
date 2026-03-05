@@ -17,7 +17,7 @@ impl BrowserOpenTool {
     pub fn new(security: Arc<SecurityPolicy>, allowed_domains: Vec<String>) -> Self {
         Self {
             security,
-            allowed_domains: normalize_allowed_domains(allowed_domains),
+            allowed_domains: normalize_allowed_domains(allowed_domains).expect("Invalid allowlist entries"),
         }
     }
 
@@ -258,7 +258,7 @@ mod tests {
             "EXAMPLE.COM".into(),
             "https://example.com/".into(),
         ]);
-        assert_eq!(got, vec!["example.com".to_string()]);
+        assert_eq!(got.unwrap(), vec!["example.com".to_string()]);
     }
 
     #[test]

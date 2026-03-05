@@ -214,7 +214,7 @@ impl BrowserTool {
     ) -> Self {
         Self {
             security,
-            allowed_domains: normalize_domains(allowed_domains),
+            allowed_domains: normalize_domains(allowed_domains).expect("Invalid allowlist entries"),
             session_name,
             backend,
             native_headless,
@@ -1933,12 +1933,14 @@ fn unavailable_action_for_backend_error(action: &str, backend: ResolvedBackend) 
     )
 }
 
-fn normalize_domains(domains: Vec<String>) -> Vec<String> {
-    domains
-        .into_iter()
-        .map(|d| d.trim().to_lowercase())
-        .filter(|d| !d.is_empty())
-        .collect()
+fn normalize_domains(domains: Vec<String>) -> anyhow::Result<Vec<String>> {
+    let mut normalized = Vec::new();
+    for domain in domains {
+        normalized.push(crate::tools::url_safety::normalize_domain(&domain)?);
+    }
+    normalized.sort_unstable();
+    normalized.dedup();
+    Ok(normalized)
 }
 
 fn endpoint_reachable(endpoint: &reqwest::Url, timeout: Duration) -> bool {
@@ -2085,7 +2087,7 @@ mod tests {
             "docs.example.com".into(),
             String::new(),
         ];
-        let normalized = normalize_domains(domains);
+        let normalized = normalize_domains(domains).unwrap();
         assert_eq!(normalized, vec!["example.com", "docs.example.com"]);
     }
 
