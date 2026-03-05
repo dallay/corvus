@@ -79,7 +79,7 @@ pub use corvus::{HardwareCommands, PeripheralCommands, ServiceCommands, ServiceL
 /// `Corvus` - Zero overhead. Zero compromise. 100% Rust.
 #[derive(Parser, Debug)]
 #[command(name = "corvus")]
-#[command(author = "theonlyhennygod")]
+#[command(author = "acosta")]
 #[command(version = "0.1.2")]
 #[command(about = "The fastest, smallest AI assistant.", long_about = None)]
 struct Cli {
