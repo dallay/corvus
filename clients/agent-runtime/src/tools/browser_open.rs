@@ -198,7 +198,8 @@ fn is_private_or_local_host(host: &str) -> bool {
         .next()
         .is_some_and(|label| label == "local");
 
-    if host == "localhost" || host.ends_with(".localhost") || has_local_tld || host == "::1" {
+    // IPv6 hosts are rejected upstream by extract_host in url_safety.
+    if host == "localhost" || host.ends_with(".localhost") || has_local_tld {
         return true;
     }
 

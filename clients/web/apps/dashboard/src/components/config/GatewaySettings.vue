@@ -45,7 +45,7 @@ function updateField<Key extends keyof AdminConfigForm>(
         <Input :model-value="modelValue.gateway_host" @update:model-value="updateField('gateway_host', $event)" />
       </label>
       <label>
-        <span>Pair rate limit/min</span>
+        <span>{{ $t("gateway.pair_rate_limit_per_min") }}</span>
         <Input
           :model-value="modelValue.gateway_pair_rate_limit_per_minute"
           type="number"
@@ -54,7 +54,7 @@ function updateField<Key extends keyof AdminConfigForm>(
         />
       </label>
       <label>
-        <span>Webhook rate limit/min</span>
+        <span>{{ $t("gateway.webhook_rate_limit_per_min") }}</span>
         <Input
           :model-value="modelValue.gateway_webhook_rate_limit_per_minute"
           type="number"

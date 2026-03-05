@@ -55,7 +55,7 @@ function handleSave(): void {
           type="checkbox"
           @change="updateField('webhook_enabled', ($event.target as HTMLInputElement).checked)"
         />
-        <span>Enabled</span>
+        <span>{{ $t("webhook.enabled") }}</span>
       </label>
       <label>
         <span>{{ $t("form.webhookPort") }}</span>

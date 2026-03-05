@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import { Button, Input } from "@corvus/ui";
+import { Button } from "@corvus/ui";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{

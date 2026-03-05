@@ -40,7 +40,7 @@ function updateField<Key extends keyof AdminConfigForm>(
         <Input :model-value="modelValue.default_model" @update:model-value="updateField('default_model', $event)" />
       </label>
       <label>
-        <span>API URL</span>
+        <span>{{ $t("general.apiUrl") }}</span>
         <Input :model-value="modelValue.api_url" @update:model-value="updateField('api_url', $event)" />
       </label>
       <label>

@@ -10,6 +10,7 @@
   "sections": {
     "auth": "Autenticación",
     "core": "Configuración base",
+    "observability": "Observabilidad",
     "runtime": "Runtime",
     "autonomy": "Autonomía",
     "scheduler": "Scheduler",
@@ -75,6 +76,17 @@
     "secretReplace": "Reemplazar",
     "secretClear": "Limpiar"
   },
+  "general": {
+    "apiUrl": "API URL"
+  },
+  "gateway": {
+    "pair_rate_limit_per_min": "Límite de emparejamiento/min",
+    "webhook_rate_limit_per_min": "Límite de webhook/min"
+  },
+  "security": {
+    "identity_format": "Formato de identidad",
+    "identity_aieos_path": "Ruta AIEOS de identidad"
+  },
   "errors": {
     "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local."
   },
@@ -92,6 +104,7 @@
     "disclaimer": "Corvus Agent puede cometer errores. Verifica la información importante."
   },
   "webhook": {
+    "enabled": "Habilitado",
     "secretStatus": "Secret actual: {status}",
     "statusConfigured": "configurado",
     "statusNotConfigured": "no configurado"

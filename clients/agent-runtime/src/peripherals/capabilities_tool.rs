@@ -58,6 +58,34 @@ fn empty_capabilities_message(filter: Option<&str>) -> String {
     }
 }
 
+fn build_capabilities_tool_result(
+    filter: Option<&str>,
+    outputs: Vec<String>,
+    success_count: usize,
+) -> ToolResult {
+    let output = if outputs.is_empty() {
+        empty_capabilities_message(filter)
+    } else {
+        outputs.join("\n")
+    };
+
+    ToolResult {
+        success: success_count > 0,
+        output,
+        error: None,
+    }
+}
+
+fn parse_board_filter(args: &serde_json::Value) -> Result<Option<&str>, &'static str> {
+    match args.get("board") {
+        None => Ok(None),
+        Some(value) => value
+            .as_str()
+            .map(Some)
+            .ok_or("invalid 'board' parameter: expected string"),
+    }
+}
+
 #[async_trait]
 impl Tool for HardwareCapabilitiesTool {
     fn name(&self) -> &str {
@@ -81,8 +109,18 @@ impl Tool for HardwareCapabilitiesTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let filter = args.get("board").and_then(|v| v.as_str());
+        let filter = match parse_board_filter(&args) {
+            Ok(filter) => filter,
+            Err(message) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(message.to_string()),
+                });
+            }
+        };
         let mut outputs = Vec::new();
+        let mut success_count = 0usize;
 
         for (board_name, transport) in &self.boards {
             if !includes_board(filter, board_name) {
@@ -91,6 +129,9 @@ impl Tool for HardwareCapabilitiesTool {
 
             match transport.capabilities().await {
                 Ok(result) => {
+                    if result.success {
+                        success_count += 1;
+                    }
                     outputs.push(format_capabilities_result(board_name, &result));
                 }
                 Err(e) => {
@@ -99,17 +140,11 @@ impl Tool for HardwareCapabilitiesTool {
             }
         }
 
-        let output = if outputs.is_empty() {
-            empty_capabilities_message(filter)
-        } else {
-            outputs.join("\n")
-        };
-
-        Ok(ToolResult {
-            success: !outputs.is_empty(),
-            output,
-            error: None,
-        })
+        Ok(build_capabilities_tool_result(
+            filter,
+            outputs,
+            success_count,
+        ))
     }
 }
 
@@ -146,5 +181,53 @@ mod tests {
         assert!(includes_board(None, "uno"));
         assert!(includes_board(Some("uno"), "uno"));
         assert!(!includes_board(Some("esp32"), "uno"));
+    }
+
+    #[test]
+    fn parse_board_filter_rejects_non_string_board() {
+        let args = json!({ "board": 42 });
+        let parsed = parse_board_filter(&args);
+        assert_eq!(parsed, Err("invalid 'board' parameter: expected string"));
+    }
+
+    #[test]
+    fn build_result_marks_all_failures_as_unsuccessful() {
+        let result = build_capabilities_tool_result(
+            Some("uno"),
+            vec![
+                "uno: error - connect failed".to_string(),
+                "uno: error - send failed".to_string(),
+                "uno: error - receive failed".to_string(),
+            ],
+            0,
+        );
+        assert!(!result.success);
+        assert!(result.output.contains("connect failed"));
+        assert!(result.output.contains("send failed"));
+        assert!(result.output.contains("receive failed"));
+    }
+
+    #[test]
+    fn build_result_marks_mixed_results_as_successful() {
+        let result = build_capabilities_tool_result(
+            None,
+            vec![
+                "uno: gpio [2, 13], led_pin 13".to_string(),
+                "esp32: error - timeout".to_string(),
+            ],
+            1,
+        );
+        assert!(result.success);
+    }
+
+    #[tokio::test]
+    async fn execute_returns_error_result_for_non_string_board_param() {
+        let tool = HardwareCapabilitiesTool::new(Vec::new());
+        let result = tool.execute(json!({ "board": 123 })).await.unwrap();
+        assert!(!result.success);
+        assert_eq!(
+            result.error.as_deref(),
+            Some("invalid 'board' parameter: expected string")
+        );
     }
 }

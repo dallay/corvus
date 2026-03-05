@@ -1,3 +1,5 @@
+use url::{Host, Url};
+
 pub(crate) fn normalize_allowed_domains(domains: Vec<String>) -> Vec<String> {
     let mut normalized = domains
         .into_iter()
@@ -64,10 +66,7 @@ pub(crate) fn extract_host(
             }
             Ok(host)
         }
-        Some(Host::Ipv4(ipv4)) => {
-            let ip = IpAddr::from_str(&ipv4.to_string())?;
-            Ok(ip.to_string())
-        }
+        Some(Host::Ipv4(ipv4)) => Ok(ipv4.to_string()),
         Some(Host::Ipv6(_)) => {
             anyhow::bail!("IPv6 hosts are not supported in {ipv6_context}");
         }
@@ -83,6 +82,3 @@ pub(crate) fn host_matches_allowlist(host: &str, allowed_domains: &[String]) -> 
                 .is_some_and(|prefix| prefix.ends_with('.'))
     })
 }
-use std::net::IpAddr;
-use std::str::FromStr;
-use url::{Host, Url};

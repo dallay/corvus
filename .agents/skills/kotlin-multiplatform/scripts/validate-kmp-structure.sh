@@ -37,7 +37,7 @@ fi
 # Check 2: Platform code in commonMain (Android imports)
 echo
 echo "📋 Checking for platform code in commonMain..."
-android_imports_in_common=$(find */src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -l "^import android\." || true)
+android_imports_in_common=$(find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -l "^import android\." || true)
 if [[ -n "$android_imports_in_common" ]]; then
     echo -e "${RED}✗${NC} Found Android imports in commonMain:"
     echo "$android_imports_in_common" | sed 's/^/  /'
@@ -50,7 +50,7 @@ fi
 # Check 3: JVM libraries in commonMain (Jackson, OkHttp)
 echo
 echo "📋 Checking for JVM libraries in commonMain..."
-jvm_imports_in_common=$(find */src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -l "^import com.fasterxml.jackson\|^import okhttp3\." || true)
+jvm_imports_in_common=$(find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -l "^import com.fasterxml.jackson\|^import okhttp3\." || true)
 if [[ -n "$jvm_imports_in_common" ]]; then
     echo -e "${RED}✗${NC} Found JVM library imports in commonMain:"
     echo "$jvm_imports_in_common" | sed 's/^/  /'
@@ -64,7 +64,7 @@ fi
 echo
 echo "📋 Checking expect/actual pairs..."
 expect_files_count=$(
-    find */src/commonMain -name "*.kt" -print0 2>/dev/null \
+    find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null \
         | xargs -0 grep -l --null "^expect " 2>/dev/null \
         | tr -cd '\0' \
         | wc -c
@@ -92,7 +92,7 @@ if [[ "$expect_files_count" -gt 0 ]]; then
             fi
         done
     done < <(
-        find */src/commonMain -name "*.kt" -print0 2>/dev/null \
+        find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null \
             | xargs -0 grep -l --null "^expect " 2>/dev/null || true
     )
 else
@@ -103,17 +103,17 @@ fi
 echo
 echo "📋 Checking for potential code duplication..."
 # This is a heuristic check - look for similar function names in different platform source sets
-common_functions=$(find */src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -h "^fun " | awk '{print $2}' | sed 's/[({<].*$//' | sort -u || true)
+common_functions=$(find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -h "^fun " | awk '{print $2}' | sed 's/[({<].*$//' | sort -u || true)
 if [[ -n "$common_functions" ]]; then
     for func in $common_functions; do
         android_count=$(
-            find */src/androidMain -name "*.kt" -print0 2>/dev/null \
+            find ./*/src/androidMain -name "*.kt" -print0 2>/dev/null \
                 | xargs -0 grep -l --null "^fun $func" 2>/dev/null \
                 | tr -cd '\0' \
                 | wc -c
         )
         jvm_count=$(
-            find */src/jvmMain -name "*.kt" -print0 2>/dev/null \
+            find ./*/src/jvmMain -name "*.kt" -print0 2>/dev/null \
                 | xargs -0 grep -l --null "^fun $func" 2>/dev/null \
                 | tr -cd '\0' \
                 | wc -c

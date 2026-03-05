@@ -1,7 +1,6 @@
 <script setup lang="ts">
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import { Button, Input } from "@corvus/ui";
-import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
@@ -22,14 +21,8 @@ import { useConfig } from "@/composables/useConfig";
 
 const { t } = useI18n();
 
-const config = useConfig(t);
-
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
-const webhookSecretStatusLabel = computed(() =>
-  config.form.webhook_secret_exists
-    ? t("webhook.statusConfigured")
-    : t("webhook.statusNotConfigured")
-);
+const config = useConfig(t);
 </script>
 
 <template>
@@ -70,7 +63,7 @@ const webhookSecretStatusLabel = computed(() =>
 
     <GeneralSettings
       :model-value="config.form"
-      :memory-backend-options="config.memoryBackendOptions.value"
+      :memory-backend-options="config.memoryBackendOptions"
       :disabled="!config.canSave"
       :saving="config.sectionSaving.general"
       @update:model-value="Object.assign(config.form, $event)"
@@ -79,7 +72,7 @@ const webhookSecretStatusLabel = computed(() =>
 
     <SecuritySettings
       :model-value="config.form"
-      :autonomy-level-options="config.autonomyLevelOptions.value"
+      :autonomy-level-options="config.autonomyLevelOptions"
       :disabled="!config.canSave"
       :saving="config.sectionSaving.security"
       @update:model-value="Object.assign(config.form, $event)"
@@ -88,7 +81,7 @@ const webhookSecretStatusLabel = computed(() =>
 
     <ObservabilitySettings
       :model-value="config.form"
-      :observability-backend-options="config.observabilityBackendOptions.value"
+      :observability-backend-options="config.observabilityBackendOptions"
       :disabled="!config.canSave"
       :saving="config.sectionSaving.observability"
       @update:model-value="Object.assign(config.form, $event)"
@@ -97,7 +90,7 @@ const webhookSecretStatusLabel = computed(() =>
 
     <RuntimeSettings
       :model-value="config.form"
-      :runtime-kind-options="config.runtimeKindOptions.value"
+      :runtime-kind-options="config.runtimeKindOptions"
       :disabled="!config.canSave"
       :saving="config.sectionSaving.runtime"
       @update:model-value="Object.assign(config.form, $event)"
@@ -129,7 +122,15 @@ const webhookSecretStatusLabel = computed(() =>
     />
 
     <section class="card">
-      <p class="helper">{{ t("webhook.secretStatus", { status: webhookSecretStatusLabel }) }}</p>
+      <p class="helper">
+        {{
+          t("webhook.secretStatus", {
+            status: config.form.webhook_secret_exists
+              ? t("webhook.statusConfigured")
+              : t("webhook.statusNotConfigured"),
+          })
+        }}
+      </p>
       <p v-if="config.statusMessage" class="ok">{{ config.statusMessage }}</p>
       <p v-if="config.errorMessage" class="error">{{ config.errorMessage }}</p>
     </section>

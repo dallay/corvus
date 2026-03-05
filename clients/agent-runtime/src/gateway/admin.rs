@@ -1389,6 +1389,7 @@ pub async fn handle_admin_update_config(
 mod tests {
     use super::*;
     use crate::security::AutonomyLevel;
+    use std::collections::BTreeSet;
 
     fn empty_patch() -> AdminConfigUpdateRequest {
         AdminConfigUpdateRequest {
@@ -1655,19 +1656,12 @@ mod tests {
 
         for (name, patch, expected_fields) in cases {
             let fields = restart_required_updates(&cfg, &patch);
-            for expected in expected_fields {
-                assert!(
-                    fields.contains(&expected),
-                    "case '{name}' missing '{expected}'"
-                );
-            }
-            if name == "no-op when values unchanged" {
-                assert!(!fields.contains(&"web_search.brave_api_key"));
-                assert!(!fields.contains(&"browser.computer_use.api_key"));
-                assert!(!fields.contains(&"memory.surreal.username"));
-                assert!(!fields.contains(&"memory.surreal.password"));
-                assert!(!fields.contains(&"memory.surreal.token"));
-            }
+            let actual: BTreeSet<&str> = fields.into_iter().collect();
+            let expected: BTreeSet<&str> = expected_fields.into_iter().collect();
+            assert_eq!(
+                actual, expected,
+                "case '{name}' mismatch for restart-required fields"
+            );
         }
     }
 }

@@ -39,8 +39,9 @@ function safeAbsoluteUrl(candidate: string): string | undefined {
 const canonical = safeAbsoluteUrl(Astro.url.pathname);
 
 const imageCandidate = typeof image === "string" ? image.trim() : "";
+const isSiteRelativePath = imageCandidate.startsWith("/") && !imageCandidate.startsWith("//");
 const ogImageInput =
-  imageCandidate.length > 0 && (imageCandidate.startsWith("/") || isHttpUrl(imageCandidate))
+  imageCandidate.length > 0 && (isSiteRelativePath || isHttpUrl(imageCandidate))
     ? imageCandidate
     : "/og-image.png";
 const ogImage = safeAbsoluteUrl(ogImageInput) ?? safeAbsoluteUrl("/og-image.png");

@@ -62,11 +62,11 @@ function updateField<Key extends keyof AdminConfigForm>(
         />
       </label>
       <label>
-        <span>Identity format</span>
+        <span>{{ $t("security.identity_format") }}</span>
         <Input :model-value="modelValue.identity_format" @update:model-value="updateField('identity_format', $event)" />
       </label>
       <label>
-        <span>Identity AIEOS path</span>
+        <span>{{ $t("security.identity_aieos_path") }}</span>
         <Input
           :model-value="modelValue.identity_aieos_path"
           @update:model-value="updateField('identity_aieos_path', $event)"

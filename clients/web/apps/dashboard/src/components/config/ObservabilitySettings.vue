@@ -29,7 +29,7 @@ function updateField<Key extends keyof AdminConfigForm>(
 
 <template>
   <section class="card">
-    <h2>Observability</h2>
+    <h2>{{ $t("sections.observability") }}</h2>
     <div class="grid">
       <label>
         <span>{{ $t("form.observabilityBackend") }}</span>
