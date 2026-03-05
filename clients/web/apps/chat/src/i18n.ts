@@ -4,8 +4,10 @@ import { createI18n } from "vue-i18n";
 export const i18nConfig = {
   legacy: false,
   locale: "es",
+  fallbackLocale: "en",
   messages: {
     es: translations.es,
+    en: translations.en,
   },
 } as const;
 
