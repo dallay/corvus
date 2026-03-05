@@ -19,7 +19,7 @@ SUGGESTIONS_FOUND=0
 
 # Check for Jackson (suggest kotlinx.serialization)
 echo "📦 Checking for Jackson JSON..."
-if grep -r "jackson" */build.gradle.kts 2>/dev/null | grep -q "implementation\|api"; then
+if grep -r "jackson" ./*/build.gradle.kts 2>/dev/null | grep -q "implementation\|api"; then
     echo -e "${YELLOW}⚠ Found Jackson dependency${NC}"
     echo "  Current: Jackson (JVM-only)"
     echo -e "  ${GREEN}Suggest: kotlinx.serialization${NC} (works on all platforms)"
@@ -49,7 +49,7 @@ fi
 # Check for OkHttp (suggest ktor)
 echo
 echo "📦 Checking for OkHttp..."
-if grep -r "okhttp" */build.gradle.kts 2>/dev/null | grep -q "implementation\|api"; then
+if grep -r "okhttp" ./*/build.gradle.kts 2>/dev/null | grep -q "implementation\|api"; then
     echo -e "${YELLOW}⚠ Found OkHttp dependency${NC}"
     echo "  Current: OkHttp (JVM-only)"
     echo -e "  ${GREEN}Suggest: ktor-client${NC} (works on all platforms)"
@@ -83,7 +83,7 @@ fi
 # Check for java.time (suggest kotlinx.datetime)
 echo
 echo "📦 Checking for java.time usage..."
-if find */src -name "*.kt" 2>/dev/null | xargs grep -l "import java.time\." >/dev/null 2>&1; then
+if find ./*/src -name "*.kt" 2>/dev/null | xargs grep -l "import java.time\." >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ Found java.time imports${NC}"
     echo "  Current: java.time (JVM-only)"
     echo -e "  ${GREEN}Suggest: kotlinx.datetime${NC} (works on all platforms)"
@@ -109,7 +109,7 @@ fi
 # Check for java.math.BigDecimal
 echo
 echo "📦 Checking for java.math.BigDecimal usage..."
-if find */src -name "*.kt" 2>/dev/null | xargs grep -l "import java.math.BigDecimal" >/dev/null 2>&1; then
+if find ./*/src -name "*.kt" 2>/dev/null | xargs grep -l "import java.math.BigDecimal" >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ Found java.math.BigDecimal imports${NC}"
     echo "  Current: java.math.BigDecimal (JVM-only)"
     echo -e "  ${BLUE}Note:${NC} KMP BigDecimal not yet in stable kotlinx"
@@ -127,7 +127,7 @@ fi
 # Check for platform.posix usage
 echo
 echo "📦 Checking for platform.posix usage..."
-if find */src/commonMain -name "*.kt" 2>/dev/null | xargs grep -l "import platform.posix\." >/dev/null 2>&1; then
+if find ./*/src/commonMain -name "*.kt" 2>/dev/null | xargs grep -l "import platform.posix\." >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ Found platform.posix in commonMain${NC}"
     echo "  Current: platform.posix (native platforms only, not web)"
     echo -e "  ${GREEN}Suggest:${NC} Abstract file I/O with expect/actual"
@@ -145,7 +145,7 @@ fi
 # Summary
 echo
 echo "=== Summary ==="
-if [ "$SUGGESTIONS_FOUND" -eq 0 ]; then
+if [[ "$SUGGESTIONS_FOUND" -eq 0 ]]; then
     echo -e "${GREEN}✓ No JVM-specific dependencies found!${NC}"
     echo "  Your code is ready for web/wasm targets."
 else

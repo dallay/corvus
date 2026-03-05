@@ -29,31 +29,9 @@ pub type PinAliases = HashMap<String, u32>;
 /// - Markdown table `| alias | pin |`
 fn parse_pin_aliases(content: &str) -> PinAliases {
     let mut aliases = PinAliases::new();
-    let content_lower = content.to_lowercase();
-
-    // Find ## Pin Aliases section
-    let section_markers = ["## pin aliases", "## pin alias", "## pins"];
-    let mut in_section = false;
-    let mut section_start = 0;
-
-    for marker in section_markers {
-        if let Some(pos) = content_lower.find(marker) {
-            in_section = true;
-            section_start = pos + marker.len();
-            break;
-        }
-    }
-
-    if !in_section {
+    let Some(section) = pin_aliases_section(content) else {
         return aliases;
-    }
-
-    let rest = &content[section_start..];
-    let section_end = rest
-        .find("\n## ")
-        .map(|i| section_start + i)
-        .unwrap_or(content.len());
-    let section = &content[section_start..section_end];
+    };
 
     // Parse "alias: pin" or "alias = pin" lines
     for line in section.lines() {
@@ -61,41 +39,74 @@ fn parse_pin_aliases(content: &str) -> PinAliases {
         if line.is_empty() {
             continue;
         }
-        // Table row: | red_led | 13 | (skip header | alias | pin | and separator |---|)
-        if line.starts_with('|') {
-            let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
-            if parts.len() >= 3 {
-                let alias = parts[1].trim().to_lowercase().replace(' ', "_");
-                let pin_str = parts[2].trim();
-                // Skip header row and separator (|---|)
-                if alias.eq("alias")
-                    || alias.eq("pin")
-                    || pin_str.eq("pin")
-                    || alias.contains("---")
-                    || pin_str.contains("---")
-                {
-                    continue;
-                }
-                if let Ok(pin) = pin_str.parse::<u32>() {
-                    if !alias.is_empty() {
-                        aliases.insert(alias, pin);
-                    }
-                }
-            }
+        if let Some((alias, pin)) = parse_alias_table_row(line) {
+            aliases.insert(alias, pin);
             continue;
         }
-        // Key: value
-        if let Some((k, v)) = line.split_once(':').or_else(|| line.split_once('=')) {
-            let alias = k.trim().to_lowercase().replace(' ', "_");
-            if let Ok(pin) = v.trim().parse::<u32>() {
-                if !alias.is_empty() {
-                    aliases.insert(alias, pin);
-                }
-            }
+        if let Some((alias, pin)) = parse_alias_key_value(line) {
+            aliases.insert(alias, pin);
         }
     }
 
     aliases
+}
+
+fn pin_aliases_section(content: &str) -> Option<&str> {
+    let content_lower = content.to_lowercase();
+    let section_markers = ["## pin aliases", "## pin alias", "## pins"];
+
+    let section_start = section_markers
+        .iter()
+        .find_map(|marker| content_lower.find(marker).map(|pos| pos + marker.len()))?;
+
+    let rest = &content[section_start..];
+    let section_end = rest
+        .find("\n## ")
+        .map(|i| section_start + i)
+        .unwrap_or(content.len());
+    Some(&content[section_start..section_end])
+}
+
+fn parse_alias_table_row(line: &str) -> Option<(String, u32)> {
+    if !line.starts_with('|') {
+        return None;
+    }
+
+    let parts: Vec<&str> = line.split('|').map(|s| s.trim()).collect();
+    if parts.len() < 3 {
+        return None;
+    }
+
+    let alias = normalize_alias(parts[1]);
+    let pin_str = parts[2].trim();
+    if !is_valid_alias_entry(&alias, pin_str) {
+        return None;
+    }
+
+    pin_str.parse::<u32>().ok().map(|pin| (alias, pin))
+}
+
+fn parse_alias_key_value(line: &str) -> Option<(String, u32)> {
+    let (key, value) = line.split_once(':').or_else(|| line.split_once('='))?;
+    let alias = normalize_alias(key);
+    if alias.is_empty() {
+        return None;
+    }
+    value.trim().parse::<u32>().ok().map(|pin| (alias, pin))
+}
+
+fn normalize_alias(alias: &str) -> String {
+    alias.trim().to_lowercase().replace(' ', "_")
+}
+
+fn is_valid_alias_entry(alias: &str, pin_str: &str) -> bool {
+    !alias.is_empty()
+        && !pin_str.is_empty()
+        && !alias.eq("alias")
+        && !alias.eq("pin")
+        && !pin_str.eq("pin")
+        && !alias.contains("---")
+        && !pin_str.contains("---")
 }
 
 fn collect_md_txt_paths(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
@@ -341,6 +352,17 @@ user_led: 5"#;
     fn parse_pin_aliases_empty() {
         let a = parse_pin_aliases("No aliases here");
         assert!(a.is_empty());
+    }
+
+    #[test]
+    fn parse_pin_aliases_stops_at_next_section() {
+        let md = r#"## Pin Aliases
+red_led: 13
+## Notes
+user_led: 5"#;
+        let a = parse_pin_aliases(md);
+        assert_eq!(a.get("red_led"), Some(&13));
+        assert_eq!(a.get("user_led"), None);
     }
 
     #[test]

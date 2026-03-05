@@ -18,6 +18,45 @@ impl HardwareCapabilitiesTool {
     }
 }
 
+fn includes_board(filter: Option<&str>, board_name: &str) -> bool {
+    match filter {
+        Some(expected) => expected == board_name,
+        None => true,
+    }
+}
+
+fn format_capabilities_success(board_name: &str, output: &str) -> String {
+    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(output) {
+        return format!(
+            "{}: gpio {:?}, led_pin {:?}",
+            board_name,
+            parsed.get("gpio").unwrap_or(&json!([])),
+            parsed.get("led_pin").unwrap_or(&json!(null))
+        );
+    }
+
+    format!("{}: {}", board_name, output)
+}
+
+fn format_capabilities_result(board_name: &str, result: &ToolResult) -> String {
+    if result.success {
+        return format_capabilities_success(board_name, &result.output);
+    }
+
+    format!(
+        "{}: {}",
+        board_name,
+        result.error.as_deref().unwrap_or("unknown")
+    )
+}
+
+fn empty_capabilities_message(filter: Option<&str>) -> String {
+    match filter {
+        Some(_) => "No matching board or capabilities not supported.".to_string(),
+        None => "No serial boards configured or capabilities not supported.".to_string(),
+    }
+}
+
 #[async_trait]
 impl Tool for HardwareCapabilitiesTool {
     fn name(&self) -> &str {
@@ -45,34 +84,13 @@ impl Tool for HardwareCapabilitiesTool {
         let mut outputs = Vec::new();
 
         for (board_name, transport) in &self.boards {
-            if let Some(b) = filter {
-                if b != board_name {
-                    continue;
-                }
+            if !includes_board(filter, board_name) {
+                continue;
             }
+
             match transport.capabilities().await {
                 Ok(result) => {
-                    let output = if result.success {
-                        if let Ok(parsed) =
-                            serde_json::from_str::<serde_json::Value>(&result.output)
-                        {
-                            format!(
-                                "{}: gpio {:?}, led_pin {:?}",
-                                board_name,
-                                parsed.get("gpio").unwrap_or(&json!([])),
-                                parsed.get("led_pin").unwrap_or(&json!(null))
-                            )
-                        } else {
-                            format!("{}: {}", board_name, result.output)
-                        }
-                    } else {
-                        format!(
-                            "{}: {}",
-                            board_name,
-                            result.error.as_deref().unwrap_or("unknown")
-                        )
-                    };
-                    outputs.push(output);
+                    outputs.push(format_capabilities_result(board_name, &result));
                 }
                 Err(e) => {
                     outputs.push(format!("{}: error - {}", board_name, e));
@@ -81,11 +99,7 @@ impl Tool for HardwareCapabilitiesTool {
         }
 
         let output = if outputs.is_empty() {
-            if filter.is_some() {
-                "No matching board or capabilities not supported.".to_string()
-            } else {
-                "No serial boards configured or capabilities not supported.".to_string()
-            }
+            empty_capabilities_message(filter)
         } else {
             outputs.join("\n")
         };
@@ -95,5 +109,41 @@ impl Tool for HardwareCapabilitiesTool {
             output,
             error: None,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_json_capabilities_output() {
+        let output = format_capabilities_success("uno", r#"{"gpio":[2,13],"led_pin":13}"#);
+        assert!(output.contains("uno: gpio"));
+        assert!(output.contains("13"));
+    }
+
+    #[test]
+    fn formats_plain_text_capabilities_output() {
+        let output = format_capabilities_success("uno", "raw capabilities");
+        assert_eq!(output, "uno: raw capabilities");
+    }
+
+    #[test]
+    fn formats_error_result_with_unknown_fallback() {
+        let result = ToolResult {
+            success: false,
+            output: String::new(),
+            error: None,
+        };
+        let output = format_capabilities_result("uno", &result);
+        assert_eq!(output, "uno: unknown");
+    }
+
+    #[test]
+    fn includes_board_filter_matches_expected_name() {
+        assert!(includes_board(None, "uno"));
+        assert!(includes_board(Some("uno"), "uno"));
+        assert!(!includes_board(Some("esp32"), "uno"));
     }
 }

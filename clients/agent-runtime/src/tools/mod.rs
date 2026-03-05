@@ -27,6 +27,7 @@ pub mod schema;
 pub mod screenshot;
 pub mod shell;
 pub mod traits;
+pub(crate) mod url_safety;
 pub mod web_search_tool;
 
 pub use browser::{BrowserTool, ComputerUseConfig};

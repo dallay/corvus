@@ -17,7 +17,7 @@ echo "Running clean build with --profile..."
 # Find the latest profile report
 PROFILE_REPORT=$(find build/reports/profile -name "*.html" -type f -printf '%T@ %p\n' | sort -n | tail -1 | cut -f2- -d" ")
 
-if [ -n "$PROFILE_REPORT" ]; then
+if [[ -n "$PROFILE_REPORT" ]]; then
     echo ""
     echo "✅ Profile report generated: $PROFILE_REPORT"
     echo ""
@@ -25,7 +25,7 @@ if [ -n "$PROFILE_REPORT" ]; then
     echo "----------------------------"
 
     # Extract key metrics if available
-    if command -v jq &> /dev/null && [ -f "build/reports/profile/profile.json" ]; then
+    if command -v jq &> /dev/null && [[ -f "build/reports/profile/profile.json" ]]; then
         jq -r '.buildTime, .taskExecutionTime' build/reports/profile/profile.json
     else
         echo "Open the HTML report for detailed analysis:"

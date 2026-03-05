@@ -9,14 +9,14 @@ import org.junit.jupiter.api.Test
 class ChunkedVirtualTest {
 
   @Test
-  fun `success case should return doubled values`() {
+  fun successCaseShouldReturnDoubledValues() {
     val input = listOf(1, 2, 3, 4, 5)
     val result = input.chunkedVirtual(size = 2) { it * 2 }
     assertEquals(listOf(2, 4, 6, 8, 10), result)
   }
 
   @Test
-  fun `failure case should throw exception on fail`() {
+  fun failureCaseShouldThrowExceptionOnFail() {
     val input = listOf(1, 2, 3)
     assertThrows(IllegalStateException::class.java) {
       input.chunkedVirtual(size = 2) {
@@ -27,7 +27,7 @@ class ChunkedVirtualTest {
   }
 
   @Test
-  fun `timeout should cancel task`() {
+  fun timeoutShouldCancelTask() {
     val input = listOf(1, 2, 3)
     val exception =
       assertThrows(IllegalStateException::class.java) {
@@ -40,21 +40,21 @@ class ChunkedVirtualTest {
   }
 
   @Test
-  fun `preserves order of results`() {
+  fun preservesOrderOfResults() {
     val input = (1..10).toList()
     val result = input.chunkedVirtual(size = 3) { it * it }
     assertEquals(input.map { it * it }, result)
   }
 
   @Test
-  fun `empty input returns empty`() {
+  fun emptyInputReturnsEmpty() {
     val input = emptyList<Int>()
     val result = input.chunkedVirtual { it * 2 }
     assertTrue(result.isEmpty())
   }
 
   @Test
-  fun `large scale stress test`() {
+  fun largeScaleStressTest() {
     val input = (1..1000).toList()
 
     val result =

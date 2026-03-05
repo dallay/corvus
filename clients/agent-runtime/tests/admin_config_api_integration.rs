@@ -13,7 +13,6 @@ use parking_lot::Mutex;
 use corvus::{
     config::Config,
     gateway::{admin, AppState, GatewayRateLimiter, IdempotencyStore},
-    memory::{Memory, MemoryCategory, MemoryEntry},
     providers::Provider,
     security::pairing::PairingGuard,
 };
@@ -31,59 +30,6 @@ impl Provider for IntegrationProvider {
         _temperature: f64,
     ) -> anyhow::Result<String> {
         Ok("ok".to_string())
-    }
-}
-
-#[derive(Default)]
-struct IntegrationMemory;
-
-#[async_trait]
-impl Memory for IntegrationMemory {
-    fn name(&self) -> &str {
-        "integration"
-    }
-
-    async fn store(
-        &self,
-        _key: &str,
-        _content: &str,
-        _category: MemoryCategory,
-        _session_id: Option<&str>,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn recall(
-        &self,
-        _query: &str,
-        _limit: usize,
-        _session_id: Option<&str>,
-    ) -> anyhow::Result<Vec<MemoryEntry>> {
-        Ok(Vec::new())
-    }
-
-    async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
-        Ok(None)
-    }
-
-    async fn list(
-        &self,
-        _category: Option<&MemoryCategory>,
-        _session_id: Option<&str>,
-    ) -> anyhow::Result<Vec<MemoryEntry>> {
-        Ok(Vec::new())
-    }
-
-    async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-
-    async fn count(&self) -> anyhow::Result<usize> {
-        Ok(0)
-    }
-
-    async fn health_check(&self) -> bool {
-        true
     }
 }
 
@@ -115,7 +61,7 @@ fn state_with_config(config: Config) -> AppState {
         provider: Arc::new(IntegrationProvider),
         model: "model".into(),
         temperature: 0.7,
-        mem: Arc::new(IntegrationMemory),
+        mem: Arc::new(corvus::memory::NoneMemory::new()),
         auto_save: false,
         webhook_secret_hash: None,
         pairing: Arc::new(PairingGuard::new(true, &["valid-token".into()])),

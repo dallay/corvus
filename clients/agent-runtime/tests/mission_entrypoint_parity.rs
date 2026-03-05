@@ -3,7 +3,7 @@ use corvus::agent::agent::Agent;
 use corvus::agent::dispatcher::NativeToolDispatcher;
 use corvus::agent::mission::{MissionState, MissionTerminationReason};
 use corvus::config::MissionConfig;
-use corvus::memory::{Memory, MemoryCategory, MemoryEntry};
+use corvus::memory::Memory;
 use corvus::observability::{Observer, ObserverEvent};
 use corvus::providers::{ChatRequest, ChatResponse, Provider};
 use corvus::tools::{Tool, ToolResult};
@@ -70,58 +70,6 @@ impl Provider for ParityProvider {
     }
 }
 
-struct ParityMemory;
-
-#[async_trait]
-impl Memory for ParityMemory {
-    fn name(&self) -> &str {
-        "parity-memory"
-    }
-
-    async fn store(
-        &self,
-        _key: &str,
-        _content: &str,
-        _category: MemoryCategory,
-        _session_id: Option<&str>,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn recall(
-        &self,
-        _query: &str,
-        _limit: usize,
-        _session_id: Option<&str>,
-    ) -> anyhow::Result<Vec<MemoryEntry>> {
-        Ok(Vec::new())
-    }
-
-    async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
-        Ok(None)
-    }
-
-    async fn list(
-        &self,
-        _category: Option<&MemoryCategory>,
-        _session_id: Option<&str>,
-    ) -> anyhow::Result<Vec<MemoryEntry>> {
-        Ok(Vec::new())
-    }
-
-    async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-
-    async fn count(&self) -> anyhow::Result<usize> {
-        Ok(0)
-    }
-
-    async fn health_check(&self) -> bool {
-        true
-    }
-}
-
 struct ParityTool;
 
 #[async_trait]
@@ -156,7 +104,7 @@ fn build_agent() -> (Agent, Arc<CapturingObserver>) {
     });
     let observer = Arc::new(CapturingObserver::default());
     let observer_dyn: Arc<dyn Observer> = observer.clone();
-    let memory: Arc<dyn Memory> = Arc::new(ParityMemory);
+    let memory: Arc<dyn Memory> = Arc::new(corvus::memory::NoneMemory::new());
 
     let agent = Agent::builder()
         .provider(provider)

@@ -34,6 +34,7 @@ has_json_version_key() {
       if (!found) exit 1
     }
   ' "$file"
+  return 0
 }
 
 add_json_version_target() {
@@ -41,6 +42,7 @@ add_json_version_target() {
   if [[ -f "$file" ]] && has_json_version_key "$file"; then
     TARGETS+=("json:${file}:version")
   fi
+  return 0
 }
 
 collect_web_version_targets() {
@@ -56,6 +58,7 @@ collect_web_version_targets() {
   done
 
   shopt -u nullglob
+  return 0
 }
 
 write_if_changed() {
@@ -63,10 +66,11 @@ write_if_changed() {
   local temp_file="$2"
   if cmp -s "$file" "$temp_file"; then
     rm -f "$temp_file"
-    return
+    return 0
   fi
   mv "$temp_file" "$file"
   CHANGED_FILES+=("$file")
+  return 0
 }
 
 update_properties_key() {
@@ -76,7 +80,7 @@ update_properties_key() {
   local temp_file
 
   if [[ ! -f "$file" ]]; then
-    echo "ERROR: $file not found"
+    echo "ERROR: $file not found" >&2
     exit 1
   fi
 
@@ -106,7 +110,7 @@ update_toml_string_key() {
   local temp_file
 
   if [[ ! -f "$file" ]]; then
-    echo "ERROR: $file not found"
+    echo "ERROR: $file not found" >&2
     exit 1
   fi
 
@@ -127,7 +131,7 @@ update_toml_string_key() {
     }
   ' "$file" > "$temp_file" || {
     rm -f "$temp_file"
-    echo "ERROR: Could not find TOML string key \"$key\" in $file"
+    echo "ERROR: Could not find TOML string key \"$key\" in $file" >&2
     exit 1
   }
   write_if_changed "$file" "$temp_file"
@@ -140,7 +144,7 @@ update_json_string_key() {
   local temp_file
 
   if [[ ! -f "$file" ]]; then
-    echo "ERROR: $file not found"
+    echo "ERROR: $file not found" >&2
     exit 1
   fi
 
@@ -161,7 +165,7 @@ update_json_string_key() {
     }
   ' "$file" > "$temp_file" || {
     rm -f "$temp_file"
-    echo "ERROR: Could not find \"$key\" string key in $file"
+    echo "ERROR: Could not find \"$key\" string key in $file" >&2
     exit 1
   }
   write_if_changed "$file" "$temp_file"
@@ -185,16 +189,17 @@ apply_target_update() {
       update_toml_string_key "$file" "$key" "$version"
       ;;
     *)
-      echo "ERROR: Unsupported target type '$target_type' in '$target'"
+      echo "ERROR: Unsupported target type '$target_type' in '$target'" >&2
       exit 1
       ;;
   esac
+  return 0
 }
 
 # Get the globally latest semantic version tag matching vX.Y.Z
 tag=$(git tag -l 'v*' --sort=-v:refname | grep -Em1 "$TAG_REGEX" || true)
 if [[ -z "$tag" ]]; then
-  echo "ERROR: No tag matching vX.Y.Z was found."
+  echo "ERROR: No tag matching vX.Y.Z was found." >&2
   exit 1
 fi
 
