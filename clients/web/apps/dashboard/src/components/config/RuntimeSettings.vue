@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import type { AdminConfigForm } from "@/types/admin-config";
-
 import Button from "@/components/ui/button/Button.vue";
+import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
   modelValue: AdminConfigForm;

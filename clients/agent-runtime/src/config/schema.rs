@@ -2027,10 +2027,20 @@ impl Default for Config {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct UpdateConfig {
     /// Enable periodic update checks + notifications in daemon mode.
     #[serde(default = "default_updates_enabled")]
     pub enabled: bool,
+    /// Auto-install policy; disabled by default for safety.
+    #[serde(default)]
+    pub auto_install_enabled: bool,
+    /// Channel-side update visibility.
+    #[serde(default = "default_true")]
+    pub channel_visibility_enabled: bool,
+    /// CLI startup notice visibility.
+    #[serde(default = "default_true")]
+    pub cli_startup_notice_enabled: bool,
     /// Poll interval for update checks while daemon is running.
     #[serde(
         default = "default_update_check_interval_minutes",
@@ -2049,6 +2059,15 @@ pub struct UpdateConfig {
     /// Value: list of destination identifiers for that channel.
     #[serde(default)]
     pub notify_destinations: HashMap<String, Vec<String>>,
+    /// Optional install method override.
+    #[serde(default)]
+    pub install_method_override: Option<String>,
+    /// Restart policy after successful install.
+    #[serde(default = "default_update_restart_policy")]
+    pub restart_policy: String,
+    /// Maximum retained history entries.
+    #[serde(default = "default_update_history_max_entries")]
+    pub history_max_entries: u32,
 }
 
 fn deserialize_nonzero_u64<'de, D>(deserializer: D) -> Result<u64, D::Error>
@@ -2077,13 +2096,45 @@ fn default_update_confirmation_ttl_minutes() -> u64 {
     30
 }
 
+fn default_update_restart_policy() -> String {
+    "prompt".to_string()
+}
+
+fn default_update_history_max_entries() -> u32 {
+    200
+}
+
+fn normalize_install_method_override(raw: &str) -> Option<String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "npm" | "pnpm" | "yarn" | "bun" | "homebrew" | "cargo" | "script_binary" => {
+            Some(normalized)
+        }
+        _ => None,
+    }
+}
+
+fn normalize_restart_policy(raw: &str) -> Option<String> {
+    let normalized = raw.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "never" | "prompt" | "auto_managed_service" => Some(normalized),
+        _ => None,
+    }
+}
+
 impl Default for UpdateConfig {
     fn default() -> Self {
         Self {
             enabled: default_updates_enabled(),
+            auto_install_enabled: false,
+            channel_visibility_enabled: true,
+            cli_startup_notice_enabled: true,
             check_interval_minutes: default_update_check_interval_minutes(),
             confirmation_ttl_minutes: default_update_confirmation_ttl_minutes(),
             notify_destinations: HashMap::new(),
+            install_method_override: None,
+            restart_policy: default_update_restart_policy(),
+            history_max_entries: default_update_history_max_entries(),
         }
     }
 }
@@ -2571,6 +2622,51 @@ impl Config {
             &mut self.memory.surreal.password,
         );
         env_override_optional("CORVUS_SURREALDB_TOKEN", &mut self.memory.surreal.token);
+
+        env_override_bool("CORVUS_UPDATES_ENABLED", None, &mut self.updates.enabled);
+        env_override_bool(
+            "CORVUS_UPDATE_AUTO_INSTALL",
+            None,
+            &mut self.updates.auto_install_enabled,
+        );
+        env_override_bool(
+            "CORVUS_UPDATE_CHANNEL_VISIBILITY",
+            None,
+            &mut self.updates.channel_visibility_enabled,
+        );
+        env_override_bool(
+            "CORVUS_UPDATE_CLI_NOTICE",
+            None,
+            &mut self.updates.cli_startup_notice_enabled,
+        );
+
+        if let Ok(raw) = std::env::var("CORVUS_UPDATE_METHOD_OVERRIDE") {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                if let Some(method) = normalize_install_method_override(trimmed) {
+                    self.updates.install_method_override = Some(method);
+                } else {
+                    tracing::warn!(
+                        "ignoring invalid CORVUS_UPDATE_METHOD_OVERRIDE value: {}",
+                        trimmed
+                    );
+                }
+            }
+        }
+
+        if let Ok(raw) = std::env::var("CORVUS_UPDATE_RESTART_POLICY") {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                if let Some(policy) = normalize_restart_policy(trimmed) {
+                    self.updates.restart_policy = policy;
+                } else {
+                    tracing::warn!(
+                        "ignoring invalid CORVUS_UPDATE_RESTART_POLICY value: {}",
+                        trimmed
+                    );
+                }
+            }
+        }
     }
 
     pub fn validate_for_runtime(&self) -> Result<()> {
@@ -2947,6 +3043,12 @@ default_temperature = 0.7
     fn updates_config_defaults_are_safe_and_enabled() {
         let updates = UpdateConfig::default();
         assert!(updates.enabled);
+        assert!(!updates.auto_install_enabled);
+        assert!(updates.channel_visibility_enabled);
+        assert!(updates.cli_startup_notice_enabled);
+        assert!(updates.install_method_override.is_none());
+        assert_eq!(updates.restart_policy, "prompt");
+        assert_eq!(updates.history_max_entries, 200);
         assert_eq!(updates.check_interval_minutes, 30);
         assert_eq!(updates.confirmation_ttl_minutes, 30);
         assert!(updates.notify_destinations.is_empty());
@@ -4504,6 +4606,60 @@ default_model = "legacy-model"
         std::env::remove_var("CORVUS_SURREALDB_USERNAME");
         std::env::remove_var("CORVUS_SURREALDB_PASSWORD");
         std::env::remove_var("CORVUS_SURREALDB_TOKEN");
+    }
+
+    #[test]
+    fn env_override_updates_policy_fields() {
+        let _env_guard = env_override_test_guard();
+        let mut config = Config::default();
+
+        std::env::set_var("CORVUS_UPDATES_ENABLED", "false");
+        std::env::set_var("CORVUS_UPDATE_AUTO_INSTALL", "true");
+        std::env::set_var("CORVUS_UPDATE_CHANNEL_VISIBILITY", "false");
+        std::env::set_var("CORVUS_UPDATE_CLI_NOTICE", "false");
+        std::env::set_var("CORVUS_UPDATE_METHOD_OVERRIDE", "cargo");
+        std::env::set_var("CORVUS_UPDATE_RESTART_POLICY", "never");
+
+        config.apply_env_overrides();
+
+        assert!(!config.updates.enabled);
+        assert!(config.updates.auto_install_enabled);
+        assert!(!config.updates.channel_visibility_enabled);
+        assert!(!config.updates.cli_startup_notice_enabled);
+        assert_eq!(
+            config.updates.install_method_override.as_deref(),
+            Some("cargo")
+        );
+        assert_eq!(config.updates.restart_policy, "never");
+
+        std::env::remove_var("CORVUS_UPDATES_ENABLED");
+        std::env::remove_var("CORVUS_UPDATE_AUTO_INSTALL");
+        std::env::remove_var("CORVUS_UPDATE_CHANNEL_VISIBILITY");
+        std::env::remove_var("CORVUS_UPDATE_CLI_NOTICE");
+        std::env::remove_var("CORVUS_UPDATE_METHOD_OVERRIDE");
+        std::env::remove_var("CORVUS_UPDATE_RESTART_POLICY");
+    }
+
+    #[test]
+    fn env_override_updates_invalid_values_fail_safe() {
+        let _env_guard = env_override_test_guard();
+        let mut config = Config::default();
+        config.updates.install_method_override = Some("npm".to_string());
+        config.updates.restart_policy = "prompt".to_string();
+
+        std::env::set_var("CORVUS_UPDATE_METHOD_OVERRIDE", "unknown");
+        std::env::set_var("CORVUS_UPDATE_RESTART_POLICY", "invalid");
+
+        config.apply_env_overrides();
+
+        assert_eq!(
+            config.updates.install_method_override.as_deref(),
+            Some("npm")
+        );
+        assert_eq!(config.updates.restart_policy, "prompt");
+
+        std::env::remove_var("CORVUS_UPDATE_METHOD_OVERRIDE");
+        std::env::remove_var("CORVUS_UPDATE_RESTART_POLICY");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::gateway::{self, AppState};
 use crate::security::AutonomyLevel;
+use crate::update;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -26,6 +27,30 @@ pub struct AdminConfigView {
     pub web_search: AdminWebSearchView,
     pub memory: AdminMemoryView,
     pub browser: AdminBrowserView,
+    pub updates: AdminUpdatesView,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[allow(clippy::struct_excessive_bools)]
+pub struct AdminUpdatesView {
+    pub enabled: bool,
+    pub auto_install_enabled: bool,
+    pub channel_visibility_enabled: bool,
+    pub cli_startup_notice_enabled: bool,
+    pub install_method_override: Option<String>,
+    pub restart_policy: String,
+    pub status: AdminUpdateStatusView,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminUpdateStatusView {
+    pub current_version: String,
+    pub latest_version: Option<String>,
+    pub update_available: bool,
+    pub last_check_at_unix: Option<u64>,
+    pub last_check_outcome: Option<String>,
+    pub effective_install_method: String,
+    pub install_method_source: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -122,6 +147,7 @@ pub struct AdminMemoryView {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct AdminSurrealMemoryView {
     pub url: Option<String>,
     pub namespace: Option<String>,
@@ -524,6 +550,37 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
         },
         browser: AdminBrowserView {
             has_computer_use_api_key: has_secret(cfg.browser.computer_use.api_key.as_deref()),
+        },
+        updates: {
+            let status = update::get_update_status(cfg, env!("CARGO_PKG_VERSION")).ok();
+            AdminUpdatesView {
+                enabled: cfg.updates.enabled,
+                auto_install_enabled: cfg.updates.auto_install_enabled,
+                channel_visibility_enabled: cfg.updates.channel_visibility_enabled,
+                cli_startup_notice_enabled: cfg.updates.cli_startup_notice_enabled,
+                install_method_override: cfg.updates.install_method_override.clone(),
+                restart_policy: cfg.updates.restart_policy.clone(),
+                status: AdminUpdateStatusView {
+                    current_version: status
+                        .as_ref()
+                        .map(|view| view.current_version.clone())
+                        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string()),
+                    latest_version: status.as_ref().and_then(|view| view.latest_version.clone()),
+                    update_available: status.as_ref().is_some_and(|view| view.update_available),
+                    last_check_at_unix: status.as_ref().and_then(|view| view.last_check_at_unix),
+                    last_check_outcome: status
+                        .as_ref()
+                        .and_then(|view| view.last_check_outcome.clone()),
+                    effective_install_method: status
+                        .as_ref()
+                        .map(|view| view.effective_install_method.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                    install_method_source: status
+                        .as_ref()
+                        .map(|view| view.install_method_source.clone())
+                        .unwrap_or_else(|| "unknown".to_string()),
+                },
+            }
         },
     }
 }
@@ -1277,10 +1334,21 @@ mod tests {
         assert!(serialized.get("web_search").is_some());
         assert!(serialized.get("memory").is_some());
         assert!(serialized.get("browser").is_some());
+        assert!(serialized.get("updates").is_some());
         assert_eq!(
             serialized.pointer("/provider/has_api_key"),
             Some(&serde_json::json!(true))
         );
+        assert_eq!(
+            serialized.pointer("/updates/auto_install_enabled"),
+            Some(&serde_json::json!(false))
+        );
+        assert!(serialized
+            .pointer("/updates/status/last_check_outcome")
+            .is_some());
+        assert!(serialized
+            .pointer("/updates/status/last_check_at_unix")
+            .is_some());
         let text = serialized.to_string();
         assert!(!text.contains("secret-key"));
         assert!(!text.contains("composio-key"));

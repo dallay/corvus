@@ -90,9 +90,11 @@ impl Memory for IntegrationMemory {
 fn temp_config() -> Config {
     let root = std::env::temp_dir().join(format!("corvus-admin-config-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&root).expect("create temp root");
-    let mut config = Config::default();
-    config.config_path = root.join("config.toml");
-    config.workspace_dir = root.join("workspace");
+    let config = Config {
+        config_path: root.join("config.toml"),
+        workspace_dir: root.join("workspace"),
+        ..Config::default()
+    };
     std::fs::create_dir_all(&config.workspace_dir).expect("create workspace");
     config
 }
@@ -160,6 +162,19 @@ async fn get_admin_config_redacts_secrets() {
         body.pointer("/config/channels/webhook/has_secret"),
         Some(&serde_json::json!(true))
     );
+    assert_eq!(
+        body.pointer("/config/updates/auto_install_enabled"),
+        Some(&serde_json::json!(false))
+    );
+    assert!(body
+        .pointer("/config/updates/status/current_version")
+        .is_some());
+    assert!(body
+        .pointer("/config/updates/status/last_check_outcome")
+        .is_some());
+    assert!(body
+        .pointer("/config/updates/status/last_check_at_unix")
+        .is_some());
     let text = body.to_string();
     assert!(!text.contains("top-secret"));
 }
