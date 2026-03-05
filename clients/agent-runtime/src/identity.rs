@@ -4,6 +4,7 @@
 //! portable AI identity. This module handles loading and converting AIEOS v1.1
 //! JSON to Corvus's system prompt format.
 
+use std::path::PathBuf;
 use crate::config::IdentityConfig;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -151,10 +152,31 @@ pub struct InterestsSection {
     pub lifestyle: Option<String>,
 }
 
-/// Load AIEOS identity from config (file path or inline JSON).
+/// Load an AIEOS identity from the configuration, either from a workspace-relative or absolute file path
+/// (`aieos_path`) or from an inline JSON string (`aieos_inline`).
 ///
-/// Checks `aieos_path` first, then `aieos_inline`. Returns `Ok(None)` if
-/// neither is configured.
+/// If `aieos_path` is present, the path is canonicalized and verified to reside inside the canonicalized
+/// `workspace_dir`; a security error is returned if the resolved file is outside the workspace. If the
+/// file is readable and contains valid JSON, the parsed `AieosIdentity` is returned. If `aieos_path` is
+/// not set, `aieos_inline` is parsed as JSON and returned when present. `aieos_path` takes precedence
+/// over `aieos_inline`.
+///
+/// If `config.format` is not `"aieos"`, the function returns `Ok(None)`. If `config.format` is `"aieos"`
+/// but neither `aieos_path` nor `aieos_inline` is configured, an error is returned with guidance for
+/// configuring one of them. Errors are also returned for canonicalization, file read, or JSON parse failures,
+/// each annotated with contextual information.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// // Assuming `config` is an IdentityConfig and `workspace` is a Path to the workspace:
+/// // let result = load_aieos_identity(&config, Path::new("/path/to/workspace"))?;
+/// // match result {
+/// //     Some(identity) => println!("Loaded AIEOS identity"),
+/// //     None => println!("AIEOS not configured"),
+/// // }
+/// ```
 pub fn load_aieos_identity(
     config: &IdentityConfig,
     workspace_dir: &Path,
@@ -166,13 +188,26 @@ pub fn load_aieos_identity(
 
     // Try aieos_path first
     if let Some(ref path) = config.aieos_path {
+        let workspace_canonical = std::fs::canonicalize(workspace_dir)
+            .with_context(|| format!("Failed to canonicalize workspace directory: {}", workspace_dir.display()))?;
+
         let full_path = if Path::new(path).is_absolute() {
             PathBuf::from(path)
         } else {
             workspace_dir.join(path)
         };
 
-        let content = std::fs::read_to_string(&full_path)
+        let full_path_canonical = std::fs::canonicalize(&full_path)
+            .with_context(|| format!("Failed to canonicalize AIEOS path: {}", full_path.display()))?;
+
+        if !full_path_canonical.starts_with(&workspace_canonical) {
+            anyhow::bail!(
+                "Security error: AIEOS path {} is outside the workspace directory {}",
+                full_path.display(),
+                workspace_dir.display()
+            );
+        }
+        let content = std::fs::read_to_string(&full_path_canonical)
             .with_context(|| format!("Failed to read AIEOS file: {}", full_path.display()))?;
 
         let identity: AieosIdentity = serde_json::from_str(&content)
@@ -205,8 +240,6 @@ pub fn load_aieos_identity(
          aieos_inline = '{{\"identity\": {{...}}}}'"
     )
 }
-
-use std::path::PathBuf;
 
 /// Convert AIEOS identity to a system prompt string.
 ///

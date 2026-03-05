@@ -10,6 +10,21 @@ pub(crate) fn normalize_allowed_domains(domains: Vec<String>) -> Vec<String> {
     normalized
 }
 
+/// Produce a sanitized, host-only domain string from arbitrary input.
+///
+/// The function lowercases the input and trims surrounding whitespace. If the input
+/// contains a URL scheme (`http://` or `https://`) or a path, those parts are removed;
+/// leading and trailing dots are trimmed. Returns `None` if the resulting domain is
+/// empty, contains any colon (`:`), or contains any whitespace.
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(normalize_domain(" https://Example.COM/path "), Some("example.com".to_string()));
+/// assert_eq!(normalize_domain("..Sub.Domain.."), Some("sub.domain".to_string()));
+/// assert_eq!(normalize_domain("example.com:8080"), None);
+/// assert_eq!(normalize_domain("   "), None);
+/// ```
 pub(crate) fn normalize_domain(raw: &str) -> Option<String> {
     let mut domain = raw.trim().to_lowercase();
     if domain.is_empty() {
@@ -31,8 +46,8 @@ pub(crate) fn normalize_domain(raw: &str) -> Option<String> {
         .trim_end_matches('.')
         .to_string();
 
-    if let Some((host, _)) = domain.split_once(':') {
-        domain = host.to_string();
+    if domain.contains(':') {
+        return None;
     }
 
     if domain.is_empty() || domain.chars().any(char::is_whitespace) {
