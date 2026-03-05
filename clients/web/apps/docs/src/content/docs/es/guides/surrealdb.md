@@ -5,36 +5,43 @@ title: SurrealDB en Producción con Docker Compose
 Aquí tienes los pasos para desplegar **SurrealDB en producción con Docker Compose** basado en la
 documentación oficial de SurrealDB y prácticas estándar de contenedorización.
 
+Esta guía incluye correcciones prácticas de operación para SurrealDB v3 validadas en un servidor
+real.
+
 ## 1) Tipos de almacenamiento en SurrealDB
 
 SurrealDB soporta varios motores de almacenamiento, cada uno con características distintas:
 
-| Motor | Comando Docker | Persistencia | Casos de uso |
-|-------|----------------|--------------|---------------|
-| **In-Memory** (`mem://`) | Sin especificar | ❌ No | Tests, caché, datos temporales |
-| **RocksDB** (`rocksdb://`) | `rocksdb:/surreal/db` | ✅ Sí | Desarrollo, producción single-node |
-| **SurrealKV** (`surrealkv://`) | `surrealkv:/surreal/db` | ✅ Sí | Producción (reemplazo moderno de RocksDB) |
-| **TiKV** | Configuración cluster | ✅ Sí | Alta disponibilidad, clustering distribuido |
+| Motor                          | Comando Docker          | Persistencia | Casos de uso                                |
+|--------------------------------|-------------------------|--------------|---------------------------------------------|
+| **In-Memory** (`mem://`)       | Sin especificar         | ❌ No         | Tests, caché, datos temporales              |
+| **RocksDB** (`rocksdb://`)     | `rocksdb:/surreal/db`   | ✅ Sí         | Desarrollo, producción single-node          |
+| **SurrealKV** (`surrealkv://`) | `surrealkv:/surreal/db` | ✅ Sí         | Producción (reemplazo moderno de RocksDB)   |
+| **TiKV**                       | Configuración cluster   | ✅ Sí         | Alta disponibilidad, clustering distribuido |
 
 ### Detalles de cada tipo
 
 #### In-Memory (`mem://`)
+
 - Almacena todos los datos en RAM
 - **Rendimiento más rápido** posible
 - Los datos se **pierden** al cerrar la conexión
 - Ideal para: tests unitarios, caché, desarrollo rápido
 
 #### RocksDB (`rocksdb://`)
+
 - Motor de almacenamiento basado en key-value
 - Persistente en disco
 - Adecuado para desarrollo y producción single-node
 
 #### SurrealKV (`surrealkv://`)
+
 - **Motor recomendado** por SurrealDB para producción
 - Reemplazo moderno de RocksDB
 - Mejor rendimiento y eficiencia
 
 #### TiKV (Clustering)
+
 - Para despliegues distribuidos de alta disponibilidad
 - Requiere configuración más compleja (no incluido en Docker Compose simple)
 
@@ -42,7 +49,8 @@ SurrealDB soporta varios motores de almacenamiento, cada uno con característica
 
 ## 2) Base de datos de Grafos (funcionalidad nativa)
 
-Una de las características más potentes de SurrealDB es que **soporta grafos de forma nativa e implícita**. No necesitas configuración adicional - es parte del motor de base de datos.
+Una de las características más potentes de SurrealDB es que **soporta grafos de forma nativa e
+implícita**. No necesitas configuración adicional - es parte del motor de base de datos.
 
 ### ¿Qué significa esto?
 
@@ -91,24 +99,27 @@ SELECT ->follows->person FROM person:alice;
 
 SurrealDB tiene dos formas de relacionar registros:
 
-| Característica | Record Links | Graph Relations |
-|----------------|--------------|-----------------|
-| **Dirección** | Unidireccional | Bidireccional |
-| **Metadatos** | ❌ No | ✅ Sí (puedes guardar datos en la relación) |
-| **Rendimiento** | Más rápido | Flexible |
-| **Caso de uso** | Referencias simples | Relaciones complejas con contexto |
+| Característica  | Record Links        | Graph Relations                            |
+|-----------------|---------------------|--------------------------------------------|
+| **Dirección**   | Unidireccional      | Bidireccional                              |
+| **Metadatos**   | ❌ No                | ✅ Sí (puedes guardar datos en la relación) |
+| **Rendimiento** | Más rápido          | Flexible                                   |
+| **Caso de uso** | Referencias simples | Relaciones complejas con contexto          |
 
 **Usa Record Links cuando:**
+
 - Solo necesitas referenciar un registro desde otro
 - El rendimiento es crítico
 - No necesitas metadatos en la relación
 
 **Usa Graph Relations cuando:**
+
 - Necesitas relaciones bidireccionales
 - Quieres guardar información sobre la relación (ej: "fecha de creación", "peso")
 - Vas a hacer consultas complejas de traversal
 
-> 📖 **Más información**: Ver [Graph Database en SurrealDB](https://surrealdb.com/docs) para ejemplos avanzados.
+> 📖 **Más información**: Ver [Graph Database en SurrealDB](https://surrealdb.com/docs) para ejemplos
+> avanzados.
 
 ---
 
@@ -126,69 +137,24 @@ Debes satisfacer estos puntos antes de poner SurrealDB en producción:
 
 ## 4) Ejemplo de `docker-compose.yml` para producción
 
-> ⚠️ **Best Practice de Seguridad**: Para producción, usa **secrets** de Docker para datos sensibles
-> (usuarios, contraseñas) en lugar de variables de entorno. Ver [documentación de Docker Secrets](https://docs.docker.com/engine/swarm/secrets/).
+> Importante para la imagen de SurrealDB v3:
+>
+> - El entrypoint ya es `/surreal`.
+> - En Compose se usa `command: start ...` (no `surreal start ...`).
+> - `sh -c ...` no funciona porque la imagen no trae `/bin/sh`.
 
-### Con RocksDB (estándar) - Usando Secrets
-
-```yaml
-services:
-  surrealdb:
-    image: surrealdb/surrealdb:v3.0.1         # fija una versión concreta
-    command:
-      - sh
-      - -c
-      - >
-        surreal start
-        --bind 0.0.0.0:8000
-        --user "$$(cat /run/secrets/surreal_user)"
-        --pass "$$(cat /run/secrets/surreal_pass)"
-        rocksdb:/surreal/db                   # persistencia RocksDB en volumen
-    secrets:
-      - surreal_user
-      - surreal_pass
-    ports:
-      - "${SURREAL_PORT:-8000}:8000"         # solo expone si es necesario
-    volumes:
-      - surreal_data:/surreal/db             # volumen persistente
-    restart: unless-stopped                  # política de reinicio prod
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD", "surreal", "is-ready", "--endpoint", "http://localhost:8000"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-
-secrets:
-  surreal_user:
-    file: ./secrets/surreal_user.txt        # contenido: root
-  surreal_pass:
-    file: ./secrets/surreal_pass.txt         # contenido: tu_contraseña_segura
-
-volumes:
-  surreal_data:
-```
-
-### Con RocksDB - Usando archivo .env (solo desarrollo)
-
-Para desarrollo local, puedes usar archivos `.env` (añadir a `.gitignore`):
+### Con SurrealKV (recomendado para producción)
 
 ```yaml
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.1
+    env_file:
+      - ./secrets/surreal.env                 # chmod 600, nunca hacer commit
     command: >
       start
       --bind 0.0.0.0:8000
-      --user ${SURREAL_USER}
-      --pass ${SURREAL_PASS}
-      rocksdb:/surreal/db
-    env_file:
-      - .env                                 # solo para dev local - ¡AÑADIR A .gitignore!
+      surrealkv:/surreal/db
     ports:
       - "${SURREAL_PORT:-8000}:8000"
     volumes:
@@ -200,7 +166,7 @@ services:
         max-size: "50m"
         max-file: "3"
     healthcheck:
-      test: ["CMD", "surreal", "is-ready", "--endpoint", "http://localhost:8000"]
+      test: [ "CMD", "surreal", "isready", "--endpoint", "http://localhost:8000" ]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -209,25 +175,19 @@ volumes:
   surreal_data:
 ```
 
-### Con SurrealKV (recomendado para producción)
+### Con RocksDB (single-node)
 
 ```yaml
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.1
-    command:
-      - sh
-      - -c
-      - >
-        surreal start
-        --bind 0.0.0.0:8000
-        --user "$$(cat /run/secrets/surreal_user)"
-        --pass "$$(cat /run/secrets/surreal_pass)"
-        surrealkv:/surreal/db                # SurrealKV (recomendado)
-    secrets:
-      - surreal_user
-      - surreal_pass
-    # ... resto de configuración igual
+    env_file:
+      - ./secrets/surreal.env
+    command: >
+      start
+      --bind 0.0.0.0:8000
+      rocksdb:/surreal/db
+    # mismos ajustes de ports / volumes / restart / logging / healthcheck
 ```
 
 ### In-Memory (solo desarrollo/tests)
@@ -236,46 +196,40 @@ services:
 services:
   surrealdb:
     image: surrealdb/surrealdb:v3.0.1
-    command:
-      - sh
-      - -c
-      - >
-        surreal start
-        --bind 0.0.0.0:8000
-        --user "$$(cat /run/secrets/surreal_user)"
-        --pass "$$(cat /run/secrets/surreal_pass)"
-        mem                                      # In-memory (NO persistente)
-    secrets:
-      - surreal_user
-      - surreal_pass
+    command: >
+      start
+      --bind 0.0.0.0:8000
+      mem
     # NO volumes para in-memory
     # ADVERTENCIA: datos se pierden al reiniciar
 ```
 
 ## 5) Variables de entorno y Secrets
 
-> Nota: en Docker Compose se usa `$$` para escapar `$` y evitar interpolación en parseo.
+### Para Producción: env file protegido (Compose)
 
-### Para Producción: Docker Secrets
-
-Crea archivos de secrets (nunca hacer commit):
+Crea un archivo protegido (nunca hacer commit):
 
 ```bash
 mkdir -p secrets
-echo "root" > secrets/surreal_user.txt
-echo "S0m3$3cur3P@ss" > secrets/surreal_pass.txt
-chmod 600 secrets/*.txt
+cat > secrets/surreal.env << 'EOF'
+SURREAL_USER=root
+SURREAL_PASS=S0m3$3cur3P@ss
+SURREAL_PORT=8000
+EOF
+chmod 600 secrets/surreal.env
 ```
 
 Añadir a `.gitignore`:
+
 ```
 secrets/
 .env
 ```
 
-### Para Desarrollo: archivo .env
+### Para Desarrollo: archivo `.env`
 
-Este archivo **no debe guardarse en repositorio público** (añadir a `.gitignore`):
+Este archivo **no debe guardarse en repositorio público**:
 
 ```bash
 # .env - ¡Solo desarrollo!
@@ -284,7 +238,15 @@ SURREAL_PASS=S0m3$3cur3P@ss
 SURREAL_PORT=8000
 ```
 
-> 📖 Ver [Docker Compose Environment Variables Best Practices](https://docs.docker.com/compose/how-tos/environment-variables/best-practices/) para más detalles.
+> Si haces bootstrap con `--user`/`--pass` en argumentos del comando, elimínalos después del
+> primer arranque correcto para evitar exponer credenciales en inspecciones de procesos.
+
+### Túnel SSH desde macOS
+
+```bash
+ssh -o ExitOnForwardFailure=yes -fN -L 8000:127.0.0.1:8000 corvus
+curl -i http://localhost:8000/status
+```
 
 ## 6) Notas técnicas clave
 
@@ -299,8 +261,31 @@ motor de almacenamiento en disco. **Sin él se queda in-memory** (no persistente
 
 ### Credenciales y autenticación
 
-SurrealDB habilita autenticación por defecto. Debes suministrar `--user` y `--pass` o usar
-variables de entorno para inicializar el root.
+SurrealDB habilita autenticación por defecto. Puedes pasar `SURREAL_USER` / `SURREAL_PASS` para
+bootstrap, pero esas credenciales solo se usan para crear usuarios root cuando no existe ninguno.
+
+Si ya existen usuarios root, SurrealDB ignora esas credenciales de bootstrap y lo reporta en logs.
+
+### Errores comunes de arranque
+
+- `command: surreal start ...` provoca restart loops con esta imagen.
+- `command: sh -c ...` falla porque la imagen no trae `/bin/sh`.
+- Usa `surreal isready` en healthcheck (no `is-ready`).
+
+### Reset desde cero (destructivo)
+
+```bash
+docker compose down
+docker rm -f surrealdb 2>/dev/null || true
+rm -rf /surreal-data/surrealdb-data/*
+docker compose up -d
+```
+
+### Rotar password root
+
+```surql
+DEFINE USER OVERWRITE root ON ROOT PASSWORD 'new-strong-password' ROLES OWNER;
+```
 
 ### Resiliencia
 
@@ -332,13 +317,15 @@ Si vas a autoscalar o tener múltiples nodos:
 
 ### Documentación Oficial
 
-- [Running SurrealDB with Docker](https://surrealdb.com/docs/surrealdb/installation/running/docker) - Guía oficial de instalación con Docker
+- [Running SurrealDB with Docker](https://surrealdb.com/docs/surrealdb/installation/running/docker) -
+  Guía oficial de instalación con Docker
 - [SurrealQL](https://surrealdb.com/docs/surrealql) - Lenguaje de consulta de SurrealDB
 - [Graph Database en SurrealDB](https://surrealdb.com/docs) - Funcionalidades de grafos nativas
 
 ### Repositorios
 
-- [SurrealDB Docker GitHub](https://github.com/surrealdb/docker.surrealdb.com) - Configuraciones Docker oficiales
+- [SurrealDB Docker GitHub](https://github.com/surrealdb/docker.surrealdb.com) - Configuraciones
+  Docker oficiales
 - [SurrealDB GitHub](https://github.com/surrealdb/surrealdb) - Repositorio principal
 
 ### Aprendizaje

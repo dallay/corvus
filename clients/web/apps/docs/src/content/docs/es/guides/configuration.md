@@ -38,7 +38,8 @@ publicación).
 
 ## Configuración MCP del Agent Runtime
 
-El `agent-runtime` soporta servidores Model Context Protocol (MCP) detrás de un control de despliegue explícito.
+El `agent-runtime` soporta servidores Model Context Protocol (MCP) detrás de un control de
+despliegue explícito.
 
 ```toml
 [mcp]

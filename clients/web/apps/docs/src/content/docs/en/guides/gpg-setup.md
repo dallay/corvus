@@ -22,7 +22,8 @@ gpg --full-gen-key
 **Recommended configuration:**
 
 - **Key type:** RSA and RSA (default)
-- **Recommended key size:** `4096` bits — recommended for stronger security and follows Apache Maven guidance
+- **Recommended key size:** `4096` bits — recommended for stronger security and follows Apache Maven
+  guidance
 - **Validity:** `0` = no expiration (or your preferred duration)
 - **Name:** Your real name
 - **Email:** Your GitHub-associated email
@@ -146,8 +147,9 @@ secrets:
 3. Click on your avatar → **Profile**
 4. Find **User Token** or **Generate Token**
 5. Create a token and copy:
-  - **Username** → `MAVEN_CENTRAL_USERNAME`
-  - **Password** → `MAVEN_CENTRAL_PASSWORD`
+
+- **Username** → `MAVEN_CENTRAL_USERNAME`
+- **Password** → `MAVEN_CENTRAL_PASSWORD`
 
 **Important:** Never use a never-expiring token. User tokens should be rotated periodically.
 

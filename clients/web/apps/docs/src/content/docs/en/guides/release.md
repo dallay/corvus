@@ -12,15 +12,19 @@ Before you can publish, ensure you have:
 1. **GPG Key configured**: Follow the [GPG Setup Guide](./gpg-setup/) to create and configure your
    signing key
 2. **Maven Central access**: Repository secrets configured:
-  - `SIGNING_IN_MEMORY_KEY`: Your GPG private key
-  - `SIGNING_IN_MEMORY_KEY_PASSWORD`: GPG key passphrase
-  - `MAVEN_CENTRAL_USERNAME`: Maven Central username
-  - `MAVEN_CENTRAL_PASSWORD`: Maven Central password
+
+- `SIGNING_IN_MEMORY_KEY`: Your GPG private key
+- `SIGNING_IN_MEMORY_KEY_PASSWORD`: GPG key passphrase
+- `MAVEN_CENTRAL_USERNAME`: Maven Central username
+- `MAVEN_CENTRAL_PASSWORD`: Maven Central password
+
 3. **Release channel secrets** for non-Gradle artifacts:
-  - `CARGO_REGISTRY_TOKEN`: crates.io publishing token for `clients/agent-runtime`
-  - `NPM_TOKEN`: npm token for `@dallay/corvus`
-  - `DOCKERHUB_USERNAME`: Docker Hub account username
-  - `DOCKERHUB_TOKEN`: Docker Hub access token
+
+- `CARGO_REGISTRY_TOKEN`: crates.io publishing token for `clients/agent-runtime`
+- `NPM_TOKEN`: npm token for `@dallay/corvus`
+- `DOCKERHUB_USERNAME`: Docker Hub account username
+- `DOCKERHUB_TOKEN`: Docker Hub access token
+
 4. **Write permissions**: You must be a maintainer of the repository
 
 ### What gets released
@@ -209,12 +213,14 @@ stable `vX.Y.Z` releases.
 
 1. Check the workflow logs in GitHub Actions
 2. Common issues:
-  - **Signing failed**: Check GPG secrets are correctly configured
-  - **Maven Central auth failed**: Verify credentials haven't expired
-  - **Build failed**: Ensure all tests pass locally with `./gradlew check`
-  - **Version mismatch**: Tag version must match Gradle + web monorepo + Cargo + runtime npm package versions (`clients/agent-runtime/npm/*`)
-  - **Missing release secret**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
-    `DOCKERHUB_USERNAME`, or `DOCKERHUB_TOKEN`
+
+- **Signing failed**: Check GPG secrets are correctly configured
+- **Maven Central auth failed**: Verify credentials haven't expired
+- **Build failed**: Ensure all tests pass locally with `./gradlew check`
+- **Version mismatch**: Tag version must match Gradle + web monorepo + Cargo + runtime npm package
+  versions (`clients/agent-runtime/npm/*`)
+- **Missing release secret**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
+  `DOCKERHUB_USERNAME`, or `DOCKERHUB_TOKEN`
 
 ### Version already exists
 

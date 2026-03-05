@@ -12,9 +12,11 @@ Welcome to **Corvus**. This guide helps you run the customized project baseline 
 - **pnpm 10** or higher.
 - **Git**.
 - A bash-compatible shell (Linux, macOS, or Git Bash on Windows).
-- **Docker**: required only for sandbox and development containers; if you don't use containers, Docker is not needed.
+- **Docker**: required only for sandbox and development containers; if you don't use containers,
+  Docker is not needed.
 
-The listed tools are required for running `make setup` and `make build` when using those containerized workflows.
+The listed tools are required for running `make setup` and `make build` when using those
+containerized workflows.
 
 ## Installation
 
