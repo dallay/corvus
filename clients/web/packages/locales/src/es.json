@@ -18,9 +18,9 @@
     "webhook": "Webhook"
   },
   "auth": {
-    "baseUrl": "Base URL",
-    "pairingCode": "Código de emparejamiento",
-    "bearerToken": "Token bearer",
+    "baseUrl": "@:common.baseUrl",
+    "pairingCode": "@:common.pairingCode",
+    "bearerToken": "@:common.bearerToken",
     "connect": "Conectar",
     "pair": "Emparejar",
     "pairSuccess": "Emparejamiento exitoso. Token cargado.",
@@ -31,11 +31,11 @@
     "unauthorized": "No autorizado. Haz pairing y vuelve a intentar."
   },
   "form": {
-    "baseUrl": "Base URL",
+    "baseUrl": "@:common.baseUrl",
     "baseUrlPlaceholder": "http://127.0.0.1:3000",
-    "pairingCode": "Código de emparejamiento",
+    "pairingCode": "@:common.pairingCode",
     "pairingCodePlaceholder": "Código de emparejamiento",
-    "bearerToken": "Token bearer",
+    "bearerToken": "@:common.bearerToken",
     "bearerTokenPlaceholder": "Token bearer",
     "webhookSecret": "Secreto del webhook",
     "webhookSecretPlaceholder": "Secreto del webhook",
@@ -108,5 +108,10 @@
     "secretStatus": "Secret actual: {status}",
     "statusConfigured": "configurado",
     "statusNotConfigured": "no configurado"
+  },
+  "common": {
+    "baseUrl": "Base URL",
+    "pairingCode": "Código de emparejamiento",
+    "bearerToken": "Token bearer"
   }
 }

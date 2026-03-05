@@ -27,7 +27,7 @@ describe("SecuritySettings", () => {
       },
     });
 
-    expect(wrapper.text()).toContain("Identity format");
-    expect(wrapper.text()).toContain("Identity AIEOS path");
+    expect(wrapper.text()).toContain("Formato de identidad");
+    expect(wrapper.text()).toContain("Ruta AIEOS de identidad");
   });
 });

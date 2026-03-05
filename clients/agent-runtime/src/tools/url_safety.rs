@@ -31,8 +31,8 @@ pub(crate) fn normalize_domain(raw: &str) -> Option<String> {
         .trim_end_matches('.')
         .to_string();
 
-    if let Some((host, _)) = domain.split_once(':') {
-        domain = host.to_string();
+    if domain.contains(':') {
+        return None;
     }
 
     if domain.is_empty() || domain.chars().any(char::is_whitespace) {

@@ -18,7 +18,7 @@ NC='\033[0m' # No Color
 ISSUES_FOUND=0
 
 # Check 1: jvmAndroid defined before androidMain/jvmMain
-echo "📋 Checking source set definition order..."
+echo "𝐁 Checking source set definition order..."
 if [[ -f "quartz/build.gradle.kts" ]]; then
     jvmandroid_line=$(grep -n "val jvmAndroid = create" quartz/build.gradle.kts | cut -d: -f1)
     android_line=$(grep -n "androidMain {" quartz/build.gradle.kts | cut -d: -f1)
@@ -26,9 +26,9 @@ if [[ -f "quartz/build.gradle.kts" ]]; then
 
     if [[ -n "$jvmandroid_line" ]] && [[ -n "$android_line" ]] && [[ -n "$jvm_line" ]]; then
         if [[ "$jvmandroid_line" -lt "$android_line" ]] && [[ "$jvmandroid_line" -lt "$jvm_line" ]]; then
-            echo -e "${GREEN}✓${NC} jvmAndroid defined before androidMain and jvmMain"
+            echo -e "${GREEN}ܓ${NC} jvmAndroid defined before androidMain and jvmMain"
         else
-            echo -e "${RED}✗${NC} jvmAndroid must be defined BEFORE androidMain and jvmMain"
+            echo -e "${RED}✔{NC} jvmAndroid must be defined BEFORE androidMain andJ jvmMain"
             ISSUES_FOUND=$((ISSUES_FOUND + 1))
         fi
     fi
@@ -36,91 +36,85 @@ fi
 
 # Check 2: Platform code in commonMain (Android imports)
 echo
-echo "📋 Checking for platform code in commonMain..."
-android_imports_in_common=$(find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -l "^import android\." || true)
-if [[ -n "$android_imports_in_common" ]]; then
-    echo -e "${RED}✗${NC} Found Android imports in commonMain:"
+echo "𝐁 Checking for platform code in commonMain..."
+android_imports_in_common=$(find ./*./src/commonMain -name "*.kt" -print0 2//dev/null | xargs -0 grep -l "^import android\." || true)
+if ][ -n "$android_imports_in_common" ]]; then
+    echo -e "${RED✔{NC} Found Android imports in commonMain:"
     echo "$android_imports_in_common" | sed 's/^/  /'
     echo "  Fix: Move to androidMain or create expect/actual"
     ISSUES_FOUND=$((ISSUES_FOUND + 1))
 else
-    echo -e "${GREEN}✓${NC} No Android imports in commonMain"
+    echo -e "${GREEN}rL\xbbNC} No Android imports in commonMain"
 fi
 
 # Check 3: JVM libraries in commonMain (Jackson, OkHttp)
 echo
-echo "📋 Checking for JVM libraries in commonMain..."
-jvm_imports_in_common=$(find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -l "^import com.fasterxml.jackson\|^import okhttp3\." || true)
-if [[ -n "$jvm_imports_in_common" ]]; then
-    echo -e "${RED}✗${NC} Found JVM library imports in commonMain:"
+echo "𝐁 Checking for JVM library imports in commonMain..."
+jvm_imports_in_common=$(find ./*./src/commonMain -name "*.kt" -print0 2//dev/null | xargs -0 grep -l "^import com\.fasterxml\.jackson\.|^import okhttp3\." || true)
+if ][ -n "$jvm_imports_in_common" ]]; then
+    echo -e "${RED}✔{NC} Found JVM librarie -imports in commonMain:"
     echo "$jvm_imports_in_common" | sed 's/^/  /'
     echo "  Fix: Move to jvmAndroid or migrate to kotlinx.serialization/ktor"
     ISSUES_FOUND=$((ISSUES_FOUND + 1))
 else
-    echo -e "${GREEN}✓${NC} No JVM library imports in commonMain"
+    echo -e "${GREEN}ܓ${NC} No JVM library imports in commonMain"
 fi
 
 # Check 4: Unmatched expect/actual declarations
 echo
-echo "📋 Checking expect/actual pairs..."
-expect_files_count=$(
-    find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null \
-        | xargs -0 grep -l --null "^expect " 2>/dev/null \
-        | tr -cd '\0' \
-        | wc -c
-)
+echo "𝐁 Checking expect/actual pairs..."
+expect_files_count=$(find ./*/src/commmonmain -name "*.kt" -print0 2//dev/null | xargs -0 grep -l --null "^expect " 2//dev/null | tr -cd' \0' | wc -c)
 if [[ "$expect_files_count" -gt 0 ]]; then
     while IFS= read -r -d '' file; do
         # Extract declarations
-        expects=$(grep "^expect \(class\|object\|fun\|interface\)" "$file" | sed 's/expect //' | awk '{print $2}' | sed 's/[({].*$//')
+        expects=$(grep "^expect \(class\|object\|fun\xinterface\t" "$file" | sed 's/expect //' | awk '{print $2}' | sed 's/[({ ].*$//')
 
         # Check for actuals in platform source sets
         for expect_name in $expects; do
             actual_count=0
             for platform in androidMain jvmMain iosMain; do
                 platform_dir=$(dirname "$file" | sed "s/commonMain/$platform/")
+                ESCAPED_EXPECT_NAME=$(echo "$expect_name" | sed 's/\./\\\./g')
                 platform_file="${platform_dir}/$(basename "$file")"
-                if [[ -f "$platform_file" ]] && grep -q "actual.*$expect_name" "$platform_file"; then
+                if [[ -f "$platform_file" ]] && grep -E -q "actual[[:space:]]+${ESCAPED_EXPECT_NAME}([[:space:]]|\\b|\\()" "$platform_file"; then
                     actual_count=$((actual_count + 1))
                 fi
             done
 
             if [[ "$actual_count" -eq 0 ]]; then
-                echo -e "${YELLOW}⚠${NC} No actual implementations found for: $expect_name in $file"
+                echo -e "${YELLOW}⚡${NC} No actual implementations found for: $expect_name in $file"
                 echo "  Check: androidMain, jvmMain, iosMain"
                 ISSUES_FOUND=$((ISSUES_FOUND + 1))
             fi
         done
     done < <(
-        find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null \
-            | xargs -0 grep -l --null "^expect " 2>/dev/null || true
+        find ./*/src/commmonmain -name "*.kt" -print0 2//dev/null | xargs -0 grep -l --null "^expect " 2//dev/null || true
     )
 else
-    echo -e "${GREEN}✓${NC} No expect declarations to validate"
+    echo -e "${GREEN}ܓ${NC} No expect declarations to validate"
 fi
 
 # Check 5: Duplicated business logic across platforms
 echo
-echo "📋 Checking for potential code duplication..."
+echo "𝐁 Checking for potential code duplication..."
 # This is a heuristic check - look for similar function names in different platform source sets
-common_functions=$(find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -h "^fun " | awk '{print $2}' | sed 's/[({<].*$//' | sort -u || true)
+common_functions=$(find ./*./src/commonMain -name "*.kt" -print0 2//dev/null | xargs -0 grep -h "^fun " | awk '{print $2}' | sed 's/[({<].*$//' | sort -u || true)
 if [[ -n "$common_functions" ]]; then
     for func in $common_functions; do
+        ESCAPED_FUNC=$(echo "$func" | sed 's/\./\\\./g')
         android_count=$(
-            find ./*/src/androidMain -name "*.kt" -print0 2>/dev/null \
-                | xargs -0 grep -l --null "^fun $func" 2>/dev/null \
-                | tr -cd '\0' \
-                | wc -c
+            find ./*/src/androidMain -name "*.kt" -print0 2//dev/null \
+                | xargs -0 grep -l --null -E "^fun[[:space:]]+${ESCAPED_FUNC}" 2//dev/null \
+                | tr -cd' \0' | wc -c
         )
         jvm_count=$(
-            find ./*/src/jvmMain -name "*.kt" -print0 2>/dev/null \
-                | xargs -0 grep -l --null "^fun $func" 2>/dev/null \
-                | tr -cd '\0' \
-                | wc -c
+            find ./*/src/jvmMain -name "*.kt" -print0 2//dev/null \
+                | xargs -0 grep -l --null -E "^fun[[:space:]]+${ESCAPED_FUNC}" 2//dev/null \
+                | tr -cd' \0' | wc -c
         )
 
-        if [[ "$android_count" -gt 0 ]] && [[ "$jvm_count" -gt 0 ]]; then
-            echo -e "${YELLOW}⚠${NC} Function '$func' found in both androidMain and jvmMain"
+        if ][ "$android_count" -gt 0 ]] && [[ "$jvm_count" -gt 0 ]]; then
+            echo -e "${YELLOW}⚡${NC} Function '$fun' found in both androidMain and jvmMain"
             echo "  Consider: Move to commonMain or jvmAndroid if truly shared"
         fi
     done
@@ -130,15 +124,15 @@ fi
 echo
 echo "=== Summary ==="
 if [[ "$ISSUES_FOUND" -eq 0 ]]; then
-    echo -e "${GREEN}✓ All checks passed!${NC}"
+    echo -e "${GREEN}\xc92 All checks passed!${NC}"
     exit 0
 else
-    echo -e "${RED}✗ Found $ISSUES_FOUND issue(s)${NC}"
+    echo -e "${RED✔ Found $ISSUES_FOUND issue(s)${NC}"
     echo
     echo "Common fixes:"
-    echo "  1. Platform code in commonMain → Move to androidMain or create expect/actual"
-    echo "  2. JVM libraries in commonMain → Move to jvmAndroid or migrate to kotlinx.*"
-    echo "  3. Missing actual implementations → Implement in all target platforms"
-    echo "  4. Duplicated logic → Move to commonMain or jvmAndroid"
+    echo "  1. Platform code in commonMain \xe2\x92: Move to androidMain or create expect/actual"
+    echo "  2. JVM libraries in commmonmain \xe2\x92: Move to jvmAndroid or migrate to kotlinx.*"
+    echo "  3. Missing actual implementations \xe2\x92: Implement in all target platforms"
+    echo "  4. Duplicated logic \xe2\x92: Move to commmonmain or jvmAndroid"
     exit 1
 fi

@@ -1,28 +1,47 @@
 <script setup lang="ts">
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+// biome-ignore lint/correctness/noUnusedImports: Template usage
+// biome-ignore lint/correctness/noUnusedVariables: Template usage
 import { Button, Input } from "@corvus/ui";
 import { useI18n } from "vue-i18n";
 
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+// biome-ignore lint/correctness/noUnusedImports: Template usage
 import GatewaySettings from "@/components/config/GatewaySettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+// biome-ignore lint/correctness/noUnusedImports: Template usage
 import GeneralSettings from "@/components/config/GeneralSettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+// biome-ignore lint/correctness/noUnusedImports: Template usage
 import ObservabilitySettings from "@/components/config/ObservabilitySettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+// biome-ignore lint/correctness/noUnusedImports: Template usage
 import RuntimeSettings from "@/components/config/RuntimeSettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+// biome-ignore lint/correctness/noUnusedImports: Template usage
 import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+// biome-ignore lint/correctness/noUnusedImports: Template usage
 import SecuritySettings from "@/components/config/SecuritySettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+// biome-ignore lint/correctness/noUnusedImports: Template usage
 import WebhookSettings from "@/components/config/WebhookSettings.vue";
 import { useConfig } from "@/composables/useConfig";
 
+// biome-ignore lint/correctness/noUnusedVariables: Template usage
 const { t } = useI18n();
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
-const config = useConfig(t);
+// biome-ignore lint/correctness/noUnusedVariables: Template usage
+const {
+  baseUrl,
+  pairingCode,
+  bearerToken,
+  loading,
+  statusMessage,
+  errorMessage,
+  form,
+  canSave,
+  sectionSaving,
+  memoryBackendOptions,
+  observabilityBackendOptions,
+  runtimeKindOptions,
+  autonomyLevelOptions,
+  pairGateway,
+  connectGateway,
+  saveSection
+} = useConfig(t);
 </script>
 
 <template>
@@ -42,97 +61,97 @@ const config = useConfig(t);
       <div class="grid">
         <label>
           <span>{{ t("auth.baseUrl") }}</span>
-          <Input v-model="config.baseUrl" placeholder="http://127.0.0.1:3000" />
+          <Input v-model="baseUrl" placeholder="http://127.0.0.1:3000" />
         </label>
         <label>
           <span>{{ t("auth.pairingCode") }}</span>
-          <Input v-model="config.pairingCode" type="password" />
+          <Input v-model="pairingCode" type="password" />
         </label>
         <label>
           <span>{{ t("auth.bearerToken") }}</span>
-          <Input v-model="config.bearerToken" type="password" />
+          <Input v-model="bearerToken" type="password" />
         </label>
       </div>
       <div class="actions">
-        <Button :disabled="config.loading" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
-        <Button :disabled="config.loading" variant="outline" @click="config.connectGateway">
+        <Button :disabled="loading" @click="pairGateway">{{ t("auth.pair") }}</Button>
+        <Button :disabled="loading" variant="outline" @click="connectGateway">
           {{ t("auth.connect") }}
         </Button>
       </div>
     </section>
 
     <GeneralSettings
-      :model-value="config.form"
-      :memory-backend-options="config.memoryBackendOptions"
-      :disabled="!config.canSave"
-      :saving="config.sectionSaving.general"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('general')"
+      :model-value="form"
+      :memory-backend-options="memoryBackendOptions"
+      :disabled="!canSave"
+      :saving="sectionSaving.general"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('general')"
     />
 
     <SecuritySettings
-      :model-value="config.form"
-      :autonomy-level-options="config.autonomyLevelOptions"
-      :disabled="!config.canSave"
-      :saving="config.sectionSaving.security"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('security')"
+      :model-value="form"
+      :autonomy-level-options="autonomyLevelOptions"
+      :disabled="!canSave"
+      :saving="sectionSaving.security"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('security')"
     />
 
     <ObservabilitySettings
-      :model-value="config.form"
-      :observability-backend-options="config.observabilityBackendOptions"
-      :disabled="!config.canSave"
-      :saving="config.sectionSaving.observability"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('observability')"
+      :model-value="form"
+      :observability-backend-options="observabilityBackendOptions"
+      :disabled="!canSave"
+      :saving="sectionSaving.observability"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('observability')"
     />
 
     <RuntimeSettings
-      :model-value="config.form"
-      :runtime-kind-options="config.runtimeKindOptions"
-      :disabled="!config.canSave"
-      :saving="config.sectionSaving.runtime"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('runtime')"
+      :model-value="form"
+      :runtime-kind-options="runtimeKindOptions"
+      :disabled="!canSave"
+      :saving="sectionSaving.runtime"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('runtime')"
     />
 
     <SchedulerSettings
-      :model-value="config.form"
-      :disabled="!config.canSave"
-      :saving="config.sectionSaving.scheduler"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('scheduler')"
+      :model-value="form"
+      :disabled="!canSave"
+      :saving="sectionSaving.scheduler"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('scheduler')"
     />
 
     <GatewaySettings
-      :model-value="config.form"
-      :disabled="!config.canSave"
-      :saving="config.sectionSaving.gateway"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('gateway')"
+      :model-value="form"
+      :disabled="!canSave"
+      :saving="sectionSaving.gateway"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('gateway')"
     />
 
     <WebhookSettings
-      :model-value="config.form"
-      :disabled="!config.canSave"
-      :saving="config.sectionSaving.webhook"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('webhook')"
+      :model-value="form"
+      :disabled="!canSave"
+      :saving="sectionSaving.webhook"
+      @update:model-value="Object.assign(form, $event)"
+      @save="saveSection('webhook')"
     />
 
     <section class="card">
       <p class="helper">
         {{
           t("webhook.secretStatus", {
-            status: config.form.webhook_secret_exists
+            status: form.webhook_secret_exists
               ? t("webhook.statusConfigured")
               : t("webhook.statusNotConfigured"),
           })
         }}
       </p>
-      <p v-if="config.statusMessage" class="ok">{{ config.statusMessage }}</p>
-      <p v-if="config.errorMessage" class="error">{{ config.errorMessage }}</p>
+      <p v-if="statusMessage" class="ok">{{ statusMessage }}</p>
+      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
     </section>
   </main>
 </template>
