@@ -2,10 +2,10 @@
 set -e
 
 # Detect execution context (root or dev/)
-if [ -f "dev/docker-compose.yml" ]; then
+if [[ -f "dev/docker-compose.yml" ]]; then
     BASE_DIR="dev"
     HOST_TARGET_DIR="clients/agent-runtime/target"
-elif [ -f "docker-compose.yml" ] && [ "$(basename "$(pwd)")" == "dev" ]; then
+elif [[ -f "docker-compose.yml" ]] && [[ "$(basename "$(pwd)")" == "dev" ]]; then
     BASE_DIR="."
     HOST_TARGET_DIR="../clients/agent-runtime/target"
 else
@@ -26,7 +26,7 @@ function ensure_config {
     CONFIG_FILE="$CONFIG_DIR/config.toml"
     WORKSPACE_DIR="$CONFIG_DIR/workspace"
 
-    if [ ! -f "$CONFIG_FILE" ]; then
+    if [[ ! -f "$CONFIG_FILE" ]]; then
         echo -e "${YELLOW}⚙️  Config file missing in $HOST_TARGET_DIR/.corvus. Creating default dev config from template...${NC}"
         mkdir -p "$WORKSPACE_DIR"
 
@@ -49,7 +49,7 @@ function print_help {
     echo -e "  ${GREEN}clean${NC}   Stop and wipe workspace data"
 }
 
-if [ -z "$1" ]; then
+if [[ -z "$1" ]]; then
     print_help
     exit 1
 fi

@@ -18,6 +18,8 @@ import org.gradle.api.tasks.TaskAction
 @CacheableTask
 abstract class JavaVersionConsistencyCheck : DefaultTask() {
 
+  private data class ComparisonIssue(val message: String, val isError: Boolean)
+
   /** The versions declared in the build.gradle.kts file. */
   @get:Input abstract val definedVersions: MapProperty<String, String>
 
@@ -40,30 +42,14 @@ abstract class JavaVersionConsistencyCheck : DefaultTask() {
   fun compare() {
     var errors = ""
     var issues = ""
+
     definedVersions.get().forEach { (id, version) ->
-      val resolved =
-        aggregatedClasspath.get().find {
-          val resolvedId = it.id
-          resolvedId is ModuleComponentIdentifier && resolvedId.moduleIdentifier.toString() == id
-        }
-      if (resolved == null) {
-        if (!unUsedExcludes.get().contains(id)) {
-          "Not used: $id:$version\n"
-            .also {
-              if (failOnUnUsed.orNull == true) {
-                errors += it
-              }
-              issues += it
-            }
-        }
-      } else {
-        val resolvedVersion = resolved.moduleVersion?.version
-        if (resolvedVersion != version) {
-          "Wrong version: $id (declared=$version; used=$resolvedVersion)\n"
-            .also {
-              errors += it
-              issues += it
-            }
+      val resolved = findResolvedComponent(id)
+      val issue = compareVersion(id, version, resolved)
+      if (issue != null) {
+        issues += issue.message
+        if (issue.isError) {
+          errors += issue.message
         }
       }
     }
@@ -73,5 +59,42 @@ abstract class JavaVersionConsistencyCheck : DefaultTask() {
     if (!errors.isEmpty()) {
       error(errors)
     }
+  }
+
+  private fun findResolvedComponent(id: String): ResolvedComponentResult? {
+    return aggregatedClasspath.get().find {
+      val resolvedId = it.id
+      resolvedId is ModuleComponentIdentifier && resolvedId.moduleIdentifier.toString() == id
+    }
+  }
+
+  private fun compareVersion(
+    id: String,
+    expectedVersion: String,
+    resolved: ResolvedComponentResult?,
+  ): ComparisonIssue? {
+    if (resolved == null) {
+      return notUsedIssue(id, expectedVersion)
+    }
+
+    val resolvedVersion = resolved.moduleVersion?.version
+    if (resolvedVersion == expectedVersion) {
+      return null
+    }
+
+    return ComparisonIssue(
+      message = "Wrong version: $id (declared=$expectedVersion; used=$resolvedVersion)\n",
+      isError = true,
+    )
+  }
+
+  private fun notUsedIssue(id: String, version: String): ComparisonIssue? {
+    if (unUsedExcludes.get().contains(id)) {
+      return null
+    }
+    return ComparisonIssue(
+      message = "Not used: $id:$version\n",
+      isError = failOnUnUsed.orNull == true,
+    )
   }
 }

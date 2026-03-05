@@ -196,37 +196,67 @@ object JsonParser {
       }
     }
 
-    @Suppress("detekt:CyclomaticComplexMethod", "detekt:NestedBlockDepth")
     private fun parseNumber(): Number {
       val start = index
-      var hasExponent = false
-      var hasDecimal = false
+      parseOptionalMinus()
+      parseIntegerPart()
+      val hasDecimal = parseFractionPart()
+      val hasExponent = parseExponentPart()
 
-      if (chars[index] == '-') advance()
+      val numStr = String(chars, start, index - start)
+      return parseNumberValue(numStr, hasDecimal, hasExponent, start)
+    }
 
+    private fun parseOptionalMinus() {
+      if (index < length && chars[index] == '-') {
+        advance()
+      }
+    }
+
+    private fun parseIntegerPart() {
       if (index < length && chars[index] == '0') {
         advance()
         if (index < length && chars[index] in '0'..'9') fail("Leading zeros not allowed")
-      } else {
-        while (index < length && chars[index] in '0'..'9') advance()
+        return
       }
-
-      if (index < length && chars[index] == '.') {
-        hasDecimal = true
+      while (index < length && chars[index] in '0'..'9') {
         advance()
-        if (index >= length || chars[index] !in '0'..'9') fail("Expected digit after decimal point")
-        while (index < length && chars[index] in '0'..'9') advance()
       }
+    }
 
-      if (index < length && chars[index] in "eE") {
-        hasExponent = true
+    private fun parseFractionPart(): Boolean {
+      if (index >= length || chars[index] != '.') {
+        return false
+      }
+      advance()
+      if (index >= length || chars[index] !in '0'..'9') fail("Expected digit after decimal point")
+      while (index < length && chars[index] in '0'..'9') {
         advance()
-        if (index < length && chars[index] in "+-") advance()
-        if (index >= length || chars[index] !in '0'..'9') fail("Expected digit in exponent")
-        while (index < length && chars[index] in '0'..'9') advance()
       }
+      return true
+    }
 
-      val numStr = String(chars, start, index - start)
+    private fun parseExponentPart(): Boolean {
+      if (index >= length || chars[index] !in "eE") {
+        return false
+      }
+      advance()
+      if (index < length && chars[index] in "+-") {
+        advance()
+      }
+      if (index >= length || chars[index] !in '0'..'9') fail("Expected digit in exponent")
+      while (index < length && chars[index] in '0'..'9') {
+        advance()
+      }
+      return true
+    }
+
+    private fun parseNumberValue(
+      numStr: String,
+      hasDecimal: Boolean,
+      hasExponent: Boolean,
+      start: Int,
+    ): Number {
       return try {
         when (numberMode) {
           NumberMode.PRECISE -> BigDecimal(numStr)

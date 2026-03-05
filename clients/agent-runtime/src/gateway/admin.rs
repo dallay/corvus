@@ -642,27 +642,35 @@ fn collect_runtime_identity_restart_fields(
     patch: &AdminConfigUpdateRequest,
     fields: &mut Vec<&'static str>,
 ) {
-    if let Some(runtime) = patch.runtime.as_ref() {
-        if let Some(kind) = runtime.kind.as_ref() {
-            if kind.trim().to_ascii_lowercase() != cfg.runtime.kind {
-                fields.push("runtime.kind");
-            }
-        }
+    let runtime_kind = patch
+        .runtime
+        .as_ref()
+        .and_then(|runtime| runtime.kind.as_deref());
+    if runtime_kind.is_some_and(|kind| normalized_lowercase_differs(kind, &cfg.runtime.kind)) {
+        fields.push("runtime.kind");
     }
 
-    if let Some(identity) = patch.identity.as_ref() {
-        if let Some(format) = identity.format.as_ref() {
-            if format.trim().to_ascii_lowercase() != cfg.identity.format {
-                fields.push("identity.format");
-            }
-        }
-        if let Some(aieos_path) = identity.aieos_path.as_ref() {
-            let next = normalize_optional_string(aieos_path);
-            if next.as_deref() != cfg.identity.aieos_path.as_deref() {
-                fields.push("identity.aieos_path");
-            }
-        }
+    let identity_format = patch
+        .identity
+        .as_ref()
+        .and_then(|identity| identity.format.as_deref());
+    if identity_format
+        .is_some_and(|format| normalized_lowercase_differs(format, &cfg.identity.format))
+    {
+        fields.push("identity.format");
     }
+
+    push_if_some(
+        fields,
+        "identity.aieos_path",
+        patch
+            .identity
+            .as_ref()
+            .and_then(|identity| identity.aieos_path.as_deref()),
+        |aieos_path| {
+            normalize_optional_string(aieos_path).as_deref() != cfg.identity.aieos_path.as_deref()
+        },
+    );
 }
 
 fn collect_scheduler_gateway_restart_fields(
@@ -745,38 +753,22 @@ fn collect_webhook_restart_fields(
     patch: &AdminConfigUpdateRequest,
     fields: &mut Vec<&'static str>,
 ) {
-    let channel_webhook = patch
-        .channels
-        .as_ref()
-        .and_then(|channels| channels.webhook.as_ref())
-        .or(patch.webhook.as_ref());
-    if let Some(webhook) = channel_webhook {
-        if let Some(enabled) = webhook.enabled {
-            if enabled != cfg.channels_config.webhook.is_some() {
-                fields.push("channels.webhook.enabled");
-            }
-        }
-        if let Some(port) = webhook.port {
-            let current_port = cfg
-                .channels_config
-                .webhook
-                .as_ref()
-                .map(|c| c.port)
-                .unwrap_or(3000);
-            if port != current_port {
-                fields.push("channels.webhook.port");
-            }
-        }
-        if let Some(secret) = webhook.secret.as_ref() {
-            let current = cfg
-                .channels_config
-                .webhook
-                .as_ref()
-                .and_then(|w| w.secret.as_deref());
-            if secret_update_changes(current, secret) {
-                fields.push("channels.webhook.secret");
-            }
-        }
+    if let Some(webhook) = webhook_patch_for_restart(patch) {
+        push_if_some(
+            fields,
+            "channels.webhook.enabled",
+            webhook.enabled,
+            |enabled| enabled != cfg.channels_config.webhook.is_some(),
+        );
+        push_if_some(fields, "channels.webhook.port", webhook.port, |port| {
+            port != current_webhook_port(cfg)
+        });
+        push_if_some(
+            fields,
+            "channels.webhook.secret",
+            webhook.secret.as_ref(),
+            |secret| secret_update_changes(current_webhook_secret(cfg), secret),
+        );
     }
 }
 
@@ -844,6 +836,33 @@ fn collect_secret_restart_fields(
         cfg.memory.surreal.token.as_deref(),
         surreal_patch.and_then(|surreal| surreal.token.as_ref()),
     );
+}
+
+fn normalized_lowercase_differs(value: &str, current: &str) -> bool {
+    value.trim().to_ascii_lowercase() != current
+}
+
+fn webhook_patch_for_restart(patch: &AdminConfigUpdateRequest) -> Option<&AdminWebhookPatch> {
+    patch
+        .channels
+        .as_ref()
+        .and_then(|channels| channels.webhook.as_ref())
+        .or(patch.webhook.as_ref())
+}
+
+fn current_webhook_port(cfg: &Config) -> u16 {
+    cfg.channels_config
+        .webhook
+        .as_ref()
+        .map(|webhook| webhook.port)
+        .unwrap_or(3000)
+}
+
+fn current_webhook_secret(cfg: &Config) -> Option<&str> {
+    cfg.channels_config
+        .webhook
+        .as_ref()
+        .and_then(|webhook| webhook.secret.as_deref())
 }
 
 fn push_if_some<T, F>(
@@ -964,142 +983,209 @@ fn apply_runtime_identity_patch(
     cfg: &mut Config,
     patch: &AdminConfigUpdateRequest,
 ) -> Result<(), AdminResponse> {
-    if let Some(runtime) = patch.runtime.as_ref() {
-        if let Some(kind) = runtime.kind.as_ref() {
-            let kind = kind.trim().to_ascii_lowercase();
-            if !gateway::utils::validate_runtime_kind(&kind) {
-                return Err(bad_request("Invalid runtime.kind. Allowed: native, docker"));
-            }
-            cfg.runtime.kind = kind;
-        }
-    }
-
-    if let Some(autonomy) = patch.autonomy.as_ref() {
-        if let Some(level) = autonomy.level {
-            cfg.autonomy.level = level;
-        }
-        if let Some(workspace_only) = autonomy.workspace_only {
-            cfg.autonomy.workspace_only = workspace_only;
-        }
-        if let Some(max_actions_per_hour) = autonomy.max_actions_per_hour {
-            cfg.autonomy.max_actions_per_hour = max_actions_per_hour;
-        }
-        if let Some(max_cost_per_day_cents) = autonomy.max_cost_per_day_cents {
-            cfg.autonomy.max_cost_per_day_cents = max_cost_per_day_cents;
-        }
-        if let Some(require_approval_for_medium_risk) = autonomy.require_approval_for_medium_risk {
-            cfg.autonomy.require_approval_for_medium_risk = require_approval_for_medium_risk;
-        }
-        if let Some(block_high_risk_commands) = autonomy.block_high_risk_commands {
-            cfg.autonomy.block_high_risk_commands = block_high_risk_commands;
-        }
-        if let Some(auto_approve) = autonomy.auto_approve.as_ref() {
-            cfg.autonomy.auto_approve = auto_approve.clone();
-        }
-        if let Some(always_ask) = autonomy.always_ask.as_ref() {
-            cfg.autonomy.always_ask = always_ask.clone();
-        }
-    }
-
-    if let Some(identity) = patch.identity.as_ref() {
-        if let Some(format) = identity.format.as_ref() {
-            let format = format.trim().to_ascii_lowercase();
-            if format != "openclaw" && format != "aieos" {
-                return Err(bad_request(
-                    "identity.format must be one of: openclaw, aieos",
-                ));
-            }
-            cfg.identity.format = format;
-        }
-        if let Some(aieos_path) = identity.aieos_path.as_ref() {
-            cfg.identity.aieos_path = normalize_optional_string(aieos_path);
-        }
-    }
-
+    apply_runtime_patch(cfg, patch.runtime.as_ref())?;
+    apply_autonomy_patch(cfg, patch.autonomy.as_ref());
+    apply_identity_patch(cfg, patch.identity.as_ref())?;
     Ok(())
+}
+
+fn apply_runtime_patch(
+    cfg: &mut Config,
+    runtime: Option<&AdminRuntimePatch>,
+) -> Result<(), AdminResponse> {
+    let Some(runtime) = runtime else {
+        return Ok(());
+    };
+    let Some(kind) = runtime.kind.as_ref() else {
+        return Ok(());
+    };
+
+    let kind = kind.trim().to_ascii_lowercase();
+    if !gateway::utils::validate_runtime_kind(&kind) {
+        return Err(bad_request("Invalid runtime.kind. Allowed: native, docker"));
+    }
+    cfg.runtime.kind = kind;
+    Ok(())
+}
+
+fn apply_autonomy_patch(cfg: &mut Config, autonomy: Option<&AdminAutonomyPatch>) {
+    let Some(autonomy) = autonomy else {
+        return;
+    };
+
+    if let Some(level) = autonomy.level {
+        cfg.autonomy.level = level;
+    }
+    if let Some(workspace_only) = autonomy.workspace_only {
+        cfg.autonomy.workspace_only = workspace_only;
+    }
+    if let Some(max_actions_per_hour) = autonomy.max_actions_per_hour {
+        cfg.autonomy.max_actions_per_hour = max_actions_per_hour;
+    }
+    if let Some(max_cost_per_day_cents) = autonomy.max_cost_per_day_cents {
+        cfg.autonomy.max_cost_per_day_cents = max_cost_per_day_cents;
+    }
+    if let Some(require_approval_for_medium_risk) = autonomy.require_approval_for_medium_risk {
+        cfg.autonomy.require_approval_for_medium_risk = require_approval_for_medium_risk;
+    }
+    if let Some(block_high_risk_commands) = autonomy.block_high_risk_commands {
+        cfg.autonomy.block_high_risk_commands = block_high_risk_commands;
+    }
+    if let Some(auto_approve) = autonomy.auto_approve.as_ref() {
+        cfg.autonomy.auto_approve = auto_approve.clone();
+    }
+    if let Some(always_ask) = autonomy.always_ask.as_ref() {
+        cfg.autonomy.always_ask = always_ask.clone();
+    }
+}
+
+fn apply_identity_patch(
+    cfg: &mut Config,
+    identity: Option<&AdminIdentityPatch>,
+) -> Result<(), AdminResponse> {
+    let Some(identity) = identity else {
+        return Ok(());
+    };
+
+    if let Some(format) = identity.format.as_ref() {
+        let format = normalize_identity_format(format)?;
+        cfg.identity.format = format;
+    }
+    if let Some(aieos_path) = identity.aieos_path.as_ref() {
+        cfg.identity.aieos_path = normalize_optional_string(aieos_path);
+    }
+    Ok(())
+}
+
+fn normalize_identity_format(value: &str) -> Result<String, AdminResponse> {
+    let format = value.trim().to_ascii_lowercase();
+    if format != "openclaw" && format != "aieos" {
+        return Err(bad_request(
+            "identity.format must be one of: openclaw, aieos",
+        ));
+    }
+    Ok(format)
 }
 
 fn apply_scheduler_gateway_patch(
     cfg: &mut Config,
     patch: &AdminConfigUpdateRequest,
 ) -> Result<(), AdminResponse> {
-    if let Some(scheduler) = patch.scheduler.as_ref() {
-        if let Some(enabled) = scheduler.enabled {
-            cfg.scheduler.enabled = enabled;
-        }
-        if let Some(max_tasks) = scheduler.max_tasks {
-            if max_tasks == 0 {
-                return Err(bad_request("scheduler.max_tasks must be >= 1"));
-            }
-            cfg.scheduler.max_tasks = max_tasks;
-        }
-        if let Some(max_concurrent) = scheduler.max_concurrent {
-            if max_concurrent == 0 {
-                return Err(bad_request("scheduler.max_concurrent must be >= 1"));
-            }
-            cfg.scheduler.max_concurrent = max_concurrent;
-        }
-    }
+    apply_scheduler_patch(cfg, patch.scheduler.as_ref())?;
+    apply_gateway_patch(cfg, patch.gateway.as_ref())?;
+    Ok(())
+}
 
-    if let Some(gateway) = patch.gateway.as_ref() {
-        if let Some(port) = gateway.port {
-            if port == 0 {
-                return Err(bad_request("gateway.port must be in range [1, 65535]"));
-            }
-            cfg.gateway.port = port;
-        }
-        if let Some(host) = gateway.host.as_ref() {
-            let host = host.trim();
-            if host.is_empty() {
-                return Err(bad_request("gateway.host cannot be empty"));
-            }
-            cfg.gateway.host = host.to_string();
-        }
-        if let Some(require_pairing) = gateway.require_pairing {
-            cfg.gateway.require_pairing = require_pairing;
-        }
-        if let Some(allow_public_bind) = gateway.allow_public_bind {
-            cfg.gateway.allow_public_bind = allow_public_bind;
-        }
-        if let Some(limit) = gateway.pair_rate_limit_per_minute {
-            if limit == 0 {
-                return Err(bad_request(
-                    "gateway.pair_rate_limit_per_minute must be >= 1",
-                ));
-            }
-            cfg.gateway.pair_rate_limit_per_minute = limit;
-        }
-        if let Some(limit) = gateway.webhook_rate_limit_per_minute {
-            if limit == 0 {
-                return Err(bad_request(
-                    "gateway.webhook_rate_limit_per_minute must be >= 1",
-                ));
-            }
-            cfg.gateway.webhook_rate_limit_per_minute = limit;
-        }
-        if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
-            cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
-        }
-        if let Some(rate_limit_max_keys) = gateway.rate_limit_max_keys {
-            cfg.gateway.rate_limit_max_keys = gateway::utils::normalize_max_keys(
-                rate_limit_max_keys,
-                cfg.gateway.rate_limit_max_keys,
-            );
-        }
-        if let Some(idempotency_ttl_secs) = gateway.idempotency_ttl_secs {
-            if idempotency_ttl_secs == 0 {
-                return Err(bad_request("gateway.idempotency_ttl_secs must be >= 1"));
-            }
-            cfg.gateway.idempotency_ttl_secs = idempotency_ttl_secs;
-        }
-        if let Some(idempotency_max_keys) = gateway.idempotency_max_keys {
-            cfg.gateway.idempotency_max_keys = gateway::utils::normalize_max_keys(
-                idempotency_max_keys,
-                cfg.gateway.idempotency_max_keys,
-            );
-        }
-    }
+fn apply_scheduler_patch(
+    cfg: &mut Config,
+    scheduler: Option<&AdminSchedulerPatch>,
+) -> Result<(), AdminResponse> {
+    let Some(scheduler) = scheduler else {
+        return Ok(());
+    };
 
+    if let Some(enabled) = scheduler.enabled {
+        cfg.scheduler.enabled = enabled;
+    }
+    if let Some(max_tasks) = scheduler.max_tasks {
+        ensure_non_zero_usize(max_tasks, "scheduler.max_tasks must be >= 1")?;
+        cfg.scheduler.max_tasks = max_tasks;
+    }
+    if let Some(max_concurrent) = scheduler.max_concurrent {
+        ensure_non_zero_usize(max_concurrent, "scheduler.max_concurrent must be >= 1")?;
+        cfg.scheduler.max_concurrent = max_concurrent;
+    }
+    Ok(())
+}
+
+fn apply_gateway_patch(
+    cfg: &mut Config,
+    gateway: Option<&AdminGatewayPatch>,
+) -> Result<(), AdminResponse> {
+    let Some(gateway) = gateway else {
+        return Ok(());
+    };
+
+    if let Some(port) = gateway.port {
+        ensure_non_zero_u16(port, "gateway.port must be in range [1, 65535]")?;
+        cfg.gateway.port = port;
+    }
+    if let Some(host) = gateway.host.as_ref() {
+        let host = normalize_gateway_host(host)?;
+        cfg.gateway.host = host;
+    }
+    if let Some(require_pairing) = gateway.require_pairing {
+        cfg.gateway.require_pairing = require_pairing;
+    }
+    if let Some(allow_public_bind) = gateway.allow_public_bind {
+        cfg.gateway.allow_public_bind = allow_public_bind;
+    }
+    if let Some(limit) = gateway.pair_rate_limit_per_minute {
+        ensure_non_zero_u32(limit, "gateway.pair_rate_limit_per_minute must be >= 1")?;
+        cfg.gateway.pair_rate_limit_per_minute = limit;
+    }
+    if let Some(limit) = gateway.webhook_rate_limit_per_minute {
+        ensure_non_zero_u32(limit, "gateway.webhook_rate_limit_per_minute must be >= 1")?;
+        cfg.gateway.webhook_rate_limit_per_minute = limit;
+    }
+    if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
+        cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
+    }
+    if let Some(rate_limit_max_keys) = gateway.rate_limit_max_keys {
+        cfg.gateway.rate_limit_max_keys = gateway::utils::normalize_max_keys(
+            rate_limit_max_keys,
+            cfg.gateway.rate_limit_max_keys,
+        );
+    }
+    if let Some(idempotency_ttl_secs) = gateway.idempotency_ttl_secs {
+        ensure_non_zero_u64(
+            idempotency_ttl_secs,
+            "gateway.idempotency_ttl_secs must be >= 1",
+        )?;
+        cfg.gateway.idempotency_ttl_secs = idempotency_ttl_secs;
+    }
+    if let Some(idempotency_max_keys) = gateway.idempotency_max_keys {
+        cfg.gateway.idempotency_max_keys = gateway::utils::normalize_max_keys(
+            idempotency_max_keys,
+            cfg.gateway.idempotency_max_keys,
+        );
+    }
+    Ok(())
+}
+
+fn normalize_gateway_host(value: &str) -> Result<String, AdminResponse> {
+    let host = value.trim();
+    if host.is_empty() {
+        return Err(bad_request("gateway.host cannot be empty"));
+    }
+    Ok(host.to_string())
+}
+
+fn ensure_non_zero_usize(value: usize, message: &'static str) -> Result<(), AdminResponse> {
+    if value == 0 {
+        return Err(bad_request(message));
+    }
+    Ok(())
+}
+
+fn ensure_non_zero_u16(value: u16, message: &'static str) -> Result<(), AdminResponse> {
+    if value == 0 {
+        return Err(bad_request(message));
+    }
+    Ok(())
+}
+
+fn ensure_non_zero_u32(value: u32, message: &'static str) -> Result<(), AdminResponse> {
+    if value == 0 {
+        return Err(bad_request(message));
+    }
+    Ok(())
+}
+
+fn ensure_non_zero_u64(value: u64, message: &'static str) -> Result<(), AdminResponse> {
+    if value == 0 {
+        return Err(bad_request(message));
+    }
     Ok(())
 }
 
@@ -1125,68 +1211,99 @@ fn apply_integrations_patch(
     cfg: &mut Config,
     patch: &AdminConfigUpdateRequest,
 ) -> Result<(), AdminResponse> {
-    if let Some(composio) = patch.composio.as_ref() {
-        if let Some(enabled) = composio.enabled {
-            cfg.composio.enabled = enabled;
+    apply_composio_patch(cfg, patch.composio.as_ref())?;
+    apply_web_search_patch(cfg, patch.web_search.as_ref())?;
+    apply_browser_patch(cfg, patch.browser.as_ref())?;
+
+    Ok(())
+}
+
+fn apply_composio_patch(
+    cfg: &mut Config,
+    composio: Option<&AdminComposioPatch>,
+) -> Result<(), AdminResponse> {
+    let Some(composio) = composio else {
+        return Ok(());
+    };
+
+    if let Some(enabled) = composio.enabled {
+        cfg.composio.enabled = enabled;
+    }
+    if let Some(entity_id) = composio.entity_id.as_ref() {
+        let entity_id = entity_id.trim();
+        if entity_id.is_empty() {
+            return Err(bad_request("composio.entity_id cannot be empty"));
         }
-        if let Some(entity_id) = composio.entity_id.as_ref() {
-            let entity_id = entity_id.trim();
-            if entity_id.is_empty() {
-                return Err(bad_request("composio.entity_id cannot be empty"));
-            }
-            cfg.composio.entity_id = entity_id.to_string();
-        }
-        if let Some(api_key) = composio.api_key.as_ref() {
-            apply_secret_update(&mut cfg.composio.api_key, api_key, "composio.api_key")?;
-        }
+        cfg.composio.entity_id = entity_id.to_string();
+    }
+    if let Some(api_key) = composio.api_key.as_ref() {
+        apply_secret_update(&mut cfg.composio.api_key, api_key, "composio.api_key")?;
     }
 
-    if let Some(web_search) = patch.web_search.as_ref() {
-        if let Some(enabled) = web_search.enabled {
-            cfg.web_search.enabled = enabled;
+    Ok(())
+}
+
+fn apply_web_search_patch(
+    cfg: &mut Config,
+    web_search: Option<&AdminWebSearchPatch>,
+) -> Result<(), AdminResponse> {
+    let Some(web_search) = web_search else {
+        return Ok(());
+    };
+
+    if let Some(enabled) = web_search.enabled {
+        cfg.web_search.enabled = enabled;
+    }
+    if let Some(provider) = web_search.provider.as_ref() {
+        let provider = provider.trim().to_ascii_lowercase();
+        if provider != "duckduckgo" && provider != "brave" {
+            return Err(bad_request(
+                "web_search.provider must be one of: duckduckgo, brave",
+            ));
         }
-        if let Some(provider) = web_search.provider.as_ref() {
-            let provider = provider.trim().to_ascii_lowercase();
-            if provider != "duckduckgo" && provider != "brave" {
-                return Err(bad_request(
-                    "web_search.provider must be one of: duckduckgo, brave",
-                ));
-            }
-            cfg.web_search.provider = provider;
+        cfg.web_search.provider = provider;
+    }
+    if let Some(max_results) = web_search.max_results {
+        if !(1..=10).contains(&max_results) {
+            return Err(bad_request(
+                "web_search.max_results must be in range [1, 10]",
+            ));
         }
-        if let Some(max_results) = web_search.max_results {
-            if !(1..=10).contains(&max_results) {
-                return Err(bad_request(
-                    "web_search.max_results must be in range [1, 10]",
-                ));
-            }
-            cfg.web_search.max_results = max_results;
+        cfg.web_search.max_results = max_results;
+    }
+    if let Some(timeout_secs) = web_search.timeout_secs {
+        if timeout_secs == 0 {
+            return Err(bad_request("web_search.timeout_secs must be >= 1"));
         }
-        if let Some(timeout_secs) = web_search.timeout_secs {
-            if timeout_secs == 0 {
-                return Err(bad_request("web_search.timeout_secs must be >= 1"));
-            }
-            cfg.web_search.timeout_secs = timeout_secs;
-        }
-        if let Some(brave_api_key) = web_search.brave_api_key.as_ref() {
-            apply_secret_update(
-                &mut cfg.web_search.brave_api_key,
-                brave_api_key,
-                "web_search.brave_api_key",
-            )?;
-        }
+        cfg.web_search.timeout_secs = timeout_secs;
+    }
+    if let Some(brave_api_key) = web_search.brave_api_key.as_ref() {
+        apply_secret_update(
+            &mut cfg.web_search.brave_api_key,
+            brave_api_key,
+            "web_search.brave_api_key",
+        )?;
     }
 
-    if let Some(browser) = patch.browser.as_ref() {
-        if let Some(computer_use_api_key) = browser.computer_use_api_key.as_ref() {
-            apply_secret_update(
-                &mut cfg.browser.computer_use.api_key,
-                computer_use_api_key,
-                "browser.computer_use.api_key",
-            )?;
-        }
-    }
+    Ok(())
+}
 
+fn apply_browser_patch(
+    cfg: &mut Config,
+    browser: Option<&AdminBrowserPatch>,
+) -> Result<(), AdminResponse> {
+    let Some(browser) = browser else {
+        return Ok(());
+    };
+    let Some(computer_use_api_key) = browser.computer_use_api_key.as_ref() else {
+        return Ok(());
+    };
+
+    apply_secret_update(
+        &mut cfg.browser.computer_use.api_key,
+        computer_use_api_key,
+        "browser.computer_use.api_key",
+    )?;
     Ok(())
 }
 
@@ -1194,45 +1311,68 @@ fn apply_memory_patch(
     cfg: &mut Config,
     patch: &AdminConfigUpdateRequest,
 ) -> Result<(), AdminResponse> {
-    if let Some(memory) = patch.memory.as_ref() {
-        if let Some(backend) = memory.backend.as_ref() {
-            let backend = backend.trim().to_ascii_lowercase();
-            if !gateway::utils::validate_memory_backend(&backend) {
-                return Err(bad_request("Invalid memory.backend"));
-            }
-            cfg.memory.backend = backend;
-        }
-        if let Some(surreal) = memory.surreal.as_ref() {
-            if let Some(url) = surreal.url.as_ref() {
-                cfg.memory.surreal.url = normalize_optional_string(url);
-            }
-            if let Some(namespace) = surreal.namespace.as_ref() {
-                cfg.memory.surreal.namespace = normalize_optional_string(namespace);
-            }
-            if let Some(database) = surreal.database.as_ref() {
-                cfg.memory.surreal.database = normalize_optional_string(database);
-            }
-            if let Some(allow_http_loopback) = surreal.allow_http_loopback {
-                cfg.memory.surreal.allow_http_loopback = allow_http_loopback;
-            }
-            if let Some(username) = surreal.username.as_ref() {
-                apply_secret_update(
-                    &mut cfg.memory.surreal.username,
-                    username,
-                    "memory.surreal.username",
-                )?;
-            }
-            if let Some(password) = surreal.password.as_ref() {
-                apply_secret_update(
-                    &mut cfg.memory.surreal.password,
-                    password,
-                    "memory.surreal.password",
-                )?;
-            }
-            if let Some(token) = surreal.token.as_ref() {
-                apply_secret_update(&mut cfg.memory.surreal.token, token, "memory.surreal.token")?;
-            }
-        }
+    let Some(memory) = patch.memory.as_ref() else {
+        return Ok(());
+    };
+
+    apply_memory_backend_patch(cfg, memory.backend.as_deref())?;
+    apply_surreal_memory_patch(cfg, memory.surreal.as_ref())?;
+
+    Ok(())
+}
+
+fn apply_memory_backend_patch(
+    cfg: &mut Config,
+    backend: Option<&str>,
+) -> Result<(), AdminResponse> {
+    let Some(backend) = backend else {
+        return Ok(());
+    };
+
+    let backend = backend.trim().to_ascii_lowercase();
+    if !gateway::utils::validate_memory_backend(&backend) {
+        return Err(bad_request("Invalid memory.backend"));
+    }
+    cfg.memory.backend = backend;
+    Ok(())
+}
+
+fn apply_surreal_memory_patch(
+    cfg: &mut Config,
+    surreal: Option<&AdminSurrealMemoryPatch>,
+) -> Result<(), AdminResponse> {
+    let Some(surreal) = surreal else {
+        return Ok(());
+    };
+
+    if let Some(url) = surreal.url.as_ref() {
+        cfg.memory.surreal.url = normalize_optional_string(url);
+    }
+    if let Some(namespace) = surreal.namespace.as_ref() {
+        cfg.memory.surreal.namespace = normalize_optional_string(namespace);
+    }
+    if let Some(database) = surreal.database.as_ref() {
+        cfg.memory.surreal.database = normalize_optional_string(database);
+    }
+    if let Some(allow_http_loopback) = surreal.allow_http_loopback {
+        cfg.memory.surreal.allow_http_loopback = allow_http_loopback;
+    }
+    if let Some(username) = surreal.username.as_ref() {
+        apply_secret_update(
+            &mut cfg.memory.surreal.username,
+            username,
+            "memory.surreal.username",
+        )?;
+    }
+    if let Some(password) = surreal.password.as_ref() {
+        apply_secret_update(
+            &mut cfg.memory.surreal.password,
+            password,
+            "memory.surreal.password",
+        )?;
+    }
+    if let Some(token) = surreal.token.as_ref() {
+        apply_secret_update(&mut cfg.memory.surreal.token, token, "memory.surreal.token")?;
     }
 
     Ok(())

@@ -187,111 +187,85 @@ private fun demos(project: Project) {
   //      files("")
 
   project.afterEvaluate {
-    // demo1
-    run {
-      properties.forEach { (key, value) ->
-        if (value is String) {
-          println("${Ansi.color("$key=", Ansi.Color.GREEN.code)}$value")
-        }
-      }
+    demoProperties()
+    demoResolutionStrategy()
+    demoDependencyUsage()
+    demoActionableTasks(projectName = project.name)
+  }
+}
+
+private fun Project.demoProperties() {
+  properties.forEach { (key, value) ->
+    if (value is String) {
+      println("${Ansi.color("$key=", Ansi.Color.GREEN.code)}$value")
     }
+  }
+}
 
-    // demo2
-    // https://docs.gradle.org/nightly/userguide/how_to_upgrade_transitive_dependencies.html
-    // https://docs.gradle.org/nightly/userguide/how_to_downgrade_transitive_dependencies.html
-    // https://docs.gradle.org/nightly/userguide/how_to_exclude_transitive_dependencies.html
-    // https://docs.gradle.org/nightly/userguide/how_to_prevent_accidental_dependency_upgrades.html
-    run {
-      configurations.configureEach {
-        withDependencies {
-          // Discard dependency
-          removeIf { it.group == "commons-codec" && it.name == "commons-codec" }
+private fun Project.demoResolutionStrategy() {
+  configurations.configureEach {
+    withDependencies { removeIf { it.group == "commons-codec" && it.name == "commons-codec" } }
+    resolutionStrategy {
+      failOnVersionConflict()
+      capabilitiesResolution { withCapability("com.example:logging") { selectHighestVersion() } }
+      force("commons-codec:commons-codec:1.9")
+      eachDependency {
+        if (requested.group == "org.ow2.asm") {
+          useVersion("9.8")
+          because("Asm 9.8 is required for JDK 24 support")
         }
-        // https://docs.gradle.org/nightly/userguide/resolution_rules.html
-        resolutionStrategy {
-          // Fail on conflict
-          // 7. Force Failed Resolution Strategies
-          // https://docs.gradle.org/nightly/userguide/resolution_rules.html#sec:conflict-resolution-strategy
-          failOnVersionConflict()
-
-          // Discard dependency
-          // Capabilities
-          // https://docs.gradle.org/nightly/userguide/component_capabilities.html
-          // https://gradlex.org/jvm-dependency-conflict-resolution/#conflict
-          capabilitiesResolution {
-            withCapability("com.example:logging") { selectHighestVersion() }
-          }
-
-          // Force version
-          // https://docs.gradle.org/nightly/userguide/how_to_downgrade_transitive_dependencies.html
-          force("commons-codec:commons-codec:1.9")
-
-          // Force version
-          // 9. Dependency Resolve Rules and Other Conditionals
-          // https://docs.gradle.org/nightly/userguide/resolution_rules.html#sec:dependency-resolve-rules
-          eachDependency {
-            val module = requested.module
-            val group = requested.group
-            val artifact = requested.name
-            val version = requested.version
-            if (group == "org.ow2.asm") {
-              useVersion("9.8")
-              because("Asm 9.8 is required for JDK 24 support")
-            }
-          }
-        }
-      }
-    }
-
-    // demo3
-    run {
-      val classPathDependencies =
-        listOf(
-          JvmConstants.COMPILE_CLASSPATH_CONFIGURATION_NAME,
-          JvmConstants.TEST_COMPILE_CLASSPATH_CONFIGURATION_NAME,
-          JvmConstants.RUNTIME_CLASSPATH_CONFIGURATION_NAME,
-          JvmConstants.TEST_RUNTIME_CLASSPATH_CONFIGURATION_NAME,
-        )
-      val useFlat = true
-      configurations
-        .filter { config -> classPathDependencies.any { config.name == it } }
-        .filter { it.isCanBeResolved }
-        .forEach { config ->
-          val dependencies =
-            if (useFlat) config.incoming.resolutionResult.allDependencies
-            else config.incoming.resolutionResult.root.dependencies
-
-          dependencies.filterIsInstance<ResolvedDependencyResult>().forEach { dep ->
-            val selected = dep.selected
-            val moduleVersion = selected.moduleVersion ?: return@forEach
-            val moduleId = "${moduleVersion.group}:${moduleVersion.name}"
-
-            println("> Use dependency: $moduleId:${moduleVersion.version}")
-          }
-        }
-    }
-
-    // demo4
-    run {
-      val printActionableTasks = false
-      if (printActionableTasks) {
-        println()
-        println("------------------------------------------------------------")
-        println("List actionable tasks from project ':${project.name}'")
-        println("------------------------------------------------------------")
-        println()
-        tasks
-          .filter { !it.group.isNullOrBlank() && it.actions.isEmpty() }
-          .groupBy { it.group ?: "other" }
-          .forEach {
-            println("\u001B[35m${it.key}\u001B[0m")
-            it.value.forEach { taskInfo ->
-              println(
-                "  \u001B[32m${taskInfo.name}\u001B[0m\u001B[33m - ${taskInfo.description}\u001B[0m"
-              )
-            }
-          }
       }
     }
   }
+}
+
+private fun Project.demoDependencyUsage() {
+  val classPathDependencies =
+    listOf(
+      JvmConstants.COMPILE_CLASSPATH_CONFIGURATION_NAME,
+      JvmConstants.TEST_COMPILE_CLASSPATH_CONFIGURATION_NAME,
+      JvmConstants.RUNTIME_CLASSPATH_CONFIGURATION_NAME,
+      JvmConstants.TEST_RUNTIME_CLASSPATH_CONFIGURATION_NAME,
+    )
+  val useFlat = true
+  configurations
+    .filter { config -> classPathDependencies.any { config.name == it } }
+    .filter { it.isCanBeResolved }
+    .forEach { config ->
+      val dependencies =
+        if (useFlat) config.incoming.resolutionResult.allDependencies
+        else config.incoming.resolutionResult.root.dependencies
+
+      dependencies.filterIsInstance<ResolvedDependencyResult>().forEach { dep ->
+        val selected = dep.selected
+        val moduleVersion = selected.moduleVersion ?: return@forEach
+        val moduleId = "${moduleVersion.group}:${moduleVersion.name}"
+
+        println("> Use dependency: $moduleId:${moduleVersion.version}")
+      }
+    }
+}
+
+private fun Project.demoActionableTasks(projectName: String) {
+  val printActionableTasks = false
+  if (!printActionableTasks) {
+    return
+  }
+
+  println()
+  println("------------------------------------------------------------")
+  println("List actionable tasks from project ':$projectName'")
+  println("------------------------------------------------------------")
+  println()
+  tasks
+    .filter { !it.group.isNullOrBlank() && it.actions.isEmpty() }
+    .groupBy { it.group ?: "other" }
+    .forEach {
+      println("\u001B[35m${it.key}\u001B[0m")
+      it.value.forEach { taskInfo ->
+        println(
+          "  \u001B[32m${taskInfo.name}\u001B[0m\u001B[33m - ${taskInfo.description}\u001B[0m"
+        )
+      }
+    }
 }

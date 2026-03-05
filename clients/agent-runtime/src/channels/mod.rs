@@ -283,6 +283,79 @@ async fn execute_channel_tool_call(
     Ok((false, format!("tool not found: {call_name}")))
 }
 
+fn prepare_response_for_dispatcher_parse(
+    dispatcher: &dyn ToolDispatcher,
+    response: &crate::providers::ChatResponse,
+) -> crate::providers::ChatResponse {
+    if dispatcher.should_send_tool_specs() {
+        return response.clone();
+    }
+
+    let normalized_text = response
+        .text
+        .as_deref()
+        .map(normalize_xml_tool_aliases)
+        .unwrap_or_default();
+    crate::providers::ChatResponse {
+        text: Some(normalized_text),
+        tool_calls: response.tool_calls.clone(),
+    }
+}
+
+fn finalize_channel_response_text(parsed_text: String, raw_text: Option<String>) -> String {
+    if parsed_text.is_empty() {
+        raw_text.unwrap_or_default()
+    } else {
+        parsed_text
+    }
+}
+
+async fn send_delta_update(delta_tx: Option<&tokio::sync::mpsc::Sender<String>>, text: String) {
+    if let Some(tx) = delta_tx {
+        let _ = tx.send(text).await;
+    }
+}
+
+async fn execute_channel_dispatch_action(
+    tools_registry: &[Box<dyn Tool>],
+    call_name: &str,
+    call_arguments: &serde_json::Value,
+    action: &DispatchAction,
+) -> Result<(bool, String)> {
+    match action {
+        DispatchAction::Execute => {
+            execute_channel_tool_call(tools_registry, call_name, call_arguments).await
+        }
+        DispatchAction::ApprovalRequired(tool) => Ok((
+            false,
+            crate::approval::structured_denial_text(call_name, tool),
+        )),
+    }
+}
+
+async fn execute_channel_tool_calls(
+    dispatcher: &dyn ToolDispatcher,
+    tools_registry: &[Box<dyn Tool>],
+    calls: Vec<crate::agent::dispatcher::ParsedToolCall>,
+) -> Result<Vec<ToolExecutionResult>> {
+    let mut results = Vec::with_capacity(calls.len());
+    for call in calls {
+        let action = dispatcher.check_tool_risk(&call.name, &call.arguments);
+        let (success, output) =
+            execute_channel_dispatch_action(tools_registry, &call.name, &call.arguments, &action)
+                .await?;
+
+        results.push(ToolExecutionResult {
+            name: call.name,
+            output,
+            success,
+            tool_call_id: call.tool_call_id,
+            action,
+        });
+    }
+    Ok(results)
+}
+
 struct ChannelLoopParams<'a> {
     model: &'a str,
     temperature: f64,
@@ -318,39 +391,18 @@ async fn run_unified_channel_tool_loop(
             )
             .await?;
 
-        let uses_xml_parsing = !dispatcher.should_send_tool_specs();
-        let response_for_parse = if uses_xml_parsing {
-            let normalized_text = response
-                .text
-                .as_deref()
-                .map(normalize_xml_tool_aliases)
-                .unwrap_or_default();
-            crate::providers::ChatResponse {
-                text: Some(normalized_text),
-                tool_calls: response.tool_calls.clone(),
-            }
-        } else {
-            response.clone()
-        };
+        let response_for_parse =
+            prepare_response_for_dispatcher_parse(dispatcher.as_ref(), &response);
 
         let (text, calls) = dispatcher.parse_response(&response_for_parse);
         if calls.is_empty() {
-            let final_response = if text.is_empty() {
-                response.text.unwrap_or_default()
-            } else {
-                text
-            };
-
-            if let Some(tx) = params.delta_tx.as_ref() {
-                let _ = tx.send(final_response.clone()).await;
-            }
+            let final_response = finalize_channel_response_text(text, response.text);
+            send_delta_update(params.delta_tx.as_ref(), final_response.clone()).await;
             return Ok(final_response);
         }
 
         if !text.is_empty() {
-            if let Some(tx) = params.delta_tx.as_ref() {
-                let _ = tx.send(text.clone()).await;
-            }
+            send_delta_update(params.delta_tx.as_ref(), text.clone()).await;
         }
 
         history.push(ConversationMessage::AssistantToolCalls {
@@ -358,27 +410,8 @@ async fn run_unified_channel_tool_loop(
             tool_calls: response.tool_calls.clone(),
         });
 
-        let mut results = Vec::with_capacity(calls.len());
-        for call in calls {
-            let action = dispatcher.check_tool_risk(&call.name, &call.arguments);
-            let (success, output) = match action {
-                DispatchAction::Execute => {
-                    execute_channel_tool_call(tools_registry, &call.name, &call.arguments).await?
-                }
-                DispatchAction::ApprovalRequired(ref tool) => (
-                    false,
-                    crate::approval::structured_denial_text(&call.name, tool),
-                ),
-            };
-
-            results.push(ToolExecutionResult {
-                name: call.name,
-                output,
-                success,
-                tool_call_id: call.tool_call_id,
-                action,
-            });
-        }
+        let results =
+            execute_channel_tool_calls(dispatcher.as_ref(), tools_registry, calls).await?;
 
         let formatted_results = dispatcher.format_results(&results);
         history.push(formatted_results);
@@ -634,54 +667,54 @@ async fn setup_streaming(
     Option<String>,
     Option<tokio::task::JoinHandle<()>>,
 ) {
-    let use_streaming = channel.map_or(false, |ch| ch.supports_draft_updates());
-
-    let (delta_tx, delta_rx) = if use_streaming {
-        let (tx, rx) = tokio::sync::mpsc::channel::<String>(64);
-        (Some(tx), Some(rx))
-    } else {
-        (None, None)
+    let Some(channel_ref) = channel.filter(|ch| ch.supports_draft_updates()) else {
+        return (None, None, None);
     };
 
-    let draft_message_id: Option<String> = if use_streaming {
-        if let Some(ch) = channel {
-            match ch.send_draft(&SendMessage::new("...", reply_target)).await {
-                Ok(id) => id,
-                Err(e) => {
-                    tracing::debug!("Failed to send draft on {}: {e}", ch.name());
-                    None
-                }
+    let (delta_tx, delta_rx) = tokio::sync::mpsc::channel::<String>(64);
+    let draft_message_id = send_streaming_draft(channel_ref, reply_target).await;
+    let draft_updater = spawn_draft_updater(
+        channel_ref,
+        reply_target,
+        draft_message_id.clone(),
+        delta_rx,
+    );
+
+    (Some(delta_tx), draft_message_id, draft_updater)
+}
+
+async fn send_streaming_draft(channel: &Arc<dyn Channel>, reply_target: &str) -> Option<String> {
+    match channel
+        .send_draft(&SendMessage::new("...", reply_target))
+        .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            tracing::debug!("Failed to send draft on {}: {e}", channel.name());
+            None
+        }
+    }
+}
+
+fn spawn_draft_updater(
+    channel: &Arc<dyn Channel>,
+    reply_target: &str,
+    draft_message_id: Option<String>,
+    mut delta_rx: tokio::sync::mpsc::Receiver<String>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let draft_id = draft_message_id?;
+    let ch = Arc::clone(channel);
+    let reply = reply_target.to_string();
+
+    Some(tokio::spawn(async move {
+        let mut accumulated = String::new();
+        while let Some(delta) = delta_rx.recv().await {
+            accumulated.push_str(&delta);
+            if let Err(e) = ch.update_draft(&reply, &draft_id, &accumulated).await {
+                tracing::debug!("Draft update failed: {e}");
             }
-        } else {
-            None
         }
-    } else {
-        None
-    };
-
-    let draft_updater = if use_streaming {
-        if let (Some(mut rx), Some(draft_id), Some(channel_ref)) =
-            (delta_rx, draft_message_id.clone(), channel)
-        {
-            let ch = Arc::clone(channel_ref);
-            let reply = reply_target.to_string();
-            Some(tokio::spawn(async move {
-                let mut accumulated = String::new();
-                while let Some(delta) = rx.recv().await {
-                    accumulated.push_str(&delta);
-                    if let Err(e) = ch.update_draft(&reply, &draft_id, &accumulated).await {
-                        tracing::debug!("Draft update failed: {e}");
-                    }
-                }
-            }))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    (delta_tx, draft_message_id, draft_updater)
+    }))
 }
 
 async fn cleanup_async_tasks(
@@ -1303,10 +1336,9 @@ fn classify_health_result(
     }
 }
 
-/// Run health checks for configured channels.
-pub async fn doctor_channels(config: Config) -> Result<()> {
-    let mut channels: Vec<(&'static str, Arc<dyn Channel>)> = Vec::new();
+type DoctorChannelEntry = (&'static str, Arc<dyn Channel>);
 
+fn push_optional_telegram_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref tg) = config.channels_config.telegram {
         channels.push((
             "Telegram",
@@ -1316,7 +1348,9 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             ),
         ));
     }
+}
 
+fn push_optional_discord_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref dc) = config.channels_config.discord {
         channels.push((
             "Discord",
@@ -1329,7 +1363,9 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             )),
         ));
     }
+}
 
+fn push_optional_slack_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref sl) = config.channels_config.slack {
         channels.push((
             "Slack",
@@ -1340,7 +1376,9 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             )),
         ));
     }
+}
 
+fn push_optional_mattermost_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref mm) = config.channels_config.mattermost {
         channels.push((
             "Mattermost",
@@ -1353,14 +1391,18 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             )),
         ));
     }
+}
 
+fn push_optional_imessage_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref im) = config.channels_config.imessage {
         channels.push((
             "iMessage",
             Arc::new(IMessageChannel::new(im.allowed_contacts.clone())),
         ));
     }
+}
 
+fn push_optional_matrix_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref mx) = config.channels_config.matrix {
         channels.push((
             "Matrix",
@@ -1372,7 +1414,9 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             )),
         ));
     }
+}
 
+fn push_optional_signal_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref sig) = config.channels_config.signal {
         channels.push((
             "Signal",
@@ -1386,7 +1430,9 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             )),
         ));
     }
+}
 
+fn push_optional_whatsapp_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref wa) = config.channels_config.whatsapp {
         channels.push((
             "WhatsApp",
@@ -1398,11 +1444,15 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             )),
         ));
     }
+}
 
+fn push_optional_email_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref email_cfg) = config.channels_config.email {
         channels.push(("Email", Arc::new(EmailChannel::new(email_cfg.clone()))));
     }
+}
 
+fn push_optional_irc_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref irc) = config.channels_config.irc {
         channels.push((
             "IRC",
@@ -1420,11 +1470,15 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             })),
         ));
     }
+}
 
+fn push_optional_lark_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref lk) = config.channels_config.lark {
         channels.push(("Lark", Arc::new(LarkChannel::from_config(lk))));
     }
+}
 
+fn push_optional_dingtalk_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref dt) = config.channels_config.dingtalk {
         channels.push((
             "DingTalk",
@@ -1435,7 +1489,9 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             )),
         ));
     }
+}
 
+fn push_optional_qq_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
     if let Some(ref qq) = config.channels_config.qq {
         channels.push((
             "QQ",
@@ -1446,6 +1502,29 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
             )),
         ));
     }
+}
+
+fn build_doctor_channels(config: &Config) -> Vec<DoctorChannelEntry> {
+    let mut channels: Vec<DoctorChannelEntry> = Vec::new();
+    push_optional_telegram_channel(&mut channels, config);
+    push_optional_discord_channel(&mut channels, config);
+    push_optional_slack_channel(&mut channels, config);
+    push_optional_mattermost_channel(&mut channels, config);
+    push_optional_imessage_channel(&mut channels, config);
+    push_optional_matrix_channel(&mut channels, config);
+    push_optional_signal_channel(&mut channels, config);
+    push_optional_whatsapp_channel(&mut channels, config);
+    push_optional_email_channel(&mut channels, config);
+    push_optional_irc_channel(&mut channels, config);
+    push_optional_lark_channel(&mut channels, config);
+    push_optional_dingtalk_channel(&mut channels, config);
+    push_optional_qq_channel(&mut channels, config);
+    channels
+}
+
+/// Run health checks for configured channels.
+pub async fn doctor_channels(config: Config) -> Result<()> {
+    let channels = build_doctor_channels(&config);
 
     if channels.is_empty() {
         println!("No real-time channels configured. Run `corvus onboard` first.");

@@ -17,7 +17,7 @@ BG_RED="\033[41m"
 # ------------------------------
 MSG_PATH=".git/COMMIT_EDITMSG"
 
-if [ ! -f "$MSG_PATH" ]; then
+if [[ ! -f "$MSG_PATH" ]]; then
   echo "ERROR: commit message file not found: $MSG_PATH"
   exit 1
 fi

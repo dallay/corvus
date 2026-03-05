@@ -1491,37 +1491,36 @@ pub struct WebhookBody {
     pub message: String,
 }
 
-/// POST /webhook — main webhook endpoint
-async fn handle_webhook(
-    State(state): State<AppState>,
-    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
-    headers: HeaderMap,
-    body: Result<Json<WebhookBody>, axum::extract::rejection::JsonRejection>,
-) -> impl IntoResponse {
+type WebhookResponse = (StatusCode, Json<serde_json::Value>);
+type WebhookJsonBody = Result<Json<WebhookBody>, axum::extract::rejection::JsonRejection>;
+
+fn webhook_auth_rejection(
+    state: &AppState,
+    peer_addr: SocketAddr,
+    headers: &HeaderMap,
+) -> Option<WebhookResponse> {
     let client_key =
-        client_key_from_request(Some(peer_addr), &headers, state.trust_forwarded_headers);
+        client_key_from_request(Some(peer_addr), headers, state.trust_forwarded_headers);
     if !state.rate_limiter.allow_webhook(&client_key) {
         tracing::warn!("/webhook rate limit exceeded for key: {client_key}");
         let err = serde_json::json!({
             "error": "Too many webhook requests. Please retry later.",
             "retry_after": RATE_LIMIT_WINDOW_SECS,
         });
-        return (StatusCode::TOO_MANY_REQUESTS, Json(err));
+        return Some((StatusCode::TOO_MANY_REQUESTS, Json(err)));
     }
 
-    // ── Bearer token auth (pairing) ──
     if state.pairing.require_pairing() {
-        let token = extract_bearer_token(&headers).unwrap_or_default();
+        let token = extract_bearer_token(headers).unwrap_or_default();
         if !state.pairing.is_authenticated(&token) {
             tracing::warn!("Webhook: rejected — not paired / invalid bearer token");
             let err = serde_json::json!({
                 "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
             });
-            return (StatusCode::UNAUTHORIZED, Json(err));
+            return Some((StatusCode::UNAUTHORIZED, Json(err)));
         }
     }
 
-    // ── Webhook secret auth (optional, additional layer) ──
     if let Some(ref secret_hash) = state.webhook_secret_hash {
         let header_hash = headers
             .get("X-Webhook-Secret")
@@ -1534,39 +1533,123 @@ async fn handle_webhook(
             _ => {
                 tracing::warn!("Webhook: rejected request — invalid or missing X-Webhook-Secret");
                 let err = serde_json::json!({"error": "Unauthorized — invalid or missing X-Webhook-Secret header"});
-                return (StatusCode::UNAUTHORIZED, Json(err));
+                return Some((StatusCode::UNAUTHORIZED, Json(err)));
             }
         }
     }
 
-    // ── Parse body ──
-    let Json(webhook_body) = match body {
-        Ok(b) => b,
+    None
+}
+
+fn parse_webhook_body(body: WebhookJsonBody) -> Result<WebhookBody, WebhookResponse> {
+    match body {
+        Ok(Json(webhook_body)) => Ok(webhook_body),
         Err(e) => {
             tracing::warn!("Webhook JSON parse error: {e}");
             let err = serde_json::json!({
                 "error": "Invalid JSON body. Expected: {\"message\": \"...\"}"
             });
-            return (StatusCode::BAD_REQUEST, Json(err));
+            Err((StatusCode::BAD_REQUEST, Json(err)))
         }
-    };
+    }
+}
 
-    // ── Idempotency (optional) ──
-    if let Some(idempotency_key) = headers
+fn webhook_idempotency_rejection(state: &AppState, headers: &HeaderMap) -> Option<WebhookResponse> {
+    let idempotency_key = headers
         .get("X-Idempotency-Key")
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        if !state.idempotency_store.record_if_new(idempotency_key) {
-            tracing::info!("Webhook duplicate ignored (idempotency key: {idempotency_key})");
-            let body = serde_json::json!({
-                "status": "duplicate",
-                "idempotent": true,
-                "message": "Request already processed for this idempotency key"
-            });
-            return (StatusCode::OK, Json(body));
-        }
+        .filter(|value| !value.is_empty())?;
+
+    if !state.idempotency_store.record_if_new(idempotency_key) {
+        tracing::info!("Webhook duplicate ignored (idempotency key: {idempotency_key})");
+        let body = serde_json::json!({
+            "status": "duplicate",
+            "idempotent": true,
+            "message": "Request already processed for this idempotency key"
+        });
+        return Some((StatusCode::OK, Json(body)));
+    }
+
+    None
+}
+
+async fn canonical_outcome_early_response(
+    state: &AppState,
+    session_id: &str,
+    scrubbed_message: &str,
+) -> Option<WebhookResponse> {
+    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
+    let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
+        session_id.to_string(),
+        scrubbed_message,
+        approval_granted,
+        crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
+            enable_test_triggers: cfg!(test),
+        },
+    )
+    .await;
+
+    if let Some(tool) = canonical.approval_required {
+        let denial_reason = match evaluate_tool_risk(&tool) {
+            DispatchAction::ApprovalRequired(reason) => {
+                if reason.trim().is_empty() {
+                    format!("approval required before executing `{tool}`")
+                } else {
+                    reason
+                }
+            }
+            DispatchAction::Execute => format!("approval required for `{tool}`"),
+        };
+        let denial = crate::approval::structured_denial_payload(&tool, &denial_reason);
+        let err = serde_json::json!({
+            "error": denial,
+            "session_id": session_id,
+        });
+        return Some((StatusCode::FORBIDDEN, Json(err)));
+    }
+
+    if canonical.timeout_aborted {
+        let body = serde_json::json!({
+            "response": "request aborted due to timeout semantics",
+            "model": state.model,
+            "session_id": session_id,
+            "aborted": true,
+        });
+        return Some((StatusCode::REQUEST_TIMEOUT, Json(body)));
+    }
+
+    if let Some(fallback) = canonical.fallback_response {
+        let body = serde_json::json!({
+            "response": fallback,
+            "model": state.model,
+            "session_id": session_id,
+            "fallback": true,
+        });
+        return Some((StatusCode::OK, Json(body)));
+    }
+
+    None
+}
+
+/// POST /webhook — main webhook endpoint
+async fn handle_webhook(
+    State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: WebhookJsonBody,
+) -> impl IntoResponse {
+    if let Some(rejection) = webhook_auth_rejection(&state, peer_addr, &headers) {
+        return rejection;
+    }
+
+    let webhook_body = match parse_webhook_body(body) {
+        Ok(body) => body,
+        Err(rejection) => return rejection,
+    };
+
+    if let Some(rejection) = webhook_idempotency_rejection(&state, &headers) {
+        return rejection;
     }
 
     let message = &webhook_body.message;
@@ -1574,54 +1657,10 @@ async fn handle_webhook(
     let session_id = normalized_session_id(&headers);
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
     if !is_preview {
-        let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
-        let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
-            session_id.clone(),
-            &scrubbed_message,
-            approval_granted,
-            crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
-                enable_test_triggers: cfg!(test),
-            },
-        )
-        .await;
-
-        if let Some(tool) = canonical.approval_required {
-            let denial_reason = match evaluate_tool_risk(&tool) {
-                DispatchAction::ApprovalRequired(reason) => {
-                    if reason.trim().is_empty() {
-                        format!("approval required before executing `{tool}`")
-                    } else {
-                        reason
-                    }
-                }
-                DispatchAction::Execute => format!("approval required for `{tool}`"),
-            };
-            let denial = crate::approval::structured_denial_payload(&tool, &denial_reason);
-            let err = serde_json::json!({
-                "error": denial,
-                "session_id": session_id,
-            });
-            return (StatusCode::FORBIDDEN, Json(err));
-        }
-
-        if canonical.timeout_aborted {
-            let body = serde_json::json!({
-                "response": "request aborted due to timeout semantics",
-                "model": state.model,
-                "session_id": session_id,
-                "aborted": true,
-            });
-            return (StatusCode::REQUEST_TIMEOUT, Json(body));
-        }
-
-        if let Some(fallback) = canonical.fallback_response {
-            let body = serde_json::json!({
-                "response": fallback,
-                "model": state.model,
-                "session_id": session_id,
-                "fallback": true,
-            });
-            return (StatusCode::OK, Json(body));
+        if let Some(response) =
+            canonical_outcome_early_response(&state, &session_id, &scrubbed_message).await
+        {
+            return response;
         }
     }
 

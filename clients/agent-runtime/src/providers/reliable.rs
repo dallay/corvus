@@ -40,34 +40,45 @@ fn is_rate_limited(err: &anyhow::Error) -> bool {
 /// Try to extract a Retry-After value (in milliseconds) from an error message.
 /// Looks for patterns like `Retry-After: 5` or `retry_after: 2.5` in the error string.
 fn parse_retry_after_ms(err: &anyhow::Error) -> Option<u64> {
-    let msg = err.to_string();
-    let lower = msg.to_lowercase();
-
-    // Look for "retry-after: <number>" or "retry_after: <number>"
-    for prefix in &[
+    const RETRY_AFTER_PREFIXES: [&str; 4] = [
         "retry-after:",
         "retry_after:",
         "retry-after ",
         "retry_after ",
-    ] {
-        if let Some(pos) = lower.find(prefix) {
-            let after = &msg[pos + prefix.len()..];
-            let num_str: String = after
-                .trim()
-                .chars()
-                .take_while(|c| c.is_ascii_digit() || *c == '.')
-                .collect();
-            if let Ok(secs) = num_str.parse::<f64>() {
-                if secs.is_finite() && secs >= 0.0 {
-                    let millis = Duration::from_secs_f64(secs).as_millis();
-                    if let Ok(value) = u64::try_from(millis) {
-                        return Some(value);
-                    }
-                }
-            }
-        }
+    ];
+
+    let msg = err.to_string();
+    let lower = msg.to_lowercase();
+
+    RETRY_AFTER_PREFIXES
+        .iter()
+        .find_map(|prefix| parse_retry_after_with_prefix(&msg, &lower, prefix))
+}
+
+fn parse_retry_after_with_prefix(msg: &str, lower: &str, prefix: &str) -> Option<u64> {
+    let pos = lower.find(prefix)?;
+    let after = &msg[pos + prefix.len()..];
+    let secs = parse_retry_after_seconds(after)?;
+    secs_to_millis(secs)
+}
+
+fn parse_retry_after_seconds(input: &str) -> Option<f64> {
+    let num_str: String = input
+        .trim()
+        .chars()
+        .take_while(|c| c.is_ascii_digit() || *c == '.')
+        .collect();
+    let secs = num_str.parse::<f64>().ok()?;
+    if secs.is_finite() && secs >= 0.0 {
+        Some(secs)
+    } else {
+        None
     }
-    None
+}
+
+fn secs_to_millis(secs: f64) -> Option<u64> {
+    let millis = Duration::from_secs_f64(secs).as_millis();
+    u64::try_from(millis).ok()
 }
 
 struct ErrorInfo {

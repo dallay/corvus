@@ -157,32 +157,32 @@ object SpotlessConfig {
   @Suppress("unused")
   private fun getDotEditorconfig(project: Project): Map<String, String> {
     return project.computedExtension("spotlessDotEditorconfig") {
-      try {
-        val file = project.rootProject.file(".editorconfig")
-        if (!file.exists()) return@computedExtension emptyMap()
-        val map = mutableMapOf<String, String>()
-        var inStarGroup = false
-
-        file.forEachLine { line ->
-          val trimmed = line.trim()
-          if (trimmed.isEmpty() || trimmed.startsWith("#")) return@forEachLine
-
-          if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
-            @Suppress("AssignedValueIsNeverRead")
-            inStarGroup = trimmed == "[*]"
-            return@forEachLine
-          }
-
-          if (inStarGroup && "=" in trimmed) {
-            val (key, value) = trimmed.split("=", limit = 2)
-            map[key.trim()] = value.trim()
-          }
+      runCatching {
+          val file = project.rootProject.file(".editorconfig")
+          if (!file.exists()) return@computedExtension emptyMap()
+          parseEditorConfigStarGroup(file.readLines())
         }
-        map
-      } catch (_: Exception) {
-        emptyMap()
+        .getOrElse { emptyMap() }
+    }
+  }
+
+  private fun parseEditorConfigStarGroup(lines: List<String>): Map<String, String> {
+    val map = mutableMapOf<String, String>()
+    var inStarGroup = false
+
+    lines.forEach { line ->
+      val trimmed = line.trim()
+      when {
+        trimmed.isEmpty() || trimmed.startsWith("#") -> Unit
+        trimmed.startsWith("[") && trimmed.endsWith("]") -> inStarGroup = trimmed == "[*]"
+        inStarGroup && "=" in trimmed -> {
+          val (key, value) = trimmed.split("=", limit = 2)
+          map[key.trim()] = value.trim()
+        }
       }
     }
+
+    return map
   }
 
   /**

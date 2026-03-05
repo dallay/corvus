@@ -80,6 +80,136 @@ impl GitOperationsTool {
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
 
+    fn error_result(error: impl Into<String>) -> ToolResult {
+        ToolResult {
+            success: false,
+            output: String::new(),
+            error: Some(error.into()),
+        }
+    }
+
+    fn parse_porcelain_status_line(
+        line: &str,
+        staged: &mut Vec<serde_json::Value>,
+        unstaged: &mut Vec<serde_json::Value>,
+        untracked: &mut Vec<String>,
+        branch: &mut String,
+    ) {
+        if line.starts_with("# branch.head ") {
+            *branch = line.trim_start_matches("# branch.head ").to_string();
+            return;
+        }
+
+        if let Some(rest) = line.strip_prefix("1 ") {
+            // Ordinary changed entry
+            let mut parts = rest.splitn(3, ' ');
+            if let (Some(staging), Some(path)) = (parts.next(), parts.next()) {
+                if !staging.is_empty() {
+                    let status_char = staging.chars().next().unwrap_or(' ');
+                    if status_char != '.' && status_char != ' ' {
+                        staged.push(json!({"path": path, "status": status_char}));
+                    }
+
+                    let status_char = staging.chars().nth(1).unwrap_or(' ');
+                    if status_char != '.' && status_char != ' ' {
+                        unstaged.push(json!({"path": path, "status": status_char}));
+                    }
+                }
+            }
+            return;
+        }
+
+        if let Some(rest) = line.strip_prefix("? ") {
+            untracked.push(rest.to_string());
+        }
+    }
+
+    fn diff_line_type(line: &str) -> &'static str {
+        if line.starts_with('+') {
+            "add"
+        } else if line.starts_with('-') {
+            "delete"
+        } else {
+            "context"
+        }
+    }
+
+    fn flush_hunk_if_needed(
+        current_hunk: &mut serde_json::Map<String, serde_json::Value>,
+        lines: &mut Vec<serde_json::Value>,
+        hunks: &mut Vec<serde_json::Value>,
+    ) {
+        if lines.is_empty() {
+            return;
+        }
+
+        current_hunk.insert("lines".to_string(), json!(std::mem::take(lines)));
+        if !current_hunk.is_empty() {
+            hunks.push(serde_json::Value::Object(current_hunk.clone()));
+        }
+    }
+
+    fn extract_diff_file(line: &str) -> Option<String> {
+        let parts: Vec<&str> = line.split_whitespace().collect();
+        if parts.len() >= 4 {
+            return Some(parts[3].trim_start_matches("b/").to_string());
+        }
+        None
+    }
+
+    fn is_in_git_repository(&self) -> bool {
+        if self.workspace_dir.join(".git").exists() {
+            return true;
+        }
+
+        let mut current_dir = self.workspace_dir.as_path();
+        while current_dir.parent().is_some() {
+            if current_dir.join(".git").exists() {
+                return true;
+            }
+            current_dir = current_dir.parent().unwrap();
+        }
+
+        false
+    }
+
+    fn check_write_access(&self, operation: &str) -> Option<ToolResult> {
+        if !self.requires_write_access(operation) {
+            return None;
+        }
+
+        if !self.security.can_act() {
+            return Some(Self::error_result(
+                "Action blocked: git write operations require higher autonomy level",
+            ));
+        }
+
+        match self.security.autonomy {
+            AutonomyLevel::ReadOnly => Some(Self::error_result("Action blocked: read-only mode")),
+            AutonomyLevel::Supervised | AutonomyLevel::Full => None,
+        }
+    }
+
+    async fn dispatch_operation(
+        &self,
+        operation: &str,
+        args: serde_json::Value,
+    ) -> anyhow::Result<ToolResult> {
+        match operation {
+            "status" => self.git_status(args).await,
+            "diff" => self.git_diff(args).await,
+            "log" => self.git_log(args).await,
+            "branch" => self.git_branch(args).await,
+            "commit" => self.git_commit(args).await,
+            "add" => self.git_add(args).await,
+            "checkout" => self.git_checkout(args).await,
+            "stash" => self.git_stash(args).await,
+            _ => Ok(Self::error_result(format!(
+                "Unknown operation: {operation}"
+            ))),
+        }
+    }
+
     async fn git_status(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let output = self
             .run_git_command(&["status", "--porcelain=2", "--branch"])
@@ -93,26 +223,13 @@ impl GitOperationsTool {
         let mut untracked = Vec::new();
 
         for line in output.lines() {
-            if line.starts_with("# branch.head ") {
-                branch = line.trim_start_matches("# branch.head ").to_string();
-            } else if let Some(rest) = line.strip_prefix("1 ") {
-                // Ordinary changed entry
-                let mut parts = rest.splitn(3, ' ');
-                if let (Some(staging), Some(path)) = (parts.next(), parts.next()) {
-                    if !staging.is_empty() {
-                        let status_char = staging.chars().next().unwrap_or(' ');
-                        if status_char != '.' && status_char != ' ' {
-                            staged.push(json!({"path": path, "status": status_char}));
-                        }
-                        let status_char = staging.chars().nth(1).unwrap_or(' ');
-                        if status_char != '.' && status_char != ' ' {
-                            unstaged.push(json!({"path": path, "status": status_char}));
-                        }
-                    }
-                }
-            } else if let Some(rest) = line.strip_prefix("? ") {
-                untracked.push(rest.to_string());
-            }
+            Self::parse_porcelain_status_line(
+                line,
+                &mut staged,
+                &mut unstaged,
+                &mut untracked,
+                &mut branch,
+            );
         }
 
         result.insert("branch".to_string(), json!(branch));
@@ -159,46 +276,33 @@ impl GitOperationsTool {
 
         for line in output.lines() {
             if line.starts_with("diff --git ") {
-                if !lines.is_empty() {
-                    current_hunk.insert("lines".to_string(), json!(lines));
-                    if !current_hunk.is_empty() {
-                        hunks.push(serde_json::Value::Object(current_hunk.clone()));
-                    }
-                    lines = Vec::new();
-                    current_hunk = serde_json::Map::new();
-                }
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 4 {
-                    current_file = parts[3].trim_start_matches("b/").to_string();
+                Self::flush_hunk_if_needed(&mut current_hunk, &mut lines, &mut hunks);
+                current_hunk = serde_json::Map::new();
+
+                if let Some(file) = Self::extract_diff_file(line) {
+                    current_file = file;
                     current_hunk.insert("file".to_string(), json!(current_file));
                 }
-            } else if line.starts_with("@@ ") {
-                if !lines.is_empty() {
-                    current_hunk.insert("lines".to_string(), json!(lines));
-                    if !current_hunk.is_empty() {
-                        hunks.push(serde_json::Value::Object(current_hunk.clone()));
-                    }
-                    lines = Vec::new();
-                    current_hunk = serde_json::Map::new();
-                    current_hunk.insert("file".to_string(), json!(current_file));
-                }
+                continue;
+            }
+
+            if line.starts_with("@@ ") {
+                Self::flush_hunk_if_needed(&mut current_hunk, &mut lines, &mut hunks);
+                current_hunk = serde_json::Map::new();
+                current_hunk.insert("file".to_string(), json!(current_file));
                 current_hunk.insert("header".to_string(), json!(line));
-            } else if !line.is_empty() {
+                continue;
+            }
+
+            if !line.is_empty() {
                 lines.push(json!({
                     "text": line,
-                    "type": if line.starts_with('+') { "add" }
-                           else if line.starts_with('-') { "delete" }
-                           else { "context" }
+                    "type": Self::diff_line_type(line)
                 }));
             }
         }
 
-        if !lines.is_empty() {
-            current_hunk.insert("lines".to_string(), json!(lines));
-            if !current_hunk.is_empty() {
-                hunks.push(serde_json::Value::Object(current_hunk));
-            }
-        }
+        Self::flush_hunk_if_needed(&mut current_hunk, &mut lines, &mut hunks);
 
         result.insert("hunks".to_string(), json!(hunks));
         result.insert("file_count".to_string(), json!(hunks.len()));
@@ -482,87 +586,27 @@ impl Tool for GitOperationsTool {
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
         let operation = match args.get("operation").and_then(|v| v.as_str()) {
-            Some(op) => op,
-            None => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some("Missing 'operation' parameter".into()),
-                });
-            }
+            Some(op) => op.to_string(),
+            None => return Ok(Self::error_result("Missing 'operation' parameter")),
         };
 
         // Check if we're in a git repository
-        if !self.workspace_dir.join(".git").exists() {
-            // Try to find .git in parent directories
-            let mut current_dir = self.workspace_dir.as_path();
-            let mut found_git = false;
-            while current_dir.parent().is_some() {
-                if current_dir.join(".git").exists() {
-                    found_git = true;
-                    break;
-                }
-                current_dir = current_dir.parent().unwrap();
-            }
-
-            if !found_git {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some("Not in a git repository".into()),
-                });
-            }
+        if !self.is_in_git_repository() {
+            return Ok(Self::error_result("Not in a git repository"));
         }
 
         // Check autonomy level for write operations
-        if self.requires_write_access(operation) {
-            if !self.security.can_act() {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(
-                        "Action blocked: git write operations require higher autonomy level".into(),
-                    ),
-                });
-            }
-
-            match self.security.autonomy {
-                AutonomyLevel::ReadOnly => {
-                    return Ok(ToolResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some("Action blocked: read-only mode".into()),
-                    });
-                }
-                AutonomyLevel::Supervised | AutonomyLevel::Full => {}
-            }
+        if let Some(error) = self.check_write_access(&operation) {
+            return Ok(error);
         }
 
         // Record action for rate limiting
         if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: rate limit exceeded".into()),
-            });
+            return Ok(Self::error_result("Action blocked: rate limit exceeded"));
         }
 
         // Execute the requested operation
-        match operation {
-            "status" => self.git_status(args).await,
-            "diff" => self.git_diff(args).await,
-            "log" => self.git_log(args).await,
-            "branch" => self.git_branch(args).await,
-            "commit" => self.git_commit(args).await,
-            "add" => self.git_add(args).await,
-            "checkout" => self.git_checkout(args).await,
-            "stash" => self.git_stash(args).await,
-            _ => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Unknown operation: {operation}")),
-            }),
-        }
+        self.dispatch_operation(&operation, args).await
     }
 }
 

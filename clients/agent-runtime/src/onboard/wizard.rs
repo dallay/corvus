@@ -1302,6 +1302,98 @@ fn build_model_options(model_ids: Vec<String>, source: &str) -> Vec<(String, Str
         .collect()
 }
 
+fn load_fresh_cached_model_options(
+    workspace_dir: &Path,
+    provider_name: &str,
+) -> Result<Option<Vec<(String, String)>>> {
+    let Some(cached) =
+        load_cached_models_for_provider(workspace_dir, provider_name, MODEL_CACHE_TTL_SECS)?
+    else {
+        return Ok(None);
+    };
+
+    let shown_count = cached.models.len().min(LIVE_MODEL_MAX_OPTIONS);
+    print_bullet(&format!(
+        "Found cached models ({shown_count}) updated {} ago.",
+        humanize_age(cached.age_secs)
+    ));
+
+    Ok(Some(build_model_options(
+        cached
+            .models
+            .into_iter()
+            .take(LIVE_MODEL_MAX_OPTIONS)
+            .collect(),
+        "cached",
+    )))
+}
+
+fn load_stale_cached_model_options(
+    workspace_dir: &Path,
+    provider_name: &str,
+) -> Result<Option<Vec<(String, String)>>> {
+    let Some(stale) = load_any_cached_models_for_provider(workspace_dir, provider_name)? else {
+        return Ok(None);
+    };
+
+    print_bullet(&format!(
+        "Loaded stale cache from {} ago.",
+        humanize_age(stale.age_secs)
+    ));
+
+    Ok(Some(build_model_options(
+        stale
+            .models
+            .into_iter()
+            .take(LIVE_MODEL_MAX_OPTIONS)
+            .collect(),
+        "stale-cache",
+    )))
+}
+
+fn handle_live_fetch_result(
+    workspace_dir: &Path,
+    provider_name: &str,
+    fetch_result: Result<Vec<String>>,
+    live_options: &mut Option<Vec<(String, String)>>,
+) -> Result<()> {
+    match fetch_result {
+        Ok(live_model_ids) if !live_model_ids.is_empty() => {
+            cache_live_models_for_provider(workspace_dir, provider_name, &live_model_ids)?;
+
+            let fetched_count = live_model_ids.len();
+            let shown_count = fetched_count.min(LIVE_MODEL_MAX_OPTIONS);
+            let shown_models: Vec<String> = live_model_ids
+                .into_iter()
+                .take(LIVE_MODEL_MAX_OPTIONS)
+                .collect();
+
+            if shown_count < fetched_count {
+                print_bullet(&format!(
+                    "Fetched {fetched_count} models. Showing first {shown_count}."
+                ));
+            } else {
+                print_bullet(&format!("Fetched {shown_count} live models."));
+            }
+
+            *live_options = Some(build_model_options(shown_models, "live"));
+        }
+        Ok(_) => {
+            print_bullet("Provider returned no models; using curated list.");
+        }
+        Err(error) => {
+            print_bullet("Live fetch failed; using cached/curated list.");
+            tracing::debug!("Live model fetch error: {error}");
+
+            if live_options.is_none() {
+                *live_options = load_stale_cached_model_options(workspace_dir, provider_name)?;
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn fetch_live_model_options(
     workspace_dir: &Path,
     provider_name: &str,
@@ -1320,26 +1412,7 @@ fn fetch_live_model_options(
         return Ok(None);
     }
 
-    let mut live_options: Option<Vec<(String, String)>> = None;
-
-    if let Some(cached) =
-        load_cached_models_for_provider(workspace_dir, provider_name, MODEL_CACHE_TTL_SECS)?
-    {
-        let shown_count = cached.models.len().min(LIVE_MODEL_MAX_OPTIONS);
-        print_bullet(&format!(
-            "Found cached models ({shown_count}) updated {} ago.",
-            humanize_age(cached.age_secs)
-        ));
-
-        live_options = Some(build_model_options(
-            cached
-                .models
-                .into_iter()
-                .take(LIVE_MODEL_MAX_OPTIONS)
-                .collect(),
-            "cached",
-        ));
-    }
+    let mut live_options = load_fresh_cached_model_options(workspace_dir, provider_name)?;
 
     let should_fetch_now = Confirm::new()
         .with_prompt(if live_options.is_some() {
@@ -1351,55 +1424,12 @@ fn fetch_live_model_options(
         .interact()?;
 
     if should_fetch_now {
-        match fetch_live_models_for_provider(provider_name, api_key) {
-            Ok(live_model_ids) if !live_model_ids.is_empty() => {
-                cache_live_models_for_provider(workspace_dir, provider_name, &live_model_ids)?;
-
-                let fetched_count = live_model_ids.len();
-                let shown_count = fetched_count.min(LIVE_MODEL_MAX_OPTIONS);
-                let shown_models: Vec<String> = live_model_ids
-                    .into_iter()
-                    .take(LIVE_MODEL_MAX_OPTIONS)
-                    .collect();
-
-                if shown_count < fetched_count {
-                    print_bullet(&format!(
-                        "Fetched {fetched_count} models. Showing first {shown_count}."
-                    ));
-                } else {
-                    print_bullet(&format!("Fetched {shown_count} live models."));
-                }
-
-                live_options = Some(build_model_options(shown_models, "live"));
-            }
-            Ok(_) => {
-                print_bullet("Provider returned no models; using curated list.");
-            }
-            Err(error) => {
-                print_bullet("Live fetch failed; using cached/curated list.");
-                tracing::debug!("Live model fetch error: {error}");
-
-                if live_options.is_none() {
-                    if let Some(stale) =
-                        load_any_cached_models_for_provider(workspace_dir, provider_name)?
-                    {
-                        print_bullet(&format!(
-                            "Loaded stale cache from {} ago.",
-                            humanize_age(stale.age_secs)
-                        ));
-
-                        live_options = Some(build_model_options(
-                            stale
-                                .models
-                                .into_iter()
-                                .take(LIVE_MODEL_MAX_OPTIONS)
-                                .collect(),
-                            "stale-cache",
-                        ));
-                    }
-                }
-            }
-        }
+        handle_live_fetch_result(
+            workspace_dir,
+            provider_name,
+            fetch_live_models_for_provider(provider_name, api_key),
+            &mut live_options,
+        )?;
     }
 
     Ok(live_options)
@@ -3180,6 +3210,16 @@ fn prompt_non_empty(prompt: &str, default: Option<&str>) -> Option<String> {
     }
 }
 
+fn prompt_required(prompt: &str, skipped_message: &str) -> Option<String> {
+    match prompt_non_empty(prompt, None) {
+        Some(value) => Some(value),
+        None => {
+            println!("  {} {}", style("→").dim(), skipped_message);
+            None
+        }
+    }
+}
+
 fn test_whatsapp_connection(phone_number_id: &str, access_token: &str) -> bool {
     let phone_id = phone_number_id.to_string();
     let token = access_token.to_string();
@@ -3215,6 +3255,61 @@ fn parse_allowed_numbers(input: &str) -> Vec<String> {
     }
 }
 
+fn prompt_whatsapp_allowed_numbers() -> Vec<String> {
+    let users_str = prompt_non_empty(
+        "  Allowed phone numbers (comma-separated +1234567890, or * for all)",
+        Some("*"),
+    )
+    .unwrap_or_else(|| "*".into());
+    parse_allowed_numbers(&users_str)
+}
+
+fn verify_whatsapp_connection(phone_number_id: &str, access_token: &str) -> bool {
+    print!("  {} Testing connection... ", style("⏳").dim());
+    let connected = test_whatsapp_connection(phone_number_id, access_token);
+
+    if connected {
+        println!(
+            "\r  {} Connected to WhatsApp API        ",
+            style("✅").green().bold()
+        );
+        true
+    } else {
+        println!(
+            "\r  {} Connection failed — check access token and phone number ID",
+            style("❌").red().bold()
+        );
+        false
+    }
+}
+
+fn build_whatsapp_config() -> Option<WhatsAppConfig> {
+    let access_token = prompt_required("  Access token (from Meta Developers)", "Skipped")?;
+    let phone_number_id = prompt_required(
+        "  Phone number ID (from WhatsApp app settings)",
+        "Skipped — phone number ID required",
+    )?;
+    let verify_token = prompt_non_empty(
+        "  Webhook verify token (create your own)",
+        Some("corvus-whatsapp-verify"),
+    )
+    .unwrap_or_else(|| "corvus-whatsapp-verify".into());
+
+    if !verify_whatsapp_connection(&phone_number_id, &access_token) {
+        return None;
+    }
+
+    let allowed_numbers = prompt_whatsapp_allowed_numbers();
+
+    Some(WhatsAppConfig {
+        access_token: access_token.trim().to_string(),
+        phone_number_id: phone_number_id.trim().to_string(),
+        verify_token: verify_token.trim().to_string(),
+        app_secret: None,
+        allowed_numbers,
+    })
+}
+
 fn setup_whatsapp_channel(config: &mut ChannelsConfig) -> bool {
     println!();
     println!(
@@ -3228,60 +3323,11 @@ fn setup_whatsapp_channel(config: &mut ChannelsConfig) -> bool {
     print_bullet("4. Configure webhook URL to: https://your-domain/whatsapp");
     println!();
 
-    let access_token = match prompt_non_empty("  Access token (from Meta Developers)", None) {
-        Some(t) => t,
-        None => {
-            println!("  {} Skipped", style("→").dim());
-            return false;
-        }
+    let Some(whatsapp) = build_whatsapp_config() else {
+        return false;
     };
 
-    let phone_number_id =
-        match prompt_non_empty("  Phone number ID (from WhatsApp app settings)", None) {
-            Some(s) => s,
-            None => {
-                println!("  {} Skipped — phone number ID required", style("→").dim());
-                return false;
-            }
-        };
-
-    let verify_token = prompt_non_empty(
-        "  Webhook verify token (create your own)",
-        Some("corvus-whatsapp-verify"),
-    )
-    .unwrap_or_else(|| "corvus-whatsapp-verify".into());
-
-    print!("  {} Testing connection... ", style("⏳").dim());
-    let connected = test_whatsapp_connection(&phone_number_id, &access_token);
-
-    if connected {
-        println!(
-            "\r  {} Connected to WhatsApp API        ",
-            style("✅").green().bold()
-        );
-    } else {
-        println!(
-            "\r  {} Connection failed — check access token and phone number ID",
-            style("❌").red().bold()
-        );
-        return false;
-    }
-
-    let users_str = prompt_non_empty(
-        "  Allowed phone numbers (comma-separated +1234567890, or * for all)",
-        Some("*"),
-    )
-    .unwrap_or_else(|| "*".into());
-
-    let allowed_numbers = parse_allowed_numbers(&users_str);
-
-    config.whatsapp = Some(WhatsAppConfig {
-        access_token: access_token.trim().to_string(),
-        phone_number_id: phone_number_id.trim().to_string(),
-        verify_token: verify_token.trim().to_string(),
-        app_secret: None,
-        allowed_numbers,
-    });
+    config.whatsapp = Some(whatsapp);
     true
 }
 

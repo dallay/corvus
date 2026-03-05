@@ -213,6 +213,34 @@ impl HttpRequestTool {
             text.to_string()
         }
     }
+
+    fn check_action_security(&self) -> Option<ToolResult> {
+        if !self.security.can_act() {
+            return Some(tool_error_result(
+                "Action blocked: autonomy is read-only".into(),
+            ));
+        }
+
+        if !self.security.record_action() {
+            return Some(tool_error_result(
+                "Action blocked: rate limit exceeded".into(),
+            ));
+        }
+
+        None
+    }
+
+    fn map_validation<T>(&self, result: anyhow::Result<T>) -> Result<T, ToolResult> {
+        result.map_err(|e| tool_error_result(e.to_string()))
+    }
+}
+
+fn tool_error_result(error: String) -> ToolResult {
+    ToolResult {
+        success: false,
+        output: String::new(),
+        error: Some(error),
+    }
 }
 
 pub(crate) fn redact_headers_for_display(headers: &[(String, String)]) -> Vec<(String, String)> {
@@ -282,53 +310,23 @@ impl Tool for HttpRequestTool {
         let headers_val = args.get("headers").cloned().unwrap_or(json!({}));
         let body = args.get("body").and_then(|v| v.as_str());
 
-        if !self.security.can_act() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: autonomy is read-only".into()),
-            });
+        if let Some(result) = self.check_action_security() {
+            return Ok(result);
         }
 
-        if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: rate limit exceeded".into()),
-            });
-        }
-
-        let url = match self.validate_url(url) {
+        let url = match self.map_validation(self.validate_url(url)) {
             Ok(v) => v,
-            Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(e.to_string()),
-                })
-            }
+            Err(result) => return Ok(result),
         };
 
-        let method = match self.validate_method(method_str) {
+        let method = match self.map_validation(self.validate_method(method_str)) {
             Ok(m) => m,
-            Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(e.to_string()),
-                })
-            }
+            Err(result) => return Ok(result),
         };
 
-        let request_headers = match self.parse_headers(&headers_val) {
+        let request_headers = match self.map_validation(self.parse_headers(&headers_val)) {
             Ok(h) => h,
-            Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(e.to_string()),
-                })
-            }
+            Err(result) => return Ok(result),
         };
 
         match self
@@ -340,18 +338,7 @@ impl Tool for HttpRequestTool {
                 let status_code = status.as_u16();
 
                 // Get response headers (redact sensitive ones)
-                let response_headers = response.headers().iter();
-                let headers_text = response_headers
-                    .map(|(k, v)| {
-                        let is_sensitive = k.as_str().to_lowercase().contains("set-cookie");
-                        if is_sensitive {
-                            format!("{}: ***REDACTED***", k.as_str())
-                        } else {
-                            format!("{}: {:?}", k.as_str(), v)
-                        }
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
+                let headers_text = format_response_headers(response.headers());
 
                 // Get response body with size limit
                 let response_text = match response.text().await {
@@ -377,11 +364,7 @@ impl Tool for HttpRequestTool {
                     },
                 })
             }
-            Err(e) => Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("HTTP request failed: {e}")),
-            }),
+            Err(e) => Ok(tool_error_result(format!("HTTP request failed: {e}"))),
         }
     }
 }

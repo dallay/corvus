@@ -83,54 +83,58 @@ object LocalConfig {
    * @return The full extraProperties.
    */
   @Suppress("UnstableApiUsage", "detekt:NestedBlockDepth", "unused")
-  private fun loadLocalProperties(script: ExtensionAware): ExtraPropertiesExtension {
-    val extraProperties = script.extensions.extraProperties
-    if (script is Project) {
-      val loaded =
-        runCatching { extraProperties.get("loadLocalPropertiesToProject") }.getOrNull() != null
+  private fun loadLocalProperties(script: ExtensionAware): ExtraPropertiesExtension =
+    when (script) {
+      is Project -> loadProjectLocalProperties(script)
+      is Settings -> loadSettingsLocalProperties(script)
+      else -> error("Unsupported script type: $script")
+    }
 
-      if (!loaded) {
-        val enableLocalConfig =
-          runCatching { extraProperties.get("ENABLE_LOCAL_CONFIG")?.toString()?.toBoolean() }
-            .getOrNull() == true
-        if (enableLocalConfig) {
-          script.providers
-            .fileContents(script.isolated.projectDirectory.file(DEFAULT_LOCAL_PROPERTY_FILE))
-            .asText
-            .orNull
-            ?.also {
-              val properties = Properties()
-              properties.load(it.reader())
-              properties.forEach { (key, value) ->
-                extraProperties.set(key.toString(), value.toString())
-              }
-            }
-        }
-        extraProperties.set("loadLocalPropertiesToProject", true)
-      }
-      return extraProperties
-    } else if (script is Settings) {
-      val loaded =
-        runCatching { extraProperties.get("loadLocalPropertiesToSettings") }.getOrNull() != null
-
-      if (!loaded) {
-        val enableLocalConfig =
-          runCatching { extraProperties.get("ENABLE_LOCAL_CONFIG")?.toString()?.toBoolean() }
-            .getOrNull() == true
-        if (enableLocalConfig) {
-          val file = Path.of(script.settingsDir.path, DEFAULT_LOCAL_PROPERTY_FILE).toFile()
-          if (file.exists()) {
-            val properties = Properties()
-            properties.load(file.reader())
-            properties.forEach { (key, value) ->
-              extraProperties.set(key.toString(), value.toString())
-            }
-          }
-        }
-        extraProperties.set("loadLocalPropertiesToSettings", true)
-      }
+  private fun loadProjectLocalProperties(project: Project): ExtraPropertiesExtension {
+    val extraProperties = project.extensions.extraProperties
+    if (isLoaded(extraProperties, "loadLocalPropertiesToProject")) {
       return extraProperties
     }
-    error("Unsupported script type: $script")
+
+    if (isLocalConfigEnabled(extraProperties)) {
+      project.providers
+        .fileContents(project.isolated.projectDirectory.file(DEFAULT_LOCAL_PROPERTY_FILE))
+        .asText
+        .orNull
+        ?.let { putProperties(extraProperties, it.reader()) }
+    }
+
+    extraProperties.set("loadLocalPropertiesToProject", true)
+    return extraProperties
+  }
+
+  private fun loadSettingsLocalProperties(settings: Settings): ExtraPropertiesExtension {
+    val extraProperties = settings.extensions.extraProperties
+    if (isLoaded(extraProperties, "loadLocalPropertiesToSettings")) {
+      return extraProperties
+    }
+
+    if (isLocalConfigEnabled(extraProperties)) {
+      val file = Path.of(settings.settingsDir.path, DEFAULT_LOCAL_PROPERTY_FILE).toFile()
+      if (file.exists()) {
+        putProperties(extraProperties, file.reader())
+      }
+    }
+
+    extraProperties.set("loadLocalPropertiesToSettings", true)
+    return extraProperties
+  }
+
+  private fun isLoaded(extraProperties: ExtraPropertiesExtension, flag: String): Boolean =
+    runCatching { extraProperties.get(flag) }.getOrNull() != null
+
+  private fun isLocalConfigEnabled(extraProperties: ExtraPropertiesExtension): Boolean =
+    runCatching { extraProperties.get("ENABLE_LOCAL_CONFIG")?.toString()?.toBoolean() }
+      .getOrNull() == true
+
+  private fun putProperties(extraProperties: ExtraPropertiesExtension, reader: java.io.Reader) {
+    val properties = Properties()
+    properties.load(reader)
+    properties.forEach { (key, value) -> extraProperties.set(key.toString(), value.toString()) }
   }
 }

@@ -73,6 +73,12 @@ enum ResolvedBackend {
     ComputerUse,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ActionDispatch {
+    ComputerUse,
+    BrowserAction,
+}
+
 impl BrowserBackendKind {
     fn parse(raw: &str) -> anyhow::Result<Self> {
         let key = raw.trim().to_ascii_lowercase().replace('-', "_");
@@ -184,6 +190,14 @@ pub enum BrowserAction {
 }
 
 impl BrowserTool {
+    fn failed_tool_result(error: impl Into<String>) -> ToolResult {
+        ToolResult {
+            success: false,
+            output: String::new(),
+            error: Some(error.into()),
+        }
+    }
+
     pub fn new(
         security: Arc<SecurityPolicy>,
         allowed_domains: Vec<String>,
@@ -312,76 +326,93 @@ impl BrowserTool {
         Ok(endpoint_reachable(&endpoint, Duration::from_millis(500)))
     }
 
+    async fn require_agent_browser_backend(
+        configured: BrowserBackendKind,
+    ) -> anyhow::Result<ResolvedBackend> {
+        if Self::is_agent_browser_available().await {
+            return Ok(ResolvedBackend::AgentBrowser);
+        }
+
+        anyhow::bail!(
+            "browser.backend='{}' but agent-browser CLI is unavailable. Install with: npm install -g agent-browser",
+            configured.as_str()
+        )
+    }
+
+    fn require_rust_native_backend(&self) -> anyhow::Result<ResolvedBackend> {
+        if !Self::rust_native_compiled() {
+            anyhow::bail!("browser.backend='rust_native' requires build feature 'browser-native'");
+        }
+        if !self.rust_native_available() {
+            anyhow::bail!(
+                "Rust-native browser backend is enabled but WebDriver endpoint is unreachable. Set browser.native_webdriver_url and start a compatible driver"
+            );
+        }
+
+        Ok(ResolvedBackend::RustNative)
+    }
+
+    fn require_computer_use_backend(&self) -> anyhow::Result<ResolvedBackend> {
+        if !self.computer_use_available()? {
+            anyhow::bail!(
+                "browser.backend='computer_use' but sidecar endpoint is unreachable. Check browser.computer_use.endpoint and sidecar status"
+            );
+        }
+
+        Ok(ResolvedBackend::ComputerUse)
+    }
+
+    fn auto_backend_failure(&self, computer_use_err: Option<String>) -> anyhow::Error {
+        if Self::rust_native_compiled() {
+            if let Some(err) = computer_use_err {
+                return anyhow::anyhow!(
+                    "browser.backend='auto' found no usable backend (agent-browser missing, rust-native unavailable, computer-use invalid: {err})"
+                );
+            }
+
+            return anyhow::anyhow!(
+                "browser.backend='auto' found no usable backend (agent-browser missing, rust-native unavailable, computer-use sidecar unreachable)"
+            );
+        }
+
+        if let Some(err) = computer_use_err {
+            return anyhow::anyhow!(
+                "browser.backend='auto' needs agent-browser CLI, browser-native, or valid computer-use sidecar (error: {err})"
+            );
+        }
+
+        anyhow::anyhow!(
+            "browser.backend='auto' needs agent-browser CLI, browser-native, or computer-use sidecar"
+        )
+    }
+
+    async fn resolve_auto_backend(&self) -> anyhow::Result<ResolvedBackend> {
+        if Self::rust_native_compiled() && self.rust_native_available() {
+            return Ok(ResolvedBackend::RustNative);
+        }
+        if Self::is_agent_browser_available().await {
+            return Ok(ResolvedBackend::AgentBrowser);
+        }
+
+        let computer_use_err = match self.computer_use_available() {
+            Ok(true) => return Ok(ResolvedBackend::ComputerUse),
+            Ok(false) => None,
+            Err(err) => Some(err.to_string()),
+        };
+
+        Err(self.auto_backend_failure(computer_use_err))
+    }
+
     async fn resolve_backend(&self) -> anyhow::Result<ResolvedBackend> {
         let configured = self.configured_backend()?;
 
         match configured {
             BrowserBackendKind::AgentBrowser => {
-                if Self::is_agent_browser_available().await {
-                    Ok(ResolvedBackend::AgentBrowser)
-                } else {
-                    anyhow::bail!(
-                        "browser.backend='{}' but agent-browser CLI is unavailable. Install with: npm install -g agent-browser",
-                        configured.as_str()
-                    )
-                }
+                Self::require_agent_browser_backend(configured).await
             }
-            BrowserBackendKind::RustNative => {
-                if !Self::rust_native_compiled() {
-                    anyhow::bail!(
-                        "browser.backend='rust_native' requires build feature 'browser-native'"
-                    );
-                }
-                if !self.rust_native_available() {
-                    anyhow::bail!(
-                        "Rust-native browser backend is enabled but WebDriver endpoint is unreachable. Set browser.native_webdriver_url and start a compatible driver"
-                    );
-                }
-                Ok(ResolvedBackend::RustNative)
-            }
-            BrowserBackendKind::ComputerUse => {
-                if !self.computer_use_available()? {
-                    anyhow::bail!(
-                        "browser.backend='computer_use' but sidecar endpoint is unreachable. Check browser.computer_use.endpoint and sidecar status"
-                    );
-                }
-                Ok(ResolvedBackend::ComputerUse)
-            }
-            BrowserBackendKind::Auto => {
-                if Self::rust_native_compiled() && self.rust_native_available() {
-                    return Ok(ResolvedBackend::RustNative);
-                }
-                if Self::is_agent_browser_available().await {
-                    return Ok(ResolvedBackend::AgentBrowser);
-                }
-
-                let computer_use_err = match self.computer_use_available() {
-                    Ok(true) => return Ok(ResolvedBackend::ComputerUse),
-                    Ok(false) => None,
-                    Err(err) => Some(err.to_string()),
-                };
-
-                if Self::rust_native_compiled() {
-                    if let Some(err) = computer_use_err {
-                        anyhow::bail!(
-                            "browser.backend='auto' found no usable backend (agent-browser missing, rust-native unavailable, computer-use invalid: {err})"
-                        );
-                    }
-                    anyhow::bail!(
-                        "browser.backend='auto' found no usable backend (agent-browser missing, rust-native unavailable, computer-use sidecar unreachable)"
-                    )
-                }
-
-                if let Some(err) = computer_use_err {
-                    anyhow::bail!(
-                        "browser.backend='auto' needs agent-browser CLI, browser-native, or valid computer-use sidecar (error: {err})"
-                    );
-                }
-
-                anyhow::bail!(
-                    "browser.backend='auto' needs agent-browser CLI, browser-native, or computer-use sidecar"
-                )
-            }
+            BrowserBackendKind::RustNative => self.require_rust_native_backend(),
+            BrowserBackendKind::ComputerUse => self.require_computer_use_backend(),
+            BrowserBackendKind::Auto => self.resolve_auto_backend().await,
         }
     }
 
@@ -472,143 +503,107 @@ impl BrowserTool {
     }
 
     /// Execute a browser action via agent-browser CLI
-    #[allow(clippy::too_many_lines)]
-    async fn execute_agent_browser_action(
+    fn to_owned_args(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|part| (*part).to_string()).collect()
+    }
+
+    fn command_for_agent_browser_action(
         &self,
         action: BrowserAction,
-    ) -> anyhow::Result<ToolResult> {
+    ) -> anyhow::Result<Vec<String>> {
         match action {
             BrowserAction::Open { url } => {
                 self.validate_url(&url)?;
-                let resp = self.run_command(&["open", &url]).await?;
-                self.to_result(resp)
+                Ok(vec!["open".into(), url])
             }
-
             BrowserAction::Snapshot {
                 interactive_only,
                 compact,
                 depth,
             } => {
-                let mut args = vec!["snapshot"];
+                let mut args = Self::to_owned_args(&["snapshot"]);
                 if interactive_only {
-                    args.push("-i");
+                    args.push("-i".into());
                 }
                 if compact {
-                    args.push("-c");
+                    args.push("-c".into());
                 }
-                let depth_str;
                 if let Some(d) = depth {
-                    args.push("-d");
-                    depth_str = d.to_string();
-                    args.push(&depth_str);
+                    args.push("-d".into());
+                    args.push(d.to_string());
                 }
-                let resp = self.run_command(&args).await?;
-                self.to_result(resp)
+                Ok(args)
             }
-
-            BrowserAction::Click { selector } => {
-                let resp = self.run_command(&["click", &selector]).await?;
-                self.to_result(resp)
-            }
-
-            BrowserAction::Fill { selector, value } => {
-                let resp = self.run_command(&["fill", &selector, &value]).await?;
-                self.to_result(resp)
-            }
-
-            BrowserAction::Type { selector, text } => {
-                let resp = self.run_command(&["type", &selector, &text]).await?;
-                self.to_result(resp)
-            }
-
+            BrowserAction::Click { selector } => Ok(vec!["click".into(), selector]),
+            BrowserAction::Fill { selector, value } => Ok(vec!["fill".into(), selector, value]),
+            BrowserAction::Type { selector, text } => Ok(vec!["type".into(), selector, text]),
             BrowserAction::GetText { selector } => {
-                let resp = self.run_command(&["get", "text", &selector]).await?;
-                self.to_result(resp)
+                Ok(Self::to_owned_args(&["get", "text", selector.as_str()]))
             }
-
-            BrowserAction::GetTitle => {
-                let resp = self.run_command(&["get", "title"]).await?;
-                self.to_result(resp)
-            }
-
-            BrowserAction::GetUrl => {
-                let resp = self.run_command(&["get", "url"]).await?;
-                self.to_result(resp)
-            }
-
+            BrowserAction::GetTitle => Ok(Self::to_owned_args(&["get", "title"])),
+            BrowserAction::GetUrl => Ok(Self::to_owned_args(&["get", "url"])),
             BrowserAction::Screenshot { path, full_page } => {
-                let mut args = vec!["screenshot"];
-                if let Some(ref p) = path {
-                    args.push(p);
+                let mut args = Self::to_owned_args(&["screenshot"]);
+                if let Some(path_str) = path {
+                    args.push(path_str);
                 }
                 if full_page {
-                    args.push("--full");
+                    args.push("--full".into());
                 }
-                let resp = self.run_command(&args).await?;
-                self.to_result(resp)
+                Ok(args)
             }
-
             BrowserAction::Wait { selector, ms, text } => {
-                let mut args = vec!["wait"];
-                let ms_str;
-                if let Some(sel) = selector.as_ref() {
+                let mut args = Self::to_owned_args(&["wait"]);
+                if let Some(sel) = selector {
                     args.push(sel);
                 } else if let Some(millis) = ms {
-                    ms_str = millis.to_string();
-                    args.push(&ms_str);
-                } else if let Some(ref t) = text {
-                    args.push("--text");
-                    args.push(t);
+                    args.push(millis.to_string());
+                } else if let Some(wait_text) = text {
+                    args.push("--text".into());
+                    args.push(wait_text);
                 }
-                let resp = self.run_command(&args).await?;
-                self.to_result(resp)
+                Ok(args)
             }
-
-            BrowserAction::Press { key } => {
-                let resp = self.run_command(&["press", &key]).await?;
-                self.to_result(resp)
-            }
-
-            BrowserAction::Hover { selector } => {
-                let resp = self.run_command(&["hover", &selector]).await?;
-                self.to_result(resp)
-            }
-
+            BrowserAction::Press { key } => Ok(vec!["press".into(), key]),
+            BrowserAction::Hover { selector } => Ok(vec!["hover".into(), selector]),
             BrowserAction::Scroll { direction, pixels } => {
-                let mut args = vec!["scroll", &direction];
-                let px_str;
+                let mut args = vec!["scroll".into(), direction];
                 if let Some(px) = pixels {
-                    px_str = px.to_string();
-                    args.push(&px_str);
+                    args.push(px.to_string());
                 }
-                let resp = self.run_command(&args).await?;
-                self.to_result(resp)
+                Ok(args)
             }
-
             BrowserAction::IsVisible { selector } => {
-                let resp = self.run_command(&["is", "visible", &selector]).await?;
-                self.to_result(resp)
+                Ok(Self::to_owned_args(&["is", "visible", selector.as_str()]))
             }
-
-            BrowserAction::Close => {
-                let resp = self.run_command(&["close"]).await?;
-                self.to_result(resp)
-            }
-
+            BrowserAction::Close => Ok(Self::to_owned_args(&["close"])),
             BrowserAction::Find {
                 by,
                 value,
                 action,
                 fill_value,
             } => {
-                let mut args = vec!["find", &by, &value, &action];
-                if let Some(ref fv) = fill_value {
+                let mut args = vec!["find".into(), by, value, action];
+                if let Some(fv) = fill_value {
                     args.push(fv);
                 }
-                let resp = self.run_command(&args).await?;
-                self.to_result(resp)
+                Ok(args)
             }
         }
+    }
+
+    async fn run_command_from_owned_args(&self, args: Vec<String>) -> anyhow::Result<ToolResult> {
+        let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+        let resp = self.run_command(&arg_refs).await?;
+        self.to_result(resp)
+    }
+
+    async fn execute_agent_browser_action(
+        &self,
+        action: BrowserAction,
+    ) -> anyhow::Result<ToolResult> {
+        let args = self.command_for_agent_browser_action(action)?;
+        self.run_command_from_owned_args(args).await
     }
 
     #[allow(clippy::unused_async)]
@@ -852,6 +847,61 @@ impl BrowserTool {
             })
         }
     }
+
+    fn enforce_security_gate(&self) -> Result<(), ToolResult> {
+        if !self.security.can_act() {
+            return Err(Self::failed_tool_result(
+                "Action blocked: autonomy is read-only",
+            ));
+        }
+
+        if !self.security.record_action() {
+            return Err(Self::failed_tool_result(
+                "Action blocked: rate limit exceeded",
+            ));
+        }
+
+        Ok(())
+    }
+
+    async fn resolve_backend_or_tool_error(&self) -> Result<ResolvedBackend, ToolResult> {
+        self.resolve_backend()
+            .await
+            .map_err(|error| Self::failed_tool_result(error.to_string()))
+    }
+
+    fn action_dispatch_or_tool_error(
+        &self,
+        action_str: &str,
+        backend: ResolvedBackend,
+    ) -> Result<ActionDispatch, ToolResult> {
+        if !is_supported_browser_action(action_str) {
+            return Err(Self::failed_tool_result(format!(
+                "Unknown action: {action_str}"
+            )));
+        }
+
+        if backend == ResolvedBackend::ComputerUse {
+            return Ok(ActionDispatch::ComputerUse);
+        }
+
+        if is_computer_use_only_action(action_str) {
+            return Err(Self::failed_tool_result(
+                unavailable_action_for_backend_error(action_str, backend),
+            ));
+        }
+
+        Ok(ActionDispatch::BrowserAction)
+    }
+
+    fn parse_browser_action_or_tool_error(
+        &self,
+        action_str: &str,
+        args: &Value,
+    ) -> Result<BrowserAction, ToolResult> {
+        parse_browser_action(action_str, args)
+            .map_err(|error| Self::failed_tool_result(error.to_string()))
+    }
 }
 
 #[async_trait]
@@ -984,32 +1034,13 @@ impl Tool for BrowserTool {
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
-        // Security checks
-        if !self.security.can_act() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: autonomy is read-only".into()),
-            });
+        if let Err(result) = self.enforce_security_gate() {
+            return Ok(result);
         }
 
-        if !self.security.record_action() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Action blocked: rate limit exceeded".into()),
-            });
-        }
-
-        let backend = match self.resolve_backend().await {
+        let backend = match self.resolve_backend_or_tool_error().await {
             Ok(selected) => selected,
-            Err(error) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(error.to_string()),
-                });
-            }
+            Err(result) => return Ok(result),
         };
 
         // Parse action from args
@@ -1018,35 +1049,17 @@ impl Tool for BrowserTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing 'action' parameter"))?;
 
-        if !is_supported_browser_action(action_str) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!("Unknown action: {action_str}")),
-            });
-        }
-
-        if backend == ResolvedBackend::ComputerUse {
-            return self.execute_computer_use_action(action_str, &args).await;
-        }
-
-        if is_computer_use_only_action(action_str) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(unavailable_action_for_backend_error(action_str, backend)),
-            });
-        }
-
-        let action = match parse_browser_action(action_str, &args) {
-            Ok(a) => a,
-            Err(e) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(e.to_string()),
-                });
+        match self.action_dispatch_or_tool_error(action_str, backend) {
+            Ok(ActionDispatch::ComputerUse) => {
+                return self.execute_computer_use_action(action_str, &args).await;
             }
+            Ok(ActionDispatch::BrowserAction) => {}
+            Err(result) => return Ok(result),
+        }
+
+        let action = match self.parse_browser_action_or_tool_error(action_str, &args) {
+            Ok(action) => action,
+            Err(result) => return Ok(result),
         };
 
         self.execute_action(action, backend).await
@@ -1223,42 +1236,7 @@ mod native_backend {
                 }
                 BrowserAction::Wait { selector, ms, text } => {
                     let client = self.active_client()?;
-                    if let Some(sel) = selector.as_ref() {
-                        wait_for_selector(client, sel).await?;
-                        Ok(json!({
-                            "backend": "rust_native",
-                            "action": "wait",
-                            "selector": sel,
-                        }))
-                    } else if let Some(duration_ms) = ms {
-                        tokio::time::sleep(Duration::from_millis(duration_ms)).await;
-                        Ok(json!({
-                            "backend": "rust_native",
-                            "action": "wait",
-                            "ms": duration_ms,
-                        }))
-                    } else if let Some(needle) = text.as_ref() {
-                        let xpath = xpath_contains_text(needle);
-                        client
-                            .wait()
-                            .for_element(Locator::XPath(&xpath))
-                            .await
-                            .with_context(|| {
-                                format!("Timed out waiting for text to appear: {needle}")
-                            })?;
-                        Ok(json!({
-                            "backend": "rust_native",
-                            "action": "wait",
-                            "text": needle,
-                        }))
-                    } else {
-                        tokio::time::sleep(Duration::from_millis(250)).await;
-                        Ok(json!({
-                            "backend": "rust_native",
-                            "action": "wait",
-                            "ms": 250,
-                        }))
-                    }
+                    Self::execute_wait_action(client, selector, ms, text).await
                 }
                 BrowserAction::Press { key } => {
                     let client = self.active_client()?;
@@ -1295,15 +1273,7 @@ mod native_backend {
                 BrowserAction::Scroll { direction, pixels } => {
                     let client = self.active_client()?;
                     let amount = i64::from(pixels.unwrap_or(600));
-                    let (dx, dy) = match direction.as_str() {
-                        "up" => (0, -amount),
-                        "down" => (0, amount),
-                        "left" => (-amount, 0),
-                        "right" => (amount, 0),
-                        _ => anyhow::bail!(
-                            "Unsupported scroll direction '{direction}'. Use up/down/left/right"
-                        ),
-                    };
+                    let (dx, dy) = Self::scroll_delta(&direction, amount)?;
 
                     let position = client
                         .execute(
@@ -1351,57 +1321,127 @@ mod native_backend {
                     fill_value,
                 } => {
                     let client = self.active_client()?;
-                    let selector = selector_for_find(&by, &value);
-                    let element = find_element(client, &selector).await?;
-
-                    let payload = match action.as_str() {
-                        "click" => {
-                            element.click().await?;
-                            json!({"result": "clicked"})
-                        }
-                        "fill" => {
-                            let fill = fill_value.ok_or_else(|| {
-                                anyhow::anyhow!("find_action='fill' requires fill_value")
-                            })?;
-                            let _ = element.clear().await;
-                            element.send_keys(&fill).await?;
-                            json!({"result": "filled", "typed": fill.len()})
-                        }
-                        "text" => {
-                            let text = element.text().await?;
-                            json!({"result": "text", "text": text})
-                        }
-                        "hover" => {
-                            hover_element(client, &element).await?;
-                            json!({"result": "hovered"})
-                        }
-                        "check" => {
-                            let checked_before = element_checked(&element).await?;
-                            if !checked_before {
-                                element.click().await?;
-                            }
-                            let checked_after = element_checked(&element).await?;
-                            json!({
-                                "result": "checked",
-                                "checked_before": checked_before,
-                                "checked_after": checked_after,
-                            })
-                        }
-                        _ => anyhow::bail!(
-                            "Unsupported find_action '{action}'. Use click/fill/text/hover/check"
-                        ),
-                    };
-
-                    Ok(json!({
-                        "backend": "rust_native",
-                        "action": "find",
-                        "by": by,
-                        "value": value,
-                        "selector": selector,
-                        "data": payload,
-                    }))
+                    Self::execute_find_action(client, by, value, action, fill_value).await
                 }
             }
+        }
+
+        async fn execute_wait_action(
+            client: &Client,
+            selector: Option<String>,
+            ms: Option<u64>,
+            text: Option<String>,
+        ) -> Result<Value> {
+            if let Some(sel) = selector {
+                wait_for_selector(client, &sel).await?;
+                return Ok(json!({
+                    "backend": "rust_native",
+                    "action": "wait",
+                    "selector": sel,
+                }));
+            }
+
+            if let Some(duration_ms) = ms {
+                tokio::time::sleep(Duration::from_millis(duration_ms)).await;
+                return Ok(json!({
+                    "backend": "rust_native",
+                    "action": "wait",
+                    "ms": duration_ms,
+                }));
+            }
+
+            if let Some(needle) = text {
+                let xpath = xpath_contains_text(&needle);
+                client
+                    .wait()
+                    .for_element(Locator::XPath(&xpath))
+                    .await
+                    .with_context(|| format!("Timed out waiting for text to appear: {needle}"))?;
+                return Ok(json!({
+                    "backend": "rust_native",
+                    "action": "wait",
+                    "text": needle,
+                }));
+            }
+
+            tokio::time::sleep(Duration::from_millis(250)).await;
+            Ok(json!({
+                "backend": "rust_native",
+                "action": "wait",
+                "ms": 250,
+            }))
+        }
+
+        fn scroll_delta(direction: &str, amount: i64) -> Result<(i64, i64)> {
+            let delta = match direction {
+                "up" => (0, -amount),
+                "down" => (0, amount),
+                "left" => (-amount, 0),
+                "right" => (amount, 0),
+                _ => anyhow::bail!(
+                    "Unsupported scroll direction '{direction}'. Use up/down/left/right"
+                ),
+            };
+            Ok(delta)
+        }
+
+        async fn execute_find_action(
+            client: &Client,
+            by: String,
+            value: String,
+            action: String,
+            fill_value: Option<String>,
+        ) -> Result<Value> {
+            let selector = selector_for_find(&by, &value);
+            let element = find_element(client, &selector).await?;
+
+            let payload = match action.as_str() {
+                "click" => {
+                    element.click().await?;
+                    json!({"result": "clicked"})
+                }
+                "fill" => {
+                    let fill = fill_value
+                        .ok_or_else(|| anyhow::anyhow!("find_action='fill' requires fill_value"))?;
+                    let _ = element.clear().await;
+                    element.send_keys(&fill).await?;
+                    json!({"result": "filled", "typed": fill.len()})
+                }
+                "text" => {
+                    let text = element.text().await?;
+                    json!({"result": "text", "text": text})
+                }
+                "hover" => {
+                    hover_element(client, &element).await?;
+                    json!({"result": "hovered"})
+                }
+                "check" => {
+                    let checked_before = element_checked(&element).await?;
+                    if !checked_before {
+                        element.click().await?;
+                    }
+                    let checked_after = element_checked(&element).await?;
+                    json!({
+                        "result": "checked",
+                        "checked_before": checked_before,
+                        "checked_after": checked_after,
+                    })
+                }
+                _ => {
+                    anyhow::bail!(
+                        "Unsupported find_action '{action}'. Use click/fill/text/hover/check"
+                    )
+                }
+            };
+
+            Ok(json!({
+                "backend": "rust_native",
+                "action": "find",
+                "by": by,
+                "value": value,
+                "selector": selector,
+                "data": payload,
+            }))
         }
 
         async fn ensure_session(

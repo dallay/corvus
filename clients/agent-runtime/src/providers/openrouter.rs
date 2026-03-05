@@ -144,68 +144,82 @@ impl OpenRouterProvider {
     fn convert_messages(messages: &[ChatMessage]) -> Vec<NativeMessage> {
         messages
             .iter()
-            .map(|m| {
-                if m.role == "assistant" {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&m.content) {
-                        if let Some(tool_calls_value) = value.get("tool_calls") {
-                            if let Ok(parsed_calls) =
-                                serde_json::from_value::<Vec<ProviderToolCall>>(
-                                    tool_calls_value.clone(),
-                                )
-                            {
-                                let tool_calls = parsed_calls
-                                    .into_iter()
-                                    .map(|tc| NativeToolCall {
-                                        id: Some(tc.id),
-                                        kind: Some("function".to_string()),
-                                        function: NativeFunctionCall {
-                                            name: tc.name,
-                                            arguments: tc.arguments,
-                                        },
-                                    })
-                                    .collect::<Vec<_>>();
-                                let content = value
-                                    .get("content")
-                                    .and_then(serde_json::Value::as_str)
-                                    .map(ToString::to_string);
-                                return NativeMessage {
-                                    role: "assistant".to_string(),
-                                    content,
-                                    tool_call_id: None,
-                                    tool_calls: Some(tool_calls),
-                                };
-                            }
-                        }
-                    }
-                }
-
-                if m.role == "tool" {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(&m.content) {
-                        let tool_call_id = value
-                            .get("tool_call_id")
-                            .and_then(serde_json::Value::as_str)
-                            .map(ToString::to_string);
-                        let content = value
-                            .get("content")
-                            .and_then(serde_json::Value::as_str)
-                            .map(ToString::to_string);
-                        return NativeMessage {
-                            role: "tool".to_string(),
-                            content,
-                            tool_call_id,
-                            tool_calls: None,
-                        };
-                    }
-                }
-
-                NativeMessage {
-                    role: m.role.clone(),
-                    content: Some(m.content.clone()),
-                    tool_call_id: None,
-                    tool_calls: None,
-                }
+            .map(|message| {
+                Self::convert_assistant_message(message)
+                    .or_else(|| Self::convert_tool_message(message))
+                    .unwrap_or_else(|| Self::convert_plain_message(message))
             })
             .collect()
+    }
+
+    fn convert_assistant_message(message: &ChatMessage) -> Option<NativeMessage> {
+        if message.role != "assistant" {
+            return None;
+        }
+
+        let value = serde_json::from_str::<serde_json::Value>(&message.content).ok()?;
+        let parsed_calls =
+            serde_json::from_value::<Vec<ProviderToolCall>>(value.get("tool_calls")?.clone())
+                .ok()?;
+
+        let tool_calls = parsed_calls
+            .into_iter()
+            .map(Self::to_native_tool_call)
+            .collect::<Vec<_>>();
+        let content = value
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+
+        Some(NativeMessage {
+            role: "assistant".to_string(),
+            content,
+            tool_call_id: None,
+            tool_calls: Some(tool_calls),
+        })
+    }
+
+    fn convert_tool_message(message: &ChatMessage) -> Option<NativeMessage> {
+        if message.role != "tool" {
+            return None;
+        }
+
+        let value = serde_json::from_str::<serde_json::Value>(&message.content).ok()?;
+        let tool_call_id = value
+            .get("tool_call_id")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+        let content = value
+            .get("content")
+            .and_then(serde_json::Value::as_str)
+            .map(ToString::to_string);
+
+        Some(NativeMessage {
+            role: "tool".to_string(),
+            content,
+            tool_call_id,
+            tool_calls: None,
+        })
+    }
+
+    fn convert_plain_message(message: &ChatMessage) -> NativeMessage {
+        NativeMessage {
+            role: message.role.clone(),
+            content: Some(message.content.clone()),
+            tool_call_id: None,
+            tool_calls: None,
+        }
+    }
+
+    fn to_native_tool_call(tool_call: ProviderToolCall) -> NativeToolCall {
+        NativeToolCall {
+            id: Some(tool_call.id),
+            kind: Some("function".to_string()),
+            function: NativeFunctionCall {
+                name: tool_call.name,
+                arguments: tool_call.arguments,
+            },
+        }
     }
 
     fn parse_native_response(message: NativeResponseMessage) -> ProviderChatResponse {
