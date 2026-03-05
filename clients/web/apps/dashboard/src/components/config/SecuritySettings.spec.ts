@@ -1,6 +1,6 @@
 import { mount } from "@vue/test-utils";
-import { createI18n } from "vue-i18n";
 import { describe, expect, it } from "vitest";
+import { createI18n } from "vue-i18n";
 
 import SecuritySettings from "@/components/config/SecuritySettings.vue";
 import { i18nConfig } from "@/i18n";

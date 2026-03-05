@@ -106,7 +106,8 @@ function mapFormToSnapshot(form: AdminConfigForm): AdminConfigSnapshot {
     autonomy_level: form.autonomy_level,
     autonomy_workspace_only: form.autonomy_workspace_only,
     autonomy_max_actions_per_hour: Number.parseInt(form.autonomy_max_actions_per_hour, 10) || 20,
-    autonomy_max_cost_per_day_cents: Number.parseInt(form.autonomy_max_cost_per_day_cents, 10) || 500,
+    autonomy_max_cost_per_day_cents:
+      Number.parseInt(form.autonomy_max_cost_per_day_cents, 10) || 500,
     identity_format: form.identity_format,
     identity_aieos_path: form.identity_aieos_path,
     scheduler_enabled: form.scheduler_enabled,
@@ -135,7 +136,14 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   const errorMessage = ref("");
   const form = reactive(defaultForm());
   const initialConfig = ref<AdminConfigSnapshot | null>(null);
-  const memoryBackendOptions = ref(["sqlite", "lucid", "surreal-graphs", "markdown", "surreal", "none"]);
+  const memoryBackendOptions = ref([
+    "sqlite",
+    "lucid",
+    "surreal-graphs",
+    "markdown",
+    "surreal",
+    "none",
+  ]);
   const observabilityBackendOptions = ref(["none", "log", "prometheus", "otel"]);
   const runtimeKindOptions = ref(["native", "docker"]);
   const autonomyLevelOptions = ref(["readonly", "supervised", "full"]);
@@ -151,7 +159,10 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   });
 
   const canSave = computed(
-    () => !loading.value && Object.values(sectionSaving).every((value) => !value) && !!bearerToken.value.trim(),
+    () =>
+      !loading.value &&
+      Object.values(sectionSaving).every((value) => !value) &&
+      !!bearerToken.value.trim()
   );
 
   function normalizeBaseUrl(): string {
@@ -224,10 +235,13 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       }
       const headers = safeForSecrets ? authHeaders() : { "Content-Type": "application/json" };
 
-      const optionsResponse = await fetch(new URL("/web/admin/options", gatewayBaseUrl).toString(), {
-        method: "GET",
-        headers,
-      });
+      const optionsResponse = await fetch(
+        new URL("/web/admin/options", gatewayBaseUrl).toString(),
+        {
+          method: "GET",
+          headers,
+        }
+      );
       if (!optionsResponse.ok) {
         throw new Error("options");
       }
@@ -235,7 +249,10 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       if (Array.isArray(options.memory_backends) && options.memory_backends.length > 0) {
         memoryBackendOptions.value = options.memory_backends;
       }
-      if (Array.isArray(options.observability_backends) && options.observability_backends.length > 0) {
+      if (
+        Array.isArray(options.observability_backends) &&
+        options.observability_backends.length > 0
+      ) {
         observabilityBackendOptions.value = options.observability_backends;
       }
       if (Array.isArray(options.runtime_kinds) && options.runtime_kinds.length > 0) {
@@ -284,7 +301,10 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
 
     let payload: Record<string, unknown>;
     try {
-      payload = buildPayloadForSection(section, form, initialConfig.value) as Record<string, unknown>;
+      payload = buildPayloadForSection(section, form, initialConfig.value) as Record<
+        string,
+        unknown
+      >;
     } catch (error) {
       if (error instanceof Error && error.message === "empty_webhook_secret") {
         errorMessage.value = t("auth.emptyWebhookSecret");

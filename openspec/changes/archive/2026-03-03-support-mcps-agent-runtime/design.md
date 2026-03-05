@@ -128,6 +128,7 @@ pub struct McpServerConfig {
 ```
 
 Validation rules (load-time, fail-safe):
+
 - `name`, `command` are required and must pass identifier/path safety checks.
 - `startup_timeout_ms`, `call_timeout_ms`, `output_limit_bytes` MUST be positive.
 - Reserved namespace fragments (`mcp`, invalid identifier chars) are rejected.
@@ -227,15 +228,15 @@ sequenceDiagram
 
 ## Failure Modes and Handling
 
-| Failure mode | Behavior | Safety guarantee |
-|---|---|---|
-| Invalid MCP config | Startup fails with structured validation error | No unsafe partial registration |
-| One server fails startup | Server isolated and skipped; runtime continues | Availability without bypass |
-| Discovery timeout | Abort server discovery at timeout budget | No indefinite startup block |
-| Name collision | Deterministic startup error naming colliding ID | No ambiguous dispatch |
-| Invocation timeout | Call aborted; structured timeout result | Loop stability preserved |
-| Output overflow | Truncate/fail per policy with explicit marker | Memory/cost bounded |
-| Transport/server error | Structured failure result returned | No panic/deadlock |
+| Failure mode             | Behavior                                        | Safety guarantee               |
+|--------------------------|-------------------------------------------------|--------------------------------|
+| Invalid MCP config       | Startup fails with structured validation error  | No unsafe partial registration |
+| One server fails startup | Server isolated and skipped; runtime continues  | Availability without bypass    |
+| Discovery timeout        | Abort server discovery at timeout budget        | No indefinite startup block    |
+| Name collision           | Deterministic startup error naming colliding ID | No ambiguous dispatch          |
+| Invocation timeout       | Call aborted; structured timeout result         | Loop stability preserved       |
+| Output overflow          | Truncate/fail per policy with explicit marker   | Memory/cost bounded            |
+| Transport/server error   | Structured failure result returned              | No panic/deadlock              |
 
 ## Observability
 
@@ -249,59 +250,60 @@ sequenceDiagram
 
 ## File Changes (clients/agent-runtime)
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/config/schema.rs` | Modify | Add `mcp` schema types to `Config`; add load-time validation and redaction-safe error paths. |
-| `clients/agent-runtime/src/config/mod.rs` | Modify | Re-export MCP config types. |
-| `clients/agent-runtime/src/tools/mod.rs` | Modify | Build and merge MCP tool adapters in `all_tools_with_runtime`; enforce collision checks. |
-| `clients/agent-runtime/src/tools/traits.rs` | Modify | Extend `ToolSpec` with source metadata required for policy/audit decisions. |
-| `clients/agent-runtime/src/tools/mcp/mod.rs` | Create | MCP module entrypoint and registry builder. |
-| `clients/agent-runtime/src/tools/mcp/client.rs` | Create | Stdio MCP client session (`initialize`, `tools/list`, `tools/call`) with timeout controls. |
-| `clients/agent-runtime/src/tools/mcp/adapter.rs` | Create | `Tool` trait adapter wrapping discovered MCP tools. |
-| `clients/agent-runtime/src/tools/mcp/normalize.rs` | Create | Canonical naming, reserved namespace validation, metadata sanitization. |
-| `clients/agent-runtime/src/agent/dispatcher.rs` | Modify | Source-aware MCP risk classification and approval-required defaults. |
-| `clients/agent-runtime/src/agent/agent.rs` | Modify | Preserve structured MCP denial/timeout behavior in tool loop execution. |
-| `clients/agent-runtime/src/security/policy.rs` | Modify | Add MCP-specific policy helpers and defaults (deny unless explicit allow/approval). |
-| `clients/agent-runtime/src/approval/mod.rs` | Modify | Integrate MCP unknown/high-risk handling into approval decision path. |
-| `clients/agent-runtime/src/channels/mod.rs` | Modify | Ensure channel tool loop applies same MCP risk/approval semantics. |
-| `clients/agent-runtime/src/gateway/mod.rs` | Modify | Ensure gateway MCP tool path (when tool-enabled) uses shared risk/approval checks; no bypass. |
-| `clients/agent-runtime/Cargo.toml` | Modify | Add minimal MCP transport/protocol dependencies required for stdio v1. |
-| `clients/agent-runtime/tests/*` | Modify/Create | Add focused config, registration, policy, approval parity, timeout/cap, and failure isolation coverage. |
+| File                                               | Action        | Description                                                                                             |
+|----------------------------------------------------|---------------|---------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/config/schema.rs`       | Modify        | Add `mcp` schema types to `Config`; add load-time validation and redaction-safe error paths.            |
+| `clients/agent-runtime/src/config/mod.rs`          | Modify        | Re-export MCP config types.                                                                             |
+| `clients/agent-runtime/src/tools/mod.rs`           | Modify        | Build and merge MCP tool adapters in `all_tools_with_runtime`; enforce collision checks.                |
+| `clients/agent-runtime/src/tools/traits.rs`        | Modify        | Extend `ToolSpec` with source metadata required for policy/audit decisions.                             |
+| `clients/agent-runtime/src/tools/mcp/mod.rs`       | Create        | MCP module entrypoint and registry builder.                                                             |
+| `clients/agent-runtime/src/tools/mcp/client.rs`    | Create        | Stdio MCP client session (`initialize`, `tools/list`, `tools/call`) with timeout controls.              |
+| `clients/agent-runtime/src/tools/mcp/adapter.rs`   | Create        | `Tool` trait adapter wrapping discovered MCP tools.                                                     |
+| `clients/agent-runtime/src/tools/mcp/normalize.rs` | Create        | Canonical naming, reserved namespace validation, metadata sanitization.                                 |
+| `clients/agent-runtime/src/agent/dispatcher.rs`    | Modify        | Source-aware MCP risk classification and approval-required defaults.                                    |
+| `clients/agent-runtime/src/agent/agent.rs`         | Modify        | Preserve structured MCP denial/timeout behavior in tool loop execution.                                 |
+| `clients/agent-runtime/src/security/policy.rs`     | Modify        | Add MCP-specific policy helpers and defaults (deny unless explicit allow/approval).                     |
+| `clients/agent-runtime/src/approval/mod.rs`        | Modify        | Integrate MCP unknown/high-risk handling into approval decision path.                                   |
+| `clients/agent-runtime/src/channels/mod.rs`        | Modify        | Ensure channel tool loop applies same MCP risk/approval semantics.                                      |
+| `clients/agent-runtime/src/gateway/mod.rs`         | Modify        | Ensure gateway MCP tool path (when tool-enabled) uses shared risk/approval checks; no bypass.           |
+| `clients/agent-runtime/Cargo.toml`                 | Modify        | Add minimal MCP transport/protocol dependencies required for stdio v1.                                  |
+| `clients/agent-runtime/tests/*`                    | Modify/Create | Add focused config, registration, policy, approval parity, timeout/cap, and failure isolation coverage. |
 
 ## Requirement Traceability
 
-| Spec requirement | Design coverage |
-|---|---|
-| MCP Server Configuration Validation | `Config` schema additions + load-time validation gates + redacted errors (`schema.rs`). |
-| Startup Discovery and Registration | Startup MCP registry builder with bounded server introspection and disabled-server skip. |
-| Namespaced Tool Identity and Collision Handling | Canonical `mcp.<server>.<tool>` normalizer + deterministic collision rejection in registry merge. |
-| MCP Policy and Approval Enforcement | Dispatcher fail-closed MCP classification + shared policy/approval checks across entry points. |
-| MCP Execution Limits and Timeouts | Per-server startup timeout, per-call timeout, output-limit enforcement in MCP adapter/client. |
-| MCP Failure Handling and Safety | Per-server isolation on startup failures, structured invocation errors, reject non-tool MCP capabilities. |
+| Spec requirement                                | Design coverage                                                                                           |
+|-------------------------------------------------|-----------------------------------------------------------------------------------------------------------|
+| MCP Server Configuration Validation             | `Config` schema additions + load-time validation gates + redacted errors (`schema.rs`).                   |
+| Startup Discovery and Registration              | Startup MCP registry builder with bounded server introspection and disabled-server skip.                  |
+| Namespaced Tool Identity and Collision Handling | Canonical `mcp.<server>.<tool>` normalizer + deterministic collision rejection in registry merge.         |
+| MCP Policy and Approval Enforcement             | Dispatcher fail-closed MCP classification + shared policy/approval checks across entry points.            |
+| MCP Execution Limits and Timeouts               | Per-server startup timeout, per-call timeout, output-limit enforcement in MCP adapter/client.             |
+| MCP Failure Handling and Safety                 | Per-server isolation on startup failures, structured invocation errors, reject non-tool MCP capabilities. |
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | MCP config validation | Table-driven tests for missing fields, invalid limits, reserved names, redaction in errors. |
-| Unit | Name normalization/collision logic | Deterministic canonicalization and rejection behavior for collisions and reserved IDs. |
-| Unit | MCP adapter limits | Timeout cancellation and output cap behavior using mocked stdio responses. |
-| Integration | Startup registry merge | Native + MCP merge, disabled server skip, one-server-fails isolation. |
-| Integration | Risk/approval parity | Equivalent MCP tool calls via agent loop, channel loop, and gateway path enforce same deny/approval outcome. |
-| Regression | Native tool invariants | Existing native tool behavior and safe tool classification unchanged with MCP enabled. |
+| Layer       | What to Test                       | Approach                                                                                                     |
+|-------------|------------------------------------|--------------------------------------------------------------------------------------------------------------|
+| Unit        | MCP config validation              | Table-driven tests for missing fields, invalid limits, reserved names, redaction in errors.                  |
+| Unit        | Name normalization/collision logic | Deterministic canonicalization and rejection behavior for collisions and reserved IDs.                       |
+| Unit        | MCP adapter limits                 | Timeout cancellation and output cap behavior using mocked stdio responses.                                   |
+| Integration | Startup registry merge             | Native + MCP merge, disabled server skip, one-server-fails isolation.                                        |
+| Integration | Risk/approval parity               | Equivalent MCP tool calls via agent loop, channel loop, and gateway path enforce same deny/approval outcome. |
+| Regression  | Native tool invariants             | Existing native tool behavior and safe tool classification unchanged with MCP enabled.                       |
 
 ## Rollout Plan
 
 1. Phase 1: Config + discovery scaffolding
-   - Add schema, validation, MCP client, startup discovery behind `mcp.enabled`.
+  - Add schema, validation, MCP client, startup discovery behind `mcp.enabled`.
 2. Phase 2: Identity + dispatch + policy
-   - Introduce namespaced registration and centralized risk/approval handling.
+  - Introduce namespaced registration and centralized risk/approval handling.
 3. Phase 3: Hardening
-   - Enforce timeouts/output caps, redaction diagnostics, and failure-isolation tests.
+  - Enforce timeouts/output caps, redaction diagnostics, and failure-isolation tests.
 4. Verification gates
-   - Targeted unit/integration tests for all scenarios in spec delta.
+  - Targeted unit/integration tests for all scenarios in spec delta.
 
 Rollback:
+
 - Set `mcp.enabled = false` (or remove `mcp.servers`) to revert to native-only tool registry.
 - Keep policy engine unchanged; MCP path is additive and can be disabled without affecting native
   tool behavior.
@@ -309,6 +311,6 @@ Rollback:
 ## Open Questions
 
 - [ ] Should v1 use only environment-variable secret references for MCP server env, or also allow
-      encrypted inline values in `config.toml`?
+  encrypted inline values in `config.toml`?
 - [ ] Should gateway switch fully to unified tool loop for tool-enabled webhook paths in this
-      change, or gate MCP in gateway until that migration lands?
+  change, or gate MCP in gateway until that migration lands?

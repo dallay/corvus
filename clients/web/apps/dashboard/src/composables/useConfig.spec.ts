@@ -16,7 +16,7 @@ describe("useConfig", () => {
         new Response(JSON.stringify({ memory_backends: ["sqlite", "none"] }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
-        }),
+        })
       )
       .mockResolvedValueOnce(
         new Response(
@@ -38,8 +38,8 @@ describe("useConfig", () => {
           {
             status: 200,
             headers: { "Content-Type": "application/json" },
-          },
-        ),
+          }
+        )
       );
 
     const config = useConfig((key) => key);
@@ -55,18 +55,24 @@ describe("useConfig", () => {
     fetchMock
       .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ config: { default_model: "a", channels: { webhook: {} } } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ config: { default_model: "a", channels: { webhook: {} } } }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
       )
       .mockResolvedValueOnce(new Response(JSON.stringify({ updated: true }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ config: { default_model: "b", channels: { webhook: {} } } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        }),
+        new Response(
+          JSON.stringify({ config: { default_model: "b", channels: { webhook: {} } } }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
       );
 
     const config = useConfig((key) => key);
@@ -92,7 +98,7 @@ describe("useConfig", () => {
         new Response(JSON.stringify({ config: { channels: { webhook: {} } } }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
-        }),
+        })
       );
 
     const config = useConfig((key) => key);

@@ -2,8 +2,8 @@
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
-import GeneralSettings from "@/components/config/GeneralSettings.vue";
 import GatewaySettings from "@/components/config/GatewaySettings.vue";
+import GeneralSettings from "@/components/config/GeneralSettings.vue";
 import ObservabilitySettings from "@/components/config/ObservabilitySettings.vue";
 import RuntimeSettings from "@/components/config/RuntimeSettings.vue";
 import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
@@ -32,7 +32,7 @@ const {
 } = config;
 
 const webhookSecretStatusLabel = computed(() =>
-  form.webhook_secret_exists ? t("webhook.statusConfigured") : t("webhook.statusNotConfigured"),
+  form.webhook_secret_exists ? t("webhook.statusConfigured") : t("webhook.statusNotConfigured")
 );
 </script>
 

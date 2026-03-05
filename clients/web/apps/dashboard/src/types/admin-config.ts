@@ -60,6 +60,23 @@ export interface AdminConfigView {
       has_secret?: boolean;
     };
   };
+  updates?: {
+    enabled?: boolean;
+    auto_install_enabled?: boolean;
+    channel_visibility_enabled?: boolean;
+    cli_startup_notice_enabled?: boolean;
+    install_method_override?: string | null;
+    restart_policy?: string;
+    status?: {
+      current_version?: string;
+      latest_version?: string | null;
+      update_available?: boolean;
+      last_check_at_unix?: number | null;
+      last_check_outcome?: string | null;
+      effective_install_method?: string;
+      install_method_source?: string;
+    };
+  };
 }
 
 export interface AdminConfigResponse {

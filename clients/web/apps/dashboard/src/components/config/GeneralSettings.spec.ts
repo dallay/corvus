@@ -1,9 +1,8 @@
 import { mount } from "@vue/test-utils";
-import { createI18n } from "vue-i18n";
 import { describe, expect, it } from "vitest";
-
-import { i18nConfig } from "@/i18n";
+import { createI18n } from "vue-i18n";
 import GeneralSettings from "@/components/config/GeneralSettings.vue";
+import { i18nConfig } from "@/i18n";
 import { createAdminConfigForm } from "@/test/adminConfigFormFactory";
 
 describe("GeneralSettings", () => {

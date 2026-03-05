@@ -225,6 +225,33 @@ enum Commands {
         #[command(subcommand)]
         peripheral_command: corvus::PeripheralCommands,
     },
+
+    /// Manage runtime updates
+    Update {
+        #[command(subcommand)]
+        update_command: UpdateCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum UpdateCommands {
+    /// Show update status and effective policy
+    Status,
+    /// Force an update check
+    Check,
+    /// Run update install transaction
+    Install,
+    /// Enable auto-install policy
+    AutoEnable,
+    /// Disable auto-install policy
+    AutoDisable,
+    /// Show update audit history
+    History,
+    /// Confirm a nonce issued by channel update flow
+    Confirm {
+        /// One-time update confirmation nonce
+        nonce: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -701,6 +728,115 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
 
         Commands::Peripheral { peripheral_command } => {
             peripherals::handle_command(peripheral_command.clone(), &config)
+        }
+
+        Commands::Update { update_command } => handle_update_command(config, update_command).await,
+    }
+}
+
+fn print_update_status(view: &update::UpdateStatusView) {
+    println!("current_version={}", view.current_version);
+    println!(
+        "latest_version={}",
+        view.latest_version.as_deref().unwrap_or("unknown")
+    );
+    println!("update_available={}", view.update_available);
+    println!("effective_install_method={}", view.effective_install_method);
+    println!("install_method_source={}", view.install_method_source);
+    println!(
+        "last_check_at_unix={}",
+        view.last_check_at_unix
+            .map_or_else(|| "unknown".to_string(), |value| value.to_string())
+    );
+    println!(
+        "last_check_outcome={}",
+        view.last_check_outcome.as_deref().unwrap_or("unknown")
+    );
+    println!(
+        "policy.auto_install_enabled={}",
+        view.policy.auto_install_enabled
+    );
+    println!(
+        "policy.channel_visibility_enabled={}",
+        view.policy.channel_visibility_enabled
+    );
+    println!(
+        "policy.cli_startup_notice_enabled={}",
+        view.policy.cli_startup_notice_enabled
+    );
+    println!("policy.restart_policy={}", view.policy.restart_policy);
+}
+
+async fn handle_update_command(mut config: Config, command: UpdateCommands) -> Result<()> {
+    match command {
+        UpdateCommands::Status => {
+            let view = update::get_update_status(&config, env!("CARGO_PKG_VERSION"))?;
+            print_update_status(&view);
+            Ok(())
+        }
+        UpdateCommands::Check => {
+            let view = update::run_update_check(&config, env!("CARGO_PKG_VERSION")).await?;
+            print_update_status(&view);
+            if view.last_check_outcome.as_deref() == Some("success") {
+                Ok(())
+            } else {
+                anyhow::bail!("update check failed")
+            }
+        }
+        UpdateCommands::Install => {
+            let (outcome, message) =
+                update::run_update_install(&config, env!("CARGO_PKG_VERSION"))?;
+            println!("{message}");
+            match outcome {
+                update::InstallCommandOutcome::Success => Ok(()),
+                update::InstallCommandOutcome::NoUpdate => anyhow::bail!("no update available"),
+                update::InstallCommandOutcome::Blocked => anyhow::bail!("install blocked"),
+                update::InstallCommandOutcome::Busy => anyhow::bail!("install busy"),
+                update::InstallCommandOutcome::Failed => anyhow::bail!("install failed"),
+            }
+        }
+        UpdateCommands::AutoEnable => {
+            update::set_auto_update_policy(&mut config, true)?;
+            println!("auto_install_enabled=true");
+            let view = update::get_update_status(&config, env!("CARGO_PKG_VERSION"))?;
+            println!(
+                "policy.auto_install_enabled={}",
+                view.policy.auto_install_enabled
+            );
+            Ok(())
+        }
+        UpdateCommands::AutoDisable => {
+            update::set_auto_update_policy(&mut config, false)?;
+            println!("auto_install_enabled=false");
+            let view = update::get_update_status(&config, env!("CARGO_PKG_VERSION"))?;
+            println!(
+                "policy.auto_install_enabled={}",
+                view.policy.auto_install_enabled
+            );
+            Ok(())
+        }
+        UpdateCommands::History => {
+            let events = update::read_update_history(&config)?;
+            for event in events {
+                println!(
+                    "{} {} {} {}",
+                    event.timestamp_unix, event.action, event.outcome, event.effective_method
+                );
+            }
+            Ok(())
+        }
+        UpdateCommands::Confirm { nonce } => {
+            let (outcome, message) = update::run_update_confirm(&config, &nonce).await?;
+            println!("{message}");
+            match outcome {
+                update::ConfirmCommandOutcome::Success => Ok(()),
+                update::ConfirmCommandOutcome::InvalidNonce => {
+                    anyhow::bail!("invalid confirmation nonce")
+                }
+                update::ConfirmCommandOutcome::Failed => {
+                    anyhow::bail!("confirmation install failed")
+                }
+            }
         }
     }
 }
@@ -1425,6 +1561,7 @@ fn handle_status(auth_service: &auth::AuthService) -> Result<()> {
 mod tests {
     use super::*;
     use clap::CommandFactory;
+    use clap::Parser;
 
     #[test]
     fn cli_definition_has_no_flag_conflicts() {
@@ -1580,5 +1717,67 @@ mod tests {
                 crate::agent::unified_loop::LoopEvent::Complete(message) if message == "done"
             )
         }));
+    }
+
+    #[test]
+    fn update_command_contract_parses_status_check_install() {
+        let status = Cli::try_parse_from(["corvus", "update", "status"]).unwrap();
+        assert!(matches!(
+            status.command,
+            Commands::Update {
+                update_command: UpdateCommands::Status
+            }
+        ));
+
+        let check = Cli::try_parse_from(["corvus", "update", "check"]).unwrap();
+        assert!(matches!(
+            check.command,
+            Commands::Update {
+                update_command: UpdateCommands::Check
+            }
+        ));
+
+        let install = Cli::try_parse_from(["corvus", "update", "install"]).unwrap();
+        assert!(matches!(
+            install.command,
+            Commands::Update {
+                update_command: UpdateCommands::Install
+            }
+        ));
+    }
+
+    #[test]
+    fn update_command_contract_parses_policy_toggles_and_history() {
+        let auto_enable = Cli::try_parse_from(["corvus", "update", "auto-enable"]).unwrap();
+        assert!(matches!(
+            auto_enable.command,
+            Commands::Update {
+                update_command: UpdateCommands::AutoEnable
+            }
+        ));
+
+        let auto_disable = Cli::try_parse_from(["corvus", "update", "auto-disable"]).unwrap();
+        assert!(matches!(
+            auto_disable.command,
+            Commands::Update {
+                update_command: UpdateCommands::AutoDisable
+            }
+        ));
+
+        let history = Cli::try_parse_from(["corvus", "update", "history"]).unwrap();
+        assert!(matches!(
+            history.command,
+            Commands::Update {
+                update_command: UpdateCommands::History
+            }
+        ));
+
+        let confirm = Cli::try_parse_from(["corvus", "update", "confirm", "abc123"]).unwrap();
+        assert!(matches!(
+            confirm.command,
+            Commands::Update {
+                update_command: UpdateCommands::Confirm { .. }
+            }
+        ));
     }
 }
