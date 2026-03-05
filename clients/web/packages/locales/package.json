@@ -6,5 +6,11 @@
   "main": "src/index.ts",
   "exports": {
     ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run src/parity.spec.ts"
+  },
+  "devDependencies": {
+    "vitest": "catalog:"
   }
 }
