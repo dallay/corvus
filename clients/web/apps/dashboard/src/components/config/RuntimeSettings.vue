@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import Button from "@/components/ui/button/Button.vue";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -13,7 +14,7 @@ const emit = defineEmits<{
   save: [];
 }>();
 
-function _updateRuntimeKind(kind: string): void {
+function updateRuntimeKind(kind: string): void {
   emit("update:modelValue", {
     ...props.modelValue,
     runtime_kind: kind,

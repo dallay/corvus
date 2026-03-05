@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import Button from "@/components/ui/button/Button.vue";
+import Input from "@/components/ui/input/Input.vue";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -12,7 +14,7 @@ const emit = defineEmits<{
   save: [];
 }>();
 
-function _updateField<Key extends keyof AdminConfigForm>(
+function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]
 ): void {

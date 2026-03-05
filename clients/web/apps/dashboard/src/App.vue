@@ -1,6 +1,16 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
+
+import GatewaySettings from "@/components/config/GatewaySettings.vue";
+import GeneralSettings from "@/components/config/GeneralSettings.vue";
+import ObservabilitySettings from "@/components/config/ObservabilitySettings.vue";
+import RuntimeSettings from "@/components/config/RuntimeSettings.vue";
+import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
+import SecuritySettings from "@/components/config/SecuritySettings.vue";
+import WebhookSettings from "@/components/config/WebhookSettings.vue";
+import Button from "@/components/ui/button/Button.vue";
+import Input from "@/components/ui/input/Input.vue";
 import { useConfig } from "@/composables/useConfig";
 
 const { t } = useI18n();
@@ -21,7 +31,7 @@ const {
   saveSection,
 } = config;
 
-const _webhookSecretStatusLabel = computed(() =>
+const webhookSecretStatusLabel = computed(() =>
   form.webhook_secret_exists ? t("webhook.statusConfigured") : t("webhook.statusNotConfigured")
 );
 </script>

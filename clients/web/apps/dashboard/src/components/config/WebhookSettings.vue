@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
+
+import Button from "@/components/ui/button/Button.vue";
+import Input from "@/components/ui/input/Input.vue";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -23,7 +26,7 @@ const localError = computed(() => {
   return "";
 });
 
-function _updateField<Key extends keyof AdminConfigForm>(
+function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]
 ): void {
@@ -33,7 +36,7 @@ function _updateField<Key extends keyof AdminConfigForm>(
   });
 }
 
-function _handleSave(): void {
+function handleSave(): void {
   if (localError.value) {
     return;
   }
