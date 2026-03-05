@@ -1,15 +1,12 @@
 <script setup lang="ts">
-import type { InputTypeHTMLAttribute } from "vue";
-
 defineOptions({ inheritAttrs: false });
 
 defineProps<{
   modelValue?: string;
   placeholder?: string;
-  type?: InputTypeHTMLAttribute;
+  type?: string;
 }>();
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const emit = defineEmits<{
   "update:modelValue": [value: string];
 }>();
@@ -18,7 +15,7 @@ const emit = defineEmits<{
 <template>
   <input
     v-bind="$attrs"
-    :class="['form-input']"
+    :class="['form-input', ($attrs.class as string)]"
     :type="type ?? 'text'"
     :value="modelValue"
     :placeholder="placeholder"
@@ -31,22 +28,35 @@ const emit = defineEmits<{
   display: flex;
   height: 42px;
   width: 100%;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid var(--color-border);
   background: var(--color-bg-input);
-  padding: 0 12px;
+  padding: 0 14px;
   font-size: 14px;
   font-family: inherit;
   color: var(--color-text-primary);
+  transition: all 0.2s;
   outline: none;
-}
-
-.form-input:focus {
-  border-color: var(--color-border-accent);
-  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
 }
 
 .form-input::placeholder {
   color: var(--color-text-muted);
+}
+
+.form-input:focus {
+  border-color: var(--color-border-accent);
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); /* Tailwind emerald fallback, gets overridden when css var exists */
+  background: var(--color-bg-secondary);
+}
+
+@supports (box-shadow: 0 0 0 3px var(--color-accent-glow)) {
+  .form-input:focus {
+    box-shadow: 0 0 0 3px var(--color-accent-glow);
+  }
+}
+
+.form-input:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>

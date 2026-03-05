@@ -143,3 +143,44 @@ pub fn resolve_port(config: &crate::config::Config, path_override: Option<&str>)
         .find(|b| b.board == "arduino-uno" && b.transport == "serial")
         .and_then(|b| b.path.clone())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::schema::PeripheralBoardConfig;
+
+    #[test]
+    fn resolve_port_prefers_override() {
+        let cfg = crate::config::Config::default();
+        let port = resolve_port(&cfg, Some("/dev/tty.override"));
+        assert_eq!(port.as_deref(), Some("/dev/tty.override"));
+    }
+
+    #[test]
+    fn resolve_port_reads_arduino_serial_path_from_config() {
+        let mut cfg = crate::config::Config::default();
+        cfg.peripherals.boards.push(PeripheralBoardConfig {
+            board: "arduino-uno".to_string(),
+            transport: "serial".to_string(),
+            path: Some("/dev/tty.usbmodem1".to_string()),
+            baud: 115_200,
+        });
+
+        let port = resolve_port(&cfg, None);
+        assert_eq!(port.as_deref(), Some("/dev/tty.usbmodem1"));
+    }
+
+    #[test]
+    fn resolve_port_ignores_non_serial_arduino_boards() {
+        let mut cfg = crate::config::Config::default();
+        cfg.peripherals.boards.push(PeripheralBoardConfig {
+            board: "arduino-uno".to_string(),
+            transport: "websocket".to_string(),
+            path: Some("ws://localhost:9000".to_string()),
+            baud: 115_200,
+        });
+
+        let port = resolve_port(&cfg, None);
+        assert_eq!(port, None);
+    }
+}

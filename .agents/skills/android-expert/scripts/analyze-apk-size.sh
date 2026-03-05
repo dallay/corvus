@@ -22,8 +22,8 @@ APK_PATH="${1:-$DEFAULT_APK}"
 
 # Check if APK exists
 if [[ ! -f "$APK_PATH" ]]; then
-    echo -e "${RED}Error: APK not found at $APK_PATH${NC}"
-    echo "Build the APK first: ./gradlew :amethyst:assembleRelease"
+    echo -e "${RED}Error: APK not found at $APK_PATH${NC}" >&2
+    echo "Build the APK first: ./gradlew :amethyst:assembleRelease" >&2
     exit 1
 fi
 

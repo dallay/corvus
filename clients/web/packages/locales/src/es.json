@@ -1,11 +1,16 @@
 {
   "app": {
+    "simpleChat": "Chat simple de IA",
+    "gatewayConfig": "Configuración del gateway",
+    "config": "Configuración",
+    "backToChat": "Volver al chat",
     "title": "Corvus Dashboard",
     "subtitle": "Configuración segura del gateway"
   },
   "sections": {
     "auth": "Autenticación",
     "core": "Configuración base",
+    "observability": "Observabilidad",
     "runtime": "Runtime",
     "autonomy": "Autonomía",
     "scheduler": "Scheduler",
@@ -18,18 +23,30 @@
     "bearerToken": "Token bearer",
     "connect": "Conectar",
     "pair": "Emparejar",
-    "pairSuccess": "Pairing exitoso. Token cargado.",
+    "pairSuccess": "Emparejamiento exitoso. Token cargado.",
     "connected": "Conectado correctamente.",
     "loadError": "No se pudo cargar la configuración admin.",
     "networkError": "No se pudo conectar con el gateway. Verifica red, URL y que el servicio esté activo.",
     "emptyWebhookSecret": "El webhook secret no puede estar vacío. Usa 'Limpiar' si deseas removerlo.",
-    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
     "unauthorized": "No autorizado. Haz pairing y vuelve a intentar."
   },
   "form": {
+    "baseUrl": "Base URL",
+    "baseUrlPlaceholder": "http://127.0.0.1:3000",
+    "pairingCode": "Código de emparejamiento",
+    "pairingCodePlaceholder": "Código de emparejamiento",
+    "bearerToken": "Token bearer",
+    "bearerTokenPlaceholder": "Token bearer",
+    "webhookSecret": "Secreto del webhook",
+    "webhookSecretPlaceholder": "Secreto del webhook",
     "save": "Guardar cambios",
-    "saveSuccess": "Configuración guardada.",
+    "saveSuccess": "Configuración guardada correctamente.",
     "saveError": "No se pudo guardar la configuración.",
+    "pairingInvalidError": "Código de emparejamiento inválido.",
+    "pairingRateLimitError": "Demasiados intentos de emparejamiento. Inténtalo más tarde.",
+    "pairingMissingTokenError": "No se recibió token de emparejamiento.",
+    "timeoutError": "Tiempo de espera agotado",
+    "configSubtitle": "Conecta con tu gateway de Corvus",
     "noChanges": "No hay cambios para guardar.",
     "connectBeforeSave": "Conéctate primero al gateway para cargar la configuración actual.",
     "restartRequired": "Estos cambios requieren reiniciar el gateway para aplicar: {fields}",
@@ -59,7 +76,35 @@
     "secretReplace": "Reemplazar",
     "secretClear": "Limpiar"
   },
+  "general": {
+    "apiUrl": "API URL"
+  },
+  "gateway": {
+    "pair_rate_limit_per_min": "Límite de emparejamiento/min",
+    "webhook_rate_limit_per_min": "Límite de webhook/min"
+  },
+  "security": {
+    "identity_format": "Formato de identidad",
+    "identity_aieos_path": "Ruta AIEOS de identidad"
+  },
+  "errors": {
+    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local."
+  },
+  "chat": {
+    "welcome": "Hola, soy {modelName}. ¿En qué puedo ayudarte?",
+    "processing": "Procesando \"{text}\" con {modelName}. Gateway: {gateway}",
+    "requestError": "No se pudo obtener respuesta para \"{text}\". Verifica el gateway e inténtalo de nuevo.",
+    "unauthorizedError": "No autorizado. Realiza el emparejamiento con /pair y usa el token bearer.",
+    "rateLimitError": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
+    "timeoutError": "El gateway tardó demasiado en responder.",
+    "emptyResponse": "El gateway no devolvió contenido.",
+    "inputPlaceholder": "Escribe un mensaje...",
+    "send": "Enviar",
+    "newChat": "Nuevo chat",
+    "disclaimer": "Corvus Agent puede cometer errores. Verifica la información importante."
+  },
   "webhook": {
+    "enabled": "Habilitado",
     "secretStatus": "Secret actual: {status}",
     "statusConfigured": "configurado",
     "statusNotConfigured": "no configurado"

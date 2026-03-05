@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import Button from "@/components/ui/button/Button.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import { Button } from "@corvus/ui";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -14,6 +15,7 @@ const emit = defineEmits<{
   save: [];
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateRuntimeKind(kind: string): void {
   emit("update:modelValue", {
     ...props.modelValue,

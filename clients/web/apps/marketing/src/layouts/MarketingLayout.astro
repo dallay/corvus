@@ -6,14 +6,45 @@ import Analytics from "../components/Analytics.astro";
 interface Props {
   title?: string;
   description?: string;
+  image?: string;
 }
 
 const {
   title = "Corvus | Autonomous AI Infrastructure",
   description = "Corvus is a lightweight autonomous AI runtime designed for secure operations, tiny footprint, and fast deployment.",
+  image = "/og-image.png",
 } = Astro.props;
 
-const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).toString() : undefined;
+function isHttpUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "http:" || parsed.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function safeAbsoluteUrl(candidate: string): string | undefined {
+  if (!Astro.site) {
+    return undefined;
+  }
+
+  try {
+    return new URL(candidate, Astro.site).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+const canonical = safeAbsoluteUrl(Astro.url.pathname);
+
+const imageCandidate = typeof image === "string" ? image.trim() : "";
+const isSiteRelativePath = imageCandidate.startsWith("/") && !imageCandidate.startsWith("//");
+const ogImageInput =
+  imageCandidate.length > 0 && (isSiteRelativePath || isHttpUrl(imageCandidate))
+    ? imageCandidate
+    : "/og-image.png";
+const ogImage = safeAbsoluteUrl(ogImageInput) ?? safeAbsoluteUrl("/og-image.png");
 ---
 
 <!doctype html>
@@ -27,7 +58,11 @@ const canonical = Astro.site ? new URL(Astro.url.pathname, Astro.site).toString(
     <meta property="og:title" content={title} />
     <meta property="og:description" content={description} />
     {canonical && <meta property="og:url" content={canonical} />}
+    {ogImage && <meta property="og:image" content={ogImage} />}
     <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    {ogImage && <meta name="twitter:image" content={ogImage} />}
     <meta name="theme-color" content="#0a0f1e" />
     {canonical && <link rel="canonical" href={canonical} />}
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

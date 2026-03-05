@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Button from "@/components/ui/button/Button.vue";
-import Input from "@/components/ui/input/Input.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import { Button, Input } from "@corvus/ui";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -14,6 +14,7 @@ const emit = defineEmits<{
   save: [];
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]

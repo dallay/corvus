@@ -1,8 +1,7 @@
 <script setup lang="ts">
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import { Button, Input } from "@corvus/ui";
 import { computed } from "vue";
-
-import Button from "@/components/ui/button/Button.vue";
-import Input from "@/components/ui/input/Input.vue";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -26,6 +25,7 @@ const localError = computed(() => {
   return "";
 });
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]
@@ -36,6 +36,7 @@ function updateField<Key extends keyof AdminConfigForm>(
   });
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleSave(): void {
   if (localError.value) {
     return;
@@ -54,7 +55,7 @@ function handleSave(): void {
           type="checkbox"
           @change="updateField('webhook_enabled', ($event.target as HTMLInputElement).checked)"
         />
-        <span>Enabled</span>
+        <span>{{ $t("webhook.enabled") }}</span>
       </label>
       <label>
         <span>{{ $t("form.webhookPort") }}</span>

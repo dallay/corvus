@@ -17,4 +17,14 @@ export default defineConfig({
       reporter: ["text", "json", "html", "lcov"],
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ["vue", "vue-i18n"],
+          ui: ["@corvus/ui", "@corvus/locales"],
+        },
+      },
+    },
+  },
 });

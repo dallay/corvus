@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Button from "@/components/ui/button/Button.vue";
-import Input from "@/components/ui/input/Input.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import { Button, Input } from "@corvus/ui";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -14,6 +14,7 @@ const emit = defineEmits<{
   save: [];
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]
@@ -44,7 +45,7 @@ function updateField<Key extends keyof AdminConfigForm>(
         <Input :model-value="modelValue.gateway_host" @update:model-value="updateField('gateway_host', $event)" />
       </label>
       <label>
-        <span>Pair rate limit/min</span>
+        <span>{{ $t("gateway.pair_rate_limit_per_min") }}</span>
         <Input
           :model-value="modelValue.gateway_pair_rate_limit_per_minute"
           type="number"
@@ -53,7 +54,7 @@ function updateField<Key extends keyof AdminConfigForm>(
         />
       </label>
       <label>
-        <span>Webhook rate limit/min</span>
+        <span>{{ $t("gateway.webhook_rate_limit_per_min") }}</span>
         <Input
           :model-value="modelValue.gateway_webhook_rate_limit_per_minute"
           type="number"

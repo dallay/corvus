@@ -1,7 +1,7 @@
 use async_trait::async_trait;
 use corvus::agent::agent::Agent;
 use corvus::agent::dispatcher::NativeToolDispatcher;
-use corvus::memory::{Memory, MemoryCategory, MemoryEntry};
+use corvus::memory::Memory;
 use corvus::observability::{NoopObserver, Observer};
 use corvus::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
 use corvus::tools::{Tool, ToolResult};
@@ -75,58 +75,6 @@ impl Tool for IntegrationTool {
     }
 }
 
-struct IntegrationMemory;
-
-#[async_trait]
-impl Memory for IntegrationMemory {
-    fn name(&self) -> &str {
-        "integration-memory"
-    }
-
-    async fn store(
-        &self,
-        _key: &str,
-        _content: &str,
-        _category: MemoryCategory,
-        _session_id: Option<&str>,
-    ) -> anyhow::Result<()> {
-        Ok(())
-    }
-
-    async fn recall(
-        &self,
-        _query: &str,
-        _limit: usize,
-        _session_id: Option<&str>,
-    ) -> anyhow::Result<Vec<MemoryEntry>> {
-        Ok(Vec::new())
-    }
-
-    async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
-        Ok(None)
-    }
-
-    async fn list(
-        &self,
-        _category: Option<&MemoryCategory>,
-        _session_id: Option<&str>,
-    ) -> anyhow::Result<Vec<MemoryEntry>> {
-        Ok(Vec::new())
-    }
-
-    async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
-        Ok(false)
-    }
-
-    async fn count(&self) -> anyhow::Result<usize> {
-        Ok(0)
-    }
-
-    async fn health_check(&self) -> bool {
-        true
-    }
-}
-
 #[tokio::test]
 async fn full_prompt_tool_response_cycle_with_dummy_provider() {
     let workspace = tempfile::TempDir::new().expect("tempdir");
@@ -154,7 +102,7 @@ async fn full_prompt_tool_response_cycle_with_dummy_provider() {
     };
 
     let observer: Arc<dyn Observer> = Arc::new(NoopObserver);
-    let memory: Arc<dyn Memory> = Arc::new(IntegrationMemory);
+    let memory: Arc<dyn Memory> = Arc::new(corvus::memory::NoneMemory::new());
 
     let mut agent = Agent::builder()
         .provider(provider)

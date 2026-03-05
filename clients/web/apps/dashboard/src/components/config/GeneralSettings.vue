@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Button from "@/components/ui/button/Button.vue";
-import Input from "@/components/ui/input/Input.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import { Button, Input } from "@corvus/ui";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -15,6 +15,7 @@ const emit = defineEmits<{
   save: [];
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]
@@ -39,7 +40,7 @@ function updateField<Key extends keyof AdminConfigForm>(
         <Input :model-value="modelValue.default_model" @update:model-value="updateField('default_model', $event)" />
       </label>
       <label>
-        <span>API URL</span>
+        <span>{{ $t("general.apiUrl") }}</span>
         <Input :model-value="modelValue.api_url" @update:model-value="updateField('api_url', $event)" />
       </label>
       <label>

@@ -22,7 +22,7 @@ if [ -n "$STAGED_SOURCE_FILES" ]; then
     if [ -n "$DIFF_CONTENT" ]; then
       for KEY in $KEYWORDS; do
         if echo "$DIFF_CONTENT" | grep -i -w "$KEY" >/dev/null 2>&1; then
-          echo "❌ ERROR: detected forbidden keyword in added lines: '$KEY' (file: $FILE)"
+          echo "❌ ERROR: detected forbidden keyword in added lines: '$KEY' (file: $FILE)" >&2
           HAS_FORBIDDEN=1
         fi
       done
@@ -36,14 +36,14 @@ if [ "$HAS_FORBIDDEN" -ne 0 ]; then
 fi
 
 if ! command -v lychee >/dev/null 2>&1; then
-  echo "❌ ERROR: 'lychee' is required for link validation but was not found."
-  echo "Install: https://github.com/lycheeverse/lychee"
+  echo "❌ ERROR: 'lychee' is required for link validation but was not found." >&2
+  echo "Install: https://github.com/lycheeverse/lychee" >&2
   exit 1
 fi
 
 echo "🔗 Running lychee link check..."
 if ! lychee --no-progress --max-retries 2 --retry-wait-time 2 --exclude-all-private .; then
-  echo "🚫 Commit blocked: broken links detected by lychee."
+  echo "🚫 Commit blocked: broken links detected by lychee." >&2
   exit 1
 fi
 

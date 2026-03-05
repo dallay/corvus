@@ -8,4 +8,14 @@ export default defineConfig({
             "@": fileURLToPath(new URL("./src", import.meta.url)),
         },
     },
+    build: {
+        rollupOptions: {
+            output: {
+                manualChunks: {
+                    vendor: ["vue", "vue-i18n"],
+                    ui: ["@corvus/ui", "@corvus/locales"],
+                },
+            },
+        },
+    },
 });

@@ -20,6 +20,40 @@ use corvus::tools::{Tool, ToolResult};
 use serde_json::json;
 use std::sync::{Arc, Mutex};
 
+fn schema_with_message_property() -> serde_json::Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "message": {"type": "string"}
+        }
+    })
+}
+
+fn empty_object_schema() -> serde_json::Value {
+    json!({"type": "object"})
+}
+
+fn success_result(output: String) -> ToolResult {
+    ToolResult {
+        success: true,
+        output,
+        error: None,
+    }
+}
+
+fn message_arg_or_default(args: &serde_json::Value) -> String {
+    args.get("message")
+        .and_then(|value| value.as_str())
+        .unwrap_or("(empty)")
+        .to_string()
+}
+
+fn increment_count(counter: &Arc<Mutex<usize>>) -> usize {
+    let mut guard = counter.lock().unwrap();
+    *guard += 1;
+    *guard
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Mock infrastructure
 // ─────────────────────────────────────────────────────────────────────────────
@@ -78,24 +112,10 @@ impl Tool for EchoTool {
         "Echoes the input message"
     }
     fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "message": {"type": "string"}
-            }
-        })
+        schema_with_message_property()
     }
     async fn execute(&self, args: serde_json::Value) -> Result<ToolResult> {
-        let msg = args
-            .get("message")
-            .and_then(|v| v.as_str())
-            .unwrap_or("(empty)")
-            .to_string();
-        Ok(ToolResult {
-            success: true,
-            output: msg,
-            error: None,
-        })
+        Ok(success_result(message_arg_or_default(&args)))
     }
 }
 
@@ -125,16 +145,11 @@ impl Tool for CountingTool {
         "Counts invocations"
     }
     fn parameters_schema(&self) -> serde_json::Value {
-        json!({"type": "object"})
+        empty_object_schema()
     }
     async fn execute(&self, _args: serde_json::Value) -> Result<ToolResult> {
-        let mut c = self.count.lock().unwrap();
-        *c += 1;
-        Ok(ToolResult {
-            success: true,
-            output: format!("call #{}", *c),
-            error: None,
-        })
+        let count = increment_count(&self.count);
+        Ok(success_result(format!("call #{}", count)))
     }
 }
 

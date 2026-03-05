@@ -670,55 +670,73 @@ fn collect_scheduler_gateway_restart_fields(
     patch: &AdminConfigUpdateRequest,
     fields: &mut Vec<&'static str>,
 ) {
-    if let Some(scheduler) = patch.scheduler.as_ref() {
-        if let Some(enabled) = scheduler.enabled {
-            if enabled != cfg.scheduler.enabled {
-                fields.push("scheduler.enabled");
-            }
-        }
-        if let Some(max_tasks) = scheduler.max_tasks {
-            if max_tasks != cfg.scheduler.max_tasks {
-                fields.push("scheduler.max_tasks");
-            }
-        }
-        if let Some(max_concurrent) = scheduler.max_concurrent {
-            if max_concurrent != cfg.scheduler.max_concurrent {
-                fields.push("scheduler.max_concurrent");
-            }
-        }
-    }
+    collect_scheduler_restart_fields(cfg, patch, fields);
+    collect_gateway_restart_fields(cfg, patch, fields);
+}
 
+fn collect_scheduler_restart_fields(
+    cfg: &Config,
+    patch: &AdminConfigUpdateRequest,
+    fields: &mut Vec<&'static str>,
+) {
+    if let Some(scheduler) = patch.scheduler.as_ref() {
+        push_if_some(fields, "scheduler.enabled", scheduler.enabled, |enabled| {
+            enabled != cfg.scheduler.enabled
+        });
+        push_if_some(
+            fields,
+            "scheduler.max_tasks",
+            scheduler.max_tasks,
+            |max_tasks| max_tasks != cfg.scheduler.max_tasks,
+        );
+        push_if_some(
+            fields,
+            "scheduler.max_concurrent",
+            scheduler.max_concurrent,
+            |max_concurrent| max_concurrent != cfg.scheduler.max_concurrent,
+        );
+    }
+}
+
+fn collect_gateway_restart_fields(
+    cfg: &Config,
+    patch: &AdminConfigUpdateRequest,
+    fields: &mut Vec<&'static str>,
+) {
     if let Some(gateway) = patch.gateway.as_ref() {
-        if let Some(port) = gateway.port {
-            if port != cfg.gateway.port {
-                fields.push("gateway.port");
-            }
-        }
-        if let Some(host) = gateway.host.as_ref() {
-            if host.trim() != cfg.gateway.host {
-                fields.push("gateway.host");
-            }
-        }
-        if let Some(require_pairing) = gateway.require_pairing {
-            if require_pairing != cfg.gateway.require_pairing {
-                fields.push("gateway.require_pairing");
-            }
-        }
-        if let Some(allow_public_bind) = gateway.allow_public_bind {
-            if allow_public_bind != cfg.gateway.allow_public_bind {
-                fields.push("gateway.allow_public_bind");
-            }
-        }
-        if let Some(limit) = gateway.pair_rate_limit_per_minute {
-            if limit != cfg.gateway.pair_rate_limit_per_minute {
-                fields.push("gateway.pair_rate_limit_per_minute");
-            }
-        }
-        if let Some(limit) = gateway.webhook_rate_limit_per_minute {
-            if limit != cfg.gateway.webhook_rate_limit_per_minute {
-                fields.push("gateway.webhook_rate_limit_per_minute");
-            }
-        }
+        push_if_some(fields, "gateway.port", gateway.port, |port| {
+            port != cfg.gateway.port
+        });
+        push_if_some(
+            fields,
+            "gateway.host",
+            gateway.host.as_deref().map(str::trim),
+            |host| host != cfg.gateway.host,
+        );
+        push_if_some(
+            fields,
+            "gateway.require_pairing",
+            gateway.require_pairing,
+            |require_pairing| require_pairing != cfg.gateway.require_pairing,
+        );
+        push_if_some(
+            fields,
+            "gateway.allow_public_bind",
+            gateway.allow_public_bind,
+            |allow_public_bind| allow_public_bind != cfg.gateway.allow_public_bind,
+        );
+        push_if_some(
+            fields,
+            "gateway.pair_rate_limit_per_minute",
+            gateway.pair_rate_limit_per_minute,
+            |limit| limit != cfg.gateway.pair_rate_limit_per_minute,
+        );
+        push_if_some(
+            fields,
+            "gateway.webhook_rate_limit_per_minute",
+            gateway.webhook_rate_limit_per_minute,
+            |limit| limit != cfg.gateway.webhook_rate_limit_per_minute,
+        );
     }
 }
 
@@ -767,57 +785,91 @@ fn collect_secret_restart_fields(
     patch: &AdminConfigUpdateRequest,
     fields: &mut Vec<&'static str>,
 ) {
-    if let Some(provider) = patch.provider.as_ref() {
-        if let Some(api_key) = provider.api_key.as_ref() {
-            if secret_update_changes(cfg.api_key.as_deref(), api_key) {
-                fields.push("provider.api_key");
-            }
-        }
-    }
+    push_secret_if_changed(
+        fields,
+        "provider.api_key",
+        cfg.api_key.as_deref(),
+        patch
+            .provider
+            .as_ref()
+            .and_then(|provider| provider.api_key.as_ref()),
+    );
+    push_secret_if_changed(
+        fields,
+        "composio.api_key",
+        cfg.composio.api_key.as_deref(),
+        patch
+            .composio
+            .as_ref()
+            .and_then(|composio| composio.api_key.as_ref()),
+    );
+    push_secret_if_changed(
+        fields,
+        "web_search.brave_api_key",
+        cfg.web_search.brave_api_key.as_deref(),
+        patch
+            .web_search
+            .as_ref()
+            .and_then(|web_search| web_search.brave_api_key.as_ref()),
+    );
+    push_secret_if_changed(
+        fields,
+        "browser.computer_use.api_key",
+        cfg.browser.computer_use.api_key.as_deref(),
+        patch
+            .browser
+            .as_ref()
+            .and_then(|browser| browser.computer_use_api_key.as_ref()),
+    );
 
-    if let Some(composio) = patch.composio.as_ref() {
-        if let Some(api_key) = composio.api_key.as_ref() {
-            if secret_update_changes(cfg.composio.api_key.as_deref(), api_key) {
-                fields.push("composio.api_key");
-            }
-        }
-    }
+    let surreal_patch = patch
+        .memory
+        .as_ref()
+        .and_then(|memory| memory.surreal.as_ref());
+    push_secret_if_changed(
+        fields,
+        "memory.surreal.username",
+        cfg.memory.surreal.username.as_deref(),
+        surreal_patch.and_then(|surreal| surreal.username.as_ref()),
+    );
+    push_secret_if_changed(
+        fields,
+        "memory.surreal.password",
+        cfg.memory.surreal.password.as_deref(),
+        surreal_patch.and_then(|surreal| surreal.password.as_ref()),
+    );
+    push_secret_if_changed(
+        fields,
+        "memory.surreal.token",
+        cfg.memory.surreal.token.as_deref(),
+        surreal_patch.and_then(|surreal| surreal.token.as_ref()),
+    );
+}
 
-    if let Some(web_search) = patch.web_search.as_ref() {
-        if let Some(api_key) = web_search.brave_api_key.as_ref() {
-            if secret_update_changes(cfg.web_search.brave_api_key.as_deref(), api_key) {
-                fields.push("web_search.brave_api_key");
-            }
+fn push_if_some<T, F>(
+    fields: &mut Vec<&'static str>,
+    field: &'static str,
+    next: Option<T>,
+    predicate: F,
+) where
+    F: FnOnce(T) -> bool,
+{
+    if let Some(next) = next {
+        if predicate(next) {
+            fields.push(field);
         }
     }
+}
 
-    if let Some(browser) = patch.browser.as_ref() {
-        if let Some(api_key) = browser.computer_use_api_key.as_ref() {
-            if secret_update_changes(cfg.browser.computer_use.api_key.as_deref(), api_key) {
-                fields.push("browser.computer_use.api_key");
-            }
-        }
-    }
-
-    if let Some(memory) = patch.memory.as_ref() {
-        if let Some(surreal) = memory.surreal.as_ref() {
-            if let Some(username) = surreal.username.as_ref() {
-                if secret_update_changes(cfg.memory.surreal.username.as_deref(), username) {
-                    fields.push("memory.surreal.username");
-                }
-            }
-            if let Some(password) = surreal.password.as_ref() {
-                if secret_update_changes(cfg.memory.surreal.password.as_deref(), password) {
-                    fields.push("memory.surreal.password");
-                }
-            }
-            if let Some(token) = surreal.token.as_ref() {
-                if secret_update_changes(cfg.memory.surreal.token.as_deref(), token) {
-                    fields.push("memory.surreal.token");
-                }
-            }
-        }
-    }
+fn push_secret_if_changed(
+    fields: &mut Vec<&'static str>,
+    field: &'static str,
+    current: Option<&str>,
+    next: Option<&AdminSecretUpdate>,
+) {
+    push_if_some(fields, field, next, |update| {
+        secret_update_changes(current, update)
+    });
 }
 
 fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(), AdminResponse> {
@@ -832,6 +884,16 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
 }
 
 fn apply_core_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
+    apply_core_defaults_patch(cfg, patch)?;
+    apply_core_provider_patch(cfg, patch)?;
+    apply_core_observability_patch(cfg, patch)?;
+    Ok(())
+}
+
+fn apply_core_defaults_patch(
     cfg: &mut Config,
     patch: &AdminConfigUpdateRequest,
 ) -> Result<(), AdminResponse> {
@@ -859,11 +921,27 @@ fn apply_core_patch(
         }
         cfg.memory.backend = backend;
     }
-    if let Some(provider) = patch.provider.as_ref() {
-        if let Some(api_key) = provider.api_key.as_ref() {
-            apply_secret_update(&mut cfg.api_key, api_key, "provider.api_key")?;
-        }
+    Ok(())
+}
+
+fn apply_core_provider_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
+    if let Some(api_key) = patch
+        .provider
+        .as_ref()
+        .and_then(|provider| provider.api_key.as_ref())
+    {
+        apply_secret_update(&mut cfg.api_key, api_key, "provider.api_key")?;
     }
+    Ok(())
+}
+
+fn apply_core_observability_patch(
+    cfg: &mut Config,
+    patch: &AdminConfigUpdateRequest,
+) -> Result<(), AdminResponse> {
     if let Some(observability) = patch.observability.as_ref() {
         if let Some(backend) = observability.backend.as_ref() {
             let backend = backend.trim().to_ascii_lowercase();
@@ -1311,6 +1389,30 @@ pub async fn handle_admin_update_config(
 mod tests {
     use super::*;
     use crate::security::AutonomyLevel;
+    use std::collections::BTreeSet;
+
+    fn empty_patch() -> AdminConfigUpdateRequest {
+        AdminConfigUpdateRequest {
+            default_provider: None,
+            default_model: None,
+            api_url: None,
+            default_temperature: None,
+            memory_backend: None,
+            provider: None,
+            observability: None,
+            runtime: None,
+            autonomy: None,
+            identity: None,
+            scheduler: None,
+            gateway: None,
+            channels: None,
+            webhook: None,
+            composio: None,
+            web_search: None,
+            browser: None,
+            memory: None,
+        }
+    }
 
     #[test]
     fn admin_config_view_contract_covers_expanded_sections() {
@@ -1455,5 +1557,111 @@ mod tests {
         let fields = restart_required_updates(&cfg, &patch);
         assert!(fields.contains(&"provider.api_key"));
         assert!(fields.contains(&"channels.webhook.secret"));
+    }
+
+    #[test]
+    fn collect_secret_restart_fields_tracks_new_secret_paths() {
+        let mut cfg = Config::default();
+        cfg.web_search.brave_api_key = Some("old-brave".into());
+        cfg.browser.computer_use.api_key = Some("old-computer".into());
+        cfg.memory.surreal.username = Some("old-user".into());
+        cfg.memory.surreal.password = Some("old-pass".into());
+        cfg.memory.surreal.token = Some("old-token".into());
+
+        let cases: Vec<(&str, AdminConfigUpdateRequest, Vec<&str>)> = vec![
+            (
+                "single web search key change",
+                AdminConfigUpdateRequest {
+                    web_search: Some(AdminWebSearchPatch {
+                        enabled: None,
+                        provider: None,
+                        max_results: None,
+                        timeout_secs: None,
+                        brave_api_key: Some(AdminSecretUpdate::Replace {
+                            value: "new-brave".into(),
+                        }),
+                    }),
+                    ..empty_patch()
+                },
+                vec!["web_search.brave_api_key"],
+            ),
+            (
+                "multiple browser and surreal key changes",
+                AdminConfigUpdateRequest {
+                    browser: Some(AdminBrowserPatch {
+                        computer_use_api_key: Some(AdminSecretUpdate::Replace {
+                            value: "new-computer".into(),
+                        }),
+                    }),
+                    memory: Some(AdminMemoryPatch {
+                        backend: None,
+                        surreal: Some(AdminSurrealMemoryPatch {
+                            url: None,
+                            namespace: None,
+                            database: None,
+                            allow_http_loopback: None,
+                            username: Some(AdminSecretUpdate::Replace {
+                                value: "new-user".into(),
+                            }),
+                            password: Some(AdminSecretUpdate::Clear),
+                            token: Some(AdminSecretUpdate::Replace {
+                                value: "new-token".into(),
+                            }),
+                        }),
+                    }),
+                    ..empty_patch()
+                },
+                vec![
+                    "browser.computer_use.api_key",
+                    "memory.surreal.username",
+                    "memory.surreal.password",
+                    "memory.surreal.token",
+                ],
+            ),
+            (
+                "no-op when values unchanged",
+                AdminConfigUpdateRequest {
+                    web_search: Some(AdminWebSearchPatch {
+                        enabled: None,
+                        provider: None,
+                        max_results: None,
+                        timeout_secs: None,
+                        brave_api_key: Some(AdminSecretUpdate::Replace {
+                            value: "old-brave".into(),
+                        }),
+                    }),
+                    memory: Some(AdminMemoryPatch {
+                        backend: None,
+                        surreal: Some(AdminSurrealMemoryPatch {
+                            url: None,
+                            namespace: None,
+                            database: None,
+                            allow_http_loopback: None,
+                            username: Some(AdminSecretUpdate::Replace {
+                                value: "old-user".into(),
+                            }),
+                            password: Some(AdminSecretUpdate::Replace {
+                                value: "old-pass".into(),
+                            }),
+                            token: Some(AdminSecretUpdate::Replace {
+                                value: "old-token".into(),
+                            }),
+                        }),
+                    }),
+                    ..empty_patch()
+                },
+                vec![],
+            ),
+        ];
+
+        for (name, patch, expected_fields) in cases {
+            let fields = restart_required_updates(&cfg, &patch);
+            let actual: BTreeSet<&str> = fields.into_iter().collect();
+            let expected: BTreeSet<&str> = expected_fields.into_iter().collect();
+            assert_eq!(
+                actual, expected,
+                "case '{name}' mismatch for restart-required fields"
+            );
+        }
     }
 }

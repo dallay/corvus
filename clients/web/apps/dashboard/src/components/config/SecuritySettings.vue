@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import Button from "@/components/ui/button/Button.vue";
-import Input from "@/components/ui/input/Input.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import { Button, Input } from "@corvus/ui";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -15,6 +15,7 @@ const emit = defineEmits<{
   save: [];
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]
@@ -61,11 +62,11 @@ function updateField<Key extends keyof AdminConfigForm>(
         />
       </label>
       <label>
-        <span>Identity format</span>
+        <span>{{ $t("security.identity_format") }}</span>
         <Input :model-value="modelValue.identity_format" @update:model-value="updateField('identity_format', $event)" />
       </label>
       <label>
-        <span>Identity AIEOS path</span>
+        <span>{{ $t("security.identity_aieos_path") }}</span>
         <Input
           :model-value="modelValue.identity_aieos_path"
           @update:model-value="updateField('identity_aieos_path', $event)"
