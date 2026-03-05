@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import Button from "@/components/ui/button/Button.vue";
-import Input from "@/components/ui/input/Input.vue";
+import { Button, Input } from "@corvus/ui";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{

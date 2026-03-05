@@ -1,12 +1,12 @@
 import { createI18n } from "vue-i18n";
 
-import es from "@/locales/es.json";
+import { translations } from "@corvus/locales";
 
 export const i18nConfig = {
   legacy: false,
   locale: "es",
   messages: {
-    es,
+    es: translations.es,
   },
 } as const;
 

@@ -91,6 +91,13 @@ overrides:
 importers:
 
   .:
+    dependencies:
+      '@fontsource/inter':
+        specifier: ^5.2.8
+        version: 5.2.8
+      '@fontsource/jetbrains-mono':
+        specifier: ^5.2.8
+        version: 5.2.8
     devDependencies:
       '@biomejs/biome':
         specifier: 'catalog:'
@@ -101,9 +108,18 @@ importers:
 
   apps/chat:
     dependencies:
+      '@corvus/locales':
+        specifier: workspace:*
+        version: link:../../packages/locales
+      '@corvus/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@fontsource-variable/inter':
         specifier: 5.2.6
         version: 5.2.6
+      clsx:
+        specifier: ^2.1.1
+        version: 2.1.1
       tailwind-merge:
         specifier: 'catalog:'
         version: 3.5.0
@@ -162,6 +178,12 @@ importers:
 
   apps/dashboard:
     dependencies:
+      '@corvus/locales':
+        specifier: workspace:*
+        version: link:../../packages/locales
+      '@corvus/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
       '@fontsource-variable/inter':
         specifier: 5.2.6
         version: 5.2.6
@@ -271,7 +293,15 @@ importers:
         specifier: 'catalog:'
         version: 7.3.1(@types/node@24.10.13)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.8.2)
 
+  packages/locales: {}
+
   packages/shared: {}
+
+  packages/ui:
+    dependencies:
+      vue:
+        specifier: 'catalog:'
+        version: 3.5.28(typescript@5.9.3)
 
 packages:
 
@@ -778,6 +808,12 @@ packages:
 
   '@fontsource-variable/inter@5.2.6':
     resolution: {integrity: sha512-jks/bficUPQ9nn7GvXvHtlQIPudW7Wx8CrlZoY8bhxgeobNxlQan8DclUJuYF2loYRrGpfrhCIZZspXYysiVGg==}
+
+  '@fontsource/inter@5.2.8':
+    resolution: {integrity: sha512-P6r5WnJoKiNVV+zvW2xM13gNdFhAEpQ9dQJHt3naLvfg+LkF2ldgSLiF4T41lf1SQCM9QmkqPTn4TH568IRagg==}
+
+  '@fontsource/jetbrains-mono@5.2.8':
+    resolution: {integrity: sha512-6w8/SG4kqvIMu7xd7wt6x3idn1Qux3p9N62s6G3rfldOUYHpWcc2FKrqf+Vo44jRvqWj2oAtTHrZXEP23oSKwQ==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -3804,6 +3840,10 @@ snapshots:
       '@expressive-code/core': 0.41.7
 
   '@fontsource-variable/inter@5.2.6': {}
+
+  '@fontsource/inter@5.2.8': {}
+
+  '@fontsource/jetbrains-mono@5.2.8': {}
 
   '@img/colour@1.1.0': {}
 

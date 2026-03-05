@@ -5,9 +5,7 @@ import { useI18n } from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ChatMessage from "@/components/chat/ChatMessage.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import Button from "@/components/ui/button/Button.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import Input from "@/components/ui/input/Input.vue";
+import { Button, Input } from "@corvus/ui";
 
 type Role = "assistant" | "user";
 

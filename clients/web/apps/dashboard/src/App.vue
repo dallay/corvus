@@ -9,8 +9,7 @@ import RuntimeSettings from "@/components/config/RuntimeSettings.vue";
 import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
 import SecuritySettings from "@/components/config/SecuritySettings.vue";
 import WebhookSettings from "@/components/config/WebhookSettings.vue";
-import Button from "@/components/ui/button/Button.vue";
-import Input from "@/components/ui/input/Input.vue";
+import { Button, Input } from "@corvus/ui";
 import { useConfig } from "@/composables/useConfig";
 
 const { t } = useI18n();

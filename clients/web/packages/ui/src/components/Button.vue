@@ -1,7 +1,6 @@
 <script setup lang="ts">
 defineOptions({ inheritAttrs: false });
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const props = defineProps<{
   variant?: "default" | "ghost" | "outline";
   size?: "default" | "sm" | "lg" | "icon";
@@ -44,6 +43,7 @@ const props = defineProps<{
 .btn:disabled {
   opacity: 0.4;
   pointer-events: none;
+  cursor: not-allowed;
 }
 
 .btn:focus-visible {
@@ -51,19 +51,18 @@ const props = defineProps<{
 }
 
 /* Variants */
-
 .btn--default {
   background: var(--color-accent);
   color: white;
   box-shadow: 0 4px 12px var(--color-accent-glow);
 }
 
-.btn--default:hover {
+.btn--default:hover:not(:disabled) {
   background: var(--color-accent-hover);
   box-shadow: 0 6px 20px var(--color-accent-glow);
 }
 
-.btn--default:active {
+.btn--default:active:not(:disabled) {
   transform: scale(0.97);
 }
 
@@ -72,7 +71,7 @@ const props = defineProps<{
   color: var(--color-text-secondary);
 }
 
-.btn--ghost:hover {
+.btn--ghost:hover:not(:disabled) {
   color: var(--color-text-primary);
   background: var(--color-surface-glass-hover);
 }
@@ -83,14 +82,13 @@ const props = defineProps<{
   color: var(--color-text-secondary);
 }
 
-.btn--outline:hover {
+.btn--outline:hover:not(:disabled) {
   border-color: var(--color-border-hover);
   color: var(--color-text-primary);
   background: var(--color-surface-glass);
 }
 
 /* Sizes */
-
 .btn-size--default {
   height: 40px;
   padding: 0 20px;
