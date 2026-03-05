@@ -21,11 +21,11 @@ describe("GeneralSettings", () => {
         saving: false,
       },
       global: {
-        plugins: [createI18n(i18nConfig)],
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
       },
     });
 
-    expect(wrapper.text()).toContain("Provider por defecto");
-    expect(wrapper.text()).toContain("Modelo por defecto");
+    expect(wrapper.text()).toContain("Default provider");
+    expect(wrapper.text()).toContain("Default model");
   });
 });

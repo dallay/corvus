@@ -21,11 +21,11 @@ describe("WebhookSettings", () => {
         saving: false,
       },
       global: {
-        plugins: [createI18n(i18nConfig)],
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
       },
     });
 
-    expect(wrapper.text()).toContain("no puede estar vacío");
+    expect(wrapper.text()).toContain("cannot be empty");
     await wrapper.get("button").trigger("click");
     expect(wrapper.emitted("save")).toBeFalsy();
   });

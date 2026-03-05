@@ -23,7 +23,7 @@ describe("SecuritySettings", () => {
         saving: false,
       },
       global: {
-        plugins: [createI18n(i18nConfig)],
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
       },
     });
 
