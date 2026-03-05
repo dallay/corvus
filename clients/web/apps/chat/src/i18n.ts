@@ -1,6 +1,5 @@
-import { createI18n } from "vue-i18n";
-
 import { translations } from "@corvus/locales";
+import { createI18n } from "vue-i18n";
 
 export const i18nConfig = {
   legacy: false,

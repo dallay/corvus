@@ -193,7 +193,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     }
     const gatewayBaseUrl = normalizeBaseUrl();
     if (!isUrlSafeForSecrets(gatewayBaseUrl)) {
-      errorMessage.value = t("auth.insecureUrlError");
+      errorMessage.value = t("errors.insecureUrlError");
       return;
     }
     loading.value = true;
@@ -230,7 +230,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       const gatewayBaseUrl = normalizeBaseUrl();
       const safeForSecrets = isUrlSafeForSecrets(gatewayBaseUrl);
       if (!safeForSecrets && bearerToken.value.trim()) {
-        errorMessage.value = t("auth.insecureUrlError");
+        errorMessage.value = t("errors.insecureUrlError");
         return;
       }
       const headers = safeForSecrets ? authHeaders() : { "Content-Type": "application/json" };
@@ -295,7 +295,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
 
     const gatewayBaseUrl = normalizeBaseUrl();
     if (!isUrlSafeForSecrets(gatewayBaseUrl)) {
-      errorMessage.value = t("auth.insecureUrlError");
+      errorMessage.value = t("errors.insecureUrlError");
       return;
     }
 

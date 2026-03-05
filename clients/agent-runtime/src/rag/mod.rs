@@ -52,19 +52,20 @@ fn parse_pin_aliases(content: &str) -> PinAliases {
 }
 
 fn pin_aliases_section(content: &str) -> Option<&str> {
-    let content_lower = content.to_lowercase();
+    let content_lower = content.to_ascii_lowercase();
     let section_markers = ["## pin aliases", "## pin alias", "## pins"];
 
     let section_start = section_markers
         .iter()
-        .find_map(|marker| content_lower.find(marker).map(|pos| pos + marker.len()))?;
+        .filter_map(|marker| content_lower.find(marker).map(|pos| pos + marker.len()))
+        .min()?;
 
-    let rest = &content[section_start..];
+    let rest = content.get(section_start..)?;
     let section_end = rest
         .find("\n## ")
         .map(|i| section_start + i)
         .unwrap_or(content.len());
-    Some(&content[section_start..section_end])
+    content.get(section_start..section_end)
 }
 
 fn parse_alias_table_row(line: &str) -> Option<(String, u32)> {
@@ -363,6 +364,18 @@ user_led: 5"#;
         let a = parse_pin_aliases(md);
         assert_eq!(a.get("red_led"), Some(&13));
         assert_eq!(a.get("user_led"), None);
+    }
+
+    #[test]
+    fn parse_pin_aliases_uses_earliest_section_marker() {
+        let md = r#"## Pins
+legacy_led: 7
+
+## Pin Aliases
+red_led: 13"#;
+        let a = parse_pin_aliases(md);
+        assert_eq!(a.get("legacy_led"), Some(&7));
+        assert_eq!(a.get("red_led"), None);
     }
 
     #[test]

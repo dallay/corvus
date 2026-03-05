@@ -683,9 +683,12 @@ fn collect_scheduler_restart_fields(
         push_if_some(fields, "scheduler.enabled", scheduler.enabled, |enabled| {
             enabled != cfg.scheduler.enabled
         });
-        push_if_some(fields, "scheduler.max_tasks", scheduler.max_tasks, |max_tasks| {
-            max_tasks != cfg.scheduler.max_tasks
-        });
+        push_if_some(
+            fields,
+            "scheduler.max_tasks",
+            scheduler.max_tasks,
+            |max_tasks| max_tasks != cfg.scheduler.max_tasks,
+        );
         push_if_some(
             fields,
             "scheduler.max_concurrent",
@@ -786,7 +789,10 @@ fn collect_secret_restart_fields(
         fields,
         "provider.api_key",
         cfg.api_key.as_deref(),
-        patch.provider.as_ref().and_then(|provider| provider.api_key.as_ref()),
+        patch
+            .provider
+            .as_ref()
+            .and_then(|provider| provider.api_key.as_ref()),
     );
     push_secret_if_changed(
         fields,
@@ -816,7 +822,10 @@ fn collect_secret_restart_fields(
             .and_then(|browser| browser.computer_use_api_key.as_ref()),
     );
 
-    let surreal_patch = patch.memory.as_ref().and_then(|memory| memory.surreal.as_ref());
+    let surreal_patch = patch
+        .memory
+        .as_ref()
+        .and_then(|memory| memory.surreal.as_ref());
     push_secret_if_changed(
         fields,
         "memory.surreal.username",
@@ -1381,6 +1390,29 @@ mod tests {
     use super::*;
     use crate::security::AutonomyLevel;
 
+    fn empty_patch() -> AdminConfigUpdateRequest {
+        AdminConfigUpdateRequest {
+            default_provider: None,
+            default_model: None,
+            api_url: None,
+            default_temperature: None,
+            memory_backend: None,
+            provider: None,
+            observability: None,
+            runtime: None,
+            autonomy: None,
+            identity: None,
+            scheduler: None,
+            gateway: None,
+            channels: None,
+            webhook: None,
+            composio: None,
+            web_search: None,
+            browser: None,
+            memory: None,
+        }
+    }
+
     #[test]
     fn admin_config_view_contract_covers_expanded_sections() {
         let mut cfg = Config::default();
@@ -1524,5 +1556,118 @@ mod tests {
         let fields = restart_required_updates(&cfg, &patch);
         assert!(fields.contains(&"provider.api_key"));
         assert!(fields.contains(&"channels.webhook.secret"));
+    }
+
+    #[test]
+    fn collect_secret_restart_fields_tracks_new_secret_paths() {
+        let mut cfg = Config::default();
+        cfg.web_search.brave_api_key = Some("old-brave".into());
+        cfg.browser.computer_use.api_key = Some("old-computer".into());
+        cfg.memory.surreal.username = Some("old-user".into());
+        cfg.memory.surreal.password = Some("old-pass".into());
+        cfg.memory.surreal.token = Some("old-token".into());
+
+        let cases: Vec<(&str, AdminConfigUpdateRequest, Vec<&str>)> = vec![
+            (
+                "single web search key change",
+                AdminConfigUpdateRequest {
+                    web_search: Some(AdminWebSearchPatch {
+                        enabled: None,
+                        provider: None,
+                        max_results: None,
+                        timeout_secs: None,
+                        brave_api_key: Some(AdminSecretUpdate::Replace {
+                            value: "new-brave".into(),
+                        }),
+                    }),
+                    ..empty_patch()
+                },
+                vec!["web_search.brave_api_key"],
+            ),
+            (
+                "multiple browser and surreal key changes",
+                AdminConfigUpdateRequest {
+                    browser: Some(AdminBrowserPatch {
+                        computer_use_api_key: Some(AdminSecretUpdate::Replace {
+                            value: "new-computer".into(),
+                        }),
+                    }),
+                    memory: Some(AdminMemoryPatch {
+                        backend: None,
+                        surreal: Some(AdminSurrealMemoryPatch {
+                            url: None,
+                            namespace: None,
+                            database: None,
+                            allow_http_loopback: None,
+                            username: Some(AdminSecretUpdate::Replace {
+                                value: "new-user".into(),
+                            }),
+                            password: Some(AdminSecretUpdate::Clear),
+                            token: Some(AdminSecretUpdate::Replace {
+                                value: "new-token".into(),
+                            }),
+                        }),
+                    }),
+                    ..empty_patch()
+                },
+                vec![
+                    "browser.computer_use.api_key",
+                    "memory.surreal.username",
+                    "memory.surreal.password",
+                    "memory.surreal.token",
+                ],
+            ),
+            (
+                "no-op when values unchanged",
+                AdminConfigUpdateRequest {
+                    web_search: Some(AdminWebSearchPatch {
+                        enabled: None,
+                        provider: None,
+                        max_results: None,
+                        timeout_secs: None,
+                        brave_api_key: Some(AdminSecretUpdate::Replace {
+                            value: "old-brave".into(),
+                        }),
+                    }),
+                    memory: Some(AdminMemoryPatch {
+                        backend: None,
+                        surreal: Some(AdminSurrealMemoryPatch {
+                            url: None,
+                            namespace: None,
+                            database: None,
+                            allow_http_loopback: None,
+                            username: Some(AdminSecretUpdate::Replace {
+                                value: "old-user".into(),
+                            }),
+                            password: Some(AdminSecretUpdate::Replace {
+                                value: "old-pass".into(),
+                            }),
+                            token: Some(AdminSecretUpdate::Replace {
+                                value: "old-token".into(),
+                            }),
+                        }),
+                    }),
+                    ..empty_patch()
+                },
+                vec![],
+            ),
+        ];
+
+        for (name, patch, expected_fields) in cases {
+            let fields = restart_required_updates(&cfg, &patch);
+            for expected in expected_fields {
+                assert!(
+                    fields.contains(&expected),
+                    "case '{name}' missing '{expected}'"
+                );
+            }
+            if name == "no-op when values unchanged" {
+                assert!(!fields.contains(&"web_search.brave_api_key"));
+                assert!(!fields.contains(&"browser.computer_use.api_key"));
+                assert!(!fields.contains(&"memory.surreal.username"));
+                assert!(!fields.contains(&"memory.surreal.password"));
+                assert!(!fields.contains(&"memory.surreal.token"));
+            }
+        }
     }
 }

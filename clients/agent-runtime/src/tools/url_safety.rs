@@ -46,41 +46,33 @@ pub(crate) fn extract_host(
     scheme_error: &str,
     ipv6_context: &str,
 ) -> anyhow::Result<String> {
-    let rest = accepted_schemes
-        .iter()
-        .find_map(|scheme| url.strip_prefix(scheme))
-        .ok_or_else(|| anyhow::Error::msg(scheme_error.to_string()))?;
-
-    let authority = rest
-        .split(['/', '?', '#'])
-        .next()
-        .ok_or_else(|| anyhow::anyhow!("Invalid URL"))?;
-
-    if authority.is_empty() {
-        anyhow::bail!("URL must include a host");
+    let parsed = Url::parse(url).map_err(|_| anyhow::anyhow!("Invalid URL"))?;
+    let parsed_scheme = format!("{}://", parsed.scheme());
+    if !accepted_schemes.contains(&parsed_scheme.as_str()) {
+        anyhow::bail!(scheme_error.to_string());
     }
 
-    if authority.contains('@') {
+    if !parsed.username().is_empty() || parsed.password().is_some() {
         anyhow::bail!("URL userinfo is not allowed");
     }
 
-    if authority.starts_with('[') {
-        anyhow::bail!("IPv6 hosts are not supported in {ipv6_context}");
+    match parsed.host() {
+        Some(Host::Domain(domain)) => {
+            let host = domain.trim_end_matches('.').to_lowercase();
+            if host.is_empty() {
+                anyhow::bail!("URL must include a valid host");
+            }
+            Ok(host)
+        }
+        Some(Host::Ipv4(ipv4)) => {
+            let ip = IpAddr::from_str(&ipv4.to_string())?;
+            Ok(ip.to_string())
+        }
+        Some(Host::Ipv6(_)) => {
+            anyhow::bail!("IPv6 hosts are not supported in {ipv6_context}");
+        }
+        None => anyhow::bail!("URL must include a host"),
     }
-
-    let host = authority
-        .split(':')
-        .next()
-        .unwrap_or_default()
-        .trim()
-        .trim_end_matches('.')
-        .to_lowercase();
-
-    if host.is_empty() {
-        anyhow::bail!("URL must include a valid host");
-    }
-
-    Ok(host)
 }
 
 pub(crate) fn host_matches_allowlist(host: &str, allowed_domains: &[String]) -> bool {
@@ -91,3 +83,6 @@ pub(crate) fn host_matches_allowlist(host: &str, allowed_domains: &[String]) -> 
                 .is_some_and(|prefix| prefix.ends_with('.'))
     })
 }
+use std::net::IpAddr;
+use std::str::FromStr;
+use url::{Host, Url};

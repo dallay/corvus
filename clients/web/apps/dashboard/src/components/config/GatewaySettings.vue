@@ -1,4 +1,5 @@
 <script setup lang="ts">
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import { Button, Input } from "@corvus/ui";
 import type { AdminConfigForm } from "@/types/admin-config";
 
@@ -13,6 +14,7 @@ const emit = defineEmits<{
   save: [];
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]

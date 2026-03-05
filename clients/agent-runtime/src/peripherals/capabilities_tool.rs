@@ -27,12 +27,13 @@ fn includes_board(filter: Option<&str>, board_name: &str) -> bool {
 
 fn format_capabilities_success(board_name: &str, output: &str) -> String {
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(output) {
-        return format!(
-            "{}: gpio {:?}, led_pin {:?}",
-            board_name,
-            parsed.get("gpio").unwrap_or(&json!([])),
-            parsed.get("led_pin").unwrap_or(&json!(null))
-        );
+        let gpio = parsed.get("gpio").cloned().unwrap_or_else(|| json!([]));
+        let led_pin = parsed
+            .get("led_pin")
+            .cloned()
+            .unwrap_or_else(|| json!(null));
+
+        return format!("{}: gpio {:?}, led_pin {:?}", board_name, gpio, led_pin);
     }
 
     format!("{}: {}", board_name, output)

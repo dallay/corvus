@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed } from "vue";
-
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import { Button, Input } from "@corvus/ui";
+import { computed } from "vue";
 import type { AdminConfigForm } from "@/types/admin-config";
 
 const props = defineProps<{
@@ -25,6 +25,7 @@ const localError = computed(() => {
   return "";
 });
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]
@@ -35,6 +36,7 @@ function updateField<Key extends keyof AdminConfigForm>(
   });
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function handleSave(): void {
   if (localError.value) {
     return;

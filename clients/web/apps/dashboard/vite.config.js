@@ -13,7 +13,7 @@ export default defineConfig({
             output: {
                 manualChunks: {
                     vendor: ["vue", "vue-i18n"],
-                    ui: ["@corvus/ui"],
+                    ui: ["@corvus/ui", "@corvus/locales"],
                 },
             },
         },

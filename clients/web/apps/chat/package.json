@@ -8,13 +8,13 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "vite --port 4323",
-    "build": "vue-tsc -b && vite build",
-    "preview": "vite preview --port 4323",
+    "dev": "vite --config vite.config.ts --port 4323",
+    "build": "vue-tsc -b && vite build --config vite.config.ts",
+    "preview": "vite preview --config vite.config.ts --port 4323",
     "format": "biome format --write src package.json components.json tsconfig*.json vite.config.ts index.html",
     "check": "biome check src package.json components.json tsconfig*.json vite.config.ts index.html",
-    "test": "vitest --run",
-    "test:coverage": "vitest --run --coverage"
+    "test": "vitest --config vite.config.ts --run",
+    "test:coverage": "vitest --config vite.config.ts --run --coverage"
   },
   "dependencies": {
     "@corvus/locales": "workspace:*",

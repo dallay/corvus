@@ -1,7 +1,7 @@
 use super::traits::{Tool, ToolResult};
-use super::url_safety::{extract_host, host_matches_allowlist, normalize_allowed_domains};
 #[cfg(test)]
 use super::url_safety::normalize_domain;
+use super::url_safety::{extract_host, host_matches_allowlist, normalize_allowed_domains};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
@@ -840,8 +840,8 @@ mod tests {
         ] {
             let err = tool.validate_url(notation).unwrap_err().to_string();
             assert!(
-                err.contains("allowed_domains"),
-                "Expected allowlist rejection for {notation}, got: {err}"
+                err.contains("allowed_domains") || err.contains("Blocked local/private host"),
+                "Expected allowlist or local/private host rejection for {notation}, got: {err}"
             );
         }
     }

@@ -1,11 +1,11 @@
 <script setup lang="ts">
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import { Button, Input } from "@corvus/ui";
 import { computed, nextTick, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ChatMessage from "@/components/chat/ChatMessage.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import { Button, Input } from "@corvus/ui";
 
 type Role = "assistant" | "user";
 
@@ -175,7 +175,7 @@ async function saveGatewayConfig(): Promise<void> {
 
   if (hasSecrets && !isUrlSafeForSecrets(gatewayBaseUrl)) {
     saveStatus.value = "error";
-    saveErrorMessage.value = t("form.insecureUrlError");
+    saveErrorMessage.value = t("errors.insecureUrlError");
     return;
   }
 

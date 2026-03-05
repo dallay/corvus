@@ -1,37 +1,34 @@
 <script setup lang="ts">
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import { Button, Input } from "@corvus/ui";
 import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import GatewaySettings from "@/components/config/GatewaySettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import GeneralSettings from "@/components/config/GeneralSettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ObservabilitySettings from "@/components/config/ObservabilitySettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import RuntimeSettings from "@/components/config/RuntimeSettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SecuritySettings from "@/components/config/SecuritySettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import WebhookSettings from "@/components/config/WebhookSettings.vue";
-import { Button, Input } from "@corvus/ui";
 import { useConfig } from "@/composables/useConfig";
 
 const { t } = useI18n();
 
 const config = useConfig(t);
-const {
-  baseUrl,
-  pairingCode,
-  bearerToken,
-  loading,
-  statusMessage,
-  errorMessage,
-  form,
-  canSave,
-  sectionSaving,
-  pairGateway,
-  connectGateway,
-  saveSection,
-} = config;
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const webhookSecretStatusLabel = computed(() =>
-  form.webhook_secret_exists ? t("webhook.statusConfigured") : t("webhook.statusNotConfigured")
+  config.form.webhook_secret_exists
+    ? t("webhook.statusConfigured")
+    : t("webhook.statusNotConfigured")
 );
 </script>
 
@@ -52,89 +49,89 @@ const webhookSecretStatusLabel = computed(() =>
       <div class="grid">
         <label>
           <span>{{ t("auth.baseUrl") }}</span>
-          <Input v-model="baseUrl" placeholder="http://127.0.0.1:3000" />
+          <Input v-model="config.baseUrl" placeholder="http://127.0.0.1:3000" />
         </label>
         <label>
           <span>{{ t("auth.pairingCode") }}</span>
-          <Input v-model="pairingCode" type="password" />
+          <Input v-model="config.pairingCode" type="password" />
         </label>
         <label>
           <span>{{ t("auth.bearerToken") }}</span>
-          <Input v-model="bearerToken" type="password" />
+          <Input v-model="config.bearerToken" type="password" />
         </label>
       </div>
       <div class="actions">
-        <Button :disabled="loading" @click="pairGateway">{{ t("auth.pair") }}</Button>
-        <Button :disabled="loading" variant="outline" @click="connectGateway">
+        <Button :disabled="config.loading" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
+        <Button :disabled="config.loading" variant="outline" @click="config.connectGateway">
           {{ t("auth.connect") }}
         </Button>
       </div>
     </section>
 
     <GeneralSettings
-      :model-value="form"
+      :model-value="config.form"
       :memory-backend-options="config.memoryBackendOptions.value"
-      :disabled="!canSave"
-      :saving="sectionSaving.general"
-      @update:model-value="Object.assign(form, $event)"
-      @save="saveSection('general')"
+      :disabled="!config.canSave"
+      :saving="config.sectionSaving.general"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('general')"
     />
 
     <SecuritySettings
-      :model-value="form"
+      :model-value="config.form"
       :autonomy-level-options="config.autonomyLevelOptions.value"
-      :disabled="!canSave"
-      :saving="sectionSaving.security"
-      @update:model-value="Object.assign(form, $event)"
-      @save="saveSection('security')"
+      :disabled="!config.canSave"
+      :saving="config.sectionSaving.security"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('security')"
     />
 
     <ObservabilitySettings
-      :model-value="form"
+      :model-value="config.form"
       :observability-backend-options="config.observabilityBackendOptions.value"
-      :disabled="!canSave"
-      :saving="sectionSaving.observability"
-      @update:model-value="Object.assign(form, $event)"
-      @save="saveSection('observability')"
+      :disabled="!config.canSave"
+      :saving="config.sectionSaving.observability"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('observability')"
     />
 
     <RuntimeSettings
-      :model-value="form"
+      :model-value="config.form"
       :runtime-kind-options="config.runtimeKindOptions.value"
-      :disabled="!canSave"
-      :saving="sectionSaving.runtime"
-      @update:model-value="Object.assign(form, $event)"
-      @save="saveSection('runtime')"
+      :disabled="!config.canSave"
+      :saving="config.sectionSaving.runtime"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('runtime')"
     />
 
     <SchedulerSettings
-      :model-value="form"
-      :disabled="!canSave"
-      :saving="sectionSaving.scheduler"
-      @update:model-value="Object.assign(form, $event)"
-      @save="saveSection('scheduler')"
+      :model-value="config.form"
+      :disabled="!config.canSave"
+      :saving="config.sectionSaving.scheduler"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('scheduler')"
     />
 
     <GatewaySettings
-      :model-value="form"
-      :disabled="!canSave"
-      :saving="sectionSaving.gateway"
-      @update:model-value="Object.assign(form, $event)"
-      @save="saveSection('gateway')"
+      :model-value="config.form"
+      :disabled="!config.canSave"
+      :saving="config.sectionSaving.gateway"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('gateway')"
     />
 
     <WebhookSettings
-      :model-value="form"
-      :disabled="!canSave"
-      :saving="sectionSaving.webhook"
-      @update:model-value="Object.assign(form, $event)"
-      @save="saveSection('webhook')"
+      :model-value="config.form"
+      :disabled="!config.canSave"
+      :saving="config.sectionSaving.webhook"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('webhook')"
     />
 
     <section class="card">
       <p class="helper">{{ t("webhook.secretStatus", { status: webhookSecretStatusLabel }) }}</p>
-      <p v-if="statusMessage" class="ok">{{ statusMessage }}</p>
-      <p v-if="errorMessage" class="error">{{ errorMessage }}</p>
+      <p v-if="config.statusMessage" class="ok">{{ config.statusMessage }}</p>
+      <p v-if="config.errorMessage" class="error">{{ config.errorMessage }}</p>
     </section>
   </main>
 </template>

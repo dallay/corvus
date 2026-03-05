@@ -83,7 +83,7 @@ fi
 # Check for java.time (suggest kotlinx.datetime)
 echo
 echo "📦 Checking for java.time usage..."
-if find ./*/src -name "*.kt" 2>/dev/null | xargs grep -l "import java.time\." >/dev/null 2>&1; then
+if find ./*/src -name "*.kt" -print0 2>/dev/null | xargs -0 grep -l "import java.time\." >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ Found java.time imports${NC}"
     echo "  Current: java.time (JVM-only)"
     echo -e "  ${GREEN}Suggest: kotlinx.datetime${NC} (works on all platforms)"
@@ -109,7 +109,7 @@ fi
 # Check for java.math.BigDecimal
 echo
 echo "📦 Checking for java.math.BigDecimal usage..."
-if find ./*/src -name "*.kt" 2>/dev/null | xargs grep -l "import java.math.BigDecimal" >/dev/null 2>&1; then
+if find ./*/src -name "*.kt" -print0 2>/dev/null | xargs -0 grep -l "import java.math.BigDecimal" >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ Found java.math.BigDecimal imports${NC}"
     echo "  Current: java.math.BigDecimal (JVM-only)"
     echo -e "  ${BLUE}Note:${NC} KMP BigDecimal not yet in stable kotlinx"
@@ -127,7 +127,7 @@ fi
 # Check for platform.posix usage
 echo
 echo "📦 Checking for platform.posix usage..."
-if find ./*/src/commonMain -name "*.kt" 2>/dev/null | xargs grep -l "import platform.posix\." >/dev/null 2>&1; then
+if find ./*/src/commonMain -name "*.kt" -print0 2>/dev/null | xargs -0 grep -l "import platform.posix\." >/dev/null 2>&1; then
     echo -e "${YELLOW}⚠ Found platform.posix in commonMain${NC}"
     echo "  Current: platform.posix (native platforms only, not web)"
     echo -e "  ${GREEN}Suggest:${NC} Abstract file I/O with expect/actual"

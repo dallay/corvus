@@ -23,6 +23,9 @@
     "check": "echo 'No files to check'",
     "clean": "rm -rf dist"
   },
-  "dependencies": {},
+  "dependencies": {
+    "@fontsource/inter": "^5.2.8",
+    "@fontsource/jetbrains-mono": "^5.2.8"
+  },
   "devDependencies": {}
 }

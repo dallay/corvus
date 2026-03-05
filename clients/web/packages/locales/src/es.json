@@ -22,12 +22,11 @@
     "bearerToken": "Token bearer",
     "connect": "Conectar",
     "pair": "Emparejar",
-    "pairSuccess": "Pairing exitoso. Token cargado.",
+    "pairSuccess": "Emparejamiento exitoso. Token cargado.",
     "connected": "Conectado correctamente.",
     "loadError": "No se pudo cargar la configuración admin.",
     "networkError": "No se pudo conectar con el gateway. Verifica red, URL y que el servicio esté activo.",
     "emptyWebhookSecret": "El webhook secret no puede estar vacío. Usa 'Limpiar' si deseas removerlo.",
-    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
     "unauthorized": "No autorizado. Haz pairing y vuelve a intentar."
   },
   "form": {
@@ -46,7 +45,6 @@
     "pairingRateLimitError": "Demasiados intentos de emparejamiento. Inténtalo más tarde.",
     "pairingMissingTokenError": "No se recibió token de emparejamiento.",
     "timeoutError": "Tiempo de espera agotado",
-    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
     "configSubtitle": "Conecta con tu gateway de Corvus",
     "noChanges": "No hay cambios para guardar.",
     "connectBeforeSave": "Conéctate primero al gateway para cargar la configuración actual.",
@@ -76,6 +74,9 @@
     "secretUnchanged": "Sin cambios",
     "secretReplace": "Reemplazar",
     "secretClear": "Limpiar"
+  },
+  "errors": {
+    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local."
   },
   "chat": {
     "welcome": "Hola, soy {modelName}. ¿En qué puedo ayudarte?",

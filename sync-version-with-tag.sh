@@ -34,7 +34,6 @@ has_json_version_key() {
       if (!found) exit 1
     }
   ' "$file"
-  return 0
 }
 
 add_json_version_target() {
