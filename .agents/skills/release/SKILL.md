@@ -119,7 +119,7 @@ The user has two options for version management:
    - `clients/agent-runtime/npm/corvus-linux-x64/package.json`
    - `clients/agent-runtime/npm/corvus-windows-arm64/package.json`
    - `clients/agent-runtime/npm/corvus-windows-x64/package.json`
-7. In `clients/agent-runtime/npm/corvus/package.json`, keep `optionalDependencies` versions aligned with the same release version
+7. In `clients/agent-runtime/src/main.rs`, update the `#[command(version = "...")]` attribute to match the new version. This value is shown by the CLI with `corvus --version` and must be kept in sync with all other version targets.
 
 **Option B - Sync from Git tag (if tag exists first):**
 
