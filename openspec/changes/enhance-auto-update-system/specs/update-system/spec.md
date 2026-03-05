@@ -2,13 +2,15 @@
 
 ## Purpose
 
-Define a secure, observable, and deterministic update experience across CLI, conversation channels, and client-facing admin surfaces.
+Define a secure, observable, and deterministic update experience across CLI, conversation channels,
+and client-facing admin surfaces.
 
 ## Requirements
 
 ### Requirement: Multi-Surface Update Visibility
 
-The system MUST expose consistent update availability and update policy state at CLI startup, during eligible in-conversation interactions, and through client-facing admin/status surfaces.
+The system MUST expose consistent update availability and update policy state at CLI startup, during
+eligible in-conversation interactions, and through client-facing admin/status surfaces.
 
 #### Scenario: CLI startup shows update availability
 
@@ -28,12 +30,14 @@ The system MUST expose consistent update availability and update policy state at
 
 - GIVEN the runtime has a computed update status and policy state
 - WHEN a client/admin status endpoint is queried
-- THEN the response includes update availability, current version, available version, last check result, and policy flags
+- THEN the response includes update availability, current version, available version, last check
+  result, and policy flags
 - AND the values are consistent with the latest CLI-visible status
 
 ### Requirement: Update Configuration Model and Safe Defaults
 
-The system MUST provide a structured update configuration model with safe defaults, where automatic checks and notifications are enabled by default and automatic installation is disabled by default.
+The system MUST provide a structured update configuration model with safe defaults, where automatic
+checks and notifications are enabled by default and automatic installation is disabled by default.
 
 #### Scenario: Default policy is safe-by-default
 
@@ -58,7 +62,9 @@ The system MUST provide a structured update configuration model with safe defaul
 
 ### Requirement: Installation Method Detection and Execution Routing
 
-The system MUST determine an effective installation method (detected or user-overridden), route update execution through the method-specific strategy, and provide deterministic fallback instructions when unsupported or unavailable.
+The system MUST determine an effective installation method (detected or user-overridden), route
+update execution through the method-specific strategy, and provide deterministic fallback
+instructions when unsupported or unavailable.
 
 #### Scenario: Supported method is detected and used
 
@@ -83,7 +89,8 @@ The system MUST determine an effective installation method (detected or user-ove
 
 ### Requirement: Process Safety and Atomic Update State
 
-The system MUST prevent concurrent install transactions across processes and MUST persist update state atomically such that interrupted writes do not produce corrupt state.
+The system MUST prevent concurrent install transactions across processes and MUST persist update
+state atomically such that interrupted writes do not produce corrupt state.
 
 #### Scenario: Concurrent install attempts are serialized
 
@@ -101,13 +108,16 @@ The system MUST prevent concurrent install transactions across processes and MUS
 
 ### Requirement: CLI Update Command Contract
 
-The CLI MUST provide `update status`, `update check`, `update install`, `update auto-enable`, `update auto-disable`, and `update history` commands with deterministic outputs and exit semantics suitable for interactive and scripted use.
+The CLI MUST provide `update status`, `update check`, `update install`, `update auto-enable`,
+`update auto-disable`, and `update history` commands with deterministic outputs and exit semantics
+suitable for interactive and scripted use.
 
 #### Scenario: `update status` reports effective state
 
 - GIVEN update metadata and effective policy are available
 - WHEN the user runs `update status`
-- THEN output includes current version, latest known version status, installation method, and auto-update policy state
+- THEN output includes current version, latest known version status, installation method, and
+  auto-update policy state
 - AND the command returns success when status can be resolved
 
 #### Scenario: `update check` performs explicit refresh
@@ -138,9 +148,21 @@ The CLI MUST provide `update status`, `update check`, `update install`, `update 
 - THEN the command returns chronologically ordered update events
 - AND each entry includes enough metadata to identify what occurred and outcome class
 
+#### Scenario: `update confirm <nonce>` compatibility
+
+- GIVEN a channel-initiated install provides a nonce via in-conversation flow
+- WHEN the user or automated agent runs `update confirm <nonce>`
+- THEN the CLI accepts the nonce, completes the install handshake
+- AND returns deterministic success/failure semantics
+- AND appends an audit entry to history reflecting the nonce-confirmed install
+- NOTE: This is an advanced/internal flow; `update status` and `update history` reflect actions from
+  nonce-confirmed installs alongside other update events
+
 ### Requirement: Integrity Verification and Audit Logging
 
-The system MUST verify artifact integrity before activation for update paths that consume downloadable artifacts, MUST fail closed on verification failure, and MUST append structured audit events for update checks and install attempts.
+The system MUST verify artifact integrity before activation for update paths that consume
+downloadable artifacts, MUST fail closed on verification failure, and MUST append structured audit
+events for update checks and install attempts.
 
 #### Scenario: Successful verification permits activation
 
