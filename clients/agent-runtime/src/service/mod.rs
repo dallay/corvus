@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::update::{InstallState, RestartPolicy};
 use anyhow::{Context, Result};
 use std::fs;
 use std::path::PathBuf;
@@ -9,6 +10,24 @@ const WINDOWS_TASK_NAME: &str = "Corvus Daemon";
 
 fn windows_task_name() -> &'static str {
     WINDOWS_TASK_NAME
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestartDecision {
+    None,
+    Prompt,
+    RestartManagedService,
+}
+
+pub fn restart_decision_for_install_state(
+    install_state: &InstallState,
+    policy: RestartPolicy,
+) -> RestartDecision {
+    match crate::update::restart_action_for_install_state(install_state, policy) {
+        crate::update::RestartAction::None => RestartDecision::None,
+        crate::update::RestartAction::Prompt => RestartDecision::Prompt,
+        crate::update::RestartAction::ManagedService => RestartDecision::RestartManagedService,
+    }
 }
 
 pub fn handle_command(command: &crate::ServiceCommands, config: &Config) -> Result<()> {
@@ -593,5 +612,25 @@ mod tests {
         let err = run_checked(Command::new("cmd").args(["/C", "exit /b 17"]))
             .expect_err("non-zero exit should error");
         assert!(err.to_string().contains("Command failed"));
+    }
+
+    #[test]
+    fn restart_decision_respects_policy_for_pending_restart_state() {
+        let pending = InstallState::InstalledPendingRestart {
+            version: "1.2.3".to_string(),
+            installed_at_unix: 1,
+        };
+        assert_eq!(
+            restart_decision_for_install_state(&pending, RestartPolicy::Never),
+            RestartDecision::None
+        );
+        assert_eq!(
+            restart_decision_for_install_state(&pending, RestartPolicy::Prompt),
+            RestartDecision::Prompt
+        );
+        assert_eq!(
+            restart_decision_for_install_state(&pending, RestartPolicy::AutoManagedService),
+            RestartDecision::RestartManagedService
+        );
     }
 }

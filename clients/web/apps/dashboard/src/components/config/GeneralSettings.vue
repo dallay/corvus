@@ -1,9 +1,6 @@
 <script setup lang="ts">
 import type { AdminConfigForm } from "@/types/admin-config";
 
-import Input from "@/components/ui/input/Input.vue";
-import Button from "@/components/ui/button/Button.vue";
-
 const props = defineProps<{
   modelValue: AdminConfigForm;
   memoryBackendOptions: string[];
@@ -16,7 +13,10 @@ const emit = defineEmits<{
   save: [];
 }>();
 
-function updateField<Key extends keyof AdminConfigForm>(key: Key, value: AdminConfigForm[Key]): void {
+function _updateField<Key extends keyof AdminConfigForm>(
+  key: Key,
+  value: AdminConfigForm[Key]
+): void {
   emit("update:modelValue", {
     ...props.modelValue,
     [key]: value,

@@ -104,7 +104,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
         tracing::info!("Mission mode disabled; mission checkpoint supervisor not started");
     }
 
-    let updater_started = config.updates.enabled && !crate::update::is_update_check_disabled();
+    let updater_started = updater_supervision_enabled(&config);
     if updater_started {
         let update_cfg = config.clone();
         handles.push(spawn_component_supervisor(
@@ -113,7 +113,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
             max_backoff,
             move || {
                 let cfg = update_cfg.clone();
-                async move { crate::update::run_daemon_update_watcher(cfg).await }
+                async move { run_daemon_updater_component(cfg).await }
             },
         ));
     } else {
@@ -294,6 +294,53 @@ fn mission_checkpoint_supervision_enabled(config: &Config) -> bool {
     config.mission.enabled
 }
 
+fn updater_supervision_enabled(config: &Config) -> bool {
+    config.updates.enabled && !crate::update::is_update_check_disabled()
+}
+
+fn updater_check_interval(config: &Config) -> Duration {
+    Duration::from_secs(config.updates.check_interval_minutes.max(1) * 60)
+}
+
+fn should_emit_update_notification(
+    config: &Config,
+    status: &crate::update::UpdateStatusView,
+    last_notified_version: Option<&str>,
+) -> bool {
+    if !config.updates.enabled || !config.updates.channel_visibility_enabled {
+        return false;
+    }
+
+    if !status.update_available {
+        return false;
+    }
+
+    let Some(latest) = status.latest_version.as_deref() else {
+        return false;
+    };
+
+    last_notified_version != Some(latest)
+}
+
+async fn run_daemon_updater_component(config: Config) -> Result<()> {
+    if !config.updates.enabled || crate::update::is_update_check_disabled() {
+        return Ok(());
+    }
+
+    let mut last_notified_version: Option<String> = None;
+    let status = crate::update::run_update_check(&config, env!("CARGO_PKG_VERSION")).await?;
+    if should_emit_update_notification(&config, &status, last_notified_version.as_deref()) {
+        last_notified_version = status.latest_version.clone();
+        tracing::info!(
+            latest_version = ?last_notified_version,
+            "daemon updater canonical status indicates update notification"
+        );
+    }
+
+    let _interval = updater_check_interval(&config);
+    crate::update::run_daemon_update_watcher(config).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -434,5 +481,88 @@ mod tests {
 
         config.mission.enabled = true;
         assert!(mission_checkpoint_supervision_enabled(&config));
+    }
+
+    #[test]
+    fn updater_supervision_follows_update_policy() {
+        let mut config = Config::default();
+        config.updates.enabled = true;
+        assert!(updater_supervision_enabled(&config));
+
+        config.updates.enabled = false;
+        assert!(!updater_supervision_enabled(&config));
+    }
+
+    #[test]
+    fn updater_interval_uses_configured_minutes_with_floor() {
+        let mut config = Config::default();
+        config.updates.check_interval_minutes = 30;
+        assert_eq!(updater_check_interval(&config), Duration::from_secs(1800));
+
+        config.updates.check_interval_minutes = 0;
+        assert_eq!(updater_check_interval(&config), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn updater_notification_dedupes_by_latest_version() {
+        let config = Config::default();
+        let status = crate::update::UpdateStatusView {
+            current_version: "1.0.0".to_string(),
+            latest_version: Some("1.1.0".to_string()),
+            update_available: true,
+            last_check_at_unix: Some(1),
+            last_check_outcome: Some("success".to_string()),
+            effective_install_method: "unknown".to_string(),
+            detected_install_method: None,
+            install_method_source: "unknown".to_string(),
+            policy: crate::update::UpdatePolicyView {
+                checks_enabled: true,
+                auto_install_enabled: false,
+                channel_visibility_enabled: true,
+                cli_startup_notice_enabled: true,
+                restart_policy: "prompt".to_string(),
+            },
+        };
+
+        assert!(should_emit_update_notification(&config, &status, None));
+        assert!(!should_emit_update_notification(
+            &config,
+            &status,
+            Some("1.1.0"),
+        ));
+    }
+
+    #[test]
+    fn updater_notification_respects_visibility_policy() {
+        let mut config = Config::default();
+        config.updates.enabled = true;
+        config.updates.channel_visibility_enabled = false;
+        let status = crate::update::UpdateStatusView {
+            current_version: "1.0.0".to_string(),
+            latest_version: Some("1.1.0".to_string()),
+            update_available: true,
+            last_check_at_unix: Some(1),
+            last_check_outcome: Some("success".to_string()),
+            effective_install_method: "unknown".to_string(),
+            detected_install_method: None,
+            install_method_source: "unknown".to_string(),
+            policy: crate::update::UpdatePolicyView {
+                checks_enabled: true,
+                auto_install_enabled: false,
+                channel_visibility_enabled: false,
+                cli_startup_notice_enabled: true,
+                restart_policy: "prompt".to_string(),
+            },
+        };
+
+        assert!(!should_emit_update_notification(&config, &status, None));
+    }
+
+    #[tokio::test]
+    async fn daemon_updater_component_exits_cleanly_when_updates_disabled() {
+        let mut config = Config::default();
+        config.updates.enabled = false;
+        let result = run_daemon_updater_component(config).await;
+        assert!(result.is_ok());
     }
 }

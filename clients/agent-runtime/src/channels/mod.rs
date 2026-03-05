@@ -110,6 +110,10 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     }
 }
 
+fn update_visibility_enabled(config: &Config) -> bool {
+    config.updates.enabled && config.updates.channel_visibility_enabled
+}
+
 struct ResponseContext<'a> {
     channel: Option<&'a Arc<dyn Channel>>,
     reply_target: &'a str,
@@ -459,13 +463,15 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         format!("{memory_context}{}", msg.content)
     };
 
-    let _ = crate::update::maybe_send_opportunistic_update_notice(
-        ctx.config.as_ref(),
-        &msg,
-        target_channel.as_ref(),
-        env!("CARGO_PKG_VERSION"),
-    )
-    .await;
+    if update_visibility_enabled(ctx.config.as_ref()) {
+        let _ = crate::update::maybe_send_opportunistic_update_notice(
+            ctx.config.as_ref(),
+            &msg,
+            target_channel.as_ref(),
+            env!("CARGO_PKG_VERSION"),
+        )
+        .await;
+    }
 
     let session_id = channel_session_id(&msg);
 
@@ -3174,5 +3180,20 @@ mod tests {
         let sent_messages = channel_impl.sent_messages.lock().await;
         assert_eq!(sent_messages.len(), 1);
         assert!(!sent_messages[0].contains("request blocked"));
+    }
+
+    #[test]
+    fn update_visibility_gate_follows_policy_flags() {
+        let mut config = Config::default();
+        config.updates.enabled = true;
+        config.updates.channel_visibility_enabled = true;
+        assert!(update_visibility_enabled(&config));
+
+        config.updates.channel_visibility_enabled = false;
+        assert!(!update_visibility_enabled(&config));
+
+        config.updates.enabled = false;
+        config.updates.channel_visibility_enabled = true;
+        assert!(!update_visibility_enabled(&config));
     }
 }

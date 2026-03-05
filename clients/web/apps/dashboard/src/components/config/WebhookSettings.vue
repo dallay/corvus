@@ -1,10 +1,6 @@
 <script setup lang="ts">
 import { computed } from "vue";
-
 import type { AdminConfigForm } from "@/types/admin-config";
-
-import Button from "@/components/ui/button/Button.vue";
-import Input from "@/components/ui/input/Input.vue";
 
 const props = defineProps<{
   modelValue: AdminConfigForm;
@@ -18,20 +14,26 @@ const emit = defineEmits<{
 }>();
 
 const localError = computed(() => {
-  if (props.modelValue.webhook_secret_mode === "replace" && !props.modelValue.webhook_secret_value.trim()) {
+  if (
+    props.modelValue.webhook_secret_mode === "replace" &&
+    !props.modelValue.webhook_secret_value.trim()
+  ) {
     return "secret-required";
   }
   return "";
 });
 
-function updateField<Key extends keyof AdminConfigForm>(key: Key, value: AdminConfigForm[Key]): void {
+function _updateField<Key extends keyof AdminConfigForm>(
+  key: Key,
+  value: AdminConfigForm[Key]
+): void {
   emit("update:modelValue", {
     ...props.modelValue,
     [key]: value,
   });
 }
 
-function handleSave(): void {
+function _handleSave(): void {
   if (localError.value) {
     return;
   }
