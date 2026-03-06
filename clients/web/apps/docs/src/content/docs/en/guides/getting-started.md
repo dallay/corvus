@@ -53,6 +53,52 @@ make run
 make test
 ```
 
+## Interactive Onboarding and Dashboard Activation
+
+Run the interactive setup when you want guided first-run configuration:
+
+```bash
+corvus onboard --interactive
+```
+
+At the end of the wizard (after summary and any channel launch prompt), Corvus asks:
+
+- `Activate web dashboard now? (optional)`
+
+If you accept, Corvus prints a one-screen activation guide with canonical local defaults:
+
+- Gateway check URL: `http://127.0.0.1:3000`
+- Dashboard URL: `http://localhost:4324`
+- Pairing path: `/pair`
+
+If you decline, Corvus keeps the CLI-only path and prints a resume-later block with exact commands.
+
+## Troubleshooting and Resume Later
+
+When activation cannot complete immediately, Corvus prints deterministic diagnosis codes:
+
+- `DASH-001 GatewayNotRunning`
+- `DASH-002 GatewayRunningPairingRequired`
+- `DASH-003 GatewayRunningAlreadyPaired`
+- `DASH-004 DashboardUiUnavailable`
+- `DASH-999 UnknownLocalFailure`
+
+Use this safe, copy-paste resume flow anytime:
+
+```bash
+corvus status
+corvus gateway
+# from Corvus repository root (source checkout):
+make dashboard-dev
+# then open http://localhost:4324 and complete pairing at /pair
+```
+
+If you need command help:
+
+```bash
+corvus --help
+```
+
 ## Next Steps
 
 - Review [Project Structure](./structure/).
