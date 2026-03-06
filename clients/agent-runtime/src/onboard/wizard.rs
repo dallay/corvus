@@ -314,9 +314,8 @@ fn attempt_open_dashboard_ui() -> BrowserOpenResult {
 
     match command.status() {
         Ok(status) if status.success() => BrowserOpenResult::Opened,
-        Ok(_) => BrowserOpenResult::FailedNonFatal,
         Err(err) if err.kind() == ErrorKind::NotFound => BrowserOpenResult::Unsupported,
-        Err(_) => BrowserOpenResult::FailedNonFatal,
+        Ok(_) | Err(_) => BrowserOpenResult::FailedNonFatal,
     }
 }
 
