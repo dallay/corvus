@@ -17,6 +17,13 @@ Initialize your workspace and configuration.
 - `--provider <NAME>`: Provider name (default: openrouter).
 - `--memory <TYPE>`: Memory backend (sqlite, lucid, surreal-graphs, surreal, markdown, none).
 
+When using `--interactive`, the wizard now ends with an optional dashboard step:
+
+- Prompt: `Activate web dashboard now? (optional)`
+- Accept path: prints a compact activation guide, attempts optional browser open (non-fatal), and
+  reports deterministic `DASH-*` status output with fallback commands.
+- Decline path: preserves CLI-only completion and prints a resume-later command block.
+
 **Example:**
 
 ```bash
@@ -73,10 +80,37 @@ corvus gateway --port 3001
 
 Show full system status details.
 
+Includes a `Web dashboard (resume anytime)` section with safe resume commands:
+
+- `corvus gateway`
+- `make dashboard-dev`
+- `http://localhost:4324` + secure `/pair` flow
+- `corvus --help` for command help
+
 **Example:**
 
 ```bash
 corvus status
+```
+
+### Dashboard activation diagnosis codes
+
+When interactive onboarding dashboard activation is accepted, Corvus may emit one of these stable
+codes:
+
+- `DASH-001 GatewayNotRunning`
+- `DASH-002 GatewayRunningPairingRequired`
+- `DASH-003 GatewayRunningAlreadyPaired`
+- `DASH-004 DashboardUiUnavailable`
+- `DASH-999 UnknownLocalFailure`
+
+Use this secure manual fallback path when needed:
+
+```bash
+corvus status
+corvus doctor
+corvus gateway
+make dashboard-dev
 ```
 
 ### `doctor`

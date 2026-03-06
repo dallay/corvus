@@ -20,7 +20,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Duration;
 
 // ── Project context collected during wizard ──────────────────────
@@ -65,6 +67,411 @@ const COPILOT_DISCOVERY_HEADERS: [(&str, &str); 4] = [
     ("User-Agent", "GithubCopilot/1.155.0"),
     ("Accept", "application/json"),
 ];
+
+const DASHBOARD_ACTIVATION_PROMPT: &str = "Activate web dashboard now? (optional)";
+const DASHBOARD_GATEWAY_URL: &str = "http://127.0.0.1:3000";
+const DASHBOARD_UI_URL: &str = "http://localhost:4324";
+const DASHBOARD_DIAG_REQUEST_TIMEOUT_MS: u64 = 500;
+const DASHBOARD_DIAG_RETRY_DELAY_MS: u64 = 150;
+const DASHBOARD_DIAG_MAX_ATTEMPTS: usize = 2;
+const DASHBOARD_DIAG_MAX_BUDGET_MS: u64 = 1_500;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DashboardActivationDecision {
+    Accept,
+    Decline,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DashboardActivationStatus {
+    GatewayNotRunning,
+    GatewayRunningPairingRequired,
+    GatewayRunningAlreadyPaired,
+    DashboardUiUnavailable,
+    UnknownLocalFailure,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BrowserOpenResult {
+    Opened,
+    Unsupported,
+    FailedNonFatal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DashboardActivationResult {
+    status: DashboardActivationStatus,
+    browser_open_result: BrowserOpenResult,
+}
+
+impl DashboardActivationStatus {
+    fn code_and_label(self) -> &'static str {
+        match self {
+            Self::GatewayNotRunning => "DASH-001 GatewayNotRunning",
+            Self::GatewayRunningPairingRequired => "DASH-002 GatewayRunningPairingRequired",
+            Self::GatewayRunningAlreadyPaired => "DASH-003 GatewayRunningAlreadyPaired",
+            Self::DashboardUiUnavailable => "DASH-004 DashboardUiUnavailable",
+            Self::UnknownLocalFailure => "DASH-999 UnknownLocalFailure",
+        }
+    }
+
+    fn cause(self) -> &'static str {
+        match self {
+            Self::GatewayNotRunning => {
+                "Local gateway health probe did not succeed within bounded retries."
+            }
+            Self::GatewayRunningPairingRequired => {
+                "Local gateway health probe succeeded; continue in secure /pair flow."
+            }
+            Self::GatewayRunningAlreadyPaired => {
+                "Gateway reported available and already paired for this environment."
+            }
+            Self::DashboardUiUnavailable => {
+                "Dashboard UI could not be opened from this runtime environment."
+            }
+            Self::UnknownLocalFailure => {
+                "Local diagnostics encountered an unexpected error; use safe manual commands."
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GatewayProbeOutcome {
+    HealthyPaired,
+    HealthyUnpaired,
+    Unreachable,
+    ProbeError,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GatewayProbeAttempt {
+    HealthyPaired,
+    HealthyUnpaired,
+    RetryableFailure,
+    FatalError,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OnboardingPostSummaryStage {
+    PrintSummary,
+    OfferChannelLaunch,
+    OfferDashboardActivation,
+}
+
+fn onboarding_post_summary_stage_order(
+    has_channels: bool,
+    has_api_key: bool,
+) -> Vec<OnboardingPostSummaryStage> {
+    let mut stages = vec![OnboardingPostSummaryStage::PrintSummary];
+
+    if has_channels && has_api_key {
+        stages.push(OnboardingPostSummaryStage::OfferChannelLaunch);
+    }
+
+    stages.push(OnboardingPostSummaryStage::OfferDashboardActivation);
+    stages
+}
+
+fn prompt_dashboard_activation_decision() -> Result<DashboardActivationDecision> {
+    let activate = Confirm::new()
+        .with_prompt(format!(
+            "  {} {}",
+            style("🌐").cyan(),
+            DASHBOARD_ACTIVATION_PROMPT
+        ))
+        .default(false)
+        .interact()?;
+
+    Ok(if activate {
+        DashboardActivationDecision::Accept
+    } else {
+        DashboardActivationDecision::Decline
+    })
+}
+
+fn map_gateway_probe_to_status(outcome: GatewayProbeOutcome) -> DashboardActivationStatus {
+    match outcome {
+        GatewayProbeOutcome::HealthyPaired => {
+            DashboardActivationStatus::GatewayRunningAlreadyPaired
+        }
+        GatewayProbeOutcome::HealthyUnpaired => {
+            DashboardActivationStatus::GatewayRunningPairingRequired
+        }
+        GatewayProbeOutcome::Unreachable => DashboardActivationStatus::GatewayNotRunning,
+        GatewayProbeOutcome::ProbeError => DashboardActivationStatus::UnknownLocalFailure,
+    }
+}
+
+fn dashboard_diagnosis_budget_ms() -> u64 {
+    let request_budget = DASHBOARD_DIAG_REQUEST_TIMEOUT_MS * DASHBOARD_DIAG_MAX_ATTEMPTS as u64;
+    let retry_budget = DASHBOARD_DIAG_RETRY_DELAY_MS * (DASHBOARD_DIAG_MAX_ATTEMPTS as u64 - 1);
+    request_budget + retry_budget
+}
+
+fn run_gateway_probe_attempts<F, S>(mut attempt: F, mut sleep: S) -> GatewayProbeOutcome
+where
+    F: FnMut() -> GatewayProbeAttempt,
+    S: FnMut(Duration),
+{
+    for idx in 0..DASHBOARD_DIAG_MAX_ATTEMPTS {
+        match attempt() {
+            GatewayProbeAttempt::HealthyPaired => return GatewayProbeOutcome::HealthyPaired,
+            GatewayProbeAttempt::HealthyUnpaired => return GatewayProbeOutcome::HealthyUnpaired,
+            GatewayProbeAttempt::FatalError => return GatewayProbeOutcome::ProbeError,
+            GatewayProbeAttempt::RetryableFailure if idx + 1 < DASHBOARD_DIAG_MAX_ATTEMPTS => {
+                sleep(Duration::from_millis(DASHBOARD_DIAG_RETRY_DELAY_MS));
+            }
+            GatewayProbeAttempt::RetryableFailure => return GatewayProbeOutcome::Unreachable,
+        }
+    }
+
+    GatewayProbeOutcome::Unreachable
+}
+
+fn gateway_probe_attempt(
+    client: &reqwest::blocking::Client,
+    health_url: &str,
+) -> GatewayProbeAttempt {
+    let response = match client
+        .get(health_url)
+        .send()
+        .and_then(reqwest::blocking::Response::error_for_status)
+    {
+        Ok(response) => response,
+        Err(_) => return GatewayProbeAttempt::RetryableFailure,
+    };
+
+    let payload = match response.json::<Value>() {
+        Ok(payload) => payload,
+        Err(_) => return GatewayProbeAttempt::FatalError,
+    };
+
+    match payload.get("paired").and_then(Value::as_bool) {
+        Some(true) => GatewayProbeAttempt::HealthyPaired,
+        Some(false) => GatewayProbeAttempt::HealthyUnpaired,
+        None => GatewayProbeAttempt::FatalError,
+    }
+}
+
+fn probe_gateway_health_bounded() -> GatewayProbeOutcome {
+    if dashboard_diagnosis_budget_ms() > DASHBOARD_DIAG_MAX_BUDGET_MS {
+        return GatewayProbeOutcome::ProbeError;
+    }
+
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_millis(DASHBOARD_DIAG_REQUEST_TIMEOUT_MS))
+        .build()
+    {
+        Ok(client) => client,
+        Err(_) => return GatewayProbeOutcome::ProbeError,
+    };
+
+    let health_url = format!("{DASHBOARD_GATEWAY_URL}/health");
+
+    run_gateway_probe_attempts(
+        || gateway_probe_attempt(&client, &health_url),
+        std::thread::sleep,
+    )
+}
+
+fn diagnose_dashboard_activation(
+    probe_result: GatewayProbeOutcome,
+    browser_open_result: BrowserOpenResult,
+) -> DashboardActivationStatus {
+    match probe_result {
+        GatewayProbeOutcome::Unreachable => DashboardActivationStatus::GatewayNotRunning,
+        GatewayProbeOutcome::ProbeError => DashboardActivationStatus::UnknownLocalFailure,
+        GatewayProbeOutcome::HealthyPaired | GatewayProbeOutcome::HealthyUnpaired => {
+            if matches!(
+                browser_open_result,
+                BrowserOpenResult::Unsupported | BrowserOpenResult::FailedNonFatal
+            ) {
+                DashboardActivationStatus::DashboardUiUnavailable
+            } else {
+                map_gateway_probe_to_status(probe_result)
+            }
+        }
+    }
+}
+
+fn attempt_open_dashboard_ui() -> BrowserOpenResult {
+    let mut command = if cfg!(target_os = "macos") {
+        let mut command = Command::new("open");
+        command.arg(DASHBOARD_UI_URL);
+        command
+    } else if cfg!(target_os = "windows") {
+        let mut command = Command::new("cmd");
+        command.args(["/C", "start", "", DASHBOARD_UI_URL]);
+        command
+    } else if cfg!(target_os = "linux") {
+        let mut command = Command::new("xdg-open");
+        command.arg(DASHBOARD_UI_URL);
+        command
+    } else {
+        return BrowserOpenResult::Unsupported;
+    };
+
+    match command.status() {
+        Ok(status) if status.success() => BrowserOpenResult::Opened,
+        Ok(_) => BrowserOpenResult::FailedNonFatal,
+        Err(err) if err.kind() == ErrorKind::NotFound => BrowserOpenResult::Unsupported,
+        Err(_) => BrowserOpenResult::FailedNonFatal,
+    }
+}
+
+fn run_dashboard_activation() -> DashboardActivationResult {
+    let browser_open_result = attempt_open_dashboard_ui();
+    let gateway_probe = probe_gateway_health_bounded();
+    let status = diagnose_dashboard_activation(gateway_probe, browser_open_result);
+
+    DashboardActivationResult {
+        status,
+        browser_open_result,
+    }
+}
+
+fn dashboard_resume_later_output_lines() -> Vec<String> {
+    vec![
+        "1. Check status: corvus status".to_string(),
+        "2. Start gateway: corvus gateway".to_string(),
+        "3. Start dashboard UI: make dashboard-dev".to_string(),
+        format!("4. Open {DASHBOARD_UI_URL} and complete secure pairing at /pair."),
+        "5. Need command help: corvus --help".to_string(),
+    ]
+}
+
+fn dashboard_status_fallback_lines(status: DashboardActivationStatus) -> Vec<String> {
+    match status {
+        DashboardActivationStatus::GatewayNotRunning => vec![
+            "- Start gateway: corvus gateway".to_string(),
+            "- Start dashboard UI (if needed): make dashboard-dev".to_string(),
+            format!("- Open dashboard: {DASHBOARD_UI_URL}"),
+        ],
+        DashboardActivationStatus::GatewayRunningPairingRequired => vec![
+            format!("- Open dashboard: {DASHBOARD_UI_URL}"),
+            "- Complete secure pairing using the /pair flow.".to_string(),
+        ],
+        DashboardActivationStatus::GatewayRunningAlreadyPaired => {
+            vec![
+                format!("- Open dashboard: {DASHBOARD_UI_URL}"),
+                "- Continue to dashboard configuration view.".to_string(),
+            ]
+        }
+        DashboardActivationStatus::DashboardUiUnavailable => vec![
+            "- Start dashboard UI: make dashboard-dev".to_string(),
+            format!("- Then open: {DASHBOARD_UI_URL}"),
+        ],
+        DashboardActivationStatus::UnknownLocalFailure => vec![
+            "- Check status: corvus status".to_string(),
+            "- Run diagnostics: corvus doctor".to_string(),
+            "- Start gateway: corvus gateway".to_string(),
+            "- Start dashboard UI: make dashboard-dev".to_string(),
+        ],
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DashboardActivationOutput {
+    guide_lines: Vec<String>,
+    detail_lines: Vec<String>,
+}
+
+fn browser_open_result_line(browser_open_result: BrowserOpenResult) -> String {
+    match browser_open_result {
+        BrowserOpenResult::Opened => format!("Browser open: launched {DASHBOARD_UI_URL}."),
+        BrowserOpenResult::Unsupported => {
+            format!("Browser open: unsupported in this runtime; open {DASHBOARD_UI_URL} manually.")
+        }
+        BrowserOpenResult::FailedNonFatal => {
+            format!("Browser open: failed non-fatally; open {DASHBOARD_UI_URL} manually.")
+        }
+    }
+}
+
+fn render_dashboard_activation_output(
+    decision: DashboardActivationDecision,
+    status: DashboardActivationStatus,
+    browser_open_result: BrowserOpenResult,
+) -> DashboardActivationOutput {
+    if decision == DashboardActivationDecision::Decline {
+        return DashboardActivationOutput {
+            guide_lines: Vec::new(),
+            detail_lines: dashboard_resume_later_output_lines(),
+        };
+    }
+
+    let guide_lines = vec![
+        format!("1. Verify gateway is reachable at {DASHBOARD_GATEWAY_URL}."),
+        format!("2. Open dashboard UI at {DASHBOARD_UI_URL}."),
+        "3. Complete secure pairing via /pair when prompted.".to_string(),
+        "4. If dashboard UI is not running, start it with: make dashboard-dev".to_string(),
+    ];
+
+    let mut detail_lines = vec![browser_open_result_line(browser_open_result)];
+    detail_lines.push(format!(
+        "Dashboard activation status: {}",
+        status.code_and_label()
+    ));
+    detail_lines.push(format!("Cause: {}", status.cause()));
+    detail_lines.push("Fallback commands:".to_string());
+    detail_lines.extend(dashboard_status_fallback_lines(status));
+    detail_lines.push("Resume later:".to_string());
+    detail_lines.extend(dashboard_resume_later_output_lines());
+
+    DashboardActivationOutput {
+        guide_lines,
+        detail_lines,
+    }
+}
+
+fn dashboard_activation_output_lines_for_result(
+    decision: DashboardActivationDecision,
+    activation_result: DashboardActivationResult,
+) -> Vec<String> {
+    let output = render_dashboard_activation_output(
+        decision,
+        activation_result.status,
+        activation_result.browser_open_result,
+    );
+
+    if output.guide_lines.is_empty() {
+        return output.detail_lines;
+    }
+
+    let mut lines = output.guide_lines;
+    lines.extend(output.detail_lines);
+    lines
+}
+
+fn dashboard_activation_output_lines(decision: DashboardActivationDecision) -> Vec<String> {
+    match decision {
+        DashboardActivationDecision::Decline => dashboard_resume_later_output_lines(),
+        DashboardActivationDecision::Accept => {
+            let activation_result = run_dashboard_activation();
+            dashboard_activation_output_lines_for_result(decision, activation_result)
+        }
+    }
+}
+
+fn print_dashboard_activation_output(decision: DashboardActivationDecision) {
+    let lines = dashboard_activation_output_lines(decision);
+    if lines.is_empty() {
+        return;
+    }
+
+    println!();
+    let heading = match decision {
+        DashboardActivationDecision::Accept => "Web dashboard activation (optional):",
+        DashboardActivationDecision::Decline => "Resume web dashboard later:",
+    };
+
+    println!("  {}", style(heading).white().bold());
+    for line in lines {
+        println!("    {line}");
+    }
+    println!();
+}
 
 #[derive(Debug, Deserialize)]
 struct CopilotApiEndpoints {
@@ -193,7 +600,10 @@ pub fn run_wizard() -> Result<Config> {
         || config.channels_config.dingtalk.is_some()
         || config.channels_config.qq.is_some();
 
-    if has_channels && config.api_key.is_some() {
+    let post_summary_stages =
+        onboarding_post_summary_stage_order(has_channels, config.api_key.is_some());
+
+    if post_summary_stages.contains(&OnboardingPostSummaryStage::OfferChannelLaunch) {
         let launch: bool = Confirm::new()
             .with_prompt(format!(
                 "  {} Launch channels now? (connected channels → AI → reply)",
@@ -213,6 +623,11 @@ pub fn run_wizard() -> Result<Config> {
             // Signal to main.rs to call start_channels after wizard returns
             std::env::set_var("CORVUS_AUTOSTART_CHANNELS", "1");
         }
+    }
+
+    if post_summary_stages.contains(&OnboardingPostSummaryStage::OfferDashboardActivation) {
+        let dashboard_activation = prompt_dashboard_activation_decision()?;
+        print_dashboard_activation_output(dashboard_activation);
     }
 
     Ok(config)
@@ -4643,6 +5058,332 @@ mod tests {
     }
 
     // ── ProjectContext defaults ──────────────────────────────────
+
+    #[test]
+    fn post_summary_stage_order_keeps_existing_order_before_dashboard_prompt() {
+        let with_channel_launch = onboarding_post_summary_stage_order(true, true);
+        assert_eq!(
+            with_channel_launch,
+            vec![
+                OnboardingPostSummaryStage::PrintSummary,
+                OnboardingPostSummaryStage::OfferChannelLaunch,
+                OnboardingPostSummaryStage::OfferDashboardActivation,
+            ]
+        );
+
+        let without_channel_launch = onboarding_post_summary_stage_order(true, false);
+        assert_eq!(
+            without_channel_launch,
+            vec![
+                OnboardingPostSummaryStage::PrintSummary,
+                OnboardingPostSummaryStage::OfferDashboardActivation,
+            ]
+        );
+    }
+
+    #[test]
+    fn dashboard_decline_branch_keeps_cli_only_output_by_default() {
+        let lines = dashboard_activation_output_lines(DashboardActivationDecision::Decline);
+        assert_eq!(lines, dashboard_resume_later_output_lines());
+        assert!(lines.iter().any(|line| line.contains("corvus status")));
+        assert!(lines.iter().any(|line| line.contains("corvus gateway")));
+        assert!(lines.iter().any(|line| line.contains("make dashboard-dev")));
+        assert!(lines.iter().any(|line| line.contains(DASHBOARD_UI_URL)));
+    }
+
+    #[test]
+    fn dashboard_prompt_wording_is_explicitly_optional() {
+        assert!(DASHBOARD_ACTIVATION_PROMPT
+            .to_ascii_lowercase()
+            .contains("optional"));
+    }
+
+    #[test]
+    fn dashboard_activation_status_codes_remain_stable() {
+        assert_eq!(
+            DashboardActivationStatus::GatewayNotRunning.code_and_label(),
+            "DASH-001 GatewayNotRunning"
+        );
+        assert_eq!(
+            DashboardActivationStatus::GatewayRunningPairingRequired.code_and_label(),
+            "DASH-002 GatewayRunningPairingRequired"
+        );
+        assert_eq!(
+            DashboardActivationStatus::GatewayRunningAlreadyPaired.code_and_label(),
+            "DASH-003 GatewayRunningAlreadyPaired"
+        );
+        assert_eq!(
+            DashboardActivationStatus::DashboardUiUnavailable.code_and_label(),
+            "DASH-004 DashboardUiUnavailable"
+        );
+        assert_eq!(
+            DashboardActivationStatus::UnknownLocalFailure.code_and_label(),
+            "DASH-999 UnknownLocalFailure"
+        );
+    }
+
+    #[test]
+    fn dashboard_probe_mapping_is_deterministic() {
+        assert_eq!(
+            map_gateway_probe_to_status(GatewayProbeOutcome::HealthyUnpaired),
+            DashboardActivationStatus::GatewayRunningPairingRequired
+        );
+        assert_eq!(
+            map_gateway_probe_to_status(GatewayProbeOutcome::HealthyPaired),
+            DashboardActivationStatus::GatewayRunningAlreadyPaired
+        );
+        assert_eq!(
+            map_gateway_probe_to_status(GatewayProbeOutcome::Unreachable),
+            DashboardActivationStatus::GatewayNotRunning
+        );
+        assert_eq!(
+            map_gateway_probe_to_status(GatewayProbeOutcome::ProbeError),
+            DashboardActivationStatus::UnknownLocalFailure
+        );
+    }
+
+    #[test]
+    fn dashboard_resume_and_fallback_output_never_contains_tokens() {
+        let mut lines = dashboard_resume_later_output_lines();
+        lines.extend(dashboard_status_fallback_lines(
+            DashboardActivationStatus::UnknownLocalFailure,
+        ));
+        let combined = lines.join("\n").to_ascii_lowercase();
+
+        assert!(!combined.contains("bearer "));
+        assert!(!combined.contains("authorization:"));
+        assert!(!combined.contains("token="));
+        assert!(!combined.contains("/web/admin/"));
+    }
+
+    #[test]
+    fn dashboard_render_output_never_contains_sensitive_or_insecure_tokens() {
+        let statuses = [
+            DashboardActivationStatus::GatewayNotRunning,
+            DashboardActivationStatus::GatewayRunningPairingRequired,
+            DashboardActivationStatus::GatewayRunningAlreadyPaired,
+            DashboardActivationStatus::DashboardUiUnavailable,
+            DashboardActivationStatus::UnknownLocalFailure,
+        ];
+        let browser_results = [
+            BrowserOpenResult::Opened,
+            BrowserOpenResult::Unsupported,
+            BrowserOpenResult::FailedNonFatal,
+        ];
+
+        for status in statuses {
+            for browser_open_result in browser_results {
+                let output = render_dashboard_activation_output(
+                    DashboardActivationDecision::Accept,
+                    status,
+                    browser_open_result,
+                );
+                let combined = output
+                    .guide_lines
+                    .iter()
+                    .chain(output.detail_lines.iter())
+                    .map(|line| line.to_ascii_lowercase())
+                    .collect::<Vec<String>>()
+                    .join("\n");
+
+                assert!(!combined.contains("bearer "));
+                assert!(!combined.contains("authorization:"));
+                assert!(!combined.contains("token="));
+                assert!(!combined.contains("token_hash"));
+                assert!(!combined.contains("/web/admin/"));
+            }
+        }
+    }
+
+    #[test]
+    fn dashboard_accept_path_guide_is_compact_and_uses_canonical_urls() {
+        let output = render_dashboard_activation_output(
+            DashboardActivationDecision::Accept,
+            DashboardActivationStatus::GatewayRunningPairingRequired,
+            BrowserOpenResult::Unsupported,
+        );
+
+        assert_eq!(output.guide_lines.len(), 4);
+        assert!(output
+            .guide_lines
+            .iter()
+            .any(|line| line.contains(DASHBOARD_GATEWAY_URL)));
+        assert!(output
+            .guide_lines
+            .iter()
+            .any(|line| line.contains(DASHBOARD_UI_URL)));
+        assert!(output.guide_lines.iter().any(|line| line.contains("/pair")));
+    }
+
+    #[test]
+    fn dashboard_accept_path_always_contains_resume_commands() {
+        let output = dashboard_activation_output_lines_for_result(
+            DashboardActivationDecision::Accept,
+            DashboardActivationResult {
+                status: DashboardActivationStatus::GatewayRunningAlreadyPaired,
+                browser_open_result: BrowserOpenResult::Opened,
+            },
+        );
+        let combined = output.join("\n");
+
+        assert!(combined.contains("Resume later:"));
+        assert!(combined.contains("corvus status"));
+        assert!(combined.contains("corvus gateway"));
+        assert!(combined.contains("make dashboard-dev"));
+        assert!(combined.contains(DASHBOARD_UI_URL));
+        assert!(combined.contains("corvus --help"));
+    }
+
+    #[test]
+    fn dashboard_diagnosis_output_shape_is_stable() {
+        let output = dashboard_activation_output_lines_for_result(
+            DashboardActivationDecision::Accept,
+            DashboardActivationResult {
+                status: DashboardActivationStatus::GatewayRunningPairingRequired,
+                browser_open_result: BrowserOpenResult::Opened,
+            },
+        );
+
+        let status_lines = output
+            .iter()
+            .filter(|line| line.starts_with("Dashboard activation status:"))
+            .count();
+        let cause_lines = output
+            .iter()
+            .filter(|line| line.starts_with("Cause:"))
+            .count();
+        let fallback_headers = output
+            .iter()
+            .filter(|line| line.as_str() == "Fallback commands:")
+            .count();
+
+        assert_eq!(status_lines, 1);
+        assert_eq!(cause_lines, 1);
+        assert_eq!(fallback_headers, 1);
+    }
+
+    #[test]
+    fn dashboard_resume_block_includes_status_and_help_integration() {
+        let lines = dashboard_resume_later_output_lines();
+        let combined = lines.join("\n");
+
+        assert!(combined.contains("corvus status"));
+        assert!(combined.contains("corvus gateway"));
+        assert!(combined.contains("make dashboard-dev"));
+        assert!(combined.contains("corvus --help"));
+    }
+
+    #[test]
+    fn dashboard_browser_open_fallback_is_non_fatal_and_deterministic() {
+        assert_eq!(
+            diagnose_dashboard_activation(
+                GatewayProbeOutcome::HealthyPaired,
+                BrowserOpenResult::Opened,
+            ),
+            DashboardActivationStatus::GatewayRunningAlreadyPaired
+        );
+        assert_eq!(
+            diagnose_dashboard_activation(
+                GatewayProbeOutcome::HealthyUnpaired,
+                BrowserOpenResult::Opened,
+            ),
+            DashboardActivationStatus::GatewayRunningPairingRequired
+        );
+        assert_eq!(
+            diagnose_dashboard_activation(
+                GatewayProbeOutcome::HealthyPaired,
+                BrowserOpenResult::Unsupported,
+            ),
+            DashboardActivationStatus::DashboardUiUnavailable
+        );
+        assert_eq!(
+            diagnose_dashboard_activation(
+                GatewayProbeOutcome::HealthyUnpaired,
+                BrowserOpenResult::FailedNonFatal,
+            ),
+            DashboardActivationStatus::DashboardUiUnavailable
+        );
+    }
+
+    #[test]
+    fn dashboard_status_fallback_commands_match_secure_mapping() {
+        let not_running =
+            dashboard_status_fallback_lines(DashboardActivationStatus::GatewayNotRunning);
+        assert!(not_running
+            .iter()
+            .any(|line| line.contains("corvus gateway")));
+        assert!(not_running
+            .iter()
+            .any(|line| line.contains("make dashboard-dev")));
+
+        let pairing_required = dashboard_status_fallback_lines(
+            DashboardActivationStatus::GatewayRunningPairingRequired,
+        );
+        assert!(pairing_required.iter().any(|line| line.contains("/pair")));
+
+        let already_paired =
+            dashboard_status_fallback_lines(DashboardActivationStatus::GatewayRunningAlreadyPaired);
+        assert!(already_paired
+            .iter()
+            .any(|line| line.contains("dashboard configuration")));
+
+        let unknown =
+            dashboard_status_fallback_lines(DashboardActivationStatus::UnknownLocalFailure);
+        assert!(unknown.iter().any(|line| line.contains("corvus doctor")));
+    }
+
+    #[test]
+    fn dashboard_probe_runner_is_bounded_and_retries_once() {
+        let mut attempts = 0usize;
+        let mut sleeps = 0usize;
+        let outcome = run_gateway_probe_attempts(
+            || {
+                attempts += 1;
+                GatewayProbeAttempt::RetryableFailure
+            },
+            |_| {
+                sleeps += 1;
+            },
+        );
+
+        assert_eq!(outcome, GatewayProbeOutcome::Unreachable);
+        assert_eq!(attempts, DASHBOARD_DIAG_MAX_ATTEMPTS);
+        assert_eq!(sleeps, DASHBOARD_DIAG_MAX_ATTEMPTS - 1);
+    }
+
+    #[test]
+    fn dashboard_probe_runner_stops_after_success() {
+        let mut attempt_index = 0usize;
+        let mut sleeps = 0usize;
+        let outcome = run_gateway_probe_attempts(
+            || {
+                attempt_index += 1;
+                if attempt_index == 1 {
+                    GatewayProbeAttempt::RetryableFailure
+                } else {
+                    GatewayProbeAttempt::HealthyUnpaired
+                }
+            },
+            |_| {
+                sleeps += 1;
+            },
+        );
+
+        assert_eq!(outcome, GatewayProbeOutcome::HealthyUnpaired);
+        assert_eq!(attempt_index, 2);
+        assert_eq!(sleeps, 1);
+    }
+
+    #[test]
+    fn dashboard_diagnosis_budget_stays_within_design_limit() {
+        assert!(dashboard_diagnosis_budget_ms() <= 1_500);
+    }
+
+    #[test]
+    fn gateway_require_pairing_default_remains_enabled() {
+        let gateway = crate::config::GatewayConfig::default();
+        assert!(gateway.require_pairing);
+    }
 
     #[test]
     fn project_context_default_is_empty() {

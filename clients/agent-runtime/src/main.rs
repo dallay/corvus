@@ -979,6 +979,15 @@ async fn handle_daemon_command(
     daemon::run(config, host, port).await
 }
 
+fn dashboard_resume_status_lines() -> [&'static str; 4] {
+    [
+        "Start gateway: corvus gateway",
+        "Start dashboard UI: make dashboard-dev",
+        "Open http://localhost:4324 and pair via /pair",
+        "Need command help: corvus --help",
+    ]
+}
+
 async fn handle_status_command(config: Config) -> Result<()> {
     maybe_print_update_notice_bounded(&config).await;
     println!("🦀 Corvus Status");
@@ -1056,6 +1065,12 @@ async fn handle_status_command(config: Config) -> Result<()> {
         }
     );
     println!("  Boards:    {}", config.peripherals.boards.len());
+
+    println!();
+    println!("Web dashboard (resume anytime):");
+    for line in dashboard_resume_status_lines() {
+        println!("  - {line}");
+    }
 
     Ok(())
 }
@@ -1717,6 +1732,21 @@ mod tests {
                 crate::agent::unified_loop::LoopEvent::Complete(message) if message == "done"
             )
         }));
+    }
+
+    #[test]
+    fn dashboard_resume_status_lines_include_help_and_secure_pairing_path() {
+        let lines = dashboard_resume_status_lines();
+        let combined = lines.join("\n").to_ascii_lowercase();
+
+        assert!(combined.contains("corvus gateway"));
+        assert!(combined.contains("make dashboard-dev"));
+        assert!(combined.contains("localhost:4324"));
+        assert!(combined.contains("/pair"));
+        assert!(combined.contains("corvus --help"));
+        assert!(!combined.contains("bearer "));
+        assert!(!combined.contains("authorization:"));
+        assert!(!combined.contains("/web/admin/"));
     }
 
     #[test]
