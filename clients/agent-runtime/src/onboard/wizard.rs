@@ -96,6 +96,7 @@ enum BrowserOpenResult {
     Opened,
     Unsupported,
     FailedNonFatal,
+    Skipped,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -320,8 +321,15 @@ fn attempt_open_dashboard_ui() -> BrowserOpenResult {
 }
 
 fn run_dashboard_activation() -> DashboardActivationResult {
-    let browser_open_result = attempt_open_dashboard_ui();
     let gateway_probe = probe_gateway_health_bounded();
+    let browser_open_result = if matches!(
+        gateway_probe,
+        GatewayProbeOutcome::HealthyPaired | GatewayProbeOutcome::HealthyUnpaired
+    ) {
+        attempt_open_dashboard_ui()
+    } else {
+        BrowserOpenResult::Skipped
+    };
     let status = diagnose_dashboard_activation(gateway_probe, browser_open_result);
 
     DashboardActivationResult {
@@ -334,7 +342,7 @@ fn dashboard_resume_later_output_lines() -> Vec<String> {
     vec![
         "1. Check status: corvus status".to_string(),
         "2. Start gateway: corvus gateway".to_string(),
-        "3. Start dashboard UI: make dashboard-dev".to_string(),
+        "3. Start dashboard UI (from repository root): make dashboard-dev".to_string(),
         format!("4. Open {DASHBOARD_UI_URL} and complete secure pairing at /pair."),
         "5. Need command help: corvus --help".to_string(),
     ]
@@ -344,7 +352,7 @@ fn dashboard_status_fallback_lines(status: DashboardActivationStatus) -> Vec<Str
     match status {
         DashboardActivationStatus::GatewayNotRunning => vec![
             "- Start gateway: corvus gateway".to_string(),
-            "- Start dashboard UI (if needed): make dashboard-dev".to_string(),
+            "- Start dashboard UI from repository root (if needed): make dashboard-dev".to_string(),
             format!("- Open dashboard: {DASHBOARD_UI_URL}"),
         ],
         DashboardActivationStatus::GatewayRunningPairingRequired => vec![
@@ -358,14 +366,14 @@ fn dashboard_status_fallback_lines(status: DashboardActivationStatus) -> Vec<Str
             ]
         }
         DashboardActivationStatus::DashboardUiUnavailable => vec![
-            "- Start dashboard UI: make dashboard-dev".to_string(),
+            "- Start dashboard UI from repository root: make dashboard-dev".to_string(),
             format!("- Then open: {DASHBOARD_UI_URL}"),
         ],
         DashboardActivationStatus::UnknownLocalFailure => vec![
             "- Check status: corvus status".to_string(),
             "- Run diagnostics: corvus doctor".to_string(),
             "- Start gateway: corvus gateway".to_string(),
-            "- Start dashboard UI: make dashboard-dev".to_string(),
+            "- Start dashboard UI from repository root: make dashboard-dev".to_string(),
         ],
     }
 }
@@ -384,6 +392,9 @@ fn browser_open_result_line(browser_open_result: BrowserOpenResult) -> String {
         }
         BrowserOpenResult::FailedNonFatal => {
             format!("Browser open: failed non-fatally; open {DASHBOARD_UI_URL} manually.")
+        }
+        BrowserOpenResult::Skipped => {
+            "Browser open: skipped because gateway was not healthy yet.".to_string()
         }
     }
 }
@@ -404,7 +415,8 @@ fn render_dashboard_activation_output(
         format!("1. Verify gateway is reachable at {DASHBOARD_GATEWAY_URL}."),
         format!("2. Open dashboard UI at {DASHBOARD_UI_URL}."),
         "3. Complete secure pairing via /pair when prompted.".to_string(),
-        "4. If dashboard UI is not running, start it with: make dashboard-dev".to_string(),
+        "4. If dashboard UI is not running, start it from repository root with: make dashboard-dev"
+            .to_string(),
     ];
 
     let mut detail_lines = vec![browser_open_result_line(browser_open_result)];
@@ -5168,6 +5180,7 @@ mod tests {
             BrowserOpenResult::Opened,
             BrowserOpenResult::Unsupported,
             BrowserOpenResult::FailedNonFatal,
+            BrowserOpenResult::Skipped,
         ];
 
         for status in statuses {

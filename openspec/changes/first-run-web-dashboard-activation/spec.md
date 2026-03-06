@@ -181,8 +181,9 @@ through the same secure path.
 
 1. Should resume guidance include a dedicated future command alias (for example
    `corvus dashboard resume`) or only existing commands in this change?
-2. Should optional browser-open target the dashboard UI URL, gateway URL, or both in sequence?
-3. Which exact timeout values define "bounded" diagnosis checks for deterministic behavior across
-   slower local environments?
+2. Resolved in implementation Phase 3.2: optional browser-open targets dashboard UI URL
+   (`http://localhost:4324`) only.
+3. Resolved in implementation Phase 4.1: bounded diagnosis uses 500 ms request timeout, one retry,
+   and <= 1.5 s total budget.
 4. Should deterministic diagnosis be exposed only in onboarding output, or also reusable by a future
    standalone command?

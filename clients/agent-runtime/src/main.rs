@@ -982,7 +982,7 @@ async fn handle_daemon_command(
 fn dashboard_resume_status_lines() -> [&'static str; 4] {
     [
         "Start gateway: corvus gateway",
-        "Start dashboard UI: make dashboard-dev",
+        "Start dashboard UI (from repository root): make dashboard-dev",
         "Open http://localhost:4324 and pair via /pair",
         "Need command help: corvus --help",
     ]

@@ -27,6 +27,10 @@ Completed (Phase 6 handoff gate passed).
 
 ## Tests run
 
+- `cargo fmt --all -- --check`
+  - Passed: formatting check clean for `clients/agent-runtime`.
+- `cargo clippy --all-targets -- -D warnings`
+  - Passed: lint check clean for `clients/agent-runtime`.
 - `cargo test dashboard_`
   - Passed: 16 dashboard onboarding tests in `src/lib.rs` and 17 in `src/main.rs` (all green).
 - `cargo test dashboard_resume_status_lines_include_help_and_secure_pairing_path`

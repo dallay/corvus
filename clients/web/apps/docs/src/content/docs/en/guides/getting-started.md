@@ -88,6 +88,7 @@ Use this safe, copy-paste resume flow anytime:
 ```bash
 corvus status
 corvus gateway
+# from Corvus repository root (source checkout):
 make dashboard-dev
 # then open http://localhost:4324 and complete pairing at /pair
 ```

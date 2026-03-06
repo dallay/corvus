@@ -64,9 +64,9 @@ Control flow:
   - Gateway URL/API base (`http://127.0.0.1:3000`)
   - Pairing instruction through existing `/pair` UI flow
   - Optional browser open attempt (non-fatal)
-2. Run bounded local diagnosis checks (below).
-3. Print diagnosed state and exact fallback command block.
-4. Always print resume-later block.
+1. Run bounded local diagnosis checks (below).
+2. Print diagnosed state and exact fallback command block.
+3. Always print resume-later block.
 
 Bounded checks (deterministic order):
 
