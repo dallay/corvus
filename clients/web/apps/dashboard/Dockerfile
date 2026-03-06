@@ -12,14 +12,16 @@ COPY packages/locales/package.json ./packages/locales/package.json
 COPY packages/shared/package.json ./packages/shared/package.json
 COPY packages/ui/package.json ./packages/ui/package.json
 
-RUN pnpm install --frozen-lockfile --node-linker=hoisted
+RUN pnpm install --frozen-lockfile --node-linker=hoisted --ignore-scripts
 
 COPY apps/dashboard ./apps/dashboard
 COPY packages/locales ./packages/locales
 COPY packages/shared ./packages/shared
 COPY packages/ui ./packages/ui
 
-RUN cd apps/dashboard && ../../node_modules/.bin/vite build
+WORKDIR /app/apps/dashboard
+
+RUN ../../node_modules/.bin/vite build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 

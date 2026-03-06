@@ -27,14 +27,14 @@ function extractPlaceholders(text: string): string[] {
   let start = -1;
 
   for (let index = 0; index < text.length; index += 1) {
-    const charCode = text.charCodeAt(index);
+    const codePoint = text.codePointAt(index);
 
-    if (charCode === 123) {
+    if (codePoint === 123) {
       start = index;
       continue;
     }
 
-    if (charCode === 125 && start >= 0) {
+    if (codePoint === 125 && start >= 0) {
       if (index - start > 1) {
         placeholders.push(text.slice(start, index + 1));
       }
@@ -42,7 +42,7 @@ function extractPlaceholders(text: string): string[] {
     }
   }
 
-  return placeholders.sort();
+  return placeholders.sort((left, right) => left.localeCompare(right));
 }
 
 describe("Locale Parity Guard", () => {
@@ -50,15 +50,15 @@ describe("Locale Parity Guard", () => {
   const flattenedEn = flatten(en);
 
   it("has identical sets of keys between Spanish and English", () => {
-    const esKeys = Object.keys(flattenedEs).sort();
-    const enKeys = Object.keys(flattenedEn).sort();
+    const esKeys = Object.keys(flattenedEs).sort((left, right) => left.localeCompare(right));
+    const enKeys = Object.keys(flattenedEn).sort((left, right) => left.localeCompare(right));
 
     expect(esKeys).toEqual(enKeys);
   });
 
   it("has matching placeholders for all shared keys", () => {
     for (const key of Object.keys(flattenedEs)) {
-      if (Object.prototype.hasOwnProperty.call(flattenedEn, key)) {
+      if (Object.hasOwn(flattenedEn, key)) {
         const esPlaceholders = extractPlaceholders(flattenedEs[key]);
         const enPlaceholders = extractPlaceholders(flattenedEn[key]);
 
