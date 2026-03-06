@@ -56,23 +56,17 @@ val PluginAware.sharedGradle: Gradle
  * [service_injection](https://docs.gradle.org/nightly/userguide/service_injection.html)
  */
 interface Injected {
-  @get:Inject
-  val providers: ProviderFactory
+  @get:Inject val providers: ProviderFactory
 
-  @get:Inject
-  val objects: ObjectFactory
+  @get:Inject val objects: ObjectFactory
 
-  @get:Inject
-  val layout: ProjectLayout
+  @get:Inject val layout: ProjectLayout
 
-  @get:Inject
-  val archives: ArchiveOperations
+  @get:Inject val archives: ArchiveOperations
 
-  @get:Inject
-  val files: FileOperations
+  @get:Inject val files: FileOperations
 
-  @get:Inject
-  val exec: ExecOperations
+  @get:Inject val exec: ExecOperations
 }
 
 val Project.injected
