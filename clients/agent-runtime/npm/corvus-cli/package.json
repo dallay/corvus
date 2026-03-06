@@ -1,6 +1,6 @@
 {
   "name": "@dallay/corvus",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Corvus runtime CLI wrapper for npm/pnpm/yarn/bun and npx",
   "license": "Apache-2.0",
   "repository": {
