@@ -6,6 +6,15 @@ const https = require('node:https');
 const BIN_DIR = path.join(__dirname, '..', 'bin', 'native');
 const MAX_REDIRECTS = 5;
 
+function parseUrl(input, contextLabel) {
+  try {
+    return new URL(input);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid ${contextLabel}: ${input} (${message})`);
+  }
+}
+
 function getAssetName() {
   const platform = process.platform;
   const arch = process.arch;
@@ -34,12 +43,7 @@ function getDownloadUrl(assetName) {
   const baseValue = baseOverride
     ?? 'https://github.com/dallay/corvus/releases/download';
 
-  let baseUrl;
-  try {
-    baseUrl = new URL(baseValue);
-  } catch (error) {
-    throw new Error(`Invalid CORVUS_NPM_RELEASE_BASE URL: ${baseValue}`);
-  }
+  const baseUrl = parseUrl(baseValue, 'CORVUS_NPM_RELEASE_BASE URL');
 
   if (!['https:', 'http:'].includes(baseUrl.protocol)) {
     throw new Error(`Unsupported download URL protocol: ${baseUrl.protocol}`);
@@ -71,13 +75,7 @@ function downloadAsset(url, outPath, redirectCount = 0) {
       return;
     }
 
-    let parsedUrl;
-    try {
-      parsedUrl = new URL(url);
-    } catch (error) {
-      reject(new Error(`Invalid download URL: ${url}`));
-      return;
-    }
+    const parsedUrl = parseUrl(url, 'download URL');
 
     const client = parsedUrl.protocol === 'http:' ? http : https;
     const timeoutMs = 20_000;
@@ -125,19 +123,23 @@ function downloadAsset(url, outPath, redirectCount = 0) {
         return;
       }
 
+      const handleFileClose = (closeError) => {
+        request.setTimeout(0);
+        if (closeError) {
+          finalize(closeError);
+          return;
+        }
+        const completedPath = outPath;
+        file = null;
+        finalize(null, completedPath);
+      };
+
+      const handleFileFinish = () => {
+        file.close(handleFileClose);
+      };
+
       file = fs.createWriteStream(outPath, { mode: 0o755 });
-      file.on('finish', () => {
-        file.close((closeError) => {
-          request.setTimeout(0);
-          if (closeError) {
-            finalize(closeError);
-            return;
-          }
-          const completedPath = outPath;
-          file = null;
-          finalize(null, completedPath);
-        });
-      });
+      file.on('finish', handleFileFinish);
 
       file.on('error', (error) => {
         request.setTimeout(0);

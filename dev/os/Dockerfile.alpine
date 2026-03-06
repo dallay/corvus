@@ -17,44 +17,42 @@ FROM alpine:3.20
 # Base System - Essential Tools
 # ═══════════════════════════════════════════════════════════════════════════════
 RUN apk add --no-cache \
-    # Core utilities for agent operations
-    curl \
-    wget \
-    git \
-    vim \
-    nano \
-    unzip \
-    zip \
-    tar \
-    gzip \
-    # Build tools (for compiling dependencies)
-    build-base \
-    pkgconf \
-    # SSL/TLS support
-    ca-certificates \
-    openssl \
-    # Network utilities
-    iputils \
-    bind-tools \
-    net-tools \
-    # Process and system info
-    procps \
-    htop \
-    # Text processing (gawk provides awk in Alpine)
-    grep \
-    sed \
-    gawk \
-    findutils \
-    # Compression utilities
-    bzip2 \
-    xz \
     bash-completion \
+    bind-tools \
+    build-base \
+    bzip2 \
+    ca-certificates \
+    cargo \
+    curl \
+    findutils \
+    gawk \
+    git \
+    grep \
+    gzip \
+    htop \
+    iputils \
+    nano \
+    net-tools \
     nodejs \
     npm \
-    python3 \
+    openssl \
+    pkgconf \
+    procps \
     py3-pip \
+    python3 \
     rust \
-    cargo
+    sed \
+    tar \
+    unzip \
+    vim \
+    wget \
+    xz \
+    zip && \
+    mkdir -p /etc/sudoers.d /home/tester/workspace && \
+    adduser -D -u 1000 tester && \
+    echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester && \
+    chmod 0440 /etc/sudoers.d/tester && \
+    chown -R tester:tester /home/tester
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Corvus Agent Installation Testing Prerequisites
@@ -64,11 +62,6 @@ RUN apk add --no-cache \
 # ═══════════════════════════════════════════════════════════════════════════════
 # Non-root User Setup (for security testing)
 # ═══════════════════════════════════════════════════════════════════════════════
-RUN mkdir -p /etc/sudoers.d /home/tester/workspace && \
-    adduser -D -u 1000 tester && \
-    echo "tester ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/tester && \
-    chmod 0440 /etc/sudoers.d/tester && \
-    chown -R tester:tester /home/tester
 
 # Switch to non-root user
 USER tester

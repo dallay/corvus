@@ -170,22 +170,6 @@ private abstract class GradleAllTypes : DefaultTask() {
 
 @Suppress("detekt:all", "UnusedVariable")
 private fun demos(project: Project) {
-  //      layout.settingsDirectory
-  //      layout.projectDirectory
-  //      layout.buildDirectory
-  //
-  //      isolated.rootProject.projectDirectory
-  //      isolated.projectDirectory
-  //
-  //      project.objects.domainObjectSet(File::class).add(file("build.gradle"))
-  //      project.objects.namedDomainObjectSet(File::class).add(file("build.gradle"))
-  //      project.objects.namedDomainObjectList(File::class).add(file("build.gradle"))
-  //
-  //      project.objects.domainObjectContainer(File::class).add(file("build.gradle"))
-  //
-  //      file("")
-  //      files("")
-
   project.afterEvaluate {
     demoProperties()
     demoResolutionStrategy()
