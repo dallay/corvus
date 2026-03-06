@@ -43,6 +43,7 @@
     "enabled": true,
     "schedule": ["before 5am on the first day of the month"]
   },
+  "ignoreDeps": ["AddNullMarkedToClass:MissingSummary"],
   "vulnerabilityAlerts": {
     "enabled": true,
     "labels": ["security"],
