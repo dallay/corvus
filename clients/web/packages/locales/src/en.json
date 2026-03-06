@@ -1,0 +1,117 @@
+{
+  "app": {
+    "simpleChat": "Simple AI Chat",
+    "gatewayConfig": "Gateway Configuration",
+    "config": "Configuration",
+    "backToChat": "Back to Chat",
+    "title": "Corvus Dashboard",
+    "subtitle": "Secure Gateway Configuration"
+  },
+  "sections": {
+    "auth": "Authentication",
+    "core": "Base Configuration",
+    "observability": "Observability",
+    "runtime": "Runtime",
+    "autonomy": "Autonomy",
+    "scheduler": "Scheduler",
+    "gateway": "Gateway",
+    "webhook": "Webhook"
+  },
+  "auth": {
+    "baseUrl": "@:common.baseUrl",
+    "pairingCode": "@:common.pairingCode",
+    "bearerToken": "@:common.bearerToken",
+    "connect": "Connect",
+    "pair": "Pair",
+    "pairSuccess": "Pairing successful. Token loaded.",
+    "connected": "Connected successfully.",
+    "loadError": "Could not load admin configuration.",
+    "networkError": "Could not connect to gateway. Verify network, URL, and that the service is active.",
+    "emptyWebhookSecret": "Webhook secret cannot be empty. Use 'Clear' if you want to remove it.",
+    "unauthorized": "Unauthorized. Please pair and try again."
+  },
+  "form": {
+    "baseUrl": "@:common.baseUrl",
+    "baseUrlPlaceholder": "http://127.0.0.1:3000",
+    "pairingCode": "@:common.pairingCode",
+    "pairingCodePlaceholder": "Pairing Code",
+    "bearerToken": "@:common.bearerToken",
+    "bearerTokenPlaceholder": "Bearer Token",
+    "webhookSecret": "Webhook Secret",
+    "webhookSecretPlaceholder": "Webhook Secret",
+    "save": "Save changes",
+    "saveSuccess": "Configuration saved successfully.",
+    "saveError": "Could not save configuration.",
+    "pairingInvalidError": "Invalid pairing code.",
+    "pairingRateLimitError": "Too many pairing attempts. Try again later.",
+    "pairingMissingTokenError": "No pairing token received.",
+    "timeoutError": "Timeout",
+    "configSubtitle": "Connect with your Corvus gateway",
+    "noChanges": "No changes to save.",
+    "connectBeforeSave": "Connect to the gateway first to load current configuration.",
+    "restartRequired": "These changes require restarting the gateway to apply: {fields}",
+    "provider": "Default provider",
+    "model": "Default model",
+    "temperature": "Temperature",
+    "memoryBackend": "Memory backend",
+    "observabilityBackend": "Observability backend",
+    "otelEndpoint": "OTEL endpoint",
+    "otelServiceName": "OTEL service name",
+    "runtimeKind": "Runtime kind",
+    "autonomyLevel": "Autonomy level",
+    "workspaceOnly": "Workspace only",
+    "maxActionsPerHour": "Max actions per hour",
+    "maxCostPerDayCents": "Max cost per day (cents)",
+    "schedulerEnabled": "Scheduler enabled",
+    "schedulerMaxTasks": "Scheduler max tasks",
+    "schedulerMaxConcurrent": "Scheduler max concurrent",
+    "gatewayPort": "Gateway port",
+    "gatewayHost": "Gateway host",
+    "requirePairing": "Require pairing",
+    "allowPublicBind": "Allow public bind",
+    "webhookPort": "Webhook port",
+    "webhookSecretMode": "Webhook secret",
+    "webhookSecretValue": "New webhook secret",
+    "secretUnchanged": "Unchanged",
+    "secretReplace": "Replace",
+    "secretClear": "Clear"
+  },
+  "general": {
+    "apiUrl": "API URL"
+  },
+  "gateway": {
+    "pair_rate_limit_per_min": "Pairing limit/min",
+    "webhook_rate_limit_per_min": "Webhook limit/min"
+  },
+  "security": {
+    "identity_format": "Identity format",
+    "identity_aieos_path": "Identity AIEOS path"
+  },
+  "errors": {
+    "insecureUrlError": "Credentials cannot be sent over HTTP to a remote host. Use HTTPS or a local host."
+  },
+  "chat": {
+    "welcome": "Hello, I am {modelName}. How can I help you?",
+    "processing": "Processing \"{text}\" with {modelName}. Gateway: {gateway}",
+    "requestError": "Could not get response for \"{text}\". Check the gateway and try again.",
+    "unauthorizedError": "Unauthorized. Pair with /pair and use the bearer token.",
+    "rateLimitError": "Too many requests. Please wait a moment and try again.",
+    "timeoutError": "The gateway took too long to respond.",
+    "emptyResponse": "The gateway returned no content.",
+    "inputPlaceholder": "Type a message...",
+    "send": "Send",
+    "newChat": "New chat",
+    "disclaimer": "Corvus Agent can make mistakes. Check important information."
+  },
+  "webhook": {
+    "enabled": "Enabled",
+    "secretStatus": "Current secret: {status}",
+    "statusConfigured": "configured",
+    "statusNotConfigured": "not configured"
+  },
+  "common": {
+    "baseUrl": "Base URL",
+    "pairingCode": "Pairing Code",
+    "bearerToken": "Bearer Token"
+  }
+}
