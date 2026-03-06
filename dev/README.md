@@ -86,6 +86,12 @@ If you changed dashboard code and want to rebuild only that image:
 ./dev/cli.sh build-dashboard
 ```
 
+Quick smoke checks (gateway + optional dashboard if running):
+
+```bash
+./dev/cli.sh smoke
+```
+
 ### 5. Persistence & Shared Workspace
 The local `playground/` directory (in repo root) is mounted as the shared workspace:
 - **Agent**: `/corvus-data/workspace`

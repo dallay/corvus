@@ -21,6 +21,26 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+function wait_http_ok {
+    local url="$1"
+    local timeout_secs="$2"
+    local start_ts
+    start_ts="$(date +%s)"
+
+    while true; do
+        if curl -fsS "$url" > /dev/null 2>&1; then
+            return 0
+        fi
+
+        local now_ts
+        now_ts="$(date +%s)"
+        if (( now_ts - start_ts >= timeout_secs )); then
+            return 1
+        fi
+        sleep 1
+    done
+}
+
 function ensure_config {
     CONFIG_DIR="$HOST_TARGET_DIR/.corvus"
     CONFIG_FILE="$CONFIG_DIR/config.toml"
@@ -50,6 +70,7 @@ function print_help {
     echo -e "  ${GREEN}logs${NC}    View logs"
     echo -e "  ${GREEN}build${NC}             Rebuild agent + sandbox images"
     echo -e "  ${GREEN}build-dashboard${NC}   Rebuild dashboard image"
+    echo -e "  ${GREEN}smoke${NC}             Quick health checks (gateway + optional dashboard)"
     echo -e "  ${GREEN}clean${NC}   Stop and wipe workspace data"
 
     return 0
@@ -115,6 +136,34 @@ case "$1" in
         echo -e "${YELLOW}🔨 Rebuilding dashboard image...${NC}"
         docker compose -f "$COMPOSE_FILE" --profile dashboard build dashboard-dev
         echo -e "${GREEN}✅ Dashboard rebuild complete.${NC}"
+        ;;
+
+    smoke)
+        echo -e "${YELLOW}🧪 Running smoke checks...${NC}"
+
+        if wait_http_ok "http://127.0.0.1:3000/health" 30; then
+            echo -e "${GREEN}✅ Gateway healthy:${NC} http://127.0.0.1:3000/health"
+        else
+            echo -e "${RED}❌ Gateway check failed:${NC} http://127.0.0.1:3000/health"
+            echo -e "   Hint: start with './dev/cli.sh up' or './dev/cli.sh up-dashboard'"
+            exit 1
+        fi
+
+        RUNNING_SERVICES="$(docker compose -f "$COMPOSE_FILE" ps --services --status running || true)"
+        if echo "$RUNNING_SERVICES" | grep -q "^dashboard-dev$"; then
+            if wait_http_ok "http://127.0.0.1:4324" 30; then
+                echo -e "${GREEN}✅ Dashboard reachable:${NC} http://127.0.0.1:4324"
+            else
+                echo -e "${RED}❌ Dashboard check failed:${NC} http://127.0.0.1:4324"
+                echo -e "   Hint: check logs with './dev/cli.sh logs'"
+                exit 1
+            fi
+        else
+            echo -e "${YELLOW}ℹ️  Dashboard not running (profile not enabled).${NC}"
+            echo -e "   Start it with './dev/cli.sh up-dashboard'"
+        fi
+
+        echo -e "${GREEN}✅ Smoke checks passed.${NC}"
         ;;
 
     clean)

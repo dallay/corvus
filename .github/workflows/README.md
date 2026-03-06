@@ -149,7 +149,8 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 
 ### `publish-release.yml` - Release Publishing
 
-**Purpose**: Publishes release artifacts to Maven Central, crates.io, npm, Docker Hub, and GHCR, then creates a GitHub release.
+**Purpose**: Publishes release artifacts to Maven Central, crates.io, npm, Docker Hub, GHCR, and
+dashboard Docker images, then creates a GitHub release.
 
 **Triggers**:
 
@@ -219,8 +220,9 @@ Calls the reusable `_publish.yml` workflow with:
 3. 👻 Publishes to Maven Central using Gradle
 4. 🦀 Publishes Rust crate to crates.io (release only)
 5. 📦 Publishes npm package `@dallay/corvus` to npm (release only)
-6. 🐳 Builds and publishes multi-arch Docker image to Docker Hub + GHCR (release only)
-7. 🚀 Creates GitHub release (if enabled)
+6. 🐳 Builds and publishes multi-arch runtime Docker image to Docker Hub + GHCR (release only)
+7. 📊 Builds and publishes multi-arch dashboard Docker image to Docker Hub + GHCR (release only)
+8. 🚀 Creates GitHub release (if enabled)
 
 **Key Points**:
 
