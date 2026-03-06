@@ -10,6 +10,7 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 | **CI/CD**       | `pull-request-check-build-logic.yml` | Checks for build-logic changes              | Changes to `gradle/build-logic/**`      |
 | **CI/CD**       | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages        | Push docs to `main`, Release published  |
 | **Security**    | `codeql-analysis.yml`                | Security scanning with CodeQL               | Push to main/minor, daily schedule      |
+| **Security**    | `snyk-security.yml`                  | Snyk SAST/SCA/Container/IaC scans           | Push/PR to main/minor, manual           |
 | **Publishing**  | `publish-release.yml`                | Publish release (Maven, Cargo, npm, Docker) | Tag push `v*.*.*`                       |
 | **Publishing**  | `publish-snapshot.yml`               | Publish snapshot versions                   | Manual, daily schedule                  |
 | **Publishing**  | `_publish.yml`                       | Reusable publish workflow                   | Called by other workflows               |
@@ -145,11 +146,40 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 
 ---
 
+### `snyk-security.yml` - Snyk Security Platform Scan
+
+**Purpose**: Runs Snyk Code, Open Source, Container, and IaC scans and uploads SARIF to GitHub
+Code Scanning.
+
+**Triggers**:
+
+- Push to `main` or `minor`
+- Pull request to `main` or `minor`
+- Manual trigger
+
+**What it does**:
+
+1. ✈ Checks out repository
+2. 🔐 Installs Snyk CLI
+3. 🔍 Runs `snyk code test` and uploads SARIF
+4. 📚 Runs Open Source scan (`snyk test --all-projects`)
+5. 🐳 Builds and scans runtime container image
+6. 🧱 Runs IaC scan (`snyk iac test --report`)
+
+**Key Points**:
+
+- Requires `SNYK_TOKEN` secret
+- `monitor` commands run only on non-PR events
+- Findings are currently non-blocking (`continue-on-error: true`)
+
+---
+
 ## 📦 Publishing Workflows
 
 ### `publish-release.yml` - Release Publishing
 
-**Purpose**: Publishes release artifacts to Maven Central, crates.io, npm, Docker Hub, and GHCR, then creates a GitHub release.
+**Purpose**: Publishes release artifacts to Maven Central, crates.io, npm, Docker Hub, GHCR, and
+dashboard Docker images, then creates a GitHub release.
 
 **Triggers**:
 
@@ -219,8 +249,9 @@ Calls the reusable `_publish.yml` workflow with:
 3. 👻 Publishes to Maven Central using Gradle
 4. 🦀 Publishes Rust crate to crates.io (release only)
 5. 📦 Publishes npm package `@dallay/corvus` to npm (release only)
-6. 🐳 Builds and publishes multi-arch Docker image to Docker Hub + GHCR (release only)
-7. 🚀 Creates GitHub release (if enabled)
+6. 🐳 Builds and publishes multi-arch runtime Docker image to Docker Hub + GHCR (release only)
+7. 📊 Builds and publishes multi-arch dashboard Docker image to Docker Hub + GHCR (release only)
+8. 🚀 Creates GitHub release (if enabled)
 
 **Key Points**:
 

@@ -322,6 +322,19 @@ dev-build: ## Rebuild dev images
 dev-clean: ## Stop and wipe dev environment
 	@./dev/cli.sh clean
 
+# --- LOCAL RUNTIME (Docker Compose) ---
+
+runtime-up: ## Start local gateway runtime (clients/agent-runtime)
+	@docker compose -f clients/agent-runtime/docker-compose.yml up -d
+runtime-up-dashboard: ## Start local gateway + dashboard runtime
+	@docker compose -f clients/agent-runtime/docker-compose.yml --profile dashboard up -d
+runtime-down: ## Stop local gateway/dashboard runtime
+	@docker compose -f clients/agent-runtime/docker-compose.yml down
+runtime-logs: ## Follow local gateway/dashboard logs
+	@docker compose -f clients/agent-runtime/docker-compose.yml logs -f
+runtime-status: ## Show local gateway/dashboard status
+	@docker compose -f clients/agent-runtime/docker-compose.yml ps
+
 # --- CONTINUOUS INTEGRATION ---
 
 ci-build: ## CI: Build without daemon
@@ -365,5 +378,6 @@ sync-version: ## Sync VERSION with git tag
         format check-format check lint-kotlin lint-rust lint-android lint-all \
         test test-app test-core test-verbose test-coverage docs-code \
         deps deps-app deps-analysis deps-update \
-        dev-up dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean \
-        ci-build ci-test ci-check all quick tasks info version sync-version
+         dev-up dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean \
+         runtime-up runtime-up-dashboard runtime-down runtime-logs runtime-status \
+         ci-build ci-test ci-check all quick tasks info version sync-version

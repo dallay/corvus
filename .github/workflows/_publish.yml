@@ -245,20 +245,20 @@ jobs:
           chmod +x corvus-linux-x64 corvus-linux-arm64
 
       - name: 🐳 Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
 
       - name: 🐳 Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
       - name: 🔐 Login to Docker Hub
         continue-on-error: true
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: 🔐 Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -278,7 +278,6 @@ jobs:
             type=raw,value=latest
 
       - name: 🐳 Build and push Docker image (prebuilt binaries)
-        continue-on-error: true
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -288,6 +287,69 @@ jobs:
           push: true
           tags: ${{ steps.docker-meta.outputs.tags }}
           labels: ${{ steps.docker-meta.outputs.labels }}
+
+  docker-dashboard-image:
+    if: ${{ inputs.release }}
+    needs: publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+
+      - name: 🐳 Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: 🔐 Login to Docker Hub
+        if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+        continue-on-error: true
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🔐 Login to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🧮 Compute dashboard image targets
+        id: dashboard-targets
+        shell: bash
+        run: |
+          {
+            echo 'images<<EOF'
+            if [[ -n "${{ secrets.DOCKERHUB_USERNAME }}" && -n "${{ secrets.DOCKERHUB_TOKEN }}" ]]; then
+              echo "docker.io/${{ secrets.DOCKERHUB_USERNAME }}/corvus-dashboard"
+            fi
+            echo "ghcr.io/${{ github.repository_owner }}/corvus-dashboard"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 🏷️ Generate dashboard Docker tags and labels
+        id: dashboard-docker-meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: ${{ steps.dashboard-targets.outputs.images }}
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}},value=${{ github.ref_name }}
+            type=raw,value=latest
+
+      - name: 🐳 Build and push dashboard Docker image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: clients/web
+          file: clients/web/apps/dashboard/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.dashboard-docker-meta.outputs.tags }}
+          labels: ${{ steps.dashboard-docker-meta.outputs.labels }}
 
   publish-npm-platforms:
     if: ${{ inputs.release }}

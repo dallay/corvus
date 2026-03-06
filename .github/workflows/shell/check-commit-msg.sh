@@ -26,26 +26,26 @@ COMMIT_MSG_PATTERN='^(revert: )?(build|chore|ci|deps|docs|feat|fix|infra|perf|re
 # ------------------------------
 # Skip merge or initial commit
 # ------------------------------
-if echo "$COMMIT_MSG" | grep -Eq '^Merge'; then
+if grep -Eq '^Merge' <<< "$COMMIT_MSG"; then
   echo "⏭ Skipping merge commit."
   exit 0
 fi
 
-if echo "$COMMIT_MSG" | grep -Eq '^Initial commit'; then
+if grep -Eq '^Initial commit' <<< "$COMMIT_MSG"; then
   echo "⏭ Skipping initial commit."
   exit 0
 fi
 
-if ! echo "$COMMIT_MSG" | grep -Eq "$COMMIT_MSG_PATTERN"; then
-  echo -e "${BG_RED}ERROR${RESET}  ${RED}invalid commit message format.${RESET}\n"
-  echo -e "${RED}Proper commit message format is required for automated changelog generation. Examples:${RESET}\n"
-  echo -e "  ${GREEN}feat(parser): add support for empty tuples${RESET}"
-  echo -e "  ${GREEN}fix(runtime): handle reconnect race condition${RESET}"
-  echo -e "  ${GREEN}refactor(core)!: remove legacy provider fallback${RESET}\n"
-  echo -e "${RED}Commit message header: <type>(<scope>): <subject>${RESET}"
-  echo -e "${RED}Commit message header pattern: ${COMMIT_MSG_PATTERN}${RESET}"
-  echo -e "${RED}See${RESET} ${BLUE}https://www.conventionalcommits.org/en/v1.0.0/${RESET} ${RED}for more details.${RESET}\n"
-  echo -e "${RED}❌ Invalid commit message:${RESET} '${COMMIT_MSG}'"
+if ! grep -Eq "$COMMIT_MSG_PATTERN" <<< "$COMMIT_MSG"; then
+  echo -e "${BG_RED}ERROR${RESET}  ${RED}invalid commit message format.${RESET}\n" >&2
+  echo -e "${RED}Proper commit message format is required for automated changelog generation. Examples:${RESET}\n" >&2
+  echo -e "  ${GREEN}feat(parser): add support for empty tuples${RESET}" >&2
+  echo -e "  ${GREEN}fix(runtime): handle reconnect race condition${RESET}" >&2
+  echo -e "  ${GREEN}refactor(core)!: remove legacy provider fallback${RESET}\n" >&2
+  echo -e "${RED}Commit message header: <type>(<scope>): <subject>${RESET}" >&2
+  echo -e "${RED}Commit message header pattern: ${COMMIT_MSG_PATTERN}${RESET}" >&2
+  echo -e "${RED}See${RESET} ${BLUE}https://www.conventionalcommits.org/en/v1.0.0/${RESET} ${RED}for more details.${RESET}\n" >&2
+  echo -e "${RED}❌ Invalid commit message:${RESET} '${COMMIT_MSG}'" >&2
   exit 1
 fi
 

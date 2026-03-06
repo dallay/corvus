@@ -1,5 +1,48 @@
 use crate::config::schema::QueryClassificationConfig;
 
+fn within_length_constraints(
+    len: usize,
+    min_length: Option<usize>,
+    max_length: Option<usize>,
+) -> bool {
+    if let Some(min) = min_length {
+        if len < min {
+            return false;
+        }
+    }
+
+    if let Some(max) = max_length {
+        if len > max {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn has_keyword_or_pattern_match(
+    lower_message: &str,
+    message: &str,
+    keywords: &[String],
+    patterns: &[String],
+) -> bool {
+    let keyword_hit = keywords
+        .iter()
+        .any(|keyword| keyword_matches(lower_message, keyword));
+    let pattern_hit = patterns
+        .iter()
+        .any(|pattern| message.contains(pattern.as_str()));
+    keyword_hit || pattern_hit
+}
+
+fn keyword_matches(lower_message: &str, keyword: &str) -> bool {
+    if keyword.bytes().all(|byte| !byte.is_ascii_uppercase()) {
+        return lower_message.contains(keyword);
+    }
+
+    lower_message.contains(&keyword.to_ascii_lowercase())
+}
+
 /// Classify a user message against the configured rules and return the
 /// matching hint string, if any.
 ///
@@ -17,29 +60,11 @@ pub fn classify(config: &QueryClassificationConfig, message: &str) -> Option<Str
     rules.sort_by(|a, b| b.priority.cmp(&a.priority));
 
     for rule in rules {
-        // Length constraints
-        if let Some(min) = rule.min_length {
-            if len < min {
-                continue;
-            }
-        }
-        if let Some(max) = rule.max_length {
-            if len > max {
-                continue;
-            }
+        if !within_length_constraints(len, rule.min_length, rule.max_length) {
+            continue;
         }
 
-        // Check keywords (case-insensitive) and patterns (case-sensitive)
-        let keyword_hit = rule
-            .keywords
-            .iter()
-            .any(|kw: &String| lower.contains(&kw.to_lowercase()));
-        let pattern_hit = rule
-            .patterns
-            .iter()
-            .any(|pat: &String| message.contains(pat.as_str()));
-
-        if keyword_hit || pattern_hit {
+        if has_keyword_or_pattern_match(&lower, message, &rule.keywords, &rule.patterns) {
             return Some(rule.hint.clone());
         }
     }

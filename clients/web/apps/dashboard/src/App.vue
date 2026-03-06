@@ -42,20 +42,20 @@ const config = useConfig(t);
       <div class="grid">
         <label>
           <span>{{ t("auth.baseUrl") }}</span>
-          <Input v-model="config.baseUrl" placeholder="http://127.0.0.1:3000" />
+          <Input v-model="config.baseUrl.value" placeholder="http://127.0.0.1:3000" />
         </label>
         <label>
           <span>{{ t("auth.pairingCode") }}</span>
-          <Input v-model="config.pairingCode" type="password" />
+          <Input v-model="config.pairingCode.value" type="password" />
         </label>
         <label>
           <span>{{ t("auth.bearerToken") }}</span>
-          <Input v-model="config.bearerToken" type="password" />
+          <Input v-model="config.bearerToken.value" type="password" />
         </label>
       </div>
       <div class="actions">
-        <Button :disabled="config.loading" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
-        <Button :disabled="config.loading" variant="outline" @click="config.connectGateway">
+        <Button :disabled="config.loading.value" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
+        <Button :disabled="config.loading.value" variant="outline" @click="config.connectGateway">
           {{ t("auth.connect") }}
         </Button>
       </div>
@@ -63,8 +63,8 @@ const config = useConfig(t);
 
     <GeneralSettings
       :model-value="config.form"
-      :memory-backend-options="config.memoryBackendOptions"
-      :disabled="!config.canSave"
+      :memory-backend-options="config.memoryBackendOptions.value"
+      :disabled="!config.canSave.value"
       :saving="config.sectionSaving.general"
       @update:model-value="Object.assign(config.form, $event)"
       @save="config.saveSection('general')"
@@ -72,8 +72,8 @@ const config = useConfig(t);
 
     <SecuritySettings
       :model-value="config.form"
-      :autonomy-level-options="config.autonomyLevelOptions"
-      :disabled="!config.canSave"
+      :autonomy-level-options="config.autonomyLevelOptions.value"
+      :disabled="!config.canSave.value"
       :saving="config.sectionSaving.security"
       @update:model-value="Object.assign(config.form, $event)"
       @save="config.saveSection('security')"
@@ -81,8 +81,8 @@ const config = useConfig(t);
 
     <ObservabilitySettings
       :model-value="config.form"
-      :observability-backend-options="config.observabilityBackendOptions"
-      :disabled="!config.canSave"
+      :observability-backend-options="config.observabilityBackendOptions.value"
+      :disabled="!config.canSave.value"
       :saving="config.sectionSaving.observability"
       @update:model-value="Object.assign(config.form, $event)"
       @save="config.saveSection('observability')"
@@ -90,8 +90,8 @@ const config = useConfig(t);
 
     <RuntimeSettings
       :model-value="config.form"
-      :runtime-kind-options="config.runtimeKindOptions"
-      :disabled="!config.canSave"
+      :runtime-kind-options="config.runtimeKindOptions.value"
+      :disabled="!config.canSave.value"
       :saving="config.sectionSaving.runtime"
       @update:model-value="Object.assign(config.form, $event)"
       @save="config.saveSection('runtime')"
@@ -99,7 +99,7 @@ const config = useConfig(t);
 
     <SchedulerSettings
       :model-value="config.form"
-      :disabled="!config.canSave"
+      :disabled="!config.canSave.value"
       :saving="config.sectionSaving.scheduler"
       @update:model-value="Object.assign(config.form, $event)"
       @save="config.saveSection('scheduler')"
@@ -107,7 +107,7 @@ const config = useConfig(t);
 
     <GatewaySettings
       :model-value="config.form"
-      :disabled="!config.canSave"
+      :disabled="!config.canSave.value"
       :saving="config.sectionSaving.gateway"
       @update:model-value="Object.assign(config.form, $event)"
       @save="config.saveSection('gateway')"
@@ -115,7 +115,7 @@ const config = useConfig(t);
 
     <WebhookSettings
       :model-value="config.form"
-      :disabled="!config.canSave"
+      :disabled="!config.canSave.value"
       :saving="config.sectionSaving.webhook"
       @update:model-value="Object.assign(config.form, $event)"
       @save="config.saveSection('webhook')"
@@ -131,8 +131,8 @@ const config = useConfig(t);
           })
         }}
       </p>
-      <p v-if="config.statusMessage" class="ok">{{ config.statusMessage }}</p>
-      <p v-if="config.errorMessage" class="error">{{ config.errorMessage }}</p>
+      <p v-if="config.statusMessage.value" class="ok">{{ config.statusMessage.value }}</p>
+      <p v-if="config.errorMessage.value" class="error">{{ config.errorMessage.value }}</p>
     </section>
   </main>
 </template>

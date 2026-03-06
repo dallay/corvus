@@ -20,7 +20,7 @@
 [![Build Status](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml/badge.svg)](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml)
 [![codecov](https://codecov.io/gh/dallay/corvus/graph/badge.svg?token=N4THEP2OF1)](https://codecov.io/gh/dallay/corvus)
 [![License](https://img.shields.io/github/license/dallay/corvus?color=blue)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.14-blue.svg)](gradle.properties)
+[![Version](https://img.shields.io/github/v/tag/dallay/corvus?sort=semver&label=version)](https://github.com/dallay/corvus/tags)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/dallay/corvus/compare)
 
 ## 🛡️ Code Quality (SonarCloud)

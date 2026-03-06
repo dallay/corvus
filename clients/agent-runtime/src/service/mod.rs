@@ -6,7 +6,20 @@ use std::path::PathBuf;
 use std::process::Command;
 
 const SERVICE_LABEL: &str = "com.corvus.daemon";
+const LINUX_USER_UNIT_NAME: &str = "corvus.service";
 const WINDOWS_TASK_NAME: &str = "Corvus Daemon";
+
+pub(crate) fn launchd_service_label() -> &'static str {
+    SERVICE_LABEL
+}
+
+pub(crate) fn launchd_plist_file_name() -> String {
+    format!("{SERVICE_LABEL}.plist")
+}
+
+pub(crate) fn systemd_user_unit_name() -> &'static str {
+    LINUX_USER_UNIT_NAME
+}
 
 fn windows_task_name() -> &'static str {
     WINDOWS_TASK_NAME
@@ -58,8 +71,12 @@ fn install(config: &Config, linger: crate::ServiceLingerMode) -> Result<()> {
 
 fn restart(config: &Config) -> Result<()> {
     if cfg!(target_os = "linux")
-        && run_checked(Command::new("systemctl").args(["--user", "restart", "corvus.service"]))
-            .is_ok()
+        && run_checked(Command::new("systemctl").args([
+            "--user",
+            "restart",
+            systemd_user_unit_name(),
+        ]))
+        .is_ok()
     {
         println!("✅ Service restarted");
         return Ok(());
@@ -78,7 +95,7 @@ fn start(config: &Config) -> Result<()> {
         Ok(())
     } else if cfg!(target_os = "linux") {
         run_checked(Command::new("systemctl").args(["--user", "daemon-reload"]))?;
-        run_checked(Command::new("systemctl").args(["--user", "start", "corvus.service"]))?;
+        run_checked(Command::new("systemctl").args(["--user", "start", systemd_user_unit_name()]))?;
         println!("✅ Service started");
         Ok(())
     } else if cfg!(target_os = "windows") {
@@ -105,7 +122,11 @@ fn stop(config: &Config) -> Result<()> {
         println!("✅ Service stopped");
         Ok(())
     } else if cfg!(target_os = "linux") {
-        let _ = run_checked(Command::new("systemctl").args(["--user", "stop", "corvus.service"]));
+        let _ = run_checked(Command::new("systemctl").args([
+            "--user",
+            "stop",
+            systemd_user_unit_name(),
+        ]));
         println!("✅ Service stopped");
         Ok(())
     } else if cfg!(target_os = "windows") {
@@ -137,9 +158,12 @@ fn status(config: &Config) -> Result<()> {
     }
 
     if cfg!(target_os = "linux") {
-        let out =
-            run_capture(Command::new("systemctl").args(["--user", "is-active", "corvus.service"]))
-                .unwrap_or_else(|_| "unknown".into());
+        let out = run_capture(Command::new("systemctl").args([
+            "--user",
+            "is-active",
+            systemd_user_unit_name(),
+        ]))
+        .unwrap_or_else(|_| "unknown".into());
         println!("Service state: {}", out.trim());
         match linux_linger_state() {
             Ok(Some(enabled)) => println!(
@@ -432,7 +456,7 @@ fn macos_service_file() -> Result<PathBuf> {
     Ok(home
         .join("Library")
         .join("LaunchAgents")
-        .join(format!("{SERVICE_LABEL}.plist")))
+        .join(launchd_plist_file_name()))
 }
 
 fn linux_service_file(config: &Config) -> Result<PathBuf> {
@@ -444,7 +468,7 @@ fn linux_service_file(config: &Config) -> Result<PathBuf> {
         .join(".config")
         .join("systemd")
         .join("user")
-        .join("corvus.service"))
+        .join(systemd_user_unit_name()))
 }
 
 fn run_checked(command: &mut Command) -> Result<()> {
