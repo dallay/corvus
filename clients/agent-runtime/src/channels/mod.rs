@@ -1202,7 +1202,7 @@ fn maybe_restart_launchd_daemon_service() -> Result<bool> {
     let plist = home
         .join("Library")
         .join("LaunchAgents")
-        .join("com.corvus.daemon.plist");
+        .join(crate::service::launchd_plist_file_name());
     if !plist.exists() {
         return Ok(false);
     }
@@ -1211,16 +1211,21 @@ fn maybe_restart_launchd_daemon_service() -> Result<bool> {
         .arg("list")
         .output()
         .context("Failed to query launchctl list")?;
+    if !list_output.status.success() {
+        let stderr = String::from_utf8_lossy(&list_output.stderr);
+        anyhow::bail!("launchctl list failed: {}", stderr.trim());
+    }
+
     let listed = String::from_utf8_lossy(&list_output.stdout);
-    if !listed.contains("com.corvus.daemon") {
+    if !listed.contains(crate::service::launchd_service_label()) {
         return Ok(false);
     }
 
     let _ = Command::new("launchctl")
-        .args(["stop", "com.corvus.daemon"])
+        .args(["stop", crate::service::launchd_service_label()])
         .output();
     let start_output = Command::new("launchctl")
-        .args(["start", "com.corvus.daemon"])
+        .args(["start", crate::service::launchd_service_label()])
         .output()
         .context("Failed to start launchd daemon service")?;
     if !start_output.status.success() {
@@ -1239,22 +1244,35 @@ fn maybe_restart_systemd_daemon_service() -> Result<bool> {
         .join(".config")
         .join("systemd")
         .join("user")
-        .join("corvus.service");
+        .join(crate::service::systemd_user_unit_name());
     if !unit_path.exists() {
         return Ok(false);
     }
 
     let active_output = Command::new("systemctl")
-        .args(["--user", "is-active", "corvus.service"])
+        .args([
+            "--user",
+            "is-active",
+            crate::service::systemd_user_unit_name(),
+        ])
         .output()
         .context("Failed to query systemd service state")?;
+    if !active_output.status.success() {
+        let stderr = String::from_utf8_lossy(&active_output.stderr);
+        anyhow::bail!("systemctl --user is-active failed: {}", stderr.trim());
+    }
+
     let state = String::from_utf8_lossy(&active_output.stdout);
     if !state.trim().eq_ignore_ascii_case("active") {
         return Ok(false);
     }
 
     let restart_output = Command::new("systemctl")
-        .args(["--user", "restart", "corvus.service"])
+        .args([
+            "--user",
+            "restart",
+            crate::service::systemd_user_unit_name(),
+        ])
         .output()
         .context("Failed to restart systemd daemon service")?;
     if !restart_output.status.success() {

@@ -1498,8 +1498,19 @@ fn apply_webhook_patch(cfg: &mut Config, patch: &AdminWebhookPatch) -> Result<()
         return Ok(());
     }
 
-    if patch.port.is_none() && patch.secret.is_none() {
+    let updates_secret = matches!(
+        patch.secret,
+        Some(AdminSecretUpdate::Clear | AdminSecretUpdate::Replace { .. })
+    );
+    let updates_settings = patch.port.is_some() || updates_secret;
+    if !updates_settings {
         return Ok(());
+    }
+
+    if cfg.channels_config.webhook.is_none() && patch.enabled != Some(true) {
+        return Err(bad_request(
+            "channels.webhook is disabled; set channels.webhook.enabled=true before updating port or secret",
+        ));
     }
 
     ensure_webhook_config(cfg);
@@ -1895,5 +1906,56 @@ mod tests {
                 "case '{name}' mismatch for restart-required fields"
             );
         }
+    }
+
+    #[test]
+    fn webhook_patch_rejects_secret_or_port_updates_when_disabled_without_enable_flag() {
+        let mut cfg = Config::default();
+        cfg.channels_config.webhook = None;
+
+        let err = apply_webhook_patch(
+            &mut cfg,
+            &AdminWebhookPatch {
+                enabled: None,
+                port: Some(9000),
+                secret: None,
+            },
+        )
+        .expect_err("port update must fail when webhook is disabled");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(cfg.channels_config.webhook.is_none());
+
+        let err = apply_webhook_patch(
+            &mut cfg,
+            &AdminWebhookPatch {
+                enabled: None,
+                port: None,
+                secret: Some(AdminSecretUpdate::Replace {
+                    value: "new-secret".to_string(),
+                }),
+            },
+        )
+        .expect_err("secret update must fail when webhook is disabled");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!(cfg.channels_config.webhook.is_none());
+    }
+
+    #[test]
+    fn restart_required_updates_preserves_webhook_semantics_for_disabled_patch_updates() {
+        let cfg = Config::default();
+        let patch = AdminConfigUpdateRequest {
+            channels: Some(AdminChannelsPatch {
+                cli: None,
+                webhook: Some(AdminWebhookPatch {
+                    enabled: None,
+                    port: Some(9000),
+                    secret: None,
+                }),
+            }),
+            ..empty_patch()
+        };
+
+        let fields = restart_required_updates(&cfg, &patch);
+        assert!(fields.contains(&"channels.webhook.port"));
     }
 }

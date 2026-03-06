@@ -21,7 +21,7 @@ COPY packages/ui ./packages/ui
 
 WORKDIR /app/apps/dashboard
 
-RUN ../../node_modules/.bin/vite build
+RUN pnpm exec vite build
 
 FROM nginxinc/nginx-unprivileged:1.27-alpine AS runtime
 

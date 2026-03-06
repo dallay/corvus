@@ -2422,6 +2422,14 @@ fn is_valid_mcp_identifier(value: &str) -> bool {
 }
 
 impl Config {
+    fn normalize_query_classification_keywords(&mut self) {
+        for rule in &mut self.query_classification.rules {
+            for keyword in &mut rule.keywords {
+                *keyword = keyword.to_ascii_lowercase();
+            }
+        }
+    }
+
     pub fn load_or_init() -> Result<Self> {
         let (default_corvus_dir, default_workspace_dir) = default_config_and_workspace_dirs()?;
 
@@ -2667,6 +2675,8 @@ impl Config {
                 }
             }
         }
+
+        self.normalize_query_classification_keywords();
     }
 
     pub fn validate_for_runtime(&self) -> Result<()> {

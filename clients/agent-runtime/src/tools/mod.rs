@@ -200,10 +200,7 @@ fn add_delegate_tool(
         return;
     }
 
-    let delegate_agents: HashMap<String, DelegateAgentConfig> = agents
-        .iter()
-        .map(|(name, cfg)| (name.clone(), cfg.clone()))
-        .collect();
+    let delegate_agents: HashMap<String, DelegateAgentConfig> = agents.clone();
     let delegate_fallback_credential = fallback_api_key.and_then(|value| {
         let trimmed_value = value.trim();
         (!trimmed_value.is_empty()).then(|| trimmed_value.to_owned())

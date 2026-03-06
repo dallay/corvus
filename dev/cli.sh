@@ -28,15 +28,23 @@ function wait_http_ok {
     start_ts="$(date +%s)"
 
     while true; do
-        if curl -fsS "$url" > /dev/null 2>&1; then
+        local now_ts elapsed remaining
+        now_ts="$(date +%s)"
+        elapsed=$(( now_ts - start_ts ))
+        remaining=$(( timeout_secs - elapsed ))
+
+        if (( remaining <= 0 )); then
+            return 1
+        fi
+
+        if (( remaining < 1 )); then
+            remaining=1
+        fi
+
+        if curl -fsS --connect-timeout "$remaining" --max-time "$remaining" "$url" > /dev/null 2>&1; then
             return 0
         fi
 
-        local now_ts
-        now_ts="$(date +%s)"
-        if (( now_ts - start_ts >= timeout_secs )); then
-            return 1
-        fi
         sleep 1
     done
 }

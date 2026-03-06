@@ -10,6 +10,7 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 | **CI/CD**       | `pull-request-check-build-logic.yml` | Checks for build-logic changes              | Changes to `gradle/build-logic/**`      |
 | **CI/CD**       | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages        | Push docs to `main`, Release published  |
 | **Security**    | `codeql-analysis.yml`                | Security scanning with CodeQL               | Push to main/minor, daily schedule      |
+| **Security**    | `snyk-security.yml`                  | Snyk SAST/SCA/Container/IaC scans           | Push/PR to main/minor, manual           |
 | **Publishing**  | `publish-release.yml`                | Publish release (Maven, Cargo, npm, Docker) | Tag push `v*.*.*`                       |
 | **Publishing**  | `publish-snapshot.yml`               | Publish snapshot versions                   | Manual, daily schedule                  |
 | **Publishing**  | `_publish.yml`                       | Reusable publish workflow                   | Called by other workflows               |
@@ -142,6 +143,34 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 - Uses manual build mode for Java/Kotlin
 - Requires `security-events: write` permission
 - Config file: `.github/config/codeql.yml`
+
+---
+
+### `snyk-security.yml` - Snyk Security Platform Scan
+
+**Purpose**: Runs Snyk Code, Open Source, Container, and IaC scans and uploads SARIF to GitHub
+Code Scanning.
+
+**Triggers**:
+
+- Push to `main` or `minor`
+- Pull request to `main` or `minor`
+- Manual trigger
+
+**What it does**:
+
+1. ✈ Checks out repository
+2. 🔐 Installs Snyk CLI
+3. 🔍 Runs `snyk code test` and uploads SARIF
+4. 📚 Runs Open Source scan (`snyk test --all-projects`)
+5. 🐳 Builds and scans runtime container image
+6. 🧱 Runs IaC scan (`snyk iac test --report`)
+
+**Key Points**:
+
+- Requires `SNYK_TOKEN` secret
+- `monitor` commands run only on non-PR events
+- Findings are currently non-blocking (`continue-on-error: true`)
 
 ---
 

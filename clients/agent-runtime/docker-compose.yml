@@ -64,10 +64,7 @@ services:
 
   # Optional local web dashboard (local-first)
   dashboard:
-    build:
-      context: ../web
-      dockerfile: apps/dashboard/Dockerfile
-    image: corvus-dashboard:local
+    image: ghcr.io/dallay/corvus-dashboard:latest
     container_name: corvus-dashboard
     restart: unless-stopped
     depends_on:

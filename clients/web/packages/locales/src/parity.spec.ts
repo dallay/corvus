@@ -25,20 +25,29 @@ function flatten(
 function extractPlaceholders(text: string): string[] {
   const placeholders: string[] = [];
   let start = -1;
+  let depth = 0;
 
   for (let index = 0; index < text.length; index += 1) {
     const codePoint = text.codePointAt(index);
 
     if (codePoint === 123) {
-      start = index;
+      if (start < 0) {
+        start = index;
+      }
+      depth += 1;
       continue;
     }
 
     if (codePoint === 125 && start >= 0) {
-      if (index - start > 1) {
-        placeholders.push(text.slice(start, index + 1));
+      depth -= 1;
+
+      if (depth <= 0) {
+        if (index - start > 1) {
+          placeholders.push(text.slice(start, index + 1));
+        }
+        start = -1;
+        depth = 0;
       }
-      start = -1;
     }
   }
 
@@ -65,5 +74,19 @@ describe("Locale Parity Guard", () => {
         expect(esPlaceholders, `Placeholder mismatch for key: ${key}`).toEqual(enPlaceholders);
       }
     }
+  });
+
+  it("preserves double-brace placeholders as distinct tokens", () => {
+    const placeholders = extractPlaceholders("Hi {{name}} and {name}");
+
+    expect(placeholders).toEqual(["{name}", "{{name}}"].sort((a, b) => a.localeCompare(b)));
+  });
+
+  it("preserves nested brace placeholder shapes", () => {
+    const placeholders = extractPlaceholders("Value {outer{inner}} and {{user}}");
+
+    expect(placeholders).toEqual(
+      ["{outer{inner}}", "{{user}}"].sort((a, b) => a.localeCompare(b)),
+    );
   });
 });

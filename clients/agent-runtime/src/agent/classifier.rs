@@ -28,11 +28,19 @@ fn has_keyword_or_pattern_match(
 ) -> bool {
     let keyword_hit = keywords
         .iter()
-        .any(|keyword| lower_message.contains(&keyword.to_lowercase()));
+        .any(|keyword| keyword_matches(lower_message, keyword));
     let pattern_hit = patterns
         .iter()
         .any(|pattern| message.contains(pattern.as_str()));
     keyword_hit || pattern_hit
+}
+
+fn keyword_matches(lower_message: &str, keyword: &str) -> bool {
+    if keyword.bytes().all(|byte| !byte.is_ascii_uppercase()) {
+        return lower_message.contains(keyword);
+    }
+
+    lower_message.contains(&keyword.to_ascii_lowercase())
 }
 
 /// Classify a user message against the configured rules and return the

@@ -131,14 +131,17 @@ impl GitOperationsTool {
         staged: &mut Vec<serde_json::Value>,
         unstaged: &mut Vec<serde_json::Value>,
     ) {
-        let mut parts = rest.splitn(3, ' ');
-        let (Some(staging), Some(path)) = (parts.next(), parts.next()) else {
+        let parts: Vec<&str> = rest.split_whitespace().collect();
+        if parts.len() < 8 {
             return;
-        };
+        }
 
+        let staging = parts[0];
         if staging.is_empty() {
             return;
         }
+
+        let path = parts[7];
 
         let staged_status = staging.chars().next().unwrap_or(' ');
         Self::push_status_if_changed(staged, staged_status, path);
@@ -876,5 +879,48 @@ mod tests {
         let truncated = GitOperationsTool::truncate_commit_message(&long);
 
         assert_eq!(truncated.chars().count(), 2000);
+    }
+
+    #[test]
+    fn parse_ordinary_changed_entry_uses_porcelain_v2_path_field() {
+        let mut staged = Vec::new();
+        let mut unstaged = Vec::new();
+
+        GitOperationsTool::parse_ordinary_changed_entry(
+            "M. N... 100644 100644 100644 1234567 89abcde src/main.rs",
+            &mut staged,
+            &mut unstaged,
+        );
+
+        assert_eq!(staged.len(), 1);
+        assert_eq!(staged[0]["path"], "src/main.rs");
+        assert_eq!(staged[0]["status"], "M");
+
+        assert_eq!(unstaged.len(), 0);
+    }
+
+    #[test]
+    fn parse_porcelain_status_line_extracts_staged_and_unstaged_paths() {
+        let mut staged = Vec::new();
+        let mut unstaged = Vec::new();
+        let mut untracked = Vec::new();
+        let mut branch = String::new();
+
+        GitOperationsTool::parse_porcelain_status_line(
+            "1 MM N... 100644 100644 100644 aaaaaaa bbbbbbb src/lib.rs",
+            &mut staged,
+            &mut unstaged,
+            &mut untracked,
+            &mut branch,
+        );
+
+        assert_eq!(staged.len(), 1);
+        assert_eq!(staged[0]["path"], "src/lib.rs");
+        assert_eq!(staged[0]["status"], "M");
+        assert_eq!(unstaged.len(), 1);
+        assert_eq!(unstaged[0]["path"], "src/lib.rs");
+        assert_eq!(unstaged[0]["status"], "M");
+        assert!(untracked.is_empty());
+        assert!(branch.is_empty());
     }
 }
