@@ -54,6 +54,22 @@ services:
     networks:
       - dev-net
 
+  # ── Optional Dashboard (Local-first) ──
+  # Build Vue dashboard and serve static dist via unprivileged nginx.
+  dashboard-dev:
+    build:
+      context: ../clients/web
+      dockerfile: apps/dashboard/Dockerfile
+    container_name: corvus-dashboard-dev
+    restart: unless-stopped
+    profiles: ["dashboard"]
+    depends_on:
+      - corvus-dev
+    ports:
+      - "127.0.0.1:4324:8080"
+    networks:
+      - dev-net
+
 networks:
   dev-net:
     driver: bridge

@@ -25,6 +25,14 @@ Run all commands from the repository root using the helper script:
 ```
 Builds the agent from source and starts both containers.
 
+To start with the web dashboard too:
+
+```bash
+./dev/cli.sh up-dashboard
+```
+
+Dashboard URL: <http://127.0.0.1:4324>
+
 ### Provider Configuration (Per Developer)
 The dev stack is provider-agnostic. Choose provider via shell environment before `./dev/cli.sh up`.
 
@@ -71,6 +79,12 @@ Use this to act as the "user" or "environment" the agent interacts with.
    # inside container:
    corvus --version
    ```
+
+If you changed dashboard code and want to rebuild only that image:
+
+```bash
+./dev/cli.sh build-dashboard
+```
 
 ### 5. Persistence & Shared Workspace
 The local `playground/` directory (in repo root) is mounted as the shared workspace:

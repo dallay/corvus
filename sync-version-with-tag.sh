@@ -34,6 +34,7 @@ has_json_version_key() {
       if (!found) exit 1
     }
   ' "$file"
+  return $?
 }
 
 add_json_version_target() {
@@ -134,6 +135,7 @@ update_toml_string_key() {
     exit 1
   }
   write_if_changed "$file" "$temp_file"
+  return $?
 }
 
 update_json_string_key() {

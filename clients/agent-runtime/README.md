@@ -65,6 +65,28 @@ yarn global add @dallay/corvus
 bun add -g @dallay/corvus
 ```
 
+### Docker Compose (local-first dashboard)
+
+```bash
+# From clients/agent-runtime
+cp docker-compose.yml docker-compose.local.yml
+
+# Edit API_KEY (and optional provider/model) in your local compose/env
+
+# Gateway only
+docker compose -f docker-compose.local.yml up -d
+
+# Gateway + dashboard
+docker compose -f docker-compose.local.yml --profile dashboard up -d
+```
+
+Open:
+
+- Gateway: `http://localhost:3000`
+- Dashboard: `http://localhost:4324`
+
+Then pair in dashboard via `/pair` and use the returned bearer token for admin config actions.
+
 Build from source (Rust toolchain):
 
 ```bash

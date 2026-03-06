@@ -9,7 +9,7 @@ elif [[ -f "docker-compose.yml" ]] && [[ "$(basename "$(pwd)")" == "dev" ]]; the
     BASE_DIR="."
     HOST_TARGET_DIR="../clients/agent-runtime/target"
 else
-    echo "❌ Error: Run this script from the project root or dev/ directory."
+    echo "❌ Error: Run this script from the project root or dev/ directory." >&2
     exit 1
 fi
 
@@ -33,6 +33,8 @@ function ensure_config {
         # Copy template
         cat "$BASE_DIR/config.template.toml" > "$CONFIG_FILE"
     fi
+
+    return 0
 }
 
 function print_help {
@@ -40,13 +42,17 @@ function print_help {
     echo "Usage: ./dev/cli.sh [command]"
     echo ""
     echo "Commands:"
-    echo -e "  ${GREEN}up${NC}      Start dev environment (Agent + Sandbox)"
+    echo -e "  ${GREEN}up${NC}                Start dev environment (Agent + Sandbox)"
+    echo -e "  ${GREEN}up-dashboard${NC}      Start dev environment + Dashboard"
     echo -e "  ${GREEN}down${NC}    Stop containers"
     echo -e "  ${GREEN}shell${NC}   Enter Sandbox (Ubuntu)"
     echo -e "  ${GREEN}agent${NC}   Enter Agent (Corvus CLI)"
     echo -e "  ${GREEN}logs${NC}    View logs"
-    echo -e "  ${GREEN}build${NC}   Rebuild images"
+    echo -e "  ${GREEN}build${NC}             Rebuild agent + sandbox images"
+    echo -e "  ${GREEN}build-dashboard${NC}   Rebuild dashboard image"
     echo -e "  ${GREEN}clean${NC}   Stop and wipe workspace data"
+
+    return 0
 }
 
 if [[ -z "$1" ]]; then
@@ -62,6 +68,17 @@ case "$1" in
         docker compose -f "$COMPOSE_FILE" up -d
         echo -e "${GREEN}✅ Environment is running!${NC}"
         echo -e "   - Agent: http://127.0.0.1:3000"
+        echo -e "   - Sandbox: running (background)"
+        echo -e "   - Config: $HOST_TARGET_DIR/.corvus/config.toml (Edit locally to apply changes)"
+        ;;
+
+    up-dashboard)
+        ensure_config
+        echo -e "${GREEN}🚀 Starting Dev Environment (with Dashboard)...${NC}"
+        docker compose -f "$COMPOSE_FILE" --profile dashboard up -d
+        echo -e "${GREEN}✅ Environment is running!${NC}"
+        echo -e "   - Agent: http://127.0.0.1:3000"
+        echo -e "   - Dashboard: http://127.0.0.1:4324"
         echo -e "   - Sandbox: running (background)"
         echo -e "   - Config: $HOST_TARGET_DIR/.corvus/config.toml (Edit locally to apply changes)"
         ;;
@@ -94,9 +111,15 @@ case "$1" in
         echo -e "${GREEN}✅ Rebuild complete.${NC}"
         ;;
 
+    build-dashboard)
+        echo -e "${YELLOW}🔨 Rebuilding dashboard image...${NC}"
+        docker compose -f "$COMPOSE_FILE" --profile dashboard build dashboard-dev
+        echo -e "${GREEN}✅ Dashboard rebuild complete.${NC}"
+        ;;
+
     clean)
         echo -e "${RED}⚠️  WARNING: This will delete '$HOST_TARGET_DIR/.corvus' data and Docker volumes.${NC}"
-        read -p "Are you sure? (y/N) " -n 1 -r
+        read -r -n 1 -p "Are you sure? (y/N) " REPLY
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             docker compose -f "$COMPOSE_FILE" down -v

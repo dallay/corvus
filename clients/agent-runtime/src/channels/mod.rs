@@ -1195,75 +1195,83 @@ fn bind_telegram_identity(config: &Config, identity: &str) -> Result<()> {
     Ok(())
 }
 
+fn maybe_restart_launchd_daemon_service() -> Result<bool> {
+    let home = directories::UserDirs::new()
+        .map(|u| u.home_dir().to_path_buf())
+        .context("Could not find home directory")?;
+    let plist = home
+        .join("Library")
+        .join("LaunchAgents")
+        .join("com.corvus.daemon.plist");
+    if !plist.exists() {
+        return Ok(false);
+    }
+
+    let list_output = Command::new("launchctl")
+        .arg("list")
+        .output()
+        .context("Failed to query launchctl list")?;
+    let listed = String::from_utf8_lossy(&list_output.stdout);
+    if !listed.contains("com.corvus.daemon") {
+        return Ok(false);
+    }
+
+    let _ = Command::new("launchctl")
+        .args(["stop", "com.corvus.daemon"])
+        .output();
+    let start_output = Command::new("launchctl")
+        .args(["start", "com.corvus.daemon"])
+        .output()
+        .context("Failed to start launchd daemon service")?;
+    if !start_output.status.success() {
+        let stderr = String::from_utf8_lossy(&start_output.stderr);
+        anyhow::bail!("launchctl start failed: {}", stderr.trim());
+    }
+
+    Ok(true)
+}
+
+fn maybe_restart_systemd_daemon_service() -> Result<bool> {
+    let home = directories::UserDirs::new()
+        .map(|u| u.home_dir().to_path_buf())
+        .context("Could not find home directory")?;
+    let unit_path: PathBuf = home
+        .join(".config")
+        .join("systemd")
+        .join("user")
+        .join("corvus.service");
+    if !unit_path.exists() {
+        return Ok(false);
+    }
+
+    let active_output = Command::new("systemctl")
+        .args(["--user", "is-active", "corvus.service"])
+        .output()
+        .context("Failed to query systemd service state")?;
+    let state = String::from_utf8_lossy(&active_output.stdout);
+    if !state.trim().eq_ignore_ascii_case("active") {
+        return Ok(false);
+    }
+
+    let restart_output = Command::new("systemctl")
+        .args(["--user", "restart", "corvus.service"])
+        .output()
+        .context("Failed to restart systemd daemon service")?;
+    if !restart_output.status.success() {
+        let stderr = String::from_utf8_lossy(&restart_output.stderr);
+        anyhow::bail!("systemctl restart failed: {}", stderr.trim());
+    }
+
+    Ok(true)
+}
+
 fn maybe_restart_managed_daemon_service() -> Result<bool> {
     if cfg!(target_os = "macos") {
-        let home = directories::UserDirs::new()
-            .map(|u| u.home_dir().to_path_buf())
-            .context("Could not find home directory")?;
-        let plist = home
-            .join("Library")
-            .join("LaunchAgents")
-            .join("com.corvus.daemon.plist");
-        if !plist.exists() {
-            return Ok(false);
-        }
-
-        let list_output = Command::new("launchctl")
-            .arg("list")
-            .output()
-            .context("Failed to query launchctl list")?;
-        let listed = String::from_utf8_lossy(&list_output.stdout);
-        if !listed.contains("com.corvus.daemon") {
-            return Ok(false);
-        }
-
-        let _ = Command::new("launchctl")
-            .args(["stop", "com.corvus.daemon"])
-            .output();
-        let start_output = Command::new("launchctl")
-            .args(["start", "com.corvus.daemon"])
-            .output()
-            .context("Failed to start launchd daemon service")?;
-        if !start_output.status.success() {
-            let stderr = String::from_utf8_lossy(&start_output.stderr);
-            anyhow::bail!("launchctl start failed: {}", stderr.trim());
-        }
-
-        return Ok(true);
+        return maybe_restart_launchd_daemon_service();
     }
 
     if cfg!(target_os = "linux") {
-        let home = directories::UserDirs::new()
-            .map(|u| u.home_dir().to_path_buf())
-            .context("Could not find home directory")?;
-        let unit_path: PathBuf = home
-            .join(".config")
-            .join("systemd")
-            .join("user")
-            .join("corvus.service");
-        if !unit_path.exists() {
-            return Ok(false);
-        }
-
-        let active_output = Command::new("systemctl")
-            .args(["--user", "is-active", "corvus.service"])
-            .output()
-            .context("Failed to query systemd service state")?;
-        let state = String::from_utf8_lossy(&active_output.stdout);
-        if !state.trim().eq_ignore_ascii_case("active") {
-            return Ok(false);
-        }
-
-        let restart_output = Command::new("systemctl")
-            .args(["--user", "restart", "corvus.service"])
-            .output()
-            .context("Failed to restart systemd daemon service")?;
-        if !restart_output.status.success() {
-            let stderr = String::from_utf8_lossy(&restart_output.stderr);
-            anyhow::bail!("systemctl restart failed: {}", stderr.trim());
-        }
-
-        return Ok(true);
+        return maybe_restart_systemd_daemon_service();
     }
 
     Ok(false)

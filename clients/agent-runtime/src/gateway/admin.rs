@@ -1106,20 +1106,44 @@ fn apply_gateway_patch(
         return Ok(());
     };
 
+    apply_gateway_binding_patch(cfg, gateway)?;
+    apply_gateway_security_patch(cfg, gateway);
+    apply_gateway_limits_patch(cfg, gateway)?;
+    apply_gateway_idempotency_patch(cfg, gateway)?;
+
+    Ok(())
+}
+
+fn apply_gateway_binding_patch(
+    cfg: &mut Config,
+    gateway: &AdminGatewayPatch,
+) -> Result<(), AdminResponse> {
     if let Some(port) = gateway.port {
         ensure_non_zero_u16(port, "gateway.port must be in range [1, 65535]")?;
         cfg.gateway.port = port;
     }
     if let Some(host) = gateway.host.as_ref() {
-        let host = normalize_gateway_host(host)?;
-        cfg.gateway.host = host;
+        cfg.gateway.host = normalize_gateway_host(host)?;
     }
+    Ok(())
+}
+
+fn apply_gateway_security_patch(cfg: &mut Config, gateway: &AdminGatewayPatch) {
     if let Some(require_pairing) = gateway.require_pairing {
         cfg.gateway.require_pairing = require_pairing;
     }
     if let Some(allow_public_bind) = gateway.allow_public_bind {
         cfg.gateway.allow_public_bind = allow_public_bind;
     }
+    if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
+        cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
+    }
+}
+
+fn apply_gateway_limits_patch(
+    cfg: &mut Config,
+    gateway: &AdminGatewayPatch,
+) -> Result<(), AdminResponse> {
     if let Some(limit) = gateway.pair_rate_limit_per_minute {
         ensure_non_zero_u32(limit, "gateway.pair_rate_limit_per_minute must be >= 1")?;
         cfg.gateway.pair_rate_limit_per_minute = limit;
@@ -1128,15 +1152,19 @@ fn apply_gateway_patch(
         ensure_non_zero_u32(limit, "gateway.webhook_rate_limit_per_minute must be >= 1")?;
         cfg.gateway.webhook_rate_limit_per_minute = limit;
     }
-    if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
-        cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
-    }
     if let Some(rate_limit_max_keys) = gateway.rate_limit_max_keys {
         cfg.gateway.rate_limit_max_keys = gateway::utils::normalize_max_keys(
             rate_limit_max_keys,
             cfg.gateway.rate_limit_max_keys,
         );
     }
+    Ok(())
+}
+
+fn apply_gateway_idempotency_patch(
+    cfg: &mut Config,
+    gateway: &AdminGatewayPatch,
+) -> Result<(), AdminResponse> {
     if let Some(idempotency_ttl_secs) = gateway.idempotency_ttl_secs {
         ensure_non_zero_u64(
             idempotency_ttl_secs,
@@ -1254,29 +1282,9 @@ fn apply_web_search_patch(
     if let Some(enabled) = web_search.enabled {
         cfg.web_search.enabled = enabled;
     }
-    if let Some(provider) = web_search.provider.as_ref() {
-        let provider = provider.trim().to_ascii_lowercase();
-        if provider != "duckduckgo" && provider != "brave" {
-            return Err(bad_request(
-                "web_search.provider must be one of: duckduckgo, brave",
-            ));
-        }
-        cfg.web_search.provider = provider;
-    }
-    if let Some(max_results) = web_search.max_results {
-        if !(1..=10).contains(&max_results) {
-            return Err(bad_request(
-                "web_search.max_results must be in range [1, 10]",
-            ));
-        }
-        cfg.web_search.max_results = max_results;
-    }
-    if let Some(timeout_secs) = web_search.timeout_secs {
-        if timeout_secs == 0 {
-            return Err(bad_request("web_search.timeout_secs must be >= 1"));
-        }
-        cfg.web_search.timeout_secs = timeout_secs;
-    }
+    apply_web_search_provider_patch(cfg, web_search.provider.as_deref())?;
+    apply_web_search_max_results_patch(cfg, web_search.max_results)?;
+    apply_web_search_timeout_patch(cfg, web_search.timeout_secs)?;
     if let Some(brave_api_key) = web_search.brave_api_key.as_ref() {
         apply_secret_update(
             &mut cfg.web_search.brave_api_key,
@@ -1285,6 +1293,56 @@ fn apply_web_search_patch(
         )?;
     }
 
+    Ok(())
+}
+
+fn apply_web_search_provider_patch(
+    cfg: &mut Config,
+    provider: Option<&str>,
+) -> Result<(), AdminResponse> {
+    let Some(provider) = provider else {
+        return Ok(());
+    };
+
+    let provider = provider.trim().to_ascii_lowercase();
+    if provider != "duckduckgo" && provider != "brave" {
+        return Err(bad_request(
+            "web_search.provider must be one of: duckduckgo, brave",
+        ));
+    }
+    cfg.web_search.provider = provider;
+    Ok(())
+}
+
+fn apply_web_search_max_results_patch(
+    cfg: &mut Config,
+    max_results: Option<usize>,
+) -> Result<(), AdminResponse> {
+    let Some(max_results) = max_results else {
+        return Ok(());
+    };
+
+    if !(1..=10).contains(&max_results) {
+        return Err(bad_request(
+            "web_search.max_results must be in range [1, 10]",
+        ));
+    }
+    cfg.web_search.max_results = max_results;
+    Ok(())
+}
+
+fn apply_web_search_timeout_patch(
+    cfg: &mut Config,
+    timeout_secs: Option<u64>,
+) -> Result<(), AdminResponse> {
+    let Some(timeout_secs) = timeout_secs else {
+        return Ok(());
+    };
+
+    if timeout_secs == 0 {
+        return Err(bad_request("web_search.timeout_secs must be >= 1"));
+    }
+    cfg.web_search.timeout_secs = timeout_secs;
     Ok(())
 }
 
@@ -1378,43 +1436,77 @@ fn apply_surreal_memory_patch(
     Ok(())
 }
 
+fn default_webhook_config() -> crate::config::schema::WebhookConfig {
+    crate::config::schema::WebhookConfig {
+        port: 3000,
+        secret: None,
+    }
+}
+
+fn ensure_webhook_config(cfg: &mut Config) {
+    if cfg.channels_config.webhook.is_none() {
+        cfg.channels_config.webhook = Some(default_webhook_config());
+    }
+}
+
+fn apply_webhook_enabled_patch(
+    cfg: &mut Config,
+    enabled: Option<bool>,
+) -> Result<(), AdminResponse> {
+    let Some(enabled) = enabled else {
+        return Ok(());
+    };
+
+    if enabled {
+        ensure_webhook_config(cfg);
+        return Ok(());
+    }
+
+    cfg.channels_config.webhook = None;
+    Ok(())
+}
+
+fn apply_webhook_port_patch(
+    webhook: &mut crate::config::schema::WebhookConfig,
+    port: Option<u16>,
+) -> Result<(), AdminResponse> {
+    let Some(port) = port else {
+        return Ok(());
+    };
+    if port == 0 {
+        return Err(bad_request(
+            "channels.webhook.port must be in range [1, 65535]",
+        ));
+    }
+    webhook.port = port;
+    Ok(())
+}
+
+fn apply_webhook_secret_patch(
+    webhook: &mut crate::config::schema::WebhookConfig,
+    secret: Option<&AdminSecretUpdate>,
+) -> Result<(), AdminResponse> {
+    let Some(secret) = secret else {
+        return Ok(());
+    };
+    apply_secret_update(&mut webhook.secret, secret, "channels.webhook.secret")
+}
+
 fn apply_webhook_patch(cfg: &mut Config, patch: &AdminWebhookPatch) -> Result<(), AdminResponse> {
-    if let Some(enabled) = patch.enabled {
-        if enabled && cfg.channels_config.webhook.is_none() {
-            cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
-                port: 3000,
-                secret: None,
-            });
-        }
-        if !enabled {
-            cfg.channels_config.webhook = None;
-            return Ok(());
-        }
+    apply_webhook_enabled_patch(cfg, patch.enabled)?;
+    if patch.enabled == Some(false) {
+        return Ok(());
     }
 
     if patch.port.is_none() && patch.secret.is_none() {
         return Ok(());
     }
 
-    if cfg.channels_config.webhook.is_none() {
-        cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
-            port: 3000,
-            secret: None,
-        });
-    }
+    ensure_webhook_config(cfg);
 
     if let Some(webhook) = cfg.channels_config.webhook.as_mut() {
-        if let Some(port) = patch.port {
-            if port == 0 {
-                return Err(bad_request(
-                    "channels.webhook.port must be in range [1, 65535]",
-                ));
-            }
-            webhook.port = port;
-        }
-        if let Some(secret) = patch.secret.as_ref() {
-            apply_secret_update(&mut webhook.secret, secret, "channels.webhook.secret")?;
-        }
+        apply_webhook_port_patch(webhook, patch.port)?;
+        apply_webhook_secret_patch(webhook, patch.secret.as_ref())?;
     }
 
     Ok(())

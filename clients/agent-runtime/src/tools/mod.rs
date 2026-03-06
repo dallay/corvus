@@ -102,6 +102,158 @@ pub fn default_tools_with_runtime(
     ]
 }
 
+fn add_browser_tools(
+    tools: &mut Vec<Box<dyn Tool>>,
+    security: &Arc<SecurityPolicy>,
+    browser_config: &crate::config::BrowserConfig,
+) {
+    if !browser_config.enabled {
+        return;
+    }
+
+    tools.push(Box::new(BrowserOpenTool::new(
+        security.clone(),
+        browser_config.allowed_domains.clone(),
+    )));
+    tools.push(Box::new(BrowserTool::new_with_backend(
+        security.clone(),
+        browser_config.allowed_domains.clone(),
+        browser_config.session_name.clone(),
+        browser_config.backend.clone(),
+        browser_config.native_headless,
+        browser_config.native_webdriver_url.clone(),
+        browser_config.native_chrome_path.clone(),
+        ComputerUseConfig {
+            endpoint: browser_config.computer_use.endpoint.clone(),
+            api_key: browser_config.computer_use.api_key.clone(),
+            timeout_ms: browser_config.computer_use.timeout_ms,
+            allow_remote_endpoint: browser_config.computer_use.allow_remote_endpoint,
+            window_allowlist: browser_config.computer_use.window_allowlist.clone(),
+            max_coordinate_x: browser_config.computer_use.max_coordinate_x,
+            max_coordinate_y: browser_config.computer_use.max_coordinate_y,
+        },
+    )));
+}
+
+fn add_http_request_tool(
+    tools: &mut Vec<Box<dyn Tool>>,
+    security: &Arc<SecurityPolicy>,
+    http_config: &crate::config::HttpRequestConfig,
+) {
+    if !http_config.enabled {
+        return;
+    }
+
+    tools.push(Box::new(HttpRequestTool::new(
+        security.clone(),
+        http_config.allowed_domains.clone(),
+        http_config.max_response_size,
+        http_config.timeout_secs,
+    )));
+}
+
+fn add_web_search_tool(
+    tools: &mut Vec<Box<dyn Tool>>,
+    security: &Arc<SecurityPolicy>,
+    root_config: &crate::config::Config,
+) {
+    if !root_config.web_search.enabled {
+        return;
+    }
+
+    tools.push(Box::new(WebSearchTool::new(
+        security.clone(),
+        root_config.web_search.provider.clone(),
+        root_config.web_search.brave_api_key.clone(),
+        root_config.web_search.max_results,
+        root_config.web_search.timeout_secs,
+    )));
+}
+
+fn add_composio_tool(
+    tools: &mut Vec<Box<dyn Tool>>,
+    security: &Arc<SecurityPolicy>,
+    composio_key: Option<&str>,
+    composio_entity_id: Option<&str>,
+) {
+    let Some(key) = composio_key else {
+        return;
+    };
+    if key.is_empty() {
+        return;
+    }
+
+    tools.push(Box::new(ComposioTool::new(
+        key,
+        composio_entity_id,
+        security.clone(),
+    )));
+}
+
+fn add_delegate_tool(
+    tools: &mut Vec<Box<dyn Tool>>,
+    security: &Arc<SecurityPolicy>,
+    agents: &HashMap<String, DelegateAgentConfig>,
+    fallback_api_key: Option<&str>,
+) {
+    if agents.is_empty() {
+        return;
+    }
+
+    let delegate_agents: HashMap<String, DelegateAgentConfig> = agents
+        .iter()
+        .map(|(name, cfg)| (name.clone(), cfg.clone()))
+        .collect();
+    let delegate_fallback_credential = fallback_api_key.and_then(|value| {
+        let trimmed_value = value.trim();
+        (!trimmed_value.is_empty()).then(|| trimmed_value.to_owned())
+    });
+    tools.push(Box::new(DelegateTool::new(
+        delegate_agents,
+        delegate_fallback_credential,
+        security.clone(),
+    )));
+}
+
+#[cfg(feature = "mcp-runtime")]
+fn extend_with_mcp_tools(tools: &mut Vec<Box<dyn Tool>>, root_config: &crate::config::Config) {
+    if !root_config.mcp.enabled {
+        return;
+    }
+
+    match mcp::discover_tools(&root_config.mcp) {
+        Ok(mcp_tools) => {
+            let mut existing_names: HashSet<String> =
+                tools.iter().map(|tool| tool.name().to_string()).collect();
+            let mut detected_collision: Option<String> = None;
+
+            for mcp_tool in &mcp_tools {
+                let name = mcp_tool.name();
+                if !existing_names.insert(name.to_string()) {
+                    detected_collision = Some(name.to_string());
+                    break;
+                }
+            }
+
+            if let Some(collision) = detected_collision {
+                tracing::warn!(
+                    collision = %collision,
+                    "MCP registration skipped due to tool-name collision"
+                );
+            } else {
+                tools.extend(mcp_tools);
+            }
+        }
+        Err(error) => {
+            let redacted = redact_runtime_error(&error.to_string());
+            tracing::warn!(
+                error = %redacted,
+                "mcp.enabled is true but MCP tool discovery failed"
+            );
+        }
+    }
+}
+
 /// Create full tool registry including memory tools and optional Composio
 #[allow(clippy::implicit_hasher, clippy::too_many_arguments)]
 pub fn all_tools(
@@ -173,118 +325,20 @@ pub fn all_tools_with_runtime(
         )),
     ];
 
-    if browser_config.enabled {
-        // Add legacy browser_open tool for simple URL opening
-        tools.push(Box::new(BrowserOpenTool::new(
-            security.clone(),
-            browser_config.allowed_domains.clone(),
-        )));
-        // Add full browser automation tool (pluggable backend)
-        tools.push(Box::new(BrowserTool::new_with_backend(
-            security.clone(),
-            browser_config.allowed_domains.clone(),
-            browser_config.session_name.clone(),
-            browser_config.backend.clone(),
-            browser_config.native_headless,
-            browser_config.native_webdriver_url.clone(),
-            browser_config.native_chrome_path.clone(),
-            ComputerUseConfig {
-                endpoint: browser_config.computer_use.endpoint.clone(),
-                api_key: browser_config.computer_use.api_key.clone(),
-                timeout_ms: browser_config.computer_use.timeout_ms,
-                allow_remote_endpoint: browser_config.computer_use.allow_remote_endpoint,
-                window_allowlist: browser_config.computer_use.window_allowlist.clone(),
-                max_coordinate_x: browser_config.computer_use.max_coordinate_x,
-                max_coordinate_y: browser_config.computer_use.max_coordinate_y,
-            },
-        )));
-    }
-
-    if http_config.enabled {
-        tools.push(Box::new(HttpRequestTool::new(
-            security.clone(),
-            http_config.allowed_domains.clone(),
-            http_config.max_response_size,
-            http_config.timeout_secs,
-        )));
-    }
-
-    // Web search tool (enabled by default for GLM and other models)
-    if root_config.web_search.enabled {
-        tools.push(Box::new(WebSearchTool::new(
-            security.clone(),
-            root_config.web_search.provider.clone(),
-            root_config.web_search.brave_api_key.clone(),
-            root_config.web_search.max_results,
-            root_config.web_search.timeout_secs,
-        )));
-    }
+    add_browser_tools(&mut tools, security, browser_config);
+    add_http_request_tool(&mut tools, security, http_config);
+    add_web_search_tool(&mut tools, security, root_config);
 
     // Vision tools are always available
     tools.push(Box::new(ScreenshotTool::new(security.clone())));
     tools.push(Box::new(ImageInfoTool::new(security.clone())));
 
-    if let Some(key) = composio_key {
-        if !key.is_empty() {
-            tools.push(Box::new(ComposioTool::new(
-                key,
-                composio_entity_id,
-                security.clone(),
-            )));
-        }
-    }
+    add_composio_tool(&mut tools, security, composio_key, composio_entity_id);
 
-    // Add delegation tool when agents are configured
-    if !agents.is_empty() {
-        let delegate_agents: HashMap<String, DelegateAgentConfig> = agents
-            .iter()
-            .map(|(name, cfg)| (name.clone(), cfg.clone()))
-            .collect();
-        let delegate_fallback_credential = fallback_api_key.and_then(|value| {
-            let trimmed_value = value.trim();
-            (!trimmed_value.is_empty()).then(|| trimmed_value.to_owned())
-        });
-        tools.push(Box::new(DelegateTool::new(
-            delegate_agents,
-            delegate_fallback_credential,
-            security.clone(),
-        )));
-    }
+    add_delegate_tool(&mut tools, security, agents, fallback_api_key);
 
     #[cfg(feature = "mcp-runtime")]
-    if root_config.mcp.enabled {
-        match mcp::discover_tools(&root_config.mcp) {
-            Ok(mcp_tools) => {
-                let mut existing_names: HashSet<String> =
-                    tools.iter().map(|tool| tool.name().to_string()).collect();
-                let mut detected_collision: Option<String> = None;
-
-                for mcp_tool in &mcp_tools {
-                    let name = mcp_tool.name();
-                    if !existing_names.insert(name.to_string()) {
-                        detected_collision = Some(name.to_string());
-                        break;
-                    }
-                }
-
-                if let Some(collision) = detected_collision {
-                    tracing::warn!(
-                        collision = %collision,
-                        "MCP registration skipped due to tool-name collision"
-                    );
-                } else {
-                    tools.extend(mcp_tools);
-                }
-            }
-            Err(error) => {
-                let redacted = redact_runtime_error(&error.to_string());
-                tracing::warn!(
-                    error = %redacted,
-                    "mcp.enabled is true but MCP tool discovery failed"
-                );
-            }
-        }
-    }
+    extend_with_mcp_tools(&mut tools, root_config);
 
     tools
 }

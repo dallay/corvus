@@ -16,13 +16,17 @@ PASS=0
 FAIL=0
 
 log_pass() {
-    echo -e "${GREEN}✓${NC} $1"
+    local message="$1"
+    echo -e "${GREEN}✓${NC} $message"
     PASS=$((PASS + 1))
+    return 0
 }
 
 log_fail() {
-    echo -e "${RED}✗${NC} $1"
+    local message="$1"
+    echo -e "${RED}✗${NC} $message"
     FAIL=$((FAIL + 1))
+    return 0
 }
 
 # Test 1: .dockerignore exists
@@ -96,7 +100,7 @@ echo "=== Simulating Docker build context ==="
 
 # Create temp dir and simulate what would be sent
 TEMP_DIR=$(mktemp -d)
-trap "rm -rf $TEMP_DIR" EXIT
+trap 'rm -rf "$TEMP_DIR"' EXIT
 
 # Use rsync with .dockerignore patterns to simulate Docker's behavior
 cd "$PROJECT_ROOT"

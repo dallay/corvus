@@ -2,15 +2,19 @@ import { describe, expect, it } from "vitest";
 import en from "./en.json";
 import es from "./es.json";
 
-function flatten(obj: Record<string, unknown>, prefix = ""): Record<string, string> {
-  let result: Record<string, string> = {};
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function flatten(
+  obj: Record<string, unknown>,
+  prefix = "",
+  result: Record<string, string> = Object.create(null) as Record<string, string>,
+): Record<string, string> {
   for (const [key, value] of Object.entries(obj)) {
     const fullKey = prefix ? `${prefix}.${key}` : key;
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      result = {
-        ...result,
-        ...flatten(value as Record<string, unknown>, fullKey),
-      };
+    if (isRecord(value)) {
+      flatten(value, fullKey, result);
     } else {
       result[fullKey] = String(value);
     }
@@ -19,13 +23,31 @@ function flatten(obj: Record<string, unknown>, prefix = ""): Record<string, stri
 }
 
 function extractPlaceholders(text: string): string[] {
-  const matches = text.match(/\{[^}]+\}/g) || [];
-  return matches.sort();
+  const placeholders: string[] = [];
+  let start = -1;
+
+  for (let index = 0; index < text.length; index += 1) {
+    const charCode = text.charCodeAt(index);
+
+    if (charCode === 123) {
+      start = index;
+      continue;
+    }
+
+    if (charCode === 125 && start >= 0) {
+      if (index - start > 1) {
+        placeholders.push(text.slice(start, index + 1));
+      }
+      start = -1;
+    }
+  }
+
+  return placeholders.sort();
 }
 
 describe("Locale Parity Guard", () => {
-  const flattenedEs = flatten(es as unknown as Record<string, unknown>);
-  const flattenedEn = flatten(en as unknown as Record<string, unknown>);
+  const flattenedEs = flatten(es);
+  const flattenedEn = flatten(en);
 
   it("has identical sets of keys between Spanish and English", () => {
     const esKeys = Object.keys(flattenedEs).sort();
@@ -36,7 +58,7 @@ describe("Locale Parity Guard", () => {
 
   it("has matching placeholders for all shared keys", () => {
     for (const key of Object.keys(flattenedEs)) {
-      if (flattenedEn[key]) {
+      if (Object.prototype.hasOwnProperty.call(flattenedEn, key)) {
         const esPlaceholders = extractPlaceholders(flattenedEs[key]);
         const enPlaceholders = extractPlaceholders(flattenedEn[key]);
 
