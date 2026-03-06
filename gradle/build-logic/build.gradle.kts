@@ -235,12 +235,12 @@ tasks.withType<PublishToMavenRepository>().configureEach {
 
 dependencies {
   testImplementation("org.jetbrains.kotlin:kotlin-test")
-  testImplementation("org.junit.jupiter:junit-jupiter-api:5.10.0")
-  testImplementation("org.junit.jupiter:junit-jupiter-params:5.10.0")
-  testRuntimeOnly("org.junit.jupiter:junit-jupiter-engine:5.10.0")
+  testImplementation(catalogLibs.findLibrary("junit-jupiter-api").get())
+  testImplementation(catalogLibs.findLibrary("junit-jupiter-params").get())
+  testRuntimeOnly(catalogLibs.findLibrary("junit-jupiter-engine").get())
 }
 
 dependencies {
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-bom:1.8.0")
-  implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
+  implementation(platform(catalogLibs.findLibrary("kotlinx-coroutines-bom").get()))
+  implementation(catalogLibs.findLibrary("kotlinx-coroutines-core").get())
 }

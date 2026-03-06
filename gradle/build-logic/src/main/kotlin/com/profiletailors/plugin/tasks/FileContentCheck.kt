@@ -45,90 +45,96 @@ import org.gradle.work.InputChanges
 @CacheableTask
 abstract class FileContentCheck : DefaultTask(), Injected {
 
-  /**
-   * Collection of source files to scan, supporting incremental, caching, and relative path
-   * sensitivity.
-   */
-  @get:InputFiles
-  @get:Incremental
-  @get:PathSensitive(PathSensitivity.RELATIVE)
-  @get:IgnoreEmptyDirectories
-  val sourceFiles: ConfigurableFileCollection =
-    objects
-      .fileCollection()
-      .convention(
-        layout.projectDirectory.dir("src").asFileTree.matching { include("**/*.java", "**/*.kt") }
-      )
+    /**
+     * Collection of source files to scan, supporting incremental, caching, and relative path
+     * sensitivity.
+     */
+    @get:InputFiles
+    @get:Incremental
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    @get:IgnoreEmptyDirectories
+    val sourceFiles: ConfigurableFileCollection =
+        objects
+            .fileCollection()
+            .convention(
+                layout.projectDirectory.dir("src").asFileTree.matching {
+                    include(
+                        "**/*.java",
+                        "**/*.kt"
+                    )
+                }
+            )
 
-  /**
-   * Path regex -> Forbidden content regex list.
-   *
-   * key is the file path regex (matched using invariantSeparatorsPath, path separator unified as
-   * "/"); value is the list of forbidden content regexes in the corresponding file.
-   */
-  @get:Input abstract val contentCheckMap: MapProperty<String, List<String>>
+    /**
+     * Path regex -> Forbidden content regex list.
+     *
+     * key is the file path regex (matched using invariantSeparatorsPath, path separator unified as
+     * "/"); value is the list of forbidden content regexes in the corresponding file.
+     */
+    @get:Input
+    abstract val contentCheckMap: MapProperty<String, List<String>>
 
-  init {
-    description = "Check file contents with incremental build and regex path matching"
-    outputs.upToDateWhen { true }
-  }
-
-  @TaskAction
-  fun execute(inputs: InputChanges) {
-    if (!contentCheckMap.isPresent || contentCheckMap.get().isEmpty()) return
-
-    val violations = mutableListOf<String>()
-
-    val compiled: List<Pair<Regex, List<Regex>>> by lazy {
-      contentCheckMap.get().map { (pathPattern, contentRegexList) ->
-        val pathRegex = Regex(pathPattern)
-        val compiledContentRegexes = contentRegexList.map { Regex(it) }
-        pathRegex to compiledContentRegexes
-      }
+    init {
+        description = "Check file contents with incremental build and regex path matching"
+        outputs.upToDateWhen { true }
     }
 
-    if (!inputs.isIncremental) {
-      sourceFiles.forEach { checkFile(it, compiled, violations) }
-    } else {
-      inputs.getFileChanges(sourceFiles).forEach { change ->
-        if (change.fileType != FileType.FILE) return@forEach
-        when (change.changeType) {
-          ChangeType.REMOVED -> {}
-          else -> checkFile(change.file, compiled, violations)
+    @TaskAction
+    fun execute(inputs: InputChanges) {
+        if (!contentCheckMap.isPresent || contentCheckMap.get().isEmpty()) return
+
+        val violations = mutableListOf<String>()
+
+        val compiled: List<Pair<Regex, List<Regex>>> by lazy {
+            contentCheckMap.get().map { (pathPattern, contentRegexList) ->
+                val pathRegex = Regex(pathPattern)
+                val compiledContentRegexes = contentRegexList.map { Regex(it) }
+                pathRegex to compiledContentRegexes
+            }
         }
-      }
-    }
 
-    if (violations.isNotEmpty()) {
-      throw GradleException(violations.joinToString("\n"))
-    }
-  }
-
-  /**
-   * Check if a single file violates content rules.
-   *
-   * @param file The source file to check
-   * @param compiledRules Pre-compiled path and content regex rules
-   * @param violations Stores violation information
-   */
-  @Suppress("detekt:NestedBlockDepth")
-  private fun checkFile(
-    file: File,
-    compiledRules: List<Pair<Regex, List<Regex>>>,
-    violations: MutableList<String>,
-  ) {
-    val path = file.invariantSeparatorsPath
-    val text = file.readText(StandardCharsets.UTF_8)
-
-    compiledRules.forEach { (pathRegex, contentRegexes) ->
-      if (pathRegex.containsMatchIn(path)) {
-        contentRegexes.forEach { regex ->
-          if (regex.containsMatchIn(text)) {
-            violations +=
-              "${file.path} violates content rule: ${regex.pattern} (matched by path pattern: ${pathRegex.pattern})"
-          }
+        if (!inputs.isIncremental) {
+            sourceFiles.forEach { checkFile(it, compiled, violations) }
+        } else {
+            inputs.getFileChanges(sourceFiles).forEach { change ->
+                if (change.fileType != FileType.FILE) return@forEach
+                when (change.changeType) {
+                    ChangeType.REMOVED -> Unit
+                    else -> checkFile(change.file, compiled, violations)
+                }
+            }
         }
-      }
+
+        if (violations.isNotEmpty()) {
+            throw GradleException(violations.joinToString("\n"))
+        }
     }
-  }
+
+    /**
+     * Check if a single file violates content rules.
+     *
+     * @param file The source file to check
+     * @param compiledRules Pre-compiled path and content regex rules
+     * @param violations Stores violation information
+     */
+    @Suppress("detekt:NestedBlockDepth")
+    private fun checkFile(
+        file: File,
+        compiledRules: List<Pair<Regex, List<Regex>>>,
+        violations: MutableList<String>,
+    ) {
+        val path = file.invariantSeparatorsPath
+        val text = file.readText(StandardCharsets.UTF_8)
+
+        compiledRules.forEach { (pathRegex, contentRegexes) ->
+            if (pathRegex.containsMatchIn(path)) {
+                contentRegexes.forEach { regex ->
+                    if (regex.containsMatchIn(text)) {
+                        violations +=
+                            "${file.path} violates content rule: ${regex.pattern} (matched by path pattern: ${pathRegex.pattern})"
+                    }
+                }
+            }
+        }
+    }
 }

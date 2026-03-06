@@ -2,15 +2,12 @@
 
 const { ensureBinary } = require('../lib/install');
 
-async function runPostInstall() {
-  try {
-    const binaryPath = await ensureBinary();
+ensureBinary()
+  .then((binaryPath) => {
     console.log(`[corvus] Native binary ready at ${binaryPath}`);
-  } catch (error) {
+  })
+  .catch((error) => {
     const message = error instanceof Error ? error.message : String(error);
     console.warn(`[corvus] Postinstall skipped: ${message}`);
     console.warn('[corvus] Binary will be downloaded on first run.');
-  }
-}
-
-runPostInstall();
+  });

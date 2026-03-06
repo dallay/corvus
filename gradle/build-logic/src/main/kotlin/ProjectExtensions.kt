@@ -3,7 +3,6 @@
 package com.profiletailors.plugin
 
 import com.profiletailors.plugin.gradle.ExecValueSource
-import com.sun.tools.attach.spi.AttachProvider.providers
 import java.io.File
 import javax.inject.Inject
 import kotlin.jvm.optionals.getOrNull
@@ -57,12 +56,23 @@ val PluginAware.sharedGradle: Gradle
  * [service_injection](https://docs.gradle.org/nightly/userguide/service_injection.html)
  */
 interface Injected {
-  @get:Inject val providers: ProviderFactory
-  @get:Inject val objects: ObjectFactory
-  @get:Inject val layout: ProjectLayout
-  @get:Inject val archives: ArchiveOperations
-  @get:Inject val files: FileOperations
-  @get:Inject val exec: ExecOperations
+  @get:Inject
+  val providers: ProviderFactory
+
+  @get:Inject
+  val objects: ObjectFactory
+
+  @get:Inject
+  val layout: ProjectLayout
+
+  @get:Inject
+  val archives: ArchiveOperations
+
+  @get:Inject
+  val files: FileOperations
+
+  @get:Inject
+  val exec: ExecOperations
 }
 
 val Project.injected
@@ -176,13 +186,18 @@ fun PluginAware.propOrDefault(
 ): String {
   // https://github.com/gradle/gradle/issues/29700
   val waitingFixThisBug = true
+  fun providerValue(providerFactory: ProviderFactory): String =
+    providerFactory.gradleProperty(key).getOrNull() ?: defaultValue
+
+  fun propertyValue(project: Project): String {
+    val property = project.findProperty(key)
+    return property as? String ?: defaultValue
+  }
+
   val value =
     when (this) {
       is Project -> {
-        if (waitingFixThisBug) {
-          val property = findProperty(key)
-          property as? String ?: defaultValue
-        } else if (!fromProvider) {
+        if (waitingFixThisBug || !fromProvider) {
           /*
            * https://github.com/gradle/gradle/issues/29600
            *
@@ -194,8 +209,7 @@ fun PluginAware.propOrDefault(
            * - ❌ get value from ancestor's gradle.properties file
            * - ✅ get value from setting's gradle.properties file
            */
-          val property = findProperty(key)
-          property as? String ?: defaultValue
+          propertyValue(this)
         } else {
           /*
            * https://github.com/gradle/gradle/issues/23572
@@ -209,24 +223,17 @@ fun PluginAware.propOrDefault(
            * - ❌ get value from ancestor's gradle.properties file
            * - ✅ get value from setting's gradle.properties file
            */
-          providers
-            .gradleProperty(key)
-            //          .orElse(providers.systemProperty(key))
-            //          .orElse(providers.environmentVariable(key))
-            .getOrNull() ?: defaultValue
+          providerValue(providers)
         }
       }
-      is Settings -> {
+
+      is Settings ->
         if (!fromProvider) {
           extensions.extraProperties.getOrDefault(key, defaultValue)
         } else {
-          providers
-            .gradleProperty(key)
-            //          .orElse(providers.systemProperty(key))
-            //          .orElse(providers.environmentVariable(key))
-            .getOrNull() ?: defaultValue
+          providerValue(providers)
         }
-      }
+
       else -> error("Unknown PluginAware type ${javaClass.name}")
     }
   return value
@@ -267,21 +274,16 @@ object GradleExtTool {
     val dir = File(searchPath)
     val scriptName = org.gradle.internal.os.OperatingSystem.current().getScriptName("gradlew")
     val gradlew = dir.resolve(scriptName)
-    if (gradlew.exists()) {
-      return gradlew.toPath()
+    return if (gradlew.exists()) {
+      gradlew.toPath()
     } else {
       val parent = dir.parent ?: return null
-      return findGradlew(parent)
+      findGradlew(parent)
     }
   }
 
   fun openBrowser(providers: ProviderFactory, url: String) {
     try {
-      //    // Use Java AWT cross-platform solution
-      //    if (Desktop.isDesktopSupported() &&
-      // Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
-      //      Desktop.getDesktop().browse(URI(url))
-      //    }
       val os = System.getProperty("os.name").lowercase()
       val command =
         when {
@@ -297,6 +299,8 @@ object GradleExtTool {
           }
         }
       execValueSource.get()
-    } catch (_: Exception) {}
+    } catch (exception: Exception) {
+      println("Unable to open browser automatically: ${exception.message}")
+    }
   }
 }
