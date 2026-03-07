@@ -15,7 +15,8 @@
           "responsive",
           "screen",
           "import",
-          "theme"
+          "theme",
+          "layer"
         ]
       }
     ],

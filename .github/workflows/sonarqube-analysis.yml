@@ -105,13 +105,13 @@ jobs:
 
       - name: 🐳 Run Hadolint
         if: env.SONAR_TOKEN != ''
-        run: docker run --rm -v "$(pwd):/app" -w /app hadolint/hadolint hadolint -f json $(find . -name "Dockerfile*" -not -path "*/node_modules/*") > coverage/hadolint-report.json || true
+        run: |
+          find . -name "Dockerfile*" -not -path "*/node_modules/*" -exec docker run --rm -v "$(pwd):/app" -w /app hadolint/hadolint hadolint -f json {} + > coverage/hadolint-report.json || true
 
       - name: 🤖 Run Actionlint
         if: env.SONAR_TOKEN != ''
         run: |
-          bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          ./actionlint -format '{{json .}}' > coverage/actionlint-report.json || true
+          find .github/workflows -name "*.yml" -exec docker run --rm -v "$(pwd):/app" -w /app rhysd/actionlint:v1.7.11 -format '{{json .}}' {} + > coverage/actionlint-report.json || true
 
       - name: 🧮 Compute Sonar project key
         if: env.SONAR_TOKEN != ''
