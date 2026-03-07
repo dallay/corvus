@@ -228,6 +228,8 @@ jobs:
             api_post "qualitygates/update_condition" \
               --data-urlencode "organization=${organization}" \
               --data-urlencode "id=${condition_id}" \
+              --data-urlencode "metric=new_coverage" \
+              --data-urlencode "op=LT" \
               --data-urlencode "error=70"
           else
             echo "Creating new_coverage condition with threshold 70"
