@@ -230,10 +230,33 @@ jobs:
               fi
             fi
 
+            api_get \
+              "qualitygates/list" \
+              gate-list.json \
+              "--data-urlencode organization=${organization}"
+
+            custom_gate_id=$(CUSTOM_GATE_NAME="${custom_gate_name}" python - <<'PY'
+          import json
+          import os
+          import sys
+
+          name = os.environ["CUSTOM_GATE_NAME"]
+          with open("gate-list.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          gate = next((g for g in data.get("qualitygates", []) if g.get("name") == name), None)
+          if not gate or gate.get("id") is None:
+              sys.stderr.write(f"Could not resolve gate id for '{name}'\n")
+              sys.exit(1)
+
+          print(gate["id"])
+          PY
+            )
+
             api_post "qualitygates/select" \
               --data-urlencode "organization=${organization}" \
               --data-urlencode "projectKey=${project_key}" \
-              --data-urlencode "gateName=${custom_gate_name}"
+              --data-urlencode "gateId=${custom_gate_id}"
 
             api_get \
               "qualitygates/get_by_project" \
