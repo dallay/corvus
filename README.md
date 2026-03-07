@@ -178,8 +178,8 @@ make dev-down    # Stop the environment
 Detailed documentation is available in the `clients/web/apps/docs/` directory. You can build and view it locally:
 
 ```bash
-make docs-web-build
-make docs-web-dev
+make docs-build
+make docs-dev
 ```
 
 ---

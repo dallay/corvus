@@ -44,60 +44,8 @@ pub fn list_configured_boards(config: &PeripheralsConfig) -> Vec<&PeripheralBoar
 #[allow(clippy::module_name_repetitions)]
 pub fn handle_command(cmd: crate::PeripheralCommands, config: &Config) -> Result<()> {
     match cmd {
-        crate::PeripheralCommands::List => {
-            let boards = list_configured_boards(&config.peripherals);
-            if boards.is_empty() {
-                println!("No peripherals configured.");
-                println!();
-                println!("Add one with: corvus peripheral add <board> <path>");
-                println!("  Example: corvus peripheral add nucleo-f401re /dev/ttyACM0");
-                println!();
-                println!("Or add to config.toml:");
-                println!("  [peripherals]");
-                println!("  enabled = true");
-                println!();
-                println!("  [[peripherals.boards]]");
-                println!("  board = \"nucleo-f401re\"");
-                println!("  transport = \"serial\"");
-                println!("  path = \"/dev/ttyACM0\"");
-            } else {
-                println!("Configured peripherals:");
-                for b in boards {
-                    let path = b.path.as_deref().unwrap_or("(native)");
-                    println!("  {}  {}  {}", b.board, b.transport, path);
-                }
-            }
-        }
-        crate::PeripheralCommands::Add { board, path } => {
-            let transport = if path == "native" { "native" } else { "serial" };
-            let path_opt = if path == "native" {
-                None
-            } else {
-                Some(path.clone())
-            };
-
-            let mut cfg = crate::config::Config::load_or_init()?;
-            cfg.peripherals.enabled = true;
-
-            if cfg
-                .peripherals
-                .boards
-                .iter()
-                .any(|b| b.board == board && b.path.as_deref() == path_opt.as_deref())
-            {
-                println!("Board {} at {:?} already configured.", board, path_opt);
-                return Ok(());
-            }
-
-            cfg.peripherals.boards.push(PeripheralBoardConfig {
-                board: board.clone(),
-                transport: transport.to_string(),
-                path: path_opt,
-                baud: 115_200,
-            });
-            cfg.save()?;
-            println!("Added {} at {}. Restart daemon to apply.", board, path);
-        }
+        crate::PeripheralCommands::List => handle_list_command(config),
+        crate::PeripheralCommands::Add { board, path } => handle_add_command(board, path)?,
         #[cfg(feature = "hardware")]
         crate::PeripheralCommands::Flash { port } => {
             let port_str = arduino_flash::resolve_port(config, port.as_deref())
@@ -134,6 +82,68 @@ pub fn handle_command(cmd: crate::PeripheralCommands, config: &Config) -> Result
     Ok(())
 }
 
+fn handle_list_command(config: &Config) {
+    let boards = list_configured_boards(&config.peripherals);
+    if boards.is_empty() {
+        print_no_peripherals_help();
+        return;
+    }
+
+    println!("Configured peripherals:");
+    for board in boards {
+        let path = board.path.as_deref().unwrap_or("(native)");
+        println!("  {}  {}  {}", board.board, board.transport, path);
+    }
+}
+
+fn print_no_peripherals_help() {
+    println!("No peripherals configured.");
+    println!();
+    println!("Add one with: corvus peripheral add <board> <path>");
+    println!("  Example: corvus peripheral add nucleo-f401re /dev/ttyACM0");
+    println!();
+    println!("Or add to config.toml:");
+    println!("  [peripherals]");
+    println!("  enabled = true");
+    println!();
+    println!("  [[peripherals.boards]]");
+    println!("  board = \"nucleo-f401re\"");
+    println!("  transport = \"serial\"");
+    println!("  path = \"/dev/ttyACM0\"");
+}
+
+fn handle_add_command(board: String, path: String) -> Result<()> {
+    let transport = if path == "native" { "native" } else { "serial" };
+    let path_opt = if path == "native" {
+        None
+    } else {
+        Some(path.clone())
+    };
+
+    let mut cfg = Config::load_or_init()?;
+    cfg.peripherals.enabled = true;
+
+    if cfg
+        .peripherals
+        .boards
+        .iter()
+        .any(|entry| entry.board == board && entry.path.as_deref() == path_opt.as_deref())
+    {
+        println!("Board {} at {:?} already configured.", board, path_opt);
+        return Ok(());
+    }
+
+    cfg.peripherals.boards.push(PeripheralBoardConfig {
+        board: board.clone(),
+        transport: transport.to_string(),
+        path: path_opt,
+        baud: 115_200,
+    });
+    cfg.save()?;
+    println!("Added {} at {}. Restart daemon to apply.", board, path);
+    Ok(())
+}
+
 /// Create and connect peripherals from config, returning their tools.
 /// Returns empty vec if peripherals disabled or hardware feature off.
 #[cfg(feature = "hardware")]
@@ -146,63 +156,15 @@ pub async fn create_peripheral_tools(config: &PeripheralsConfig) -> Result<Vec<B
     let mut serial_transports: Vec<(String, std::sync::Arc<serial::SerialTransport>)> = Vec::new();
 
     for board in &config.boards {
-        // Arduino Uno Q: Bridge transport (socket to local Bridge app)
-        if board.transport == "bridge" && (board.board == "arduino-uno-q" || board.board == "uno-q")
-        {
-            tools.push(Box::new(uno_q_bridge::UnoQGpioReadTool));
-            tools.push(Box::new(uno_q_bridge::UnoQGpioWriteTool));
-            tracing::info!(board = %board.board, "Uno Q Bridge GPIO tools added");
+        if try_add_uno_q_bridge_tools(board, &mut tools) {
             continue;
         }
 
-        // Native transport: RPi GPIO (Linux only)
-        #[cfg(all(feature = "peripheral-rpi", target_os = "linux"))]
-        if board.transport == "native"
-            && (board.board == "rpi-gpio" || board.board == "raspberry-pi")
-        {
-            match rpi::RpiGpioPeripheral::connect_from_config(board).await {
-                Ok(peripheral) => {
-                    tools.extend(peripheral.tools());
-                    tracing::info!(board = %board.board, "RPi GPIO peripheral connected");
-                }
-                Err(e) => {
-                    tracing::warn!("Failed to connect RPi GPIO {}: {}", board.board, e);
-                }
-            }
+        if try_connect_native_rpi(board, &mut tools).await {
             continue;
         }
 
-        // Serial transport (STM32, ESP32, Arduino, etc.)
-        if board.transport != "serial" {
-            continue;
-        }
-        if board.path.is_none() {
-            tracing::warn!("Skipping serial board {}: no path", board.board);
-            continue;
-        }
-
-        match serial::SerialPeripheral::connect(board).await {
-            Ok(peripheral) => {
-                let mut p = peripheral;
-                if p.connect().await.is_err() {
-                    tracing::warn!("Peripheral {} connect warning (continuing)", p.name());
-                }
-                serial_transports.push((board.board.clone(), p.transport()));
-                tools.extend(p.tools());
-                if board.board == "arduino-uno" {
-                    if let Some(ref path) = board.path {
-                        tools.push(Box::new(arduino_upload::ArduinoUploadTool::new(
-                            path.clone(),
-                        )));
-                        tracing::info!("Arduino upload tool added (port: {})", path);
-                    }
-                }
-                tracing::info!(board = %board.board, "Serial peripheral connected");
-            }
-            Err(e) => {
-                tracing::warn!("Failed to connect {}: {}", board.board, e);
-            }
-        }
+        connect_serial_board(board, &mut tools, &mut serial_transports).await;
     }
 
     // Phase B: Add hardware tools when any boards configured
@@ -225,6 +187,92 @@ pub async fn create_peripheral_tools(config: &PeripheralsConfig) -> Result<Vec<B
     }
 
     Ok(tools)
+}
+
+#[cfg(feature = "hardware")]
+fn try_add_uno_q_bridge_tools(
+    board: &PeripheralBoardConfig,
+    tools: &mut Vec<Box<dyn Tool>>,
+) -> bool {
+    if board.transport == "bridge" && (board.board == "arduino-uno-q" || board.board == "uno-q") {
+        tools.push(Box::new(uno_q_bridge::UnoQGpioReadTool));
+        tools.push(Box::new(uno_q_bridge::UnoQGpioWriteTool));
+        tracing::info!(board = %board.board, "Uno Q Bridge GPIO tools added");
+        return true;
+    }
+    false
+}
+
+#[cfg(feature = "hardware")]
+#[cfg(all(feature = "peripheral-rpi", target_os = "linux"))]
+async fn try_connect_native_rpi(
+    board: &PeripheralBoardConfig,
+    tools: &mut Vec<Box<dyn Tool>>,
+) -> bool {
+    if board.transport != "native" || (board.board != "rpi-gpio" && board.board != "raspberry-pi") {
+        return false;
+    }
+
+    match rpi::RpiGpioPeripheral::connect_from_config(board).await {
+        Ok(peripheral) => {
+            tools.extend(peripheral.tools());
+            tracing::info!(board = %board.board, "RPi GPIO peripheral connected");
+        }
+        Err(e) => {
+            tracing::warn!("Failed to connect RPi GPIO {}: {}", board.board, e);
+        }
+    }
+    true
+}
+
+#[cfg(feature = "hardware")]
+#[cfg(not(all(feature = "peripheral-rpi", target_os = "linux")))]
+async fn try_connect_native_rpi(
+    _board: &PeripheralBoardConfig,
+    _tools: &mut Vec<Box<dyn Tool>>,
+) -> bool {
+    false
+}
+
+#[cfg(feature = "hardware")]
+async fn connect_serial_board(
+    board: &PeripheralBoardConfig,
+    tools: &mut Vec<Box<dyn Tool>>,
+    serial_transports: &mut Vec<(String, std::sync::Arc<serial::SerialTransport>)>,
+) {
+    if board.transport != "serial" {
+        return;
+    }
+    let Some(path) = board.path.as_deref() else {
+        tracing::warn!("Skipping serial board {}: no path", board.board);
+        return;
+    };
+
+    match serial::SerialPeripheral::connect(board).await {
+        Ok(peripheral) => {
+            let mut connected = peripheral;
+            if connected.connect().await.is_err() {
+                tracing::warn!(
+                    "Peripheral {} connect warning (continuing)",
+                    connected.name()
+                );
+            }
+
+            serial_transports.push((board.board.clone(), connected.transport()));
+            tools.extend(connected.tools());
+
+            if board.board == "arduino-uno" {
+                tools.push(Box::new(arduino_upload::ArduinoUploadTool::new(
+                    path.to_string(),
+                )));
+                tracing::info!("Arduino upload tool added (port: {})", path);
+            }
+            tracing::info!(board = %board.board, "Serial peripheral connected");
+        }
+        Err(e) => {
+            tracing::warn!("Failed to connect {}: {}", board.board, e);
+        }
+    }
 }
 
 #[cfg(not(feature = "hardware"))]
