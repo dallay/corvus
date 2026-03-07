@@ -35,7 +35,13 @@ dependencyResolutionManagement {
     }
     maven {
       setUrl("https://jitpack.io")
-      content { includeGroupByRegex("com\\.github.*") }
+      content {
+        includeGroupByRegex("com\\.github.*")
+        // Resolve SpotBugs plugin marker from Plugin Portal instead of JitPack,
+        // reducing timeout-related failures in CI.
+        excludeGroup("com.github.spotbugs")
+        excludeGroup("com.github.spotbugs.snom")
+      }
     }
     google {
       content {
