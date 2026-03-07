@@ -1,43 +1,39 @@
 /* ─────────────────────────────────────────────────────────────
    Corvus — Shared Brand Design Tokens
    Import this file in any app to get consistent brand styling.
+   Modern, mysterious, and highly-refined "Corvus" aesthetics.
    ───────────────────────────────────────────────────────────── */
 
-/* ── Google Fonts ── */
-@import "@fontsource/inter/400.css";
-@import "@fontsource/inter/500.css";
-@import "@fontsource/inter/600.css";
-@import "@fontsource/inter/700.css";
-@import "@fontsource/inter/800.css";
-@import "@fontsource/inter/900.css";
-@import "@fontsource/jetbrains-mono/400.css";
-@import "@fontsource/jetbrains-mono/500.css";
-@import "@fontsource/jetbrains-mono/600.css";
+/* ── Google Fonts (Distinctive Typography) ── */
+@import url("https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap");
 
 /* ── Brand Tokens ── */
 :root {
 	/* Fonts */
+	--corvus-font-heading: "Syne", sans-serif;
 	--corvus-font-sans:
-		"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui,
+		"Manrope", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
 		sans-serif;
 	--corvus-font-mono:
 		"JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
 
-	/* Background */
-	--corvus-bg: #0a0f1e;
-	--corvus-bg-panel: rgba(15, 23, 42, 0.6);
-	--corvus-bg-panel-strong: #0f172a;
+	/* Background — deep obsidian/raven black */
+	--corvus-bg: #030509;
+	--corvus-bg-panel: rgba(10, 15, 25, 0.65);
+	--corvus-bg-panel-strong: #0a0f19;
+	--corvus-bg-elevated: #111824;
+	--corvus-bg-hover: #162032;
 
 	/* Text */
-	--corvus-text: #f1f5f9;
+	--corvus-text: #f8fafc;
 	--corvus-text-muted: #94a3b8;
-	--corvus-testimonial-text: #d7ebfe;
+	--corvus-testimonial-text: #e2e8f0;
 
-	/* Accent — sky blue */
-	--corvus-accent: #38bdf8;
-	--corvus-accent-strong: #0284c7;
-	--corvus-accent-low: #0d2847;
-	--corvus-accent-high: #bae6fd;
+	/* Accent — electric purple to sky blue (Corvus magic) */
+	--corvus-accent: #818cf8;
+	--corvus-accent-strong: #6366f1;
+	--corvus-accent-low: #1e1b4b;
+	--corvus-accent-high: #c7d2fe;
 
 	/* Gradients */
 	--corvus-gradient-brand: linear-gradient(
@@ -54,25 +50,25 @@
 	);
 	--corvus-gradient-hero: linear-gradient(
 		160deg,
-		#0c1222 0%,
-		#0f172a 40%,
-		#1a1044 100%
+		#030509 0%,
+		#0a0f19 40%,
+		#171033 100%
 	);
 	--corvus-gradient-hero-heading: linear-gradient(
 		135deg,
 		#ffffff 0%,
 		#e2e8f0 40%,
-		#38bdf8 100%
+		#818cf8 100%
 	);
 
 	/* Glass */
-	--corvus-glass-bg: rgba(15, 23, 42, 0.6);
-	--corvus-glass-border: rgba(56, 189, 248, 0.12);
-	--corvus-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-	--corvus-glass-ring: rgba(56, 189, 248, 0.4);
+	--corvus-glass-bg: rgba(10, 15, 25, 0.55);
+	--corvus-glass-border: rgba(129, 140, 248, 0.2);
+	--corvus-glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+	--corvus-glass-ring: rgba(129, 140, 248, 0.4);
 
 	/* Borders / Dividers */
-	--corvus-line: rgba(56, 189, 248, 0.12);
+	--corvus-line: rgba(129, 140, 248, 0.15);
 
 	/* Radius */
 	--corvus-radius-sm: 8px;
@@ -81,5 +77,40 @@
 	--corvus-radius-xl: 24px;
 
 	/* Transitions */
-	--corvus-transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+	--corvus-transition: all 0.4s cubic-bezier(0.2, 0.8, 0.2, 1);
+
+	/* ── Aliases for Dashboard & Chat compatibility ── */
+	--color-bg-primary: var(--corvus-bg);
+	--color-bg-secondary: var(--corvus-bg-panel-strong);
+	--color-bg-tertiary: var(--corvus-bg-elevated);
+	--color-bg-elevated: var(--corvus-bg-elevated);
+	--color-bg-hover: var(--corvus-bg-hover);
+	--color-bg-input: rgba(10, 15, 25, 0.8);
+
+	--color-surface-glass: var(--corvus-glass-bg);
+	--color-surface-glass-hover: rgba(129, 140, 248, 0.08);
+
+	--color-text-primary: var(--corvus-text);
+	--color-text-secondary: var(--corvus-text-muted);
+	--color-text-muted: #64748b;
+	--color-text-inverse: #030509;
+
+	--color-accent: var(--corvus-accent);
+	--color-accent-hover: var(--corvus-accent-high);
+	--color-accent-glow: rgba(129, 140, 248, 0.25);
+	--color-accent-subtle: rgba(129, 140, 248, 0.08);
+
+	--color-border: var(--corvus-line);
+	--color-border-hover: var(--corvus-glass-border);
+	--color-border-accent: rgba(129, 140, 248, 0.35);
+
+	--color-user-bubble: var(--corvus-accent-strong);
+	--color-user-bubble-text: #ffffff;
+	--color-assistant-bubble: var(--corvus-bg-panel-strong);
+	--color-assistant-bubble-text: var(--corvus-text);
+
+	--color-error: #ef4444;
+	--color-success: #10b981;
+
+	--font-sans: var(--corvus-font-sans);
 }

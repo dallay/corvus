@@ -1,44 +1,5 @@
+@import "@corvus/shared/tokens.css";
 @import "tailwindcss";
-
-/* ── Design Tokens ──────────────────────────────────────────── */
-
-:root {
-  --color-bg-primary: #0a0a0f;
-  --color-bg-secondary: #12121a;
-  --color-bg-tertiary: #1a1a28;
-  --color-bg-elevated: #1e1e2e;
-  --color-bg-hover: #252538;
-  --color-bg-input: #16161f;
-
-  --color-surface-glass: rgba(255, 255, 255, 0.04);
-  --color-surface-glass-hover: rgba(255, 255, 255, 0.07);
-
-  --color-text-primary: #e8e8ed;
-  --color-text-secondary: #9898a8;
-  --color-text-muted: #5a5a6e;
-  --color-text-inverse: #0a0a0f;
-
-  --color-accent: #10b981;
-  --color-accent-hover: #34d399;
-  --color-accent-glow: rgba(16, 185, 129, 0.25);
-  --color-accent-subtle: rgba(16, 185, 129, 0.08);
-
-  --color-border: rgba(255, 255, 255, 0.06);
-  --color-border-hover: rgba(255, 255, 255, 0.12);
-  --color-border-accent: rgba(16, 185, 129, 0.3);
-
-  --color-user-bubble: #10b981;
-  --color-user-bubble-text: #ffffff;
-
-  --color-assistant-bubble: #1a1a28;
-  --color-assistant-bubble-text: #e8e8ed;
-
-  --color-error: #ef4444;
-  --color-success: #10b981;
-
-  --font-sans:
-    "Inter Variable", "Inter", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-}
 
 /* ── Base Reset ─────────────────────────────────────────────── */
 
@@ -105,7 +66,7 @@ svg {
   50% {
     box-shadow:
       0 0 24px var(--color-accent-glow),
-      0 0 48px rgba(16, 185, 129, 0.1);
+      0 0 48px rgba(129, 140, 248, 0.1);
   }
 }
 
@@ -125,7 +86,7 @@ svg {
 }
 
 .animate-slide-up {
-  animation: slide-up 0.4s ease-out forwards;
+  animation: slide-up 0.4s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
 }
 
 .animate-pulse-glow {
