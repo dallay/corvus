@@ -62,9 +62,13 @@ jobs:
           node-version: "24"
           cache: "pnpm"
 
-      - name: 📦 Install dependencies
+      - name: 📦 Install root dependencies
         if: env.SONAR_TOKEN != ''
         run: pnpm install
+
+      - name: 📦 Install web dependencies
+        if: env.SONAR_TOKEN != ''
+        run: pnpm -C clients/web install
 
       - name: 🐘 Setup Gradle
         if: env.SONAR_TOKEN != ''
@@ -101,17 +105,17 @@ jobs:
 
       - name: 🎨 Run Stylelint
         if: env.SONAR_TOKEN != ''
-        run: pnpm -C clients/web run lint:style -f json -o ../../coverage/stylelint-report.json || true
+        run: pnpm -C clients/web run lint:style -f json -o ../../coverage/stylelint-report.json
 
       - name: 🐳 Run Hadolint
         if: env.SONAR_TOKEN != ''
         run: |
-          find . -name "Dockerfile*" -not -path "*/node_modules/*" -exec docker run --rm -v "$(pwd):/app" -w /app hadolint/hadolint hadolint -f json {} + > coverage/hadolint-report.json || true
+          find . -name "Dockerfile*" -not -path "*/node_modules/*" -exec docker run --rm -v "$(pwd):/app" -w /app hadolint/hadolint hadolint -f json {} + > coverage/hadolint-report.json
 
       - name: 🤖 Run Actionlint
         if: env.SONAR_TOKEN != ''
         run: |
-          find .github/workflows -name "*.yml" -exec docker run --rm -v "$(pwd):/app" -w /app rhysd/actionlint:v1.7.11 -format '{{json .}}' {} + > coverage/actionlint-report.json || true
+          find .github/workflows -name "*.yml" -exec docker run --rm -v "$(pwd):/app" -w /app rhysd/actionlint:v1.7.11 -format '{{json .}}' {} + > coverage/actionlint-report.json
 
       - name: 🧮 Compute Sonar project key
         if: env.SONAR_TOKEN != ''
