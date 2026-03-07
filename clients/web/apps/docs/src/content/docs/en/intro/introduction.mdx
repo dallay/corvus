@@ -1,27 +1,55 @@
 ---
 title: Introduction
+description: Welcome to the Corvus Agent Platform documentation.
 ---
 
 # Welcome to Corvus
 
-Corvus is a powerful, modular system designed for building scalable applications. This documentation will help you understand, install, and use its core capabilities effectively.
+**Corvus** is a highly extensible, multi-interface agentic platform designed to bridge the gap between AI autonomy and human supervision. Built with a robust **Kotlin Multiplatform** foundation and powered by a high-performance **Rust** runtime, Corvus provides a secure, sandboxed environment for AI agents to perform complex, multi-step tasks.
 
-## Key Features
+![Corvus Architecture](../../../../assets/corvus.png)
 
-- **Modular Design:** Easily configurable and scalable.
-- **Security-First Approach:** Built with secure defaults and best practices.
-- **Cross-Platform:** Supports Android, iOS, Desktop, and Web setups.
+## ✨ Features
 
-## Getting Started
+- **Multi-Interface Support**: Interact with Corvus via CLI, a Compose Multiplatform Desktop app, or a web-based dashboard.
+- **Always-On Autonomy**: A daemon mode for long-running agents that can handle background tasks and persistent orchestration.
+- **Secure Sandboxing**: Execute dangerous commands safely within isolated Docker containers or restricted native runtimes.
+- **Standardized Identity (AIEOS)**: Support for AIEOS v1.1, allowing for portable and model-agnostic AI personas.
+- **Hybrid Memory Model**: Pluggable memory backends including SQLite, Neo4j, and SurrealDB for high-context retrieval.
+- **Rich Integrations**: First-class support for WhatsApp (via Meta Cloud API), git, npm, cargo, and more.
 
-- **Setup Instructions:** Follow the [Getting Started](../guides/getting-started/) guide to set up the project.
-- **Architecture Overview:** Understand the [system architecture](../guides/architecture/).
-- **Feature Overview:** Explore the [features](../guides/features/).
+## 🛠️ Tech Stack
+
+- **Core Logic**: [Kotlin Multiplatform (KMP)](https://kotlinlang.org/docs/multiplatform.html)
+- **Agent Runtime**: [Rust](https://www.rust-lang.org/) (High-performance sidecars and CLI)
+- **Desktop UI**: [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)
+- **Web Stack**: [Astro](https://astro.build/), [Vue 3](https://vuejs.org/), and [Tailwind CSS](https://tailwindcss.com/docs)
+- **Documentation**: [Starlight](https://starlight.astro.build/)
+- **Build System**: [Gradle](https://gradle.org/) & [Makefile](https://www.gnu.org/software/make/)
+
+## 📂 Project Structure
+
+This repository is organized as a monorepo:
+
+```text
+corvus/
+├── clients/
+│   ├── agent-runtime/    # High-performance Rust Agent Core & CLI
+│   ├── composeApp/       # Shared UI logic for Desktop/Mobile
+│   ├── web/              # Web monorepo (Docs, Dashboard, Marketing)
+│   ├── androidApp/       # Android specific wrapper
+│   └── iosApp/           # iOS specific wrapper
+├── modules/
+│   └── agent-core-kmp/   # Core Kotlin Multiplatform logic & contracts
+├── dev/                  # Local development environment (Docker/Sandbox)
+├── gradle/               # Build logic and configurations
+└── Makefile              # Standard entry point for development tasks
+```
 
 ## Next Steps
 
-Dive deeper into:
+Ready to get started?
 
-- [Configuration and Customization](../guides/configuration/)
-- [Development Workflow](../guides/development/)
-- [Release Process](../guides/release/)
+- **[Getting Started](../guides/getting-started/)**: Install and run your first agent.
+- **[CLI Reference](../guides/cli-reference/)**: Master the command line interface.
+- **[Architecture](../guides/architecture/)**: Understand the system design.
