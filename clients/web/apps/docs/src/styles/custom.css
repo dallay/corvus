@@ -165,7 +165,7 @@ nav.sidebar a[aria-current="page"] {
 }
 
 .hero h1 {
-  font-family: var(--corvus-font-heading);
+  font-family: var(--corvus-font-heading, "Syne", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
   font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 1.1;
@@ -307,7 +307,7 @@ nav.sidebar a[aria-current="page"] {
 .sl-markdown-content h2,
 .sl-markdown-content h3,
 .sl-markdown-content h4 {
-  font-family: var(--corvus-font-heading);
+  font-family: var(--corvus-font-heading, "Syne", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
 }
 
 .sl-markdown-content h2 {

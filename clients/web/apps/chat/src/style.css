@@ -66,7 +66,7 @@ svg {
   50% {
     box-shadow:
       0 0 24px var(--color-accent-glow),
-      0 0 48px rgba(129, 140, 248, 0.1);
+      0 0 48px var(--corvus-accent-glow-subtle, rgba(129, 140, 248, 0.1));
   }
 }
 

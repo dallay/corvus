@@ -48,6 +48,9 @@
 		rgba(129, 140, 248, 0.15) 50%,
 		rgba(192, 132, 252, 0.15) 100%
 	);
+
+	/* Accent glows */
+	--corvus-accent-glow-subtle: rgba(129, 140, 248, 0.1);
 	--corvus-gradient-hero: linear-gradient(
 		160deg,
 		#030509 0%,
