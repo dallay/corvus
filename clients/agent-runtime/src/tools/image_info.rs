@@ -3,7 +3,6 @@ use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
 use std::fmt::Write;
-use std::path::Path;
 use std::sync::Arc;
 
 /// Maximum file size we will read and base64-encode (5 MB).
@@ -156,7 +155,13 @@ impl Tool for ImageInfoTool {
             .and_then(serde_json::Value::as_bool)
             .unwrap_or(false);
 
-        let path = Path::new(path_str);
+        if self.security.is_rate_limited() {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some("Rate limit exceeded: too many actions in the last hour".into()),
+            });
+        }
 
         // Restrict reads to workspace directory to prevent arbitrary file exfiltration
         if !self.security.is_path_allowed(path_str) {
@@ -169,17 +174,53 @@ impl Tool for ImageInfoTool {
             });
         }
 
-        if !path.exists() {
+        // Record action BEFORE canonicalization so that every non-trivially-rejected
+        // request consumes rate limit budget. This prevents attackers from probing
+        // path existence (via canonicalize errors) without rate limit cost.
+        if !self.security.record_action() {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!("File not found: {path_str}")),
+                error: Some("Rate limit exceeded: action budget exhausted".into()),
             });
         }
 
-        let metadata = tokio::fs::metadata(path)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to read file metadata: {e}"))?;
+        let full_path = self.security.workspace_dir.join(path_str);
+
+        // Resolve path before reading to block symlink escapes.
+        let resolved_path = match tokio::fs::canonicalize(&full_path).await {
+            Ok(p) => p,
+            Err(e) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to resolve file path: {e}")),
+                });
+            }
+        };
+
+        if !self.security.is_resolved_path_allowed(&resolved_path) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "Resolved path escapes workspace: {}",
+                    resolved_path.display()
+                )),
+            });
+        }
+
+        // Check file size AFTER canonicalization to prevent TOCTOU symlink bypass
+        let metadata = match tokio::fs::metadata(&resolved_path).await {
+            Ok(meta) => meta,
+            Err(e) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to read file metadata: {e}")),
+                });
+            }
+        };
 
         let file_size = metadata.len();
 
@@ -193,9 +234,16 @@ impl Tool for ImageInfoTool {
             });
         }
 
-        let bytes = tokio::fs::read(path)
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to read image file: {e}"))?;
+        let bytes = match tokio::fs::read(&resolved_path).await {
+            Ok(b) => b,
+            Err(e) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(format!("Failed to read image file: {e}")),
+                });
+            }
+        };
 
         let format = Self::detect_format(&bytes);
         let dimensions = Self::extract_dimensions(&bytes, format);
@@ -417,11 +465,71 @@ mod tests {
     async fn execute_nonexistent_file() {
         let tool = ImageInfoTool::new(test_security());
         let result = tool
-            .execute(json!({"path": "/tmp/nonexistent_image_xyz.png"}))
+            .execute(json!({"path": "nonexistent_image_xyz.png"}))
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(result.error.as_ref().unwrap().contains("not found"));
+        assert!(result.error.as_ref().unwrap().contains("Failed to resolve"));
+    }
+
+    #[tokio::test]
+    async fn execute_blocks_rate_limited() {
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: std::env::temp_dir(),
+            max_actions_per_hour: 0,
+            ..SecurityPolicy::default()
+        });
+        let tool = ImageInfoTool::new(security);
+        let result = tool
+            .execute(json!({"path": "test.png"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.as_ref().unwrap().contains("Rate limit exceeded"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn execute_blocks_symlink_escape() {
+        use std::os::unix::fs::symlink;
+
+        let root = std::env::temp_dir().join("corvus_image_info_symlink_escape");
+        let workspace = root.join("workspace");
+        let outside = root.join("outside");
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::create_dir_all(&outside).await.unwrap();
+
+        let png_bytes: Vec<u8> = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xDE, 0x00, 0x00, 0x00, 0x0C, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xD7, 0x63, 0xF8, 0xCF, 0xC0, 0x00, 0x00, 0x00, 0x02, 0x00, 0x01, 0xE2, 0x21, 0xBC,
+            0x33, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE, 0x42, 0x60, 0x82,
+        ];
+        tokio::fs::write(outside.join("secret.png"), &png_bytes).await.unwrap();
+
+        symlink(outside.join("secret.png"), workspace.join("escape.png")).unwrap();
+
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: workspace.clone(),
+            ..SecurityPolicy::default()
+        });
+
+        let tool = ImageInfoTool::new(security);
+        let result = tool.execute(json!({"path": "escape.png"})).await.unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Resolved path escapes workspace"));
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
     }
 
     #[tokio::test]
