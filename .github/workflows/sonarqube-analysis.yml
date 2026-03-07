@@ -138,11 +138,46 @@ jobs:
           set -euo pipefail
           api_base="https://sonarcloud.io/api"
           project_key="${{ steps.sonar_meta.outputs.key }}"
+          organization="${SONAR_ORGANIZATION}"
+
+          api_get() {
+            local endpoint="$1"
+            local output="$2"
+            local query_args="$3"
+            local status
+            status=$(curl -sS -u "${SONAR_TOKEN}:" --get \
+              --write-out "%{http_code}" \
+              --output "${output}" \
+              ${query_args} \
+              "${api_base}/${endpoint}")
+            if [[ "${status}" != "200" ]]; then
+              echo "::error::Sonar API GET ${endpoint} failed with HTTP ${status}"
+              cat "${output}" || true
+              return 1
+            fi
+          }
+
+          api_post() {
+            local endpoint="$1"
+            shift
+            local status
+            status=$(curl -sS -u "${SONAR_TOKEN}:" -X POST \
+              --write-out "%{http_code}" \
+              --output api-post.json \
+              "$@" \
+              "${api_base}/${endpoint}")
+            if [[ "${status}" != "200" && "${status}" != "204" ]]; then
+              echo "::error::Sonar API POST ${endpoint} failed with HTTP ${status}"
+              cat api-post.json || true
+              return 1
+            fi
+          }
 
           echo "Resolving quality gate for project: ${project_key}"
-          curl -sf -u "${SONAR_TOKEN}:" --get \
-            --data-urlencode "project=${project_key}" \
-            "${api_base}/qualitygates/get_by_project" > gate-project.json
+          api_get \
+            "qualitygates/get_by_project" \
+            gate-project.json \
+            "--data-urlencode organization=${organization} --data-urlencode project=${project_key}"
 
           gate_id=$(python - <<'PY'
           import json
@@ -163,9 +198,10 @@ jobs:
           )
 
           echo "Project quality gate id: ${gate_id}"
-          curl -sf -u "${SONAR_TOKEN}:" --get \
-            --data-urlencode "id=${gate_id}" \
-            "${api_base}/qualitygates/show" > gate.json
+          api_get \
+            "qualitygates/show" \
+            gate.json \
+            "--data-urlencode organization=${organization} --data-urlencode id=${gate_id}"
 
           condition_id=$(python - <<'PY'
           import json
@@ -189,21 +225,24 @@ jobs:
 
           if [[ -n "${condition_id}" ]]; then
             echo "Updating existing new_coverage condition to 70"
-            curl -sf -u "${SONAR_TOKEN}:" -X POST "${api_base}/qualitygates/update_condition" \
+            api_post "qualitygates/update_condition" \
+              --data-urlencode "organization=${organization}" \
               --data-urlencode "id=${condition_id}" \
               --data-urlencode "error=70"
           else
             echo "Creating new_coverage condition with threshold 70"
-            curl -sf -u "${SONAR_TOKEN}:" -X POST "${api_base}/qualitygates/create_condition" \
+            api_post "qualitygates/create_condition" \
+              --data-urlencode "organization=${organization}" \
               --data-urlencode "gateId=${gate_id}" \
               --data-urlencode "metric=new_coverage" \
               --data-urlencode "op=LT" \
               --data-urlencode "error=70"
           fi
 
-          curl -sf -u "${SONAR_TOKEN}:" --get \
-            --data-urlencode "id=${gate_id}" \
-            "${api_base}/qualitygates/show" > gate-after.json
+          api_get \
+            "qualitygates/show" \
+            gate-after.json \
+            "--data-urlencode organization=${organization} --data-urlencode id=${gate_id}"
 
           python - <<'PY'
           import json
