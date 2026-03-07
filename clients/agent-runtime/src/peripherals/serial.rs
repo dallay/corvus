@@ -273,3 +273,51 @@ impl Tool for GpioWriteTool {
             .await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_path_allowed_accepts_linux_ttyacm() {
+        assert!(is_path_allowed("/dev/ttyACM0"));
+        assert!(is_path_allowed("/dev/ttyACM1"));
+    }
+
+    #[test]
+    fn is_path_allowed_accepts_linux_ttyusb() {
+        assert!(is_path_allowed("/dev/ttyUSB0"));
+        assert!(is_path_allowed("/dev/ttyUSB1"));
+    }
+
+    #[test]
+    fn is_path_allowed_accepts_macos_usbmodem() {
+        assert!(is_path_allowed("/dev/tty.usbmodem33001"));
+        assert!(is_path_allowed("/dev/cu.usbmodem33001"));
+    }
+
+    #[test]
+    fn is_path_allowed_accepts_macos_usbserial() {
+        assert!(is_path_allowed("/dev/tty.usbserial-1410"));
+        assert!(is_path_allowed("/dev/cu.usbserial-1410"));
+    }
+
+    #[test]
+    fn is_path_allowed_accepts_windows_com() {
+        assert!(is_path_allowed("COM1"));
+        assert!(is_path_allowed("COM10"));
+    }
+
+    #[test]
+    fn is_path_allowed_rejects_arbitrary_paths() {
+        assert!(!is_path_allowed("/etc/passwd"));
+        assert!(!is_path_allowed("/tmp/evil"));
+        assert!(!is_path_allowed("/dev/ttyS0")); // not in allowlist
+    }
+
+    #[test]
+    fn is_path_allowed_rejects_relative_paths() {
+        assert!(!is_path_allowed("ttyACM0"));
+        assert!(!is_path_allowed("./dev/ttyACM0"));
+    }
+}

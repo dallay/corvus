@@ -228,3 +228,70 @@ fn info_via_probe(chip: &str) -> anyhow::Result<()> {
     println!("Info read via USB (SWD) — no firmware on target needed.");
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn recommended_wizard_default_returns_software_only_when_no_devices() {
+        let devices: Vec<DiscoveredDevice> = vec![];
+        let result = recommended_wizard_default(&devices);
+        assert_eq!(result, 3); // software only
+    }
+
+    #[test]
+    fn recommended_wizard_default_returns_tethered_when_devices_present() {
+        let devices = vec![DiscoveredDevice {
+            name: "nucleo-f401re".to_string(),
+            detail: None,
+            device_path: None,
+            transport: HardwareTransport::Serial,
+        }];
+        let result = recommended_wizard_default(&devices);
+        assert_eq!(result, 1); // tethered
+    }
+
+    #[test]
+    fn config_from_wizard_choice_0_returns_native() {
+        let devices: Vec<DiscoveredDevice> = vec![];
+        let config = config_from_wizard_choice(0, &devices);
+        assert_eq!(config.transport, HardwareTransport::Native);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn config_from_wizard_choice_1_returns_serial_with_port() {
+        let devices = vec![DiscoveredDevice {
+            name: "nucleo-f401re".to_string(),
+            detail: None,
+            device_path: Some("/dev/ttyACM0".to_string()),
+            transport: HardwareTransport::Serial,
+        }];
+        let config = config_from_wizard_choice(1, &devices);
+        assert_eq!(config.transport, HardwareTransport::Serial);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn config_from_wizard_choice_2_returns_probe() {
+        let devices: Vec<DiscoveredDevice> = vec![];
+        let config = config_from_wizard_choice(2, &devices);
+        assert_eq!(config.transport, HardwareTransport::Probe);
+        assert!(config.enabled);
+    }
+
+    #[test]
+    fn config_from_wizard_choice_3_returns_default() {
+        let devices: Vec<DiscoveredDevice> = vec![];
+        let config = config_from_wizard_choice(3, &devices);
+        assert!(!config.enabled);
+    }
+
+    #[test]
+    fn config_from_wizard_choice_out_of_range_returns_default() {
+        let devices: Vec<DiscoveredDevice> = vec![];
+        let config = config_from_wizard_choice(99, &devices);
+        assert!(!config.enabled);
+    }
+}
