@@ -114,18 +114,20 @@ abstract class ExecValueSource : ValueSource<String, ExecValueSource.Parameters>
   override fun obtain(): String {
     val isAsync = parameters.async.orNull ?: false
     val execCommandLine = parameters.commands.get()
-    if (isAsync) {
-      Thread.startVirtualThread {
-        execOperations.exec { commandLine(*execCommandLine.toTypedArray()) }
+    val output =
+      if (isAsync) {
+        Thread.startVirtualThread {
+          execOperations.exec { commandLine(*execCommandLine.toTypedArray()) }
+        }
+        ""
+      } else {
+        val outputStream = ByteArrayOutputStream()
+        execOperations.exec {
+          commandLine(*execCommandLine.toTypedArray())
+          standardOutput = outputStream
+        }
+        String(outputStream.toByteArray(), Charset.defaultCharset())
       }
-      return ""
-    } else {
-      val output = ByteArrayOutputStream()
-      execOperations.exec {
-        commandLine(*execCommandLine.toTypedArray())
-        standardOutput = output
-      }
-      return String(output.toByteArray(), Charset.defaultCharset())
-    }
+    return output
   }
 }

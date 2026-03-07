@@ -59,7 +59,6 @@ internal fun Project.nodeFile(
 internal fun Project.npmFile(nodeFile: Provider<File>): Provider<File> {
   return provider {
     val workDir = nodeFile.orNull?.parentFile ?: return@provider null
-    //    val isWindows = System.getProperty("os.name").lowercase().contains("windows")
     val isWindows = org.gradle.internal.os.OperatingSystem.current().isWindows
     if (isWindows) {
       workDir.resolve("npm.cmd")

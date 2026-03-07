@@ -143,6 +143,85 @@ fn parse_hex_address(s: &str) -> Option<u64> {
     u64::from_str_radix(s, 16).ok()
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn chip_for_board_supports_nucleo_variants() {
+        assert_eq!(
+            HardwareMemoryReadTool::chip_for_board("nucleo-f401re"),
+            Some("STM32F401RETx")
+        );
+        assert_eq!(
+            HardwareMemoryReadTool::chip_for_board("nucleo-f411re"),
+            Some("STM32F411RETx")
+        );
+        assert_eq!(HardwareMemoryReadTool::chip_for_board("esp32"), None);
+    }
+
+    #[test]
+    fn parse_hex_address_supports_prefixed_and_raw_values() {
+        assert_eq!(parse_hex_address("0x20000000"), Some(0x2000_0000));
+        assert_eq!(parse_hex_address("0X20000000"), Some(0x2000_0000));
+        assert_eq!(parse_hex_address("20000000"), Some(0x2000_0000));
+        assert_eq!(parse_hex_address("ZZZ"), None);
+    }
+
+    #[tokio::test]
+    async fn execute_fails_when_no_boards_are_configured() {
+        let tool = HardwareMemoryReadTool::new(Vec::new());
+
+        let result = tool
+            .execute(json!({}))
+            .await
+            .expect("execute should return ToolResult");
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("No peripherals configured"));
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_unsupported_board() {
+        let tool = HardwareMemoryReadTool::new(vec!["esp32".to_string()]);
+
+        let result = tool
+            .execute(json!({ "board": "esp32" }))
+            .await
+            .expect("execute should return ToolResult");
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("Memory read only supports"));
+    }
+
+    #[cfg(not(feature = "probe"))]
+    #[tokio::test]
+    async fn execute_reports_probe_feature_requirement() {
+        let tool = HardwareMemoryReadTool::new(vec!["nucleo-f401re".to_string()]);
+
+        let result = tool
+            .execute(json!({ "address": "0x20000000", "length": 32 }))
+            .await
+            .expect("execute should return ToolResult");
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("requires probe feature"));
+    }
+}
+
 #[cfg(feature = "probe")]
 fn probe_read_memory(chip: &str, address: u64, length: usize) -> anyhow::Result<String> {
     use probe_rs::MemoryInterface;

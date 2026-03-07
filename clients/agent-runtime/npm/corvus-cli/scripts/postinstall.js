@@ -2,7 +2,7 @@
 
 const { ensureBinary } = require('../lib/install');
 
-async function runPostInstall() {
+async function main() {
   try {
     const binaryPath = await ensureBinary();
     console.log(`[corvus] Native binary ready at ${binaryPath}`);
@@ -13,4 +13,4 @@ async function runPostInstall() {
   }
 }
 
-runPostInstall();
+void main();

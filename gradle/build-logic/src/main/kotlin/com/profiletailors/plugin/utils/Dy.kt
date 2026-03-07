@@ -50,8 +50,6 @@ fun <T, E> Iterable<T>.chunkedVirtual(
           error("Task - ${(batchIndex * size) + index} cancelled due to timeout")
         }
       }
-
-      // executor.shutdownNow()
     }
   }
 

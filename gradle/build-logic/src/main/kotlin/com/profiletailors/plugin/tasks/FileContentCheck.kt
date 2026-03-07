@@ -93,7 +93,7 @@ abstract class FileContentCheck : DefaultTask(), Injected {
       inputs.getFileChanges(sourceFiles).forEach { change ->
         if (change.fileType != FileType.FILE) return@forEach
         when (change.changeType) {
-          ChangeType.REMOVED -> {}
+          ChangeType.REMOVED -> Unit
           else -> checkFile(change.file, compiled, violations)
         }
       }

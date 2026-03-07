@@ -157,10 +157,8 @@ abstract class DiskBuildService : BuildService<DiskBuildService.Params>, AutoClo
     val diskCache = parameters.disk
     val cache = parameters.storage
     val cacheDir = cache.get("DISK_CACHE")
-    if (cacheDir.isNullOrBlank().not()) {
-      if (diskCache != cache) {
-        DiskCache.saveCache(cache, File(cacheDir))
-      }
+    if (cacheDir.isNullOrBlank().not() && diskCache != cache) {
+      DiskCache.saveCache(cache, File(cacheDir))
     }
     diskCache.clear()
     cache.clear()

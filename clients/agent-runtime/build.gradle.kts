@@ -29,10 +29,10 @@ fun resolveCargoExecutable(): String {
 
 val cargoExecutable = resolveCargoExecutable()
 
-fun registerCargoTask(name: String, description: String, vararg args: String) =
+fun registerCargoTask(name: String, taskDescription: String, vararg args: String) =
   tasks.register<Exec>(name) {
     group = "rust"
-    this.description = description
+    description = taskDescription
     workingDir = isolated.projectDirectory.asFile
     commandLine(cargoExecutable, *args)
     enabled = isRustTasksEnabled
@@ -41,14 +41,14 @@ fun registerCargoTask(name: String, description: String, vararg args: String) =
 val cargoCheck =
   registerCargoTask(
     name = "cargoCheck",
-    description = "Run cargo check for embedded Corvus core.",
+    taskDescription = "Run cargo check for embedded Corvus core.",
     "check",
   )
 
 val cargoBuild =
   registerCargoTask(
     name = "cargoBuild",
-    description = "Build embedded Corvus core with Cargo.",
+    taskDescription = "Build embedded Corvus core with Cargo.",
     "build",
     "--release",
   )
@@ -56,7 +56,7 @@ val cargoBuild =
 val cargoTest =
   registerCargoTask(
     name = "cargoTest",
-    description = "Run embedded Corvus test suite with Cargo.",
+    taskDescription = "Run embedded Corvus test suite with Cargo.",
     "test",
     "--locked",
   )
@@ -64,7 +64,7 @@ val cargoTest =
 val cargoFmtCheck =
   registerCargoTask(
     name = "cargoFmtCheck",
-    description = "Verify Rust formatting for embedded Corvus core.",
+    taskDescription = "Verify Rust formatting for embedded Corvus core.",
     "fmt",
     "--all",
     "--",
@@ -74,7 +74,7 @@ val cargoFmtCheck =
 val cargoClippy =
   registerCargoTask(
     name = "cargoClippy",
-    description = "Run cargo clippy for embedded Corvus core.",
+    taskDescription = "Run cargo clippy for embedded Corvus core.",
     "clippy",
     "--all-targets",
     "--",
