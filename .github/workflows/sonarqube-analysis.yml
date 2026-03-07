@@ -139,6 +139,7 @@ jobs:
           api_base="https://sonarcloud.io/api"
           project_key="${{ steps.sonar_meta.outputs.key }}"
           organization="${SONAR_ORGANIZATION}"
+          custom_gate_name="Corvus PR Gate"
 
           api_get() {
             local endpoint="$1"
@@ -196,6 +197,67 @@ jobs:
           print(gate_id)
           PY
           )
+
+          gate_meta=$(python - <<'PY'
+          import json
+
+          with open("gate-project.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          gate = data.get("qualityGate") or {}
+          name = gate.get("name", "")
+          is_built_in = gate.get("isBuiltIn", False)
+          print(f"{name}|{str(is_built_in).lower()}")
+          PY
+          )
+          current_gate_name="${gate_meta%%|*}"
+          current_gate_builtin="${gate_meta##*|}"
+
+          if [[ "${current_gate_builtin}" == "true" || "${current_gate_name}" == "Sonar way" ]]; then
+            echo "Current gate '${current_gate_name}' is built-in; switching project to '${custom_gate_name}'"
+
+            create_status=$(curl -sS -u "${SONAR_TOKEN}:" -X POST \
+              --write-out "%{http_code}" \
+              --output gate-create.json \
+              --data-urlencode "organization=${organization}" \
+              --data-urlencode "name=${custom_gate_name}" \
+              "${api_base}/qualitygates/create")
+            if [[ "${create_status}" != "200" && "${create_status}" != "204" ]]; then
+              if ! grep -qi "already exists" gate-create.json; then
+                echo "::error::Unable to create custom quality gate (${create_status})"
+                cat gate-create.json || true
+                exit 1
+              fi
+            fi
+
+            api_post "qualitygates/select" \
+              --data-urlencode "organization=${organization}" \
+              --data-urlencode "projectKey=${project_key}" \
+              --data-urlencode "gateName=${custom_gate_name}"
+
+            api_get \
+              "qualitygates/get_by_project" \
+              gate-project.json \
+              "--data-urlencode organization=${organization} --data-urlencode project=${project_key}"
+
+            gate_id=$(python - <<'PY'
+            import json
+            import sys
+
+            with open("gate-project.json", "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            gate = data.get("qualityGate") or {}
+            gate_id = gate.get("id")
+
+            if gate_id is None:
+                sys.stderr.write("Could not resolve quality gate id after selecting custom gate\n")
+                sys.exit(1)
+
+            print(gate_id)
+            PY
+            )
+          fi
 
           echo "Project quality gate id: ${gate_id}"
           api_get \
