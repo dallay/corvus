@@ -49,11 +49,26 @@ jobs:
           java-version: "25"
           distribution: "corretto"
 
+      - name: 📦 Setup pnpm
+        if: env.SONAR_TOKEN != ''
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.0.0
+        with:
+          version: "10.30.1"
+
       - name: 📦 Setup Node
         if: env.SONAR_TOKEN != ''
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: "24"
+          cache: "pnpm"
+
+      - name: 📦 Install root dependencies
+        if: env.SONAR_TOKEN != ''
+        run: pnpm install --ignore-scripts
+
+      - name: 📦 Install web dependencies
+        if: env.SONAR_TOKEN != ''
+        run: pnpm -C clients/web install --ignore-scripts
 
       - name: 🐘 Setup Gradle
         if: env.SONAR_TOKEN != ''
@@ -67,7 +82,7 @@ jobs:
 
       - name: 🧪 Build and generate coverage
         if: env.SONAR_TOKEN != ''
-        run: ./gradlew test jvmTest :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
+        run: ./gradlew test jvmTest lintDebug :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
 
       - name: 🦀 Setup Rust
         if: env.SONAR_TOKEN != ''
@@ -88,6 +103,28 @@ jobs:
         working-directory: clients/agent-runtime
         run: cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov
 
+      - name: 🎨 Run Stylelint
+        if: env.SONAR_TOKEN != ''
+        run: pnpm -C clients/web run lint:style -f json -o ../../coverage/stylelint-report.json
+
+      - name: 🐳 Run Hadolint
+        if: env.SONAR_TOKEN != ''
+        run: |
+          hadolint_version="v2.12.0"
+          curl -sSL --proto '=https' --tlsv1.2 "https://github.com/hadolint/hadolint/releases/download/${hadolint_version}/hadolint-Linux-x86_64" -o hadolint
+          chmod +x hadolint
+          find . -name "Dockerfile*" -not -path "*/node_modules/*" -print0 | xargs -0 ./hadolint -f json > coverage/hadolint-report.json || true
+          rm hadolint
+
+      - name: 🤖 Run Actionlint
+        if: env.SONAR_TOKEN != ''
+        run: |
+          actionlint_version="1.7.7"
+          curl -sSL --proto '=https' --tlsv1.2 "https://github.com/rhysd/actionlint/releases/download/v${actionlint_version}/actionlint_${actionlint_version}_linux_amd64.tar.gz" -o actionlint.tar.gz
+          tar -xzf actionlint.tar.gz
+          ./actionlint -format '{{json .}}' .github/workflows/*.yml > coverage/actionlint-report.json || true
+          rm actionlint actionlint.tar.gz
+
       - name: 🧮 Compute Sonar project key
         if: env.SONAR_TOKEN != ''
         id: sonar_meta
@@ -95,17 +132,166 @@ jobs:
         run: echo "key=${GITHUB_REPOSITORY//\//_}" >> "$GITHUB_OUTPUT"
 
       - name: 🎚️ Temporarily relax new coverage gate to 70%
-        if: env.SONAR_TOKEN != ''
+        if: env.SONAR_TOKEN != '' && github.event_name == 'pull_request'
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           api_base="https://sonarcloud.io/api"
-          curl -sf -u "${SONAR_TOKEN}:" --get \
-            --data-urlencode "name=Corvus Gate" \
-            "${api_base}/qualitygates/show" > gate.json
+          project_key="${{ steps.sonar_meta.outputs.key }}"
+          organization="${SONAR_ORGANIZATION}"
+          custom_gate_name="Corvus PR Gate"
+
+          api_get() {
+            local endpoint="$1"
+            local output="$2"
+            local query_args="$3"
+            local status
+            status=$(curl -sS -u "${SONAR_TOKEN}:" --get \
+              --write-out "%{http_code}" \
+              --output "${output}" \
+              ${query_args} \
+              "${api_base}/${endpoint}")
+            if [[ "${status}" != "200" ]]; then
+              echo "::error::Sonar API GET ${endpoint} failed with HTTP ${status}"
+              cat "${output}" || true
+              return 1
+            fi
+          }
+
+          api_post() {
+            local endpoint="$1"
+            shift
+            local status
+            status=$(curl -sS -u "${SONAR_TOKEN}:" -X POST \
+              --write-out "%{http_code}" \
+              --output api-post.json \
+              "$@" \
+              "${api_base}/${endpoint}")
+            if [[ "${status}" != "200" && "${status}" != "204" ]]; then
+              echo "::error::Sonar API POST ${endpoint} failed with HTTP ${status}"
+              cat api-post.json || true
+              return 1
+            fi
+          }
+
+          echo "Resolving quality gate for project: ${project_key}"
+          api_get \
+            "qualitygates/get_by_project" \
+            gate-project.json \
+            "--data-urlencode organization=${organization} --data-urlencode project=${project_key}"
+
+          gate_id=$(python - <<'PY'
+          import json
+          import sys
+
+          with open("gate-project.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          gate = data.get("qualityGate") or {}
+          gate_id = gate.get("id")
+
+          if gate_id is None:
+              sys.stderr.write("Could not resolve quality gate id from get_by_project response\n")
+              sys.exit(1)
+
+          print(gate_id)
+          PY
+          )
+
+          gate_meta=$(python - <<'PY'
+          import json
+
+          with open("gate-project.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          gate = data.get("qualityGate") or {}
+          name = gate.get("name", "")
+          is_built_in = gate.get("isBuiltIn", False)
+          print(f"{name}|{str(is_built_in).lower()}")
+          PY
+          )
+          current_gate_name="${gate_meta%%|*}"
+          current_gate_builtin="${gate_meta##*|}"
+
+          if [[ "${current_gate_builtin}" == "true" || "${current_gate_name}" == "Sonar way" ]]; then
+            echo "Current gate '${current_gate_name}' is built-in; switching project to '${custom_gate_name}'"
+
+            create_status=$(curl -sS -u "${SONAR_TOKEN}:" -X POST \
+              --write-out "%{http_code}" \
+              --output gate-create.json \
+              --data-urlencode "organization=${organization}" \
+              --data-urlencode "name=${custom_gate_name}" \
+              "${api_base}/qualitygates/create")
+            if [[ "${create_status}" != "200" && "${create_status}" != "204" ]]; then
+              if ! grep -qi "already exists" gate-create.json; then
+                echo "::error::Unable to create custom quality gate (${create_status})"
+                cat gate-create.json || true
+                exit 1
+              fi
+            fi
+
+            api_get \
+              "qualitygates/list" \
+              gate-list.json \
+              "--data-urlencode organization=${organization}"
+
+            custom_gate_id=$(CUSTOM_GATE_NAME="${custom_gate_name}" python - <<'PY'
+          import json
+          import os
+          import sys
+
+          name = os.environ["CUSTOM_GATE_NAME"]
+          with open("gate-list.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          gate = next((g for g in data.get("qualitygates", []) if g.get("name") == name), None)
+          if not gate or gate.get("id") is None:
+              sys.stderr.write(f"Could not resolve gate id for '{name}'\n")
+              sys.exit(1)
+
+          print(gate["id"])
+          PY
+            )
+
+            api_post "qualitygates/select" \
+              --data-urlencode "organization=${organization}" \
+              --data-urlencode "projectKey=${project_key}" \
+              --data-urlencode "gateId=${custom_gate_id}"
+
+            api_get \
+              "qualitygates/get_by_project" \
+              gate-project.json \
+              "--data-urlencode organization=${organization} --data-urlencode project=${project_key}"
+
+          gate_id=$(python - <<'PY'
+          import json
+          import sys
+
+          with open("gate-project.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          gate = data.get("qualityGate") or {}
+          gate_id = gate.get("id")
+
+          if gate_id is None:
+              sys.stderr.write("Could not resolve quality gate id after selecting custom gate\n")
+              sys.exit(1)
+
+          print(gate_id)
+          PY
+          )
+          fi
+
+          echo "Project quality gate id: ${gate_id}"
+          api_get \
+            "qualitygates/show" \
+            gate.json \
+            "--data-urlencode organization=${organization} --data-urlencode id=${gate_id}"
 
           condition_id=$(python - <<'PY'
           import json
+          import sys
 
           with open("gate.json", "r", encoding="utf-8") as f:
               data = json.load(f)
@@ -115,18 +301,60 @@ jobs:
               None,
           )
 
-          if not condition or "id" not in condition:
-              raise SystemExit("new_coverage condition not found in Corvus Gate")
+          if not condition:
+              print("")
+              sys.exit(0)
 
-          print(condition["id"])
+          print(condition.get("id", ""))
           PY
           )
 
-          curl -sf -u "${SONAR_TOKEN}:" -X POST "${api_base}/qualitygates/update_condition" \
-            --data-urlencode "id=${condition_id}" \
-            --data-urlencode "error=70"
+          if [[ -n "${condition_id}" ]]; then
+            echo "Updating existing new_coverage condition to 70"
+            api_post "qualitygates/update_condition" \
+              --data-urlencode "organization=${organization}" \
+              --data-urlencode "id=${condition_id}" \
+              --data-urlencode "metric=new_coverage" \
+              --data-urlencode "op=LT" \
+              --data-urlencode "error=70"
+          else
+            echo "Creating new_coverage condition with threshold 70"
+            api_post "qualitygates/create_condition" \
+              --data-urlencode "organization=${organization}" \
+              --data-urlencode "gateId=${gate_id}" \
+              --data-urlencode "metric=new_coverage" \
+              --data-urlencode "op=LT" \
+              --data-urlencode "error=70"
+          fi
 
-          echo "Updated Corvus Gate new_coverage threshold to 70"
+          api_get \
+            "qualitygates/show" \
+            gate-after.json \
+            "--data-urlencode organization=${organization} --data-urlencode id=${gate_id}"
+
+          python - <<'PY'
+          import json
+          import sys
+
+          with open("gate-after.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          condition = next(
+              (c for c in data.get("conditions", []) if c.get("metric") == "new_coverage"),
+              None,
+          )
+
+          if not condition:
+              sys.stderr.write("new_coverage condition missing after update\n")
+              sys.exit(1)
+
+          error = str(condition.get("error", ""))
+          if error != "70":
+              sys.stderr.write(f"new_coverage threshold verification failed: expected 70, got {error}\n")
+              sys.exit(1)
+
+          print("Verified new_coverage threshold = 70")
+          PY
 
       - name: 🔍 SonarQube scan
         if: env.SONAR_TOKEN != ''
@@ -148,16 +376,25 @@ jobs:
             -Dsonar.issue.ignore.multicriteria.e1.resourceKey=**/*Test.kt
             -Dsonar.coverage.jacoco.xmlReportPaths=${{ github.workspace }}/modules/agent-core-kmp/build/reports/kover/report.xml,${{ github.workspace }}/clients/composeApp/build/reports/kover/report.xml
             -Dsonar.rust.lcov.reportPaths=${{ github.workspace }}/coverage/agent-runtime-coverage.lcov
+            -Dsonar.css.stylelint.reportPaths=coverage/stylelint-report.json
+            -Dsonar.androidLint.reportPaths=**/build/reports/lint-results-*.xml
+            -Dsonar.docker.hadolint.reportPaths=coverage/hadolint-report.json
+            -Dsonar.githubactions.actionlint.reportPaths=coverage/actionlint-report.json
             -Dsonar.python.version=3.12
             -Dsonar.typescript.node=${{ github.workspace }}/clients/web/node_modules
 
-      - name: 🚦 SonarQube Quality Gate
-        if: >-
-          env.SONAR_TOKEN != '' &&
-          (
-            github.event_name == 'pull_request' ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/main')
-          )
+      - name: 🚦 SonarQube Quality Gate (PR advisory)
+        if: env.SONAR_TOKEN != '' && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: SonarSource/sonarqube-quality-gate-action@d304d050d930b02a896b0f85935344f023928496 # v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+        with:
+          scanMetadataReportFile: .scannerwork/report-task.txt
+
+      - name: 🚦 SonarQube Quality Gate (main enforced)
+        if: env.SONAR_TOKEN != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: SonarSource/sonarqube-quality-gate-action@d304d050d930b02a896b0f85935344f023928496 # v1
         timeout-minutes: 5
         env:

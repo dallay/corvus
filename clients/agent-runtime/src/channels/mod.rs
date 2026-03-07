@@ -101,6 +101,20 @@ fn channel_timeout_abort_text(session_id: &str) -> String {
     )
 }
 
+pub(crate) fn route_explicit_task_message(
+    config: &Config,
+    msg: &traits::ChannelMessage,
+) -> crate::conductor::sources::ChannelRouteOutcome {
+    crate::conductor::sources::route_channel_message(
+        config.conductor.enabled,
+        &msg.content,
+        &msg.channel,
+        &msg.reply_target,
+        &msg.sender,
+        None,
+    )
+}
+
 fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     match channel_name {
         "telegram" => Some(
@@ -454,6 +468,27 @@ fn spawn_scoped_typing_task(
 }
 
 async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::ChannelMessage) {
+    if let crate::conductor::sources::ChannelRouteOutcome::Task(request) =
+        route_explicit_task_message(ctx.config.as_ref(), &msg)
+    {
+        if let Some(target_channel) = ctx.channels_by_name.get(&msg.channel) {
+            let ack = match crate::conductor::submit_task(*request) {
+                Ok(crate::conductor::RuntimeSubmitOutcome::Submitted) => {
+                    "Task accepted and queued in conductor runtime.".to_string()
+                }
+                Ok(crate::conductor::RuntimeSubmitOutcome::RuntimeInactive) => {
+                    "Conductor runtime is inactive. Start daemon mode to run /task commands."
+                        .to_string()
+                }
+                Err(error) => format!("Conductor failed to accept task: {error}"),
+            };
+            let _ = target_channel
+                .send(&SendMessage::new(ack, &msg.reply_target))
+                .await;
+        }
+        return;
+    }
+
     // Check for update confirmation nonce BEFORE logging or persisting to memory,
     // so one-time nonce tokens are never printed to console or written to memory store.
     let target_channel = ctx.channels_by_name.get(&msg.channel).cloned();
@@ -2317,6 +2352,64 @@ mod tests {
         assert!(sent_messages[0].contains("alias-tag flow resolved"));
         assert!(!sent_messages[0].contains("<toolcall>"));
         assert!(!sent_messages[0].contains("mock_price"));
+    }
+
+    #[tokio::test]
+    async fn conductor_runtime_ingress_channel_task_uses_active_runtime_submission() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let mut cfg = Config::default();
+        cfg.conductor.enabled = true;
+        crate::conductor::activate_runtime(&cfg).expect("runtime activation");
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(cfg),
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test-system-prompt".to_string()),
+            model: Arc::new("test-model".to_string()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 10,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        let mut events = crate::conductor::events::subscribe();
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "msg-task".to_string(),
+                sender: "alice".to_string(),
+                reply_target: "chat-42".to_string(),
+                content: "/task investigate flaky tests".to_string(),
+                channel: "test-channel".to_string(),
+                timestamp: 1,
+            },
+        )
+        .await;
+
+        let sent_messages = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent_messages.len(), 1);
+        assert!(sent_messages[0].contains("queued"));
+
+        let envelope = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .expect("conductor event timeout")
+            .expect("event payload");
+        let event_json: serde_json::Value =
+            serde_json::from_str(&envelope).expect("valid conductor event json");
+        assert_eq!(event_json["kind"], "task_accepted");
     }
 
     struct NoopMemory;

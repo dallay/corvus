@@ -36,18 +36,16 @@ RUN mkdir -p /corvus-data/.corvus /corvus-data/workspace
 
 # Create minimal config for PRODUCTION (allows binding to public interfaces)
 # NOTE: Provider configuration must be done via environment variables at runtime
-RUN cat > /corvus-data/.corvus/config.toml << 'EOF'
-workspace_dir = "/corvus-data/workspace"
-config_path = "/corvus-data/.corvus/config.toml"
-api_key = ""
-default_provider = "openrouter"
-default_model = "anthropic/claude-sonnet-4-20250514"
-default_temperature = 0.7
-
-[gateway]
-port = 3000
-host = "127.0.0.1"
-EOF
+RUN echo 'workspace_dir = "/corvus-data/workspace"' > /corvus-data/.corvus/config.toml && \
+    echo 'config_path = "/corvus-data/.corvus/config.toml"' >> /corvus-data/.corvus/config.toml && \
+    echo 'api_key = ""' >> /corvus-data/.corvus/config.toml && \
+    echo 'default_provider = "openrouter"' >> /corvus-data/.corvus/config.toml && \
+    echo 'default_model = "anthropic/claude-sonnet-4-20250514"' >> /corvus-data/.corvus/config.toml && \
+    echo 'default_temperature = 0.7' >> /corvus-data/.corvus/config.toml && \
+    echo '' >> /corvus-data/.corvus/config.toml && \
+    echo '[gateway]' >> /corvus-data/.corvus/config.toml && \
+    echo 'port = 3000' >> /corvus-data/.corvus/config.toml && \
+    echo 'host = "127.0.0.1"' >> /corvus-data/.corvus/config.toml
 
 RUN chown -R 65534:65534 /corvus-data
 

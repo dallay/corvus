@@ -43,6 +43,7 @@ pub mod agent;
 pub mod approval;
 pub mod auth;
 pub mod channels;
+pub mod conductor;
 pub mod config;
 pub mod cost;
 pub mod cron;
@@ -71,6 +72,13 @@ pub mod update;
 pub mod util;
 
 pub use config::Config;
+
+pub fn route_cli_task_command(
+    conductor_enabled: bool,
+    message: &str,
+) -> crate::conductor::sources::CliRouteOutcome {
+    crate::conductor::sources::route_cli_message(conductor_enabled, message)
+}
 
 #[derive(Debug, Clone, Copy, ValueEnum, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ServiceLingerMode {
