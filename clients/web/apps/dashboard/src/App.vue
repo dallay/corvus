@@ -139,19 +139,19 @@ const config = useConfig(t);
 
 <style scoped>
 .dashboard-shell {
-  max-width: 1040px;
-  margin: 0 auto;
-  padding: 24px;
   display: grid;
   gap: 16px;
+  max-width: 1040px;
+  padding: 24px;
+  margin: 0 auto;
 }
 
 .header-card,
 .card {
+  padding: 16px;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: 16px;
-  padding: 16px;
 }
 
 .header-card h1 {
@@ -166,8 +166,8 @@ const config = useConfig(t);
 
 .header-title-row {
   display: flex;
-  align-items: center;
   gap: 12px;
+  align-items: center;
 }
 
 .header-logo {
@@ -198,25 +198,25 @@ label span {
 
 .select-input {
   height: 42px;
-  border-radius: 10px;
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-input);
-  color: var(--color-text-primary);
-  font-family: inherit;
   padding: 0 10px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  background: var(--color-bg-input);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
 }
 
 .actions {
-  margin-top: 12px;
   display: flex;
-  gap: 8px;
   flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
 }
 
 .switch-row {
   flex-direction: row;
-  align-items: center;
   gap: 8px;
+  align-items: center;
   margin-top: 20px;
 }
 
