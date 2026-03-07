@@ -70,6 +70,54 @@
 
 ---
 
+## 2026-03-04 - Codecov Web Configuration - COMPLETE
+
+- Configured Vitest coverage in `clients/web/apps/chat` and `clients/web/apps/dashboard` using `v8` provider.
+- Added `test:coverage` script to `package.json` of these apps.
+- Updated `.github/codecov.yml` with flags for `rust`, `kotlin`, and `web`.
+- Extended the Gradle build in `clients/web/build.gradle.kts` to include an aggregate task `testCoverageAllWebApps`.
+- Updated `.github/workflows/pull-request-check.yml` to execute web coverage tests and upload `lcov.info` files to Codecov.
+- Standardized `@vitest/coverage-v8` version in `clients/web/pnpm-workspace.yaml` catalog.
+
+- Optimized Gradle web tasks to be configuration-cache compliant by deferring package.json script checks to execution time using `onlyIf`.
+- Improved Codecov reliability in CI by using `directory` parameter for web coverage uploads, ensuring all `lcov.info` files are discovered without relying on runner-side glob expansion.
+
+- Pinned C4-PlantUML include to v2.13.0 for documentation stability.
+- Localized actor labels in Spanish container diagrams.
+- Corrected GPG setup documentation regarding key sizes and CI/CD subkey export commands.
+- Added language tags to PGP blocks in Spanish documentation to satisfy linting.
+
+---
+
+## 2026-03-06 - Documentation Review & Sync - COMPLETE
+
+**Verification:**
+- Audited `clients/agent-runtime/src/lib.rs` and `main.rs` against CLI docs.
+- Discovered missing `update` command in CLI reference.
+- Identified generic/outdated content in `intro/introduction.mdx`.
+- Verified `make` commands in root `README.md` were incorrect (`docs-web-build` vs `docs-build`).
+- Confirmed `guides/structure.md` and `guides/getting-started.md` are accurate.
+
+**Changes:**
+- **CLI Reference (en/es):**
+  - Added full `update` command section.
+  - Refined `peripheral flash` to include `-p/--port`.
+- **Introduction (en/es):**
+  - Replaced generic placeholder text with detailed project info from root README.
+  - Fixed image asset path by creating `clients/web/apps/docs/src/assets/` and copying `corvus.png`.
+- **Root README:**
+  - Corrected documentation build commands to `make docs-build` and `make docs-dev`.
+
+**Validation:**
+- ✅ `make docs-check`: Passed.
+- ✅ `make docs-build`: Passed (after fixing image path).
+
+**Notes:**
+- Architecture guides are split into `architecture.md` (Overview) and `architecture/overview.md` (Diagrams Index). This is functional but slightly confusing in structure.
+- `architecture/overview.md` is orphaned from the sidebar but reachable via links.
+
+---
+
 ## 2026-05-22 - CLI Reference Audit & Update - COMPLETE
 
 **Verification:**
@@ -101,44 +149,3 @@
 - [ ] Consider CSS !important warnings (optional, may need Biome config)
 - [x] Update CLI docs with missing subcommands (high priority) - DONE (both en/es)
 - [x] Audit and document missing CLI flags/commands from agent-runtime - DONE
-
-## Codecov Web Configuration (2026-03-04)
-
-- Configured Vitest coverage in `clients/web/apps/chat` and `clients/web/apps/dashboard` using `v8` provider.
-- Added `test:coverage` script to `package.json` of these apps.
-- Updated `.github/codecov.yml` with flags for `rust`, `kotlin`, and `web`.
-- Extended the Gradle build in `clients/web/build.gradle.kts` to include an aggregate task `testCoverageAllWebApps`.
-- Updated `.github/workflows/pull-request-check.yml` to execute web coverage tests and upload `lcov.info` files to Codecov.
-- Standardized `@vitest/coverage-v8` version in `clients/web/pnpm-workspace.yaml` catalog.
-
-- Optimized Gradle web tasks to be configuration-cache compliant by deferring package.json script checks to execution time using `onlyIf`.
-- Improved Codecov reliability in CI by using `directory` parameter for web coverage uploads, ensuring all `lcov.info` files are discovered without relying on runner-side glob expansion.
-
-- Pinned C4-PlantUML include to v2.13.0 for documentation stability.
-- Localized actor labels in Spanish container diagrams.
-## 2026-03-06 - Documentation Review & Sync - COMPLETE
-
-**Verification:**
-- Audited `clients/agent-runtime/src/lib.rs` and `main.rs` against CLI docs.
-- Discovered missing `update` command in CLI reference.
-- Identified generic/outdated content in `intro/introduction.mdx`.
-- Verified `make` commands in root `README.md` were incorrect (`docs-web-build` vs `docs-build`).
-- Confirmed `guides/structure.md` and `guides/getting-started.md` are accurate.
-
-**Changes:**
-- **CLI Reference (en/es):**
-  - Added full `update` command section.
-  - Refined `peripheral flash` to include `-p/--port`.
-- **Introduction (en/es):**
-  - Replaced generic placeholder text with detailed project info from root README.
-  - Fixed image asset path by creating `clients/web/apps/docs/src/assets/` and copying `corvus.png`.
-- **Root README:**
-  - Corrected documentation build commands to `make docs-build` and `make docs-dev`.
-
-**Validation:**
-- ✅ `make docs-check`: Passed.
-- ✅ `make docs-build`: Passed (after fixing image path).
-
-**Notes:**
-- Architecture guides are split into `architecture.md` (Overview) and `architecture/overview.md` (Diagrams Index). This is functional but slightly confusing in structure.
-- `architecture/overview.md` is orphaned from the sidebar but reachable via links.
