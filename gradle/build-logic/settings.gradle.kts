@@ -39,7 +39,13 @@ dependencyResolutionManagement {
     }
     maven {
       setUrl("https://jitpack.io")
-      content { includeGroupByRegex("com\\.github.*") }
+      content {
+        includeGroupByRegex("com\\.github.*")
+        // Resolve Gradle plugin markers from Plugin Portal/Maven Central, not JitPack,
+        // to avoid network timeout flakiness for com.github.spotbugs.* coordinates.
+        excludeGroup("com.github.spotbugs")
+        excludeGroup("com.github.spotbugs.snom")
+      }
     }
     google {
       content {
