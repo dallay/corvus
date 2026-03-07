@@ -47,6 +47,9 @@ pub struct Config {
     #[serde(default)]
     pub mission: MissionConfig,
 
+    #[serde(default)]
+    pub conductor: ConductorConfig,
+
     /// Model routing rules — route `hint:<name>` to specific provider+model combos.
     #[serde(default)]
     pub model_routes: Vec<ModelRouteConfig>,
@@ -279,6 +282,255 @@ impl Default for MissionConfig {
             max_runtime_ms: default_mission_max_runtime_ms(),
             max_steps: default_mission_max_steps(),
             max_estimated_cost_cents: default_mission_max_estimated_cost_cents(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConductorConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_conductor_tick_interval_ms")]
+    pub tick_interval_ms: u64,
+    #[serde(default = "default_conductor_stall_timeout_ms")]
+    pub stall_timeout_ms: u64,
+    #[serde(default = "default_conductor_max_retries")]
+    pub max_retries: u32,
+    #[serde(default = "default_conductor_workspace_root")]
+    pub workspace_root: String,
+    #[serde(default = "default_conductor_artifact_retention_days")]
+    pub artifact_retention_days: u32,
+    #[serde(default)]
+    pub token_budget_per_tick: Option<u32>,
+    #[serde(default)]
+    pub planner: PlannerConfig,
+    #[serde(default)]
+    pub concurrency: ConcurrencyConfig,
+    #[serde(default)]
+    pub retry: RetryConfig,
+    #[serde(default)]
+    pub performers: PerformerConfigs,
+}
+
+fn default_conductor_tick_interval_ms() -> u64 {
+    30_000
+}
+
+fn default_conductor_stall_timeout_ms() -> u64 {
+    300_000
+}
+
+fn default_conductor_max_retries() -> u32 {
+    3
+}
+
+fn default_conductor_workspace_root() -> String {
+    "~/.corvus/workspaces".to_string()
+}
+
+fn default_conductor_artifact_retention_days() -> u32 {
+    7
+}
+
+impl Default for ConductorConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            tick_interval_ms: default_conductor_tick_interval_ms(),
+            stall_timeout_ms: default_conductor_stall_timeout_ms(),
+            max_retries: default_conductor_max_retries(),
+            workspace_root: default_conductor_workspace_root(),
+            artifact_retention_days: default_conductor_artifact_retention_days(),
+            token_budget_per_tick: None,
+            planner: PlannerConfig::default(),
+            concurrency: ConcurrencyConfig::default(),
+            retry: RetryConfig::default(),
+            performers: PerformerConfigs::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PlannerConfig {
+    #[serde(default = "default_planner_model")]
+    pub model: String,
+    #[serde(default = "default_planner_temperature")]
+    pub temperature: f32,
+    #[serde(default = "default_planner_max_planning_time_ms")]
+    pub max_planning_time_ms: u64,
+}
+
+fn default_planner_model() -> String {
+    "claude-sonnet-4-20250514".to_string()
+}
+
+fn default_planner_temperature() -> f32 {
+    0.3
+}
+
+fn default_planner_max_planning_time_ms() -> u64 {
+    30_000
+}
+
+impl Default for PlannerConfig {
+    fn default() -> Self {
+        Self {
+            model: default_planner_model(),
+            temperature: default_planner_temperature(),
+            max_planning_time_ms: default_planner_max_planning_time_ms(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConcurrencyConfig {
+    #[serde(default = "default_concurrency_global_max")]
+    pub global_max: usize,
+    #[serde(default = "default_concurrency_coding_max")]
+    pub coding_max: usize,
+    #[serde(default = "default_concurrency_research_max")]
+    pub research_max: usize,
+    #[serde(default = "default_concurrency_browser_max")]
+    pub browser_max: usize,
+    #[serde(default = "default_concurrency_system_max")]
+    pub system_max: usize,
+}
+
+fn default_concurrency_global_max() -> usize {
+    10
+}
+
+fn default_concurrency_coding_max() -> usize {
+    3
+}
+
+fn default_concurrency_research_max() -> usize {
+    5
+}
+
+fn default_concurrency_browser_max() -> usize {
+    2
+}
+
+fn default_concurrency_system_max() -> usize {
+    2
+}
+
+impl Default for ConcurrencyConfig {
+    fn default() -> Self {
+        Self {
+            global_max: default_concurrency_global_max(),
+            coding_max: default_concurrency_coding_max(),
+            research_max: default_concurrency_research_max(),
+            browser_max: default_concurrency_browser_max(),
+            system_max: default_concurrency_system_max(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RetryConfig {
+    #[serde(default = "default_retry_max_retries")]
+    pub max_retries: u32,
+    #[serde(default = "default_retry_initial_backoff_ms")]
+    pub initial_backoff_ms: u64,
+    #[serde(default = "default_retry_max_backoff_ms")]
+    pub max_backoff_ms: u64,
+    #[serde(default = "default_retry_backoff_multiplier")]
+    pub backoff_multiplier: f64,
+}
+
+fn default_retry_max_retries() -> u32 {
+    3
+}
+
+fn default_retry_initial_backoff_ms() -> u64 {
+    5_000
+}
+
+fn default_retry_max_backoff_ms() -> u64 {
+    300_000
+}
+
+fn default_retry_backoff_multiplier() -> f64 {
+    2.0
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: default_retry_max_retries(),
+            initial_backoff_ms: default_retry_initial_backoff_ms(),
+            max_backoff_ms: default_retry_max_backoff_ms(),
+            backoff_multiplier: default_retry_backoff_multiplier(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformerConfigs {
+    #[serde(default)]
+    pub coding: PerformerConfig,
+    #[serde(default)]
+    pub research: PerformerConfig,
+    #[serde(default)]
+    pub browser: PerformerConfig,
+    #[serde(default = "default_system_performer_config")]
+    pub system: PerformerConfig,
+}
+
+fn default_system_performer_config() -> PerformerConfig {
+    PerformerConfig {
+        approval_required: true,
+        ..PerformerConfig::default()
+    }
+}
+
+impl Default for PerformerConfigs {
+    fn default() -> Self {
+        Self {
+            coding: PerformerConfig::default(),
+            research: PerformerConfig::default(),
+            browser: PerformerConfig::default(),
+            system: default_system_performer_config(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformerConfig {
+    #[serde(default = "default_performer_model")]
+    pub model: String,
+    #[serde(default = "default_performer_max_iterations")]
+    pub max_iterations: u32,
+    #[serde(default = "default_performer_timeout_ms")]
+    pub timeout_ms: u64,
+    #[serde(default)]
+    pub tools: Vec<String>,
+    #[serde(default)]
+    pub approval_required: bool,
+}
+
+fn default_performer_model() -> String {
+    "claude-sonnet-4-20250514".to_string()
+}
+
+fn default_performer_max_iterations() -> u32 {
+    10
+}
+
+fn default_performer_timeout_ms() -> u64 {
+    300_000
+}
+
+impl Default for PerformerConfig {
+    fn default() -> Self {
+        Self {
+            model: default_performer_model(),
+            max_iterations: default_performer_max_iterations(),
+            timeout_ms: default_performer_timeout_ms(),
+            tools: Vec::new(),
+            approval_required: false,
         }
     }
 }
@@ -2002,6 +2254,7 @@ impl Default for Config {
             scheduler: SchedulerConfig::default(),
             agent: AgentConfig::default(),
             mission: MissionConfig::default(),
+            conductor: ConductorConfig::default(),
             model_routes: Vec::new(),
             heartbeat: HeartbeatConfig::default(),
             cron: CronConfig::default(),
@@ -2421,6 +2674,19 @@ fn is_valid_mcp_identifier(value: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
 }
 
+fn validate_performer_config(path: &str, config: &PerformerConfig) -> Result<()> {
+    if config.model.trim().is_empty() {
+        anyhow::bail!("{path}.model must be non-empty");
+    }
+    if config.max_iterations == 0 {
+        anyhow::bail!("{path}.max_iterations must be greater than zero");
+    }
+    if config.timeout_ms == 0 {
+        anyhow::bail!("{path}.timeout_ms must be greater than zero");
+    }
+    Ok(())
+}
+
 impl Config {
     fn normalize_query_classification_keywords(&mut self) {
         for rule in &mut self.query_classification.rules {
@@ -2680,7 +2946,8 @@ impl Config {
     }
 
     pub fn validate_for_runtime(&self) -> Result<()> {
-        self.validate_mcp_servers()
+        self.validate_mcp_servers()?;
+        self.validate_conductor()
     }
 
     fn validate_mcp_servers(&self) -> Result<()> {
@@ -2725,6 +2992,109 @@ impl Config {
                     anyhow::bail!("{base}.env contains an invalid value");
                 }
             }
+        }
+
+        Ok(())
+    }
+
+    fn validate_conductor(&self) -> Result<()> {
+        let conductor = &self.conductor;
+
+        if conductor.tick_interval_ms == 0 {
+            anyhow::bail!("conductor.tick_interval_ms must be greater than zero");
+        }
+        if conductor.stall_timeout_ms == 0 {
+            anyhow::bail!("conductor.stall_timeout_ms must be greater than zero");
+        }
+        if conductor.stall_timeout_ms < conductor.tick_interval_ms {
+            anyhow::bail!(
+                "conductor.stall_timeout_ms must be greater than or equal to conductor.tick_interval_ms"
+            );
+        }
+        if conductor.workspace_root.trim().is_empty() {
+            anyhow::bail!("conductor.workspace_root must be non-empty");
+        }
+        if conductor.artifact_retention_days == 0 {
+            anyhow::bail!("conductor.artifact_retention_days must be greater than zero");
+        }
+        if matches!(conductor.token_budget_per_tick, Some(0)) {
+            anyhow::bail!("conductor.token_budget_per_tick must be greater than zero");
+        }
+
+        if conductor.planner.model.trim().is_empty() {
+            anyhow::bail!("conductor.planner.model must be non-empty");
+        }
+        if !(0.0..=2.0).contains(&conductor.planner.temperature) {
+            anyhow::bail!("conductor.planner.temperature must be within 0.0..=2.0");
+        }
+        if conductor.planner.max_planning_time_ms == 0 {
+            anyhow::bail!("conductor.planner.max_planning_time_ms must be greater than zero");
+        }
+
+        let concurrency = &conductor.concurrency;
+        if concurrency.global_max == 0 {
+            anyhow::bail!("conductor.concurrency.global_max must be greater than zero");
+        }
+        if concurrency.coding_max == 0 {
+            anyhow::bail!("conductor.concurrency.coding_max must be greater than zero");
+        }
+        if concurrency.research_max == 0 {
+            anyhow::bail!("conductor.concurrency.research_max must be greater than zero");
+        }
+        if concurrency.browser_max == 0 {
+            anyhow::bail!("conductor.concurrency.browser_max must be greater than zero");
+        }
+        if concurrency.system_max == 0 {
+            anyhow::bail!("conductor.concurrency.system_max must be greater than zero");
+        }
+
+        if concurrency.coding_max > concurrency.global_max {
+            anyhow::bail!("conductor.concurrency.coding_max must be <= global_max");
+        }
+        if concurrency.research_max > concurrency.global_max {
+            anyhow::bail!("conductor.concurrency.research_max must be <= global_max");
+        }
+        if concurrency.browser_max > concurrency.global_max {
+            anyhow::bail!("conductor.concurrency.browser_max must be <= global_max");
+        }
+        if concurrency.system_max > concurrency.global_max {
+            anyhow::bail!("conductor.concurrency.system_max must be <= global_max");
+        }
+
+        let retry = &conductor.retry;
+        if retry.max_retries == 0 {
+            anyhow::bail!("conductor.retry.max_retries must be greater than zero");
+        }
+        if retry.initial_backoff_ms == 0 {
+            anyhow::bail!("conductor.retry.initial_backoff_ms must be greater than zero");
+        }
+        if retry.max_backoff_ms == 0 {
+            anyhow::bail!("conductor.retry.max_backoff_ms must be greater than zero");
+        }
+        if retry.max_backoff_ms < retry.initial_backoff_ms {
+            anyhow::bail!(
+                "conductor.retry.max_backoff_ms must be >= conductor.retry.initial_backoff_ms"
+            );
+        }
+        if retry.backoff_multiplier < 1.0 {
+            anyhow::bail!("conductor.retry.backoff_multiplier must be >= 1.0");
+        }
+
+        validate_performer_config("conductor.performers.coding", &conductor.performers.coding)?;
+        validate_performer_config(
+            "conductor.performers.research",
+            &conductor.performers.research,
+        )?;
+        validate_performer_config(
+            "conductor.performers.browser",
+            &conductor.performers.browser,
+        )?;
+        validate_performer_config("conductor.performers.system", &conductor.performers.system)?;
+
+        if !conductor.performers.system.approval_required {
+            anyhow::bail!(
+                "conductor.performers.system.approval_required must remain true for fail-closed safety"
+            );
         }
 
         Ok(())
@@ -3099,6 +3469,7 @@ default_temperature = 0.7
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),
             mission: MissionConfig::default(),
+            conductor: ConductorConfig::default(),
             model_routes: Vec::new(),
             query_classification: QueryClassificationConfig::default(),
             heartbeat: HeartbeatConfig {
@@ -3237,6 +3608,7 @@ tool_dispatcher = "xml"
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),
             mission: MissionConfig::default(),
+            conductor: ConductorConfig::default(),
             model_routes: Vec::new(),
             query_classification: QueryClassificationConfig::default(),
             heartbeat: HeartbeatConfig::default(),

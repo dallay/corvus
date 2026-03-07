@@ -20,7 +20,10 @@ use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
 use axum::{
     body::Bytes,
-    extract::{ConnectInfo, Query, State},
+    extract::{
+        ws::{Message as WsMessage, WebSocket, WebSocketUpgrade},
+        ConnectInfo, Query, State,
+    },
     http::{header, HeaderMap, StatusCode},
     response::{IntoResponse, Json},
     routing::{get, post},
@@ -45,6 +48,45 @@ static SENSITIVE_GATEWAY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     )
     .expect("valid sensitive gateway regex")
 });
+
+pub const CONDUCTOR_EVENTS_WS_PATH: &str = "/api/conductor/events";
+
+pub fn normalize_conductor_task_submit(
+    payload: &serde_json::Value,
+) -> Option<crate::conductor::TaskRequest> {
+    let message = payload.get("message")?.as_str()?.trim();
+    let channel = payload
+        .get("channel")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("gateway");
+    let channel_id = payload
+        .get("channel_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("gateway");
+    let sender = payload
+        .get("sender")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or("gateway");
+    let session_id = payload
+        .get("session_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+
+    match crate::conductor::sources::route_channel_message(
+        true, message, channel, channel_id, sender, None,
+    ) {
+        crate::conductor::sources::ChannelRouteOutcome::Task(mut request) => {
+            if let Some(session_id) = session_id {
+                request.origin = crate::conductor::TaskOrigin::Dashboard { session_id };
+            }
+            request.tags = vec!["gateway".to_string(), "task".to_string()];
+            Some(*request)
+        }
+        crate::conductor::sources::ChannelRouteOutcome::ChatPassthrough => None,
+    }
+}
 
 #[derive(Debug, Clone, serde::Serialize)]
 struct AdminConfigView {
@@ -1317,6 +1359,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/web/admin/options", get(handle_admin_options))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
+        .route(CONDUCTOR_EVENTS_WS_PATH, get(handle_conductor_events_ws))
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
         .layer(TimeoutLayer::with_status_code(
@@ -1332,6 +1375,22 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     .await?;
 
     Ok(())
+}
+
+async fn handle_conductor_events_ws(ws: WebSocketUpgrade) -> impl IntoResponse {
+    ws.on_upgrade(stream_conductor_events)
+}
+
+async fn stream_conductor_events(mut socket: WebSocket) {
+    let mut receiver = crate::conductor::events::subscribe();
+    loop {
+        let Ok(event) = receiver.recv().await else {
+            break;
+        };
+        if socket.send(WsMessage::Text(event.into())).await.is_err() {
+            break;
+        }
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -1655,6 +1714,43 @@ async fn handle_webhook(
     let message = &webhook_body.message;
     let scrubbed_message = scrub_sensitive_boundary_text(message);
     let session_id = normalized_session_id(&headers);
+
+    if state.config.lock().conductor.enabled {
+        let task_payload = serde_json::json!({
+            "message": message,
+            "channel": "gateway",
+            "channel_id": &session_id,
+            "sender": "gateway",
+            "session_id": &session_id,
+        });
+        if let Some(request) = normalize_conductor_task_submit(&task_payload) {
+            return match crate::conductor::submit_task(request) {
+                Ok(crate::conductor::RuntimeSubmitOutcome::Submitted) => (
+                    StatusCode::ACCEPTED,
+                    Json(serde_json::json!({
+                        "status": "accepted",
+                        "mode": "conductor",
+                        "session_id": session_id,
+                    })),
+                ),
+                Ok(crate::conductor::RuntimeSubmitOutcome::RuntimeInactive) => (
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    Json(serde_json::json!({
+                        "error": "Conductor runtime inactive. Start daemon mode to execute task submissions.",
+                        "session_id": session_id,
+                    })),
+                ),
+                Err(error) => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "error": format!("Conductor task submission failed: {error}"),
+                        "session_id": session_id,
+                    })),
+                ),
+            };
+        }
+    }
+
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
     if !is_preview {
         if let Some(response) =
@@ -1960,6 +2056,7 @@ mod tests {
     use async_trait::async_trait;
     use axum::http::HeaderValue;
     use axum::response::IntoResponse;
+    use futures_util::StreamExt;
     use http_body_util::BodyExt;
     use parking_lot::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -2558,6 +2655,49 @@ mod tests {
         config
     }
 
+    async fn spawn_conductor_ws_test_server() -> (SocketAddr, tokio::task::JoinHandle<()>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind ws test listener");
+        let addr = listener.local_addr().expect("ws listener addr");
+        let app = Router::new().route(CONDUCTOR_EVENTS_WS_PATH, get(handle_conductor_events_ws));
+        let handle = tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        (addr, handle)
+    }
+
+    async fn recv_event_with_task_id(
+        stream: &mut tokio_tungstenite::WebSocketStream<
+            tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+        >,
+        expected_task_id: &str,
+    ) -> serde_json::Value {
+        loop {
+            let frame = tokio::time::timeout(Duration::from_secs(2), stream.next())
+                .await
+                .expect("websocket frame timeout");
+            let Some(frame) = frame else {
+                panic!("websocket stream ended before receiving task event");
+            };
+            let message = frame.expect("websocket frame should decode");
+            if !message.is_text() {
+                continue;
+            }
+
+            let payload: serde_json::Value = serde_json::from_str(
+                message
+                    .to_text()
+                    .expect("websocket text payload should be valid utf8"),
+            )
+            .expect("conductor websocket payload should be valid json");
+
+            if payload["task_id"].as_str() == Some(expected_task_id) {
+                return payload;
+            }
+        }
+    }
+
     #[tokio::test]
     async fn admin_config_requires_pairing_auth_when_enabled() {
         let mut cfg = temp_config();
@@ -2705,6 +2845,89 @@ mod tests {
             .as_str()
             .unwrap_or_default()
             .contains("retrying after recoverable error")));
+    }
+
+    #[tokio::test]
+    async fn conductor_runtime_ingress_gateway_webhook_routes_task_to_active_runtime() {
+        let mut cfg = Config::default();
+        cfg.conductor.enabled = true;
+        crate::conductor::activate_runtime(&cfg).expect("runtime activation");
+
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(cfg)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "/task repair planner routing".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn conductor_ws_e2e_event_delivery_meets_latency_and_payload_contract() {
+        let (addr, server_handle) = spawn_conductor_ws_test_server().await;
+        let ws_url = format!("ws://{addr}{CONDUCTOR_EVENTS_WS_PATH}");
+        let (mut stream, _) = tokio_tungstenite::connect_async(ws_url)
+            .await
+            .expect("connect websocket");
+
+        let task_id = crate::conductor::TaskId::new(format!("task_ws_{}", Uuid::new_v4().simple()))
+            .expect("valid task id");
+        let started = Instant::now();
+        crate::conductor::events::publish(
+            &crate::conductor::ConductorEventEnvelope::TaskAccepted {
+                task_id: task_id.clone(),
+            },
+        );
+
+        let accepted_payload = recv_event_with_task_id(&mut stream, task_id.as_str()).await;
+        assert!(started.elapsed() <= Duration::from_millis(500));
+        assert_eq!(accepted_payload["kind"], "task_accepted");
+        assert_eq!(accepted_payload["task_id"], task_id.as_str());
+
+        let step_id = crate::conductor::StepId::new("step_ws_1").expect("valid step id");
+        crate::conductor::events::publish(
+            &crate::conductor::ConductorEventEnvelope::StepStateChanged {
+                task_id: task_id.clone(),
+                step_id: step_id.clone(),
+                status: crate::conductor::StepStatus::Completed,
+            },
+        );
+
+        let step_payload = recv_event_with_task_id(&mut stream, task_id.as_str()).await;
+        assert_eq!(step_payload["kind"], "step_state_changed");
+        assert_eq!(step_payload["task_id"], task_id.as_str());
+        assert_eq!(step_payload["step_id"], step_id.as_str());
+        assert_eq!(step_payload["status"], "completed");
+
+        server_handle.abort();
+        let _ = server_handle.await;
     }
 
     #[tokio::test]

@@ -172,7 +172,9 @@ impl Observer for PrometheusObserver {
             | ObserverEvent::MissionCheckpointProgress { .. }
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. } => {}
+            | ObserverEvent::MissionTerminated { .. }
+            | ObserverEvent::ConductorStepLifecycle { .. }
+            | ObserverEvent::ConductorApprovalTransition { .. } => {}
             ObserverEvent::ToolCall {
                 tool,
                 duration,
@@ -205,7 +207,7 @@ impl Observer for PrometheusObserver {
 
     fn record_metric(&self, metric: &ObserverMetric) {
         match metric {
-            ObserverMetric::RequestLatency(d) => {
+            ObserverMetric::RequestLatency(d) | ObserverMetric::PlannerLatency(d) => {
                 self.request_latency.observe(d.as_secs_f64());
             }
             ObserverMetric::TokensUsed(t) => {
@@ -216,7 +218,7 @@ impl Observer for PrometheusObserver {
                     .with_label_values(&[] as &[&str])
                     .set(*s as f64);
             }
-            ObserverMetric::QueueDepth(d) => {
+            ObserverMetric::QueueDepth(d) | ObserverMetric::ConductorQueueDepth(d) => {
                 self.queue_depth
                     .with_label_values(&[] as &[&str])
                     .set(*d as f64);

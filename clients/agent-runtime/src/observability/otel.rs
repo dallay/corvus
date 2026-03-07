@@ -191,7 +191,9 @@ impl Observer for OtelObserver {
             | ObserverEvent::MissionCheckpointProgress { .. }
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. } => {}
+            | ObserverEvent::MissionTerminated { .. }
+            | ObserverEvent::ConductorStepLifecycle { .. }
+            | ObserverEvent::ConductorApprovalTransition { .. } => {}
             ObserverEvent::LlmResponse {
                 provider,
                 model,
@@ -341,7 +343,7 @@ impl Observer for OtelObserver {
 
     fn record_metric(&self, metric: &ObserverMetric) {
         match metric {
-            ObserverMetric::RequestLatency(d) => {
+            ObserverMetric::RequestLatency(d) | ObserverMetric::PlannerLatency(d) => {
                 self.request_latency.record(d.as_secs_f64(), &[]);
             }
             ObserverMetric::TokensUsed(t) => {
@@ -350,7 +352,7 @@ impl Observer for OtelObserver {
             ObserverMetric::ActiveSessions(s) => {
                 self.active_sessions.record(*s as u64, &[]);
             }
-            ObserverMetric::QueueDepth(d) => {
+            ObserverMetric::QueueDepth(d) | ObserverMetric::ConductorQueueDepth(d) => {
                 self.queue_depth.record(*d as u64, &[]);
             }
         }
