@@ -49,11 +49,22 @@ jobs:
           java-version: "25"
           distribution: "corretto"
 
+      - name: 📦 Setup pnpm
+        if: env.SONAR_TOKEN != ''
+        uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5df2 # v4.0.0
+        with:
+          version: "10.30.1"
+
       - name: 📦 Setup Node
         if: env.SONAR_TOKEN != ''
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: "24"
+          cache: "pnpm"
+
+      - name: 📦 Install dependencies
+        if: env.SONAR_TOKEN != ''
+        run: pnpm install
 
       - name: 🐘 Setup Gradle
         if: env.SONAR_TOKEN != ''
@@ -67,7 +78,7 @@ jobs:
 
       - name: 🧪 Build and generate coverage
         if: env.SONAR_TOKEN != ''
-        run: ./gradlew test jvmTest :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
+        run: ./gradlew test jvmTest lintDebug :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
 
       - name: 🦀 Setup Rust
         if: env.SONAR_TOKEN != ''
@@ -87,6 +98,20 @@ jobs:
         if: env.SONAR_TOKEN != ''
         working-directory: clients/agent-runtime
         run: cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov
+
+      - name: 🎨 Run Stylelint
+        if: env.SONAR_TOKEN != ''
+        run: pnpm -C clients/web run lint:style -f json -o ../../coverage/stylelint-report.json || true
+
+      - name: 🐳 Run Hadolint
+        if: env.SONAR_TOKEN != ''
+        run: docker run --rm -v "$(pwd):/app" -w /app hadolint/hadolint hadolint -f json $(find . -name "Dockerfile*" -not -path "*/node_modules/*") > coverage/hadolint-report.json || true
+
+      - name: 🤖 Run Actionlint
+        if: env.SONAR_TOKEN != ''
+        run: |
+          bash <(curl https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          ./actionlint -format '{{json .}}' > coverage/actionlint-report.json || true
 
       - name: 🧮 Compute Sonar project key
         if: env.SONAR_TOKEN != ''
@@ -148,6 +173,10 @@ jobs:
             -Dsonar.issue.ignore.multicriteria.e1.resourceKey=**/*Test.kt
             -Dsonar.coverage.jacoco.xmlReportPaths=${{ github.workspace }}/modules/agent-core-kmp/build/reports/kover/report.xml,${{ github.workspace }}/clients/composeApp/build/reports/kover/report.xml
             -Dsonar.rust.lcov.reportPaths=${{ github.workspace }}/coverage/agent-runtime-coverage.lcov
+            -Dsonar.css.stylelint.reportPaths=coverage/stylelint-report.json
+            -Dsonar.androidLint.reportPaths=**/build/reports/lint-results-*.xml
+            -Dsonar.docker.hadolint.reportPaths=coverage/hadolint-report.json
+            -Dsonar.githubactions.actionlint.reportPaths=coverage/actionlint-report.json
             -Dsonar.python.version=3.12
             -Dsonar.typescript.node=${{ github.workspace }}/clients/web/node_modules
 
