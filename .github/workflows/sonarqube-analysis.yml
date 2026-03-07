@@ -64,11 +64,11 @@ jobs:
 
       - name: 📦 Install root dependencies
         if: env.SONAR_TOKEN != ''
-        run: pnpm install
+        run: pnpm install --ignore-scripts
 
       - name: 📦 Install web dependencies
         if: env.SONAR_TOKEN != ''
-        run: pnpm -C clients/web install
+        run: pnpm -C clients/web install --ignore-scripts
 
       - name: 🐘 Setup Gradle
         if: env.SONAR_TOKEN != ''
@@ -111,7 +111,7 @@ jobs:
         if: env.SONAR_TOKEN != ''
         run: |
           hadolint_version="v2.12.0"
-          curl -sSL "https://github.com/hadolint/hadolint/releases/download/${hadolint_version}/hadolint-Linux-x86_64" -o hadolint
+          curl -sSL --proto '=https' --tlsv1.2 "https://github.com/hadolint/hadolint/releases/download/${hadolint_version}/hadolint-Linux-x86_64" -o hadolint
           chmod +x hadolint
           find . -name "Dockerfile*" -not -path "*/node_modules/*" -print0 | xargs -0 ./hadolint -f json > coverage/hadolint-report.json || true
           rm hadolint
@@ -120,7 +120,7 @@ jobs:
         if: env.SONAR_TOKEN != ''
         run: |
           actionlint_version="1.7.7"
-          curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${actionlint_version}/actionlint_${actionlint_version}_linux_amd64.tar.gz" -o actionlint.tar.gz
+          curl -sSL --proto '=https' --tlsv1.2 "https://github.com/rhysd/actionlint/releases/download/v${actionlint_version}/actionlint_${actionlint_version}_linux_amd64.tar.gz" -o actionlint.tar.gz
           tar -xzf actionlint.tar.gz
           ./actionlint -format '{{json .}}' .github/workflows/*.yml > coverage/actionlint-report.json || true
           rm actionlint actionlint.tar.gz
