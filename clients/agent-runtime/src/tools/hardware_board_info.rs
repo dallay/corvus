@@ -209,3 +209,95 @@ fn memory_map_static(board: &str) -> Option<&'static str> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn static_info_for_known_board_contains_chip_and_description() {
+        let tool = HardwareBoardInfoTool::new(vec!["nucleo-f401re".to_string()]);
+
+        let info = tool
+            .static_info_for_board("nucleo-f401re")
+            .expect("known board should return static info");
+
+        assert!(info.contains("**Board:** nucleo-f401re"));
+        assert!(info.contains("**Chip:** STM32F401RET6"));
+    }
+
+    #[test]
+    fn static_info_for_unknown_board_returns_none() {
+        let tool = HardwareBoardInfoTool::new(vec!["custom".to_string()]);
+        assert!(tool.static_info_for_board("custom").is_none());
+    }
+
+    #[test]
+    fn memory_map_static_has_entries_for_supported_boards() {
+        assert!(memory_map_static("nucleo-f401re").is_some());
+        assert!(memory_map_static("arduino-uno").is_some());
+        assert!(memory_map_static("unknown").is_none());
+    }
+
+    #[tokio::test]
+    async fn execute_fails_when_boards_configuration_is_empty() {
+        let tool = HardwareBoardInfoTool::new(Vec::new());
+
+        let result = tool
+            .execute(json!({}))
+            .await
+            .expect("execute should return ToolResult");
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("No peripherals configured"));
+    }
+
+    #[tokio::test]
+    async fn execute_returns_static_info_for_known_board() {
+        let tool = HardwareBoardInfoTool::new(vec!["nucleo-f401re".to_string()]);
+
+        let result = tool
+            .execute(json!({}))
+            .await
+            .expect("execute should return ToolResult");
+
+        assert!(result.success);
+        assert!(result.output.contains("**Board:** nucleo-f401re"));
+        assert!(result.output.contains("**Memory map:**"));
+    }
+
+    #[tokio::test]
+    async fn execute_uses_requested_board_argument_when_provided() {
+        let tool = HardwareBoardInfoTool::new(vec![
+            "nucleo-f401re".to_string(),
+            "arduino-uno".to_string(),
+        ]);
+
+        let result = tool
+            .execute(json!({ "board": "arduino-uno" }))
+            .await
+            .expect("execute should return ToolResult");
+
+        assert!(result.success);
+        assert!(result.output.contains("**Board:** arduino-uno"));
+        assert!(result.output.contains("ATmega328P"));
+    }
+
+    #[tokio::test]
+    async fn execute_reports_unknown_board_without_failing() {
+        let tool = HardwareBoardInfoTool::new(vec!["custom-board".to_string()]);
+
+        let result = tool
+            .execute(json!({}))
+            .await
+            .expect("execute should return ToolResult");
+
+        assert!(result.success);
+        assert!(result.output.contains("No static info available"));
+    }
+}

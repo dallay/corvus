@@ -159,3 +159,49 @@ impl Tool for ArduinoUploadTool {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn new_sets_configured_port() {
+        let tool = ArduinoUploadTool::new("/dev/ttyACM0".to_string());
+        assert_eq!(tool.port, "/dev/ttyACM0");
+    }
+
+    #[test]
+    fn schema_requires_code_field() {
+        let tool = ArduinoUploadTool::new("/dev/ttyACM0".to_string());
+        let schema = tool.parameters_schema();
+
+        assert_eq!(schema["type"], "object");
+        assert_eq!(schema["required"], json!(["code"]));
+        assert_eq!(schema["properties"]["code"]["type"], "string");
+    }
+
+    #[tokio::test]
+    async fn execute_returns_error_when_code_parameter_is_missing() {
+        let tool = ArduinoUploadTool::new("/dev/ttyACM0".to_string());
+
+        let result = tool.execute(json!({})).await;
+
+        assert!(result.is_err());
+        let message = result.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(message.contains("Missing 'code' parameter"));
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_empty_code() {
+        let tool = ArduinoUploadTool::new("/dev/ttyACM0".to_string());
+
+        let result = tool
+            .execute(json!({ "code": "   " }))
+            .await
+            .expect("execute should return ToolResult");
+
+        assert!(!result.success);
+        assert_eq!(result.error.as_deref(), Some("Code cannot be empty"));
+    }
+}
