@@ -25,23 +25,6 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
 
     let mut handles: Vec<JoinHandle<()>> = vec![spawn_state_writer(config.clone())];
 
-    let conductor_started = conductor_supervision_enabled(&config);
-    if conductor_started {
-        let conductor_cfg = config.clone();
-        handles.push(spawn_component_supervisor(
-            "conductor",
-            initial_backoff,
-            max_backoff,
-            move || {
-                let cfg = conductor_cfg.clone();
-                async move { crate::conductor::run_supervised_worker(cfg).await }
-            },
-        ));
-    } else {
-        crate::health::mark_component_ok("conductor");
-        tracing::info!("Conductor disabled; conductor supervisor not started");
-    }
-
     {
         let gateway_cfg = config.clone();
         let gateway_host = host.clone();
@@ -130,7 +113,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
             max_backoff,
             move || {
                 let cfg = update_cfg.clone();
-                Box::pin(run_daemon_updater_component(cfg))
+                async move { run_daemon_updater_component(cfg).await }
             },
         ));
     } else {
@@ -144,9 +127,6 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
     }
     if updater_started {
         component_list.push("updater");
-    }
-    if conductor_started {
-        component_list.push("conductor");
     }
 
     println!("🧠 Corvus daemon started");
@@ -316,10 +296,6 @@ fn mission_checkpoint_supervision_enabled(config: &Config) -> bool {
 
 fn updater_supervision_enabled(config: &Config) -> bool {
     config.updates.enabled && !crate::update::is_update_check_disabled()
-}
-
-fn conductor_supervision_enabled(config: &Config) -> bool {
-    config.conductor.enabled
 }
 
 fn updater_check_interval(config: &Config) -> Duration {
@@ -518,16 +494,6 @@ mod tests {
     }
 
     #[test]
-    fn conductor_supervision_follows_conductor_enablement() {
-        let mut config = Config::default();
-        config.conductor.enabled = false;
-        assert!(!conductor_supervision_enabled(&config));
-
-        config.conductor.enabled = true;
-        assert!(conductor_supervision_enabled(&config));
-    }
-
-    #[test]
     fn updater_interval_uses_configured_minutes_with_floor() {
         let mut config = Config::default();
         config.updates.check_interval_minutes = 30;
@@ -596,7 +562,7 @@ mod tests {
     async fn daemon_updater_component_exits_cleanly_when_updates_disabled() {
         let mut config = Config::default();
         config.updates.enabled = false;
-        let result = Box::pin(run_daemon_updater_component(config)).await;
+        let result = run_daemon_updater_component(config).await;
         assert!(result.is_ok());
     }
 }

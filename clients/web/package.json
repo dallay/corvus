@@ -23,17 +23,10 @@
     "test:chat": "pnpm --filter @corvus/chat run test",
     "test:dashboard": "pnpm --filter @corvus/dashboard run test",
     "test:dashboard:e2e": "pnpm --filter @corvus/dashboard run test:e2e",
-    "test:dashboard:e2e:install": "pnpm --filter @corvus/dashboard run test:e2e:install",
-    "lint:style": "stylelint \"**/*.{css,scss,vue}\" --ignore-path ../../.gitignore"
+    "test:dashboard:e2e:install": "pnpm --filter @corvus/dashboard run test:e2e:install"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
-    "postcss-html": "^1.8.1",
-    "stylelint": "^17.4.0",
-    "stylelint-config-recess-order": "^7.6.1",
-    "stylelint-config-standard": "^40.0.0",
-    "stylelint-config-standard-scss": "^17.0.0",
-    "stylelint-config-standard-vue": "^1.0.0",
     "typescript": "catalog:"
   },
   "pnpm": {

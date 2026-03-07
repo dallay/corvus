@@ -24,8 +24,6 @@ exclude = [
     # Any link ending with guide page names (without extension)
     '/guides/(gpg-setup|architecture|development|features|structure|getting-started|release|configuration)$',
     '/guides/(gpg-setup|architecture|development|features|structure|getting-started|release|configuration)/$',
-    # CSS package imports parsed as local file links by lychee
-    '^file://.*/(tailwindcss|@corvus/shared/tokens\.css)$',
 ]
 
 # Exclude entire files or directories

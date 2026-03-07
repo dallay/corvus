@@ -2,30 +2,24 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "snake_case")]
+#[serde(rename_all = "lowercase")]
 pub enum JobType {
     #[default]
     Shell,
     Agent,
-    ConductorTask,
 }
 
 impl JobType {
-    pub fn as_str(&self) -> &'static str {
+    pub(crate) fn as_str(&self) -> &'static str {
         match self {
             Self::Shell => "shell",
             Self::Agent => "agent",
-            Self::ConductorTask => "conductor_task",
         }
     }
 
-    pub fn parse(raw: &str) -> Self {
+    pub(crate) fn parse(raw: &str) -> Self {
         if raw.eq_ignore_ascii_case("agent") {
             Self::Agent
-        } else if raw.eq_ignore_ascii_case("conductor_task")
-            || raw.eq_ignore_ascii_case("conductor")
-        {
-            Self::ConductorTask
         } else {
             Self::Shell
         }

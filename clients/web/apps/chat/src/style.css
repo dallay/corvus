@@ -1,5 +1,5 @@
-@import url("@corvus/shared/tokens.css");
-@import url("tailwindcss");
+@import "@corvus/shared/tokens.css";
+@import "tailwindcss";
 
 /* ── Base Reset ─────────────────────────────────────────────── */
 
@@ -14,8 +14,8 @@ html {
 body {
   margin: 0;
   font-family: var(--font-sans);
-  color: var(--color-text-primary);
   background: var(--color-bg-primary);
+  color: var(--color-text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -52,7 +52,6 @@ svg {
     opacity: 0;
     transform: translateY(8px);
   }
-
   to {
     opacity: 1;
     transform: translateY(0);
@@ -64,7 +63,6 @@ svg {
   100% {
     box-shadow: 0 0 12px var(--color-accent-glow);
   }
-
   50% {
     box-shadow:
       0 0 24px var(--color-accent-glow),
@@ -77,7 +75,6 @@ svg {
     opacity: 0;
     transform: translateY(16px);
   }
-
   to {
     opacity: 1;
     transform: translateY(0);

@@ -103,16 +103,6 @@ pub enum ObserverEvent {
         duration: Duration,
         rollback: bool,
     },
-    ConductorStepLifecycle {
-        task_id: String,
-        step_id: String,
-        status: String,
-    },
-    ConductorApprovalTransition {
-        task_id: String,
-        step_id: String,
-        decision: String,
-    },
 }
 
 /// Numeric metrics
@@ -122,23 +112,6 @@ pub enum ObserverMetric {
     TokensUsed(u64),
     ActiveSessions(u64),
     QueueDepth(u64),
-    PlannerLatency(Duration),
-    ConductorQueueDepth(u64),
-}
-
-pub fn record_conductor_lifecycle(
-    observer: &dyn Observer,
-    task_id: &str,
-    step_id: &str,
-    status: &str,
-    queue_depth: u64,
-) {
-    observer.record_event(&ObserverEvent::ConductorStepLifecycle {
-        task_id: task_id.to_string(),
-        step_id: step_id.to_string(),
-        status: redact_observer_payload(status),
-    });
-    observer.record_metric(&ObserverMetric::ConductorQueueDepth(queue_depth));
 }
 
 /// Core observability trait — implement for any backend

@@ -536,20 +536,20 @@ onUnmounted(() => {
 
 .app-shell {
   display: flex;
-  width: 100vw;
   height: 100vh;
-  overflow: hidden;
+  width: 100vw;
   background: var(--color-bg-primary);
+  overflow: hidden;
 }
 
 /* ── Sidebar ────────────────────────────────────────────────── */
 
 .sidebar {
   display: none;
-  flex-direction: column;
   width: 260px;
-  background: var(--color-bg-secondary);
+  flex-direction: column;
   border-right: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
 }
 
 @media (min-width: 768px) {
@@ -560,23 +560,23 @@ onUnmounted(() => {
 
 .sidebar-header {
   display: flex;
-  gap: 12px;
   align-items: center;
+  gap: 12px;
   padding: 20px;
   border-bottom: 1px solid var(--color-border);
 }
 
 .sidebar-title {
-  margin: 0;
   font-size: 16px;
   font-weight: 600;
   color: var(--color-text-primary);
+  margin: 0;
 }
 
 .sidebar-subtitle {
-  margin: 0;
   font-size: 12px;
   color: var(--color-text-muted);
+  margin: 0;
 }
 
 .sidebar-nav {
@@ -593,14 +593,14 @@ onUnmounted(() => {
 
 .logo-icon {
   display: flex;
-  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 36px;
   height: 36px;
-  color: var(--color-accent);
-  background: var(--color-accent-subtle);
   border-radius: 12px;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  flex-shrink: 0;
 }
 
 .logo-icon--sm {
@@ -613,18 +613,18 @@ onUnmounted(() => {
 
 .nav-item {
   display: flex;
-  gap: 12px;
-  align-items: center;
   width: 100%;
+  align-items: center;
+  gap: 12px;
+  border-radius: 12px;
   padding: 10px 12px;
-  font-family: inherit;
   font-size: 14px;
   color: var(--color-text-secondary);
-  cursor: pointer;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 12px;
+  cursor: pointer;
   transition: all 0.2s;
+  font-family: inherit;
 }
 
 .nav-item:hover {
@@ -650,11 +650,11 @@ onUnmounted(() => {
   justify-content: center;
   width: 36px;
   height: 36px;
-  color: var(--color-text-muted);
-  cursor: pointer;
+  border-radius: 8px;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  color: var(--color-text-muted);
+  cursor: pointer;
   transition: all 0.2s;
 }
 
@@ -679,8 +679,8 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 12px 16px;
-  background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
 }
 
 @media (min-width: 768px) {
@@ -691,8 +691,8 @@ onUnmounted(() => {
 
 .mobile-header-left {
   display: flex;
-  gap: 10px;
   align-items: center;
+  gap: 10px;
 }
 
 .mobile-title {
@@ -713,48 +713,48 @@ onUnmounted(() => {
 }
 
 .config-card {
+  width: 100%;
+  max-width: 480px;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  width: 100%;
-  max-width: 480px;
-  padding: 24px;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
   border-radius: 16px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  padding: 24px;
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4);
 }
 
 .config-header {
   display: flex;
-  gap: 12px;
   align-items: center;
+  gap: 12px;
   margin-bottom: 4px;
 }
 
 .config-header-icon {
   display: flex;
-  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 40px;
   height: 40px;
-  color: var(--color-accent);
-  background: var(--color-accent-subtle);
   border-radius: 12px;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  flex-shrink: 0;
 }
 
 .config-title {
-  margin: 0;
   font-size: 18px;
   font-weight: 600;
   color: var(--color-text-primary);
+  margin: 0;
 }
 
 .config-subtitle {
-  margin: 0;
   font-size: 12px;
   color: var(--color-text-muted);
+  margin: 0;
 }
 
 .config-actions {
@@ -777,21 +777,21 @@ onUnmounted(() => {
 
 .alert {
   display: flex;
-  gap: 8px;
   align-items: center;
+  gap: 8px;
+  border-radius: 12px;
   padding: 12px 16px;
   font-size: 14px;
-  border-radius: 12px;
 }
 
 .alert--success {
-  color: var(--color-accent);
   background: var(--color-accent-subtle);
+  color: var(--color-accent);
 }
 
 .alert--error {
-  color: var(--color-error);
   background: rgba(239, 68, 68, 0.1);
+  color: var(--color-error);
 }
 
 /* ── Hero State ─────────────────────────────────────────────── */
@@ -806,12 +806,12 @@ onUnmounted(() => {
 }
 
 .hero-content {
+  text-align: center;
+  max-width: 400px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
   align-items: center;
-  max-width: 400px;
-  text-align: center;
+  gap: 16px;
 }
 
 .hero-icon {
@@ -820,34 +820,34 @@ onUnmounted(() => {
   justify-content: center;
   width: 64px;
   height: 64px;
-  color: var(--color-accent);
-  background: var(--color-accent-subtle);
   border-radius: 16px;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
 }
 
 .hero-title {
-  margin: 0;
   font-size: 24px;
   font-weight: 600;
   background: linear-gradient(to right, var(--color-accent), #6ee7b7);
-  -webkit-background-clip: text;
   background-clip: text;
+  -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
+  margin: 0;
 }
 
 .hero-subtitle {
-  margin: 0;
   font-size: 14px;
-  line-height: 1.6;
   color: var(--color-text-muted);
+  line-height: 1.6;
+  margin: 0;
 }
 
 /* ── Chat Messages ──────────────────────────────────────────── */
 
 .chat-messages {
   flex: 1;
-  padding: 24px 16px;
   overflow-y: auto;
+  padding: 24px 16px;
 }
 
 @media (min-width: 768px) {
@@ -863,37 +863,37 @@ onUnmounted(() => {
 }
 
 .chat-messages-inner {
+  max-width: 768px;
+  margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: 20px;
-  max-width: 768px;
-  margin: 0 auto;
 }
 
 /* ── Input Bar ──────────────────────────────────────────────── */
 
 .input-bar {
-  padding: 16px;
-  background: var(--color-bg-secondary);
   border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  padding: 16px;
 }
 
 .input-bar-inner {
-  display: flex;
-  gap: 12px;
-  align-items: center;
   max-width: 768px;
   margin: 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .input-wrapper {
-  display: flex;
   flex: 1;
+  display: flex;
   align-items: center;
-  padding: 0 16px;
-  background: var(--color-bg-input);
-  border: 1px solid var(--color-border);
   border-radius: 16px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-input);
+  padding: 0 16px;
   transition: all 0.2s;
 }
 
@@ -904,13 +904,13 @@ onUnmounted(() => {
 
 .chat-input {
   flex: 1;
-  padding: 12px 0;
-  font-family: inherit;
-  font-size: 14px;
-  color: var(--color-text-primary);
-  outline: none;
   background: transparent;
   border: none;
+  padding: 12px 0;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--color-text-primary);
+  outline: none;
 }
 
 .chat-input::placeholder {
@@ -919,18 +919,18 @@ onUnmounted(() => {
 
 .send-btn {
   display: flex;
-  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 44px;
   height: 44px;
+  border-radius: 16px;
+  border: none;
+  background: var(--color-accent);
   color: white;
   cursor: pointer;
-  background: var(--color-accent);
-  border: none;
-  border-radius: 16px;
-  box-shadow: 0 4px 12px var(--color-accent-glow);
   transition: all 0.2s;
+  flex-shrink: 0;
+  box-shadow: 0 4px 12px var(--color-accent-glow);
 }
 
 .send-btn:hover:not(:disabled) {
@@ -944,15 +944,15 @@ onUnmounted(() => {
 }
 
 .send-btn:disabled {
+  opacity: 0.3;
   cursor: not-allowed;
   box-shadow: none;
-  opacity: 0.3;
 }
 
 .input-disclaimer {
   margin: 8px 0 0;
+  text-align: center;
   font-size: 12px;
   color: var(--color-text-muted);
-  text-align: center;
 }
 </style>
