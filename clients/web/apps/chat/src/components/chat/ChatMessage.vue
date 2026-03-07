@@ -53,25 +53,25 @@ defineProps<{
 
 .avatar {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  flex-shrink: 0;
   margin-top: 4px;
+  border-radius: 8px;
 }
 
 .avatar--assistant {
   margin-right: 12px;
-  background: var(--color-accent-subtle);
   color: var(--color-accent);
+  background: var(--color-accent-subtle);
 }
 
 .avatar--user {
   margin-left: 12px;
-  background: var(--color-bg-hover);
   color: var(--color-text-secondary);
+  background: var(--color-bg-hover);
 }
 
 .bubble {
@@ -82,17 +82,17 @@ defineProps<{
 }
 
 .bubble--user {
-  border-radius: 16px 16px 4px 16px;
-  background: var(--color-user-bubble);
   color: var(--color-user-bubble-text);
+  background: var(--color-user-bubble);
+  border-radius: 16px 16px 4px;
   box-shadow: 0 4px 12px var(--color-accent-glow);
 }
 
 .bubble--assistant {
-  border-radius: 16px 16px 16px 4px;
-  background: var(--color-assistant-bubble);
   color: var(--color-assistant-bubble-text);
+  background: var(--color-assistant-bubble);
   border: 1px solid var(--color-border);
+  border-radius: 16px 16px 16px 4px;
 }
 
 .bubble-text {

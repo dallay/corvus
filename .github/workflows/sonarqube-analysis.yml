@@ -49,11 +49,26 @@ jobs:
           java-version: "25"
           distribution: "corretto"
 
+      - name: 📦 Setup pnpm
+        if: env.SONAR_TOKEN != ''
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.0.0
+        with:
+          version: "10.30.1"
+
       - name: 📦 Setup Node
         if: env.SONAR_TOKEN != ''
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: "24"
+          cache: "pnpm"
+
+      - name: 📦 Install root dependencies
+        if: env.SONAR_TOKEN != ''
+        run: pnpm install
+
+      - name: 📦 Install web dependencies
+        if: env.SONAR_TOKEN != ''
+        run: pnpm -C clients/web install
 
       - name: 🐘 Setup Gradle
         if: env.SONAR_TOKEN != ''
@@ -67,7 +82,7 @@ jobs:
 
       - name: 🧪 Build and generate coverage
         if: env.SONAR_TOKEN != ''
-        run: ./gradlew test jvmTest :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
+        run: ./gradlew test jvmTest lintDebug :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
 
       - name: 🦀 Setup Rust
         if: env.SONAR_TOKEN != ''
@@ -87,6 +102,28 @@ jobs:
         if: env.SONAR_TOKEN != ''
         working-directory: clients/agent-runtime
         run: cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov
+
+      - name: 🎨 Run Stylelint
+        if: env.SONAR_TOKEN != ''
+        run: pnpm -C clients/web run lint:style -f json -o ../../coverage/stylelint-report.json
+
+      - name: 🐳 Run Hadolint
+        if: env.SONAR_TOKEN != ''
+        run: |
+          hadolint_version="v2.12.0"
+          curl -sSL "https://github.com/hadolint/hadolint/releases/download/${hadolint_version}/hadolint-Linux-x86_64" -o hadolint
+          chmod +x hadolint
+          find . -name "Dockerfile*" -not -path "*/node_modules/*" -print0 | xargs -0 ./hadolint -f json > coverage/hadolint-report.json || true
+          rm hadolint
+
+      - name: 🤖 Run Actionlint
+        if: env.SONAR_TOKEN != ''
+        run: |
+          actionlint_version="1.7.7"
+          curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${actionlint_version}/actionlint_${actionlint_version}_linux_amd64.tar.gz" -o actionlint.tar.gz
+          tar -xzf actionlint.tar.gz
+          ./actionlint -format '{{json .}}' .github/workflows/*.yml > coverage/actionlint-report.json || true
+          rm actionlint actionlint.tar.gz
 
       - name: 🧮 Compute Sonar project key
         if: env.SONAR_TOKEN != ''
@@ -148,6 +185,10 @@ jobs:
             -Dsonar.issue.ignore.multicriteria.e1.resourceKey=**/*Test.kt
             -Dsonar.coverage.jacoco.xmlReportPaths=${{ github.workspace }}/modules/agent-core-kmp/build/reports/kover/report.xml,${{ github.workspace }}/clients/composeApp/build/reports/kover/report.xml
             -Dsonar.rust.lcov.reportPaths=${{ github.workspace }}/coverage/agent-runtime-coverage.lcov
+            -Dsonar.css.stylelint.reportPaths=coverage/stylelint-report.json
+            -Dsonar.androidLint.reportPaths=**/build/reports/lint-results-*.xml
+            -Dsonar.docker.hadolint.reportPaths=coverage/hadolint-report.json
+            -Dsonar.githubactions.actionlint.reportPaths=coverage/actionlint-report.json
             -Dsonar.python.version=3.12
             -Dsonar.typescript.node=${{ github.workspace }}/clients/web/node_modules
 
