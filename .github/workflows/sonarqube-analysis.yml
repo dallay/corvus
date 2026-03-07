@@ -132,21 +132,44 @@ jobs:
         run: echo "key=${GITHUB_REPOSITORY//\//_}" >> "$GITHUB_OUTPUT"
 
       - name: 🎚️ Temporarily relax new coverage gate to 70%
-        if: env.SONAR_TOKEN != ''
-        continue-on-error: true
+        if: env.SONAR_TOKEN != '' && github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
           api_base="https://sonarcloud.io/api"
-          if ! curl -sf -u "${SONAR_TOKEN}:" --get \
-            --data-urlencode "name=Corvus Gate" \
-            "${api_base}/qualitygates/show" > gate.json; then
-            echo "::warning::Unable to fetch Sonar quality gate metadata; continuing without threshold relaxation."
-            exit 0
-          fi
+          project_key="${{ steps.sonar_meta.outputs.key }}"
+
+          echo "Resolving quality gate for project: ${project_key}"
+          curl -sf -u "${SONAR_TOKEN}:" --get \
+            --data-urlencode "project=${project_key}" \
+            "${api_base}/qualitygates/get_by_project" > gate-project.json
+
+          gate_id=$(python - <<'PY'
+          import json
+          import sys
+
+          with open("gate-project.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          gate = data.get("qualityGate") or {}
+          gate_id = gate.get("id")
+
+          if gate_id is None:
+              sys.stderr.write("Could not resolve quality gate id from get_by_project response\n")
+              sys.exit(1)
+
+          print(gate_id)
+          PY
+          )
+
+          echo "Project quality gate id: ${gate_id}"
+          curl -sf -u "${SONAR_TOKEN}:" --get \
+            --data-urlencode "id=${gate_id}" \
+            "${api_base}/qualitygates/show" > gate.json
 
           condition_id=$(python - <<'PY'
           import json
+          import sys
 
           with open("gate.json", "r", encoding="utf-8") as f:
               data = json.load(f)
@@ -156,21 +179,55 @@ jobs:
               None,
           )
 
-          if not condition or "id" not in condition:
-              raise SystemExit("new_coverage condition not found in Corvus Gate")
+          if not condition:
+              print("")
+              sys.exit(0)
 
-          print(condition["id"])
+          print(condition.get("id", ""))
           PY
           )
 
-          if ! curl -sf -u "${SONAR_TOKEN}:" -X POST "${api_base}/qualitygates/update_condition" \
-            --data-urlencode "id=${condition_id}" \
-            --data-urlencode "error=70"; then
-            echo "::warning::Unable to update Sonar new_coverage threshold; continuing with default gate."
-            exit 0
+          if [[ -n "${condition_id}" ]]; then
+            echo "Updating existing new_coverage condition to 70"
+            curl -sf -u "${SONAR_TOKEN}:" -X POST "${api_base}/qualitygates/update_condition" \
+              --data-urlencode "id=${condition_id}" \
+              --data-urlencode "error=70"
+          else
+            echo "Creating new_coverage condition with threshold 70"
+            curl -sf -u "${SONAR_TOKEN}:" -X POST "${api_base}/qualitygates/create_condition" \
+              --data-urlencode "gateId=${gate_id}" \
+              --data-urlencode "metric=new_coverage" \
+              --data-urlencode "op=LT" \
+              --data-urlencode "error=70"
           fi
 
-          echo "Updated Corvus Gate new_coverage threshold to 70"
+          curl -sf -u "${SONAR_TOKEN}:" --get \
+            --data-urlencode "id=${gate_id}" \
+            "${api_base}/qualitygates/show" > gate-after.json
+
+          python - <<'PY'
+          import json
+          import sys
+
+          with open("gate-after.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
+
+          condition = next(
+              (c for c in data.get("conditions", []) if c.get("metric") == "new_coverage"),
+              None,
+          )
+
+          if not condition:
+              sys.stderr.write("new_coverage condition missing after update\n")
+              sys.exit(1)
+
+          error = str(condition.get("error", ""))
+          if error != "70":
+              sys.stderr.write(f"new_coverage threshold verification failed: expected 70, got {error}\n")
+              sys.exit(1)
+
+          print("Verified new_coverage threshold = 70")
+          PY
 
       - name: 🔍 SonarQube scan
         if: env.SONAR_TOKEN != ''
