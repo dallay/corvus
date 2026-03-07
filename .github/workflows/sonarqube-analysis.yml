@@ -240,23 +240,23 @@ jobs:
               gate-project.json \
               "--data-urlencode organization=${organization} --data-urlencode project=${project_key}"
 
-            gate_id=$(python - <<'PY'
-            import json
-            import sys
+          gate_id=$(python - <<'PY'
+          import json
+          import sys
 
-            with open("gate-project.json", "r", encoding="utf-8") as f:
-                data = json.load(f)
+          with open("gate-project.json", "r", encoding="utf-8") as f:
+              data = json.load(f)
 
-            gate = data.get("qualityGate") or {}
-            gate_id = gate.get("id")
+          gate = data.get("qualityGate") or {}
+          gate_id = gate.get("id")
 
-            if gate_id is None:
-                sys.stderr.write("Could not resolve quality gate id after selecting custom gate\n")
-                sys.exit(1)
+          if gate_id is None:
+              sys.stderr.write("Could not resolve quality gate id after selecting custom gate\n")
+              sys.exit(1)
 
-            print(gate_id)
-            PY
-            )
+          print(gate_id)
+          PY
+          )
           fi
 
           echo "Project quality gate id: ${gate_id}"
