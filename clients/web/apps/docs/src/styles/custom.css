@@ -14,8 +14,23 @@
   --sl-color-accent-high: #bae6fd;
 
   /* Typography */
-  --sl-font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-  --sl-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Consolas, monospace;
+  --sl-font: var(
+    --corvus-font-sans,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif
+  );
+  --sl-font-mono: var(
+    --corvus-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    "Liberation Mono",
+    Menlo,
+    monospace
+  );
 
   /* Sizing */
   --sl-content-width: 75rem;
@@ -165,7 +180,8 @@ nav.sidebar a[aria-current="page"] {
 }
 
 .hero h1 {
-  font-weight: 900;
+  font-family: var(--corvus-font-heading, "Syne", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+  font-weight: 800;
   letter-spacing: -0.04em;
   line-height: 1.1;
   position: relative;
@@ -302,6 +318,13 @@ nav.sidebar a[aria-current="page"] {
 }
 
 /* ── Content Area Headings ── */
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4 {
+  font-family: var(--corvus-font-heading, "Syne", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+}
+
 .sl-markdown-content h2 {
   font-weight: 800;
   letter-spacing: -0.03em;

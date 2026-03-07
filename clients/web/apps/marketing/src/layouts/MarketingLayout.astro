@@ -4,47 +4,49 @@ import { AHREFS_KEY } from "astro:env/client";
 import Analytics from "../components/Analytics.astro";
 
 interface Props {
-  title?: string;
-  description?: string;
-  image?: string;
+	title?: string;
+	description?: string;
+	image?: string;
 }
 
 const {
-  title = "Corvus | Autonomous AI Infrastructure",
-  description = "Corvus is a lightweight autonomous AI runtime designed for secure operations, tiny footprint, and fast deployment.",
-  image = "/og-image.png",
+	title = "Corvus | Autonomous AI Infrastructure",
+	description = "Corvus is a lightweight autonomous AI runtime designed for secure operations, tiny footprint, and fast deployment.",
+	image = "/og-image.png",
 } = Astro.props;
 
 function isHttpUrl(value: string): boolean {
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
+	try {
+		const parsed = new URL(value);
+		return parsed.protocol === "http:" || parsed.protocol === "https:";
+	} catch {
+		return false;
+	}
 }
 
 function safeAbsoluteUrl(candidate: string): string | undefined {
-  if (!Astro.site) {
-    return undefined;
-  }
+	if (!Astro.site) {
+		return undefined;
+	}
 
-  try {
-    return new URL(candidate, Astro.site).toString();
-  } catch {
-    return undefined;
-  }
+	try {
+		return new URL(candidate, Astro.site).toString();
+	} catch {
+		return undefined;
+	}
 }
 
 const canonical = safeAbsoluteUrl(Astro.url.pathname);
 
 const imageCandidate = typeof image === "string" ? image.trim() : "";
-const isSiteRelativePath = imageCandidate.startsWith("/") && !imageCandidate.startsWith("//");
+const isSiteRelativePath =
+	imageCandidate.startsWith("/") && !imageCandidate.startsWith("//");
 const ogImageInput =
-  imageCandidate.length > 0 && (isSiteRelativePath || isHttpUrl(imageCandidate))
-    ? imageCandidate
-    : "/og-image.png";
-const ogImage = safeAbsoluteUrl(ogImageInput) ?? safeAbsoluteUrl("/og-image.png");
+	imageCandidate.length > 0 && (isSiteRelativePath || isHttpUrl(imageCandidate))
+		? imageCandidate
+		: "/og-image.png";
+const ogImage =
+	safeAbsoluteUrl(ogImageInput) ?? safeAbsoluteUrl("/og-image.png");
 ---
 
 <!doctype html>
@@ -63,7 +65,10 @@ const ogImage = safeAbsoluteUrl(ogImageInput) ?? safeAbsoluteUrl("/og-image.png"
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
     {ogImage && <meta name="twitter:image" content={ogImage} />}
-    <meta name="theme-color" content="#0a0f1e" />
+    <meta name="theme-color" content="#030509" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Syne:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
     {canonical && <link rel="canonical" href={canonical} />}
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>{title}</title>

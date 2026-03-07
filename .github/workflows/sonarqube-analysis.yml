@@ -148,6 +148,8 @@ jobs:
             -Dsonar.issue.ignore.multicriteria.e1.resourceKey=**/*Test.kt
             -Dsonar.coverage.jacoco.xmlReportPaths=${{ github.workspace }}/modules/agent-core-kmp/build/reports/kover/report.xml,${{ github.workspace }}/clients/composeApp/build/reports/kover/report.xml
             -Dsonar.rust.lcov.reportPaths=${{ github.workspace }}/coverage/agent-runtime-coverage.lcov
+            -Dsonar.python.version=3.12
+            -Dsonar.typescript.node=${{ github.workspace }}/clients/web/node_modules
 
       - name: 🚦 SonarQube Quality Gate
         if: >-
