@@ -32,6 +32,7 @@ dependencyResolutionManagement {
   repositories {
     mavenLocal()
     mavenCentral()
+    gradlePluginPortal()
     maven {
       setUrl("https://central.sonatype.com/repository/maven-snapshots/")
       mavenContent { snapshotsOnly() }
@@ -48,7 +49,6 @@ dependencyResolutionManagement {
         includeGroupAndSubgroups("com.google")
       }
     }
-    gradlePluginPortal()
   }
 }
 
