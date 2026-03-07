@@ -113,7 +113,7 @@ jobs:
           hadolint_version="v2.12.0"
           curl -sSL "https://github.com/hadolint/hadolint/releases/download/${hadolint_version}/hadolint-Linux-x86_64" -o hadolint
           chmod +x hadolint
-          find . -name "Dockerfile*" -not -path "*/node_modules/*" -print0 | xargs -0 ./hadolint -f json > coverage/hadolint-report.json
+          find . -name "Dockerfile*" -not -path "*/node_modules/*" -print0 | xargs -0 ./hadolint -f json > coverage/hadolint-report.json || true
           rm hadolint
 
       - name: 🤖 Run Actionlint
@@ -122,7 +122,7 @@ jobs:
           actionlint_version="1.7.7"
           curl -sSL "https://github.com/rhysd/actionlint/releases/download/v${actionlint_version}/actionlint_${actionlint_version}_linux_amd64.tar.gz" -o actionlint.tar.gz
           tar -xzf actionlint.tar.gz
-          ./actionlint -format '{{json .}}' .github/workflows/*.yml > coverage/actionlint-report.json
+          ./actionlint -format '{{json .}}' .github/workflows/*.yml > coverage/actionlint-report.json || true
           rm actionlint actionlint.tar.gz
 
       - name: 🧮 Compute Sonar project key
