@@ -116,5 +116,29 @@
 
 - Pinned C4-PlantUML include to v2.13.0 for documentation stability.
 - Localized actor labels in Spanish container diagrams.
-- Corrected GPG setup documentation regarding key sizes and CI/CD subkey export commands.
-- Added language tags to PGP blocks in Spanish documentation to satisfy linting.
+## 2026-03-06 - Documentation Review & Sync - COMPLETE
+
+**Verification:**
+- Audited `clients/agent-runtime/src/lib.rs` and `main.rs` against CLI docs.
+- Discovered missing `update` command in CLI reference.
+- Identified generic/outdated content in `intro/introduction.mdx`.
+- Verified `make` commands in root `README.md` were incorrect (`docs-web-build` vs `docs-build`).
+- Confirmed `guides/structure.md` and `guides/getting-started.md` are accurate.
+
+**Changes:**
+- **CLI Reference (en/es):**
+  - Added full `update` command section.
+  - Refined `peripheral flash` to include `-p/--port`.
+- **Introduction (en/es):**
+  - Replaced generic placeholder text with detailed project info from root README.
+  - Fixed image asset path by creating `clients/web/apps/docs/src/assets/` and copying `corvus.png`.
+- **Root README:**
+  - Corrected documentation build commands to `make docs-build` and `make docs-dev`.
+
+**Validation:**
+- ✅ `make docs-check`: Passed.
+- ✅ `make docs-build`: Passed (after fixing image path).
+
+**Notes:**
+- Architecture guides are split into `architecture.md` (Overview) and `architecture/overview.md` (Diagrams Index). This is functional but slightly confusing in structure.
+- `architecture/overview.md` is orphaned from the sidebar but reachable via links.
