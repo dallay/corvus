@@ -14,8 +14,23 @@
   --sl-color-accent-high: #bae6fd;
 
   /* Typography */
-  --sl-font: var(--corvus-font-sans);
-  --sl-font-mono: var(--corvus-font-mono);
+  --sl-font: var(
+    --corvus-font-sans,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif
+  );
+  --sl-font-mono: var(
+    --corvus-font-mono,
+    ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    "Liberation Mono",
+    Menlo,
+    monospace
+  );
 
   /* Sizing */
   --sl-content-width: 75rem;
