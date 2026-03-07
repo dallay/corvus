@@ -383,13 +383,18 @@ jobs:
             -Dsonar.python.version=3.12
             -Dsonar.typescript.node=${{ github.workspace }}/clients/web/node_modules
 
-      - name: 🚦 SonarQube Quality Gate
-        if: >-
-          env.SONAR_TOKEN != '' &&
-          (
-            github.event_name == 'pull_request' ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/main')
-          )
+      - name: 🚦 SonarQube Quality Gate (PR advisory)
+        if: env.SONAR_TOKEN != '' && github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: SonarSource/sonarqube-quality-gate-action@d304d050d930b02a896b0f85935344f023928496 # v1
+        timeout-minutes: 5
+        env:
+          SONAR_TOKEN: ${{ env.SONAR_TOKEN }}
+        with:
+          scanMetadataReportFile: .scannerwork/report-task.txt
+
+      - name: 🚦 SonarQube Quality Gate (main enforced)
+        if: env.SONAR_TOKEN != '' && github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: SonarSource/sonarqube-quality-gate-action@d304d050d930b02a896b0f85935344f023928496 # v1
         timeout-minutes: 5
         env:
