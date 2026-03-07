@@ -18,11 +18,13 @@ pub struct PrometheusObserver {
     agent_duration: HistogramVec,
     tool_duration: HistogramVec,
     request_latency: Histogram,
+    planner_latency: Histogram,
 
     // Gauges
     tokens_used: prometheus::IntGauge,
     active_sessions: GaugeVec,
     queue_depth: GaugeVec,
+    conductor_queue_depth: GaugeVec,
 }
 
 impl PrometheusObserver {
@@ -86,6 +88,15 @@ impl PrometheusObserver {
         )
         .expect("valid metric");
 
+        let planner_latency = Histogram::with_opts(
+            HistogramOpts::new(
+                "corvus_conductor_planner_latency_seconds",
+                "Conductor planner latency in seconds",
+            )
+            .buckets(vec![0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0]),
+        )
+        .expect("valid metric");
+
         let tokens_used =
             prometheus::IntGauge::new("corvus_tokens_used_last", "Tokens used in the last request")
                 .expect("valid metric");
@@ -102,6 +113,12 @@ impl PrometheusObserver {
         )
         .expect("valid metric");
 
+        let conductor_queue_depth = GaugeVec::new(
+            prometheus::Opts::new("corvus_conductor_queue_depth", "Conductor queue depth"),
+            &[],
+        )
+        .expect("valid metric");
+
         // Register all metrics
         registry.register(Box::new(agent_starts.clone())).ok();
         registry.register(Box::new(tool_calls.clone())).ok();
@@ -111,9 +128,13 @@ impl PrometheusObserver {
         registry.register(Box::new(agent_duration.clone())).ok();
         registry.register(Box::new(tool_duration.clone())).ok();
         registry.register(Box::new(request_latency.clone())).ok();
+        registry.register(Box::new(planner_latency.clone())).ok();
         registry.register(Box::new(tokens_used.clone())).ok();
         registry.register(Box::new(active_sessions.clone())).ok();
         registry.register(Box::new(queue_depth.clone())).ok();
+        registry
+            .register(Box::new(conductor_queue_depth.clone()))
+            .ok();
 
         Self {
             registry,
@@ -125,9 +146,11 @@ impl PrometheusObserver {
             agent_duration,
             tool_duration,
             request_latency,
+            planner_latency,
             tokens_used,
             active_sessions,
             queue_depth,
+            conductor_queue_depth,
         }
     }
 
@@ -207,8 +230,11 @@ impl Observer for PrometheusObserver {
 
     fn record_metric(&self, metric: &ObserverMetric) {
         match metric {
-            ObserverMetric::RequestLatency(d) | ObserverMetric::PlannerLatency(d) => {
+            ObserverMetric::RequestLatency(d) => {
                 self.request_latency.observe(d.as_secs_f64());
+            }
+            ObserverMetric::PlannerLatency(d) => {
+                self.planner_latency.observe(d.as_secs_f64());
             }
             ObserverMetric::TokensUsed(t) => {
                 self.tokens_used.set(i64::try_from(*t).unwrap_or(i64::MAX));
@@ -218,8 +244,13 @@ impl Observer for PrometheusObserver {
                     .with_label_values(&[] as &[&str])
                     .set(*s as f64);
             }
-            ObserverMetric::QueueDepth(d) | ObserverMetric::ConductorQueueDepth(d) => {
+            ObserverMetric::QueueDepth(d) => {
                 self.queue_depth
+                    .with_label_values(&[] as &[&str])
+                    .set(*d as f64);
+            }
+            ObserverMetric::ConductorQueueDepth(d) => {
+                self.conductor_queue_depth
                     .with_label_values(&[] as &[&str])
                     .set(*d as f64);
             }

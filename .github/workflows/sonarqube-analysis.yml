@@ -96,13 +96,17 @@ jobs:
 
       - name: 🎚️ Temporarily relax new coverage gate to 70%
         if: env.SONAR_TOKEN != ''
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           api_base="https://sonarcloud.io/api"
-          curl -sf -u "${SONAR_TOKEN}:" --get \
+          if ! curl -sf -u "${SONAR_TOKEN}:" --get \
             --data-urlencode "name=Corvus Gate" \
-            "${api_base}/qualitygates/show" > gate.json
+            "${api_base}/qualitygates/show" > gate.json; then
+            echo "::warning::Unable to fetch Sonar quality gate metadata; continuing without threshold relaxation."
+            exit 0
+          fi
 
           condition_id=$(python - <<'PY'
           import json
@@ -122,9 +126,12 @@ jobs:
           PY
           )
 
-          curl -sf -u "${SONAR_TOKEN}:" -X POST "${api_base}/qualitygates/update_condition" \
+          if ! curl -sf -u "${SONAR_TOKEN}:" -X POST "${api_base}/qualitygates/update_condition" \
             --data-urlencode "id=${condition_id}" \
-            --data-urlencode "error=70"
+            --data-urlencode "error=70"; then
+            echo "::warning::Unable to update Sonar new_coverage threshold; continuing with default gate."
+            exit 0
+          fi
 
           echo "Updated Corvus Gate new_coverage threshold to 70"
 
