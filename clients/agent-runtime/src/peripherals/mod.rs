@@ -227,7 +227,6 @@ async fn try_connect_native_rpi(
 
 #[cfg(feature = "hardware")]
 #[cfg(not(all(feature = "peripheral-rpi", target_os = "linux")))]
-#[allow(clippy::unused_async)]
 async fn try_connect_native_rpi(
     _board: &PeripheralBoardConfig,
     _tools: &mut Vec<Box<dyn Tool>>,

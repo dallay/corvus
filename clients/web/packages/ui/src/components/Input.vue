@@ -26,17 +26,17 @@ const emit = defineEmits<{
 <style scoped>
 .form-input {
   display: flex;
-  width: 100%;
   height: 42px;
-  padding: 0 14px;
-  font-family: inherit;
-  font-size: 14px;
-  color: var(--color-text-primary);
-  outline: none;
-  background: var(--color-bg-input);
-  border: 1px solid var(--color-border);
+  width: 100%;
   border-radius: 12px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-input);
+  padding: 0 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--color-text-primary);
   transition: all 0.2s;
+  outline: none;
 }
 
 .form-input::placeholder {
@@ -44,9 +44,9 @@ const emit = defineEmits<{
 }
 
 .form-input:focus {
-  background: var(--color-bg-secondary);
   border-color: var(--color-border-accent);
   box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15); /* Tailwind emerald fallback, gets overridden when css var exists */
+  background: var(--color-bg-secondary);
 }
 
 @supports (box-shadow: 0 0 0 3px var(--color-accent-glow)) {
@@ -56,7 +56,7 @@ const emit = defineEmits<{
 }
 
 .form-input:disabled {
-  cursor: not-allowed;
   opacity: 0.4;
+  cursor: not-allowed;
 }
 </style>

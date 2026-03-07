@@ -45,7 +45,6 @@ mod agent;
 mod approval;
 mod auth;
 mod channels;
-mod conductor;
 mod config;
 mod cron;
 mod daemon;
@@ -680,13 +679,9 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             .await
         }
 
-        Commands::Gateway { port, host } => {
-            Box::pin(handle_gateway_command(config, port, host)).await
-        }
+        Commands::Gateway { port, host } => handle_gateway_command(config, port, host).await,
 
-        Commands::Daemon { port, host } => {
-            Box::pin(handle_daemon_command(config, port, host)).await
-        }
+        Commands::Daemon { port, host } => handle_daemon_command(config, port, host).await,
 
         Commands::Status => handle_status_command(config).await,
 
@@ -887,22 +882,6 @@ async fn handle_agent_command(
     peripheral: Vec<String>,
 ) -> Result<()> {
     maybe_print_update_notice_bounded(&config).await;
-
-    if let Some(message_text) = &message {
-        if let crate::conductor::sources::CliRouteOutcome::Task(request) =
-            crate::conductor::sources::route_cli_message(config.conductor.enabled, message_text)
-        {
-            return match crate::conductor::submit_task(*request)? {
-                crate::conductor::RuntimeSubmitOutcome::Submitted => {
-                    println!("🧭 Conductor accepted and queued task for daemon execution.");
-                    Ok(())
-                }
-                crate::conductor::RuntimeSubmitOutcome::RuntimeInactive => Err(anyhow!(
-                    "Conductor runtime is inactive. Start `corvus daemon` to execute /task requests."
-                )),
-            };
-        }
-    }
 
     let canonical_prompt = message
         .clone()
@@ -1830,32 +1809,5 @@ mod tests {
                 update_command: UpdateCommands::Confirm { .. }
             }
         ));
-    }
-
-    #[tokio::test]
-    async fn conductor_runtime_ingress_cli_task_routes_to_active_runtime() {
-        let mut config = Config::default();
-        config.conductor.enabled = true;
-        crate::conductor::activate_runtime(&config).expect("runtime activation");
-
-        let mut events = crate::conductor::events::subscribe();
-        let result = Box::pin(handle_agent_command(
-            config,
-            Some("/task run regression checks".to_string()),
-            None,
-            None,
-            0.7,
-            vec![],
-        ))
-        .await;
-
-        assert!(result.is_ok());
-        let envelope = tokio::time::timeout(Duration::from_secs(1), events.recv())
-            .await
-            .expect("conductor event timeout")
-            .expect("event payload");
-        let event_json: serde_json::Value =
-            serde_json::from_str(&envelope).expect("valid conductor event json");
-        assert_eq!(event_json["kind"], "task_accepted");
     }
 }

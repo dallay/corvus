@@ -203,10 +203,7 @@ impl Tool for ImageInfoTool {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!(
-                    "Resolved path escapes workspace: {}",
-                    resolved_path.display()
-                )),
+                error: Some("Resolved path escapes workspace boundary".into()),
             });
         }
 
@@ -527,7 +524,7 @@ mod tests {
             .error
             .as_deref()
             .unwrap_or("")
-            .contains("Resolved path escapes workspace"));
+            .contains("Resolved path escapes workspace boundary"));
 
         let _ = tokio::fs::remove_dir_all(&root).await;
     }

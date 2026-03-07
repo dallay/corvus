@@ -33,7 +33,6 @@ impl CronAddTool {
         match args.get("job_type").and_then(serde_json::Value::as_str) {
             Some("agent") => Ok(JobType::Agent),
             Some("shell") => Ok(JobType::Shell),
-            Some("conductor_task" | "conductor") => Ok(JobType::ConductorTask),
             Some(other) => Err(format!("Invalid job_type: {other}")),
             None => {
                 if args.get("prompt").is_some() {
@@ -111,7 +110,7 @@ impl Tool for CronAddTool {
                     "type": "object",
                     "description": "Schedule object: {kind:'cron',expr,tz?} | {kind:'at',at} | {kind:'every',every_ms}"
                 },
-                "job_type": { "type": "string", "enum": ["shell", "agent", "conductor_task"] },
+                "job_type": { "type": "string", "enum": ["shell", "agent"] },
                 "command": { "type": "string" },
                 "prompt": { "type": "string" },
                 "session_target": { "type": "string", "enum": ["isolated", "main"] },
@@ -197,38 +196,6 @@ impl Tool for CronAddTool {
                     delivery,
                     delete_after_run,
                 );
-
-                Ok(Self::handle_job_result(result))
-            }
-            JobType::ConductorTask => {
-                let prompt = args
-                    .get("prompt")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("");
-                let command = args
-                    .get("command")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or(prompt);
-                if command.trim().is_empty() {
-                    return Ok(Self::error_result(
-                        "Missing 'command' or 'prompt' for conductor_task job",
-                    ));
-                }
-
-                let result = cron::add_agent_job(
-                    &self.config,
-                    name,
-                    schedule,
-                    command,
-                    SessionTarget::Isolated,
-                    None,
-                    None,
-                    delete_after_run,
-                )
-                .map(|mut job| {
-                    job.job_type = JobType::ConductorTask;
-                    job
-                });
 
                 Ok(Self::handle_job_result(result))
             }

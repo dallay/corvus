@@ -24,11 +24,9 @@ pub struct OtelObserver {
     heartbeat_ticks: Counter<u64>,
     errors: Counter<u64>,
     request_latency: Histogram<f64>,
-    planner_latency: Histogram<f64>,
     tokens_used: Counter<u64>,
     active_sessions: Gauge<u64>,
     queue_depth: Gauge<u64>,
-    conductor_queue_depth: Gauge<u64>,
 }
 
 impl OtelObserver {
@@ -137,12 +135,6 @@ impl OtelObserver {
             .with_unit("s")
             .build();
 
-        let planner_latency = meter
-            .f64_histogram("corvus.conductor.planner.latency")
-            .with_description("Conductor planner latency in seconds")
-            .with_unit("s")
-            .build();
-
         let tokens_used = meter
             .u64_counter("corvus.tokens.used")
             .with_description("Total tokens consumed (monotonic)")
@@ -158,11 +150,6 @@ impl OtelObserver {
             .with_description("Current message queue depth")
             .build();
 
-        let conductor_queue_depth = meter
-            .u64_gauge("corvus.conductor.queue.depth")
-            .with_description("Current conductor queue depth")
-            .build();
-
         Ok(Self {
             tracer_provider,
             meter_provider: meter_provider_clone,
@@ -176,11 +163,9 @@ impl OtelObserver {
             heartbeat_ticks,
             errors,
             request_latency,
-            planner_latency,
             tokens_used,
             active_sessions,
             queue_depth,
-            conductor_queue_depth,
         })
     }
 }
@@ -206,9 +191,7 @@ impl Observer for OtelObserver {
             | ObserverEvent::MissionCheckpointProgress { .. }
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. }
-            | ObserverEvent::ConductorStepLifecycle { .. }
-            | ObserverEvent::ConductorApprovalTransition { .. } => {}
+            | ObserverEvent::MissionTerminated { .. } => {}
             ObserverEvent::LlmResponse {
                 provider,
                 model,
@@ -361,9 +344,6 @@ impl Observer for OtelObserver {
             ObserverMetric::RequestLatency(d) => {
                 self.request_latency.record(d.as_secs_f64(), &[]);
             }
-            ObserverMetric::PlannerLatency(d) => {
-                self.planner_latency.record(d.as_secs_f64(), &[]);
-            }
             ObserverMetric::TokensUsed(t) => {
                 self.tokens_used.add(*t as u64, &[]);
             }
@@ -372,9 +352,6 @@ impl Observer for OtelObserver {
             }
             ObserverMetric::QueueDepth(d) => {
                 self.queue_depth.record(*d as u64, &[]);
-            }
-            ObserverMetric::ConductorQueueDepth(d) => {
-                self.conductor_queue_depth.record(*d as u64, &[]);
             }
         }
     }

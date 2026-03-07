@@ -26,24 +26,24 @@ const props = defineProps<{
 <style scoped>
 .btn {
   display: inline-flex;
-  gap: 8px;
   align-items: center;
   justify-content: center;
-  font-family: inherit;
+  gap: 8px;
+  border-radius: 12px;
   font-size: 14px;
   font-weight: 500;
+  font-family: inherit;
+  border: none;
   cursor: pointer;
+  transition: all 0.2s;
   user-select: none;
   outline: none;
-  border: none;
-  border-radius: 12px;
-  transition: all 0.2s;
 }
 
 .btn:disabled {
+  opacity: 0.4;
   pointer-events: none;
   cursor: not-allowed;
-  opacity: 0.4;
 }
 
 .btn:focus-visible {
@@ -52,8 +52,8 @@ const props = defineProps<{
 
 /* Variants */
 .btn--default {
-  color: white;
   background: var(--color-accent);
+  color: white;
   box-shadow: 0 4px 12px var(--color-accent-glow);
 }
 
@@ -67,8 +67,8 @@ const props = defineProps<{
 }
 
 .btn--ghost {
-  color: var(--color-text-secondary);
   background: transparent;
+  color: var(--color-text-secondary);
 }
 
 .btn--ghost:hover:not(:disabled) {
@@ -77,15 +77,15 @@ const props = defineProps<{
 }
 
 .btn--outline {
-  color: var(--color-text-secondary);
   background: transparent;
   border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
 }
 
 .btn--outline:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
   color: var(--color-text-primary);
   background: var(--color-surface-glass);
-  border-color: var(--color-border-hover);
 }
 
 /* Sizes */
@@ -107,8 +107,8 @@ const props = defineProps<{
 }
 
 .btn-size--icon {
-  width: 36px;
   height: 36px;
+  width: 36px;
   padding: 0;
 }
 </style>

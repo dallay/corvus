@@ -1,5 +1,5 @@
-@import url("@corvus/shared/tokens.css");
-@import url("tailwindcss");
+@import "@corvus/shared/tokens.css";
+@import "tailwindcss";
 
 * {
   box-sizing: border-box;
@@ -11,8 +11,8 @@ html {
 
 body,
 #app {
-  min-height: 100dvh;
   margin: 0;
+  min-height: 100dvh;
 }
 
 body {
