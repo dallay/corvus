@@ -152,6 +152,20 @@ impl Observer for LogObserver {
                     "mission.terminated"
                 );
             }
+            ObserverEvent::ConductorStepLifecycle {
+                task_id,
+                step_id,
+                status,
+            } => {
+                info!(task_id = %task_id, step_id = %step_id, status = %status, "conductor.step");
+            }
+            ObserverEvent::ConductorApprovalTransition {
+                task_id,
+                step_id,
+                decision,
+            } => {
+                info!(task_id = %task_id, step_id = %step_id, decision = %decision, "conductor.approval");
+            }
         }
     }
 
@@ -169,6 +183,13 @@ impl Observer for LogObserver {
             }
             ObserverMetric::QueueDepth(d) => {
                 info!(depth = d, "metric.queue_depth");
+            }
+            ObserverMetric::PlannerLatency(d) => {
+                let ms = u64::try_from(d.as_millis()).unwrap_or(u64::MAX);
+                info!(latency_ms = ms, "metric.planner_latency");
+            }
+            ObserverMetric::ConductorQueueDepth(d) => {
+                info!(depth = d, "metric.conductor_queue_depth");
             }
         }
     }

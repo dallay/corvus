@@ -62,6 +62,7 @@ async fn execute_job_with_retry(
         let (success, output) = match job.job_type {
             JobType::Shell => run_job_command(config, security, job).await,
             JobType::Agent => run_agent_job(config, job).await,
+            JobType::ConductorTask => run_conductor_task_job(config, job),
         };
         last_output = output;
 
@@ -82,6 +83,56 @@ async fn execute_job_with_retry(
     }
 
     (false, last_output)
+}
+
+pub fn build_conductor_task_request(job: &CronJob) -> Result<crate::conductor::TaskRequest> {
+    let description = if let Some(prompt) = &job.prompt {
+        if prompt.trim().is_empty() {
+            job.command.clone()
+        } else {
+            format!("{} {}", job.command, prompt)
+        }
+    } else {
+        job.command.clone()
+    }
+    .trim()
+    .to_string();
+
+    if description.is_empty() {
+        anyhow::bail!("cron conductor task requires non-empty command or prompt");
+    }
+
+    Ok(crate::conductor::TaskRequest {
+        description,
+        origin: crate::conductor::TaskOrigin::Cron {
+            job_id: job.id.clone(),
+            schedule_name: job.name.clone().unwrap_or_else(|| "cron".to_string()),
+        },
+        priority: crate::conductor::TaskPriority::Normal,
+        context: None,
+        workspace_hint: None,
+        timeout_ms: None,
+        tags: vec!["cron".to_string(), "task".to_string()],
+        domain: crate::conductor::TaskDomain::Composite,
+    })
+}
+
+fn run_conductor_task_job(_config: &Config, job: &CronJob) -> (bool, String) {
+    match build_conductor_task_request(job) {
+        Ok(request) => match crate::conductor::submit_task(request) {
+            Ok(crate::conductor::RuntimeSubmitOutcome::Submitted) => (
+                true,
+                format!("conductor task queued from cron job {}", job.id),
+            ),
+            Ok(crate::conductor::RuntimeSubmitOutcome::RuntimeInactive) => (
+                false,
+                "conductor runtime inactive; start daemon mode to execute conductor cron jobs"
+                    .to_string(),
+            ),
+            Err(error) => (false, format!("conductor task submission failed: {error}")),
+        },
+        Err(error) => (false, format!("conductor task build failed: {error}")),
+    }
 }
 
 async fn process_due_jobs(config: &Config, security: &Arc<SecurityPolicy>, jobs: Vec<CronJob>) {
@@ -682,6 +733,31 @@ mod tests {
             !output.is_empty(),
             "Expected non-empty error output from failed agent job"
         );
+    }
+
+    #[tokio::test]
+    async fn conductor_runtime_ingress_cron_jobs_submit_through_active_runtime() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.conductor.enabled = true;
+        crate::conductor::activate_runtime(&config).expect("runtime activation");
+
+        let mut job = test_job("run security scan");
+        job.job_type = JobType::ConductorTask;
+
+        let mut events = crate::conductor::events::subscribe();
+        let (success, output) = run_conductor_task_job(&config, &job);
+
+        assert!(success);
+        assert!(output.contains("queued"));
+
+        let envelope = tokio::time::timeout(Duration::from_secs(1), events.recv())
+            .await
+            .expect("conductor event timeout")
+            .expect("event payload");
+        let event_json: serde_json::Value =
+            serde_json::from_str(&envelope).expect("valid conductor event json");
+        assert_eq!(event_json["kind"], "task_accepted");
     }
 
     #[tokio::test]
