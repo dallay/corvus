@@ -267,6 +267,7 @@ Gestiona periféricos de hardware (STM32, RPi, etc.).
 - `add <BOARD> <PATH>`: Añade un periférico.
 - `flash-nucleo`: Flashea el firmware de Corvus al Nucleo-F401RE.
 - `flash`: Flashea el firmware de Corvus al Arduino.
+  - `-p, --port <PORT>`: Puerto serie (si se omite, usa el primer arduino-uno de la configuración).
 - `setup-uno-q`: Configura la aplicación Arduino Uno Q Bridge (despliega bridge GPIO).
   - `--host <IP>`: Dirección IP de Uno Q.
 
@@ -292,4 +293,22 @@ Migra datos desde otros runtimes de agentes.
 
 ```bash
 corvus migrate openclaw --source ~/.openclaw/workspace
+```
+
+### `update`
+
+Administrar actualizaciones del runtime.
+
+- `status`: Mostrar estado de actualización y política efectiva.
+- `check`: Forzar una comprobación de actualización.
+- `install`: Ejecutar transacción de instalación de actualización.
+- `auto-enable`: Habilitar política de instalación automática.
+- `auto-disable`: Deshabilitar política de instalación automática.
+- `history`: Mostrar historial de auditoría de actualizaciones.
+- `confirm <NONCE>`: Confirmar un nonce de confirmación de actualización de uso único.
+
+**Ejemplo:**
+
+```bash
+corvus update check
 ```

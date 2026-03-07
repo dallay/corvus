@@ -126,7 +126,8 @@ Servers/
 **/logs/
 !**/src/main/**/logs/
 !**/src/test/**/logs/
-
+tmp/
+tmp
 # Note: Lockfiles (package-lock.json, pnpm-lock.yaml, yarn.lock) should be
 # committed for reproducible builds. Only ignore if you have a specific reason.
 
