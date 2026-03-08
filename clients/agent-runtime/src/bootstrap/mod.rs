@@ -192,7 +192,8 @@ pub fn create_routed_provider(
 pub fn create_memory_and_observer(
     config: &Config,
 ) -> anyhow::Result<(Arc<dyn Memory>, Arc<dyn Observer>)> {
-    init_memory_and_observer(config, AgentProfile::Full)
+    let profile = AgentProfile::from_config(config)?;
+    init_memory_and_observer(config, profile)
 }
 
 #[cfg(test)]
@@ -255,6 +256,19 @@ mod tests {
 
         let error = BootstrapContext::from_config(&config).err().unwrap();
         assert!(error.to_string().contains("unsupported agent.profile"));
+    }
+
+    #[test]
+    fn create_memory_and_observer_respects_lite_profile_memory_backend() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.workspace_dir = tmp.path().join("workspace");
+        config.config_path = tmp.path().join("config.toml");
+        config.agent.profile = "lite".into();
+
+        let (memory, _observer) = create_memory_and_observer(&config).unwrap();
+
+        assert_eq!(memory.name(), "none");
     }
 
     #[test]
