@@ -68,6 +68,8 @@ mod security;
 mod service;
 mod skillforge;
 mod skills;
+#[cfg(test)]
+mod test_support;
 mod tools;
 mod tunnel;
 mod update;
