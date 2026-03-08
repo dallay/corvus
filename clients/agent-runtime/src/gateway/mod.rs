@@ -1122,7 +1122,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let model = config
         .default_model
         .clone()
-        .unwrap_or_else(|| "anthropic/claude-sonnet-4".into());
+        .unwrap_or_else(|| bootstrap::DEFAULT_MODEL.into());
     let temperature = config.default_temperature;
     let (mem, observer) = bootstrap::create_memory_and_observer(&config)?;
     // Extract webhook secret for authentication
