@@ -237,6 +237,13 @@ fn default_agent_profile() -> String {
     "full".into()
 }
 
+fn is_supported_agent_profile(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "" | "full" | "code" | "lite"
+    )
+}
+
 fn default_agent_max_history_messages() -> usize {
     50
 }
@@ -2690,7 +2697,19 @@ impl Config {
     }
 
     pub fn validate_for_runtime(&self) -> Result<()> {
+        self.validate_agent_profile()?;
         self.validate_mcp_servers()
+    }
+
+    fn validate_agent_profile(&self) -> Result<()> {
+        if is_supported_agent_profile(&self.agent.profile) {
+            return Ok(());
+        }
+
+        anyhow::bail!(
+            "unsupported agent.profile '{}'; supported values are: full, code, lite",
+            self.agent.profile
+        );
     }
 
     fn validate_mcp_servers(&self) -> Result<()> {
@@ -3221,6 +3240,15 @@ tool_dispatcher = "xml"
         assert_eq!(parsed.agent.max_history_messages, 80);
         assert!(parsed.agent.parallel_tools);
         assert_eq!(parsed.agent.tool_dispatcher, "xml");
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_unknown_agent_profile() {
+        let mut config = Config::default();
+        config.agent.profile = "unknown".to_string();
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err.to_string().contains("unsupported agent.profile"));
     }
 
     #[test]
