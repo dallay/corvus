@@ -1528,7 +1528,7 @@ async fn canonical_outcome_early_response(
     state: &AppState,
     session_id: &str,
     scrubbed_message: &str,
-) -> Option<WebhookResponse> {
+) -> Option<(WebhookResponse, bool)> {
     let canonical = crate::pre_execution::evaluate(session_id.to_string(), scrubbed_message).await;
 
     if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
@@ -1549,7 +1549,7 @@ async fn canonical_outcome_early_response(
                     "error": denial,
                     "session_id": session_id,
                 });
-                return Some((StatusCode::FORBIDDEN, Json(err)));
+                return Some(((StatusCode::FORBIDDEN, Json(err)), true));
             }
             crate::pre_execution::BlockingOutcome::TimeoutAborted => {
                 let body = serde_json::json!({
@@ -1558,7 +1558,7 @@ async fn canonical_outcome_early_response(
                     "session_id": session_id,
                     "aborted": true,
                 });
-                return Some((StatusCode::REQUEST_TIMEOUT, Json(body)));
+                return Some(((StatusCode::REQUEST_TIMEOUT, Json(body)), false));
             }
             crate::pre_execution::BlockingOutcome::Fallback { response } => {
                 let sanitized_response = scrub_sensitive_boundary_text(&response);
@@ -1568,7 +1568,7 @@ async fn canonical_outcome_early_response(
                     "session_id": session_id,
                     "fallback": true,
                 });
-                return Some((StatusCode::OK, Json(body)));
+                return Some(((StatusCode::OK, Json(body)), true));
             }
         }
     }
@@ -1592,20 +1592,25 @@ async fn handle_webhook(
         Err(rejection) => return rejection,
     };
 
-    if let Some(rejection) = webhook_idempotency_rejection(&state, &headers) {
-        return rejection;
-    }
-
     let message = &webhook_body.message;
     let scrubbed_message = scrub_sensitive_boundary_text(message);
     let session_id = normalized_session_id(&headers);
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
     if !is_preview {
-        if let Some(response) =
+        if let Some((response, persist_idempotency)) =
             canonical_outcome_early_response(&state, &session_id, &scrubbed_message).await
         {
+            if persist_idempotency {
+                if let Some(rejection) = webhook_idempotency_rejection(&state, &headers) {
+                    return rejection;
+                }
+            }
             return response;
         }
+    }
+
+    if let Some(rejection) = webhook_idempotency_rejection(&state, &headers) {
+        return rejection;
     }
 
     if state.auto_save {
@@ -2737,6 +2742,8 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_non_preview_timeout_aborts_with_session_scope() {
+        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+        let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "0");
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             provider: Arc::new(MockProvider::default()),
@@ -2772,6 +2779,61 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(payload["session_id"], "session-timeout");
         assert_eq!(payload["aborted"], true);
+    }
+
+    #[tokio::test]
+    async fn webhook_timeout_does_not_consume_idempotency_key() {
+        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+        let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "0");
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let memory: Arc<dyn Memory> = Arc::new(MockMemory);
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("session-timeout"));
+        headers.insert("X-Idempotency-Key", HeaderValue::from_static("timeout-abc"));
+
+        let first = handle_webhook(
+            State(state.clone()),
+            test_connect_info(),
+            headers.clone(),
+            Ok(Json(WebhookBody {
+                message: "timeout".to_string(),
+            })),
+        )
+        .await
+        .into_response();
+        assert_eq!(first.status(), StatusCode::REQUEST_TIMEOUT);
+
+        let second = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "timeout".to_string(),
+            })),
+        )
+        .await
+        .into_response();
+        assert_eq!(second.status(), StatusCode::REQUEST_TIMEOUT);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
