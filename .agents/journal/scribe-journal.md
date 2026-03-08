@@ -149,3 +149,33 @@
 - [ ] Consider CSS !important warnings (optional, may need Biome config)
 - [x] Update CLI docs with missing subcommands (high priority) - DONE (both en/es)
 - [x] Audit and document missing CLI flags/commands from agent-runtime - DONE
+
+---
+
+## 2026-03-08 - 404 Status Page Fixes - COMPLETE
+
+**Verification:**
+- Analyzed Ahrefs report identifying 404 errors for diagram assets (.mmd) and relative links.
+- Verified that Starlight serves the `public/` directory at the root, making assets available at predictable absolute paths.
+- Confirmed that sibling links like `./structure/` in subdirectories like `/guides/getting-started/` were incorrectly resolving to `/guides/getting-started/structure/` instead of `/guides/structure/`.
+
+**Changes:**
+- **Asset Migration:**
+  - Moved all Mermaid (`.mmd`) and PlantUML (`.puml`) diagrams from `src/content/docs/[en|es]/guides/architecture/diagrams/` to `public/guides/architecture/diagrams/`.
+  - Removed the now-empty diagram directories from the source content to prevent build warnings and confusion.
+- **Link Corrections:**
+  - **Getting Started (en/es):** Fixed sibling links (`structure`, `features`, `development`) by changing `./` to `../`.
+  - **Release Process (en/es):** Fixed the `gpg-setup` link by changing `./` to `../`.
+  - **Architecture (en/es):**
+    - Updated diagram table links to use absolute paths (e.g., `/guides/architecture/diagrams/...`).
+    - Fixed the Architecture Overview link to point to the correct route `./overview/` instead of the file `./architecture/overview.md`.
+  - **Architecture Overview (en/es):** Updated diagram file references to use the new absolute paths in `public/`.
+
+**Validation:**
+- ✅ `./gradlew :web:docsCheck`: Passed.
+- ✅ `./gradlew :web:docsBuild`: Passed.
+- ✅ Visual & Link Verification: Used Playwright to verify that links in the rendered documentation point to the correct resolved URLs (e.g., `../structure/` resolves correctly and diagram links use the absolute path).
+
+**Notes:**
+- **Best Practice:** Always use absolute paths starting with `/` for assets in the `public/` directory to ensure they resolve correctly from any nested route.
+- **Bilingual Parity:** Maintained strict 1:1 parity between English and Spanish documentation changes.

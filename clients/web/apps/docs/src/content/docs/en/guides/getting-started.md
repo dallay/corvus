@@ -101,6 +101,6 @@ corvus --help
 
 ## Next Steps
 
-- Review [Project Structure](./structure/).
-- Check [Features Checklist](./features/).
-- Continue with [Development](./development/).
+- Review [Project Structure](../structure/).
+- Check [Features Checklist](../features/).
+- Continue with [Development](../development/).

@@ -10,10 +10,6 @@ overrides:
 importers:
 
   .:
-    dependencies:
-      lodash:
-        specifier: ^4.17.23
-        version: 4.17.23
     devDependencies:
       '@astrojs/check':
         specifier: ^0.9.6
