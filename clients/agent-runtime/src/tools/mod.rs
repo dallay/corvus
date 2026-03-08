@@ -66,7 +66,9 @@ use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(feature = "mcp-runtime")]
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) fn redact_runtime_error(raw: &str) -> String {

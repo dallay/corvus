@@ -183,6 +183,14 @@ rust-check: ## Run cargo check for agent runtime
 rust-test: ## Run cargo tests for agent runtime
 	@$(GRADLEW) $(RUST_MODULE):cargoTest -PenableRustTasks=true
 
+rust-test-matrix: ## Run bootstrap feature-flag matrix for agent runtime
+	@cargo test --manifest-path clients/agent-runtime/Cargo.toml --lib bootstrap_feature_flag_matrix_reports_expected_assembly
+	@cargo test --manifest-path clients/agent-runtime/Cargo.toml --lib --no-default-features bootstrap_feature_flag_matrix_reports_expected_assembly
+	@cargo test --manifest-path clients/agent-runtime/Cargo.toml --lib --no-default-features --features mcp-runtime bootstrap_feature_flag_matrix_reports_expected_assembly
+	@cargo test --manifest-path clients/agent-runtime/Cargo.toml --lib --no-default-features --features hardware bootstrap_feature_flag_matrix_reports_expected_assembly
+	@cargo test --manifest-path clients/agent-runtime/Cargo.toml --lib --no-default-features --features memory-surreal bootstrap_feature_flag_matrix_reports_expected_assembly
+	@cargo test --manifest-path clients/agent-runtime/Cargo.toml --lib --no-default-features --features "mcp-runtime,memory-surreal,hardware" bootstrap_feature_flag_matrix_reports_expected_assembly
+
 rust-clippy: ## Run clippy for agent runtime
 	@$(GRADLEW) $(RUST_MODULE):cargoClippy -PenableRustTasks=true
 

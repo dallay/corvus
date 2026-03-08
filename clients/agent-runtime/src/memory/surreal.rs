@@ -310,6 +310,171 @@ impl SurrealMemory {
         .context("failed to log SurrealDB episodic event")?;
         Ok(())
     }
+
+    fn parse_query_terms(query: &str) -> Result<Vec<String>> {
+        let query = query.trim();
+        if query.is_empty() {
+            return Ok(Vec::new());
+        }
+        let query_lower = query.to_lowercase();
+        let terms: Vec<String> = query_lower
+            .split_whitespace()
+            .filter(|term| !term.is_empty())
+            .map(String::from)
+            .collect();
+        Ok(terms)
+    }
+
+    async fn get_recall_candidates(
+        &self,
+        query_lower: &str,
+        session_id: Option<&str>,
+    ) -> Result<HashMap<String, EntryRow>> {
+        let keyword_candidates = self.recall_rows(query_lower, session_id).await?;
+        let vector_candidates = self.list_rows(None, session_id, 500).await?;
+        let mut candidate_by_id: HashMap<String, EntryRow> =
+            HashMap::with_capacity(keyword_candidates.len() + vector_candidates.len());
+        for row in keyword_candidates.into_iter().chain(vector_candidates) {
+            let id = row.id.to_string();
+            candidate_by_id.entry(id).or_insert(row);
+        }
+        Ok(candidate_by_id)
+    }
+
+    async fn generate_query_embedding(&self, query: &str) -> Result<Option<Vec<f32>>> {
+        if self.embedder.dimensions() > 0 {
+            let embedding = self
+                .embedder
+                .embed_one(query)
+                .await
+                .context("failed generating recall embedding for SurrealDB")?;
+            Ok(Some(embedding))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn process_candidates(
+        &self,
+        candidate_by_id: HashMap<String, EntryRow>,
+        query_lower: &str,
+        terms: &[String],
+        query_embedding: Option<&Vec<f32>>,
+    ) -> (
+        Vec<(String, f32)>,
+        Vec<(String, f32)>,
+        HashMap<String, EntryRow>,
+        HashMap<String, String>,
+    ) {
+        let mut vector_results: Vec<(String, f32)> = Vec::new();
+        let mut keyword_results: Vec<(String, f32)> = Vec::new();
+        let mut row_by_id: HashMap<String, EntryRow> =
+            HashMap::with_capacity(candidate_by_id.len());
+        let mut searchable_by_id: HashMap<String, String> =
+            HashMap::with_capacity(candidate_by_id.len());
+
+        for mut row in candidate_by_id.into_values() {
+            let id = row.id.to_string();
+            let searchable = format!("{} {}", row.key.to_lowercase(), row.content.to_lowercase());
+
+            Self::score_keyword_matches(terms, &searchable, query_lower, &id, &mut keyword_results);
+
+            if let Some(qv) = query_embedding {
+                self.score_vector_matches(qv, &mut row, &id, &mut vector_results)
+                    .await;
+            }
+
+            searchable_by_id.insert(id.clone(), searchable);
+            row_by_id.insert(id, row);
+        }
+
+        (vector_results, keyword_results, row_by_id, searchable_by_id)
+    }
+
+    fn score_keyword_matches(
+        terms: &[String],
+        searchable: &str,
+        query_lower: &str,
+        id: &str,
+        keyword_results: &mut Vec<(String, f32)>,
+    ) {
+        let keyword_matches = terms
+            .iter()
+            .filter(|term| searchable.contains(term.as_str()))
+            .count();
+        if keyword_matches > 0 {
+            #[allow(clippy::cast_possible_truncation)]
+            let mut score = keyword_matches as f32 / terms.len() as f32;
+            if searchable.contains(query_lower) {
+                score = (score + 0.2).min(1.0);
+            }
+            keyword_results.push((id.to_string(), score));
+        }
+    }
+
+    async fn score_vector_matches(
+        &self,
+        query_vector: &[f32],
+        row: &mut EntryRow,
+        id: &str,
+        vector_results: &mut Vec<(String, f32)>,
+    ) {
+        if row.embedding.is_none() {
+            match self.embedder.embed_one(&row.content).await {
+                Ok(generated) => {
+                    row.embedding = Some(generated);
+                }
+                Err(error) => {
+                    tracing::debug!(
+                        "failed generating candidate embedding in surreal recall for key '{}': {error}",
+                        row.key
+                    );
+                }
+            }
+        }
+        if let Some(ev) = row.embedding.as_ref() {
+            let sim = vector::cosine_similarity(query_vector, ev);
+            if sim > 0.0 {
+                vector_results.push((id.to_string(), sim));
+            }
+        }
+    }
+
+    fn fallback_search(
+        &self,
+        query_lower: &str,
+        row_by_id: HashMap<String, EntryRow>,
+        searchable_by_id: HashMap<String, String>,
+        limit: usize,
+    ) -> Result<Vec<MemoryEntry>> {
+        let mut fallback = Vec::new();
+        for (id, row) in row_by_id {
+            if searchable_by_id
+                .get(&id)
+                .is_some_and(|searchable| searchable.contains(query_lower))
+            {
+                fallback.push(Self::row_to_entry(row, Some(1.0)));
+                if fallback.len() >= limit {
+                    break;
+                }
+            }
+        }
+        Ok(fallback)
+    }
+
+    fn build_output(
+        &self,
+        merged: Vec<vector::ScoredResult>,
+        mut row_by_id: HashMap<String, EntryRow>,
+    ) -> Vec<MemoryEntry> {
+        let mut output = Vec::with_capacity(merged.len());
+        for item in merged {
+            if let Some(row) = row_by_id.remove(&item.id) {
+                output.push(Self::row_to_entry(row, Some(f64::from(item.final_score))));
+            }
+        }
+        output
+    }
 }
 
 #[async_trait]
@@ -451,169 +616,6 @@ impl Memory for SurrealMemory {
         }
 
         Ok(self.build_output(merged, row_by_id))
-    }
-
-    fn parse_query_terms(query: &str) -> Result<Vec<String>> {
-        let query = query.trim();
-        if query.is_empty() {
-            return Ok(Vec::new());
-        }
-        let query_lower = query.to_lowercase();
-        let terms: Vec<String> = query_lower
-            .split_whitespace()
-            .filter(|term| !term.is_empty())
-            .map(String::from)
-            .collect();
-        Ok(terms)
-    }
-
-    async fn get_recall_candidates(
-        &self,
-        query_lower: &str,
-        session_id: Option<&str>,
-    ) -> Result<HashMap<String, EntryRow>> {
-        let keyword_candidates = self.recall_rows(query_lower, session_id).await?;
-        let vector_candidates = self.list_rows(None, session_id, 500).await?;
-        let mut candidate_by_id: HashMap<String, EntryRow> =
-            HashMap::with_capacity(keyword_candidates.len() + vector_candidates.len());
-        for row in keyword_candidates.into_iter().chain(vector_candidates) {
-            let id = row.id.to_string();
-            candidate_by_id.entry(id).or_insert(row);
-        }
-        Ok(candidate_by_id)
-    }
-
-    async fn generate_query_embedding(&self, query: &str) -> Result<Option<Vec<f32>>> {
-        if self.embedder.dimensions() > 0 {
-            let embedding = self
-                .embedder
-                .embed_one(query)
-                .await
-                .context("failed generating recall embedding for SurrealDB")?;
-            Ok(Some(embedding))
-        } else {
-            Ok(None)
-        }
-    }
-
-    async fn process_candidates(
-        &self,
-        mut candidate_by_id: HashMap<String, EntryRow>,
-        query_lower: &str,
-        terms: &[String],
-        query_embedding: Option<&Vec<f32>>,
-    ) -> (
-        Vec<(String, f32)>,
-        Vec<(String, f32)>,
-        HashMap<String, EntryRow>,
-        HashMap<String, String>,
-    ) {
-        let mut vector_results: Vec<(String, f32)> = Vec::new();
-        let mut keyword_results: Vec<(String, f32)> = Vec::new();
-        let mut row_by_id: HashMap<String, EntryRow> =
-            HashMap::with_capacity(candidate_by_id.len());
-        let mut searchable_by_id: HashMap<String, String> =
-            HashMap::with_capacity(candidate_by_id.len());
-
-        for mut row in candidate_by_id.into_values() {
-            let id = row.id.to_string();
-            let searchable = format!("{} {}", row.key.to_lowercase(), row.content.to_lowercase());
-
-            Self::score_keyword_matches(terms, &searchable, query_lower, &id, &mut keyword_results);
-
-            if let Some(qv) = query_embedding {
-                Self::score_vector_matches(qv, &mut row, &id, &mut vector_results).await;
-            }
-
-            searchable_by_id.insert(id.clone(), searchable);
-            row_by_id.insert(id, row);
-        }
-
-        (vector_results, keyword_results, row_by_id, searchable_by_id)
-    }
-
-    fn score_keyword_matches(
-        terms: &[String],
-        searchable: &str,
-        query_lower: &str,
-        id: &str,
-        keyword_results: &mut Vec<(String, f32)>,
-    ) {
-        let keyword_matches = terms
-            .iter()
-            .filter(|term| searchable.contains(term.as_str()))
-            .count();
-        if keyword_matches > 0 {
-            #[allow(clippy::cast_possible_truncation)]
-            let mut score = keyword_matches as f32 / terms.len() as f32;
-            if searchable.contains(query_lower) {
-                score = (score + 0.2).min(1.0);
-            }
-            keyword_results.push((id.to_string(), score));
-        }
-    }
-
-    async fn score_vector_matches(
-        query_vector: &[f32],
-        row: &mut EntryRow,
-        id: &str,
-        vector_results: &mut Vec<(String, f32)>,
-    ) {
-        if row.embedding.is_none() {
-            match self.embedder.embed_one(&row.content).await {
-                Ok(generated) => {
-                    row.embedding = Some(generated);
-                }
-                Err(error) => {
-                    tracing::debug!(
-                        "failed generating candidate embedding in surreal recall for key '{}': {error}",
-                        row.key
-                    );
-                }
-            }
-        }
-        if let Some(ev) = row.embedding.as_ref() {
-            let sim = vector::cosine_similarity(query_vector, ev);
-            if sim > 0.0 {
-                vector_results.push((id.to_string(), sim));
-            }
-        }
-    }
-
-    fn fallback_search(
-        &self,
-        query_lower: &str,
-        row_by_id: HashMap<String, EntryRow>,
-        searchable_by_id: HashMap<String, String>,
-        limit: usize,
-    ) -> Result<Vec<MemoryEntry>> {
-        let mut fallback = Vec::new();
-        for (id, row) in row_by_id {
-            if searchable_by_id
-                .get(&id)
-                .is_some_and(|searchable| searchable.contains(query_lower))
-            {
-                fallback.push(Self::row_to_entry(row, Some(1.0)));
-                if fallback.len() >= limit {
-                    break;
-                }
-            }
-        }
-        Ok(fallback)
-    }
-
-    fn build_output(
-        &self,
-        merged: Vec<vector::HybridItem>,
-        mut row_by_id: HashMap<String, EntryRow>,
-    ) -> Vec<MemoryEntry> {
-        let mut output = Vec::with_capacity(merged.len());
-        for item in merged {
-            if let Some(row) = row_by_id.remove(&item.id) {
-                output.push(Self::row_to_entry(row, Some(f64::from(item.final_score))));
-            }
-        }
-        output
     }
 
     async fn get(&self, key: &str) -> Result<Option<MemoryEntry>> {
