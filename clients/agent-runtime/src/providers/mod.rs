@@ -641,9 +641,16 @@ pub fn create_routed_provider(
     reliability: &crate::config::ReliabilityConfig,
     model_routes: &[crate::config::ModelRouteConfig],
     default_model: &str,
+    options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
     if model_routes.is_empty() {
-        return create_resilient_provider(primary_name, api_key, api_url, reliability);
+        return create_resilient_provider_with_options(
+            primary_name,
+            api_key,
+            api_url,
+            reliability,
+            options,
+        );
     }
 
     // Collect unique provider names needed
@@ -669,7 +676,7 @@ pub fn create_routed_provider(
         let key = routed_credential.or(api_key);
         // Only use api_url for the primary provider
         let url = if name == primary_name { api_url } else { None };
-        match create_resilient_provider(name, key, url, reliability) {
+        match create_resilient_provider_with_options(name, key, url, reliability, options) {
             Ok(provider) => providers.push((name.clone(), provider)),
             Err(e) => {
                 if name == primary_name {

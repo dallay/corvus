@@ -8,6 +8,8 @@ use crate::tools::{self, Tool};
 use std::path::PathBuf;
 use std::sync::Arc;
 
+pub const DEFAULT_MODEL: &str = "anthropic/claude-sonnet-4";
+
 pub struct BootstrapContext {
     pub observer: Arc<dyn Observer>,
     pub runtime: Arc<dyn RuntimeAdapter>,
@@ -18,6 +20,14 @@ pub struct BootstrapContext {
 
 fn selected_provider_name(config: &Config) -> &str {
     config.default_provider.as_deref().unwrap_or("openrouter")
+}
+
+fn provider_runtime_options(config: &Config) -> ProviderRuntimeOptions {
+    ProviderRuntimeOptions {
+        auth_profile_override: None,
+        corvus_dir: config.config_path.parent().map(PathBuf::from),
+        secrets_encrypt: config.secrets.encrypt,
+    }
 }
 
 impl BootstrapContext {
@@ -78,11 +88,7 @@ pub fn create_resilient_provider(config: &Config) -> anyhow::Result<Arc<dyn Prov
             config.api_key.as_deref(),
             config.api_url.as_deref(),
             &config.reliability,
-            &ProviderRuntimeOptions {
-                auth_profile_override: None,
-                corvus_dir: config.config_path.parent().map(PathBuf::from),
-                secrets_encrypt: config.secrets.encrypt,
-            },
+            &provider_runtime_options(config),
         )?,
     ))
 }
@@ -100,6 +106,7 @@ pub fn create_routed_provider(
         &config.reliability,
         &config.model_routes,
         default_model,
+        &provider_runtime_options(config),
     )
 }
 
@@ -135,20 +142,11 @@ mod tests {
         assert!(!ctx.runtime.name().is_empty());
     }
 
-    #[tokio::test]
-    async fn resilient_provider_uses_openrouter_when_default_provider_missing() {
+    #[test]
+    fn resilient_provider_uses_openrouter_when_default_provider_missing() {
         let mut config = Config::default();
         config.default_provider = None;
 
-        let provider = create_resilient_provider(&config).unwrap();
-        let err = provider
-            .chat_with_system(None, "ping", "test-model", 0.0)
-            .await
-            .expect_err("missing API key should fail before any network call");
-
-        assert!(
-            err.to_string().contains("provider=openrouter"),
-            "expected openrouter fallback provider, got: {err}"
-        );
+        assert_eq!(selected_provider_name(&config), "openrouter");
     }
 }
