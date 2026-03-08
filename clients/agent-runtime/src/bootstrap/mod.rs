@@ -162,6 +162,17 @@ fn init_memory_and_observer(
 
 impl BootstrapContext {
     pub fn from_config(config: &Config) -> anyhow::Result<Self> {
+        Self::from_config_with_profile(config, config.agent.profile.as_str())
+    }
+
+    pub(crate) fn from_config_with_profile(config: &Config, profile: &str) -> anyhow::Result<Self> {
+        let mut effective_config = config.clone();
+        effective_config.agent.profile = profile.to_string();
+
+        Self::from_effective_config(&effective_config)
+    }
+
+    fn from_effective_config(config: &Config) -> anyhow::Result<Self> {
         let profile = AgentProfile::from_config(config)?;
         let (memory, observer) = init_memory_and_observer(config, profile)?;
         let runtime: Arc<dyn RuntimeAdapter> = Arc::from(runtime::create_runtime(&config.runtime)?);

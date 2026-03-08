@@ -227,6 +227,16 @@ impl Agent {
         AgentBuilder::new()
     }
 
+    pub(crate) fn from_config_with_profile(config: &Config, profile: &str) -> Result<Self> {
+        let bootstrap = bootstrap::BootstrapContext::from_config_with_profile(config, profile)?;
+
+        Self::from_bootstrap(config, bootstrap)
+    }
+
+    pub(crate) fn code_from_config(config: &Config) -> Result<Self> {
+        Self::from_config_with_profile(config, "code")
+    }
+
     pub fn history(&self) -> &[ConversationMessage] {
         &self.history
     }
@@ -238,6 +248,10 @@ impl Agent {
     pub fn from_config(config: &Config) -> Result<Self> {
         let bootstrap = bootstrap::BootstrapContext::from_config(config)?;
 
+        Self::from_bootstrap(config, bootstrap)
+    }
+
+    fn from_bootstrap(config: &Config, bootstrap: bootstrap::BootstrapContext) -> Result<Self> {
         let model_name = config
             .default_model
             .as_deref()
@@ -245,6 +259,20 @@ impl Agent {
             .to_string();
 
         let provider: Box<dyn Provider> = bootstrap::create_routed_provider(config, &model_name)?;
+
+        Self::from_bootstrap_with_provider(config, bootstrap, provider)
+    }
+
+    fn from_bootstrap_with_provider(
+        config: &Config,
+        bootstrap: bootstrap::BootstrapContext,
+        provider: Box<dyn Provider>,
+    ) -> Result<Self> {
+        let model_name = config
+            .default_model
+            .as_deref()
+            .unwrap_or("anthropic/claude-sonnet-4-20250514")
+            .to_string();
 
         let dispatcher_choice = config.agent.tool_dispatcher.as_str();
         let tool_dispatcher: Box<dyn ToolDispatcher> = match dispatcher_choice {
@@ -1113,8 +1141,11 @@ pub async fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::test_config;
     use async_trait::async_trait;
     use parking_lot::Mutex;
+    use std::collections::HashSet;
+    use tempfile::TempDir;
 
     struct MockProvider {
         responses: Mutex<Vec<crate::providers::ChatResponse>>,
@@ -1305,6 +1336,33 @@ mod tests {
 
         let response = agent.turn("hi").await.unwrap();
         assert_eq!(response, "hello");
+    }
+
+    #[tokio::test]
+    async fn code_profile_agent_uses_bootstrap_components_for_basic_turn() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.agent.profile = "full".into();
+
+        let bootstrap =
+            bootstrap::BootstrapContext::from_config_with_profile(&config, "code").unwrap();
+        let tool_names: HashSet<&str> = bootstrap.tools.iter().map(|tool| tool.name()).collect();
+
+        assert!(tool_names.contains("shell"));
+        assert!(tool_names.contains("git_operations"));
+        assert!(!tool_names.contains("schedule"));
+
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("code-ready".into()),
+                tool_calls: vec![],
+            }]),
+        });
+
+        let mut agent = Agent::from_bootstrap_with_provider(&config, bootstrap, provider).unwrap();
+
+        let response = agent.turn("review this patch").await.unwrap();
+        assert_eq!(response, "code-ready");
     }
 
     #[tokio::test]
