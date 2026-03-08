@@ -93,7 +93,9 @@ collision handling to preserve dispatch correctness and prevent impersonation.
 ### Requirement: MCP Policy and Approval Enforcement
 
 MCP tool invocations MUST be treated as explicit risk-bearing operations and MUST pass through the
-same policy and approval semantics across all runtime entry points.
+same policy and approval semantics across canonical runtime entry points (CLI and channels). Gateway
+webhook is currently out of scope for MCP dispatch parity until it migrates from `Provider::simple_chat()`
+to the canonical dispatcher path.
 
 #### Scenario: Deny-by-default policy for MCP tools
 
@@ -111,7 +113,7 @@ same policy and approval semantics across all runtime entry points.
 
 #### Scenario: Entry-point parity for approval behavior
 
-- GIVEN equivalent MCP tool calls arriving via CLI, gateway, and channel entry points
+- GIVEN equivalent MCP tool calls arriving via CLI and channel entry points
 - WHEN policy and approval checks are applied
 - THEN all entry points MUST enforce equivalent MCP risk and approval decisions
 - AND no entry point MAY bypass MCP approval gates.

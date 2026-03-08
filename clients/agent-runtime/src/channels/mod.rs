@@ -1712,7 +1712,12 @@ pub async fn start_channels(config: Config) -> Result<()> {
         return Ok(());
     }
 
-    let provider: Arc<dyn Provider> = bootstrap::create_resilient_provider(&config)?;
+    let model = config
+        .default_model
+        .clone()
+        .unwrap_or_else(|| bootstrap::DEFAULT_MODEL.into());
+    let provider: Arc<dyn Provider> =
+        Arc::from(bootstrap::create_routed_provider(&config, &model)?);
 
     // Warm up the provider connection pool (TLS handshake, DNS, HTTP/2 setup)
     // so the first real message doesn't hit a cold-start timeout.
@@ -1721,10 +1726,6 @@ pub async fn start_channels(config: Config) -> Result<()> {
     }
 
     let bootstrap = bootstrap::BootstrapContext::from_config(&config)?;
-    let model = config
-        .default_model
-        .clone()
-        .unwrap_or_else(|| bootstrap::DEFAULT_MODEL.into());
     let temperature = config.default_temperature;
     let mem = Arc::clone(&bootstrap.memory);
     let tools_registry = Arc::new(bootstrap.tools);
