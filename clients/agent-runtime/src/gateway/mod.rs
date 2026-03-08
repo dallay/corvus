@@ -1549,7 +1549,8 @@ async fn canonical_outcome_early_response(
                     "error": denial,
                     "session_id": session_id,
                 });
-                return Some(((StatusCode::FORBIDDEN, Json(err)), true));
+                return Some(((StatusCode::FORBIDDEN, Json(err)), false));
+            }
             }
             crate::pre_execution::BlockingOutcome::TimeoutAborted => {
                 let body = serde_json::json!({
