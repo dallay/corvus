@@ -1561,8 +1561,9 @@ async fn canonical_outcome_early_response(
                 return Some((StatusCode::REQUEST_TIMEOUT, Json(body)));
             }
             crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                let sanitized_response = scrub_sensitive_boundary_text(&response);
                 let body = serde_json::json!({
-                    "response": response,
+                    "response": sanitized_response,
                     "model": state.model,
                     "session_id": session_id,
                     "fallback": true,
