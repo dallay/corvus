@@ -4,7 +4,7 @@ use axum::{
     response::Json,
 };
 use sha2::{Digest, Sha256};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 /// Extract bearer token from Authorization header.
 pub fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
@@ -56,12 +56,22 @@ pub fn client_key_from_request(
 
 /// Helper to guard admin endpoints against cross-origin browser requests.
 pub fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde_json::Value>)> {
-    let origin_raw = headers
-        .get(header::ORIGIN)
-        .and_then(|value| value.to_str().ok())?;
+    let origin_header = headers.get(header::ORIGIN)?;
+    let origin_raw = match origin_header.to_str() {
+        Ok(value) => value,
+        Err(_) => {
+            return Some((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Invalid Origin header"})),
+            ));
+        }
+    };
     let origin_raw = origin_raw.trim();
     if origin_raw.is_empty() {
-        return None;
+        return Some((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({"error": "Invalid Origin header"})),
+        ));
     }
 
     let origin = match reqwest::Url::parse(origin_raw) {
@@ -87,7 +97,8 @@ pub fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde
             Json(serde_json::json!({"error": "Forbidden request origin"})),
         ));
     };
-    if origin_host == "localhost" || origin_host == "127.0.0.1" {
+
+    if is_loopback_origin_host(&origin_host) {
         None
     } else {
         Some((
@@ -95,6 +106,18 @@ pub fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde
             Json(serde_json::json!({"error": "Forbidden request origin"})),
         ))
     }
+}
+
+fn is_loopback_origin_host(origin_host: &str) -> bool {
+    if origin_host.eq_ignore_ascii_case("localhost") {
+        return true;
+    }
+
+    let normalized = origin_host.trim_matches(['[', ']']);
+    normalized
+        .parse::<IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
 }
 
 /// Helper to verify admin authentication (Bearer token).
