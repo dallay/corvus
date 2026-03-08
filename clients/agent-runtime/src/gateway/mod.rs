@@ -8,14 +8,12 @@
 //! - Header sanitization (handled by axum/hyper)
 
 use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
+use crate::bootstrap;
 use crate::channels::{Channel, SendMessage, WhatsAppChannel};
 use crate::config::Config;
-use crate::memory::{self, Memory, MemoryCategory};
+use crate::memory::{Memory, MemoryCategory};
 use crate::providers::{self, Provider};
-use crate::runtime;
 use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard, TOKEN_MAX_LEN};
-use crate::security::SecurityPolicy;
-use crate::tools;
 use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
 use axum::{
@@ -1120,57 +1118,15 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     let actual_port = listener.local_addr()?.port();
     let display_addr = format!("{host}:{actual_port}");
 
-    let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider_with_options(
-        config.default_provider.as_deref().unwrap_or("openrouter"),
-        config.api_key.as_deref(),
-        config.api_url.as_deref(),
-        &config.reliability,
-        &providers::ProviderRuntimeOptions {
-            auth_profile_override: None,
-            corvus_dir: config.config_path.parent().map(std::path::PathBuf::from),
-            secrets_encrypt: config.secrets.encrypt,
-        },
-    )?);
+    let provider: Arc<dyn Provider> = bootstrap::create_resilient_provider(&config)?;
     let model = config
         .default_model
         .clone()
         .unwrap_or_else(|| "anthropic/claude-sonnet-4".into());
     let temperature = config.default_temperature;
-    let mem: Arc<dyn Memory> = Arc::from(memory::create_memory(
-        &config.memory,
-        &config.workspace_dir,
-        config.api_key.as_deref(),
-    )?);
-    let runtime: Arc<dyn runtime::RuntimeAdapter> =
-        Arc::from(runtime::create_runtime(&config.runtime)?);
-    let security = Arc::new(SecurityPolicy::from_config(
-        &config.autonomy,
-        &config.workspace_dir,
-    ));
-
-    let (composio_key, composio_entity_id) = if config.composio.enabled {
-        (
-            config.composio.api_key.as_deref(),
-            Some(config.composio.entity_id.as_str()),
-        )
-    } else {
-        (None, None)
-    };
-
-    let _tools_registry = Arc::new(tools::all_tools_with_runtime(
-        Arc::new(config.clone()),
-        &security,
-        runtime,
-        Arc::clone(&mem),
-        composio_key,
-        composio_entity_id,
-        &config.browser,
-        &config.http_request,
-        &config.workspace_dir,
-        &config.agents,
-        config.api_key.as_deref(),
-        &config,
-    ));
+    let bootstrap = bootstrap::BootstrapContext::from_config(&config)?;
+    let mem = Arc::clone(&bootstrap.memory);
+    let _tools_registry = Arc::new(bootstrap.tools);
     // Extract webhook secret for authentication
     let webhook_secret_hash: Option<Arc<str>> =
         config.channels_config.webhook.as_ref().and_then(|webhook| {
