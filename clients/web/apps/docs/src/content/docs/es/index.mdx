@@ -1,9 +1,9 @@
 ---
 title: Corvus
-description: Plataforma reactiva de agentes siempre activos sobre JVM.
+description: Documentacion segura y pluggable para el runtime Rust-native de agentes autonomos.
 template: splash
 hero:
-  tagline: Construye agentes proactivos y de larga duración con Kotlin, Spring Boot, Neo4j, sidecars en Rust y un panel transparente.
+  tagline: Construye agentes autonomos con un runtime Rust-native, seguro, pluggable, rapido y portable.
   actions:
     - text: Primeros Pasos
       link: guides/getting-started/
@@ -21,17 +21,17 @@ import {Card, CardGrid, LinkCard} from '@astrojs/starlight/components';
 ## ¿Por qué Corvus?
 
 <CardGrid stagger>
-  <Card title="Orquestador Reactivo" icon="setting">
-    Kotlin + Spring Boot + Coroutines/WebFlux para flujos no bloqueantes y siempre activos.
+  <Card title="Ligero por defecto" icon="rocket">
+    Un binario pequeño en Rust con arranque rapido y bajo consumo de memoria para laptops, servidores, SBCs y entornos limitados.
   </Card>
-  <Card title="Memoria de Grafo" icon="open-book">
-    Arquitectura orientada a conocimiento con Neo4j para contexto conectado y memoria durable.
+  <Card title="Seguro por diseño" icon="shield-check">
+    Pairing, sandboxing, aislamiento del workspace, allowlists y secretos cifrados forman parte de la postura por defecto.
   </Card>
-  <Card title="Sidecars en Rust" icon="rocket">
-    Binarios de alto rendimiento para scraping y operaciones seguras de sandbox.
+  <Card title="Arquitectura pluggable" icon="setting">
+    Cambia providers, memoria, tools, canales, tunnels y runtime modes sin reescribir tu stack.
   </Card>
-  <Card title="Operación Transparente" icon="approve-check">
-    Observabilidad en tiempo real con Astro/Vue y streaming de eventos.
+  <Card title="Runtime portable" icon="open-book">
+    Ejecuta Corvus en nativo o Docker con un solo runtime para chat, gateway, daemon, integraciones y automatizacion.
   </Card>
 </CardGrid>
 
@@ -46,6 +46,8 @@ import {Card, CardGrid, LinkCard} from '@astrojs/starlight/components';
             href="guides/features/"/>
   <LinkCard title="Arquitectura" description="Consulta decisiones de diseño y modelo de ejecución."
             href="guides/architecture/"/>
+  <LinkCard title="Referencia CLI" description="Aprende los comandos para onboarding, agents, gateway, daemon y operaciones."
+            href="guides/cli-reference/"/>
   <LinkCard title="Flujo de Desarrollo"
             description="Procedimientos para build, test, lint y release."
             href="guides/development/"/>

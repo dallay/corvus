@@ -118,10 +118,10 @@ Para una vista más detallada de la arquitectura, consulta los siguientes diagra
 
 | Nivel             | Diagrama                                                                            | Descripción                                        | ID del Diagrama                   |
 |-------------------|-------------------------------------------------------------------------------------|----------------------------------------------------|-----------------------------------|
-| C1 - Contexto     | [Sistema Completo](/guides/architecture/diagrams/context/system-context.mmd)              | Vista de alto nivel del sistema y actores externos | `context/system-context.mmd`      |
-| C2 - Contenedores | [Contenedores Principales](/guides/architecture/diagrams/container/system-containers.mmd) | Aplicaciones y servicios que componen Corvus       | `container/system-containers.mmd` |
-| C3 - Componentes  | [Agent Core KMP](/guides/architecture/diagrams/component/agent-core-kmp.mmd)              | Componentes internos del módulo core               | `component/agent-core-kmp.mmd`    |
-| -                 | [Dependencias entre Módulos](/guides/architecture/diagrams/module-dependencies.mmd)       | Relaciones de dependencia de Gradle                | `module-dependencies.mmd`         |
+| C1 - Contexto     | [Sistema Completo](./architecture/diagrams/context/system-context.mmd)              | Vista de alto nivel del sistema y actores externos | `context/system-context.mmd`      |
+| C2 - Contenedores | [Contenedores Principales](./architecture/diagrams/container/system-containers.mmd) | Aplicaciones y servicios que componen Corvus       | `container/system-containers.mmd` |
+| C3 - Componentes  | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd)              | Componentes internos del módulo core               | `component/agent-core-kmp.mmd`    |
+| -                 | [Dependencias entre Módulos](./architecture/diagrams/module-dependencies.mmd)       | Relaciones de dependencia de Gradle                | `module-dependencies.mmd`         |
 
 Ver [Visión General de la Arquitectura](./overview/) para más detalles sobre cómo
 visualizarlos.
