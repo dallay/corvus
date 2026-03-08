@@ -31,16 +31,8 @@ impl CronAddTool {
 
     fn parse_job_type(args: &serde_json::Value) -> Result<JobType, String> {
         match args.get("job_type").and_then(serde_json::Value::as_str) {
-            Some("agent") => Ok(JobType::Agent),
-            Some("shell") => Ok(JobType::Shell),
-            Some(other) => Err(format!("Invalid job_type: {other}")),
-            None => {
-                if args.get("prompt").is_some() {
-                    Ok(JobType::Agent)
-                } else {
-                    Ok(JobType::Shell)
-                }
-            }
+            Some(raw) => JobType::parse(raw),
+            None => Err("Missing 'job_type' parameter".to_string()),
         }
     }
 
@@ -104,6 +96,7 @@ impl Tool for CronAddTool {
     fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "name": { "type": "string" },
                 "schedule": {
@@ -118,7 +111,23 @@ impl Tool for CronAddTool {
                 "delivery": { "type": "object" },
                 "delete_after_run": { "type": "boolean" }
             },
-            "required": ["schedule"]
+            "required": ["schedule", "job_type"],
+            "allOf": [
+                {
+                    "if": {
+                        "properties": { "job_type": { "const": "shell" } },
+                        "required": ["job_type"]
+                    },
+                    "then": { "required": ["command"] }
+                },
+                {
+                    "if": {
+                        "properties": { "job_type": { "const": "agent" } },
+                        "required": ["job_type"]
+                    },
+                    "then": { "required": ["prompt"] }
+                }
+            ]
         })
     }
 
@@ -315,5 +324,48 @@ mod tests {
             .error
             .unwrap_or_default()
             .contains("Missing 'prompt'"));
+    }
+
+    #[tokio::test]
+    async fn missing_job_type_is_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = test_config(&tmp);
+        let tool = CronAddTool::new(cfg.clone(), test_security(&cfg));
+
+        let result = tool
+            .execute(json!({
+                "schedule": { "kind": "cron", "expr": "*/5 * * * *" },
+                "command": "echo ok"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .unwrap_or_default()
+            .contains("Missing 'job_type'"));
+    }
+
+    #[tokio::test]
+    async fn unknown_job_type_is_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let cfg = test_config(&tmp);
+        let tool = CronAddTool::new(cfg.clone(), test_security(&cfg));
+
+        let result = tool
+            .execute(json!({
+                "schedule": { "kind": "cron", "expr": "*/5 * * * *" },
+                "job_type": "unsupported",
+                "command": "echo ok"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .unwrap_or_default()
+            .contains("Invalid job_type"));
     }
 }
