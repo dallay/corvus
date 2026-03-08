@@ -115,7 +115,7 @@ dependencies {
 
 For a more detailed view of the architecture, see the following C4 diagrams:
 
-| Level           | Diagram                                                                    | Description                                       | File                              |
+| Level           | Diagram                                                                    | Description                                       | Diagram ID                        |
 |-----------------|----------------------------------------------------------------------------|---------------------------------------------------|-----------------------------------|
 | C1 - Context    | [System Context](/guides/architecture/diagrams/context/system-context.mmd)       | High-level view of the system and external actors | `context/system-context.mmd`      |
 | C2 - Containers | [Main Containers](/guides/architecture/diagrams/container/system-containers.mmd) | Applications and services that compose Corvus     | `container/system-containers.mmd` |
