@@ -44,6 +44,7 @@ use tracing_subscriber::{fmt, EnvFilter};
 mod agent;
 mod approval;
 mod auth;
+mod bootstrap;
 mod channels;
 mod config;
 mod cron;

@@ -42,6 +42,7 @@ use serde::{Deserialize, Serialize};
 pub mod agent;
 pub mod approval;
 pub mod auth;
+pub mod bootstrap;
 pub mod channels;
 pub mod config;
 pub mod cost;

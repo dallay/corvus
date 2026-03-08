@@ -8,13 +8,13 @@ use crate::agent::mission::{
     MissionState, MissionTerminationReason,
 };
 use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
+use crate::bootstrap;
 use crate::config::Config;
-use crate::memory::{self, Memory, MemoryCategory};
-use crate::observability::{self, redact_observer_payload, Observer, ObserverEvent};
-use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
-use crate::runtime;
-use crate::security::{ExecutionOrigin, SecurityPolicy};
-use crate::tools::{self, Tool, ToolSpec};
+use crate::memory::{Memory, MemoryCategory};
+use crate::observability::{redact_observer_payload, Observer, ObserverEvent};
+use crate::providers::{ChatMessage, ChatRequest, ConversationMessage, Provider};
+use crate::security::ExecutionOrigin;
+use crate::tools::{Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use std::collections::HashMap;
@@ -236,48 +236,7 @@ impl Agent {
     }
 
     pub fn from_config(config: &Config) -> Result<Self> {
-        let observer: Arc<dyn Observer> =
-            Arc::from(observability::create_observer(&config.observability));
-        let runtime: Arc<dyn runtime::RuntimeAdapter> =
-            Arc::from(runtime::create_runtime(&config.runtime)?);
-        let security = Arc::new(SecurityPolicy::from_config(
-            &config.autonomy,
-            &config.workspace_dir,
-        ));
-
-        let memory: Arc<dyn Memory> = Arc::from(memory::create_memory(
-            &config.memory,
-            &config.workspace_dir,
-            config.api_key.as_deref(),
-        )?);
-
-        let composio_key = if config.composio.enabled {
-            config.composio.api_key.as_deref()
-        } else {
-            None
-        };
-        let composio_entity_id = if config.composio.enabled {
-            Some(config.composio.entity_id.as_str())
-        } else {
-            None
-        };
-
-        let tools = tools::all_tools_with_runtime(
-            Arc::new(config.clone()),
-            &security,
-            runtime,
-            memory.clone(),
-            composio_key,
-            composio_entity_id,
-            &config.browser,
-            &config.http_request,
-            &config.workspace_dir,
-            &config.agents,
-            config.api_key.as_deref(),
-            config,
-        );
-
-        let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
+        let bootstrap = bootstrap::BootstrapContext::from_config(config)?;
 
         let model_name = config
             .default_model
@@ -285,14 +244,7 @@ impl Agent {
             .unwrap_or("anthropic/claude-sonnet-4-20250514")
             .to_string();
 
-        let provider: Box<dyn Provider> = providers::create_routed_provider(
-            provider_name,
-            config.api_key.as_deref(),
-            config.api_url.as_deref(),
-            &config.reliability,
-            &config.model_routes,
-            &model_name,
-        )?;
+        let provider: Box<dyn Provider> = bootstrap::create_routed_provider(config, &model_name)?;
 
         let dispatcher_choice = config.agent.tool_dispatcher.as_str();
         let tool_dispatcher: Box<dyn ToolDispatcher> = match dispatcher_choice {
@@ -307,9 +259,9 @@ impl Agent {
 
         Agent::builder()
             .provider(provider)
-            .tools(tools)
-            .memory(memory)
-            .observer(observer)
+            .tools(bootstrap.tools)
+            .memory(bootstrap.memory)
+            .observer(bootstrap.observer)
             .tool_dispatcher(tool_dispatcher)
             .memory_loader(Box::new(DefaultMemoryLoader::new(
                 5,

@@ -33,14 +33,13 @@ pub use whatsapp::WhatsAppChannel;
 use crate::agent::dispatcher::{
     DispatchAction, NativeToolDispatcher, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
+use crate::bootstrap;
 use crate::config::Config;
 use crate::identity;
-use crate::memory::{self, Memory};
-use crate::observability::{self, Observer};
-use crate::providers::{self, ChatMessage, ChatRequest, ConversationMessage, Provider};
-use crate::runtime;
-use crate::security::SecurityPolicy;
-use crate::tools::{self, Tool};
+use crate::memory::Memory;
+use crate::observability::Observer;
+use crate::providers::{ChatMessage, ChatRequest, ConversationMessage, Provider};
+use crate::tools::Tool;
 use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
 use std::collections::HashMap;
@@ -1596,21 +1595,7 @@ pub async fn doctor_channels(config: Config) -> Result<()> {
 /// Start all configured channels and route messages to the agent
 #[allow(clippy::too_many_lines)]
 pub async fn start_channels(config: Config) -> Result<()> {
-    let provider_name = config
-        .default_provider
-        .clone()
-        .unwrap_or_else(|| "openrouter".into());
-    let provider: Arc<dyn Provider> = Arc::from(providers::create_resilient_provider_with_options(
-        &provider_name,
-        config.api_key.as_deref(),
-        config.api_url.as_deref(),
-        &config.reliability,
-        &providers::ProviderRuntimeOptions {
-            auth_profile_override: None,
-            corvus_dir: config.config_path.parent().map(std::path::PathBuf::from),
-            secrets_encrypt: config.secrets.encrypt,
-        },
-    )?);
+    let provider: Arc<dyn Provider> = bootstrap::create_resilient_provider(&config)?;
 
     // Warm up the provider connection pool (TLS handshake, DNS, HTTP/2 setup)
     // so the first real message doesn't hit a cold-start timeout.
@@ -1618,48 +1603,17 @@ pub async fn start_channels(config: Config) -> Result<()> {
         tracing::warn!("Provider warmup failed (non-fatal): {e}");
     }
 
-    let observer: Arc<dyn Observer> =
-        Arc::from(observability::create_observer(&config.observability));
-    let runtime: Arc<dyn runtime::RuntimeAdapter> =
-        Arc::from(runtime::create_runtime(&config.runtime)?);
-    let security = Arc::new(SecurityPolicy::from_config(
-        &config.autonomy,
-        &config.workspace_dir,
-    ));
+    let bootstrap = bootstrap::BootstrapContext::from_config(&config)?;
     let model = config
         .default_model
         .clone()
         .unwrap_or_else(|| "anthropic/claude-sonnet-4-20250514".into());
     let temperature = config.default_temperature;
-    let mem: Arc<dyn Memory> = Arc::from(memory::create_memory(
-        &config.memory,
-        &config.workspace_dir,
-        config.api_key.as_deref(),
-    )?);
-    let (composio_key, composio_entity_id) = if config.composio.enabled {
-        (
-            config.composio.api_key.as_deref(),
-            Some(config.composio.entity_id.as_str()),
-        )
-    } else {
-        (None, None)
-    };
+    let mem = Arc::clone(&bootstrap.memory);
     // Build system prompt from workspace identity files + skills
     let workspace = config.workspace_dir.clone();
-    let tools_registry = Arc::new(tools::all_tools_with_runtime(
-        Arc::new(config.clone()),
-        &security,
-        runtime,
-        Arc::clone(&mem),
-        composio_key,
-        composio_entity_id,
-        &config.browser,
-        &config.http_request,
-        &workspace,
-        &config.agents,
-        config.api_key.as_deref(),
-        &config,
-    ));
+    let tools_registry = Arc::new(bootstrap.tools);
+    let observer = Arc::clone(&bootstrap.observer);
 
     let skills = crate::skills::load_skills(&workspace);
 
