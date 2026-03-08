@@ -8,12 +8,22 @@ use std::net::SocketAddr;
 
 /// Extract bearer token from Authorization header.
 pub fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
-    headers
+    let auth = headers
         .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .filter(|v| v.to_ascii_lowercase().starts_with("bearer "))
-        .map(|v| v[7..].trim().to_string())
-        .filter(|v| !v.is_empty() && v.len() <= crate::security::pairing::TOKEN_MAX_LEN)
+        .and_then(|v| v.to_str().ok())?
+        .trim();
+
+    let (scheme, token) = auth.split_once(char::is_whitespace)?;
+    if !scheme.eq_ignore_ascii_case("bearer") {
+        return None;
+    }
+
+    let token = token.trim();
+    if token.is_empty() || token.len() > crate::security::pairing::TOKEN_MAX_LEN {
+        return None;
+    }
+
+    Some(token.to_string())
 }
 
 /// Compute hex-encoded SHA-256 hash of a webhook secret.
@@ -44,36 +54,47 @@ pub fn client_key_from_request(
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// Helper to guard admin endpoints against cross-origin or non-local requests.
+/// Helper to guard admin endpoints against cross-origin browser requests.
 pub fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde_json::Value>)> {
-    let origin = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok());
-    let referer = headers.get(header::REFERER).and_then(|v| v.to_str().ok());
+    let origin_raw = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok())?;
+    let origin_raw = origin_raw.trim();
+    if origin_raw.is_empty() {
+        return None;
+    }
 
-    let is_allowed = match (origin, referer) {
-        // Parse as URL and compare host strictly
-        (Some(o), _) | (_, Some(o)) => {
-            let url_str = o.trim_end_matches('/');
-            match url::Url::parse(url_str) {
-                Ok(url) => url
-                    .host_str()
-                    .map(|host| host == "localhost" || host == "127.0.0.1")
-                    .unwrap_or(false),
-                Err(_) => false,
-            }
+    let origin = match reqwest::Url::parse(origin_raw) {
+        Ok(parsed) => parsed,
+        Err(_) => {
+            return Some((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "Invalid Origin header"})),
+            ));
         }
-        // Direct API calls without origin/referer are denied
-        (None, None) => false,
     };
 
-    if !is_allowed {
+    if !matches!(origin.scheme(), "http" | "https") {
         return Some((
             StatusCode::FORBIDDEN,
-            Json(serde_json::json!({
-                "error": "Admin access restricted to local origin"
-            })),
+            Json(serde_json::json!({"error": "Forbidden origin scheme"})),
         ));
     }
-    None
+
+    let Some(origin_host) = origin.host_str().map(str::to_ascii_lowercase) else {
+        return Some((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Forbidden request origin"})),
+        ));
+    };
+    if origin_host == "localhost" || origin_host == "127.0.0.1" {
+        None
+    } else {
+        Some((
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({"error": "Forbidden request origin"})),
+        ))
+    }
 }
 
 /// Helper to verify admin authentication (Bearer token).
@@ -81,33 +102,25 @@ pub fn admin_requires_auth(
     state: &AppState,
     headers: &HeaderMap,
 ) -> Option<(StatusCode, Json<serde_json::Value>)> {
-    if !state.pairing.require_pairing() {
-        return None;
-    }
-
-    let token = match extract_bearer_token(headers) {
-        Some(t) => t,
-        None => {
-            return Some((
-                StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({
-                    "error": "Authentication required",
-                    "hint": "Provide Authorization: Bearer <token>"
-                })),
-            ));
-        }
-    };
-
-    if !state.pairing.is_authenticated(&token) {
+    let Some(token) = extract_bearer_token(headers) else {
         return Some((
-            StatusCode::FORBIDDEN,
+            StatusCode::UNAUTHORIZED,
             Json(serde_json::json!({
-                "error": "Invalid or expired token"
+                "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
             })),
         ));
-    }
+    };
 
-    None
+    if state.pairing.is_authenticated(&token) {
+        None
+    } else {
+        Some((
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
+            })),
+        ))
+    }
 }
 
 pub fn validate_memory_backend(backend: &str) -> bool {

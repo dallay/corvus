@@ -13,7 +13,7 @@ use crate::channels::{Channel, SendMessage, WhatsAppChannel};
 use crate::config::Config;
 use crate::memory::{Memory, MemoryCategory};
 use crate::providers::{self, Provider};
-use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard, TOKEN_MAX_LEN};
+use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard};
 use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
 use axum::{
@@ -285,31 +285,6 @@ fn admin_config_view(cfg: &Config) -> AdminConfigView {
                 .map(|value| !value.trim().is_empty())
                 .unwrap_or(false),
         },
-    }
-}
-
-fn admin_requires_auth(
-    state: &AppState,
-    headers: &HeaderMap,
-) -> Option<(StatusCode, Json<serde_json::Value>)> {
-    let Some(token) = extract_bearer_token(headers) else {
-        return Some((
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({
-                "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
-            })),
-        ));
-    };
-
-    if state.pairing.is_authenticated(&token) {
-        None
-    } else {
-        Some((
-            StatusCode::UNAUTHORIZED,
-            Json(serde_json::json!({
-                "error": "Unauthorized — pair first via POST /pair, then send Authorization: Bearer <token>"
-            })),
-        ))
     }
 }
 
@@ -646,66 +621,6 @@ fn compare_primitive<T: PartialEq>(
         if value != current {
             fields.push(field);
         }
-    }
-}
-
-fn admin_origin_guard(headers: &HeaderMap) -> Option<(StatusCode, Json<serde_json::Value>)> {
-    let origin_raw = headers
-        .get(header::ORIGIN)
-        .and_then(|value| value.to_str().ok())?;
-    let origin_raw = origin_raw.trim();
-    if origin_raw.is_empty() {
-        return None;
-    }
-
-    let origin = match reqwest::Url::parse(origin_raw) {
-        Ok(parsed) => parsed,
-        Err(_) => {
-            return Some((
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid Origin header"})),
-            ));
-        }
-    };
-
-    if !matches!(origin.scheme(), "http" | "https") {
-        return Some((
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "Forbidden origin scheme"})),
-        ));
-    }
-
-    let host_header = headers
-        .get(header::HOST)
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_ascii_lowercase);
-    let Some(host_header) = host_header else {
-        return Some((
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "Forbidden request origin"})),
-        ));
-    };
-
-    let Some(origin_host) = origin.host_str().map(str::to_ascii_lowercase) else {
-        return Some((
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "Forbidden request origin"})),
-        ));
-    };
-    let origin_with_port = origin
-        .port()
-        .map(|port| format!("{origin_host}:{port}"))
-        .unwrap_or_else(|| origin_host.clone());
-
-    if host_header == origin_host || host_header == origin_with_port {
-        None
-    } else {
-        Some((
-            StatusCode::FORBIDDEN,
-            Json(serde_json::json!({"error": "Forbidden request origin"})),
-        ))
     }
 }
 
@@ -1050,25 +965,6 @@ fn client_key_from_request(
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
-    let auth = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())?
-        .trim();
-
-    let (scheme, token) = auth.split_once(char::is_whitespace)?;
-    if !scheme.eq_ignore_ascii_case("bearer") {
-        return None;
-    }
-
-    let token = token.trim();
-    if token.is_empty() || token.len() > TOKEN_MAX_LEN {
-        return None;
-    }
-
-    Some(token.to_string())
-}
-
 fn normalize_max_keys(configured: usize, fallback: usize) -> usize {
     if configured == 0 {
         fallback.max(1)
@@ -1396,19 +1292,7 @@ async fn handle_admin_get_config(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Some(rejection) = admin_origin_guard(&headers) {
-        return rejection;
-    }
-
-    if let Some(rejection) = admin_requires_auth(&state, &headers) {
-        return rejection;
-    }
-
-    let cfg = state.config.lock().clone();
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({"config": admin::admin_config_view(&cfg)})),
-    )
+    admin::handle_admin_get_config(State(state), headers).await
 }
 
 /// GET /web/admin/options — return constrained enums/defaults for dashboard forms.
@@ -1416,15 +1300,7 @@ async fn handle_admin_options(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
-    if let Some(rejection) = admin_origin_guard(&headers) {
-        return rejection;
-    }
-
-    if let Some(rejection) = admin_requires_auth(&state, &headers) {
-        return rejection;
-    }
-
-    (StatusCode::OK, Json(admin::admin_options_payload()))
+    admin::handle_admin_options(State(state), headers).await
 }
 
 async fn handle_admin_update_config_wrapper(
@@ -1461,7 +1337,7 @@ fn webhook_auth_rejection(
     }
 
     if state.pairing.require_pairing() {
-        let token = extract_bearer_token(headers).unwrap_or_default();
+        let token = utils::extract_bearer_token(headers).unwrap_or_default();
         if !state.pairing.is_authenticated(&token) {
             tracing::warn!("Webhook: rejected — not paired / invalid bearer token");
             let err = serde_json::json!({
@@ -1550,7 +1426,6 @@ async fn canonical_outcome_early_response(
                     "session_id": session_id,
                 });
                 return Some(((StatusCode::FORBIDDEN, Json(err)), false));
-            }
             }
             crate::pre_execution::BlockingOutcome::TimeoutAborted => {
                 let body = serde_json::json!({
@@ -2055,18 +1930,18 @@ mod tests {
             HeaderValue::from_static("bEaReR   test-token   "),
         );
 
-        let token = extract_bearer_token(&headers).unwrap();
+        let token = utils::extract_bearer_token(&headers).unwrap();
         assert_eq!(token, "test-token");
     }
 
     #[test]
     fn extract_bearer_token_rejects_too_long_token() {
         let mut headers = HeaderMap::new();
-        let oversized = "x".repeat(TOKEN_MAX_LEN + 1);
+        let oversized = "x".repeat(crate::security::pairing::TOKEN_MAX_LEN + 1);
         let auth = format!("Bearer {oversized}");
         headers.insert(header::AUTHORIZATION, HeaderValue::from_str(&auth).unwrap());
 
-        assert!(extract_bearer_token(&headers).is_none());
+        assert!(utils::extract_bearer_token(&headers).is_none());
     }
 
     #[test]
@@ -2076,13 +1951,13 @@ mod tests {
             header::AUTHORIZATION,
             HeaderValue::from_static("Basic abc123"),
         );
-        assert!(extract_bearer_token(&headers).is_none());
+        assert!(utils::extract_bearer_token(&headers).is_none());
 
         headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer"));
-        assert!(extract_bearer_token(&headers).is_none());
+        assert!(utils::extract_bearer_token(&headers).is_none());
 
         headers.insert(header::AUTHORIZATION, HeaderValue::from_static("Bearer   "));
-        assert!(extract_bearer_token(&headers).is_none());
+        assert!(utils::extract_bearer_token(&headers).is_none());
     }
 
     #[test]
@@ -2538,6 +2413,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_config_rejects_invalid_bearer_token() {
+        let mut cfg = temp_config();
+        cfg.gateway.require_pairing = true;
+        cfg.gateway.paired_tokens = vec!["zc_valid_token".into()];
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(cfg)),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(true, &["zc_valid_token".into()])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer invalid-token"),
+        );
+
+        let response = handle_admin_get_config(State(state), headers)
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
     async fn pair_endpoint_allows_unpaired_runtime_to_auth_admin_endpoint() {
         let mut cfg = temp_config();
         cfg.gateway.require_pairing = true;
@@ -2659,6 +2569,9 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_non_preview_blocks_approval_and_keeps_session_id() {
+        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+        let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "0");
+        let _approve_reset = EnvVarGuard::set("CORVUS_UNIFIED_APPROVE", "0");
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             provider: Arc::new(MockProvider::default()),
@@ -2923,6 +2836,36 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn admin_config_rejects_malformed_origin_header() {
+        let cfg = temp_config();
+        let state = AppState {
+            config: Arc::new(Mutex::new(cfg)),
+            provider: Arc::new(MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
+        headers.insert(header::ORIGIN, HeaderValue::from_static("http://["));
+
+        let response = handle_admin_get_config(State(state), headers)
+            .await
+            .into_response();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
     async fn admin_config_update_persists_noop_patch() {
         let cfg = temp_config();
         cfg.save().unwrap();
@@ -2953,6 +2896,7 @@ mod tests {
             header::ORIGIN,
             HeaderValue::from_static("http://127.0.0.1:3000"),
         );
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
 
         let payload = serde_json::json!({
             "webhook": {
@@ -3009,6 +2953,7 @@ mod tests {
             header::ORIGIN,
             HeaderValue::from_static("http://127.0.0.1:3000"),
         );
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
 
         let before = {
             let cfg_guard = shared_cfg.lock();
@@ -3081,6 +3026,7 @@ mod tests {
             header::ORIGIN,
             HeaderValue::from_static("http://127.0.0.1:3000"),
         );
+        headers.insert(header::HOST, HeaderValue::from_static("127.0.0.1:3000"));
 
         let payload = serde_json::json!({
             "default_model": "anthropic/claude-3-5-sonnet",
