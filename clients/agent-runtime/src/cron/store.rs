@@ -425,7 +425,9 @@ fn map_cron_job_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CronJob> {
         expression,
         schedule,
         command: row.get(2)?,
-        job_type: JobType::parse(&row.get::<_, String>(4)?),
+        job_type: JobType::parse(&row.get::<_, String>(4)?).map_err(|e| {
+            sql_conversion_error(anyhow::anyhow!("Invalid stored cron job type: {e}"))
+        })?,
         prompt: row.get(5)?,
         name: row.get(6)?,
         session_target: SessionTarget::parse(&row.get::<_, String>(7)?),

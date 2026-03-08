@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 // ── Top-level config ──────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
     /// Workspace directory - computed from home, not serialized
     #[serde(skip)]
@@ -2957,8 +2958,6 @@ mod tests {
     #[test]
     fn config_defaults_mission_when_section_missing() {
         let toml_str = r#"
-workspace_dir = "/tmp/workspace"
-config_path = "/tmp/config.toml"
 default_temperature = 0.7
 "#;
 
@@ -2998,8 +2997,6 @@ default_temperature = 0.7
     #[test]
     fn config_defaults_cron_when_section_missing() {
         let toml_str = r#"
-workspace_dir = "/tmp/workspace"
-config_path = "/tmp/config.toml"
 default_temperature = 0.7
 "#;
 
@@ -3169,8 +3166,6 @@ default_temperature = 0.7
     #[test]
     fn config_minimal_toml_uses_defaults() {
         let minimal = r#"
-workspace_dir = "/tmp/ws"
-config_path = "/tmp/config.toml"
 default_temperature = 0.7
 "#;
         let parsed: Config = toml::from_str(minimal).unwrap();
@@ -3874,8 +3869,6 @@ channel_id = "C123"
     fn checklist_gateway_backward_compat_no_gateway_section() {
         // Old configs without [gateway] should get secure defaults
         let minimal = r#"
-workspace_dir = "/tmp/ws"
-config_path = "/tmp/config.toml"
 default_temperature = 0.7
 "#;
         let parsed: Config = toml::from_str(minimal).unwrap();
@@ -3936,8 +3929,6 @@ default_temperature = 0.7
     #[test]
     fn composio_config_backward_compat_missing_section() {
         let minimal = r#"
-workspace_dir = "/tmp/ws"
-config_path = "/tmp/config.toml"
 default_temperature = 0.7
 "#;
         let parsed: Config = toml::from_str(minimal).unwrap();
@@ -3980,8 +3971,6 @@ enabled = true
     #[test]
     fn secrets_config_backward_compat_missing_section() {
         let minimal = r#"
-workspace_dir = "/tmp/ws"
-config_path = "/tmp/config.toml"
 default_temperature = 0.7
 "#;
         let parsed: Config = toml::from_str(minimal).unwrap();
@@ -4065,13 +4054,23 @@ default_temperature = 0.7
     #[test]
     fn browser_config_backward_compat_missing_section() {
         let minimal = r#"
-workspace_dir = "/tmp/ws"
-config_path = "/tmp/config.toml"
 default_temperature = 0.7
 "#;
         let parsed: Config = toml::from_str(minimal).unwrap();
         assert!(!parsed.browser.enabled);
         assert!(parsed.browser.allowed_domains.is_empty());
+    }
+
+    #[test]
+    fn config_rejects_unknown_top_level_sections() {
+        let raw = r#"
+default_temperature = 0.7
+[conductor]
+enabled = true
+"#;
+
+        let err = toml::from_str::<Config>(raw).unwrap_err().to_string();
+        assert!(err.contains("unknown field") || err.contains("conductor"));
     }
 
     // ── Environment variable overrides (Docker support) ─────────

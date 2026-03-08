@@ -17,11 +17,13 @@ impl JobType {
         }
     }
 
-    pub(crate) fn parse(raw: &str) -> Self {
+    pub(crate) fn parse(raw: &str) -> Result<Self, String> {
         if raw.eq_ignore_ascii_case("agent") {
-            Self::Agent
+            Ok(Self::Agent)
+        } else if raw.eq_ignore_ascii_case("shell") {
+            Ok(Self::Shell)
         } else {
-            Self::Shell
+            Err(format!("Invalid job_type: {raw}"))
         }
     }
 }
@@ -137,4 +139,23 @@ pub struct CronJobPatch {
     pub model: Option<String>,
     pub session_target: Option<SessionTarget>,
     pub delete_after_run: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::JobType;
+
+    #[test]
+    fn parse_accepts_shell_and_agent_case_insensitive() {
+        assert_eq!(JobType::parse("shell").unwrap(), JobType::Shell);
+        assert_eq!(JobType::parse("SHELL").unwrap(), JobType::Shell);
+        assert_eq!(JobType::parse("agent").unwrap(), JobType::Agent);
+        assert_eq!(JobType::parse("AgEnT").unwrap(), JobType::Agent);
+    }
+
+    #[test]
+    fn parse_rejects_unknown_job_type() {
+        let err = JobType::parse("other").unwrap_err();
+        assert!(err.contains("Invalid job_type"));
+    }
 }
