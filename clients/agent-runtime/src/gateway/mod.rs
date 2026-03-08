@@ -1529,54 +1529,47 @@ async fn canonical_outcome_early_response(
     session_id: &str,
     scrubbed_message: &str,
 ) -> Option<WebhookResponse> {
-    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
-    let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
-        session_id.to_string(),
-        scrubbed_message,
-        approval_granted,
-        crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
-            enable_test_triggers: cfg!(test),
-        },
-    )
-    .await;
+    let canonical = crate::pre_execution::evaluate(session_id.to_string(), scrubbed_message).await;
 
-    if let Some(tool) = canonical.approval_required {
-        let denial_reason = match evaluate_tool_risk(&tool) {
-            DispatchAction::ApprovalRequired(reason) => {
-                if reason.trim().is_empty() {
-                    format!("approval required before executing `{tool}`")
-                } else {
-                    reason
-                }
+    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
+        match blocking {
+            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
+                let denial_reason = match evaluate_tool_risk(&tool) {
+                    DispatchAction::ApprovalRequired(reason) => {
+                        if reason.trim().is_empty() {
+                            format!("approval required before executing `{tool}`")
+                        } else {
+                            reason
+                        }
+                    }
+                    DispatchAction::Execute => format!("approval required for `{tool}`"),
+                };
+                let denial = crate::approval::structured_denial_payload(&tool, &denial_reason);
+                let err = serde_json::json!({
+                    "error": denial,
+                    "session_id": session_id,
+                });
+                return Some((StatusCode::FORBIDDEN, Json(err)));
             }
-            DispatchAction::Execute => format!("approval required for `{tool}`"),
-        };
-        let denial = crate::approval::structured_denial_payload(&tool, &denial_reason);
-        let err = serde_json::json!({
-            "error": denial,
-            "session_id": session_id,
-        });
-        return Some((StatusCode::FORBIDDEN, Json(err)));
-    }
-
-    if canonical.timeout_aborted {
-        let body = serde_json::json!({
-            "response": "request aborted due to timeout semantics",
-            "model": state.model,
-            "session_id": session_id,
-            "aborted": true,
-        });
-        return Some((StatusCode::REQUEST_TIMEOUT, Json(body)));
-    }
-
-    if let Some(fallback) = canonical.fallback_response {
-        let body = serde_json::json!({
-            "response": fallback,
-            "model": state.model,
-            "session_id": session_id,
-            "fallback": true,
-        });
-        return Some((StatusCode::OK, Json(body)));
+            crate::pre_execution::BlockingOutcome::TimeoutAborted => {
+                let body = serde_json::json!({
+                    "response": "request aborted due to timeout semantics",
+                    "model": state.model,
+                    "session_id": session_id,
+                    "aborted": true,
+                });
+                return Some((StatusCode::REQUEST_TIMEOUT, Json(body)));
+            }
+            crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                let body = serde_json::json!({
+                    "response": response,
+                    "model": state.model,
+                    "session_id": session_id,
+                    "fallback": true,
+                });
+                return Some((StatusCode::OK, Json(body)));
+            }
+        }
     }
 
     None

@@ -619,37 +619,23 @@ async fn handle_canonical_blocking_outcome(
     reply_target: &str,
     content: &str,
 ) -> Option<()> {
-    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
-    let canonical = crate::agent::unified_entrypoint::run_canonical_outcome(
-        session_id.to_string(),
-        content,
-        approval_granted,
-        crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
-            enable_test_triggers: cfg!(test),
-        },
-    )
-    .await;
+    let canonical = crate::pre_execution::evaluate(session_id.to_string(), content).await;
 
-    if let Some(tool) = canonical.approval_required {
+    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
         if let Some(ch) = channel {
-            let text =
-                format!("[session:{session_id}] approval required for `{tool}`; request blocked");
-            let _ = ch.send(&SendMessage::new(text, reply_target)).await;
-        }
-        return Some(());
-    }
-
-    if canonical.timeout_aborted {
-        if let Some(ch) = channel {
-            let text = channel_timeout_abort_text(session_id);
-            let _ = ch.send(&SendMessage::new(text, reply_target)).await;
-        }
-        return Some(());
-    }
-
-    if let Some(fallback) = canonical.fallback_response {
-        if let Some(ch) = channel {
-            let text = format!("[session:{session_id}] {fallback}");
+            let text = match blocking {
+                crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
+                    format!(
+                        "[session:{session_id}] approval required for `{tool}`; request blocked"
+                    )
+                }
+                crate::pre_execution::BlockingOutcome::TimeoutAborted => {
+                    channel_timeout_abort_text(session_id)
+                }
+                crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                    format!("[session:{session_id}] {response}")
+                }
+            };
             let _ = ch.send(&SendMessage::new(text, reply_target)).await;
         }
         return Some(());

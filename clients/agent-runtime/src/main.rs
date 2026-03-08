@@ -61,6 +61,7 @@ mod migration;
 mod observability;
 mod onboard;
 mod peripherals;
+mod pre_execution;
 mod providers;
 mod runtime;
 mod security;
@@ -535,19 +536,7 @@ async fn collect_unified_loop_result(
         };
     }
 
-    let approval_granted = std::env::var("CORVUS_UNIFIED_APPROVE").as_deref() == Ok("1");
-    // Enable test triggers if running in test mode OR if explicitly enabled via env var
-    let enable_test_triggers =
-        cfg!(test) || std::env::var("CORVUS_UNIFIED_TEST_TRIGGERS").as_deref() == Ok("1");
-    let mut outcome = crate::agent::unified_entrypoint::run_canonical_outcome(
-        session,
-        prompt,
-        approval_granted,
-        crate::agent::unified_entrypoint::CanonicalOutcomeConfig {
-            enable_test_triggers,
-        },
-    )
-    .await;
+    let mut outcome = crate::pre_execution::evaluate(session, prompt).await;
 
     if outcome.approval_required.is_some()
         && !outcome.events.iter().any(|event| {
@@ -896,25 +885,27 @@ async fn handle_agent_command(
         }
     }
 
-    if let Some(tool) = canonical.approval_required {
-        return Err(anyhow!(
-            "[session:{}] approval required for `{tool}`; request blocked",
-            canonical.session_id
-        ));
-    }
-
-    if canonical.timeout_aborted {
-        return Err(anyhow!(
-            "[session:{}] request aborted due to timeout semantics",
-            canonical.session_id
-        ));
-    }
-
-    if let Some(fallback) = canonical.fallback_response {
-        return Err(anyhow!(
-            "[session:{}] fallback activated: {fallback}",
-            canonical.session_id
-        ));
+    if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
+        match blocking {
+            crate::pre_execution::BlockingOutcome::ApprovalRequired { tool } => {
+                return Err(anyhow!(
+                    "[session:{}] approval required for `{tool}`; request blocked",
+                    canonical.session_id
+                ));
+            }
+            crate::pre_execution::BlockingOutcome::TimeoutAborted => {
+                return Err(anyhow!(
+                    "[session:{}] request aborted due to timeout semantics",
+                    canonical.session_id
+                ));
+            }
+            crate::pre_execution::BlockingOutcome::Fallback { response } => {
+                return Err(anyhow!(
+                    "[session:{}] fallback activated: {response}",
+                    canonical.session_id
+                ));
+            }
+        }
     }
 
     if std::env::var("CORVUS_UNIFIED_CANONICAL_ONLY").as_deref() == Ok("1") {
