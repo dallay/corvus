@@ -30,20 +30,28 @@ fn provider_runtime_options(config: &Config) -> ProviderRuntimeOptions {
     }
 }
 
+fn init_memory_and_observer(
+    config: &Config,
+) -> anyhow::Result<(Arc<dyn Memory>, Arc<dyn Observer>)> {
+    let observer: Arc<dyn Observer> =
+        Arc::from(observability::create_observer(&config.observability));
+    let memory: Arc<dyn Memory> = Arc::from(memory::create_memory(
+        &config.memory,
+        &config.workspace_dir,
+        config.api_key.as_deref(),
+    )?);
+
+    Ok((memory, observer))
+}
+
 impl BootstrapContext {
     pub fn from_config(config: &Config) -> anyhow::Result<Self> {
-        let observer: Arc<dyn Observer> =
-            Arc::from(observability::create_observer(&config.observability));
+        let (memory, observer) = init_memory_and_observer(config)?;
         let runtime: Arc<dyn RuntimeAdapter> = Arc::from(runtime::create_runtime(&config.runtime)?);
         let security = Arc::new(SecurityPolicy::from_config(
             &config.autonomy,
             &config.workspace_dir,
         ));
-        let memory: Arc<dyn Memory> = Arc::from(memory::create_memory(
-            &config.memory,
-            &config.workspace_dir,
-            config.api_key.as_deref(),
-        )?);
 
         let (composio_key, composio_entity_id) = if config.composio.enabled {
             (
@@ -113,15 +121,7 @@ pub fn create_routed_provider(
 pub fn create_memory_and_observer(
     config: &Config,
 ) -> anyhow::Result<(Arc<dyn Memory>, Arc<dyn Observer>)> {
-    let observer: Arc<dyn Observer> =
-        Arc::from(observability::create_observer(&config.observability));
-    let memory: Arc<dyn Memory> = Arc::from(memory::create_memory(
-        &config.memory,
-        &config.workspace_dir,
-        config.api_key.as_deref(),
-    )?);
-
-    Ok((memory, observer))
+    init_memory_and_observer(config)
 }
 
 #[cfg(test)]

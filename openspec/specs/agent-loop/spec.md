@@ -8,17 +8,23 @@ This specification defines the canonical Agent Loop behavior for the Corvus proj
 
 ### Requirement: Entry Points Alignment
 
-The system MUST provide a unified loop contract across all entry points (CLI, channels, gateway webhook). Any semantic differences MUST be explicitly justified and narrow in scope.
+The system MUST provide a unified loop contract across entry points that execute the canonical dispatcher (CLI and channels). The gateway webhook path is currently a scoped exception that applies canonical pre-checks and then responds via `Provider::simple_chat()`. Any semantic differences MUST be explicitly justified and narrow in scope.
 
 #### Scenario: Unified Loop Execution
-- GIVEN a user prompt originating from any supported entry point (CLI, channel, or gateway)
+- GIVEN a user prompt originating from a canonical loop entry point (CLI or channel)
 - WHEN the request enters the agent loop
 - THEN the system MUST initialize the loop with consistent session invariants, applying the same approval and security policies regardless of origin
 - AND the system MUST route execution through the canonical dispatcher boundary.
 
+#### Scenario: Gateway Webhook Interim Behavior
+- GIVEN a user prompt arriving via the gateway webhook entry point
+- WHEN the gateway handles the request
+- THEN the system MUST apply canonical pre-checks before model execution
+- AND the response path MAY use `Provider::simple_chat()` until gateway migration to canonical dispatcher is completed.
+
 ### Requirement: Stream Events Lifecycle
 
-The loop MUST emit predictable stream events during its lifecycle, ensuring callers can accurately track prompt assembly, tool execution, and final response generation.
+The canonical loop MUST emit predictable stream events during its lifecycle, ensuring callers can accurately track prompt assembly, tool execution, and final response generation.
 
 #### Scenario: Standard Iteration Events
 - GIVEN an active agent loop
