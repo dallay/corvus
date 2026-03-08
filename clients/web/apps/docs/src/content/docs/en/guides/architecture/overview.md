@@ -12,7 +12,7 @@ Context, Container, Component, Code).
 
 Shows the Corvus system as a black box and its interactions with actors and external systems.
 
-- **File**: [`context/system-context.mmd`](/guides/architecture/diagrams/context/system-context.mmd)
+- **File**: [`context/system-context.mmd`](./diagrams/context/system-context.mmd)
 - **Format**: Mermaid
 - **Description**: High-level view of the complete system, including users (Developer, End User) and
   external systems (LLM Providers, Neo4j, Web Sources).
@@ -22,8 +22,8 @@ Shows the Corvus system as a black box and its interactions with actors and exte
 Decomposes the system into main containers/applications and their interactions.
 
 - **Files**:
-  - [`container/system-containers.mmd`](/guides/architecture/diagrams/container/system-containers.mmd) (Mermaid)
-  - [`container/system-containers.puml`](/guides/architecture/diagrams/container/system-containers.puml) (PlantUML)
+  - [`container/system-containers.mmd`](./diagrams/container/system-containers.mmd) (Mermaid)
+  - [`container/system-containers.puml`](./diagrams/container/system-containers.puml) (PlantUML)
 - **Description**: Shows the main containers: Web Dashboard, Android App, iOS App, Agent Runtime,
   Rust Sidecar, and Graph DB.
 
@@ -33,7 +33,7 @@ Decomposes individual containers into their internal components.
 
 ### Agent Core KMP
 
-- **File**: [`component/agent-core-kmp.mmd`](/guides/architecture/diagrams/component/agent-core-kmp.mmd)
+- **File**: [`component/agent-core-kmp.mmd`](./diagrams/component/agent-core-kmp.mmd)
 - **Description**: Internal components of the core module: Domain, Use Cases, Interfaces, and
   Infrastructure.
 
@@ -41,7 +41,7 @@ Decomposes individual containers into their internal components.
 
 Additional diagram showing Gradle dependencies between modules.
 
-- **File**: [`module-dependencies.mmd`](/guides/architecture/diagrams/module-dependencies.mmd)
+- **File**: [`module-dependencies.mmd`](./diagrams/module-dependencies.mmd)
 - **Description**: Shows how clients depend on the shared core and external frameworks.
 
 ## How to Visualize

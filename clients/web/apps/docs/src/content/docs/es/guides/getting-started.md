@@ -105,6 +105,6 @@ corvus --help
 
 ## Siguientes Pasos
 
-- Revisa la [Estructura del Proyecto](../structure/).
-- Consulta la [Lista de Funcionalidades](../features/).
-- Continúa con [Desarrollo](../development/).
+- Revisa la [Estructura del Proyecto](./structure/).
+- Consulta la [Lista de Funcionalidades](./features/).
+- Continúa con [Desarrollo](./development/).
