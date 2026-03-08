@@ -117,9 +117,9 @@ For a more detailed view of the architecture, see the following C4 diagrams:
 
 | Level           | Diagram                                                                    | Description                                       | File                              |
 |-----------------|----------------------------------------------------------------------------|---------------------------------------------------|-----------------------------------|
-| C1 - Context    | [System Context](./architecture/diagrams/context/system-context.mmd)       | High-level view of the system and external actors | `context/system-context.mmd`      |
-| C2 - Containers | [Main Containers](./architecture/diagrams/container/system-containers.mmd) | Applications and services that compose Corvus     | `container/system-containers.mmd` |
-| C3 - Components | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd)     | Internal components of the core module            | `component/agent-core-kmp.mmd`    |
-| -               | [Module Dependencies](./architecture/diagrams/module-dependencies.mmd)     | Gradle dependency relationships                   | `module-dependencies.mmd`         |
+| C1 - Context    | [System Context](/guides/architecture/diagrams/context/system-context.mmd)       | High-level view of the system and external actors | `context/system-context.mmd`      |
+| C2 - Containers | [Main Containers](/guides/architecture/diagrams/container/system-containers.mmd) | Applications and services that compose Corvus     | `container/system-containers.mmd` |
+| C3 - Components | [Agent Core KMP](/guides/architecture/diagrams/component/agent-core-kmp.mmd)     | Internal components of the core module            | `component/agent-core-kmp.mmd`    |
+| -               | [Module Dependencies](/guides/architecture/diagrams/module-dependencies.mmd)     | Gradle dependency relationships                   | `module-dependencies.mmd`         |
 
-See [Architecture Index](./architecture/overview.md) for more details on how to visualize them.
+See [Architecture Index](./overview/) for more details on how to visualize them.
