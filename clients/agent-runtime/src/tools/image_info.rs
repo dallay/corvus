@@ -473,6 +473,28 @@ mod tests {
             .contains("Rate limit exceeded"));
     }
 
+    #[tokio::test]
+    async fn execute_rejects_absolute_path() {
+        let dir = std::env::temp_dir().join("corvus_image_info_abs_path");
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Full,
+            workspace_dir: dir.clone(),
+            workspace_only: true,
+            ..SecurityPolicy::default()
+        });
+
+        let tool = ImageInfoTool::new(security);
+        let result = tool.execute(json!({"path": "/etc/passwd"})).await.unwrap();
+
+        assert!(!result.success);
+        assert!(result.error.as_deref().unwrap_or("").contains("Path not allowed"));
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
     #[cfg(unix)]
     #[tokio::test]
     async fn execute_blocks_symlink_escape() {

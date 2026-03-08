@@ -496,19 +496,13 @@ footer {
 }
 
 /* ── Smooth Transitions ── */
-*,
-*::before,
-*::after {
-  transition-property: color, background-color, border-color, opacity, box-shadow;
-  transition-duration: 0s; /* Prevent flash on page load */
-}
-
-/* Only animate on user interaction */
+/* Keep transitions opt-in so third-party components retain their own timing. */
 a,
 button,
 .card,
 input,
 summary {
+  transition-property: color, background-color, border-color, opacity, box-shadow;
   transition-duration: 0.2s;
   transition-timing-function: ease;
 }
