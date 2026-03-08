@@ -94,50 +94,6 @@ jobs:
         shell: bash
         run: echo "key=${GITHUB_REPOSITORY//\//_}" >> "$GITHUB_OUTPUT"
 
-      - name: 🎚️ Temporarily relax new coverage gate to 70%
-        if: >-
-          env.SONAR_TOKEN != '' &&
-          (
-            github.event_name == 'pull_request' ||
-            (github.event_name == 'push' && github.ref == 'refs/heads/main')
-          )
-        shell: bash
-        run: |
-          set -euo pipefail
-          api_base="https://sonarcloud.io/api"
-          metric_key="new_coverage"
-          curl -sf -u "${SONAR_TOKEN}:" --get \
-            --data-urlencode "name=Corvus Gate" \
-            "${api_base}/qualitygates/show" > gate.json
-
-          condition_id=$(METRIC_KEY="${metric_key}" python - <<'PY'
-          import json
-          import os
-
-          metric_key = os.environ["METRIC_KEY"]
-
-          with open("gate.json", "r", encoding="utf-8") as f:
-              data = json.load(f)
-
-          condition = next(
-              (c for c in data.get("conditions", []) if c.get("metric") == metric_key),
-              None,
-          )
-
-          if not condition or "id" not in condition:
-              raise SystemExit(f"{metric_key} condition not found in Corvus Gate")
-
-          print(condition["id"])
-          PY
-          )
-
-          curl -sf -u "${SONAR_TOKEN}:" -X POST "${api_base}/qualitygates/update_condition" \
-            --data-urlencode "id=${condition_id}" \
-            --data-urlencode "metric=${metric_key}" \
-            --data-urlencode "error=70"
-
-          echo "Updated Corvus Gate new_coverage threshold to 70"
-
       - name: 🔍 SonarQube scan
         if: env.SONAR_TOKEN != ''
         uses: SonarSource/sonarqube-scan-action@fd88b7d7ccbaefd23d8f36f73b59db7a3d246602 # v6
