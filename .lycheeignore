@@ -76,3 +76,8 @@ gradle/configs/checkstyle/checkstyle-header-file\.txt
 # =============================================================================
 ^file://.*/clients/web/apps/chat/favicon\.svg$
 ^file://.*/clients/web/apps/dashboard/favicon\.svg$
+
+# Mermaid and PlantUML diagrams
+.*\.mmd$
+.*\.puml$
+^/guides/architecture/diagrams/.*
