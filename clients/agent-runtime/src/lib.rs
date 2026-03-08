@@ -67,6 +67,8 @@ pub mod runtime;
 pub mod security;
 pub mod service;
 pub mod skills;
+#[cfg(test)]
+pub mod test_support;
 pub mod tools;
 pub mod tunnel;
 pub mod update;
