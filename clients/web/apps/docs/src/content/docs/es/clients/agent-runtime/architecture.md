@@ -133,6 +133,19 @@ acción. Durante las fases de pensamiento, el agente analiza el contexto disponi
 herramientas invocar. Durante las fases de acción, ejecuta las herramientas seleccionadas y procesa
 los resultados.
 
+#### Rutas internas para agentes especializados
+
+Los consumidores internos ahora pueden instanciar un agente especializado en código sin duplicar el
+bootstrap. La ruta canónica es `Agent::code_from_config(&config)`, que reutiliza el ensamblaje
+compartido del bootstrap y fuerza el perfil de capacidades `code` solo para esa instancia del
+agente. Los consumidores de más bajo nivel que necesiten acceder directamente a los componentes del
+bootstrap pueden usar `BootstrapContext::from_config_with_profile(&config, "code")`.
+
+Esto mantiene alineados la selección de proveedor, la memoria, la observabilidad y el filtrado de
+herramientas con la ruta principal del runtime, mientras permite agregar futuros agentes
+especializados como entrypoints delgados basados en perfiles en lugar de árboles de configuración
+separados.
+
 ### Proveedores
 
 El módulo `providers/` incluye implementaciones para múltiples proveedores de modelos de lenguaje.
