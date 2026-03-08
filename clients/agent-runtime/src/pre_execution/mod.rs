@@ -99,4 +99,33 @@ mod tests {
             })
         );
     }
+
+    #[test]
+    fn classify_returns_none_when_nothing_blocks() {
+        let outcome = CanonicalOutcome {
+            session_id: "s1".to_string(),
+            events: Vec::new(),
+            approval_required: None,
+            timeout_aborted: false,
+            fallback_response: None,
+        };
+
+        assert_eq!(classify_blocking(&outcome), None);
+    }
+
+    #[test]
+    fn classify_prefers_timeout_over_fallback_when_no_approval() {
+        let outcome = CanonicalOutcome {
+            session_id: "s1".to_string(),
+            events: Vec::new(),
+            approval_required: None,
+            timeout_aborted: true,
+            fallback_response: Some("fallback response".to_string()),
+        };
+
+        assert_eq!(
+            classify_blocking(&outcome),
+            Some(BlockingOutcome::TimeoutAborted)
+        );
+    }
 }
