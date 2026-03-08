@@ -18,6 +18,68 @@ enum AgentProfile {
     Lite,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ToolCapability {
+    Lite,
+    Code,
+    FullOnly,
+    Mcp,
+}
+
+const LITE_TOOL_ALLOWLIST: &[&str] = &["shell", "file_read", "file_write"];
+
+const CODE_TOOL_ALLOWLIST: &[&str] = &[
+    "browser",
+    "browser_open",
+    "delegate",
+    "file_read",
+    "file_write",
+    "git_operations",
+    "http_request",
+    "image_info",
+    "memory_forget",
+    "memory_recall",
+    "memory_store",
+    "screenshot",
+    "shell",
+    "web_search_tool",
+];
+
+const FULL_ONLY_TOOL_ALLOWLIST: &[&str] = &[
+    "composio",
+    "cron_add",
+    "cron_list",
+    "cron_remove",
+    "cron_run",
+    "cron_runs",
+    "cron_update",
+    "hardware_board_info",
+    "hardware_memory_map",
+    "hardware_memory_read",
+    "pushover",
+    "schedule",
+];
+
+fn classify_tool_capability(tool_name: &str) -> Option<ToolCapability> {
+    if tool_name.starts_with("mcp.") {
+        return Some(ToolCapability::Mcp);
+    }
+
+    if LITE_TOOL_ALLOWLIST.contains(&tool_name) {
+        return Some(ToolCapability::Lite);
+    }
+
+    if CODE_TOOL_ALLOWLIST.contains(&tool_name) {
+        return Some(ToolCapability::Code);
+    }
+
+    if FULL_ONLY_TOOL_ALLOWLIST.contains(&tool_name) {
+        return Some(ToolCapability::FullOnly);
+    }
+
+    None
+}
+
 impl AgentProfile {
     fn from_config(config: &Config) -> anyhow::Result<Self> {
         Self::from_raw(config.agent.profile.as_str())
@@ -48,28 +110,16 @@ impl AgentProfile {
     fn allows_tool(self, tool_name: &str) -> bool {
         match self {
             Self::Full => true,
-            Self::Code => {
-                if tool_name.starts_with("mcp.") {
-                    return true;
-                }
-
-                !matches!(
-                    tool_name,
-                    "cron_add"
-                        | "cron_list"
-                        | "cron_remove"
-                        | "cron_run"
-                        | "cron_runs"
-                        | "cron_update"
-                        | "schedule"
-                        | "pushover"
-                        | "composio"
-                        | "hardware_board_info"
-                        | "hardware_memory_map"
-                        | "hardware_memory_read"
+            Self::Code => matches!(
+                classify_tool_capability(tool_name),
+                Some(ToolCapability::Lite | ToolCapability::Code | ToolCapability::Mcp)
+            ),
+            Self::Lite => {
+                matches!(
+                    classify_tool_capability(tool_name),
+                    Some(ToolCapability::Lite)
                 )
             }
-            Self::Lite => matches!(tool_name, "shell" | "file_read" | "file_write"),
         }
     }
 }
@@ -199,6 +249,7 @@ pub fn create_memory_and_observer(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::DelegateAgentConfig;
 
     #[test]
     fn bootstrap_context_builds_core_components() {
@@ -256,6 +307,75 @@ mod tests {
 
         let error = BootstrapContext::from_config(&config).err().unwrap();
         assert!(error.to_string().contains("unsupported agent.profile"));
+    }
+
+    #[test]
+    fn code_and_lite_profiles_explicitly_classify_registered_tools() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = Config::default();
+        config.workspace_dir = tmp.path().join("workspace");
+        config.config_path = tmp.path().join("config.toml");
+        config.browser.enabled = true;
+        config.http_request.enabled = true;
+        config.web_search.enabled = true;
+        config.agents.insert(
+            "delegate-worker".into(),
+            DelegateAgentConfig {
+                provider: "openrouter".into(),
+                model: "test-model".into(),
+                system_prompt: None,
+                api_key: None,
+                temperature: None,
+                max_depth: 3,
+            },
+        );
+
+        let security = Arc::new(SecurityPolicy::from_config(
+            &config.autonomy,
+            &config.workspace_dir,
+        ));
+        let runtime: Arc<dyn RuntimeAdapter> =
+            Arc::from(runtime::create_runtime(&config.runtime).unwrap());
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let memory: Arc<dyn Memory> = Arc::from(
+            memory::create_memory(
+                &memory_cfg,
+                &config.workspace_dir,
+                config.api_key.as_deref(),
+            )
+            .unwrap(),
+        );
+
+        let tools = tools::all_tools_with_runtime(
+            Arc::new(config.clone()),
+            &security,
+            runtime,
+            memory,
+            Some("composio-test-key"),
+            Some("composio-test-entity"),
+            &config.browser,
+            &config.http_request,
+            &config.workspace_dir,
+            &config.agents,
+            config.api_key.as_deref(),
+            &config,
+        );
+
+        let unclassified: Vec<String> = tools
+            .iter()
+            .map(|tool| tool.name())
+            .filter(|tool_name| classify_tool_capability(tool_name).is_none())
+            .map(ToString::to_string)
+            .collect();
+
+        assert!(
+            unclassified.is_empty(),
+            "found unclassified tools; assign each tool to lite/code/full: {}",
+            unclassified.join(", ")
+        );
     }
 
     #[test]
