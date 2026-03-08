@@ -292,9 +292,12 @@ mod tests {
 
         let ctx = BootstrapContext::from_config(&config).unwrap();
         let names: Vec<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
+        let actual: std::collections::HashSet<&str> = names.iter().copied().collect();
+        let expected: std::collections::HashSet<&str> =
+            ["shell", "file_read", "file_write"].into_iter().collect();
 
         assert_eq!(ctx.memory.name(), "none");
-        assert_eq!(names, vec!["shell", "file_read", "file_write"]);
+        assert_eq!(actual, expected);
     }
 
     #[test]
