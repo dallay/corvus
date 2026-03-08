@@ -16,6 +16,10 @@ pub struct BootstrapContext {
     pub tools: Vec<Box<dyn Tool>>,
 }
 
+fn selected_provider_name(config: &Config) -> &str {
+    config.default_provider.as_deref().unwrap_or("openrouter")
+}
+
 impl BootstrapContext {
     pub fn from_config(config: &Config) -> anyhow::Result<Self> {
         let observer: Arc<dyn Observer> =
@@ -66,7 +70,7 @@ impl BootstrapContext {
 }
 
 pub fn create_resilient_provider(config: &Config) -> anyhow::Result<Arc<dyn Provider>> {
-    let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
+    let provider_name = selected_provider_name(config);
 
     Ok(Arc::from(
         providers::create_resilient_provider_with_options(
@@ -87,7 +91,7 @@ pub fn create_routed_provider(
     config: &Config,
     default_model: &str,
 ) -> anyhow::Result<Box<dyn Provider>> {
-    let provider_name = config.default_provider.as_deref().unwrap_or("openrouter");
+    let provider_name = selected_provider_name(config);
 
     providers::create_routed_provider(
         provider_name,
@@ -97,6 +101,20 @@ pub fn create_routed_provider(
         &config.model_routes,
         default_model,
     )
+}
+
+pub fn create_memory_and_observer(
+    config: &Config,
+) -> anyhow::Result<(Arc<dyn Memory>, Arc<dyn Observer>)> {
+    let observer: Arc<dyn Observer> =
+        Arc::from(observability::create_observer(&config.observability));
+    let memory: Arc<dyn Memory> = Arc::from(memory::create_memory(
+        &config.memory,
+        &config.workspace_dir,
+        config.api_key.as_deref(),
+    )?);
+
+    Ok((memory, observer))
 }
 
 #[cfg(test)]
@@ -117,12 +135,20 @@ mod tests {
         assert!(!ctx.runtime.name().is_empty());
     }
 
-    #[test]
-    fn resilient_provider_uses_default_provider_when_missing() {
+    #[tokio::test]
+    async fn resilient_provider_uses_openrouter_when_default_provider_missing() {
         let mut config = Config::default();
         config.default_provider = None;
 
         let provider = create_resilient_provider(&config).unwrap();
-        assert!(Arc::strong_count(&provider) >= 1);
+        let err = provider
+            .chat_with_system(None, "ping", "test-model", 0.0)
+            .await
+            .expect_err("missing API key should fail before any network call");
+
+        assert!(
+            err.to_string().contains("provider=openrouter"),
+            "expected openrouter fallback provider, got: {err}"
+        );
     }
 }
