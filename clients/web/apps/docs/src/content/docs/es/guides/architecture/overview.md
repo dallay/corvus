@@ -12,7 +12,7 @@ Context, Container, Component, Code).
 
 Muestra el sistema Corvus como una caja negra y sus interacciones con actores y sistemas externos.
 
-- **Archivo**: [`context/system-context.mmd`](/guides/architecture/diagrams/context/system-context.mmd)
+- **Archivo**: [`context/system-context.mmd`](./diagrams/context/system-context.mmd)
 - **Formato**: Mermaid
 - **Descripción**: Vista de alto nivel del sistema completo, incluyendo usuarios (Developer, End
   User) y sistemas externos (LLM Providers, Neo4j, Fuentes Web).
@@ -22,8 +22,8 @@ Muestra el sistema Corvus como una caja negra y sus interacciones con actores y 
 Descompone el sistema en contenedores/aplicaciones principales y sus interacciones.
 
 - **Archivos**:
-  - [`container/system-containers.mmd`](/guides/architecture/diagrams/container/system-containers.mmd) (Mermaid)
-  - [`container/system-containers.puml`](/guides/architecture/diagrams/container/system-containers.puml) (PlantUML)
+  - [`container/system-containers.mmd`](./diagrams/container/system-containers.mmd) (Mermaid)
+  - [`container/system-containers.puml`](./diagrams/container/system-containers.puml) (PlantUML)
 - **Descripción**: Muestra los contenedores principales: Web Dashboard, Android App, iOS App, Agent
   Runtime, Rust Sidecar, y Graph DB.
 
@@ -33,7 +33,7 @@ Descompone contenedores individuales en sus componentes internos.
 
 ### Agent Core KMP
 
-- **Archivo**: [`component/agent-core-kmp.mmd`](/guides/architecture/diagrams/component/agent-core-kmp.mmd)
+- **Archivo**: [`component/agent-core-kmp.mmd`](./diagrams/component/agent-core-kmp.mmd)
 - **Descripción**: Componentes internos del módulo core: Dominio, Casos de Uso, Interfaces e
   Infraestructura.
 
@@ -41,7 +41,7 @@ Descompone contenedores individuales en sus componentes internos.
 
 Diagrama adicional mostrando las dependencias de Gradle entre módulos.
 
-- **Archivo**: [`module-dependencies.mmd`](/guides/architecture/diagrams/module-dependencies.mmd)
+- **Archivo**: [`module-dependencies.mmd`](./diagrams/module-dependencies.mmd)
 - **Descripción**: Muestra cómo los clientes dependen del core compartido y de frameworks externos.
 
 ## Cómo Visualizar
