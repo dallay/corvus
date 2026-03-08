@@ -1124,9 +1124,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .clone()
         .unwrap_or_else(|| "anthropic/claude-sonnet-4".into());
     let temperature = config.default_temperature;
-    let bootstrap = bootstrap::BootstrapContext::from_config(&config)?;
-    let mem = Arc::clone(&bootstrap.memory);
-    let _tools_registry = Arc::new(bootstrap.tools);
+    let (mem, observer) = bootstrap::create_memory_and_observer(&config)?;
     // Extract webhook secret for authentication
     let webhook_secret_hash: Option<Arc<str>> =
         config.channels_config.webhook.as_ref().and_then(|webhook| {
@@ -1238,10 +1236,6 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     println!("  Press Ctrl+C to stop.\n");
 
     crate::health::mark_component_ok("gateway");
-
-    // Build shared state
-    let observer: Arc<dyn crate::observability::Observer> =
-        Arc::from(crate::observability::create_observer(&config.observability));
 
     let state = AppState {
         config: config_state,

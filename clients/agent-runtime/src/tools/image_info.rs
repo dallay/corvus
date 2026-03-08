@@ -490,7 +490,11 @@ mod tests {
         let result = tool.execute(json!({"path": "/etc/passwd"})).await.unwrap();
 
         assert!(!result.success);
-        assert!(result.error.as_deref().unwrap_or("").contains("Path not allowed"));
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Path not allowed"));
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }
