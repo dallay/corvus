@@ -1774,8 +1774,17 @@ mod tests {
             build_channel(&config, "telegram").unwrap().name(),
             "telegram"
         );
+        assert_eq!(
+            build_channel(&config, "Telegram").unwrap().name(),
+            "telegram"
+        );
         assert_eq!(build_channel(&config, "slack").unwrap().name(), "slack");
+        assert_eq!(build_channel(&config, "SLACK").unwrap().name(), "slack");
         assert!(build_channel(&config, "discord").is_none());
+        assert!(is_supported_channel("Telegram"));
+        assert!(is_supported_channel("SLACK"));
+        assert!(is_supported_channel("dIsCoRd"));
+        assert!(!is_supported_channel("pagerduty"));
     }
 
     #[derive(Default)]
