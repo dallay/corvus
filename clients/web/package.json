@@ -5,6 +5,7 @@
   "description": "Corvus Web Apps Monorepo - Marketing, Docs, Chat, Dashboard",
   "type": "module",
   "scripts": {
+    "update-deps": "pnpm update -i -r --latest",
     "build": "pnpm -r run build",
     "build:docs": "pnpm --filter @corvus/docs run build",
     "build:marketing": "pnpm --filter @corvus/marketing run build",
@@ -37,7 +38,7 @@
       "rollup": "^4.59.0"
     }
   },
-  "packageManager": "pnpm@10.30.1",
+  "packageManager": "pnpm@10.31.0",
   "engines": {
     "node": ">=22.0.0",
     "pnpm": ">=10.28.0"

@@ -455,166 +455,201 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
 #[allow(clippy::too_many_lines)]
 pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Result<()> {
     match command {
-        crate::SkillCommands::List => {
-            let skills = load_skills(workspace_dir);
-            if skills.is_empty() {
-                println!("No skills installed.");
-                println!();
-                println!("  Create one: mkdir -p ~/.corvus/workspace/skills/my-skill");
-                println!("              echo '# My Skill' > ~/.corvus/workspace/skills/my-skill/SKILL.md");
-                println!();
-                println!("  Or install: corvus skills install <github-url>");
-            } else {
-                println!("Installed skills ({}):", skills.len());
-                println!();
-                for skill in &skills {
-                    println!(
-                        "  {} {} — {}",
-                        console::style(&skill.name).white().bold(),
-                        console::style(format!("v{}", skill.version)).dim(),
-                        skill.description
-                    );
-                    if !skill.tools.is_empty() {
-                        println!(
-                            "    Tools: {}",
-                            skill
-                                .tools
-                                .iter()
-                                .map(|t| t.name.as_str())
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        );
-                    }
-                    if !skill.tags.is_empty() {
-                        println!("    Tags:  {}", skill.tags.join(", "));
-                    }
-                }
-            }
-            println!();
-            Ok(())
+        crate::SkillCommands::List => handle_list_command(workspace_dir),
+        crate::SkillCommands::Install { source } => handle_install_command(workspace_dir, &source),
+        crate::SkillCommands::Remove { name } => handle_remove_command(workspace_dir, &name),
+    }
+}
+
+fn handle_list_command(workspace_dir: &Path) -> Result<()> {
+    let skills = load_skills(workspace_dir);
+    if skills.is_empty() {
+        print_empty_skills_message();
+    } else {
+        print_installed_skills(&skills);
+    }
+
+    println!();
+    Ok(())
+}
+
+fn print_empty_skills_message() {
+    println!("No skills installed.");
+    println!();
+    println!("  Create one: mkdir -p ~/.corvus/workspace/skills/my-skill");
+    println!("              echo '# My Skill' > ~/.corvus/workspace/skills/my-skill/SKILL.md");
+    println!();
+    println!("  Or install: corvus skills install <github-url>");
+}
+
+fn print_installed_skills(skills: &[Skill]) {
+    println!("Installed skills ({}):", skills.len());
+    println!();
+
+    for skill in skills {
+        println!(
+            "  {} {} — {}",
+            console::style(&skill.name).white().bold(),
+            console::style(format!("v{}", skill.version)).dim(),
+            skill.description
+        );
+
+        if !skill.tools.is_empty() {
+            println!("    Tools: {}", format_tool_names(skill));
         }
-        crate::SkillCommands::Install { source } => {
-            println!("Installing skill from: {source}");
 
-            let skills_path = skills_dir(workspace_dir);
-            std::fs::create_dir_all(&skills_path)?;
-
-            if source.starts_with("https://") || source.starts_with("http://") {
-                // Git clone
-                let output = std::process::Command::new("git")
-                    .args(["clone", "--depth", "1", &source])
-                    .current_dir(&skills_path)
-                    .output()?;
-
-                if output.status.success() {
-                    println!(
-                        "  {} Skill installed successfully!",
-                        console::style("✓").green().bold()
-                    );
-                    println!("  Restart `corvus channel start` to activate.");
-                } else {
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    anyhow::bail!("Git clone failed: {stderr}");
-                }
-            } else {
-                // Local path — symlink or copy
-                let src = PathBuf::from(&source);
-                if !src.exists() {
-                    anyhow::bail!("Source path does not exist: {source}");
-                }
-                let name = src.file_name().unwrap_or_default();
-                let dest = skills_path.join(name);
-
-                #[cfg(unix)]
-                {
-                    std::os::unix::fs::symlink(&src, &dest)?;
-                    println!(
-                        "  {} Skill linked: {}",
-                        console::style("✓").green().bold(),
-                        dest.display()
-                    );
-                }
-                #[cfg(windows)]
-                {
-                    // On Windows, try symlink first (requires admin or developer mode),
-                    // fall back to directory junction, then copy
-                    use std::os::windows::fs::symlink_dir;
-                    if symlink_dir(&src, &dest).is_ok() {
-                        println!(
-                            "  {} Skill linked: {}",
-                            console::style("✓").green().bold(),
-                            dest.display()
-                        );
-                    } else {
-                        // Try junction as fallback (works without admin)
-                        let junction_result = std::process::Command::new("cmd")
-                            .args(["/C", "mklink", "/J"])
-                            .arg(&dest)
-                            .arg(&src)
-                            .output();
-
-                        if junction_result.is_ok() && junction_result.unwrap().status.success() {
-                            println!(
-                                "  {} Skill linked (junction): {}",
-                                console::style("✓").green().bold(),
-                                dest.display()
-                            );
-                        } else {
-                            // Final fallback: copy the directory
-                            copy_dir_recursive(&src, &dest)?;
-                            println!(
-                                "  {} Skill copied: {}",
-                                console::style("✓").green().bold(),
-                                dest.display()
-                            );
-                        }
-                    }
-                }
-                #[cfg(not(any(unix, windows)))]
-                {
-                    // On other platforms, copy the directory
-                    copy_dir_recursive(&src, &dest)?;
-                    println!(
-                        "  {} Skill copied: {}",
-                        console::style("✓").green().bold(),
-                        dest.display()
-                    );
-                }
-            }
-
-            Ok(())
-        }
-        crate::SkillCommands::Remove { name } => {
-            // Reject path traversal attempts
-            if name.contains("..") || name.contains('/') || name.contains('\\') {
-                anyhow::bail!("Invalid skill name: {name}");
-            }
-
-            let skill_path = skills_dir(workspace_dir).join(&name);
-
-            // Verify the resolved path is actually inside the skills directory
-            let canonical_skills = skills_dir(workspace_dir)
-                .canonicalize()
-                .unwrap_or_else(|_| skills_dir(workspace_dir));
-            if let Ok(canonical_skill) = skill_path.canonicalize() {
-                if !canonical_skill.starts_with(&canonical_skills) {
-                    anyhow::bail!("Skill path escapes skills directory: {name}");
-                }
-            }
-
-            if !skill_path.exists() {
-                anyhow::bail!("Skill not found: {name}");
-            }
-
-            std::fs::remove_dir_all(&skill_path)?;
-            println!(
-                "  {} Skill '{}' removed.",
-                console::style("✓").green().bold(),
-                name
-            );
-            Ok(())
+        if !skill.tags.is_empty() {
+            println!("    Tags:  {}", skill.tags.join(", "));
         }
     }
+}
+
+fn format_tool_names(skill: &Skill) -> String {
+    skill
+        .tools
+        .iter()
+        .map(|tool| tool.name.as_str())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn handle_install_command(workspace_dir: &Path, source: &str) -> Result<()> {
+    println!("Installing skill from: {source}");
+
+    let skills_path = skills_dir(workspace_dir);
+    std::fs::create_dir_all(&skills_path)?;
+
+    if is_remote_skill_source(source) {
+        install_remote_skill(&skills_path, source)
+    } else {
+        install_local_skill(&skills_path, source)
+    }
+}
+
+fn is_remote_skill_source(source: &str) -> bool {
+    source.starts_with("https://") || source.starts_with("http://")
+}
+
+fn install_remote_skill(skills_path: &Path, source: &str) -> Result<()> {
+    let output = std::process::Command::new("git")
+        .args(["clone", "--depth", "1", source])
+        .current_dir(skills_path)
+        .output()?;
+
+    if output.status.success() {
+        println!(
+            "  {} Skill installed successfully!",
+            console::style("✓").green().bold()
+        );
+        println!("  Restart `corvus channel start` to activate.");
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    anyhow::bail!("Git clone failed: {stderr}")
+}
+
+fn install_local_skill(skills_path: &Path, source: &str) -> Result<()> {
+    let src = PathBuf::from(source);
+    if !src.exists() {
+        anyhow::bail!("Source path does not exist: {source}");
+    }
+
+    let name = src.file_name().unwrap_or_default();
+    let dest = skills_path.join(name);
+
+    link_or_copy_local_skill(&src, &dest)
+}
+
+#[cfg(unix)]
+fn link_or_copy_local_skill(src: &Path, dest: &Path) -> Result<()> {
+    std::os::unix::fs::symlink(src, dest)?;
+    print_skill_location("linked", dest);
+    Ok(())
+}
+
+#[cfg(windows)]
+fn link_or_copy_local_skill(src: &Path, dest: &Path) -> Result<()> {
+    use std::os::windows::fs::symlink_dir;
+
+    if symlink_dir(src, dest).is_ok() {
+        print_skill_location("linked", dest);
+        return Ok(());
+    }
+
+    let junction_result = std::process::Command::new("cmd")
+        .args(["/C", "mklink", "/J"])
+        .arg(dest)
+        .arg(src)
+        .output();
+
+    if junction_result
+        .as_ref()
+        .is_ok_and(|output| output.status.success())
+    {
+        print_skill_location("linked (junction)", dest);
+        return Ok(());
+    }
+
+    copy_dir_recursive(src, dest)?;
+    print_skill_location("copied", dest);
+    Ok(())
+}
+
+#[cfg(not(any(unix, windows)))]
+fn link_or_copy_local_skill(src: &Path, dest: &Path) -> Result<()> {
+    copy_dir_recursive(src, dest)?;
+    print_skill_location("copied", dest);
+    Ok(())
+}
+
+fn print_skill_location(action: &str, dest: &Path) {
+    println!(
+        "  {} Skill {}: {}",
+        console::style("✓").green().bold(),
+        action,
+        dest.display()
+    );
+}
+
+fn handle_remove_command(workspace_dir: &Path, name: &str) -> Result<()> {
+    validate_skill_name(name)?;
+
+    let skills_path = skills_dir(workspace_dir);
+    let skill_path = skills_path.join(name);
+    ensure_skill_path_stays_within_root(&skills_path, &skill_path, name)?;
+
+    if !skill_path.exists() {
+        anyhow::bail!("Skill not found: {name}");
+    }
+
+    std::fs::remove_dir_all(&skill_path)?;
+    println!(
+        "  {} Skill '{}' removed.",
+        console::style("✓").green().bold(),
+        name
+    );
+    Ok(())
+}
+
+fn validate_skill_name(name: &str) -> Result<()> {
+    if name.contains("..") || name.contains('/') || name.contains('\\') {
+        anyhow::bail!("Invalid skill name: {name}");
+    }
+
+    Ok(())
+}
+
+fn ensure_skill_path_stays_within_root(root: &Path, skill_path: &Path, name: &str) -> Result<()> {
+    let canonical_root = root.canonicalize().unwrap_or_else(|_| root.to_path_buf());
+
+    if let Ok(canonical_skill) = skill_path.canonicalize() {
+        if !canonical_skill.starts_with(&canonical_root) {
+            anyhow::bail!("Skill path escapes skills directory: {name}");
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]

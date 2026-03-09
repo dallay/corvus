@@ -578,6 +578,59 @@ fn loop_event_kind(event: &crate::agent::unified_loop::LoopEvent) -> &'static st
     }
 }
 
+fn init_logging() {
+    let subscriber = fmt::Subscriber::builder()
+        .with_env_filter(
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
+        )
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+}
+
+async fn maybe_handle_onboard_command(command: &Commands) -> Result<bool> {
+    let Commands::Onboard {
+        interactive,
+        channels_only,
+        api_key,
+        provider,
+        memory,
+    } = command
+    else {
+        return Ok(false);
+    };
+
+    let interactive = *interactive;
+    let channels_only = *channels_only;
+    let api_key = api_key.clone();
+    let provider = provider.clone();
+    let memory = memory.clone();
+
+    if interactive && channels_only {
+        bail!("Use either --interactive or --channels-only, not both");
+    }
+    if channels_only && (api_key.is_some() || provider.is_some() || memory.is_some()) {
+        bail!("--channels-only does not accept --api-key, --provider, or --memory");
+    }
+
+    let config = tokio::task::spawn_blocking(move || {
+        if channels_only {
+            onboard::run_channels_repair_wizard()
+        } else if interactive {
+            onboard::run_wizard()
+        } else {
+            onboard::run_quick_setup(api_key.as_deref(), provider.as_deref(), memory.as_deref())
+        }
+    })
+    .await??;
+
+    if std::env::var("CORVUS_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
+        channels::start_channels(config).await?;
+    }
+
+    Ok(true)
+}
+
 #[tokio::main]
 #[allow(clippy::too_many_lines)]
 #[allow(clippy::large_futures)]
@@ -592,53 +645,13 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Initialize logging - respects RUST_LOG env var, defaults to INFO
-    let subscriber = fmt::Subscriber::builder()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
-        )
-        .finish();
-
-    tracing::subscriber::set_global_default(subscriber).expect("setting default subscriber failed");
+    init_logging();
 
     // Onboard runs quick setup by default, or the interactive wizard with --interactive.
     // The onboard wizard uses reqwest::blocking internally, which creates its own
     // Tokio runtime. To avoid "Cannot drop a runtime in a context where blocking is
     // not allowed", we run the wizard on a blocking thread via spawn_blocking.
-    if let Commands::Onboard {
-        interactive,
-        channels_only,
-        api_key,
-        provider,
-        memory,
-    } = &cli.command
-    {
-        let interactive = *interactive;
-        let channels_only = *channels_only;
-        let api_key = api_key.clone();
-        let provider = provider.clone();
-        let memory = memory.clone();
-
-        if interactive && channels_only {
-            bail!("Use either --interactive or --channels-only, not both");
-        }
-        if channels_only && (api_key.is_some() || provider.is_some() || memory.is_some()) {
-            bail!("--channels-only does not accept --api-key, --provider, or --memory");
-        }
-
-        let config = tokio::task::spawn_blocking(move || {
-            if channels_only {
-                onboard::run_channels_repair_wizard()
-            } else if interactive {
-                onboard::run_wizard()
-            } else {
-                onboard::run_quick_setup(api_key.as_deref(), provider.as_deref(), memory.as_deref())
-            }
-        })
-        .await??;
-        // Auto-start channels if user said yes during wizard
-        if std::env::var("CORVUS_AUTOSTART_CHANNELS").as_deref() == Ok("1") {
-            channels::start_channels(config).await?;
-        }
+    if maybe_handle_onboard_command(&cli.command).await? {
         return Ok(());
     }
 

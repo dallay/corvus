@@ -213,256 +213,270 @@ use std::path::PathBuf;
 /// Formats the AIEOS data into a structured markdown prompt compatible
 /// with Corvus's agent system.
 pub fn aieos_to_system_prompt(identity: &AieosIdentity) -> String {
-    use std::fmt::Write;
     let mut prompt = String::new();
 
-    // ── Identity Section ───────────────────────────────────────────
     if let Some(ref id) = identity.identity {
-        prompt.push_str("## Identity\n\n");
-
-        if let Some(ref names) = id.names {
-            if let Some(ref first) = names.first {
-                let _ = writeln!(prompt, "**Name:** {}", first);
-                if let Some(ref last) = names.last {
-                    let _ = writeln!(prompt, "**Full Name:** {} {}", first, last);
-                }
-            } else if let Some(ref full) = names.full {
-                let _ = writeln!(prompt, "**Name:** {}", full);
-            }
-
-            if let Some(ref nickname) = names.nickname {
-                let _ = writeln!(prompt, "**Nickname:** {}", nickname);
-            }
-        }
-
-        if let Some(ref bio) = id.bio {
-            let _ = writeln!(prompt, "**Bio:** {}", bio);
-        }
-
-        if let Some(ref origin) = id.origin {
-            let _ = writeln!(prompt, "**Origin:** {}", origin);
-        }
-
-        if let Some(ref residence) = id.residence {
-            let _ = writeln!(prompt, "**Residence:** {}", residence);
-        }
-
-        prompt.push('\n');
+        append_identity_section(&mut prompt, id);
     }
 
-    // ── Psychology Section ──────────────────────────────────────────
     if let Some(ref psych) = identity.psychology {
-        prompt.push_str("## Personality\n\n");
-
-        if let Some(ref mbti) = psych.mbti {
-            let _ = writeln!(prompt, "**MBTI:** {}", mbti);
-        }
-
-        if let Some(ref ocean) = psych.ocean {
-            prompt.push_str("**OCEAN Traits:**\n");
-            if let Some(o) = ocean.openness {
-                let _ = writeln!(prompt, "- Openness: {:.2}", o);
-            }
-            if let Some(c) = ocean.conscientiousness {
-                let _ = writeln!(prompt, "- Conscientiousness: {:.2}", c);
-            }
-            if let Some(e) = ocean.extraversion {
-                let _ = writeln!(prompt, "- Extraversion: {:.2}", e);
-            }
-            if let Some(a) = ocean.agreeableness {
-                let _ = writeln!(prompt, "- Agreeableness: {:.2}", a);
-            }
-            if let Some(n) = ocean.neuroticism {
-                let _ = writeln!(prompt, "- Neuroticism: {:.2}", n);
-            }
-        }
-
-        if let Some(ref matrix) = psych.neural_matrix {
-            if !matrix.is_empty() {
-                prompt.push_str("\n**Neural Matrix (Cognitive Weights):**\n");
-                for (trait_name, weight) in matrix {
-                    let _ = writeln!(prompt, "- {}: {:.2}", trait_name, weight);
-                }
-            }
-        }
-
-        if let Some(ref compass) = psych.moral_compass {
-            if !compass.is_empty() {
-                prompt.push_str("\n**Moral Compass:**\n");
-                for principle in compass {
-                    let _ = writeln!(prompt, "- {}", principle);
-                }
-            }
-        }
-
-        prompt.push('\n');
+        append_personality_section(&mut prompt, psych);
     }
 
-    // ── Linguistics Section ────────────────────────────────────────
     if let Some(ref ling) = identity.linguistics {
-        prompt.push_str("## Communication Style\n\n");
-
-        if let Some(ref style) = ling.style {
-            let _ = writeln!(prompt, "**Style:** {}", style);
-        }
-
-        if let Some(ref formality) = ling.formality {
-            let _ = writeln!(prompt, "**Formality Level:** {}", formality);
-        }
-
-        if let Some(ref phrases) = ling.catchphrases {
-            if !phrases.is_empty() {
-                prompt.push_str("**Catchphrases:**\n");
-                for phrase in phrases {
-                    let _ = writeln!(prompt, "- \"{}\"", phrase);
-                }
-            }
-        }
-
-        if let Some(ref forbidden) = ling.forbidden_words {
-            if !forbidden.is_empty() {
-                prompt.push_str("\n**Words/Phrases to Avoid:**\n");
-                for word in forbidden {
-                    let _ = writeln!(prompt, "- {}", word);
-                }
-            }
-        }
-
-        prompt.push('\n');
+        append_linguistics_section(&mut prompt, ling);
     }
 
-    // ── Motivations Section ──────────────────────────────────────────
     if let Some(ref mot) = identity.motivations {
-        prompt.push_str("## Motivations\n\n");
-
-        if let Some(ref drive) = mot.core_drive {
-            let _ = writeln!(prompt, "**Core Drive:** {}", drive);
-        }
-
-        if let Some(ref short) = mot.short_term_goals {
-            if !short.is_empty() {
-                prompt.push_str("**Short-term Goals:**\n");
-                for goal in short {
-                    let _ = writeln!(prompt, "- {}", goal);
-                }
-            }
-        }
-
-        if let Some(ref long) = mot.long_term_goals {
-            if !long.is_empty() {
-                prompt.push_str("\n**Long-term Goals:**\n");
-                for goal in long {
-                    let _ = writeln!(prompt, "- {}", goal);
-                }
-            }
-        }
-
-        if let Some(ref fears) = mot.fears {
-            if !fears.is_empty() {
-                prompt.push_str("\n**Fears/Avoidances:**\n");
-                for fear in fears {
-                    let _ = writeln!(prompt, "- {}", fear);
-                }
-            }
-        }
-
-        prompt.push('\n');
+        append_motivations_section(&mut prompt, mot);
     }
 
-    // ── Capabilities Section ────────────────────────────────────────
     if let Some(ref cap) = identity.capabilities {
-        prompt.push_str("## Capabilities\n\n");
-
-        if let Some(ref skills) = cap.skills {
-            if !skills.is_empty() {
-                prompt.push_str("**Skills:**\n");
-                for skill in skills {
-                    let _ = writeln!(prompt, "- {}", skill);
-                }
-            }
-        }
-
-        if let Some(ref tools) = cap.tools {
-            if !tools.is_empty() {
-                prompt.push_str("\n**Tools Access:**\n");
-                for tool in tools {
-                    let _ = writeln!(prompt, "- {}", tool);
-                }
-            }
-        }
-
-        prompt.push('\n');
+        append_capabilities_section(&mut prompt, cap);
     }
 
-    // ── History Section ─────────────────────────────────────────────
     if let Some(ref hist) = identity.history {
-        prompt.push_str("## Background\n\n");
-
-        if let Some(ref story) = hist.origin_story {
-            let _ = writeln!(prompt, "**Origin Story:** {}", story);
-        }
-
-        if let Some(ref education) = hist.education {
-            if !education.is_empty() {
-                prompt.push_str("**Education:**\n");
-                for edu in education {
-                    let _ = writeln!(prompt, "- {}", edu);
-                }
-            }
-        }
-
-        if let Some(ref occupation) = hist.occupation {
-            let _ = writeln!(prompt, "\n**Occupation:** {}", occupation);
-        }
-
-        prompt.push('\n');
+        append_history_section(&mut prompt, hist);
     }
 
-    // ── Physicality Section ─────────────────────────────────────────
     if let Some(ref phys) = identity.physicality {
-        prompt.push_str("## Appearance\n\n");
-
-        if let Some(ref appearance) = phys.appearance {
-            let _ = writeln!(prompt, "{}", appearance);
-        }
-
-        if let Some(ref avatar) = phys.avatar_description {
-            let _ = writeln!(prompt, "**Avatar Description:** {}", avatar);
-        }
-
-        prompt.push('\n');
+        append_physicality_section(&mut prompt, phys);
     }
 
-    // ── Interests Section ───────────────────────────────────────────
     if let Some(ref interests) = identity.interests {
-        prompt.push_str("## Interests\n\n");
-
-        if let Some(ref hobbies) = interests.hobbies {
-            if !hobbies.is_empty() {
-                prompt.push_str("**Hobbies:**\n");
-                for hobby in hobbies {
-                    let _ = writeln!(prompt, "- {}", hobby);
-                }
-            }
-        }
-
-        if let Some(ref favorites) = interests.favorites {
-            if !favorites.is_empty() {
-                prompt.push_str("\n**Favorites:**\n");
-                for (category, value) in favorites {
-                    let _ = writeln!(prompt, "- {}: {}", category, value);
-                }
-            }
-        }
-
-        if let Some(ref lifestyle) = interests.lifestyle {
-            let _ = writeln!(prompt, "\n**Lifestyle:** {}", lifestyle);
-        }
-
-        prompt.push('\n');
+        append_interests_section(&mut prompt, interests);
     }
 
     prompt.trim().to_string()
+}
+
+fn append_identity_section(prompt: &mut String, identity: &IdentitySection) {
+    start_section(prompt, "## Identity");
+
+    if let Some(ref names) = identity.names {
+        append_names(prompt, names);
+    }
+
+    append_labeled_value(prompt, "Bio", identity.bio.as_deref());
+    append_labeled_value(prompt, "Origin", identity.origin.as_deref());
+    append_labeled_value(prompt, "Residence", identity.residence.as_deref());
+    prompt.push('\n');
+}
+
+fn append_names(prompt: &mut String, names: &Names) {
+    if let Some(first) = names.first.as_deref() {
+        append_line(prompt, &format!("**Name:** {first}"));
+        if let Some(last) = names.last.as_deref() {
+            append_line(prompt, &format!("**Full Name:** {first} {last}"));
+        }
+    } else if let Some(full) = names.full.as_deref() {
+        append_line(prompt, &format!("**Name:** {full}"));
+    }
+
+    append_labeled_value(prompt, "Nickname", names.nickname.as_deref());
+}
+
+fn append_personality_section(prompt: &mut String, psychology: &PsychologySection) {
+    start_section(prompt, "## Personality");
+    append_labeled_value(prompt, "MBTI", psychology.mbti.as_deref());
+
+    if let Some(ref ocean) = psychology.ocean {
+        append_ocean_traits(prompt, ocean);
+    }
+
+    append_weighted_map(
+        prompt,
+        "**Neural Matrix (Cognitive Weights):**",
+        psychology.neural_matrix.as_ref(),
+    );
+    append_bulleted_list(
+        prompt,
+        "**Moral Compass:**",
+        psychology.moral_compass.as_ref(),
+        None,
+    );
+    prompt.push('\n');
+}
+
+fn append_ocean_traits(prompt: &mut String, ocean: &OceanTraits) {
+    append_line(prompt, "**OCEAN Traits:**");
+
+    for (label, value) in [
+        ("Openness", ocean.openness),
+        ("Conscientiousness", ocean.conscientiousness),
+        ("Extraversion", ocean.extraversion),
+        ("Agreeableness", ocean.agreeableness),
+        ("Neuroticism", ocean.neuroticism),
+    ] {
+        if let Some(value) = value {
+            append_line(prompt, &format!("- {label}: {value:.2}"));
+        }
+    }
+}
+
+fn append_linguistics_section(prompt: &mut String, linguistics: &LinguisticsSection) {
+    start_section(prompt, "## Communication Style");
+    append_labeled_value(prompt, "Style", linguistics.style.as_deref());
+    append_labeled_value(prompt, "Formality Level", linguistics.formality.as_deref());
+    append_bulleted_list(
+        prompt,
+        "**Catchphrases:**",
+        linguistics.catchphrases.as_ref(),
+        Some(format_catchphrase),
+    );
+    append_bulleted_list(
+        prompt,
+        "**Words/Phrases to Avoid:**",
+        linguistics.forbidden_words.as_ref(),
+        None,
+    );
+    prompt.push('\n');
+}
+
+fn append_motivations_section(prompt: &mut String, motivations: &MotivationsSection) {
+    start_section(prompt, "## Motivations");
+    append_labeled_value(prompt, "Core Drive", motivations.core_drive.as_deref());
+    append_bulleted_list(
+        prompt,
+        "**Short-term Goals:**",
+        motivations.short_term_goals.as_ref(),
+        None,
+    );
+    append_bulleted_list(
+        prompt,
+        "**Long-term Goals:**",
+        motivations.long_term_goals.as_ref(),
+        None,
+    );
+    append_bulleted_list(
+        prompt,
+        "**Fears/Avoidances:**",
+        motivations.fears.as_ref(),
+        None,
+    );
+    prompt.push('\n');
+}
+
+fn append_capabilities_section(prompt: &mut String, capabilities: &CapabilitiesSection) {
+    start_section(prompt, "## Capabilities");
+    append_bulleted_list(prompt, "**Skills:**", capabilities.skills.as_ref(), None);
+    append_bulleted_list(
+        prompt,
+        "**Tools Access:**",
+        capabilities.tools.as_ref(),
+        None,
+    );
+    prompt.push('\n');
+}
+
+fn append_history_section(prompt: &mut String, history: &HistorySection) {
+    start_section(prompt, "## Background");
+    append_labeled_value(prompt, "Origin Story", history.origin_story.as_deref());
+    append_bulleted_list(prompt, "**Education:**", history.education.as_ref(), None);
+    append_prefixed_labeled_value(prompt, "Occupation", history.occupation.as_deref());
+    prompt.push('\n');
+}
+
+fn append_physicality_section(prompt: &mut String, physicality: &PhysicalitySection) {
+    start_section(prompt, "## Appearance");
+
+    if let Some(appearance) = physicality.appearance.as_deref() {
+        append_line(prompt, appearance);
+    }
+
+    append_labeled_value(
+        prompt,
+        "Avatar Description",
+        physicality.avatar_description.as_deref(),
+    );
+    prompt.push('\n');
+}
+
+fn append_interests_section(prompt: &mut String, interests: &InterestsSection) {
+    start_section(prompt, "## Interests");
+    append_bulleted_list(prompt, "**Hobbies:**", interests.hobbies.as_ref(), None);
+    append_map_list(prompt, "**Favorites:**", interests.favorites.as_ref());
+    append_prefixed_labeled_value(prompt, "Lifestyle", interests.lifestyle.as_deref());
+    prompt.push('\n');
+}
+
+fn start_section(prompt: &mut String, title: &str) {
+    prompt.push_str(title);
+    prompt.push_str("\n\n");
+}
+
+fn append_labeled_value(prompt: &mut String, label: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        append_line(prompt, &format!("**{label}:** {value}"));
+    }
+}
+
+fn append_prefixed_labeled_value(prompt: &mut String, label: &str, value: Option<&str>) {
+    if let Some(value) = value {
+        prompt.push('\n');
+        append_line(prompt, &format!("**{label}:** {value}"));
+    }
+}
+
+fn append_bulleted_list(
+    prompt: &mut String,
+    heading: &str,
+    items: Option<&Vec<String>>,
+    formatter: Option<fn(&str) -> String>,
+) {
+    let Some(items) = items.filter(|items| !items.is_empty()) else {
+        return;
+    };
+
+    prompt.push('\n');
+    append_line(prompt, heading);
+    for item in items {
+        let line = formatter
+            .as_ref()
+            .map_or_else(|| format!("- {item}"), |formatter| formatter(item));
+        append_line(prompt, &line);
+    }
+}
+
+fn format_catchphrase(value: &str) -> String {
+    format!("- \"{value}\"")
+}
+
+fn append_weighted_map(
+    prompt: &mut String,
+    heading: &str,
+    values: Option<&std::collections::HashMap<String, f64>>,
+) {
+    let Some(values) = values.filter(|values| !values.is_empty()) else {
+        return;
+    };
+
+    prompt.push('\n');
+    append_line(prompt, heading);
+    for (name, weight) in values {
+        append_line(prompt, &format!("- {name}: {weight:.2}"));
+    }
+}
+
+fn append_map_list(
+    prompt: &mut String,
+    heading: &str,
+    values: Option<&std::collections::HashMap<String, String>>,
+) {
+    let Some(values) = values.filter(|values| !values.is_empty()) else {
+        return;
+    };
+
+    prompt.push('\n');
+    append_line(prompt, heading);
+    for (key, value) in values {
+        append_line(prompt, &format!("- {key}: {value}"));
+    }
+}
+
+fn append_line(prompt: &mut String, line: &str) {
+    prompt.push_str(line);
+    prompt.push('\n');
 }
 
 /// Check if AIEOS identity is configured and should be used.

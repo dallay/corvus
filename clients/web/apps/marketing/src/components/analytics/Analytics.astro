@@ -7,5 +7,5 @@ interface Props {
 const { key } = Astro.props;
 ---
 {key && (
-  <script type="text/partytown" is:inline src="https://analytics.ahrefs.com/analytics.js" data-key={key} async></script>
+  <script is:inline src="https://analytics.ahrefs.com/analytics.js" data-key={key} async></script>
 )}

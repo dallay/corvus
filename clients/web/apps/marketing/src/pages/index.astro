@@ -1,74 +1,140 @@
 ---
-import { PORTS, resolveSiteUrl } from "@corvus/shared/env";
+import { PORTS } from "@corvus/shared/env";
 import { loadEnv } from "vite";
 import MarketingLayout from "../layouts/MarketingLayout.astro";
 
+const DEFAULT_MARKETING_DEV_URL = `http://localhost:${PORTS.MARKETING}`;
+const DEFAULT_MARKETING_PROD_URL = "https://profiletailors.com";
 const DEFAULT_DOCS_DEV_URL = `http://localhost:${PORTS.DOCS}`;
 const DEFAULT_DOCS_PROD_URL = "https://docs.profiletailors.com";
 
 const mode = process.env.NODE_ENV || "production";
 const env = loadEnv(mode, process.cwd(), "");
-const docsBaseUrl = resolveSiteUrl({
-  env,
-  primaryKey: "DOCS_URL",
-  localDefault: DEFAULT_DOCS_DEV_URL,
-  productionDefault: DEFAULT_DOCS_PROD_URL,
-  genericKeys: ["SITE_URL"],
-  providerKeys: {
-    cloudflare: "CF_PAGES_URL",
-    vercel: "VERCEL_URL",
-    netlify: "URL",
-  },
-  isProdLike: mode === "production",
-});
 
-const conversionKeys = [
+function resolvePublicUrl(value: string | undefined, fallback: string): string {
+  const candidate = typeof value === "string" ? value.trim() : "";
+
+  if (!candidate) {
+    return fallback;
+  }
+
+  try {
+    const parsed = new URL(candidate);
+    return parsed.toString().replace(/\/$/, "");
+  } catch {
+    return fallback;
+  }
+}
+
+const isProdLike = mode === "production";
+const marketingBaseUrl = resolvePublicUrl(
+  env.MARKETING_URL,
+  isProdLike ? DEFAULT_MARKETING_PROD_URL : DEFAULT_MARKETING_DEV_URL,
+);
+const docsBaseUrl = resolvePublicUrl(
+  env.DOCS_URL,
+  isProdLike ? DEFAULT_DOCS_PROD_URL : DEFAULT_DOCS_DEV_URL,
+);
+const installScriptUrl = `${marketingBaseUrl}/install`;
+const githubUrl = "https://github.com/dallay/corvus";
+
+const productHighlights = [
   {
-    title: "Lean by default",
-    body: "A small Rust binary, fast startup, and low memory usage make Corvus practical on laptops, servers, SBCs, and constrained edge hardware.",
+    title: "Fast to ship",
+    body: "Start quickly with a small Rust binary, fast startup, and low memory usage that stays practical from local machines to edge hardware.",
   },
   {
-    title: "Secure by design",
-    body: "Pairing, sandboxing, workspace scoping, allowlists, encrypted secrets, and controlled public exposure are built into the runtime from day one.",
+    title: "Safe by default",
+    body: "Pairing, sandboxing, workspace scoping, allowlists, encrypted secrets, and controlled public exposure are built in from day one.",
   },
   {
-    title: "Pluggable at every layer",
-    body: "Providers, channels, tools, memory, tunnels, runtimes, and observability are trait-based and swappable, so your stack can evolve without rewrites.",
+    title: "Fits your stack",
+    body: "Swap providers, channels, tools, memory, and runtimes without rebuilding everything around one vendor or framework.",
   },
   {
-    title: "No vendor lock-in",
-    body: "Use OpenRouter, OpenAI-compatible endpoints, local setups, or custom integrations without rebuilding your agent architecture.",
+    title: "No lock-in",
+    body: "Use OpenRouter, OpenAI-compatible endpoints, local setups, or custom integrations without painting your team into a corner.",
   },
   {
-    title: "Runs where you need it",
-    body: "Deploy natively or in Docker, from local-first development to secure remote gateway setups with tunnels and controlled exposure.",
+    title: "Deploy where it makes sense",
+    body: "Run natively or in Docker, from local-first development to secure remote gateway setups with tunnels and controlled exposure.",
   },
   {
-    title: "Built for real agent workflows",
-    body: "Chat, gateway, daemon, memory, channels, scheduled tasks, integrations, and service management ship as one coherent runtime.",
+    title: "Built for real workflows",
+    body: "Chat, gateway, daemon, memory, channels, scheduled tasks, integrations, and service management work as one coherent runtime.",
   },
 ];
 
-const testimonials = [
+const installMethods = [
   {
-    quote:
-      "A small Rust binary, fast startup, low memory footprint, and a fully swappable architecture make Corvus practical as real agent infrastructure.",
-    author: "Architecture overview",
+    title: "One-line install",
+    description:
+      "Paste one command, install Corvus, and get to a working binary in the fastest possible path.",
+    command: "curl -fsSL https://profiletailors.com/install | bash",
+    ctaLabel: "Open install guide",
+    ctaHref: `${docsBaseUrl}/en/guides/getting-started/`,
   },
   {
-    quote:
-      "Pairing, sandboxing, allowlists, workspace scoping, and encrypted secrets are not optional extras. They are part of the default posture.",
-    author: "Security policy",
+    title: "Node package managers",
+    description:
+      "Stay inside your usual JS tooling and install the Corvus launcher with npm, pnpm, yarn, or bun.",
+    commands: [
+      "npm i -g @dallay/corvus",
+      "pnpm add -g @dallay/corvus",
+      "yarn global add @dallay/corvus",
+      "bun add -g @dallay/corvus",
+    ],
+    ctaLabel: "Read CLI docs",
+    ctaHref: `${docsBaseUrl}/en/guides/cli-reference/`,
   },
   {
-    quote:
-      "Corvus ships with a 3.4MB optimized release build, boots in under 10ms, and supports 22+ providers with native or Docker runtime modes.",
-    author: "README benchmark snapshot",
+    title: "Build locally",
+    description:
+      "Build from source when you want the native Rust path, custom features, or the full contributor setup.",
+    command: "git clone https://github.com/dallay/corvus.git\ncd corvus\ncargo build --release\ncargo install --path . --force",
+    ctaLabel: "Read architecture docs",
+    ctaHref: `${docsBaseUrl}/en/guides/architecture/`,
   },
 ];
 
-const installUrl = `${docsBaseUrl}/en/guides/getting-started/`;
-const architectureUrl = `${docsBaseUrl}/en/guides/architecture/`;
+const stats = [
+  { value: "< 10ms", label: "startup time" },
+  { value: "3.4MB", label: "release binary" },
+  { value: "22+", label: "providers" },
+];
+
+const quickLinks = [
+  {
+    title: "Getting started",
+    body: "Pick an install path, run the first command, and get Corvus responding without digging through repo internals.",
+    href: `${docsBaseUrl}/en/guides/getting-started/`,
+  },
+  {
+    title: "CLI reference",
+    body: "Jump straight to real commands for agent, daemon, gateway, doctor, channels, and services.",
+    href: `${docsBaseUrl}/en/guides/cli-reference/`,
+  },
+  {
+    title: "Architecture",
+    body: "See how providers, memory, tools, channels, and security fit together before you roll it out wider.",
+    href: `${docsBaseUrl}/en/guides/architecture/`,
+  },
+];
+
+const workflowSteps = [
+  {
+    title: "Install your way",
+    body: "Choose the hosted shell installer, a Node launcher, or the native Rust build path without changing your workflow.",
+  },
+  {
+    title: "Run the first command",
+    body: "Check health with `corvus doctor`, inspect status, or launch an agent in minutes, not hours.",
+  },
+  {
+    title: "Expand safely",
+    body: "Add providers, channels, memory, and gateway exposure behind explicit controls and docs-backed setup.",
+  },
+];
 
 const faqGroups = [
   {
@@ -82,7 +148,7 @@ const faqGroups = [
           "It is designed to behave like infrastructure, not a fragile demo stack.",
         ],
         ctaLabel: "Read the architecture",
-        ctaHref: architectureUrl,
+        ctaHref: `${docsBaseUrl}/en/guides/architecture/`,
       },
       {
         question: "Who is it for?",
@@ -92,7 +158,7 @@ const faqGroups = [
           "It helps teams avoid heavyweight stacks and unnecessary lock-in.",
         ],
         ctaLabel: "See the quick start",
-        ctaHref: installUrl,
+        ctaHref: `${docsBaseUrl}/en/guides/getting-started/`,
       },
     ],
   },
@@ -107,7 +173,7 @@ const faqGroups = [
           "Secrets can be encrypted locally and public access is never assumed.",
         ],
         ctaLabel: "Review security controls",
-        ctaHref: docsBaseUrl,
+        ctaHref: `${docsBaseUrl}/en/guides/architecture/`,
       },
       {
         question: "Where can it run?",
@@ -117,39 +183,41 @@ const faqGroups = [
           "Its small binary size and fast startup make it viable beyond heavyweight cloud-only setups.",
         ],
         ctaLabel: "Explore runtime options",
-        ctaHref: docsBaseUrl,
+        ctaHref: `${docsBaseUrl}/en/guides/getting-started/`,
       },
     ],
   },
 ];
 
 const hero = {
-  eyebrow: "RUST-NATIVE AGENT RUNTIME • SECURE BY DEFAULT • PORTABLE BY DESIGN",
-  title: "Run agents anywhere. Keep control everywhere.",
+  eyebrow: "INSTALL FAST • KEEP CONTROL • DEPLOY ANYWHERE",
+  title: "Run Corvus fast, without losing control.",
   subtitle:
-    "Built in Rust, Corvus gives teams one runtime for chat, gateway, daemon, memory, channels, integrations, and secure execution, without the weight of a stitched-together stack.",
-  primaryCta: "Install Corvus",
-  secondaryCta: "Read the architecture",
+    "Install from one command, package managers, or source. Corvus gives teams a practical Rust-native runtime for agents, gateway, memory, channels, and secure execution without the usual heavyweight stack.",
+  primaryCta: "See install methods",
+  secondaryCta: "Open docs",
 };
 ---
 
 <MarketingLayout
-  title="Corvus | Autonomous AI Agents Without the Overhead"
-  description="Corvus is a secure, pluggable Rust-native runtime for autonomous AI agents with millisecond startup, low footprint, and portable deployment."
+  title="Profile Tailors | Install Corvus Fast"
+  description="Install Corvus from one command, package managers, or source. Profile Tailors gives teams a fast path into the secure Rust-native agent runtime."
 >
   <header class="topbar shell">
     <a class="brand" href="/">
       <img src="/favicon-light.svg" alt="" class="brand-mark" width="28" height="28" aria-hidden="true" />
       Corvus
     </a>
-    <nav aria-label="Primary conversion path">
+    <nav class="topbar-nav" aria-label="Primary">
+      <a href="#install">Install</a>
+      <a href="#why">Why Corvus</a>
+      <a href="#docs">Docs</a>
       <a href="#faq">FAQ</a>
-      <a href={docsBaseUrl} rel="noopener noreferrer">Docs</a>
-      <a class="btn btn-primary btn-nav" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="nav" data-track-label="start-now">Install Corvus</a>
+      <a class="btn btn-primary btn-nav" href={docsBaseUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="nav" data-track-label="docs-nav">Open docs</a>
     </nav>
   </header>
 
-  <main>
+  <main id="main-content">
     <section class="hero shell">
       <div class="hero-grid">
         <div class="hero-copy">
@@ -157,40 +225,104 @@ const hero = {
           <h1>{hero.title}</h1>
           <p class="subtitle">{hero.subtitle}</p>
           <div class="hero-actions">
-            <a class="btn btn-primary" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-primary">{hero.primaryCta}</a>
-            <a class="btn btn-ghost" href={architectureUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-secondary">{hero.secondaryCta}</a>
-            <a class="btn btn-ghost" href={docsBaseUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-docs">Read docs</a>
+            <a class="btn btn-primary" href="#install" data-track="cta_click" data-track-location="hero" data-track-label="hero-primary">{hero.primaryCta}</a>
+            <a class="btn btn-ghost" href={docsBaseUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-secondary">{hero.secondaryCta}</a>
+            <a class="btn btn-ghost" href={githubUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-github">GitHub</a>
           </div>
-          <p class="hero-note">Built for developers and teams who want agent infrastructure with strong defaults, real portability, and no unnecessary runtime weight.</p>
+          <p class="hero-note">Profile Tailors gives you the cleanest path in: install from `profiletailors.com/install`, use the `@dallay/corvus` launchers, or go native with Rust when you need deeper control.</p>
         </div>
 
         <aside class="hero-rail">
-          <div class="metric-grid" role="list" aria-label="Performance highlights">
-            <article role="listitem">
-              <strong>&lt; 10ms</strong>
-              <span>startup time</span>
-            </article>
-            <article role="listitem">
-              <strong>3.4MB</strong>
-              <span>release binary</span>
-            </article>
-            <article role="listitem">
-              <strong>22+</strong>
-              <span>model providers</span>
-            </article>
+          <div class="terminal-card">
+            <div class="terminal-head">
+              <span aria-hidden="true"></span>
+              <span aria-hidden="true"></span>
+              <span aria-hidden="true"></span>
+              <p>Fastest path</p>
+              <button
+                class="copy-button"
+                type="button"
+                data-copy-text="curl -fsSL https://profiletailors.com/install | bash"
+                data-track="cta_click"
+                data-track-location="hero-panel"
+                data-track-label="copy-install-command"
+                aria-label="Copy install command"
+              >
+                Copy
+              </button>
+            </div>
+            <pre class="command-block"><code>curl -fsSL https://profiletailors.com/install | bash</code></pre>
+            <div class="terminal-actions">
+              <a href={installScriptUrl} data-track="cta_click" data-track-location="hero-panel" data-track-label="install-script">Open `/install`</a>
+              <a href={`${docsBaseUrl}/en/guides/getting-started/`} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero-panel" data-track-label="getting-started">Getting started</a>
+            </div>
+            <ul class="pill-row" aria-label="Supported launcher paths">
+              <li>npm</li>
+              <li>pnpm</li>
+              <li>yarn</li>
+              <li>bun</li>
+            </ul>
           </div>
+
+          <dl class="stats-grid">
+            {
+              stats.map((item) => (
+                <div class="stat-card">
+                  <dt>{item.label}</dt>
+                  <dd>{item.value}</dd>
+                </div>
+              ))
+            }
+          </dl>
         </aside>
       </div>
     </section>
 
-    <section class="section shell" id="features">
+    <section class="section shell" id="install">
+      <div class="section-head">
+        <p class="eyebrow">INSTALLATION PATHS</p>
+        <h2>Start the way your team actually works.</h2>
+        <p class="section-copy">
+          Clean install paths, real production links, and direct routes into the docs hub at
+          `docs.profiletailors.com`.
+        </p>
+      </div>
+      <div class="install-grid">
+        {
+          installMethods.map((item) => (
+            <article class="install-card">
+              <div>
+                <p class="card-kicker">{item.title}</p>
+                <p class="card-copy">{item.description}</p>
+              </div>
+
+              {item.command && (
+                <pre class="code-block"><code>{item.command}</code></pre>
+              )}
+
+              {item.commands && (
+                <ul class="command-list">
+                  {item.commands.map((command) => <li><code>{command}</code></li>)}
+                </ul>
+              )}
+
+              <a class="inline-link" href={item.ctaHref} rel="noopener noreferrer" data-track="cta_click" data-track-location="install" data-track-label={item.title}>
+                {item.ctaLabel}
+              </a>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
+    <section class="section shell" id="why">
       <div class="section-head">
         <p class="eyebrow">WHY TEAMS PICK CORVUS</p>
-        <h2>Fast, secure, portable agent infrastructure without the usual baggage.</h2>
+        <h2>Everything teams need to get moving without dragging extra weight.</h2>
       </div>
       <div class="feature-grid">
         {
-          conversionKeys.map((item) => (
+          productHighlights.map((item) => (
             <article class="feature-card">
               <h3>{item.title}</h3>
               <p>{item.body}</p>
@@ -200,42 +332,38 @@ const hero = {
       </div>
     </section>
 
-    <section class="section shell comparison">
+    <section class="section shell workflow">
       <div class="section-head">
-        <p class="eyebrow">WHY IT STANDS OUT</p>
-        <h2>Agent infrastructure without the heavyweight stack.</h2>
+        <p class="eyebrow">HOW TO GET MOVING</p>
+        <h2>From install to useful output without guesswork.</h2>
       </div>
-      <div class="comparison-grid">
-        <article>
-          <h3>What most stacks look like</h3>
-          <ul>
-            <li>Heavy runtimes and slow startup</li>
-            <li>Tight coupling to one provider or framework</li>
-            <li>Weak default security around tools and file access</li>
-          </ul>
-        </article>
-        <article>
-          <h3>What Corvus gives you</h3>
-          <ul>
-            <li>Millisecond startup and tiny footprint</li>
-            <li>Provider, memory, tool, and channel portability</li>
-            <li>Secure-by-default pairing, sandboxing, and workspace scoping</li>
-          </ul>
-        </article>
+      <div class="workflow-grid">
+        {
+          workflowSteps.map((item, index) => (
+            <article class="workflow-card">
+              <p class="step-number">0{index + 1}</p>
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+            </article>
+          ))
+        }
       </div>
     </section>
 
-    <section class="section shell" id="proof">
+    <section class="section shell" id="docs">
       <div class="section-head">
-        <p class="eyebrow">PRODUCT PROOF</p>
-        <h2>Built like infrastructure, not hype.</h2>
+        <p class="eyebrow">DOCUMENTATION HUB</p>
+        <h2>Jump straight into the docs that unblock the next step.</h2>
       </div>
-      <div class="testimonial-row">
+      <div class="docs-grid">
         {
-          testimonials.map((item) => (
-            <article class="testimonial-card">
-              <p>“{item.quote}”</p>
-              <span>{item.author}</span>
+          quickLinks.map((item) => (
+            <article class="docs-card">
+              <h3>{item.title}</h3>
+              <p>{item.body}</p>
+              <a class="inline-link" href={item.href} rel="noopener noreferrer" data-track="cta_click" data-track-location="docs" data-track-label={item.title}>
+                Open docs
+              </a>
             </article>
           ))
         }
@@ -245,7 +373,7 @@ const hero = {
     <section class="section shell faq" id="faq">
       <div class="section-head">
         <p class="eyebrow">FAQ</p>
-        <h2>Clear answers for teams evaluating a serious agent runtime.</h2>
+        <h2>Clear answers for teams evaluating a serious runtime.</h2>
       </div>
 
       <div class="faq-grid">
@@ -273,12 +401,13 @@ const hero = {
     </section>
 
     <section class="section shell cta-band">
-      <h2>Start with one command. Scale without dragging extra runtime weight.</h2>
+      <h2>Install from the main domain, jump into docs, and keep shipping.</h2>
       <p>
-        Install Corvus, run your first agent workflow, and keep control over models, memory, tools, and deployment from day one.
+        The landing now gives users the shell installer, package manager commands, source build path,
+        and direct links into `docs.profiletailors.com` without bouncing through preview URLs.
       </p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="final-cta" data-track-label="download-installer">Install Corvus</a>
+        <a class="btn btn-primary" href={installScriptUrl} data-track="cta_click" data-track-location="final-cta" data-track-label="download-installer">Open `/install`</a>
         <a class="btn btn-ghost" href={docsBaseUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="final-cta" data-track-label="explore-docs">Explore the docs</a>
       </div>
     </section>
@@ -286,10 +415,10 @@ const hero = {
 
   <footer class="shell footer">
     <p>© {new Date().getFullYear()} Corvus</p>
-    <div>
+    <div class="footer-links">
       <a href={docsBaseUrl} rel="noopener noreferrer">Docs</a>
-      <a href="https://github.com/dallay/corvus" rel="noopener noreferrer">GitHub</a>
-      <a href={installUrl} rel="noopener noreferrer">Install</a>
+      <a href={githubUrl} rel="noopener noreferrer">GitHub</a>
+      <a href={installScriptUrl}>Install</a>
     </div>
   </footer>
 
@@ -297,7 +426,7 @@ const hero = {
     const metricsKey = "corvus_marketing_metrics_v1";
     const currentDevice = window.matchMedia("(max-width: 960px)").matches ? "mobile" : "desktop";
 
-    function pushMetric(name, detail = {}) {
+    function pushMetric(name: string, detail: Record<string, string> = {}) {
       const payload = {
         name,
         timestamp: new Date().toISOString(),
@@ -306,7 +435,7 @@ const hero = {
         ...detail,
       };
 
-      let previous = [];
+      let previous: Array<Record<string, string>> = [];
 
       try {
         const raw = window.localStorage.getItem(metricsKey);
@@ -348,6 +477,39 @@ const hero = {
           location: element.getAttribute("data-track-group") ?? "faq",
           label: summary?.textContent?.trim() ?? "faq-item",
         });
+      });
+    });
+
+    document.querySelectorAll("[data-copy-text]").forEach((element) => {
+      element.addEventListener("click", async () => {
+        if (!(element instanceof HTMLButtonElement)) {
+          return;
+        }
+
+        const copyText = element.getAttribute("data-copy-text");
+        if (!copyText) {
+          return;
+        }
+
+        const originalLabel = element.textContent ?? "Copy";
+
+        try {
+          await navigator.clipboard.writeText(copyText);
+          element.textContent = "Copied";
+          element.classList.add("is-copied");
+          pushMetric("command_copy", {
+            location: element.getAttribute("data-track-location") ?? "unknown",
+            label: element.getAttribute("data-track-label") ?? "unknown",
+          });
+        } catch {
+          element.textContent = "Failed";
+          element.classList.remove("is-copied");
+        }
+
+        window.setTimeout(() => {
+          element.textContent = originalLabel;
+          element.classList.remove("is-copied");
+        }, 1600);
       });
     });
   </script>
