@@ -453,7 +453,9 @@ fn append_weighted_map(
 
     prompt.push('\n');
     append_line(prompt, heading);
-    for (name, weight) in values {
+    let mut entries = values.iter().collect::<Vec<_>>();
+    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+    for (name, weight) in entries {
         append_line(prompt, &format!("- {name}: {weight:.2}"));
     }
 }
@@ -469,7 +471,9 @@ fn append_map_list(
 
     prompt.push('\n');
     append_line(prompt, heading);
-    for (key, value) in values {
+    let mut entries = values.iter().collect::<Vec<_>>();
+    entries.sort_by(|(left, _), (right, _)| left.cmp(right));
+    for (key, value) in entries {
         append_line(prompt, &format!("- {key}: {value}"));
     }
 }
@@ -489,9 +493,103 @@ pub fn is_aieos_configured(config: &IdentityConfig) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
 
     fn test_workspace_dir() -> PathBuf {
-        std::env::temp_dir().join("corvus-test-identity")
+        std::env::temp_dir().join(format!("corvus-test-identity-{}", uuid::Uuid::new_v4()))
+    }
+
+    #[test]
+    fn load_aieos_identity_reads_json_from_workspace_file() {
+        let workspace_dir = test_workspace_dir();
+        fs::create_dir_all(&workspace_dir).unwrap();
+        fs::write(
+            workspace_dir.join("identity.json"),
+            r#"{"identity":{"names":{"first":"Nova"}}}"#,
+        )
+        .unwrap();
+
+        let config = IdentityConfig {
+            format: "aieos".into(),
+            aieos_path: Some("identity.json".into()),
+            aieos_inline: None,
+        };
+
+        let identity = load_aieos_identity(&config, &workspace_dir)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            identity.identity.unwrap().names.unwrap().first.as_deref(),
+            Some("Nova")
+        );
+
+        let _ = fs::remove_dir_all(workspace_dir);
+    }
+
+    #[test]
+    fn load_aieos_identity_reads_inline_json() {
+        let config = IdentityConfig {
+            format: "aieos".into(),
+            aieos_path: None,
+            aieos_inline: Some(r#"{"identity":{"names":{"first":"Nova"}}}"#.into()),
+        };
+
+        let identity = load_aieos_identity(&config, &test_workspace_dir())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            identity.identity.unwrap().names.unwrap().first.as_deref(),
+            Some("Nova")
+        );
+    }
+
+    #[test]
+    fn load_aieos_identity_returns_error_for_malformed_json() {
+        let workspace_dir = test_workspace_dir();
+        fs::create_dir_all(&workspace_dir).unwrap();
+        fs::write(workspace_dir.join("identity.json"), "{not-json").unwrap();
+
+        let config = IdentityConfig {
+            format: "aieos".into(),
+            aieos_path: Some("identity.json".into()),
+            aieos_inline: None,
+        };
+
+        let error = load_aieos_identity(&config, &workspace_dir).unwrap_err();
+        assert!(error.to_string().contains("Failed to parse AIEOS JSON"));
+
+        let _ = fs::remove_dir_all(workspace_dir);
+    }
+
+    #[test]
+    fn aieos_to_system_prompt_orders_maps_deterministically() {
+        let mut neural_matrix = std::collections::HashMap::new();
+        neural_matrix.insert("zeta".into(), 0.1);
+        neural_matrix.insert("alpha".into(), 0.9);
+
+        let mut favorites = std::collections::HashMap::new();
+        favorites.insert("zebra".into(), "stripes".into());
+        favorites.insert("apple".into(), "pie".into());
+
+        let prompt = aieos_to_system_prompt(&AieosIdentity {
+            psychology: Some(PsychologySection {
+                neural_matrix: Some(neural_matrix),
+                ..Default::default()
+            }),
+            interests: Some(InterestsSection {
+                favorites: Some(favorites),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+
+        let alpha_idx = prompt.find("- alpha: 0.90").unwrap();
+        let zeta_idx = prompt.find("- zeta: 0.10").unwrap();
+        let apple_idx = prompt.find("- apple: pie").unwrap();
+        let zebra_idx = prompt.find("- zebra: stripes").unwrap();
+
+        assert!(alpha_idx < zeta_idx);
+        assert!(apple_idx < zebra_idx);
     }
 
     #[test]

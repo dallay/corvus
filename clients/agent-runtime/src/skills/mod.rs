@@ -519,6 +519,10 @@ fn handle_install_command(workspace_dir: &Path, source: &str) -> Result<()> {
     let skills_path = skills_dir(workspace_dir);
     std::fs::create_dir_all(&skills_path)?;
 
+    if source.starts_with("http://") {
+        anyhow::bail!("Refusing insecure remote skill source: {source}");
+    }
+
     if is_remote_skill_source(source) {
         install_remote_skill(&skills_path, source)
     } else {
@@ -527,7 +531,7 @@ fn handle_install_command(workspace_dir: &Path, source: &str) -> Result<()> {
 }
 
 fn is_remote_skill_source(source: &str) -> bool {
-    source.starts_with("https://") || source.starts_with("http://")
+    source.starts_with("https://")
 }
 
 fn install_remote_skill(skills_path: &Path, source: &str) -> Result<()> {
@@ -555,7 +559,12 @@ fn install_local_skill(skills_path: &Path, source: &str) -> Result<()> {
         anyhow::bail!("Source path does not exist: {source}");
     }
 
-    let name = src.file_name().unwrap_or_default();
+    let name = src
+        .file_name()
+        .filter(|name| !name.is_empty())
+        .filter(|name| *name != std::ffi::OsStr::new("."))
+        .filter(|name| *name != std::ffi::OsStr::new(".."))
+        .ok_or_else(|| anyhow::anyhow!("Invalid skill source path: {source}"))?;
     let dest = skills_path.join(name);
 
     link_or_copy_local_skill(&src, &dest)
@@ -936,6 +945,22 @@ description = "Bare minimum"
         let base = std::path::Path::new("/home/user/.corvus");
         let dir = skills_dir(base);
         assert_eq!(dir, PathBuf::from("/home/user/.corvus/skills"));
+    }
+
+    #[test]
+    fn remote_skill_source_requires_https() {
+        assert!(is_remote_skill_source("https://example.com/skill.git"));
+        assert!(!is_remote_skill_source("http://example.com/skill.git"));
+    }
+
+    #[test]
+    fn install_local_skill_rejects_invalid_source_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let skills_path = temp.path().join("skills");
+        fs::create_dir_all(&skills_path).unwrap();
+
+        let error = install_local_skill(&skills_path, "/").unwrap_err();
+        assert!(error.to_string().contains("Invalid skill source path"));
     }
 
     #[test]

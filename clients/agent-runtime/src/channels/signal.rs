@@ -15,6 +15,13 @@ enum RecipientTarget {
     Group(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ListenerFlow {
+    Continue,
+    Reconnect,
+    Shutdown,
+}
+
 /// Signal channel using signal-cli daemon's native JSON-RPC + SSE API.
 ///
 /// Connects to a running `signal-cli daemon --http <host:port>`.
@@ -293,12 +300,12 @@ impl SignalChannel {
         buffer: &mut String,
         current_data: &mut String,
         tx: &mpsc::Sender<ChannelMessage>,
-    ) -> Result<(), ()> {
+    ) -> ListenerFlow {
         let chunk = match chunk {
             Ok(c) => c,
             Err(e) => {
                 tracing::debug!("Signal SSE chunk error, reconnecting: {e}");
-                return Err(());
+                return ListenerFlow::Reconnect;
             }
         };
 
@@ -306,7 +313,7 @@ impl SignalChannel {
             Ok(t) => t,
             Err(e) => {
                 tracing::debug!("Signal SSE invalid UTF-8, skipping chunk: {}", e);
-                return Ok(());
+                return ListenerFlow::Continue;
             }
         };
 
@@ -316,10 +323,13 @@ impl SignalChannel {
             let line = buffer[..newline_pos].trim_end_matches('\r').to_string();
             buffer.drain(..=newline_pos);
 
-            self.process_line(line.as_str(), current_data, tx).await?;
+            match self.process_line(line.as_str(), current_data, tx).await {
+                ListenerFlow::Continue => {}
+                outcome => return outcome,
+            }
         }
 
-        Ok(())
+        ListenerFlow::Continue
     }
 
     async fn process_line(
@@ -327,9 +337,9 @@ impl SignalChannel {
         line: &str,
         current_data: &mut String,
         tx: &mpsc::Sender<ChannelMessage>,
-    ) -> Result<(), ()> {
+    ) -> ListenerFlow {
         if line.starts_with(':') {
-            return Ok(());
+            return ListenerFlow::Continue;
         }
 
         if line.is_empty() {
@@ -338,7 +348,7 @@ impl SignalChannel {
 
         Self::append_sse_data(line, current_data);
 
-        Ok(())
+        ListenerFlow::Continue
     }
 
     fn append_sse_data(line: &str, current_data: &mut String) {
@@ -354,9 +364,9 @@ impl SignalChannel {
         &self,
         current_data: &mut String,
         tx: &mpsc::Sender<ChannelMessage>,
-    ) -> Result<(), ()> {
+    ) -> ListenerFlow {
         if current_data.is_empty() {
-            return Ok(());
+            return ListenerFlow::Continue;
         }
 
         let parsed = serde_json::from_str::<SseEnvelope>(current_data);
@@ -366,7 +376,12 @@ impl SignalChannel {
             Ok(sse) => {
                 if let Some(ref envelope) = sse.envelope {
                     if let Some(msg) = self.process_envelope(envelope) {
-                        tx.send(msg).await.map_err(|_| ())?;
+                        if tx.send(msg).await.is_err() {
+                            tracing::debug!(
+                                "Signal SSE downstream channel closed; stopping listener"
+                            );
+                            return ListenerFlow::Shutdown;
+                        }
                     }
                 }
             }
@@ -375,23 +390,28 @@ impl SignalChannel {
             }
         }
 
-        Ok(())
+        ListenerFlow::Continue
     }
 
     async fn dispatch_pending_envelope(
         &self,
         current_data: &str,
         tx: &mpsc::Sender<ChannelMessage>,
-    ) {
+    ) -> ListenerFlow {
         if current_data.is_empty() {
-            return;
+            return ListenerFlow::Continue;
         }
 
         match serde_json::from_str::<SseEnvelope>(current_data) {
             Ok(sse) => {
                 if let Some(ref envelope) = sse.envelope {
                     if let Some(msg) = self.process_envelope(envelope) {
-                        let _ = tx.send(msg).await;
+                        if tx.send(msg).await.is_err() {
+                            tracing::debug!(
+                                "Signal SSE downstream channel closed; stopping listener"
+                            );
+                            return ListenerFlow::Shutdown;
+                        }
                     }
                 }
             }
@@ -399,6 +419,8 @@ impl SignalChannel {
                 tracing::debug!("Signal SSE trailing parse skip: {e}");
             }
         }
+
+        ListenerFlow::Continue
     }
 }
 
@@ -453,16 +475,19 @@ impl Channel for SignalChannel {
             let mut current_data = String::new();
 
             while let Some(chunk) = bytes_stream.next().await {
-                if self
+                match self
                     .process_sse_chunk(chunk, &mut buffer, &mut current_data, &tx)
                     .await
-                    .is_err()
                 {
-                    break;
+                    ListenerFlow::Continue => {}
+                    ListenerFlow::Reconnect => break,
+                    ListenerFlow::Shutdown => return Ok(()),
                 }
             }
 
-            self.dispatch_pending_envelope(&current_data, &tx).await;
+            if self.dispatch_pending_envelope(&current_data, &tx).await == ListenerFlow::Shutdown {
+                return Ok(());
+            }
 
             tracing::debug!("Signal SSE stream ended, reconnecting...");
             tokio::time::sleep(tokio::time::Duration::from_secs(2)).await;
@@ -786,10 +811,12 @@ mod tests {
         let mut current_data = String::new();
         let (tx, _rx) = mpsc::channel(1);
 
-        assert!(channel
-            .process_line(":keepalive", &mut current_data, &tx)
-            .await
-            .is_ok());
+        assert!(
+            channel
+                .process_line(":keepalive", &mut current_data, &tx)
+                .await
+                == ListenerFlow::Continue
+        );
         assert!(current_data.is_empty());
     }
 
@@ -809,10 +836,10 @@ mod tests {
         .to_string();
         let (tx, mut rx) = mpsc::channel(1);
 
-        assert!(channel
-            .process_line("", &mut current_data, &tx)
-            .await
-            .is_ok());
+        assert_eq!(
+            channel.process_line("", &mut current_data, &tx).await,
+            ListenerFlow::Continue
+        );
         assert!(current_data.is_empty());
 
         let message = rx.recv().await.expect("message should be emitted");
@@ -826,10 +853,10 @@ mod tests {
         let mut current_data = "not-json".to_string();
         let (tx, mut rx) = mpsc::channel(1);
 
-        assert!(channel
-            .flush_sse_event(&mut current_data, &tx)
-            .await
-            .is_ok());
+        assert_eq!(
+            channel.flush_sse_event(&mut current_data, &tx).await,
+            ListenerFlow::Continue
+        );
         assert!(current_data.is_empty());
         assert!(rx.try_recv().is_err());
     }
@@ -840,10 +867,56 @@ mod tests {
         let mut current_data = String::new();
         let (tx, _rx) = mpsc::channel(1);
 
-        assert!(channel
-            .flush_sse_event(&mut current_data, &tx)
-            .await
-            .is_ok());
+        assert_eq!(
+            channel.flush_sse_event(&mut current_data, &tx).await,
+            ListenerFlow::Continue
+        );
+        assert!(current_data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn flush_sse_event_sends_message_after_multiline_data_accumulates() {
+        let channel = make_channel();
+        let mut current_data = String::new();
+        let (tx, mut rx) = mpsc::channel(1);
+
+        SignalChannel::append_sse_data("data: {\"envelope\":{", &mut current_data);
+        SignalChannel::append_sse_data(
+            "data: \"sourceNumber\":\"+1111111111\",\"timestamp\":1700000000000,\"dataMessage\":{\"message\":\"hello\",\"timestamp\":1700000000000}}}",
+            &mut current_data,
+        );
+
+        assert_eq!(
+            channel.flush_sse_event(&mut current_data, &tx).await,
+            ListenerFlow::Continue
+        );
+
+        let message = rx.recv().await.expect("message should be emitted");
+        assert_eq!(message.sender, "+1111111111");
+        assert_eq!(message.content, "hello");
+    }
+
+    #[tokio::test]
+    async fn flush_sse_event_returns_shutdown_when_receiver_is_closed() {
+        let channel = make_channel();
+        let mut current_data = serde_json::json!({
+            "envelope": {
+                "sourceNumber": "+1111111111",
+                "timestamp": 1_700_000_000_000_u64,
+                "dataMessage": {
+                    "message": "hello",
+                    "timestamp": 1_700_000_000_000_u64
+                }
+            }
+        })
+        .to_string();
+        let (tx, rx) = mpsc::channel(1);
+        drop(rx);
+
+        assert_eq!(
+            channel.flush_sse_event(&mut current_data, &tx).await,
+            ListenerFlow::Shutdown
+        );
         assert!(current_data.is_empty());
     }
 

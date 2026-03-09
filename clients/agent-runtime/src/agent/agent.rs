@@ -19,6 +19,7 @@ use crate::security::ExecutionOrigin;
 use crate::tools::{Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
+use futures_util::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -428,11 +429,7 @@ impl Agent {
             return results;
         }
 
-        let mut results = Vec::with_capacity(calls.len());
-        for call in calls {
-            results.push(self.execute_tool_call(call).await);
-        }
-        results
+        join_all(calls.iter().map(|call| self.execute_tool_call(call))).await
     }
 
     fn classify_model(&self, user_message: &str) -> String {
@@ -507,16 +504,23 @@ impl Agent {
                 .await;
         }
 
-        self.record_tool_response(text, response.text, response.tool_calls);
-        let gated_results = self.execute_gated_tool_calls(&calls).await;
-
         if self.mission_execution_context
-            && gated_results
-                .iter()
-                .any(|result| matches!(result.action, DispatchAction::ApprovalRequired(_)))
+            && calls.iter().any(|call| {
+                matches!(
+                    self.tool_dispatcher.check_tool_risk_for_origin(
+                        &call.name,
+                        &call.arguments,
+                        ExecutionOrigin::Mission,
+                    ),
+                    DispatchAction::ApprovalRequired(_)
+                )
+            })
         {
             anyhow::bail!("mission_policy_denied: delegated tool action denied")
         }
+
+        self.record_tool_response(text, response.text, &calls);
+        let gated_results = self.execute_gated_tool_calls(&calls).await;
 
         let formatted = self.tool_dispatcher.format_results(&gated_results);
         self.history.push(formatted);
@@ -561,7 +565,7 @@ impl Agent {
         &mut self,
         text: String,
         response_text: Option<String>,
-        response_tool_calls: Vec<crate::providers::ToolCall>,
+        response_tool_calls: &[ParsedToolCall],
     ) {
         if response_tool_calls.is_empty() {
             if !text.is_empty() {
@@ -573,7 +577,18 @@ impl Agent {
 
         self.history.push(ConversationMessage::AssistantToolCalls {
             text: response_text,
-            tool_calls: response_tool_calls,
+            tool_calls: response_tool_calls
+                .iter()
+                .enumerate()
+                .map(|(index, call)| crate::providers::ToolCall {
+                    id: call
+                        .tool_call_id
+                        .clone()
+                        .unwrap_or_else(|| Self::tool_call_key(index, call)),
+                    name: call.name.clone(),
+                    arguments: call.arguments.to_string(),
+                })
+                .collect(),
         });
     }
 

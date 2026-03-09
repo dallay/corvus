@@ -2367,6 +2367,25 @@ fn env_override_string_plain(primary: &str, secondary: &str, target: &mut String
     }
 }
 
+fn env_override_web_search_provider(primary: &str, secondary: &str, target: &mut String) {
+    if let Ok(value) = std::env::var(primary).or_else(|_| std::env::var(secondary)) {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return;
+        }
+
+        let normalized = trimmed.to_ascii_lowercase();
+        if matches!(normalized.as_str(), "duckduckgo" | "brave") {
+            *target = normalized;
+        } else {
+            tracing::warn!(
+                "ignoring unknown web search provider override '{}'; allowed: duckduckgo, brave",
+                trimmed
+            );
+        }
+    }
+}
+
 fn env_override_port(primary: &str, secondary: &str, target: &mut u16) {
     if let Ok(port_str) = std::env::var(primary).or_else(|_| std::env::var(secondary)) {
         if let Ok(port) = port_str.parse::<u16>() {
@@ -2598,8 +2617,9 @@ impl Config {
     fn apply_workspace_override(&mut self) {
         if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
             if !workspace.is_empty() {
-                let (_, workspace_dir) =
+                let (config_dir, workspace_dir) =
                     resolve_config_dir_for_workspace(&PathBuf::from(workspace));
+                self.config_path = config_dir.join("config.toml");
                 self.workspace_dir = workspace_dir;
             }
         }
@@ -2627,7 +2647,7 @@ impl Config {
             Some("WEB_SEARCH_ENABLED"),
             &mut self.web_search.enabled,
         );
-        env_override_string_plain(
+        env_override_web_search_provider(
             "CORVUS_WEB_SEARCH_PROVIDER",
             "WEB_SEARCH_PROVIDER",
             &mut self.web_search.provider,
@@ -4321,10 +4341,14 @@ enabled = true
     fn env_override_workspace() {
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
+        let expected_workspace = PathBuf::from("/custom/workspace");
+        let (expected_config_dir, expected_workspace_dir) =
+            resolve_config_dir_for_workspace(&expected_workspace);
 
         std::env::set_var("CORVUS_WORKSPACE", "/custom/workspace");
         config.apply_env_overrides();
-        assert_eq!(config.workspace_dir, PathBuf::from("/custom/workspace"));
+        assert_eq!(config.workspace_dir, expected_workspace_dir);
+        assert_eq!(config.config_path, expected_config_dir.join("config.toml"));
 
         std::env::remove_var("CORVUS_WORKSPACE");
     }
@@ -4656,19 +4680,28 @@ default_model = "legacy-model"
     fn env_override_web_search_invalid_values_ignored() {
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
+        let original_provider = config.web_search.provider.clone();
         let original_max_results = config.web_search.max_results;
         let original_timeout = config.web_search.timeout_secs;
 
+        std::env::set_var("WEB_SEARCH_PROVIDER", "DuckDuckGo");
+        config.apply_env_overrides();
+        assert_eq!(config.web_search.provider, "duckduckgo");
+
+        std::env::set_var("WEB_SEARCH_PROVIDER", "bing");
         std::env::set_var("WEB_SEARCH_MAX_RESULTS", "99");
         std::env::set_var("WEB_SEARCH_TIMEOUT_SECS", "0");
 
         config.apply_env_overrides();
 
+        assert_eq!(config.web_search.provider, "duckduckgo");
         assert_eq!(config.web_search.max_results, original_max_results);
         assert_eq!(config.web_search.timeout_secs, original_timeout);
 
+        config.web_search.provider = original_provider;
         std::env::remove_var("WEB_SEARCH_MAX_RESULTS");
         std::env::remove_var("WEB_SEARCH_TIMEOUT_SECS");
+        std::env::remove_var("WEB_SEARCH_PROVIDER");
     }
 
     #[test]

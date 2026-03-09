@@ -4,7 +4,6 @@ packages:
 
 catalog:
   '@astrojs/check': 0.9.6
-  '@astrojs/partytown': 2.1.4
   '@astrojs/starlight': 0.37.7
   '@biomejs/biome': 2.4.6
   '@playwright/test': 1.58.2
@@ -23,7 +22,7 @@ catalog:
   tailwind-merge: 3.5.0
   tailwindcss: 4.2.1
   typescript: 5.9.3
-  vite: 7.3.1
+  vite: 6.4.1
   vitest: 4.0.18
   vue: 3.5.30
   vue-i18n: 11.3.0

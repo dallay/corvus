@@ -15,7 +15,7 @@ BG_RED="\033[41m"
 # ------------------------------
 # Get latest commit message
 # ------------------------------
-MSG_PATH=".git/COMMIT_EDITMSG"
+MSG_PATH="$1"
 
 if [[ ! -f "$MSG_PATH" ]]; then
   echo "ERROR: commit message file not found: $MSG_PATH" >&2
