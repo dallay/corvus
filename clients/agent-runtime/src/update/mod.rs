@@ -1510,7 +1510,8 @@ async fn send_update_notification(
     nonce: &str,
     expires_at_unix: u64,
 ) -> bool {
-    let Some(channel) = crate::channels::build_channel(config, &target.channel) else {
+    let channel_name = target.channel.to_ascii_lowercase();
+    let Some(channel) = crate::channels::build_channel(config, &channel_name) else {
         tracing::warn!(
             "update notification skipped: unsupported/unconfigured channel={}",
             target.channel
