@@ -212,7 +212,7 @@ impl Default for HardwareConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AgentConfig {
-    /// When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models.
+    /// When true: compact bootstrap context and rag_chunk_limit=2. Use for 13B or smaller models.
     #[serde(default)]
     pub compact_context: bool,
     /// Capability profile used to compose tools and memory behavior.

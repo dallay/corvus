@@ -8,6 +8,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 pub(crate) const DEFAULT_BOOTSTRAP_MAX_CHARS: usize = 20_000;
+pub(crate) const COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS: usize = 6_000;
 
 pub struct PromptContext<'a> {
     pub workspace_dir: &'a Path,
@@ -285,7 +286,9 @@ fn inject_workspace_file(
                 return;
             }
             let _ = writeln!(prompt, "### {filename}\n");
-            let truncated = if trimmed.chars().count() > max_chars {
+            let trimmed_char_count = trimmed.chars().count();
+            let was_truncated = trimmed_char_count > max_chars;
+            let truncated = if was_truncated {
                 trimmed
                     .char_indices()
                     .nth(max_chars)
@@ -295,7 +298,7 @@ fn inject_workspace_file(
                 trimmed
             };
             prompt.push_str(truncated);
-            if truncated.len() < trimmed.len() {
+            if was_truncated {
                 let _ = writeln!(
                     prompt,
                     "\n\n[... truncated at {max_chars} chars — use `read` for full file]\n"
