@@ -28,6 +28,12 @@ struct GatewayResponse {
     ticket: String,
 }
 
+enum IncomingSocketFrame {
+    Text(String),
+    Continue,
+    Break,
+}
+
 impl DingTalkChannel {
     pub fn new(client_id: String, client_secret: String, allowed_users: Vec<String>) -> Self {
         Self {
@@ -168,6 +174,54 @@ impl DingTalkChannel {
         })
     }
 
+    fn decode_socket_frame(
+        message: Result<Message, tokio_tungstenite::tungstenite::Error>,
+    ) -> IncomingSocketFrame {
+        match message {
+            Ok(Message::Text(text)) => IncomingSocketFrame::Text(text.to_string()),
+            Ok(Message::Close(_)) => IncomingSocketFrame::Break,
+            Err(error) => {
+                tracing::warn!("DingTalk WebSocket error: {error}");
+                IncomingSocketFrame::Break
+            }
+            _ => IncomingSocketFrame::Continue,
+        }
+    }
+
+    async fn handle_stream_frame<S>(
+        &self,
+        write: &mut S,
+        tx: &tokio::sync::mpsc::Sender<ChannelMessage>,
+        frame: &serde_json::Value,
+    ) -> bool
+    where
+        S: SinkExt<Message> + Unpin,
+        <S as futures::Sink<Message>>::Error: std::fmt::Debug,
+    {
+        let frame_type = frame.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        match frame_type {
+            "SYSTEM" => Self::handle_system_frame(write, frame).await,
+            "EVENT" | "CALLBACK" => {
+                let Some(channel_msg) = self.handle_event_callback(frame).await else {
+                    return true;
+                };
+
+                let message_id = Self::extract_message_id(frame);
+                let ack = Self::build_ack_response(message_id);
+                let _ = write.send(Message::Text(ack.into())).await;
+
+                if tx.send(channel_msg).await.is_err() {
+                    tracing::warn!("DingTalk: message channel closed");
+                    return false;
+                }
+
+                true
+            }
+            _ => true,
+        }
+    }
+
     /// Register a connection with DingTalk's gateway to get a WebSocket endpoint.
     async fn register_connection(&self) -> anyhow::Result<GatewayResponse> {
         let body = serde_json::json!({
@@ -248,14 +302,10 @@ impl Channel for DingTalkChannel {
         tracing::info!("DingTalk: connected and listening for messages...");
 
         while let Some(msg) = read.next().await {
-            let msg = match msg {
-                Ok(Message::Text(t)) => t,
-                Ok(Message::Close(_)) => break,
-                Err(e) => {
-                    tracing::warn!("DingTalk WebSocket error: {e}");
-                    break;
-                }
-                _ => continue,
+            let msg = match Self::decode_socket_frame(msg) {
+                IncomingSocketFrame::Text(text) => text,
+                IncomingSocketFrame::Continue => continue,
+                IncomingSocketFrame::Break => break,
             };
 
             let frame: serde_json::Value = match serde_json::from_str(&msg) {
@@ -263,30 +313,8 @@ impl Channel for DingTalkChannel {
                 Err(_) => continue,
             };
 
-            let frame_type = frame.get("type").and_then(|t| t.as_str()).unwrap_or("");
-
-            match frame_type {
-                "SYSTEM" => {
-                    if !Self::handle_system_frame(&mut write, &frame).await {
-                        break;
-                    }
-                }
-                "EVENT" | "CALLBACK" => {
-                    let channel_msg = match self.handle_event_callback(&frame).await {
-                        Some(msg) => msg,
-                        None => continue,
-                    };
-
-                    let message_id = Self::extract_message_id(&frame);
-                    let ack = Self::build_ack_response(message_id);
-                    let _ = write.send(Message::Text(ack)).await;
-
-                    if tx.send(channel_msg).await.is_err() {
-                        tracing::warn!("DingTalk: message channel closed");
-                        break;
-                    }
-                }
-                _ => {}
+            if !self.handle_stream_frame(&mut write, &tx, &frame).await {
+                break;
             }
         }
 

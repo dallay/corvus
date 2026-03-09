@@ -1,7 +1,7 @@
 ---
 import "../styles/global.css";
 import { AHREFS_KEY } from "astro:env/client";
-import Analytics from "../components/Analytics.astro";
+import Analytics from "../components/analytics/Analytics.astro";
 
 interface Props {
   title?: string;
@@ -73,6 +73,7 @@ const ogImage = safeAbsoluteUrl(ogImageInput) ?? safeAbsoluteUrl("/og-image.png"
     <Analytics key={AHREFS_KEY} />
   </head>
   <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
     <div class="site-backdrop" aria-hidden="true"></div>
     <slot />
   </body>

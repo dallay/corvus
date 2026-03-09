@@ -101,6 +101,7 @@ update_properties_key() {
     }
   ' "$file" > "$temp_file"
   write_if_changed "$file" "$temp_file"
+  return 0
 }
 
 update_toml_string_key() {
@@ -170,6 +171,7 @@ update_json_string_key() {
     exit 1
   }
   write_if_changed "$file" "$temp_file"
+  return 0
 }
 
 apply_target_update() {

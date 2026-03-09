@@ -3636,6 +3636,71 @@ fn prompt_non_empty(prompt: &str, default: Option<&str>) -> Option<String> {
     }
 }
 
+fn prompt_text(prompt: &str, default: Option<&str>, allow_empty: bool) -> Option<String> {
+    let mut input: dialoguer::Input<String> = Input::new().with_prompt(prompt);
+    if let Some(def) = default {
+        input = input.default(def.into());
+    }
+    if allow_empty {
+        input = input.allow_empty(true);
+    }
+    input.interact_text().ok()
+}
+
+fn parse_csv_values(input: &str) -> Vec<String> {
+    input
+        .split(',')
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect()
+}
+
+fn parse_irc_allowed_users(input: &str) -> Vec<String> {
+    if input.trim() == "*" {
+        vec!["*".into()]
+    } else {
+        parse_csv_values(input)
+    }
+}
+
+fn trimmed_optional(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+struct IrcAuthInputs {
+    server_password: String,
+    nickserv_password: String,
+    sasl_password: String,
+    verify_tls: bool,
+}
+
+fn prompt_irc_auth_inputs() -> Option<IrcAuthInputs> {
+    let server_password = prompt_text(
+        "  Server password (for bouncers like ZNC, leave empty if none)",
+        None,
+        true,
+    )?;
+    let nickserv_password = prompt_text("  NickServ password (leave empty if none)", None, true)?;
+    let sasl_password = prompt_text("  SASL PLAIN password (leave empty if none)", None, true)?;
+    let verify_tls = Confirm::new()
+        .with_prompt("  Verify TLS certificate?")
+        .default(true)
+        .interact()
+        .ok()?;
+
+    Some(IrcAuthInputs {
+        server_password,
+        nickserv_password,
+        sasl_password,
+        verify_tls,
+    })
+}
+
 fn prompt_required(prompt: &str, skipped_message: &str) -> Option<String> {
     match prompt_non_empty(prompt, None) {
         Some(value) => Some(value),
@@ -3768,12 +3833,8 @@ fn setup_irc_channel(config: &mut ChannelsConfig) -> bool {
     print_bullet("Supports SASL PLAIN and NickServ authentication");
     println!();
 
-    let server: String = match Input::new()
-        .with_prompt("  IRC server (hostname)")
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
+    let Some(server) = prompt_text("  IRC server (hostname)", None, false) else {
+        return false;
     };
 
     if server.trim().is_empty() {
@@ -3781,13 +3842,8 @@ fn setup_irc_channel(config: &mut ChannelsConfig) -> bool {
         return false;
     }
 
-    let port_str: String = match Input::new()
-        .with_prompt("  Port")
-        .default("6697".into())
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
+    let Some(port_str) = prompt_text("  Port", Some("6697"), false) else {
+        return false;
     };
 
     let port: u16 = match port_str.trim().parse() {
@@ -3798,9 +3854,8 @@ fn setup_irc_channel(config: &mut ChannelsConfig) -> bool {
         }
     };
 
-    let nickname: String = match Input::new().with_prompt("  Bot nickname").interact_text() {
-        Ok(s) => s,
-        Err(_) => return false,
+    let Some(nickname) = prompt_text("  Bot nickname", None, false) else {
+        return false;
     };
 
     if nickname.trim().is_empty() {
@@ -3808,46 +3863,28 @@ fn setup_irc_channel(config: &mut ChannelsConfig) -> bool {
         return false;
     }
 
-    let channels_str: String = match Input::new()
-        .with_prompt("  Channels to join (comma-separated: #channel1,#channel2)")
-        .allow_empty(true)
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
+    let Some(channels_str) = prompt_text(
+        "  Channels to join (comma-separated: #channel1,#channel2)",
+        None,
+        true,
+    ) else {
+        return false;
     };
 
-    let channels = if channels_str.trim().is_empty() {
-        vec![]
-    } else {
-        channels_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    };
+    let channels = parse_csv_values(&channels_str);
 
     print_bullet("Allowlist nicknames that can interact with the bot (case-insensitive).");
     print_bullet("Use '*' to allow anyone (not recommended for production).");
 
-    let users_str: String = match Input::new()
-        .with_prompt("  Allowed nicknames (comma-separated, or * for all)")
-        .allow_empty(true)
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
+    let Some(users_str) = prompt_text(
+        "  Allowed nicknames (comma-separated, or * for all)",
+        None,
+        true,
+    ) else {
+        return false;
     };
 
-    let allowed_users = if users_str.trim() == "*" {
-        vec!["*".into()]
-    } else {
-        users_str
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .collect()
-    };
+    let allowed_users = parse_irc_allowed_users(&users_str);
 
     if allowed_users.is_empty() {
         print_bullet("⚠️  Empty allowlist — only you can interact. Add nicknames above.");
@@ -3856,40 +3893,8 @@ fn setup_irc_channel(config: &mut ChannelsConfig) -> bool {
     println!();
     print_bullet("Optional authentication (press Enter to skip each):");
 
-    let server_password: String = match Input::new()
-        .with_prompt("  Server password (for bouncers like ZNC, leave empty if none)")
-        .allow_empty(true)
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-
-    let nickserv_password: String = match Input::new()
-        .with_prompt("  NickServ password (leave empty if none)")
-        .allow_empty(true)
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-
-    let sasl_password: String = match Input::new()
-        .with_prompt("  SASL PLAIN password (leave empty if none)")
-        .allow_empty(true)
-        .interact_text()
-    {
-        Ok(s) => s,
-        Err(_) => return false,
-    };
-
-    let verify_tls: bool = match Confirm::new()
-        .with_prompt("  Verify TLS certificate?")
-        .default(true)
-        .interact()
-    {
-        Ok(b) => b,
-        Err(_) => return false,
+    let Some(auth) = prompt_irc_auth_inputs() else {
+        return false;
     };
 
     println!(
@@ -3907,22 +3912,10 @@ fn setup_irc_channel(config: &mut ChannelsConfig) -> bool {
         username: None,
         channels,
         allowed_users,
-        server_password: if server_password.trim().is_empty() {
-            None
-        } else {
-            Some(server_password.trim().to_string())
-        },
-        nickserv_password: if nickserv_password.trim().is_empty() {
-            None
-        } else {
-            Some(nickserv_password.trim().to_string())
-        },
-        sasl_password: if sasl_password.trim().is_empty() {
-            None
-        } else {
-            Some(sasl_password.trim().to_string())
-        },
-        verify_tls: Some(verify_tls),
+        server_password: trimmed_optional(&auth.server_password),
+        nickserv_password: trimmed_optional(&auth.nickserv_password),
+        sasl_password: trimmed_optional(&auth.sasl_password),
+        verify_tls: Some(auth.verify_tls),
     });
     true
 }

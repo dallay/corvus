@@ -20,7 +20,7 @@
     "@corvus/locales": "workspace:*",
     "@corvus/shared": "workspace:*",
     "@corvus/ui": "workspace:*",
-    "@fontsource-variable/inter": "5.2.6",
+    "@fontsource-variable/inter": "5.2.8",
     "clsx": "^2.1.1",
     "tailwind-merge": "catalog:",
     "vue": "catalog:",

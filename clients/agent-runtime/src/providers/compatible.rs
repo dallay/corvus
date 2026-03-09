@@ -438,14 +438,10 @@ fn first_nonempty(text: Option<&str>) -> Option<String> {
     })
 }
 
-fn extract_responses_text(response: ResponsesResponse) -> Option<String> {
-    if let Some(text) = first_nonempty(response.output_text.as_deref()) {
-        return Some(text);
-    }
-
+fn first_output_content_text_by_kind(response: &ResponsesResponse, kind: &str) -> Option<String> {
     for item in &response.output {
         for content in &item.content {
-            if content.kind.as_deref() == Some("output_text") {
+            if content.kind.as_deref() == Some(kind) {
                 if let Some(text) = first_nonempty(content.text.as_deref()) {
                     return Some(text);
                 }
@@ -453,6 +449,10 @@ fn extract_responses_text(response: ResponsesResponse) -> Option<String> {
         }
     }
 
+    None
+}
+
+fn first_output_content_text(response: &ResponsesResponse) -> Option<String> {
     for item in &response.output {
         for content in &item.content {
             if let Some(text) = first_nonempty(content.text.as_deref()) {
@@ -462,6 +462,15 @@ fn extract_responses_text(response: ResponsesResponse) -> Option<String> {
     }
 
     None
+}
+
+fn extract_responses_text(response: ResponsesResponse) -> Option<String> {
+    if let Some(text) = first_nonempty(response.output_text.as_deref()) {
+        return Some(text);
+    }
+
+    first_output_content_text_by_kind(&response, "output_text")
+        .or_else(|| first_output_content_text(&response))
 }
 
 impl OpenAiCompatibleProvider {

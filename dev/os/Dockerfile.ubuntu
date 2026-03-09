@@ -19,8 +19,8 @@ ENV TERM=xterm-256color
 # ═══════════════════════════════════════════════════════════════════════════════
 RUN apt-get update && apt-get install -y --no-install-recommends \
     bash-completion \
-    bzip2 \
     build-essential \
+    bzip2 \
     ca-certificates \
     cargo \
     curl \

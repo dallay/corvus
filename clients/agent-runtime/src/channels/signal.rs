@@ -333,31 +333,46 @@ impl SignalChannel {
         }
 
         if line.is_empty() {
-            if !current_data.is_empty() {
-                match serde_json::from_str::<SseEnvelope>(current_data) {
-                    Ok(sse) => {
-                        if let Some(ref envelope) = sse.envelope {
-                            if let Some(msg) = self.process_envelope(envelope) {
-                                if tx.send(msg).await.is_err() {
-                                    return Err(());
-                                }
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        tracing::debug!("Signal SSE parse skip: {e}");
-                    }
-                }
-                current_data.clear();
-            }
-            return Ok(());
+            return self.flush_sse_event(current_data, tx).await;
         }
 
+        Self::append_sse_data(line, current_data);
+
+        Ok(())
+    }
+
+    fn append_sse_data(line: &str, current_data: &mut String) {
         if let Some(data) = line.strip_prefix("data:") {
             if !current_data.is_empty() {
                 current_data.push('\n');
             }
             current_data.push_str(data.trim_start());
+        }
+    }
+
+    async fn flush_sse_event(
+        &self,
+        current_data: &mut String,
+        tx: &mpsc::Sender<ChannelMessage>,
+    ) -> Result<(), ()> {
+        if current_data.is_empty() {
+            return Ok(());
+        }
+
+        let parsed = serde_json::from_str::<SseEnvelope>(current_data);
+        current_data.clear();
+
+        match parsed {
+            Ok(sse) => {
+                if let Some(ref envelope) = sse.envelope {
+                    if let Some(msg) = self.process_envelope(envelope) {
+                        tx.send(msg).await.map_err(|_| ())?;
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::debug!("Signal SSE parse skip: {e}");
+            }
         }
 
         Ok(())

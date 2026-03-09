@@ -484,12 +484,11 @@ impl Agent {
         effective_model: &str,
         user_message: &str,
     ) -> Result<Option<String>> {
-        let messages = self.tool_dispatcher.to_provider_messages(&self.history);
         let response = self
             .provider
             .chat(
                 ChatRequest {
-                    messages: &messages,
+                    messages: &self.tool_dispatcher.to_provider_messages(&self.history),
                     tools: if self.tool_dispatcher.should_send_tool_specs() {
                         Some(&self.tool_specs)
                     } else {
@@ -503,109 +502,13 @@ impl Agent {
 
         let (text, calls) = self.tool_dispatcher.parse_response(&response);
         if calls.is_empty() {
-            let final_text = if text.is_empty() {
-                response.text.unwrap_or_default()
-            } else {
-                text
-            };
-            let final_text = self
-                .enforce_strict_memory_validation(user_message, final_text)
+            return self
+                .finalize_text_response(user_message, text, response.text)
                 .await;
-
-            self.history
-                .push(ConversationMessage::Chat(ChatMessage::assistant(
-                    final_text.clone(),
-                )));
-            self.trim_history();
-
-            if self.auto_save {
-                let summary = truncate_with_ellipsis(&final_text, 100);
-                let _ = self
-                    .memory
-                    .store("assistant_resp", &summary, MemoryCategory::Daily, None)
-                    .await;
-            }
-
-            return Ok(Some(final_text));
         }
 
-        if response.tool_calls.is_empty() {
-            if !text.is_empty() {
-                self.history
-                    .push(ConversationMessage::Chat(ChatMessage::assistant(text)));
-            }
-        } else {
-            self.history.push(ConversationMessage::AssistantToolCalls {
-                text: response.text,
-                tool_calls: response.tool_calls,
-            });
-        }
-
-        let mut approved_calls = Vec::new();
-        let mut approved_call_keys = Vec::new();
-        let mut results_by_call_id = HashMap::new();
-        let execution_origin = if self.mission_execution_context {
-            ExecutionOrigin::Mission
-        } else {
-            ExecutionOrigin::Standard
-        };
-
-        for (index, call) in calls.iter().enumerate() {
-            let (needs_approval, extracted_reason) = match self
-                .tool_dispatcher
-                .check_tool_risk_for_origin(&call.name, &call.arguments, execution_origin)
-            {
-                DispatchAction::ApprovalRequired(reason) => (true, reason),
-                DispatchAction::Execute => (false, String::new()),
-            };
-
-            if needs_approval {
-                let key = call
-                    .tool_call_id
-                    .clone()
-                    .unwrap_or_else(|| format!("{}#{index}", call.name));
-                results_by_call_id.insert(
-                    key,
-                    ToolExecutionResult {
-                        name: call.name.clone(),
-                        output: crate::approval::structured_denial_text(
-                            &call.name,
-                            &extracted_reason,
-                        ),
-                        success: false,
-                        tool_call_id: call.tool_call_id.clone(),
-                        action: DispatchAction::ApprovalRequired(extracted_reason),
-                    },
-                );
-            } else {
-                approved_calls.push(call.clone());
-                approved_call_keys.push(
-                    call.tool_call_id
-                        .clone()
-                        .unwrap_or_else(|| format!("{}#{index}", call.name)),
-                );
-            }
-        }
-
-        for (result, key) in self
-            .execute_tools(&approved_calls)
-            .await
-            .into_iter()
-            .zip(approved_call_keys.into_iter())
-        {
-            results_by_call_id.insert(key, result);
-        }
-
-        let mut gated_results = Vec::new();
-        for (index, call) in calls.iter().enumerate() {
-            let key = call
-                .tool_call_id
-                .clone()
-                .unwrap_or_else(|| format!("{}#{index}", call.name));
-            if let Some(result) = results_by_call_id.remove(&key) {
-                gated_results.push(result);
-            }
-        }
+        self.record_tool_response(text, response.text, response.tool_calls);
+        let gated_results = self.execute_gated_tool_calls(&calls).await;
 
         if self.mission_execution_context
             && gated_results
@@ -620,6 +523,122 @@ impl Agent {
         self.trim_history();
 
         Ok(None)
+    }
+
+    async fn finalize_text_response(
+        &mut self,
+        user_message: &str,
+        text: String,
+        response_text: Option<String>,
+    ) -> Result<Option<String>> {
+        let final_text = if text.is_empty() {
+            response_text.unwrap_or_default()
+        } else {
+            text
+        };
+        let final_text = self
+            .enforce_strict_memory_validation(user_message, final_text)
+            .await;
+
+        self.history
+            .push(ConversationMessage::Chat(ChatMessage::assistant(
+                final_text.clone(),
+            )));
+        self.trim_history();
+
+        if self.auto_save {
+            let summary = truncate_with_ellipsis(&final_text, 100);
+            let _ = self
+                .memory
+                .store("assistant_resp", &summary, MemoryCategory::Daily, None)
+                .await;
+        }
+
+        Ok(Some(final_text))
+    }
+
+    fn record_tool_response(
+        &mut self,
+        text: String,
+        response_text: Option<String>,
+        response_tool_calls: Vec<crate::providers::ToolCall>,
+    ) {
+        if response_tool_calls.is_empty() {
+            if !text.is_empty() {
+                self.history
+                    .push(ConversationMessage::Chat(ChatMessage::assistant(text)));
+            }
+            return;
+        }
+
+        self.history.push(ConversationMessage::AssistantToolCalls {
+            text: response_text,
+            tool_calls: response_tool_calls,
+        });
+    }
+
+    async fn execute_gated_tool_calls(
+        &mut self,
+        calls: &[ParsedToolCall],
+    ) -> Vec<ToolExecutionResult> {
+        let execution_origin = if self.mission_execution_context {
+            ExecutionOrigin::Mission
+        } else {
+            ExecutionOrigin::Standard
+        };
+        let mut approved_calls = Vec::new();
+        let mut approved_call_keys = Vec::new();
+        let mut results_by_call_id = HashMap::new();
+
+        for (index, call) in calls.iter().enumerate() {
+            let key = Self::tool_call_key(index, call);
+            match self.tool_dispatcher.check_tool_risk_for_origin(
+                &call.name,
+                &call.arguments,
+                execution_origin,
+            ) {
+                DispatchAction::ApprovalRequired(reason) => {
+                    results_by_call_id.insert(key, Self::approval_required_result(call, reason));
+                }
+                DispatchAction::Execute => {
+                    approved_calls.push(call.clone());
+                    approved_call_keys.push(key);
+                }
+            }
+        }
+
+        for (result, key) in self
+            .execute_tools(&approved_calls)
+            .await
+            .into_iter()
+            .zip(approved_call_keys)
+        {
+            results_by_call_id.insert(key, result);
+        }
+
+        calls
+            .iter()
+            .enumerate()
+            .filter_map(|(index, call)| {
+                results_by_call_id.remove(&Self::tool_call_key(index, call))
+            })
+            .collect()
+    }
+
+    fn tool_call_key(index: usize, call: &ParsedToolCall) -> String {
+        call.tool_call_id
+            .clone()
+            .unwrap_or_else(|| format!("{}#{index}", call.name))
+    }
+
+    fn approval_required_result(call: &ParsedToolCall, reason: String) -> ToolExecutionResult {
+        ToolExecutionResult {
+            name: call.name.clone(),
+            output: crate::approval::structured_denial_text(&call.name, &reason),
+            success: false,
+            tool_call_id: call.tool_call_id.clone(),
+            action: DispatchAction::ApprovalRequired(reason),
+        }
     }
 
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {

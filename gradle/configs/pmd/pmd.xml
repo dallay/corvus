@@ -14,21 +14,16 @@
 
   <!-- Includes PMD rules adapted from https://github.com/Netflix/spectator/blob/main/codequality/pmd.xml -->
   <rule ref="rulesets/internal/all-java.xml">
-    <!--		<exclude name="AccessorMethodGeneration"/>-->
-    <!--		<exclude name="AddEmptyString"/>-->
     <exclude name="AppendCharacterWithChar" />
-    <!--		<exclude name="ArrayIsStoredDirectly"/>-->
     <exclude name="AtLeastOneConstructor" />
     <exclude name="AvoidCatchingGenericException" />
     <exclude name="AvoidDuplicateLiterals" />
     <exclude name="AvoidFieldNameMatchingMethodName" />
-    <!--		<exclude name="AvoidInstantiatingObjectsInLoops"/>-->
     <exclude name="AvoidLiteralsInIfCondition" />
     <exclude name="AvoidSynchronizedAtMethodLevel" />
     <exclude name="AvoidThrowingNullPointerException" />
     <exclude name="AvoidThrowingRawExceptionTypes" />
     <exclude name="AvoidUsingVolatile" />
-    <!--		<exclude name="ClassNamingConventions"/>-->
     <exclude name="CloseResource" />
     <exclude name="CognitiveComplexity" />
     <exclude name="CommentDefaultAccessModifier" />
@@ -36,12 +31,8 @@
       name="CommentRequired"
     /> <!-- CommentRequired is excluded here; re-enable when enforcing mandatory comments as a review signal -->
     <exclude name="CommentSize" />
-    <!--		<exclude name="CompareObjectsWithEquals"/>-->
     <exclude name="ConfusingTernary" />
-    <!--		<exclude name="ControlStatementBraces"/>-->
     <exclude name="CyclomaticComplexity" />
-    <!--		<exclude name="DoNotUseThreads"/>-->
-    <!--		<exclude name="EmptyMethodInAbstractClassShouldBeAbstract"/>-->
     <exclude name="ExcessiveImports" />
     <exclude name="ExcessivePublicCount" />
     <exclude name="FieldDeclarationsShouldBeAtStartOfClass" />
@@ -54,21 +45,16 @@
     <exclude name="LongVariable" />
     <exclude name="LoosePackageCoupling" />
     <exclude name="MethodArgumentCouldBeFinal" />
-    <!--		<exclude name="MethodReturnsInternalArray"/>-->
     <exclude name="NullAssignment" />
-    <!--		<exclude name="OneDeclarationPerLine"/>-->
     <exclude name="OnlyOneReturn" />
     <exclude name="PrematureDeclaration" />
     <exclude name="RedundantFieldInitializer" />
     <exclude name="SignatureDeclareThrowsException" />
-    <!--		<exclude name="SimpleDateFormatNeedsLocale"/>-->
-    <!--		<exclude name="SimplifyConditional"/>-->
     <exclude name="ShortClassName" />
     <exclude name="ShortMethodName" />
     <exclude name="ShortVariable" />
     <exclude name="TooManyFields" />
     <exclude name="TooManyMethods" />
-    <!--		<exclude name="UncommentedEmptyMethodBody"/>-->
     <exclude name="UnusedPrivateMethod" />
     <exclude name="UnnecessaryConstructor" />
     <exclude name="UseConcurrentHashMap" />
@@ -76,7 +62,6 @@
     <exclude name="UselessParentheses" />
     <exclude name="UseStringBufferForStringAppends" />
     <exclude name="UseUnderscoresInNumericLiterals" />
-    <!--		<exclude name="UseVarargs"/>-->
     <!-- dy disable more -->
     <exclude name="UnnecessaryAnnotationValueElement" />
     <exclude name="UseObjectForClearerAPI" />
@@ -88,19 +73,4 @@
       <property name="booleanFieldPrefixes" value="has,can,have,will,should" />
     </properties>
   </rule>
-
-  <!-- Optional Alibaba P3C rules reference:
-       https://github.com/alibaba/p3c/tree/master/p3c-pmd/src/main/resources/rulesets/java -->
-  <!--  <rule ref="rulesets/java/ali-comment.xml">-->
-  <!--    <exclude name="RemoveCommentedCodeRule" />-->
-  <!--  </rule>-->
-  <!--  <rule ref="rulesets/java/ali-concurrent.xml" />-->
-  <!--  <rule ref="rulesets/java/ali-constant.xml" />-->
-  <!--  <rule ref="rulesets/java/ali-exception.xml" />-->
-  <!--  <rule ref="rulesets/java/ali-flowcontrol.xml" />-->
-  <!--  <rule ref="rulesets/java/ali-naming.xml" />-->
-  <!--  <rule ref="rulesets/java/ali-oop.xml" />-->
-  <!--  <rule ref="rulesets/java/ali-orm.xml" />-->
-  <!--  <rule ref="rulesets/java/ali-other.xml" />-->
-  <!--  <rule ref="rulesets/java/ali-set.xml" />-->
 </ruleset>

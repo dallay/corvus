@@ -1,5 +1,4 @@
-import partytown from "@astrojs/partytown";
-import { getPortFromUrl, PORTS, resolveSiteUrl } from "@corvus/shared/env";
+import { getPortFromUrl, PORTS } from "@corvus/shared/env";
 import { defineConfig, envField } from "astro/config";
 import { loadEnv } from "vite";
 
@@ -8,19 +7,25 @@ const DEFAULT_PROD_URL = "https://profiletailors.com";
 
 const mode = process.env.NODE_ENV || "production";
 const env = loadEnv(mode, process.cwd(), "");
-const marketingUrl = resolveSiteUrl({
-  env,
-  primaryKey: "MARKETING_URL",
-  localDefault: DEFAULT_DEV_URL,
-  productionDefault: DEFAULT_PROD_URL,
-  genericKeys: ["SITE_URL"],
-  providerKeys: {
-    cloudflare: "CF_PAGES_URL",
-    vercel: "VERCEL_URL",
-    netlify: "URL",
-  },
-  isProdLike: mode === "production",
-});
+
+function resolvePublicUrl(value, fallback) {
+  const candidate = typeof value === "string" ? value.trim() : "";
+
+  if (!candidate) {
+    return fallback;
+  }
+
+  try {
+    return new URL(candidate).toString();
+  } catch {
+    return fallback;
+  }
+}
+
+const marketingUrl = resolvePublicUrl(
+  env.MARKETING_URL,
+  mode === "production" ? DEFAULT_PROD_URL : DEFAULT_DEV_URL,
+);
 const resolvedPort = getPortFromUrl(marketingUrl, PORTS.MARKETING);
 
 export default defineConfig({
@@ -35,7 +40,6 @@ export default defineConfig({
     host: true,
     port: resolvedPort,
   },
-  integrations: [partytown()],
   env: {
     schema: {
       AHREFS_KEY: envField.string({

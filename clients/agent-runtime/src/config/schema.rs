@@ -2537,23 +2537,43 @@ impl Config {
 
         env_override_string("CORVUS_PROVIDER", "PROVIDER", &mut self.default_provider);
         env_override_string("CORVUS_MODEL", "MODEL", &mut self.default_model);
+        self.apply_regional_api_key_overrides();
+        self.apply_memory_backend_override();
+        self.apply_workspace_override();
+        self.apply_gateway_env_overrides();
+        self.apply_web_search_env_overrides();
+        self.apply_surreal_env_overrides();
+        self.apply_updates_env_overrides();
 
-        if self.default_provider.as_deref().is_some_and(is_glm_alias) {
-            if let Ok(key) = std::env::var("GLM_API_KEY") {
-                if !key.is_empty() {
-                    self.api_key = Some(key);
-                }
-            }
+        self.normalize_query_classification_keywords();
+    }
+
+    fn apply_regional_api_key_overrides(&mut self) {
+        self.apply_regional_api_key_override(is_glm_alias, "GLM_API_KEY");
+        self.apply_regional_api_key_override(is_zai_alias, "ZAI_API_KEY");
+    }
+
+    fn apply_regional_api_key_override(
+        &mut self,
+        matches_provider: fn(&str) -> bool,
+        env_name: &str,
+    ) {
+        if !self
+            .default_provider
+            .as_deref()
+            .is_some_and(matches_provider)
+        {
+            return;
         }
 
-        if self.default_provider.as_deref().is_some_and(is_zai_alias) {
-            if let Ok(key) = std::env::var("ZAI_API_KEY") {
-                if !key.is_empty() {
-                    self.api_key = Some(key);
-                }
+        if let Ok(key) = std::env::var(env_name) {
+            if !key.is_empty() {
+                self.api_key = Some(key);
             }
         }
+    }
 
+    fn apply_memory_backend_override(&mut self) {
         if let Ok(backend) =
             std::env::var("CORVUS_MEMORY_BACKEND").or_else(|_| std::env::var("MEMORY_BACKEND"))
         {
@@ -2573,7 +2593,9 @@ impl Config {
                 }
             }
         }
+    }
 
+    fn apply_workspace_override(&mut self) {
         if let Ok(workspace) = std::env::var("CORVUS_WORKSPACE") {
             if !workspace.is_empty() {
                 let (_, workspace_dir) =
@@ -2581,7 +2603,9 @@ impl Config {
                 self.workspace_dir = workspace_dir;
             }
         }
+    }
 
+    fn apply_gateway_env_overrides(&mut self) {
         env_override_port("CORVUS_GATEWAY_PORT", "PORT", &mut self.gateway.port);
         env_override_string_plain("CORVUS_GATEWAY_HOST", "HOST", &mut self.gateway.host);
         env_override_bool(
@@ -2595,7 +2619,9 @@ impl Config {
             2.0,
             &mut self.default_temperature,
         );
+    }
 
+    fn apply_web_search_env_overrides(&mut self) {
         env_override_bool(
             "CORVUS_WEB_SEARCH_ENABLED",
             Some("WEB_SEARCH_ENABLED"),
@@ -2628,7 +2654,9 @@ impl Config {
             "WEB_SEARCH_TIMEOUT_SECS",
             &mut self.web_search.timeout_secs,
         );
+    }
 
+    fn apply_surreal_env_overrides(&mut self) {
         env_override_optional("CORVUS_SURREALDB_URL", &mut self.memory.surreal.url);
         env_override_optional(
             "CORVUS_SURREALDB_NAMESPACE",
@@ -2647,7 +2675,9 @@ impl Config {
             &mut self.memory.surreal.password,
         );
         env_override_optional("CORVUS_SURREALDB_TOKEN", &mut self.memory.surreal.token);
+    }
 
+    fn apply_updates_env_overrides(&mut self) {
         env_override_bool("CORVUS_UPDATES_ENABLED", None, &mut self.updates.enabled);
         env_override_bool(
             "CORVUS_UPDATE_AUTO_INSTALL",
@@ -2692,8 +2722,6 @@ impl Config {
                 }
             }
         }
-
-        self.normalize_query_classification_keywords();
     }
 
     pub fn validate_for_runtime(&self) -> Result<()> {
@@ -2718,41 +2746,59 @@ impl Config {
         }
 
         for (idx, server) in self.mcp.servers.iter().enumerate() {
-            let base = format!("mcp.servers[{idx}]");
+            Self::validate_mcp_server(server, idx)?;
+        }
 
-            if !is_valid_mcp_identifier(&server.name) {
-                anyhow::bail!(
-                    "{base}.name must be a non-empty identifier using [a-zA-Z0-9_-] and cannot be 'mcp'"
-                );
+        Ok(())
+    }
+
+    fn validate_mcp_server(server: &McpServerConfig, idx: usize) -> Result<()> {
+        let base = format!("mcp.servers[{idx}]");
+
+        if !is_valid_mcp_identifier(&server.name) {
+            anyhow::bail!(
+            "{base}.name must be a non-empty identifier using [a-zA-Z0-9_-] and cannot be 'mcp'"
+        );
+        }
+
+        Self::validate_mcp_command(server.command.as_str(), &base)?;
+        Self::validate_non_zero(server.startup_timeout_ms, &base, "startup_timeout_ms")?;
+        Self::validate_non_zero(server.call_timeout_ms, &base, "call_timeout_ms")?;
+        Self::validate_non_zero(server.output_limit_bytes, &base, "output_limit_bytes")?;
+        Self::validate_mcp_env(&server.env, &base)
+    }
+
+    fn validate_mcp_command(command: &str, base: &str) -> Result<()> {
+        if command.trim().is_empty() {
+            anyhow::bail!("{base}.command must be non-empty");
+        }
+
+        if command.contains('\0') {
+            anyhow::bail!("{base}.command contains an invalid value");
+        }
+
+        Ok(())
+    }
+
+    fn validate_non_zero<T>(value: T, base: &str, field: &str) -> Result<()>
+    where
+        T: PartialEq + Default,
+    {
+        if value == T::default() {
+            anyhow::bail!("{base}.{field} must be greater than zero");
+        }
+
+        Ok(())
+    }
+
+    fn validate_mcp_env(env: &BTreeMap<String, String>, base: &str) -> Result<()> {
+        for (key, value) in env {
+            if key.contains('\0') {
+                anyhow::bail!("{base}.env contains an invalid key");
             }
 
-            if server.command.trim().is_empty() {
-                anyhow::bail!("{base}.command must be non-empty");
-            }
-
-            if server.command.contains('\0') {
-                anyhow::bail!("{base}.command contains an invalid value");
-            }
-
-            if server.startup_timeout_ms == 0 {
-                anyhow::bail!("{base}.startup_timeout_ms must be greater than zero");
-            }
-
-            if server.call_timeout_ms == 0 {
-                anyhow::bail!("{base}.call_timeout_ms must be greater than zero");
-            }
-
-            if server.output_limit_bytes == 0 {
-                anyhow::bail!("{base}.output_limit_bytes must be greater than zero");
-            }
-
-            for (key, value) in &server.env {
-                if key.contains('\0') {
-                    anyhow::bail!("{base}.env contains an invalid key");
-                }
-                if value.contains('\0') {
-                    anyhow::bail!("{base}.env contains an invalid value");
-                }
+            if value.contains('\0') {
+                anyhow::bail!("{base}.env contains an invalid value");
             }
         }
 
