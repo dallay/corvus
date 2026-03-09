@@ -19,6 +19,7 @@ MUST use the existing canonical runtime stack with the `code` capability profile
 configuration outcome, and the runtime MUST make that specialized mode visible to the caller.
 
 #### Scenario: User starts an explicit code session
+
 - GIVEN a user invokes Corvus through an entry point that supports the canonical dispatcher
 - WHEN the user selects or invokes explicit code mode
 - THEN the system MUST start a code-specialist session using the canonical bootstrap, prompt,
@@ -27,6 +28,7 @@ configuration outcome, and the runtime MUST make that specialized mode visible t
 - AND the runtime MUST indicate that the session is running in code mode.
 
 #### Scenario: Existing generic entry remains outside code mode
+
 - GIVEN a user invokes a generic agent entry without selecting explicit code mode
 - WHEN the session starts
 - THEN the system MUST NOT silently upgrade that session into code-specialist mode
@@ -39,6 +41,7 @@ both humans and machines. The result MUST include final status, task summary, ch
 commands executed, validations attempted, and any blockers or follow-up work.
 
 #### Scenario: Successful code session returns structured result
+
 - GIVEN a code-specialist session that reaches a normal completion state
 - WHEN the runtime emits the final result
 - THEN the result MUST include a machine-readable final status
@@ -47,6 +50,7 @@ commands executed, validations attempted, and any blockers or follow-up work.
 - AND the result MUST report commands executed and validations attempted during the session.
 
 #### Scenario: Blocked or partial session returns structured gaps
+
 - GIVEN a code-specialist session that cannot fully complete because of an error, denial, or unmet
   prerequisite
 - WHEN the runtime emits the final result
@@ -62,6 +66,7 @@ explicit scope controls, including iteration and time bounds, and MUST return th
 code-session result contract as direct code mode.
 
 #### Scenario: Parent agent delegates bounded code work
+
 - GIVEN a parent agent operating on a canonical runtime entry point
 - WHEN it delegates a task to a code specialist with an allowed delegated code-session policy
 - THEN the system MUST create a bounded delegated code session using the canonical loop
@@ -69,6 +74,7 @@ code-session result contract as direct code mode.
 - AND the delegated session MUST return a structured code-session result to the parent agent.
 
 #### Scenario: Delegated session exceeds its budget
+
 - GIVEN a delegated code-specialist session with explicit iteration or time limits
 - WHEN the delegated session exceeds one of those limits before completing
 - THEN the system MUST terminate the delegated session safely
@@ -83,6 +89,7 @@ path restrictions, command controls, secret redaction, MCP approval requirements
 approval gates for risky actions.
 
 #### Scenario: Delegated code session requests a high-risk action
+
 - GIVEN a delegated code-specialist session attempts an action classified as high-risk or outside
   the session's allowed policy
 - WHEN policy and approval evaluation runs
@@ -92,6 +99,7 @@ approval gates for risky actions.
 - AND the delegated path MUST NOT bypass workspace-only or MCP fail-closed protections.
 
 #### Scenario: Session attempts access outside allowed workspace
+
 - GIVEN a code-specialist session attempts to read, write, or execute against a location outside
   the allowed workspace scope
 - WHEN the request is evaluated
@@ -106,6 +114,7 @@ commands executed, validations attempted, final status, and notable failures for
 delegated code-specialist sessions.
 
 #### Scenario: Successful session emits audit-ready telemetry
+
 - GIVEN a code-specialist session completes after performing code changes and verification work
 - WHEN observability data is recorded
 - THEN the system MUST persist or emit structured records for the final status, files changed,
@@ -113,6 +122,7 @@ delegated code-specialist sessions.
 - AND those records MUST be attributable to the specific direct or delegated session.
 
 #### Scenario: Validation cannot run or fails
+
 - GIVEN a code-specialist session is configured to attempt validation that fails or cannot be run
 - WHEN the session completes
 - THEN the final structured result MUST record the attempted or skipped validation outcome

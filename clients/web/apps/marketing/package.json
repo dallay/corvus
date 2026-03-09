@@ -15,7 +15,6 @@
     "clean": "rm -rf dist .astro"
   },
   "dependencies": {
-    "@astrojs/partytown": "catalog:",
     "@corvus/shared": "workspace:*",
     "astro": "catalog:",
     "sharp": "catalog:"

@@ -78,7 +78,7 @@ impl DingTalkChannel {
         }
     }
 
-    fn build_pong_response(message_id: &str) -> String {
+    fn build_pong_response(message_id: &str, opaque: &str) -> String {
         serde_json::json!({
             "code": 200,
             "headers": {
@@ -86,7 +86,7 @@ impl DingTalkChannel {
                 "messageId": message_id,
             },
             "message": "OK",
-            "data": "",
+            "data": opaque,
         })
         .to_string()
     }
@@ -118,7 +118,11 @@ impl DingTalkChannel {
         <S as futures::Sink<Message>>::Error: std::fmt::Debug,
     {
         let message_id = Self::extract_message_id(frame);
-        let pong = Self::build_pong_response(message_id);
+        let opaque = frame
+            .get("opaque")
+            .and_then(|value| value.as_str())
+            .unwrap_or("");
+        let pong = Self::build_pong_response(message_id, opaque);
         match write.send(Message::Text(pong)).await {
             Ok(()) => true,
             Err(e) => {
@@ -201,18 +205,29 @@ impl DingTalkChannel {
         let frame_type = frame.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
         match frame_type {
-            "SYSTEM" => Self::handle_system_frame(write, frame).await,
+            "SYSTEM" => match frame
+                .get("headers")
+                .and_then(|headers| headers.get("topic"))
+                .and_then(|topic| topic.as_str())
+            {
+                Some("disconnect") => true,
+                Some("ping") => Self::handle_system_frame(write, frame).await,
+                _ => Self::handle_system_frame(write, frame).await,
+            },
             "EVENT" | "CALLBACK" => {
                 let Some(channel_msg) = self.handle_event_callback(frame).await else {
                     return true;
                 };
 
-                let message_id = Self::extract_message_id(frame);
-                let ack = Self::build_ack_response(message_id);
-                let _ = write.send(Message::Text(ack)).await;
-
                 if tx.send(channel_msg).await.is_err() {
                     tracing::warn!("DingTalk: message channel closed");
+                    return false;
+                }
+
+                let message_id = Self::extract_message_id(frame);
+                let ack = Self::build_ack_response(message_id);
+                if let Err(error) = write.send(Message::Text(ack)).await {
+                    tracing::warn!("DingTalk: failed to send ack: {:?}", error);
                     return false;
                 }
 
@@ -373,9 +388,9 @@ mod tests {
         }
     }
 
-    fn event_frame(content: &str) -> serde_json::Value {
+    fn event_frame(frame_type: &str, content: &str) -> serde_json::Value {
         serde_json::json!({
-            "type": "EVENT",
+            "type": frame_type,
             "headers": {
                 "messageId": "msg-1",
             },
@@ -501,12 +516,16 @@ client_secret = "secret"
             "type": "SYSTEM",
             "headers": {
                 "messageId": "system-1",
+                "topic": "ping",
             }
+            ,"opaque": "opaque-1"
         });
 
         assert!(channel.handle_stream_frame(&mut sink, &tx, &frame).await);
         assert_eq!(sink.messages.len(), 1);
-        assert!(matches!(&sink.messages[0], Message::Text(text) if text.contains("system-1")));
+        assert!(
+            matches!(&sink.messages[0], Message::Text(text) if text.contains("system-1") && text.contains("opaque-1"))
+        );
     }
 
     #[tokio::test]
@@ -521,10 +540,28 @@ client_secret = "secret"
             "type": "SYSTEM",
             "headers": {
                 "messageId": "system-1",
+                "topic": "ping",
             }
         });
 
         assert!(!channel.handle_stream_frame(&mut sink, &tx, &frame).await);
+    }
+
+    #[tokio::test]
+    async fn handle_stream_frame_skips_disconnect_replies() {
+        let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["*".into()]);
+        let mut sink = TestSink::default();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let frame = serde_json::json!({
+            "type": "SYSTEM",
+            "headers": {
+                "messageId": "system-2",
+                "topic": "disconnect",
+            }
+        });
+
+        assert!(channel.handle_stream_frame(&mut sink, &tx, &frame).await);
+        assert!(sink.messages.is_empty());
     }
 
     #[tokio::test]
@@ -535,7 +572,7 @@ client_secret = "secret"
 
         assert!(
             channel
-                .handle_stream_frame(&mut sink, &tx, &event_frame("hello from dingtalk"))
+                .handle_stream_frame(&mut sink, &tx, &event_frame("EVENT", "hello from dingtalk"))
                 .await
         );
 
@@ -555,7 +592,7 @@ client_secret = "secret"
 
         assert!(
             channel
-                .handle_stream_frame(&mut sink, &tx, &event_frame("   "))
+                .handle_stream_frame(&mut sink, &tx, &event_frame("CALLBACK", "   "))
                 .await
         );
         assert!(rx.try_recv().is_err());
@@ -571,10 +608,31 @@ client_secret = "secret"
 
         assert!(
             !channel
-                .handle_stream_frame(&mut sink, &tx, &event_frame("hello"))
+                .handle_stream_frame(&mut sink, &tx, &event_frame("EVENT", "hello"))
                 .await
         );
-        assert_eq!(sink.messages.len(), 1);
+        assert!(sink.messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn handle_stream_frame_returns_false_when_ack_send_fails() {
+        let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["*".into()]);
+        let mut sink = TestSink {
+            fail_on_send: true,
+            ..Default::default()
+        };
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+        assert!(
+            !channel
+                .handle_stream_frame(&mut sink, &tx, &event_frame("CALLBACK", "hello"))
+                .await
+        );
+        let message = rx
+            .recv()
+            .await
+            .expect("message should be forwarded before ack");
+        assert_eq!(message.content, "hello");
     }
 
     #[tokio::test]
@@ -582,7 +640,7 @@ client_secret = "secret"
         let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["staff-2".into()]);
 
         assert!(channel
-            .handle_event_callback(&event_frame("hello from dingtalk"))
+            .handle_event_callback(&event_frame("EVENT", "hello from dingtalk"))
             .await
             .is_none());
     }

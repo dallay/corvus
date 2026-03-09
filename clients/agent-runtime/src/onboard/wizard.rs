@@ -3673,20 +3673,28 @@ fn trimmed_optional(input: &str) -> Option<String> {
 }
 
 struct IrcAuthInputs {
-    server_password: String,
-    nickserv_password: String,
-    sasl_password: String,
+    server_password: Option<String>,
+    nickserv_password: Option<String>,
+    sasl_password: Option<String>,
     verify_tls: bool,
 }
 
 fn prompt_irc_auth_inputs() -> Option<IrcAuthInputs> {
-    let server_password = prompt_text(
-        "  Server password (for bouncers like ZNC, leave empty if none)",
-        None,
-        true,
-    )?;
-    let nickserv_password = prompt_text("  NickServ password (leave empty if none)", None, true)?;
-    let sasl_password = prompt_text("  SASL PLAIN password (leave empty if none)", None, true)?;
+    let server_password = Password::new()
+        .with_prompt("  Server password (for bouncers like ZNC, leave empty if none)")
+        .allow_empty_password(true)
+        .interact()
+        .ok()?;
+    let nickserv_password = Password::new()
+        .with_prompt("  NickServ password (leave empty if none)")
+        .allow_empty_password(true)
+        .interact()
+        .ok()?;
+    let sasl_password = Password::new()
+        .with_prompt("  SASL PLAIN password (leave empty if none)")
+        .allow_empty_password(true)
+        .interact()
+        .ok()?;
     let verify_tls = Confirm::new()
         .with_prompt("  Verify TLS certificate?")
         .default(true)
@@ -3694,9 +3702,21 @@ fn prompt_irc_auth_inputs() -> Option<IrcAuthInputs> {
         .ok()?;
 
     Some(IrcAuthInputs {
-        server_password,
-        nickserv_password,
-        sasl_password,
+        server_password: if server_password.is_empty() {
+            None
+        } else {
+            Some(server_password)
+        },
+        nickserv_password: if nickserv_password.is_empty() {
+            None
+        } else {
+            Some(nickserv_password)
+        },
+        sasl_password: if sasl_password.is_empty() {
+            None
+        } else {
+            Some(sasl_password)
+        },
         verify_tls,
     })
 }
@@ -3912,9 +3932,9 @@ fn setup_irc_channel(config: &mut ChannelsConfig) -> bool {
         username: None,
         channels,
         allowed_users,
-        server_password: trimmed_optional(&auth.server_password),
-        nickserv_password: trimmed_optional(&auth.nickserv_password),
-        sasl_password: trimmed_optional(&auth.sasl_password),
+        server_password: auth.server_password,
+        nickserv_password: auth.nickserv_password,
+        sasl_password: auth.sasl_password,
         verify_tls: Some(auth.verify_tls),
     });
     true
@@ -6179,22 +6199,46 @@ mod tests {
 
     #[test]
     fn parse_csv_values_trims_and_filters_empty_entries() {
-        assert_eq!(
-            parse_csv_values(" alpha, beta ,, gamma "),
-            vec!["alpha", "beta", "gamma"]
-        );
+        let cases = [
+            (" alpha, beta ,, gamma ", vec!["alpha", "beta", "gamma"]),
+            ("a, b, ", vec!["a", "b"]),
+            ("solo", vec!["solo"]),
+            ("   ", vec![]),
+            ("", vec![]),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(parse_csv_values(input), expected);
+        }
     }
 
     #[test]
     fn parse_irc_allowed_users_preserves_wildcard() {
-        assert_eq!(parse_irc_allowed_users(" * "), vec!["*"]);
-        assert_eq!(parse_irc_allowed_users("alice, bob"), vec!["alice", "bob"]);
+        let cases = [
+            (" * ", vec!["*"]),
+            ("alice, bob", vec!["alice", "bob"]),
+            ("solo", vec!["solo"]),
+            ("a, b, ", vec!["a", "b"]),
+            ("   ", vec![]),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(parse_irc_allowed_users(input), expected);
+        }
     }
 
     #[test]
     fn trimmed_optional_returns_none_for_blank_values() {
-        assert_eq!(trimmed_optional("   \t"), None);
-        assert_eq!(trimmed_optional(" secret "), Some("secret".to_string()));
+        let cases = [
+            ("   \t", None),
+            ("", None),
+            (" secret ", Some("secret".to_string())),
+            ("solo", Some("solo".to_string())),
+        ];
+
+        for (input, expected) in cases {
+            assert_eq!(trimmed_optional(input), expected);
+        }
     }
 
     #[test]

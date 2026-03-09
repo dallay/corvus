@@ -10,6 +10,10 @@ try {
   console.log(`[corvus] Native binary ready at ${binaryPath}`);
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('Unsupported platform')) {
+    console.error(`[corvus] ${message}`);
+    process.exit(1);
+  }
   console.warn(`[corvus] Postinstall skipped: ${message}`);
   console.warn('[corvus] Binary will be downloaded on first run.');
 }

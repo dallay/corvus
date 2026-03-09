@@ -4,12 +4,12 @@
   "private": true,
   "description": "Shared components and utilities for Corvus web apps",
   "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./index.ts",
+  "types": "./index.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "types": "./index.ts",
+      "import": "./index.ts"
     },
     "./env": {
       "import": "./env.mjs"

@@ -1817,4 +1817,48 @@ mod tests {
             }
         ));
     }
+
+    #[tokio::test]
+    async fn onboard_rejects_interactive_with_channels_only() {
+        let cli =
+            Cli::try_parse_from(["corvus", "onboard", "--interactive", "--channels-only"]).unwrap();
+
+        let error = maybe_handle_onboard_command(&cli.command)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Use either --interactive or --channels-only, not both"
+        );
+    }
+
+    #[tokio::test]
+    async fn onboard_rejects_channels_only_with_quick_setup_flags() {
+        for args in [
+            vec![
+                "corvus",
+                "onboard",
+                "--channels-only",
+                "--api-key",
+                "secret",
+            ],
+            vec![
+                "corvus",
+                "onboard",
+                "--channels-only",
+                "--provider",
+                "openai",
+            ],
+            vec!["corvus", "onboard", "--channels-only", "--memory", "sqlite"],
+        ] {
+            let cli = Cli::try_parse_from(args).unwrap();
+            let error = maybe_handle_onboard_command(&cli.command)
+                .await
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "--channels-only does not accept --api-key, --provider, or --memory"
+            );
+        }
+    }
 }

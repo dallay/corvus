@@ -253,6 +253,8 @@ struct ResponsesResponse {
     output: Vec<ResponsesOutput>,
     #[serde(default)]
     output_text: Option<String>,
+    #[serde(default)]
+    refusal: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -466,6 +468,10 @@ fn first_output_content_text(response: &ResponsesResponse) -> Option<String> {
 
 fn extract_responses_text(response: ResponsesResponse) -> Option<String> {
     if let Some(text) = first_nonempty(response.output_text.as_deref()) {
+        return Some(text);
+    }
+
+    if let Some(text) = first_nonempty(response.refusal.as_deref()) {
         return Some(text);
     }
 
@@ -1128,6 +1134,63 @@ mod tests {
         assert_eq!(
             extract_responses_text(response).as_deref(),
             Some("Fallback text")
+        );
+    }
+
+    #[test]
+    fn responses_extracts_refusal_before_nested_fallbacks() {
+        let json = r#"{"refusal":"Safety refusal","output":[{"content":[{"type":"message","text":"Fallback text"}]}]}"#;
+        let response: ResponsesResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            extract_responses_text(response).as_deref(),
+            Some("Safety refusal")
+        );
+    }
+
+    #[test]
+    fn responses_output_content_helpers_respect_order_and_filters() {
+        let response = ResponsesResponse {
+            output: vec![
+                ResponsesOutput {
+                    content: vec![
+                        ResponsesContent {
+                            kind: Some("output_text".into()),
+                            text: Some("   ".into()),
+                        },
+                        ResponsesContent {
+                            kind: Some("message".into()),
+                            text: Some("First overall".into()),
+                        },
+                    ],
+                },
+                ResponsesOutput {
+                    content: vec![
+                        ResponsesContent {
+                            kind: Some("output_text".into()),
+                            text: Some("First matching kind".into()),
+                        },
+                        ResponsesContent {
+                            kind: Some("message".into()),
+                            text: Some("Later overall".into()),
+                        },
+                    ],
+                },
+            ],
+            output_text: None,
+            refusal: None,
+        };
+
+        assert_eq!(
+            first_output_content_text(&response).as_deref(),
+            Some("First overall")
+        );
+        assert_eq!(
+            first_output_content_text_by_kind(&response, "output_text").as_deref(),
+            Some("First matching kind")
+        );
+        assert_eq!(
+            first_output_content_text_by_kind(&response, "reasoning"),
+            None
         );
     }
 

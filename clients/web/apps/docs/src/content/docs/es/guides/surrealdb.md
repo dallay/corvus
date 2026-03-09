@@ -118,7 +118,7 @@ SurrealDB tiene dos formas de relacionar registros:
 - Quieres guardar información sobre la relación (ej: "fecha de creación", "peso")
 - Vas a hacer consultas complejas de traversal
 
-> 📖 **Más información**: Ver [Graph Database en SurrealDB](https://surrealdb.com/docs/surrealdb)
+> 📖 **Más información**: Ver [Graph relations en SurrealDB](https://surrealdb.com/docs/surrealdb/reference-guide/graph-relations)
 > para ejemplos
 > avanzados.
 

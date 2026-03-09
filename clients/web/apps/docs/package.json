@@ -10,7 +10,7 @@
     "astro": "astro",
     "format": "biome format --write src astro.config.mjs package.json tsconfig.json",
     "lint": "biome lint src astro.config.mjs",
-    "check": "biome check src astro.config.mjs package.json tsconfig.json"
+    "check": "astro check && biome check src astro.config.mjs package.json tsconfig.json"
   },
   "dependencies": {
     "@astrojs/starlight": "catalog:",
