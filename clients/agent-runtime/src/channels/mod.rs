@@ -1204,188 +1204,224 @@ fn classify_health_result(
 
 type DoctorChannelEntry = (&'static str, Arc<dyn Channel>);
 
-fn push_optional_telegram_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref tg) = config.channels_config.telegram {
-        channels.push((
-            "Telegram",
-            Arc::new(
-                TelegramChannel::new(tg.bot_token.clone(), tg.allowed_users.clone())
-                    .with_streaming(tg.stream_mode, tg.draft_update_interval_ms),
-            ),
-        ));
-    }
+type ConfiguredChannelEntry = (&'static str, &'static str, Arc<dyn Channel>);
+
+fn build_telegram_channel(config: &Config) -> Option<Arc<TelegramChannel>> {
+    config.channels_config.telegram.as_ref().map(|tg| {
+        Arc::new(
+            TelegramChannel::new(tg.bot_token.clone(), tg.allowed_users.clone())
+                .with_streaming(tg.stream_mode, tg.draft_update_interval_ms),
+        )
+    })
 }
 
-fn push_optional_discord_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref dc) = config.channels_config.discord {
-        channels.push((
-            "Discord",
-            Arc::new(DiscordChannel::new(
-                dc.bot_token.clone(),
-                dc.guild_id.clone(),
-                dc.allowed_users.clone(),
-                dc.listen_to_bots,
-                dc.mention_only,
-            )),
-        ));
-    }
+fn build_discord_channel(config: &Config) -> Option<Arc<DiscordChannel>> {
+    config.channels_config.discord.as_ref().map(|dc| {
+        Arc::new(DiscordChannel::new(
+            dc.bot_token.clone(),
+            dc.guild_id.clone(),
+            dc.allowed_users.clone(),
+            dc.listen_to_bots,
+            dc.mention_only,
+        ))
+    })
 }
 
-fn push_optional_slack_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref sl) = config.channels_config.slack {
-        channels.push((
-            "Slack",
-            Arc::new(SlackChannel::new(
-                sl.bot_token.clone(),
-                sl.channel_id.clone(),
-                sl.allowed_users.clone(),
-            )),
-        ));
-    }
+fn build_slack_channel(config: &Config) -> Option<Arc<SlackChannel>> {
+    config.channels_config.slack.as_ref().map(|sl| {
+        Arc::new(SlackChannel::new(
+            sl.bot_token.clone(),
+            sl.channel_id.clone(),
+            sl.allowed_users.clone(),
+        ))
+    })
 }
 
-fn push_optional_mattermost_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref mm) = config.channels_config.mattermost {
-        channels.push((
-            "Mattermost",
-            Arc::new(MattermostChannel::new(
-                mm.url.clone(),
-                mm.bot_token.clone(),
-                mm.channel_id.clone(),
-                mm.allowed_users.clone(),
-                mm.thread_replies.unwrap_or(true),
-            )),
-        ));
-    }
+fn build_mattermost_channel(config: &Config) -> Option<Arc<MattermostChannel>> {
+    config.channels_config.mattermost.as_ref().map(|mm| {
+        Arc::new(MattermostChannel::new(
+            mm.url.clone(),
+            mm.bot_token.clone(),
+            mm.channel_id.clone(),
+            mm.allowed_users.clone(),
+            mm.thread_replies.unwrap_or(true),
+        ))
+    })
 }
 
-fn push_optional_imessage_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref im) = config.channels_config.imessage {
-        channels.push((
-            "iMessage",
-            Arc::new(IMessageChannel::new(im.allowed_contacts.clone())),
-        ));
-    }
+fn build_imessage_channel(config: &Config) -> Option<Arc<IMessageChannel>> {
+    config
+        .channels_config
+        .imessage
+        .as_ref()
+        .map(|im| Arc::new(IMessageChannel::new(im.allowed_contacts.clone())))
 }
 
-fn push_optional_matrix_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref mx) = config.channels_config.matrix {
-        channels.push((
-            "Matrix",
-            Arc::new(MatrixChannel::new(
-                mx.homeserver.clone(),
-                mx.access_token.clone(),
-                mx.room_id.clone(),
-                mx.allowed_users.clone(),
-            )),
-        ));
-    }
+fn build_matrix_channel(config: &Config) -> Option<Arc<MatrixChannel>> {
+    config.channels_config.matrix.as_ref().map(|mx| {
+        Arc::new(MatrixChannel::new(
+            mx.homeserver.clone(),
+            mx.access_token.clone(),
+            mx.room_id.clone(),
+            mx.allowed_users.clone(),
+        ))
+    })
 }
 
-fn push_optional_signal_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref sig) = config.channels_config.signal {
-        channels.push((
-            "Signal",
-            Arc::new(SignalChannel::new(
-                sig.http_url.clone(),
-                sig.account.clone(),
-                sig.group_id.clone(),
-                sig.allowed_from.clone(),
-                sig.ignore_attachments,
-                sig.ignore_stories,
-            )),
-        ));
-    }
+fn build_signal_channel(config: &Config) -> Option<Arc<SignalChannel>> {
+    config.channels_config.signal.as_ref().map(|sig| {
+        Arc::new(SignalChannel::new(
+            sig.http_url.clone(),
+            sig.account.clone(),
+            sig.group_id.clone(),
+            sig.allowed_from.clone(),
+            sig.ignore_attachments,
+            sig.ignore_stories,
+        ))
+    })
 }
 
-fn push_optional_whatsapp_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref wa) = config.channels_config.whatsapp {
-        channels.push((
-            "WhatsApp",
-            Arc::new(WhatsAppChannel::new(
-                wa.access_token.clone(),
-                wa.phone_number_id.clone(),
-                wa.verify_token.clone(),
-                wa.allowed_numbers.clone(),
-            )),
-        ));
-    }
+pub(crate) fn build_whatsapp_channel(config: &Config) -> Option<Arc<WhatsAppChannel>> {
+    config.channels_config.whatsapp.as_ref().map(|wa| {
+        Arc::new(WhatsAppChannel::new(
+            wa.access_token.clone(),
+            wa.phone_number_id.clone(),
+            wa.verify_token.clone(),
+            wa.allowed_numbers.clone(),
+        ))
+    })
 }
 
-fn push_optional_email_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref email_cfg) = config.channels_config.email {
-        channels.push(("Email", Arc::new(EmailChannel::new(email_cfg.clone()))));
-    }
+fn build_email_channel(config: &Config) -> Option<Arc<EmailChannel>> {
+    config
+        .channels_config
+        .email
+        .as_ref()
+        .map(|cfg| Arc::new(EmailChannel::new(cfg.clone())))
 }
 
-fn push_optional_irc_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref irc) = config.channels_config.irc {
-        channels.push((
-            "IRC",
-            Arc::new(IrcChannel::new(irc::IrcChannelConfig {
-                server: irc.server.clone(),
-                port: irc.port,
-                nickname: irc.nickname.clone(),
-                username: irc.username.clone(),
-                channels: irc.channels.clone(),
-                allowed_users: irc.allowed_users.clone(),
-                server_password: irc.server_password.clone(),
-                nickserv_password: irc.nickserv_password.clone(),
-                sasl_password: irc.sasl_password.clone(),
-                verify_tls: irc.verify_tls.unwrap_or(true),
-            })),
-        ));
-    }
+fn build_irc_channel(config: &Config) -> Option<Arc<IrcChannel>> {
+    config.channels_config.irc.as_ref().map(|cfg| {
+        Arc::new(IrcChannel::new(irc::IrcChannelConfig {
+            server: cfg.server.clone(),
+            port: cfg.port,
+            nickname: cfg.nickname.clone(),
+            username: cfg.username.clone(),
+            channels: cfg.channels.clone(),
+            allowed_users: cfg.allowed_users.clone(),
+            server_password: cfg.server_password.clone(),
+            nickserv_password: cfg.nickserv_password.clone(),
+            sasl_password: cfg.sasl_password.clone(),
+            verify_tls: cfg.verify_tls.unwrap_or(true),
+        }))
+    })
 }
 
-fn push_optional_lark_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref lk) = config.channels_config.lark {
-        channels.push(("Lark", Arc::new(LarkChannel::from_config(lk))));
-    }
+fn build_lark_channel(config: &Config) -> Option<Arc<LarkChannel>> {
+    config
+        .channels_config
+        .lark
+        .as_ref()
+        .map(|cfg| Arc::new(LarkChannel::from_config(cfg)))
 }
 
-fn push_optional_dingtalk_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref dt) = config.channels_config.dingtalk {
-        channels.push((
-            "DingTalk",
-            Arc::new(DingTalkChannel::new(
-                dt.client_id.clone(),
-                dt.client_secret.clone(),
-                dt.allowed_users.clone(),
-            )),
-        ));
-    }
+fn build_dingtalk_channel(config: &Config) -> Option<Arc<DingTalkChannel>> {
+    config.channels_config.dingtalk.as_ref().map(|dt| {
+        Arc::new(DingTalkChannel::new(
+            dt.client_id.clone(),
+            dt.client_secret.clone(),
+            dt.allowed_users.clone(),
+        ))
+    })
 }
 
-fn push_optional_qq_channel(channels: &mut Vec<DoctorChannelEntry>, config: &Config) {
-    if let Some(ref qq) = config.channels_config.qq {
-        channels.push((
-            "QQ",
-            Arc::new(QQChannel::new(
-                qq.app_id.clone(),
-                qq.app_secret.clone(),
-                qq.allowed_users.clone(),
-            )),
-        ));
+fn build_qq_channel(config: &Config) -> Option<Arc<QQChannel>> {
+    config.channels_config.qq.as_ref().map(|qq| {
+        Arc::new(QQChannel::new(
+            qq.app_id.clone(),
+            qq.app_secret.clone(),
+            qq.allowed_users.clone(),
+        ))
+    })
+}
+
+fn configured_channel_entries(config: &Config) -> Vec<ConfiguredChannelEntry> {
+    let mut channels: Vec<ConfiguredChannelEntry> = Vec::new();
+
+    if let Some(channel) = build_telegram_channel(config) {
+        channels.push(("telegram", "Telegram", channel));
     }
+    if let Some(channel) = build_discord_channel(config) {
+        channels.push(("discord", "Discord", channel));
+    }
+    if let Some(channel) = build_slack_channel(config) {
+        channels.push(("slack", "Slack", channel));
+    }
+    if let Some(channel) = build_mattermost_channel(config) {
+        channels.push(("mattermost", "Mattermost", channel));
+    }
+    if let Some(channel) = build_imessage_channel(config) {
+        channels.push(("imessage", "iMessage", channel));
+    }
+    if let Some(channel) = build_matrix_channel(config) {
+        channels.push(("matrix", "Matrix", channel));
+    }
+    if let Some(channel) = build_signal_channel(config) {
+        channels.push(("signal", "Signal", channel));
+    }
+    if let Some(channel) = build_whatsapp_channel(config) {
+        channels.push(("whatsapp", "WhatsApp", channel));
+    }
+    if let Some(channel) = build_email_channel(config) {
+        channels.push(("email", "Email", channel));
+    }
+    if let Some(channel) = build_irc_channel(config) {
+        channels.push(("irc", "IRC", channel));
+    }
+    if let Some(channel) = build_lark_channel(config) {
+        channels.push(("lark", "Lark", channel));
+    }
+    if let Some(channel) = build_dingtalk_channel(config) {
+        channels.push(("dingtalk", "DingTalk", channel));
+    }
+    if let Some(channel) = build_qq_channel(config) {
+        channels.push(("qq", "QQ", channel));
+    }
+
+    channels
 }
 
 fn build_doctor_channels(config: &Config) -> Vec<DoctorChannelEntry> {
-    let mut channels: Vec<DoctorChannelEntry> = Vec::new();
-    push_optional_telegram_channel(&mut channels, config);
-    push_optional_discord_channel(&mut channels, config);
-    push_optional_slack_channel(&mut channels, config);
-    push_optional_mattermost_channel(&mut channels, config);
-    push_optional_imessage_channel(&mut channels, config);
-    push_optional_matrix_channel(&mut channels, config);
-    push_optional_signal_channel(&mut channels, config);
-    push_optional_whatsapp_channel(&mut channels, config);
-    push_optional_email_channel(&mut channels, config);
-    push_optional_irc_channel(&mut channels, config);
-    push_optional_lark_channel(&mut channels, config);
-    push_optional_dingtalk_channel(&mut channels, config);
-    push_optional_qq_channel(&mut channels, config);
-    channels
+    configured_channel_entries(config)
+        .into_iter()
+        .map(|(_key, display_name, channel)| (display_name, channel))
+        .collect()
+}
+
+pub(crate) fn build_channel(config: &Config, channel_name: &str) -> Option<Arc<dyn Channel>> {
+    configured_channel_entries(config)
+        .into_iter()
+        .find(|(key, _, _)| key.eq_ignore_ascii_case(channel_name))
+        .map(|(_, _, channel)| channel)
+}
+
+pub(crate) fn is_supported_channel(channel_name: &str) -> bool {
+    matches!(
+        channel_name.to_ascii_lowercase().as_str(),
+        "telegram"
+            | "discord"
+            | "slack"
+            | "mattermost"
+            | "imessage"
+            | "matrix"
+            | "signal"
+            | "whatsapp"
+            | "email"
+            | "irc"
+            | "lark"
+            | "dingtalk"
+            | "qq"
+    )
 }
 
 /// Run health checks for configured channels.
@@ -1439,114 +1475,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
     let workspace = config.workspace_dir.clone();
 
     // Collect active channels
-    let mut channels: Vec<Arc<dyn Channel>> = Vec::new();
-
-    if let Some(ref tg) = config.channels_config.telegram {
-        channels.push(Arc::new(
-            TelegramChannel::new(tg.bot_token.clone(), tg.allowed_users.clone())
-                .with_streaming(tg.stream_mode, tg.draft_update_interval_ms),
-        ));
-    }
-
-    if let Some(ref dc) = config.channels_config.discord {
-        channels.push(Arc::new(DiscordChannel::new(
-            dc.bot_token.clone(),
-            dc.guild_id.clone(),
-            dc.allowed_users.clone(),
-            dc.listen_to_bots,
-            dc.mention_only,
-        )));
-    }
-
-    if let Some(ref sl) = config.channels_config.slack {
-        channels.push(Arc::new(SlackChannel::new(
-            sl.bot_token.clone(),
-            sl.channel_id.clone(),
-            sl.allowed_users.clone(),
-        )));
-    }
-
-    if let Some(ref mm) = config.channels_config.mattermost {
-        channels.push(Arc::new(MattermostChannel::new(
-            mm.url.clone(),
-            mm.bot_token.clone(),
-            mm.channel_id.clone(),
-            mm.allowed_users.clone(),
-            mm.thread_replies.unwrap_or(true),
-        )));
-    }
-
-    if let Some(ref im) = config.channels_config.imessage {
-        channels.push(Arc::new(IMessageChannel::new(im.allowed_contacts.clone())));
-    }
-
-    if let Some(ref mx) = config.channels_config.matrix {
-        channels.push(Arc::new(MatrixChannel::new(
-            mx.homeserver.clone(),
-            mx.access_token.clone(),
-            mx.room_id.clone(),
-            mx.allowed_users.clone(),
-        )));
-    }
-
-    if let Some(ref sig) = config.channels_config.signal {
-        channels.push(Arc::new(SignalChannel::new(
-            sig.http_url.clone(),
-            sig.account.clone(),
-            sig.group_id.clone(),
-            sig.allowed_from.clone(),
-            sig.ignore_attachments,
-            sig.ignore_stories,
-        )));
-    }
-
-    if let Some(ref wa) = config.channels_config.whatsapp {
-        channels.push(Arc::new(WhatsAppChannel::new(
-            wa.access_token.clone(),
-            wa.phone_number_id.clone(),
-            wa.verify_token.clone(),
-            wa.allowed_numbers.clone(),
-        )));
-    }
-
-    if let Some(ref email_cfg) = config.channels_config.email {
-        channels.push(Arc::new(EmailChannel::new(email_cfg.clone())));
-    }
-
-    if let Some(ref irc) = config.channels_config.irc {
-        channels.push(Arc::new(IrcChannel::new(irc::IrcChannelConfig {
-            server: irc.server.clone(),
-            port: irc.port,
-            nickname: irc.nickname.clone(),
-            username: irc.username.clone(),
-            channels: irc.channels.clone(),
-            allowed_users: irc.allowed_users.clone(),
-            server_password: irc.server_password.clone(),
-            nickserv_password: irc.nickserv_password.clone(),
-            sasl_password: irc.sasl_password.clone(),
-            verify_tls: irc.verify_tls.unwrap_or(true),
-        })));
-    }
-
-    if let Some(ref lk) = config.channels_config.lark {
-        channels.push(Arc::new(LarkChannel::from_config(lk)));
-    }
-
-    if let Some(ref dt) = config.channels_config.dingtalk {
-        channels.push(Arc::new(DingTalkChannel::new(
-            dt.client_id.clone(),
-            dt.client_secret.clone(),
-            dt.allowed_users.clone(),
-        )));
-    }
-
-    if let Some(ref qq) = config.channels_config.qq {
-        channels.push(Arc::new(QQChannel::new(
-            qq.app_id.clone(),
-            qq.app_secret.clone(),
-            qq.allowed_users.clone(),
-        )));
-    }
+    let channels: Vec<Arc<dyn Channel>> = configured_channel_entries(&config)
+        .into_iter()
+        .map(|(_, _, channel)| channel)
+        .collect();
 
     if channels.is_empty() {
         println!("No channels configured. Run `corvus onboard` to set up channels.");
@@ -1689,6 +1621,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
 mod tests {
     use super::*;
     use crate::agent::prompt::DEFAULT_BOOTSTRAP_MAX_CHARS;
+    use crate::config::{SlackConfig, StreamMode, TelegramConfig};
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
     use crate::observability::NoopObserver;
     use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
@@ -1736,6 +1669,34 @@ mod tests {
             result.is_ok(),
             "expected early return without provider/bootstrap setup, got: {result:?}"
         );
+    }
+
+    #[test]
+    fn centralized_channel_factory_reuses_registry_for_named_lookup() {
+        let mut config = Config::default();
+        config.channels_config.telegram = Some(TelegramConfig {
+            bot_token: "telegram-token".into(),
+            allowed_users: vec!["*".into()],
+            stream_mode: StreamMode::default(),
+            draft_update_interval_ms: 250,
+        });
+        config.channels_config.slack = Some(SlackConfig {
+            bot_token: "slack-token".into(),
+            app_token: None,
+            channel_id: Some("C123".into()),
+            allowed_users: vec!["U123".into()],
+        });
+
+        let entries = configured_channel_entries(&config);
+        let names: Vec<&str> = entries.iter().map(|(key, _, _)| *key).collect();
+
+        assert_eq!(names, vec!["telegram", "slack"]);
+        assert_eq!(
+            build_channel(&config, "telegram").unwrap().name(),
+            "telegram"
+        );
+        assert_eq!(build_channel(&config, "slack").unwrap().name(), "slack");
+        assert!(build_channel(&config, "discord").is_none());
     }
 
     #[derive(Default)]

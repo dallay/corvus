@@ -1,9 +1,5 @@
 use crate::channels::traits::ChannelMessage;
-use crate::channels::{
-    Channel, DingTalkChannel, DiscordChannel, EmailChannel, IMessageChannel, IrcChannel,
-    LarkChannel, MatrixChannel, QQChannel, SendMessage, SignalChannel, SlackChannel,
-    TelegramChannel, WhatsAppChannel,
-};
+use crate::channels::{Channel, SendMessage};
 use crate::config::Config;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -1506,110 +1502,6 @@ fn infer_authorized_sender(channel: &str, recipient: &str) -> Option<String> {
     }
 }
 
-fn build_channel(config: &Config, channel_name: &str) -> Option<Arc<dyn Channel>> {
-    match channel_name {
-        "telegram" => config.channels_config.telegram.as_ref().map(|cfg| {
-            Arc::new(TelegramChannel::new(
-                cfg.bot_token.clone(),
-                cfg.allowed_users.clone(),
-            )) as Arc<dyn Channel>
-        }),
-        "discord" => config.channels_config.discord.as_ref().map(|cfg| {
-            Arc::new(DiscordChannel::new(
-                cfg.bot_token.clone(),
-                cfg.guild_id.clone(),
-                cfg.allowed_users.clone(),
-                cfg.listen_to_bots,
-                cfg.mention_only,
-            )) as Arc<dyn Channel>
-        }),
-        "slack" => config.channels_config.slack.as_ref().map(|cfg| {
-            Arc::new(SlackChannel::new(
-                cfg.bot_token.clone(),
-                cfg.channel_id.clone(),
-                cfg.allowed_users.clone(),
-            )) as Arc<dyn Channel>
-        }),
-        "mattermost" => config.channels_config.mattermost.as_ref().map(|cfg| {
-            Arc::new(crate::channels::MattermostChannel::new(
-                cfg.url.clone(),
-                cfg.bot_token.clone(),
-                cfg.channel_id.clone(),
-                cfg.allowed_users.clone(),
-                cfg.thread_replies.unwrap_or(true),
-            )) as Arc<dyn Channel>
-        }),
-        "imessage" => config.channels_config.imessage.as_ref().map(|cfg| {
-            Arc::new(IMessageChannel::new(cfg.allowed_contacts.clone())) as Arc<dyn Channel>
-        }),
-        "matrix" => config.channels_config.matrix.as_ref().map(|cfg| {
-            Arc::new(MatrixChannel::new(
-                cfg.homeserver.clone(),
-                cfg.access_token.clone(),
-                cfg.room_id.clone(),
-                cfg.allowed_users.clone(),
-            )) as Arc<dyn Channel>
-        }),
-        "signal" => config.channels_config.signal.as_ref().map(|cfg| {
-            Arc::new(SignalChannel::new(
-                cfg.http_url.clone(),
-                cfg.account.clone(),
-                cfg.group_id.clone(),
-                cfg.allowed_from.clone(),
-                cfg.ignore_attachments,
-                cfg.ignore_stories,
-            )) as Arc<dyn Channel>
-        }),
-        "whatsapp" => config.channels_config.whatsapp.as_ref().map(|cfg| {
-            Arc::new(WhatsAppChannel::new(
-                cfg.access_token.clone(),
-                cfg.phone_number_id.clone(),
-                cfg.verify_token.clone(),
-                cfg.allowed_numbers.clone(),
-            )) as Arc<dyn Channel>
-        }),
-        "email" => config
-            .channels_config
-            .email
-            .as_ref()
-            .map(|cfg| Arc::new(EmailChannel::new(cfg.clone())) as Arc<dyn Channel>),
-        "irc" => config.channels_config.irc.as_ref().map(|cfg| {
-            Arc::new(IrcChannel::new(crate::channels::irc::IrcChannelConfig {
-                server: cfg.server.clone(),
-                port: cfg.port,
-                nickname: cfg.nickname.clone(),
-                username: cfg.username.clone(),
-                channels: cfg.channels.clone(),
-                allowed_users: cfg.allowed_users.clone(),
-                server_password: cfg.server_password.clone(),
-                nickserv_password: cfg.nickserv_password.clone(),
-                sasl_password: cfg.sasl_password.clone(),
-                verify_tls: cfg.verify_tls.unwrap_or(true),
-            })) as Arc<dyn Channel>
-        }),
-        "lark" => config
-            .channels_config
-            .lark
-            .as_ref()
-            .map(|cfg| Arc::new(LarkChannel::from_config(cfg)) as Arc<dyn Channel>),
-        "dingtalk" => config.channels_config.dingtalk.as_ref().map(|cfg| {
-            Arc::new(DingTalkChannel::new(
-                cfg.client_id.clone(),
-                cfg.client_secret.clone(),
-                cfg.allowed_users.clone(),
-            )) as Arc<dyn Channel>
-        }),
-        "qq" => config.channels_config.qq.as_ref().map(|cfg| {
-            Arc::new(QQChannel::new(
-                cfg.app_id.clone(),
-                cfg.app_secret.clone(),
-                cfg.allowed_users.clone(),
-            )) as Arc<dyn Channel>
-        }),
-        _ => None,
-    }
-}
-
 async fn send_update_notification(
     config: &Config,
     target: &NotificationTarget,
@@ -1618,7 +1510,7 @@ async fn send_update_notification(
     nonce: &str,
     expires_at_unix: u64,
 ) -> bool {
-    let Some(channel) = build_channel(config, &target.channel) else {
+    let Some(channel) = crate::channels::build_channel(config, &target.channel) else {
         tracing::warn!(
             "update notification skipped: unsupported/unconfigured channel={}",
             target.channel
