@@ -84,7 +84,7 @@ pub use corvus::{HardwareCommands, PeripheralCommands, ServiceCommands, ServiceL
 #[derive(Parser, Debug)]
 #[command(name = "corvus")]
 #[command(author = "acosta")]
-#[command(version = "0.3.2")]
+#[command(version = "0.4.0")]
 #[command(about = "The fastest, smallest AI assistant.", long_about = None)]
 struct Cli {
     #[command(subcommand)]
