@@ -209,7 +209,7 @@ impl DingTalkChannel {
 
                 let message_id = Self::extract_message_id(frame);
                 let ack = Self::build_ack_response(message_id);
-                let _ = write.send(Message::Text(ack.into())).await;
+                let _ = write.send(Message::Text(ack)).await;
 
                 if tx.send(channel_msg).await.is_err() {
                     tracing::warn!("DingTalk: message channel closed");
