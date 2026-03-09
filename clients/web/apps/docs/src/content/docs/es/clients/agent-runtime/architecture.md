@@ -155,8 +155,9 @@ entrypoints directos del agente, channels, gateway y paths de pruebas.
 Los consumidores internos ahora pueden instanciar un agente especializado en código sin duplicar el
 bootstrap. La ruta canónica es `Agent::code_from_config(&config)`, que reutiliza el ensamblaje
 compartido del bootstrap y fuerza el perfil de capacidades `code` solo para esa instancia del
-agente. Los consumidores de más bajo nivel que necesiten acceder directamente a los componentes del
-bootstrap pueden usar `BootstrapContext::from_config_with_profile(&config, "code")`.
+agente. El helper de más bajo nivel
+`BootstrapContext::from_config_with_profile(&config, "code")` existe para wiring interno del
+runtime y pruebas, pero no forma parte de la API pública para consumidores externos.
 
 Esto mantiene alineados la selección de proveedor, la memoria, la observabilidad y el filtrado de
 herramientas con la ruta principal del runtime, mientras permite agregar futuros agentes
@@ -219,6 +220,23 @@ implementación del trait `Tool` que recibe parámetros estructurados, ejecuta u
 devuelve un resultado estructurado. Las herramientas integradas incluyen ejecución de comandos
 shell, acceso al sistema de archivos, control de navegador web, integración con Composio para
 herramientas externas, y herramientas de memoria para persistir y recuperar información.
+
+#### Runtime de herramientas MCP
+
+Las herramientas MCP se integran como adaptadores `Tool` de primera clase a través de `tools/mcp/`
+con un contrato estricto de namespace: `mcp.<server>.<tool>`. El registro ocurre durante el
+arranque solo cuando `mcp.enabled = true`.
+
+Comportamiento de seguridad y resiliencia:
+
+- El descubrimiento está aislado por servidor (un servidor roto no bloquea a los sanos).
+- Las colisiones de nombres fallan en modo fail-closed durante el registro MCP para evitar dispatch
+  ambiguo.
+- Las llamadas a herramientas MCP se clasifican como operaciones con riesgo y requieren aprobación
+  explícita por defecto.
+- El runtime aplica timeouts por llamada y límites máximos de bytes en la salida.
+- Los fallos de transporte y timeout devuelven errores estructurados y legibles por máquina.
+- Los diagnósticos se redactan antes de loguearse para evitar fugas de credenciales.
 
 ### Periféricos
 

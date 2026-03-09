@@ -149,9 +149,9 @@ paths.
 
 Internal consumers can now instantiate a code-specialized agent without duplicating bootstrap
 wiring. The canonical path is `Agent::code_from_config(&config)`, which reuses shared bootstrap
-assembly while forcing the `code` capability profile for that agent instance only. Lower-level
-consumers that need bootstrap components directly can use
-`BootstrapContext::from_config_with_profile(&config, "code")`.
+assembly while forcing the `code` capability profile for that agent instance only. The lower-level
+`BootstrapContext::from_config_with_profile(&config, "code")` helper exists for internal
+runtime-crate wiring and tests, but it is not a public downstream API.
 
 This keeps provider selection, memory setup, observer wiring, and tool filtering aligned with the
 main runtime path while allowing future specialized agents to be added as thin profile-based entry
