@@ -771,6 +771,15 @@ mod tests {
         assert_eq!(current_data, "{\"envelope\":1}\n{\"more\":2}");
     }
 
+    #[test]
+    fn append_sse_data_ignores_non_data_lines() {
+        let mut current_data = String::new();
+
+        SignalChannel::append_sse_data("event: message", &mut current_data);
+
+        assert!(current_data.is_empty());
+    }
+
     #[tokio::test]
     async fn process_line_ignores_comments() {
         let channel = make_channel();
@@ -823,6 +832,19 @@ mod tests {
             .is_ok());
         assert!(current_data.is_empty());
         assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn flush_sse_event_is_noop_when_buffer_is_empty() {
+        let channel = make_channel();
+        let mut current_data = String::new();
+        let (tx, _rx) = mpsc::channel(1);
+
+        assert!(channel
+            .flush_sse_event(&mut current_data, &tx)
+            .await
+            .is_ok());
+        assert!(current_data.is_empty());
     }
 
     #[test]

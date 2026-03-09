@@ -510,6 +510,24 @@ client_secret = "secret"
     }
 
     #[tokio::test]
+    async fn handle_stream_frame_returns_false_when_system_pong_fails() {
+        let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["*".into()]);
+        let mut sink = TestSink {
+            fail_on_send: true,
+            ..Default::default()
+        };
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let frame = serde_json::json!({
+            "type": "SYSTEM",
+            "headers": {
+                "messageId": "system-1",
+            }
+        });
+
+        assert!(!channel.handle_stream_frame(&mut sink, &tx, &frame).await);
+    }
+
+    #[tokio::test]
     async fn handle_stream_frame_acks_and_forwards_event_messages() {
         let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["*".into()]);
         let mut sink = TestSink::default();
@@ -557,5 +575,21 @@ client_secret = "secret"
                 .await
         );
         assert_eq!(sink.messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn handle_event_callback_ignores_unauthorized_users() {
+        let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["staff-2".into()]);
+
+        assert!(channel
+            .handle_event_callback(&event_frame("hello from dingtalk"))
+            .await
+            .is_none());
+    }
+
+    #[tokio::test]
+    async fn test_sink_close_is_ready() {
+        let mut sink = TestSink::default();
+        assert!(sink.close().await.is_ok());
     }
 }
