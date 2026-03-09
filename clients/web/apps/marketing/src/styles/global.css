@@ -93,8 +93,8 @@ code {
   inset: 0;
   pointer-events: none;
   z-index: -1;
+  /* Dot grid pattern */
   background:
-    /* Dot grid pattern */
     radial-gradient(circle, rgba(129, 140, 248, 0.06) 1px, transparent 1px),
     /* Ambient glow top-left */
     radial-gradient(ellipse 60% 40% at 10% -5%, rgba(56, 189, 248, 0.08), transparent),
@@ -867,17 +867,44 @@ details[open] > summary::before {
   }
 
   /* Staggered feature cards */
-  .feature-card:nth-child(1) { animation: rise 400ms ease both; animation-delay: 50ms; }
-  .feature-card:nth-child(2) { animation: rise 400ms ease both; animation-delay: 100ms; }
-  .feature-card:nth-child(3) { animation: rise 400ms ease both; animation-delay: 150ms; }
-  .feature-card:nth-child(4) { animation: rise 400ms ease both; animation-delay: 200ms; }
-  .feature-card:nth-child(5) { animation: rise 400ms ease both; animation-delay: 250ms; }
-  .feature-card:nth-child(6) { animation: rise 400ms ease both; animation-delay: 300ms; }
+  .feature-card:nth-child(1) {
+    animation: rise 400ms ease both;
+    animation-delay: 50ms;
+  }
+  .feature-card:nth-child(2) {
+    animation: rise 400ms ease both;
+    animation-delay: 100ms;
+  }
+  .feature-card:nth-child(3) {
+    animation: rise 400ms ease both;
+    animation-delay: 150ms;
+  }
+  .feature-card:nth-child(4) {
+    animation: rise 400ms ease both;
+    animation-delay: 200ms;
+  }
+  .feature-card:nth-child(5) {
+    animation: rise 400ms ease both;
+    animation-delay: 250ms;
+  }
+  .feature-card:nth-child(6) {
+    animation: rise 400ms ease both;
+    animation-delay: 300ms;
+  }
 
   /* Staggered testimonial cards */
-  .testimonial-card:nth-child(1) { animation: rise 400ms ease both; animation-delay: 50ms; }
-  .testimonial-card:nth-child(2) { animation: rise 400ms ease both; animation-delay: 100ms; }
-  .testimonial-card:nth-child(3) { animation: rise 400ms ease both; animation-delay: 150ms; }
+  .testimonial-card:nth-child(1) {
+    animation: rise 400ms ease both;
+    animation-delay: 50ms;
+  }
+  .testimonial-card:nth-child(2) {
+    animation: rise 400ms ease both;
+    animation-delay: 100ms;
+  }
+  .testimonial-card:nth-child(3) {
+    animation: rise 400ms ease both;
+    animation-delay: 150ms;
+  }
 }
 
 /* ── View Transitions ── */
@@ -955,10 +982,6 @@ details[open] > summary::before {
     padding-bottom: 3rem;
   }
 
-  .hero::before {
-    display: none;
-  }
-
   .hero h1,
   .section h1 {
     font-size: clamp(2.2rem, 10vw, 3.2rem);
@@ -1011,6 +1034,10 @@ details[open] > summary::before {
 
 /* ── Reduced Motion ── */
 @media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
   .btn,
   .btn-primary,
   .btn-ghost,

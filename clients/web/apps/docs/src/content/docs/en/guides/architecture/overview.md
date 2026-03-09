@@ -22,27 +22,27 @@ Shows the Corvus system as a black box and its interactions with actors and exte
 Decomposes the system into main containers/applications and their interactions.
 
 - **Files**:
-  - [`container/system-containers.mmd`](./diagrams/container/system-containers.mmd) (Mermaid)
-  - [`container/system-containers.puml`](./diagrams/container/system-containers.puml) (PlantUML)
-- **Description**: Shows the main containers: Web Dashboard, Android App, iOS App, Agent Runtime,
-  Rust Sidecar, and Graph DB.
+  - [`container/runtime-containers.mmd`](./diagrams/container/runtime-containers.mmd) (Mermaid)
+  - [`container/runtime-containers.puml`](./diagrams/container/runtime-containers.puml) (PlantUML)
+- **Description**: Shows the runtime containers: CLI, gateway, daemon services, tool execution,
+  memory backends, and operator surfaces around Corvus.
 
 ## Level 3: Components
 
 Decomposes individual containers into their internal components.
 
-### Agent Core KMP
+### Runtime Core
 
-- **File**: [`component/agent-core-kmp.mmd`](./diagrams/component/agent-core-kmp.mmd)
-- **Description**: Internal components of the core module: Domain, Use Cases, Interfaces, and
-  Infrastructure.
+- **File**: [`component/runtime-core.mmd`](./diagrams/component/runtime-core.mmd)
+- **Description**: Internal components of the runtime core: config, agent loop, providers,
+  memory, tools, channels, security, and observability.
 
 ## Module Dependencies
 
 Additional diagram showing Gradle dependencies between modules.
 
-- **File**: [`module-dependencies.mmd`](./diagrams/module-dependencies.mmd)
-- **Description**: Shows how clients depend on the shared core and external frameworks.
+- **File**: [`cargo-dependencies.mmd`](./diagrams/cargo-dependencies.mmd)
+- **Description**: Shows the Cargo workspace layout and the runtime's primary Rust dependency flow.
 
 ## How to Visualize
 
@@ -70,7 +70,7 @@ For `.puml` files:
 
 ```bash
 # Use PlantUML online or locally
-plantuml -tpng diagrams/container/system-containers.puml
+plantuml -tpng diagrams/container/runtime-containers.puml
 ```
 
 ## Conventions

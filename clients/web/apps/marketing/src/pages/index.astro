@@ -46,6 +46,9 @@ const testimonials = [
   },
 ];
 
+const installUrl = "https://docs.profiletailors.com/en/guides/getting-started/";
+const architectureUrl = "https://docs.profiletailors.com/en/guides/architecture/";
+
 const faqGroups = [
   {
     title: "Product and fit",
@@ -58,7 +61,7 @@ const faqGroups = [
           "It is designed to behave like infrastructure, not a fragile demo stack.",
         ],
         ctaLabel: "Read the architecture",
-        ctaHref: "https://github.com/dallay/corvus",
+        ctaHref: architectureUrl,
       },
       {
         question: "Who is it for?",
@@ -121,7 +124,7 @@ const hero = {
     <nav aria-label="Primary conversion path">
       <a href="#faq">FAQ</a>
       <a href="https://docs.profiletailors.com" rel="noopener noreferrer">Docs</a>
-      <a class="btn btn-primary btn-nav" href="#install" data-track="cta_click" data-track-location="nav" data-track-label="start-now">Install Corvus</a>
+      <a class="btn btn-primary btn-nav" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="nav" data-track-label="start-now">Install Corvus</a>
     </nav>
   </header>
 
@@ -132,9 +135,9 @@ const hero = {
           <p class="eyebrow">{hero.eyebrow}</p>
           <h1>{hero.title}</h1>
           <p class="subtitle">{hero.subtitle}</p>
-          <div class="hero-actions" id="install">
-            <a class="btn btn-primary" href="https://github.com/dallay/corvus" rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-primary">{hero.primaryCta}</a>
-            <a class="btn btn-ghost" href="https://docs.profiletailors.com/en/guides/architecture/" rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-secondary">{hero.secondaryCta}</a>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-primary">{hero.primaryCta}</a>
+            <a class="btn btn-ghost" href={architectureUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-secondary">{hero.secondaryCta}</a>
             <a class="btn btn-ghost" href="https://docs.profiletailors.com" rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-docs">Read docs</a>
           </div>
           <p class="hero-note">Built for developers and teams who want agent infrastructure with strong defaults, real portability, and no unnecessary runtime weight.</p>
@@ -254,7 +257,7 @@ const hero = {
         Install Corvus, run your first agent workflow, and keep control over models, memory, tools, and deployment from day one.
       </p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="#install" data-track="cta_click" data-track-location="final-cta" data-track-label="download-installer">Install Corvus</a>
+        <a class="btn btn-primary" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="final-cta" data-track-label="download-installer">Install Corvus</a>
         <a class="btn btn-ghost" href="https://docs.profiletailors.com" rel="noopener noreferrer" data-track="cta_click" data-track-location="final-cta" data-track-label="book-quick-call">Explore the docs</a>
       </div>
     </section>
@@ -265,7 +268,7 @@ const hero = {
     <div>
       <a href="https://docs.profiletailors.com" rel="noopener noreferrer">Docs</a>
       <a href="https://github.com/dallay/corvus" rel="noopener noreferrer">GitHub</a>
-      <a href="#install">Install</a>
+      <a href={installUrl} rel="noopener noreferrer">Install</a>
     </div>
   </footer>
 
@@ -282,13 +285,23 @@ const hero = {
         ...detail,
       };
 
+      let previous = [];
+
       try {
         const raw = window.localStorage.getItem(metricsKey);
-        const previous = raw ? JSON.parse(raw) : [];
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          previous = Array.isArray(parsed) ? parsed : [];
+        }
+      } catch {
+        previous = [];
+      }
+
+      try {
         previous.push(payload);
         window.localStorage.setItem(metricsKey, JSON.stringify(previous.slice(-100)));
       } catch {
-        return;
+        // Ignore persistence failures and still emit the analytics event.
       }
 
       window.dispatchEvent(new CustomEvent("corvus:analytics", { detail: payload }));

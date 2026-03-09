@@ -1,0 +1,39 @@
+@startuml
+' C4 Container Diagram - Corvus Runtime
+' Updated: 2026-03-09
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/v2.13.0/C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+Person(developer, "Developer", "Configures and operates Corvus")
+Person(channelUser, "Channel User", "Interacts through configured channels")
+
+System_Ext(llmProviders, "LLM Providers", "OpenRouter, Anthropic, OpenAI, and others")
+System_Ext(messagingApis, "Messaging APIs", "Telegram, Discord, Slack, WhatsApp, Matrix")
+System_Ext(tunnelProviders, "Tunnel Providers", "Cloudflare, Tailscale, ngrok")
+System_Ext(workspaceFs, "Workspace Filesystem", "Scoped files and command execution")
+
+System_Boundary(corvus, "Corvus Runtime") {
+  Container(cli, "CLI Surface", "Rust + clap", "agent, onboard, doctor, status, and admin commands")
+  Container(gateway, "Gateway", "Rust + axum", "Pairing, webhooks, and authenticated runtime access")
+  Container(daemon, "Daemon", "Rust + tokio", "Channels, heartbeat, scheduling, and long-running orchestration")
+  Container(execution, "Execution Runtime", "Native or Docker", "Tool execution with security policy enforcement")
+  ContainerDb(memory, "Memory Backends", "SQLite / SurrealDB / Markdown", "Persistent runtime memory and recall")
+  Container(ops, "Operator Surfaces", "Astro web apps", "Documentation, dashboard, and marketing surfaces")
+}
+
+Rel(developer, cli, "Uses")
+Rel(developer, ops, "Reads and operates through")
+Rel(channelUser, gateway, "Interacts through")
+Rel(cli, daemon, "Starts and inspects")
+Rel(cli, execution, "Triggers commands and tools through")
+Rel(daemon, gateway, "Exposes runtime functionality via")
+Rel(daemon, memory, "Reads and writes runtime memory")
+Rel(daemon, execution, "Delegates tool execution to")
+Rel(daemon, llmProviders, "Queries models from")
+Rel(daemon, messagingApis, "Connects to")
+Rel(gateway, tunnelProviders, "Can be exposed through")
+Rel(execution, workspaceFs, "Reads and writes within scoped workspace")
+
+@enduml
