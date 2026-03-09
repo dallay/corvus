@@ -345,6 +345,11 @@ impl Agent {
             skills: &self.skills,
             identity_config: Some(&self.identity_config),
             dispatcher_instructions: &instructions,
+            bootstrap_max_chars: if self.config.compact_context {
+                Some(6000)
+            } else {
+                None
+            },
         };
         self.prompt_builder.build(&ctx)
     }
