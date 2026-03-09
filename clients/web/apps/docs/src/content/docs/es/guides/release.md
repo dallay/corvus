@@ -9,7 +9,7 @@ usando GitHub Actions.
 
 Antes de poder publicar, asegúrate de tener:
 
-1. **Clave GPG configurada**: Sigue la [Guía de Configuración GPG](./gpg-setup.md) para crear y
+1. **Clave GPG configurada**: Sigue la [Guía de Configuración GPG](./gpg-setup/) para crear y
    configurar tu clave de firma
 2. **Acceso a Maven Central**: Secrets del repositorio configurados:
 
@@ -259,6 +259,6 @@ Usa este checklist antes de publicar:
 
 ## Ver También
 
-- [Guía de Configuración GPG](./gpg-setup.md)
+- [Guía de Configuración GPG](./gpg-setup/)
 - [GitHub Workflows](https://github.com/dallay/corvus/blob/main/.github/workflows/README.md)
 - [Guía de Contribución](https://github.com/dallay/corvus/blob/main/.github/CONTRIBUTING.md)

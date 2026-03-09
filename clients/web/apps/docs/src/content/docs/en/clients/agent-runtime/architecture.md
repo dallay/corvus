@@ -129,6 +129,18 @@ The agent uses an execution loop pattern that alternates between thinking phases
 During thinking phases, the agent analyzes available context and decides which tools to invoke.
 During action phases, it executes selected tools and processes results.
 
+#### Internal Specialized Agent Paths
+
+Internal consumers can now instantiate a code-specialized agent without duplicating bootstrap
+wiring. The canonical path is `Agent::code_from_config(&config)`, which reuses shared bootstrap
+assembly while forcing the `code` capability profile for that agent instance only. Lower-level
+consumers that need bootstrap components directly can use
+`BootstrapContext::from_config_with_profile(&config, "code")`.
+
+This keeps provider selection, memory setup, observer wiring, and tool filtering aligned with the
+main runtime path while allowing future specialized agents to be added as thin profile-based entry
+points instead of separate setup trees.
+
 ### Providers
 
 The `providers/` module includes implementations for multiple language model providers. Each

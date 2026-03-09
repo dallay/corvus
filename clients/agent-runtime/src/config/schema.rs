@@ -215,6 +215,10 @@ pub struct AgentConfig {
     /// When true: bootstrap_max_chars=6000, rag_chunk_limit=2. Use for 13B or smaller models.
     #[serde(default)]
     pub compact_context: bool,
+    /// Capability profile used to compose tools and memory behavior.
+    /// Supported values: "full" (default), "code", "lite".
+    #[serde(default = "default_agent_profile")]
+    pub profile: String,
     #[serde(default = "default_agent_max_tool_iterations")]
     pub max_tool_iterations: usize,
     #[serde(default = "default_agent_max_history_messages")]
@@ -229,6 +233,17 @@ fn default_agent_max_tool_iterations() -> usize {
     10
 }
 
+fn default_agent_profile() -> String {
+    "full".into()
+}
+
+fn is_supported_agent_profile(raw: &str) -> bool {
+    matches!(
+        raw.trim().to_ascii_lowercase().as_str(),
+        "" | "full" | "code" | "lite"
+    )
+}
+
 fn default_agent_max_history_messages() -> usize {
     50
 }
@@ -241,6 +256,7 @@ impl Default for AgentConfig {
     fn default() -> Self {
         Self {
             compact_context: false,
+            profile: default_agent_profile(),
             max_tool_iterations: default_agent_max_tool_iterations(),
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
@@ -2681,7 +2697,19 @@ impl Config {
     }
 
     pub fn validate_for_runtime(&self) -> Result<()> {
+        self.validate_agent_profile()?;
         self.validate_mcp_servers()
+    }
+
+    fn validate_agent_profile(&self) -> Result<()> {
+        if is_supported_agent_profile(&self.agent.profile) {
+            return Ok(());
+        }
+
+        anyhow::bail!(
+            "unsupported agent.profile '{}'; supported values are: full, code, lite",
+            self.agent.profile
+        );
     }
 
     fn validate_mcp_servers(&self) -> Result<()> {
@@ -3186,6 +3214,7 @@ default_temperature = 0.7
     fn agent_config_defaults() {
         let cfg = AgentConfig::default();
         assert!(!cfg.compact_context);
+        assert_eq!(cfg.profile, "full");
         assert_eq!(cfg.max_tool_iterations, 10);
         assert_eq!(cfg.max_history_messages, 50);
         assert!(!cfg.parallel_tools);
@@ -3198,6 +3227,7 @@ default_temperature = 0.7
 default_temperature = 0.7
 [agent]
 compact_context = true
+profile = "code"
 max_tool_iterations = 20
 max_history_messages = 80
 parallel_tools = true
@@ -3205,10 +3235,20 @@ tool_dispatcher = "xml"
 "#;
         let parsed: Config = toml::from_str(raw).unwrap();
         assert!(parsed.agent.compact_context);
+        assert_eq!(parsed.agent.profile, "code");
         assert_eq!(parsed.agent.max_tool_iterations, 20);
         assert_eq!(parsed.agent.max_history_messages, 80);
         assert!(parsed.agent.parallel_tools);
         assert_eq!(parsed.agent.tool_dispatcher, "xml");
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_unknown_agent_profile() {
+        let mut config = Config::default();
+        config.agent.profile = "unknown".to_string();
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err.to_string().contains("unsupported agent.profile"));
     }
 
     #[test]
@@ -4910,6 +4950,7 @@ default_model = "legacy-model"
     fn agent_config_default_values() {
         let agent = AgentConfig::default();
         assert!(!agent.compact_context);
+        assert_eq!(agent.profile, "full");
         assert_eq!(agent.max_tool_iterations, 10);
         assert_eq!(agent.max_history_messages, 50);
         assert!(!agent.parallel_tools);

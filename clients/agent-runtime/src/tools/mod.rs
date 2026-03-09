@@ -66,7 +66,9 @@ use crate::config::{Config, DelegateAgentConfig};
 use crate::memory::Memory;
 use crate::runtime::{NativeRuntime, RuntimeAdapter};
 use crate::security::SecurityPolicy;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+#[cfg(feature = "mcp-runtime")]
+use std::collections::HashSet;
 use std::sync::Arc;
 
 pub(crate) fn redact_runtime_error(raw: &str) -> String {
@@ -343,32 +345,9 @@ pub fn all_tools_with_runtime(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BrowserConfig, Config, McpConfig, McpServerConfig, MemoryConfig};
-    use std::collections::BTreeMap;
+    use crate::config::{BrowserConfig, Config, McpConfig, MemoryConfig};
+    use crate::test_support::{mock_mcp_server, test_config};
     use tempfile::TempDir;
-
-    fn test_config(tmp: &TempDir) -> Config {
-        Config {
-            workspace_dir: tmp.path().join("workspace"),
-            config_path: tmp.path().join("config.toml"),
-            ..Config::default()
-        }
-    }
-
-    fn mock_mcp_server(name: &str, tool_name: &str) -> McpServerConfig {
-        McpServerConfig {
-            name: name.to_string(),
-            enabled: true,
-            command: "__mcp_mock__".to_string(),
-            args: vec![format!(
-                r#"{{"tools":[{{"name":"{tool_name}","description":"Mock tool","parameters":{{"type":"object"}}}}]}}"#
-            )],
-            env: BTreeMap::new(),
-            startup_timeout_ms: 100,
-            call_timeout_ms: 500,
-            output_limit_bytes: 1024,
-        }
-    }
 
     #[test]
     fn default_tools_has_three() {
@@ -626,6 +605,7 @@ mod tests {
         assert!(!names.contains(&"delegate"));
     }
 
+    #[cfg(feature = "mcp-runtime")]
     #[test]
     fn all_tools_registers_mcp_tools_when_enabled() {
         let tmp = TempDir::new().unwrap();
