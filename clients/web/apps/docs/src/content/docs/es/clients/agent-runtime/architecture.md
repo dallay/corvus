@@ -133,6 +133,23 @@ acción. Durante las fases de pensamiento, el agente analiza el contexto disponi
 herramientas invocar. Durante las fases de acción, ejecuta las herramientas seleccionadas y procesa
 los resultados.
 
+#### Perfiles de capacidades
+
+El bootstrap ahora soporta perfiles de capacidades reutilizables para que los consumidores internos
+puedan componer variantes más seguras del runtime sin duplicar el wiring. Los perfiles integrados
+son `full`, `code` y `lite`.
+
+- `full` conserva la superficie por defecto del runtime.
+- `code` conserva las herramientas orientadas a desarrollo y las integraciones MCP, mientras excluye
+  superficies operacionales como scheduler, herramientas de hardware e integraciones pensadas solo
+  para notificación.
+- `lite` reduce la superficie a `shell`, `file_read` y `file_write`, y además fuerza el backend de
+  memoria a `none`.
+
+La decisión del perfil ocurre durante bootstrap, no más tarde dentro del loop del agente, así que
+la memoria, la observabilidad y el registro de herramientas permanecen consistentes entre
+entrypoints directos del agente, channels, gateway y paths de pruebas.
+
 #### Rutas internas para agentes especializados
 
 Los consumidores internos ahora pueden instanciar un agente especializado en código sin duplicar el
@@ -145,6 +162,18 @@ Esto mantiene alineados la selección de proveedor, la memoria, la observabilida
 herramientas con la ruta principal del runtime, mientras permite agregar futuros agentes
 especializados como entrypoints delgados basados en perfiles en lugar de árboles de configuración
 separados.
+
+#### Ensamblaje compartido de prompt y contexto
+
+`Agent` y `Channels` ahora comparten los mismos helpers para ensamblar identidad del workspace,
+skills, archivos bootstrap, metadata del runtime e instrucciones de seguridad. Las instrucciones
+específicas del protocolo del canal y la guía específica del dispatcher de herramientas del agente
+se siguen agregando encima, pero las secciones comunes salen de una sola implementación.
+
+Esto elimina drift entre entrypoints y asegura que la carga de identidad AIEOS/OpenClaw, la
+truncación de archivos bootstrap y el comportamiento de `compact_context` se mantengan alineados,
+sin importar si el runtime responde desde el loop interactivo del agente o desde un canal en tiempo
+real.
 
 ### Proveedores
 
@@ -167,6 +196,12 @@ respuestas y las verificaciones de salud.
 Los canales soportados incluyen Telegram, Discord, Slack, WhatsApp, Email, Matrix, Signal, IRC,
 Lark, DingTalk, QQ, Mattermost, iMessage y un CLI interactivo. Esta variedad permite que el agente
 opere en múltiples plataformas simultáneamente, unificando la experiencia del usuario.
+
+La construcción de channels ahora está centralizada detrás de un registry/factory compartido dentro
+de `channels/`. Ese mismo registry se reutiliza para startup de channels, doctor checks,
+notificaciones de updates, delivery del scheduler y hooks específicos del gateway. Así la
+normalización de nombres, la validación de channels soportados y el wiring de constructores viven en
+un solo lugar en vez de repetir bloques `match` por varias partes del runtime.
 
 ### Memoria
 
@@ -218,6 +253,11 @@ permite ejecutar comandos en horarios específicos o con intervalos regulares. E
 `gateway/`) expone el agente como un servicio web con webhooks. La autenticación (`auth/`) gestiona
 los perfiles de usuario y tokens de acceso. La observabilidad (`observability/`) proporciona
 logging, métricas y tracing.
+
+La cobertura del bootstrap también está protegida por una matriz de paridad por feature flags en
+tests. Esa matriz ejercita combinaciones críticas como MCP runtime activado/desactivado, memoria
+Surreal activada/desactivada y los paths de ensamblaje por perfil, para que un refactor del
+bootstrap falle rápido si alguna combinación se desvía de la forma esperada del runtime.
 
 ## Flujo de ejecución
 
