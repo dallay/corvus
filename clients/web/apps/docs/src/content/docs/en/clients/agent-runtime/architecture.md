@@ -136,10 +136,11 @@ runtime variants without duplicating setup logic. The built-in profiles are `ful
 `lite`.
 
 - `full` keeps the default runtime surface.
-- `code` keeps coding-oriented tools and MCP integrations while excluding operational channels such
-  as schedulers, hardware-facing tools, and notification-only integrations.
+- `code` keeps coding-oriented tools and MCP integrations while excluding full-only tools and
+  integrations that are outside the `code` profile contract. Channel construction still happens in
+  `channels/`; the profile changes tool and memory exposure, not which channels exist.
 - `lite` reduces the tool surface to `shell`, `file_read`, and `file_write`, and forces the memory
-  backend to `none`.
+  backend to `none` without changing channel construction.
 
 The profile decision happens during bootstrap, not later in the agent loop, so memory, observer,
 and tool registration stay consistent across direct agent entrypoints, channels, gateway, and test
