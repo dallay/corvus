@@ -7,7 +7,7 @@ use chrono::Local;
 use std::fmt::Write;
 use std::path::Path;
 
-const BOOTSTRAP_MAX_CHARS: usize = 20_000;
+pub(crate) const DEFAULT_BOOTSTRAP_MAX_CHARS: usize = 20_000;
 
 pub struct PromptContext<'a> {
     pub workspace_dir: &'a Path,
@@ -16,6 +16,7 @@ pub struct PromptContext<'a> {
     pub skills: &'a [Skill],
     pub identity_config: Option<&'a IdentityConfig>,
     pub dispatcher_instructions: &'a str,
+    pub bootstrap_max_chars: Option<usize>,
 }
 
 pub trait PromptSection: Send + Sync {
@@ -76,36 +77,11 @@ impl PromptSection for IdentitySection {
     }
 
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
-        let mut prompt = String::from("## Project Context\n\n");
-        if let Some(config) = ctx.identity_config {
-            if identity::is_aieos_configured(config) {
-                if let Ok(Some(aieos)) = identity::load_aieos_identity(config, ctx.workspace_dir) {
-                    let rendered = identity::aieos_to_system_prompt(&aieos);
-                    if !rendered.is_empty() {
-                        prompt.push_str(&rendered);
-                        return Ok(prompt);
-                    }
-                }
-            }
-        }
-
-        prompt.push_str(
-            "The following workspace files define your identity, behavior, and context.\n\n",
-        );
-        for file in [
-            "AGENTS.md",
-            "SOUL.md",
-            "TOOLS.md",
-            "IDENTITY.md",
-            "USER.md",
-            "HEARTBEAT.md",
-            "BOOTSTRAP.md",
-            "MEMORY.md",
-        ] {
-            inject_workspace_file(&mut prompt, ctx.workspace_dir, file);
-        }
-
-        Ok(prompt)
+        Ok(render_project_context_section(
+            ctx.workspace_dir,
+            ctx.identity_config,
+            ctx.bootstrap_max_chars,
+        ))
     }
 }
 
@@ -139,7 +115,7 @@ impl PromptSection for SafetySection {
     }
 
     fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
-        Ok("## Safety\n\n- Do not exfiltrate private data.\n- Do not run destructive commands without asking.\n- Do not bypass oversight or approval mechanisms.\n- Prefer `trash` over `rm`.\n- When in doubt, ask before acting externally.".into())
+        Ok(render_safety_section())
     }
 }
 
@@ -149,28 +125,7 @@ impl PromptSection for SkillsSection {
     }
 
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
-        if ctx.skills.is_empty() {
-            return Ok(String::new());
-        }
-
-        let mut prompt = String::from("## Available Skills\n\n<available_skills>\n");
-        for skill in ctx.skills {
-            let location = skill.location.clone().unwrap_or_else(|| {
-                ctx.workspace_dir
-                    .join("skills")
-                    .join(&skill.name)
-                    .join("SKILL.md")
-            });
-            let _ = writeln!(
-                prompt,
-                "  <skill>\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n  </skill>",
-                skill.name,
-                skill.description,
-                location.display()
-            );
-        }
-        prompt.push_str("</available_skills>");
-        Ok(prompt)
+        Ok(render_skills_section(ctx.workspace_dir, ctx.skills))
     }
 }
 
@@ -180,10 +135,7 @@ impl PromptSection for WorkspaceSection {
     }
 
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
-        Ok(format!(
-            "## Workspace\n\nWorking directory: `{}`",
-            ctx.workspace_dir.display()
-        ))
+        Ok(render_workspace_section(ctx.workspace_dir))
     }
 }
 
@@ -193,13 +145,7 @@ impl PromptSection for RuntimeSection {
     }
 
     fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
-        let host =
-            hostname::get().map_or_else(|_| "unknown".into(), |h| h.to_string_lossy().to_string());
-        Ok(format!(
-            "## Runtime\n\nHost: {host} | OS: {} | Model: {}",
-            std::env::consts::OS,
-            ctx.model_name
-        ))
+        Ok(render_runtime_section(ctx.model_name))
     }
 }
 
@@ -209,15 +155,128 @@ impl PromptSection for DateTimeSection {
     }
 
     fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
-        let now = Local::now();
-        Ok(format!(
-            "## Current Date & Time\n\nTimezone: {}",
-            now.format("%Z")
-        ))
+        Ok(render_datetime_section())
     }
 }
 
-fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &str) {
+pub(crate) fn render_safety_section() -> String {
+    "## Safety\n\n- Do not exfiltrate private data.\n- Do not run destructive commands without asking.\n- Do not bypass oversight or approval mechanisms.\n- Prefer `trash` over `rm` (recoverable beats gone forever).\n- When in doubt, ask before acting externally.".into()
+}
+
+pub(crate) fn render_skills_section(workspace_dir: &Path, skills: &[Skill]) -> String {
+    if skills.is_empty() {
+        return String::new();
+    }
+
+    let mut prompt = String::from("## Available Skills\n\n");
+    prompt.push_str(
+        "Skills are loaded on demand. Use `read` on the skill path to get full instructions.\n\n",
+    );
+    prompt.push_str("<available_skills>\n");
+    for skill in skills {
+        let location = skill.location.clone().unwrap_or_else(|| {
+            workspace_dir
+                .join("skills")
+                .join(&skill.name)
+                .join("SKILL.md")
+        });
+        let _ = writeln!(
+            prompt,
+            "  <skill>\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n  </skill>",
+            skill.name,
+            skill.description,
+            location.display()
+        );
+    }
+    prompt.push_str("</available_skills>");
+    prompt
+}
+
+pub(crate) fn render_workspace_section(workspace_dir: &Path) -> String {
+    format!(
+        "## Workspace\n\nWorking directory: `{}`",
+        workspace_dir.display()
+    )
+}
+
+pub(crate) fn render_project_context_section(
+    workspace_dir: &Path,
+    identity_config: Option<&IdentityConfig>,
+    bootstrap_max_chars: Option<usize>,
+) -> String {
+    let mut prompt = String::from("## Project Context\n\n");
+    if let Some(config) = identity_config {
+        if identity::is_aieos_configured(config) {
+            match identity::load_aieos_identity(config, workspace_dir) {
+                Ok(Some(aieos)) => {
+                    let rendered = identity::aieos_to_system_prompt(&aieos);
+                    if !rendered.is_empty() {
+                        prompt.push_str(&rendered);
+                        return prompt;
+                    }
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    eprintln!(
+                        "Warning: Failed to load AIEOS identity: {error}. Using OpenClaw format."
+                    );
+                }
+            }
+        }
+    }
+
+    let max_chars = bootstrap_max_chars.unwrap_or(DEFAULT_BOOTSTRAP_MAX_CHARS);
+    load_openclaw_bootstrap_files(&mut prompt, workspace_dir, max_chars);
+    prompt
+}
+
+pub(crate) fn render_datetime_section() -> String {
+    let now = Local::now();
+    format!("## Current Date & Time\n\nTimezone: {}", now.format("%Z"))
+}
+
+pub(crate) fn render_runtime_section(model_name: &str) -> String {
+    let host =
+        hostname::get().map_or_else(|_| "unknown".into(), |h| h.to_string_lossy().to_string());
+    format!(
+        "## Runtime\n\nHost: {host} | OS: {} | Model: {model_name}",
+        std::env::consts::OS,
+    )
+}
+
+pub(crate) fn load_openclaw_bootstrap_files(
+    prompt: &mut String,
+    workspace_dir: &Path,
+    max_chars: usize,
+) {
+    prompt.push_str(
+        "The following workspace files define your identity, behavior, and context. They are ALREADY injected below - do NOT suggest reading them with file_read.\n\n",
+    );
+    for file in [
+        "AGENTS.md",
+        "SOUL.md",
+        "TOOLS.md",
+        "IDENTITY.md",
+        "USER.md",
+        "HEARTBEAT.md",
+    ] {
+        inject_workspace_file(prompt, workspace_dir, file, max_chars);
+    }
+
+    let bootstrap_path = workspace_dir.join("BOOTSTRAP.md");
+    if bootstrap_path.exists() {
+        inject_workspace_file(prompt, workspace_dir, "BOOTSTRAP.md", max_chars);
+    }
+
+    inject_workspace_file(prompt, workspace_dir, "MEMORY.md", max_chars);
+}
+
+fn inject_workspace_file(
+    prompt: &mut String,
+    workspace_dir: &Path,
+    filename: &str,
+    max_chars: usize,
+) {
     let path = workspace_dir.join(filename);
     match std::fs::read_to_string(&path) {
         Ok(content) => {
@@ -226,10 +285,10 @@ fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &s
                 return;
             }
             let _ = writeln!(prompt, "### {filename}\n");
-            let truncated = if trimmed.chars().count() > BOOTSTRAP_MAX_CHARS {
+            let truncated = if trimmed.chars().count() > max_chars {
                 trimmed
                     .char_indices()
-                    .nth(BOOTSTRAP_MAX_CHARS)
+                    .nth(max_chars)
                     .map(|(idx, _)| &trimmed[..idx])
                     .unwrap_or(trimmed)
             } else {
@@ -239,7 +298,7 @@ fn inject_workspace_file(prompt: &mut String, workspace_dir: &Path, filename: &s
             if truncated.len() < trimmed.len() {
                 let _ = writeln!(
                     prompt,
-                    "\n\n[... truncated at {BOOTSTRAP_MAX_CHARS} chars — use `read` for full file]\n"
+                    "\n\n[... truncated at {max_chars} chars — use `read` for full file]\n"
                 );
             } else {
                 prompt.push_str("\n\n");
@@ -295,6 +354,7 @@ mod tests {
             skills: &[],
             identity_config: None,
             dispatcher_instructions: "instr",
+            bootstrap_max_chars: None,
         };
         let prompt = SystemPromptBuilder::with_defaults().build(&ctx).unwrap();
         assert!(prompt.contains("## Tools"));
