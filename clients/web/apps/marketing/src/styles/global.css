@@ -89,8 +89,7 @@ dt {
     radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 32%),
     radial-gradient(circle at 85% 14%, rgba(14, 165, 233, 0.12), transparent 26%),
     radial-gradient(circle at bottom center, rgba(99, 102, 241, 0.12), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 24%),
-    var(--corvus-bg);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 24%), var(--corvus-bg);
 }
 
 .site-backdrop::after {
@@ -298,8 +297,8 @@ h3 {
 .copy-button {
   border: 1px solid rgba(56, 189, 248, 0.24);
   border-radius: 999px;
-  background: rgba(56, 189, 248, 0.1);
-  color: #bae6fd;
+  background: rgba(8, 47, 73, 0.92);
+  color: #e0f2fe;
   padding: 0.38rem 0.72rem;
   font-family: var(--corvus-font-mono);
   font-size: 0.74rem;
@@ -313,16 +312,16 @@ h3 {
 }
 
 .copy-button:hover {
-  background: rgba(56, 189, 248, 0.18);
+  background: rgba(12, 74, 110, 0.96);
   border-color: rgba(125, 211, 252, 0.4);
-  color: #e0f2fe;
+  color: #f0f9ff;
   transform: translateY(-1px);
 }
 
 .copy-button.is-copied {
-  background: rgba(52, 211, 153, 0.16);
+  background: rgba(6, 78, 59, 0.92);
   border-color: rgba(52, 211, 153, 0.4);
-  color: #d1fae5;
+  color: #ecfdf5;
 }
 
 .command-block,
@@ -441,7 +440,7 @@ h3 {
 }
 
 .btn-primary {
-  background: linear-gradient(135deg, #0ea5e9, #6366f1);
+  background: linear-gradient(135deg, #0369a1, #4338ca);
   color: #f8fafc;
   box-shadow: 0 12px 40px rgba(14, 165, 233, 0.28);
   text-shadow: 0 1px 1px rgba(2, 6, 23, 0.28);

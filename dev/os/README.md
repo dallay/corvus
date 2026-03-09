@@ -205,6 +205,6 @@ When adding new tools or modifying these Dockerfiles:
 ## References
 
 - [Corvus Agent Runtime](https://github.com/dallay/corvus)
-- [Docker Multi-stage Builds](https://docs.docker.com/develop/develop-images/multistage-build/)
+- [Docker Multi-stage Builds](https://docs.docker.com/build/building/multi-stage/)
 - [Alpine Linux](https://alpinelinux.org/)
 - [Ubuntu Packages](https://packages.ubuntu.com/)

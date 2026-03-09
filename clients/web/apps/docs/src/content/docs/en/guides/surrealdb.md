@@ -118,7 +118,8 @@ SurrealDB has two ways to relate records:
 - You want to store information about the relation (e.g., "creation date", "weight")
 - You're going to do complex traversal queries
 
-> 📖 **More Info**: See [Graph Database in SurrealDB](https://surrealdb.com/docs) for advanced
+> 📖 **More Info**: See [Graph Database in SurrealDB](https://surrealdb.com/docs/surrealdb)
+> for advanced
 > examples.
 
 ---
@@ -321,7 +322,7 @@ If you need to autoscale or have multiple nodes:
 - [Running SurrealDB with Docker](https://surrealdb.com/docs/surrealdb/installation/running/docker) -
   Official Docker installation guide
 - [SurrealQL](https://surrealdb.com/docs/surrealql) - SurrealDB query language
-- [Graph Database in SurrealDB](https://surrealdb.com/docs) - Native graph features
+- [Graph Database in SurrealDB](https://surrealdb.com/docs/surrealdb) - Native graph features
 
 ### Repositories
 

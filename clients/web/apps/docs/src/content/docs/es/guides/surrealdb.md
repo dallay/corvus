@@ -118,7 +118,8 @@ SurrealDB tiene dos formas de relacionar registros:
 - Quieres guardar información sobre la relación (ej: "fecha de creación", "peso")
 - Vas a hacer consultas complejas de traversal
 
-> 📖 **Más información**: Ver [Graph Database en SurrealDB](https://surrealdb.com/docs) para ejemplos
+> 📖 **Más información**: Ver [Graph Database en SurrealDB](https://surrealdb.com/docs/surrealdb)
+> para ejemplos
 > avanzados.
 
 ---
@@ -320,7 +321,7 @@ Si vas a autoscalar o tener múltiples nodos:
 - [Running SurrealDB with Docker](https://surrealdb.com/docs/surrealdb/installation/running/docker) -
   Guía oficial de instalación con Docker
 - [SurrealQL](https://surrealdb.com/docs/surrealql) - Lenguaje de consulta de SurrealDB
-- [Graph Database en SurrealDB](https://surrealdb.com/docs) - Funcionalidades de grafos nativas
+- [Graph Database en SurrealDB](https://surrealdb.com/docs/surrealdb) - Funcionalidades de grafos nativas
 
 ### Repositorios
 

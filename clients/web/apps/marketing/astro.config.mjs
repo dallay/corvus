@@ -24,7 +24,7 @@ function resolvePublicUrl(value, fallback) {
 
 const marketingUrl = resolvePublicUrl(
   env.MARKETING_URL,
-  mode === "production" ? DEFAULT_PROD_URL : DEFAULT_DEV_URL,
+  mode === "production" ? DEFAULT_PROD_URL : DEFAULT_DEV_URL
 );
 const resolvedPort = getPortFromUrl(marketingUrl, PORTS.MARKETING);
 

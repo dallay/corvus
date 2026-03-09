@@ -619,8 +619,10 @@ impl Agent {
         calls
             .iter()
             .enumerate()
-            .filter_map(|(index, call)| {
-                results_by_call_id.remove(&Self::tool_call_key(index, call))
+            .map(|(index, call)| {
+                results_by_call_id
+                    .remove(&Self::tool_call_key(index, call))
+                    .expect("every call must have a corresponding result")
             })
             .collect()
     }
