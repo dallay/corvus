@@ -129,6 +129,22 @@ The agent uses an execution loop pattern that alternates between thinking phases
 During thinking phases, the agent analyzes available context and decides which tools to invoke.
 During action phases, it executes selected tools and processes results.
 
+#### Capability Profiles
+
+Bootstrap assembly now supports reusable capability profiles so internal consumers can compose safer
+runtime variants without duplicating setup logic. The built-in profiles are `full`, `code`, and
+`lite`.
+
+- `full` keeps the default runtime surface.
+- `code` keeps coding-oriented tools and MCP integrations while excluding operational channels such
+  as schedulers, hardware-facing tools, and notification-only integrations.
+- `lite` reduces the tool surface to `shell`, `file_read`, and `file_write`, and forces the memory
+  backend to `none`.
+
+The profile decision happens during bootstrap, not later in the agent loop, so memory, observer,
+and tool registration stay consistent across direct agent entrypoints, channels, gateway, and test
+paths.
+
 #### Internal Specialized Agent Paths
 
 Internal consumers can now instantiate a code-specialized agent without duplicating bootstrap
@@ -140,6 +156,17 @@ consumers that need bootstrap components directly can use
 This keeps provider selection, memory setup, observer wiring, and tool filtering aligned with the
 main runtime path while allowing future specialized agents to be added as thin profile-based entry
 points instead of separate setup trees.
+
+#### Shared Prompt and Context Assembly
+
+`Agent` and `Channels` now share the same prompt/context assembly helpers for workspace identity,
+skills, bootstrap files, runtime metadata, and safety instructions. Channel-specific protocol
+instructions and agent-specific tool dispatcher guidance are still layered on top, but the common
+sections come from one implementation.
+
+This removes drift between entrypoints and ensures AIEOS/OpenClaw identity loading, bootstrap file
+truncation, and `compact_context` behavior stay aligned regardless of whether the runtime is
+responding through the interactive agent loop or a real-time channel.
 
 ### Providers
 
@@ -161,6 +188,12 @@ health checks.
 Supported channels include Telegram, Discord, Slack, WhatsApp, Email, Matrix, Signal, IRC, Lark,
 DingTalk, QQ, Mattermost, iMessage, and an interactive CLI. This variety allows the agent to operate
 across multiple platforms simultaneously, unifying the user experience.
+
+Channel construction is now centralized behind a shared registry/factory inside `channels/`. The
+same registry is reused by channel startup, doctor checks, update notifications, scheduler delivery,
+and gateway-specific channel hooks. This keeps channel key normalization, supported-channel
+validation, and constructor wiring in one place instead of reimplementing `match` blocks across the
+runtime.
 
 ### Memory
 
@@ -223,6 +256,11 @@ external monitoring. The cron scheduler (`cron/`) allows executing commands at s
 regular intervals. The gateway (`gateway/`) exposes the agent as a web service with webhooks.
 Authentication (`auth/`) manages user profiles and access tokens. Observability (`observability/`)
 provides logging, metrics, and tracing.
+
+Bootstrap coverage is also protected by a feature-flag parity matrix in tests. That matrix exercises
+critical combinations such as MCP runtime enabled/disabled, Surreal memory enabled/disabled, and
+profile-specific assembly paths so refactors in bootstrap code fail fast when a feature combination
+drifts from the expected runtime shape.
 
 ## Execution Flow
 
