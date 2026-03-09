@@ -118,10 +118,10 @@ Para una vista más detallada de la arquitectura, consulta los siguientes diagra
 
 | Nivel             | Diagrama                                                                            | Descripción                                        | ID del Diagrama                   |
 |-------------------|-------------------------------------------------------------------------------------|----------------------------------------------------|-----------------------------------|
-| C1 - Contexto     | [Sistema Completo](./architecture/diagrams/context/system-context.mmd)              | Vista de alto nivel del sistema y actores externos | `context/system-context.mmd`      |
-| C2 - Contenedores | [Contenedores Principales](./architecture/diagrams/container/system-containers.mmd) | Aplicaciones y servicios que componen Corvus       | `container/system-containers.mmd` |
-| C3 - Componentes  | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd)              | Componentes internos del módulo core               | `component/agent-core-kmp.mmd`    |
-| -                 | [Dependencias entre Módulos](./architecture/diagrams/module-dependencies.mmd)       | Relaciones de dependencia de Gradle                | `module-dependencies.mmd`         |
+| C1 - Contexto     | [Sistema Completo](./architecture/diagrams/context/system-context.mmd)                 | Vista de alto nivel del runtime y actores externos | `context/system-context.mmd`      |
+| C2 - Contenedores | [Contenedores del Runtime](./architecture/diagrams/container/runtime-containers.mmd) | Servicios del runtime y superficies operativas     | `container/runtime-containers.mmd` |
+| C3 - Componentes  | [Núcleo del Runtime](./architecture/diagrams/component/runtime-core.mmd)             | Componentes internos del núcleo del runtime        | `component/runtime-core.mmd`      |
+| -                 | [Dependencias de Cargo](./architecture/diagrams/cargo-dependencies.mmd)              | Flujo de dependencias del workspace Rust/Cargo     | `cargo-dependencies.mmd`          |
 
 Ver [Visión General de la Arquitectura](./architecture/overview.md) para más detalles sobre cómo
 visualizarlos.

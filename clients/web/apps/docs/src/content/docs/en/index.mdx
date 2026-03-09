@@ -1,9 +1,9 @@
 ---
 title: Corvus
-description: Reactive agent platform for always-on orchestration on the JVM.
+description: Secure, pluggable Rust-native runtime for autonomous AI agents, with companion documentation.
 template: splash
 hero:
-  tagline: Build long-running, proactive agents with Kotlin, Spring Boot, Neo4j, Rust sidecars, and a transparent control panel.
+  tagline: Build autonomous AI agents with a secure, pluggable Rust-native runtime that stays small, fast, and portable.
   actions:
     - text: Get Started
       link: guides/getting-started/
@@ -21,17 +21,17 @@ import {Card, CardGrid, LinkCard} from '@astrojs/starlight/components';
 ## Why Corvus?
 
 <CardGrid stagger>
-  <Card title="Reactive Orchestrator" icon="setting">
-    Kotlin + Spring Boot + Coroutines/WebFlux for non-blocking, always-on workflows.
+  <Card title="Lean by default" icon="rocket">
+    A small Rust binary with fast startup and low memory usage, built for laptops, servers, SBCs, and constrained environments.
   </Card>
-  <Card title="Graph Memory" icon="open-book">
-    Knowledge-first architecture using Neo4j for connected context and durable memory.
+  <Card title="Secure by design" icon="shield-check">
+    Pairing, sandboxing, workspace scoping, allowlists, and encrypted secrets are part of the default posture.
   </Card>
-  <Card title="Rust Sidecars" icon="rocket">
-    High-performance binaries for scraping and secure sandbox operations.
+  <Card title="Pluggable architecture" icon="setting">
+    Swap providers, memory, tools, channels, tunnels, and runtime modes without rewriting your stack.
   </Card>
-  <Card title="Transparent Operations" icon="approve-check">
-    Real-time observability through an Astro/Vue control surface and event streaming.
+  <Card title="Portable runtime" icon="open-book">
+    Run Corvus natively or in Docker with one runtime for chat, gateway, daemon, integrations, and automation.
   </Card>
 </CardGrid>
 
@@ -45,6 +45,8 @@ import {Card, CardGrid, LinkCard} from '@astrojs/starlight/components';
             href="guides/features/"/>
   <LinkCard title="Architecture" description="See core design decisions and runtime model."
             href="guides/architecture/"/>
+  <LinkCard title="CLI Reference" description="Learn the commands for onboarding, agents, gateway, daemon, and operations."
+            href="guides/cli-reference/"/>
   <LinkCard title="Development Workflow" description="Build, test, lint, and release procedures."
             href="guides/development/"/>
 </CardGrid>

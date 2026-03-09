@@ -22,27 +22,27 @@ Muestra el sistema Corvus como una caja negra y sus interacciones con actores y 
 Descompone el sistema en contenedores/aplicaciones principales y sus interacciones.
 
 - **Archivos**:
-  - [`container/system-containers.mmd`](./diagrams/container/system-containers.mmd) (Mermaid)
-  - [`container/system-containers.puml`](./diagrams/container/system-containers.puml) (PlantUML)
-- **Descripción**: Muestra los contenedores principales: Web Dashboard, Android App, iOS App, Agent
-  Runtime, Rust Sidecar, y Graph DB.
+  - [`container/runtime-containers.mmd`](./diagrams/container/runtime-containers.mmd) (Mermaid)
+  - [`container/runtime-containers.puml`](./diagrams/container/runtime-containers.puml) (PlantUML)
+- **Descripción**: Muestra los contenedores del runtime: CLI, gateway, servicios daemon,
+  ejecución de tools, backends de memoria y superficies operativas alrededor de Corvus.
 
 ## Nivel 3: Componentes
 
 Descompone contenedores individuales en sus componentes internos.
 
-### Agent Core KMP
+### Núcleo del Runtime
 
-- **Archivo**: [`component/agent-core-kmp.mmd`](./diagrams/component/agent-core-kmp.mmd)
-- **Descripción**: Componentes internos del módulo core: Dominio, Casos de Uso, Interfaces e
-  Infraestructura.
+- **Archivo**: [`component/runtime-core.mmd`](./diagrams/component/runtime-core.mmd)
+- **Descripción**: Componentes internos del núcleo del runtime: configuración, agent loop,
+  providers, memoria, tools, canales, seguridad y observabilidad.
 
 ## Dependencias entre Módulos
 
-Diagrama adicional mostrando las dependencias de Gradle entre módulos.
+Diagrama adicional mostrando las dependencias de Cargo entre módulos del workspace.
 
-- **Archivo**: [`module-dependencies.mmd`](./diagrams/module-dependencies.mmd)
-- **Descripción**: Muestra cómo los clientes dependen del core compartido y de frameworks externos.
+- **Archivo**: [`cargo-dependencies.mmd`](./diagrams/cargo-dependencies.mmd)
+- **Descripción**: Muestra la estructura del workspace Cargo y el flujo principal de dependencias Rust del runtime.
 
 ## Cómo Visualizar
 
@@ -70,7 +70,7 @@ Para los archivos `.puml`:
 
 ```bash
 # Usar PlantUML online o local
-plantuml -tpng diagrams/container/system-containers.puml
+plantuml -tpng diagrams/container/runtime-containers.puml
 ```
 
 ## Convenciones

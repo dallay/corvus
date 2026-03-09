@@ -1,105 +1,196 @@
 ---
+import { PORTS, resolveSiteUrl } from "@corvus/shared/env";
+import { loadEnv } from "vite";
 import MarketingLayout from "../layouts/MarketingLayout.astro";
 
-const featureCards = [
+const DEFAULT_DOCS_DEV_URL = `http://localhost:${PORTS.DOCS}`;
+const DEFAULT_DOCS_PROD_URL = "https://docs.profiletailors.com";
+
+const mode = process.env.NODE_ENV || "production";
+const env = loadEnv(mode, process.cwd(), "");
+const docsBaseUrl = resolveSiteUrl({
+  env,
+  primaryKey: "DOCS_URL",
+  localDefault: DEFAULT_DOCS_DEV_URL,
+  productionDefault: DEFAULT_DOCS_PROD_URL,
+  genericKeys: ["SITE_URL"],
+  providerKeys: {
+    cloudflare: "CF_PAGES_URL",
+    vercel: "VERCEL_URL",
+    netlify: "URL",
+  },
+  isProdLike: mode === "production",
+});
+
+const conversionKeys = [
   {
-    title: "Secure by Default",
-    body: "Pairing, sandboxed tools, explicit allowlists and workspace scoping are enabled from day one.",
+    title: "Lean by default",
+    body: "A small Rust binary, fast startup, and low memory usage make Corvus practical on laptops, servers, SBCs, and constrained edge hardware.",
   },
   {
-    title: "Tiny Runtime",
-    body: "Small Rust core with fast cold-start and low memory usage to run on edge hardware.",
+    title: "Secure by design",
+    body: "Pairing, sandboxing, workspace scoping, allowlists, encrypted secrets, and controlled public exposure are built into the runtime from day one.",
   },
   {
-    title: "Swappable Stack",
-    body: "Providers, channels, memory and tools are composable modules. Replace one layer without rewiring everything.",
+    title: "Pluggable at every layer",
+    body: "Providers, channels, tools, memory, tunnels, runtimes, and observability are trait-based and swappable, so your stack can evolve without rewrites.",
   },
   {
-    title: "Production Signals",
-    body: "Built-in doctor/status flows and deployment-friendly service commands for predictable operations.",
+    title: "No vendor lock-in",
+    body: "Use OpenRouter, OpenAI-compatible endpoints, local setups, or custom integrations without rebuilding your agent architecture.",
+  },
+  {
+    title: "Runs where you need it",
+    body: "Deploy natively or in Docker, from local-first development to secure remote gateway setups with tunnels and controlled exposure.",
+  },
+  {
+    title: "Built for real agent workflows",
+    body: "Chat, gateway, daemon, memory, channels, scheduled tasks, integrations, and service management ship as one coherent runtime.",
   },
 ];
 
 const testimonials = [
   {
     quote:
-      "We moved from heavy orchestration to Corvus in two sprints and cut infra cost without giving up reliability.",
-    author: "Platform Team, FinOps Startup",
+      "A small Rust binary, fast startup, low memory footprint, and a fully swappable architecture make Corvus practical as real agent infrastructure.",
+    author: "Architecture overview",
   },
   {
     quote:
-      "The onboarding flow made rollout easy. New developers go from zero to first task in minutes.",
-    author: "Engineering Lead, Growth Studio",
+      "Pairing, sandboxing, allowlists, workspace scoping, and encrypted secrets are not optional extras. They are part of the default posture.",
+    author: "Security policy",
   },
   {
     quote:
-      "Finally an AI runtime that behaves like software infrastructure, not a fragile demo stack.",
-    author: "CTO, B2B SaaS",
+      "Corvus ships with a 3.4MB optimized release build, boots in under 10ms, and supports 22+ providers with native or Docker runtime modes.",
+    author: "README benchmark snapshot",
   },
 ];
+
+const installUrl = `${docsBaseUrl}/en/guides/getting-started/`;
+const architectureUrl = `${docsBaseUrl}/en/guides/architecture/`;
+
+const faqGroups = [
+  {
+    title: "Product and fit",
+    items: [
+      {
+        question: "What is Corvus?",
+        points: [
+          "Corvus is a Rust-native runtime for autonomous AI agents.",
+          "It combines model access, memory, tools, channels, and security controls into one portable system.",
+          "It is designed to behave like infrastructure, not a fragile demo stack.",
+        ],
+        ctaLabel: "Read the architecture",
+        ctaHref: architectureUrl,
+      },
+      {
+        question: "Who is it for?",
+        points: [
+          "Corvus fits developers, platform teams, and operators who want portable agent infrastructure.",
+          "It is a strong fit when security posture, runtime efficiency, and provider flexibility matter.",
+          "It helps teams avoid heavyweight stacks and unnecessary lock-in.",
+        ],
+        ctaLabel: "See the quick start",
+        ctaHref: installUrl,
+      },
+    ],
+  },
+  {
+    title: "Security and operations",
+    items: [
+      {
+        question: "How does Corvus protect data and tools?",
+        points: [
+          "Pairing, sandboxing, workspace isolation, command allowlisting, and forbidden path protection are built in.",
+          "Gateway exposure is restrictive by default, with localhost binding and tunnel-aware controls.",
+          "Secrets can be encrypted locally and public access is never assumed.",
+        ],
+        ctaLabel: "Review security controls",
+        ctaHref: docsBaseUrl,
+      },
+      {
+        question: "Where can it run?",
+        points: [
+          "Corvus runs as a native binary or in Docker.",
+          "It is built to stay practical across laptops, servers, SBCs, and constrained environments.",
+          "Its small binary size and fast startup make it viable beyond heavyweight cloud-only setups.",
+        ],
+        ctaLabel: "Explore runtime options",
+        ctaHref: docsBaseUrl,
+      },
+    ],
+  },
+];
+
+const hero = {
+  eyebrow: "RUST-NATIVE AGENT RUNTIME • SECURE BY DEFAULT • PORTABLE BY DESIGN",
+  title: "Run agents anywhere. Keep control everywhere.",
+  subtitle:
+    "Built in Rust, Corvus gives teams one runtime for chat, gateway, daemon, memory, channels, integrations, and secure execution, without the weight of a stitched-together stack.",
+  primaryCta: "Install Corvus",
+  secondaryCta: "Read the architecture",
+};
 ---
 
 <MarketingLayout
-  title="Corvus | Lean AI Runtime For Teams"
-  description="Build and scale autonomous agents with a secure-by-default runtime, tiny footprint, and one-command onboarding."
+  title="Corvus | Autonomous AI Agents Without the Overhead"
+  description="Corvus is a secure, pluggable Rust-native runtime for autonomous AI agents with millisecond startup, low footprint, and portable deployment."
 >
   <header class="topbar shell">
     <a class="brand" href="/">
       <img src="/favicon-light.svg" alt="" class="brand-mark" width="28" height="28" aria-hidden="true" />
       Corvus
     </a>
-    <nav aria-label="Primary">
-      <a href="#features">Platform</a>
-      <a href="#proof">Proof</a>
-      <a href="#install">Install</a>
-      <a href="https://docs.profiletailors.com" rel="noopener noreferrer">Docs</a>
+    <nav aria-label="Primary conversion path">
+      <a href="#faq">FAQ</a>
+      <a href={docsBaseUrl} rel="noopener noreferrer">Docs</a>
+      <a class="btn btn-primary btn-nav" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="nav" data-track-label="start-now">Install Corvus</a>
     </nav>
   </header>
 
   <main>
     <section class="hero shell">
-      <p class="eyebrow">AUTONOMOUS INFRASTRUCTURE • RUST CORE • MULTI-CHANNEL</p>
-      <h1>Ship AI operators that stay fast, secure, and online.</h1>
-      <p class="subtitle">
-        Corvus gives your team an operational runtime for agents: strict defaults, tiny footprint,
-        and a distribution model that works from laptops to edge boxes.
-      </p>
-      <div class="hero-actions">
-        <a class="btn btn-primary" href="#install">Start in 2 minutes</a>
-        <a class="btn btn-ghost" href="https://docs.profiletailors.com" rel="noopener noreferrer">Read the docs →</a>
-        <a class="btn btn-ghost" href="https://github.com/dallay/corvus" rel="noopener noreferrer">GitHub</a>
-      </div>
+      <div class="hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow">{hero.eyebrow}</p>
+          <h1>{hero.title}</h1>
+          <p class="subtitle">{hero.subtitle}</p>
+          <div class="hero-actions">
+            <a class="btn btn-primary" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-primary">{hero.primaryCta}</a>
+            <a class="btn btn-ghost" href={architectureUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-secondary">{hero.secondaryCta}</a>
+            <a class="btn btn-ghost" href={docsBaseUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-docs">Read docs</a>
+          </div>
+          <p class="hero-note">Built for developers and teams who want agent infrastructure with strong defaults, real portability, and no unnecessary runtime weight.</p>
+        </div>
 
-      <div class="command-card" id="install">
-        <span class="label">One-line installer</span>
-        <code id="install-command">curl -fsSL https://profiletailors.com/install | bash</code>
-        <button type="button" class="copy-btn" data-copy="#install-command">Copy</button>
-      </div>
-
-      <div class="metric-grid" role="list" aria-label="Performance highlights">
-        <article role="listitem">
-          <strong>&lt; 10ms</strong>
-          <span>cold start target</span>
-        </article>
-        <article role="listitem">
-          <strong>&lt; 5MB</strong>
-          <span>runtime memory profile</span>
-        </article>
-        <article role="listitem">
-          <strong>22+</strong>
-          <span>provider integrations</span>
-        </article>
+        <aside class="hero-rail">
+          <div class="metric-grid" role="list" aria-label="Performance highlights">
+            <article role="listitem">
+              <strong>&lt; 10ms</strong>
+              <span>startup time</span>
+            </article>
+            <article role="listitem">
+              <strong>3.4MB</strong>
+              <span>release binary</span>
+            </article>
+            <article role="listitem">
+              <strong>22+</strong>
+              <span>model providers</span>
+            </article>
+          </div>
+        </aside>
       </div>
     </section>
 
     <section class="section shell" id="features">
       <div class="section-head">
-        <p class="eyebrow">PLATFORM</p>
-        <h2>Designed for serious runtime work, not demos.</h2>
+        <p class="eyebrow">WHY TEAMS PICK CORVUS</p>
+        <h2>Fast, secure, portable agent infrastructure without the usual baggage.</h2>
       </div>
       <div class="feature-grid">
         {
-          featureCards.map((item) => (
+          conversionKeys.map((item) => (
             <article class="feature-card">
               <h3>{item.title}</h3>
               <p>{item.body}</p>
@@ -111,24 +202,24 @@ const testimonials = [
 
     <section class="section shell comparison">
       <div class="section-head">
-        <p class="eyebrow">POSITIONING</p>
-        <h2>Lean architecture with explicit tradeoffs.</h2>
+        <p class="eyebrow">WHY IT STANDS OUT</p>
+        <h2>Agent infrastructure without the heavyweight stack.</h2>
       </div>
       <div class="comparison-grid">
         <article>
-          <h3>Traditional agent stacks</h3>
+          <h3>What most stacks look like</h3>
           <ul>
-            <li>Large runtime overhead before first task</li>
-            <li>Security model bolted on later</li>
-            <li>Difficult to run on low-cost hardware</li>
+            <li>Heavy runtimes and slow startup</li>
+            <li>Tight coupling to one provider or framework</li>
+            <li>Weak default security around tools and file access</li>
           </ul>
         </article>
         <article>
-          <h3>Corvus approach</h3>
+          <h3>What Corvus gives you</h3>
           <ul>
-            <li>Small binary footprint with quick startup</li>
-            <li>Pairing, allowlists and scoped tools by default</li>
-            <li>Portable runtime for local, cloud, and edge</li>
+            <li>Millisecond startup and tiny footprint</li>
+            <li>Provider, memory, tool, and channel portability</li>
+            <li>Secure-by-default pairing, sandboxing, and workspace scoping</li>
           </ul>
         </article>
       </div>
@@ -136,8 +227,8 @@ const testimonials = [
 
     <section class="section shell" id="proof">
       <div class="section-head">
-        <p class="eyebrow">CUSTOMER SIGNALS</p>
-        <h2>Teams adopt Corvus for operational confidence.</h2>
+        <p class="eyebrow">PRODUCT PROOF</p>
+        <h2>Built like infrastructure, not hype.</h2>
       </div>
       <div class="testimonial-row">
         {
@@ -151,12 +242,44 @@ const testimonials = [
       </div>
     </section>
 
+    <section class="section shell faq" id="faq">
+      <div class="section-head">
+        <p class="eyebrow">FAQ</p>
+        <h2>Clear answers for teams evaluating a serious agent runtime.</h2>
+      </div>
+
+      <div class="faq-grid">
+        {
+          faqGroups.map((group) => (
+            <article class="faq-group">
+              <h3>{group.title}</h3>
+              <div class="faq-list">
+                {
+                  group.items.map((item) => (
+                    <details data-track-group={group.title}>
+                      <summary>{item.question}</summary>
+                      <ul>
+                        {item.points.map((point) => <li>{point}</li>)}
+                      </ul>
+                      <a href={item.ctaHref} rel="noopener noreferrer" data-track="faq_cta_click" data-track-location={group.title} data-track-label={item.question}>{item.ctaLabel} →</a>
+                    </details>
+                  ))
+                }
+              </div>
+            </article>
+          ))
+        }
+      </div>
+    </section>
+
     <section class="section shell cta-band">
-      <h2>Launch your first production-ready agent today.</h2>
-      <p>Use the installer wizard, pick your provider, and onboard in minutes.</p>
+      <h2>Start with one command. Scale without dragging extra runtime weight.</h2>
+      <p>
+        Install Corvus, run your first agent workflow, and keep control over models, memory, tools, and deployment from day one.
+      </p>
       <div class="hero-actions">
-        <a class="btn btn-primary" href="#install">Download Installer</a>
-        <a class="btn btn-ghost" href="https://docs.profiletailors.com" rel="noopener noreferrer">Read the docs →</a>
+        <a class="btn btn-primary" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="final-cta" data-track-label="download-installer">Install Corvus</a>
+        <a class="btn btn-ghost" href={docsBaseUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="final-cta" data-track-label="explore-docs">Explore the docs</a>
       </div>
     </section>
   </main>
@@ -164,43 +287,67 @@ const testimonials = [
   <footer class="shell footer">
     <p>© {new Date().getFullYear()} Corvus</p>
     <div>
-      <a href="https://docs.profiletailors.com" rel="noopener noreferrer">Docs</a>
+      <a href={docsBaseUrl} rel="noopener noreferrer">Docs</a>
       <a href="https://github.com/dallay/corvus" rel="noopener noreferrer">GitHub</a>
-      <a href="/install">Install Script</a>
+      <a href={installUrl} rel="noopener noreferrer">Install</a>
     </div>
   </footer>
 
   <script>
-    document.querySelectorAll(".copy-btn").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const selector = button.getAttribute("data-copy");
-        if (!selector) {
+    const metricsKey = "corvus_marketing_metrics_v1";
+    const currentDevice = window.matchMedia("(max-width: 960px)").matches ? "mobile" : "desktop";
+
+    function pushMetric(name, detail = {}) {
+      const payload = {
+        name,
+        timestamp: new Date().toISOString(),
+        path: window.location.pathname,
+        device: currentDevice,
+        ...detail,
+      };
+
+      let previous = [];
+
+      try {
+        const raw = window.localStorage.getItem(metricsKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          previous = Array.isArray(parsed) ? parsed : [];
+        }
+      } catch {
+        previous = [];
+      }
+
+      try {
+        previous.push(payload);
+        window.localStorage.setItem(metricsKey, JSON.stringify(previous.slice(-100)));
+      } catch {
+        // Ignore persistence failures and still emit the analytics event.
+      }
+
+      window.dispatchEvent(new CustomEvent("corvus:analytics", { detail: payload }));
+    }
+
+    document.querySelectorAll("[data-track]").forEach((element) => {
+      element.addEventListener("click", () => {
+        pushMetric(element.getAttribute("data-track") ?? "interaction", {
+          location: element.getAttribute("data-track-location") ?? "unknown",
+          label: element.getAttribute("data-track-label") ?? "unknown",
+        });
+      });
+    });
+
+    document.querySelectorAll("details[data-track-group]").forEach((element) => {
+      element.addEventListener("toggle", () => {
+        if (!(element instanceof HTMLDetailsElement) || !element.open) {
           return;
         }
-        const target = document.querySelector(selector);
-        if (!target) {
-          return;
-        }
-        const text = target.textContent?.trim();
-        if (!text) {
-          button.textContent = "Nothing to copy";
-          setTimeout(() => {
-            button.textContent = "Copy";
-          }, 1500);
-          return;
-        }
-        try {
-          await navigator.clipboard.writeText(text);
-          button.textContent = "Copied";
-          setTimeout(() => {
-            button.textContent = "Copy";
-          }, 1500);
-        } catch {
-          button.textContent = "Copy failed";
-          setTimeout(() => {
-            button.textContent = "Copy";
-          }, 1500);
-        }
+
+        const summary = element.querySelector("summary");
+        pushMetric("faq_open", {
+          location: element.getAttribute("data-track-group") ?? "faq",
+          label: summary?.textContent?.trim() ?? "faq-item",
+        });
       });
     });
   </script>

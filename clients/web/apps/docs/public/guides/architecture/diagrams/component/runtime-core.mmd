@@ -1,0 +1,31 @@
+---
+# C4 Component Diagram - Corvus Runtime Core
+# Updated: 2026-03-09
+---
+
+flowchart TB
+  CLI["CLI Commands\nagent, gateway, daemon, doctor"]:::entry
+  CHANNELS["Channel Adapters\nTelegram, Discord, Slack, WhatsApp, CLI"]:::component
+  PROVIDERS["Provider Registry\n22+ model providers"]:::component
+  MEMORY["Memory Layer\nSQLite, SurrealDB, Markdown"]:::component
+  TOOLS["Tool Runtime\nShell, file, memory, browser"]:::component
+  SECURITY["Security Policy\nPairing, allowlists, workspace scoping"]:::component
+  OBSERVE["Observability\nTracing, metrics, health"]:::component
+  CONFIG["Config + Identity\nTOML, OpenClaw, AIEOS"]:::component
+  LOOP["Agent Loop\nplanning, execution, supervision"]:::component
+
+  CLI --> CONFIG
+  CLI --> LOOP
+  LOOP --> PROVIDERS
+  LOOP --> MEMORY
+  LOOP --> TOOLS
+  LOOP --> CHANNELS
+  LOOP --> SECURITY
+  LOOP --> OBSERVE
+  TOOLS --> SECURITY
+  CHANNELS --> SECURITY
+  PROVIDERS --> OBSERVE
+  MEMORY --> OBSERVE
+
+  classDef entry fill:#818cf8,stroke:#5b67d8,stroke-width:2px,color:#fff
+  classDef component fill:#38bdf8,stroke:#1d7ca8,stroke-width:2px,color:#001018

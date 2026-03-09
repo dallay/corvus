@@ -1,0 +1,38 @@
+---
+# C4 Container Diagram - Corvus Runtime
+# Updated: 2026-03-09
+---
+
+flowchart TB
+  DEV["Developer"]:::person
+  USER["Channel User"]:::person
+  LLM["LLM Providers"]:::external
+  MSG["Messaging APIs"]:::external
+  TUNNEL["Tunnel Providers"]:::external
+  FS["Workspace Filesystem"]:::external
+
+  subgraph CORVUS["Corvus Runtime"]
+    CLI["CLI Surface\nagent, onboard, doctor"]:::container
+    GATEWAY["Gateway\nwebhook and pairing server"]:::container
+    DAEMON["Daemon\nchannels, heartbeat, scheduler"]:::container
+    EXEC["Execution Runtime\nnative or Docker"]:::container
+    MEMORY["Memory Backends\nSQLite, SurrealDB, Markdown"]:::container
+    DASH["Operator Surfaces\ndocs, dashboard, marketing"]:::container
+  end
+
+  DEV --> CLI
+  DEV --> DASH
+  USER --> GATEWAY
+  CLI --> DAEMON
+  CLI --> EXEC
+  DAEMON --> GATEWAY
+  DAEMON --> MEMORY
+  DAEMON --> EXEC
+  DAEMON --> LLM
+  DAEMON --> MSG
+  GATEWAY --> TUNNEL
+  EXEC --> FS
+
+  classDef person fill:#c084fc,stroke:#7c3aed,stroke-width:2px,color:#fff
+  classDef container fill:#38bdf8,stroke:#1d7ca8,stroke-width:2px,color:#001018
+  classDef external fill:#94a3b8,stroke:#475569,stroke-width:2px,color:#fff

@@ -117,9 +117,9 @@ For a more detailed view of the architecture, see the following C4 diagrams:
 
 | Level           | Diagram                                                                    | Description                                       | Diagram ID                        |
 |-----------------|----------------------------------------------------------------------------|---------------------------------------------------|-----------------------------------|
-| C1 - Context    | [System Context](./architecture/diagrams/context/system-context.mmd)       | High-level view of the system and external actors | `context/system-context.mmd`      |
-| C2 - Containers | [Main Containers](./architecture/diagrams/container/system-containers.mmd) | Applications and services that compose Corvus     | `container/system-containers.mmd` |
-| C3 - Components | [Agent Core KMP](./architecture/diagrams/component/agent-core-kmp.mmd)     | Internal components of the core module            | `component/agent-core-kmp.mmd`    |
-| -               | [Module Dependencies](./architecture/diagrams/module-dependencies.mmd)     | Gradle dependency relationships                   | `module-dependencies.mmd`         |
+| C1 - Context    | [System Context](./architecture/diagrams/context/system-context.mmd)       | High-level view of the runtime and external actors | `context/system-context.mmd`     |
+| C2 - Containers | [Runtime Containers](./architecture/diagrams/container/runtime-containers.mmd) | Runtime services and operator surfaces         | `container/runtime-containers.mmd` |
+| C3 - Components | [Runtime Core](./architecture/diagrams/component/runtime-core.mmd)         | Internal components of the runtime core           | `component/runtime-core.mmd`      |
+| -               | [Cargo Dependencies](./architecture/diagrams/cargo-dependencies.mmd)       | Cargo workspace and runtime dependency flow       | `cargo-dependencies.mmd`          |
 
 See [Architecture Index](./architecture/overview.md) for more details on how to visualize them.
