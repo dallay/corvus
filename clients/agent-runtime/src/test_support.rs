@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 use crate::config::{Config, McpServerConfig};
 use std::collections::BTreeMap;
 use tempfile::TempDir;
