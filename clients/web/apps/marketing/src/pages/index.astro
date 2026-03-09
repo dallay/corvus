@@ -1,5 +1,26 @@
 ---
+import { PORTS, resolveSiteUrl } from "@corvus/shared/env";
+import { loadEnv } from "vite";
 import MarketingLayout from "../layouts/MarketingLayout.astro";
+
+const DEFAULT_DOCS_DEV_URL = `http://localhost:${PORTS.DOCS}`;
+const DEFAULT_DOCS_PROD_URL = "https://docs.profiletailors.com";
+
+const mode = process.env.NODE_ENV || "production";
+const env = loadEnv(mode, process.cwd(), "");
+const docsBaseUrl = resolveSiteUrl({
+  env,
+  primaryKey: "DOCS_URL",
+  localDefault: DEFAULT_DOCS_DEV_URL,
+  productionDefault: DEFAULT_DOCS_PROD_URL,
+  genericKeys: ["SITE_URL"],
+  providerKeys: {
+    cloudflare: "CF_PAGES_URL",
+    vercel: "VERCEL_URL",
+    netlify: "URL",
+  },
+  isProdLike: mode === "production",
+});
 
 const conversionKeys = [
   {
@@ -46,8 +67,8 @@ const testimonials = [
   },
 ];
 
-const installUrl = "https://docs.profiletailors.com/en/guides/getting-started/";
-const architectureUrl = "https://docs.profiletailors.com/en/guides/architecture/";
+const installUrl = `${docsBaseUrl}/en/guides/getting-started/`;
+const architectureUrl = `${docsBaseUrl}/en/guides/architecture/`;
 
 const faqGroups = [
   {
@@ -71,7 +92,7 @@ const faqGroups = [
           "It helps teams avoid heavyweight stacks and unnecessary lock-in.",
         ],
         ctaLabel: "See the quick start",
-        ctaHref: "https://docs.profiletailors.com",
+        ctaHref: installUrl,
       },
     ],
   },
@@ -86,7 +107,7 @@ const faqGroups = [
           "Secrets can be encrypted locally and public access is never assumed.",
         ],
         ctaLabel: "Review security controls",
-        ctaHref: "https://docs.profiletailors.com",
+        ctaHref: docsBaseUrl,
       },
       {
         question: "Where can it run?",
@@ -96,7 +117,7 @@ const faqGroups = [
           "Its small binary size and fast startup make it viable beyond heavyweight cloud-only setups.",
         ],
         ctaLabel: "Explore runtime options",
-        ctaHref: "https://docs.profiletailors.com",
+        ctaHref: docsBaseUrl,
       },
     ],
   },
@@ -123,7 +144,7 @@ const hero = {
     </a>
     <nav aria-label="Primary conversion path">
       <a href="#faq">FAQ</a>
-      <a href="https://docs.profiletailors.com" rel="noopener noreferrer">Docs</a>
+      <a href={docsBaseUrl} rel="noopener noreferrer">Docs</a>
       <a class="btn btn-primary btn-nav" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="nav" data-track-label="start-now">Install Corvus</a>
     </nav>
   </header>
@@ -138,7 +159,7 @@ const hero = {
           <div class="hero-actions">
             <a class="btn btn-primary" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-primary">{hero.primaryCta}</a>
             <a class="btn btn-ghost" href={architectureUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-secondary">{hero.secondaryCta}</a>
-            <a class="btn btn-ghost" href="https://docs.profiletailors.com" rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-docs">Read docs</a>
+            <a class="btn btn-ghost" href={docsBaseUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero" data-track-label="hero-docs">Read docs</a>
           </div>
           <p class="hero-note">Built for developers and teams who want agent infrastructure with strong defaults, real portability, and no unnecessary runtime weight.</p>
         </div>
@@ -258,7 +279,7 @@ const hero = {
       </p>
       <div class="hero-actions">
         <a class="btn btn-primary" href={installUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="final-cta" data-track-label="download-installer">Install Corvus</a>
-        <a class="btn btn-ghost" href="https://docs.profiletailors.com" rel="noopener noreferrer" data-track="cta_click" data-track-location="final-cta" data-track-label="book-quick-call">Explore the docs</a>
+        <a class="btn btn-ghost" href={docsBaseUrl} rel="noopener noreferrer" data-track="cta_click" data-track-location="final-cta" data-track-label="explore-docs">Explore the docs</a>
       </div>
     </section>
   </main>
@@ -266,7 +287,7 @@ const hero = {
   <footer class="shell footer">
     <p>© {new Date().getFullYear()} Corvus</p>
     <div>
-      <a href="https://docs.profiletailors.com" rel="noopener noreferrer">Docs</a>
+      <a href={docsBaseUrl} rel="noopener noreferrer">Docs</a>
       <a href="https://github.com/dallay/corvus" rel="noopener noreferrer">GitHub</a>
       <a href={installUrl} rel="noopener noreferrer">Install</a>
     </div>

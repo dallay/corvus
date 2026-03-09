@@ -39,7 +39,7 @@ Descompone contenedores individuales en sus componentes internos.
 
 ## Dependencias entre Módulos
 
-Diagrama adicional mostrando las dependencias de Gradle entre módulos.
+Diagrama adicional mostrando las dependencias de Cargo entre módulos del workspace.
 
 - **Archivo**: [`cargo-dependencies.mmd`](./diagrams/cargo-dependencies.mmd)
 - **Descripción**: Muestra la estructura del workspace Cargo y el flujo principal de dependencias Rust del runtime.

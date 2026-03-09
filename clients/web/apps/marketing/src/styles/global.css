@@ -185,7 +185,7 @@ nav a {
   letter-spacing: 0.02em;
 }
 
-nav a:hover {
+nav a:not(.btn):not(.btn-primary):not(.btn-nav):hover {
   color: var(--corvus-accent-high);
   background: rgba(129, 140, 248, 0.06);
 }

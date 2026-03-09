@@ -18,7 +18,8 @@ flowchart TB
     TRACE["tracing\nobservability"]:::dep
   end
 
-  CORVUS --> ROBOT
+  NOTE_WORKSPACE["corvus-robot-kit is a workspace member\nsee clients/agent-runtime/Cargo.toml"]:::note
+  ROBOT -. workspace member .- NOTE_WORKSPACE
   CORVUS --> TOKIO
   CORVUS --> AXUM
   CORVUS --> REQWEST
@@ -28,3 +29,4 @@ flowchart TB
 
   classDef crate fill:#818cf8,stroke:#5b67d8,stroke-width:2px,color:#fff
   classDef dep fill:#38bdf8,stroke:#1d7ca8,stroke-width:2px,color:#001018
+  classDef note fill:#111827,stroke:#64748b,stroke-dasharray: 4 4,color:#e5eefc

@@ -39,7 +39,7 @@ Decomposes individual containers into their internal components.
 
 ## Module Dependencies
 
-Additional diagram showing Gradle dependencies between modules.
+Additional diagram showing Cargo dependencies between workspace modules.
 
 - **File**: [`cargo-dependencies.mmd`](./diagrams/cargo-dependencies.mmd)
 - **Description**: Shows the Cargo workspace layout and the runtime's primary Rust dependency flow.
