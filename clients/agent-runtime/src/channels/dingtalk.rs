@@ -329,6 +329,66 @@ impl Channel for DingTalkChannel {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use futures::Sink;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+
+    #[derive(Default)]
+    struct TestSink {
+        messages: Vec<Message>,
+        fail_on_send: bool,
+    }
+
+    impl Sink<Message> for TestSink {
+        type Error = &'static str;
+
+        fn poll_ready(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn start_send(mut self: Pin<&mut Self>, item: Message) -> Result<(), Self::Error> {
+            if self.fail_on_send {
+                Err("send failed")
+            } else {
+                self.messages.push(item);
+                Ok(())
+            }
+        }
+
+        fn poll_flush(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_close(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+        ) -> Poll<Result<(), Self::Error>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    fn event_frame(content: &str) -> serde_json::Value {
+        serde_json::json!({
+            "type": "EVENT",
+            "headers": {
+                "messageId": "msg-1",
+            },
+            "data": {
+                "text": {
+                    "content": content,
+                },
+                "senderStaffId": "staff-1",
+                "conversationType": 1,
+                "sessionWebhook": "https://example.com/hook"
+            }
+        })
+    }
 
     #[test]
     fn test_name() {
@@ -410,5 +470,92 @@ client_secret = "secret"
         });
         let chat_id = DingTalkChannel::resolve_chat_id(&data, "staff-1");
         assert_eq!(chat_id, "cid-group");
+    }
+
+    #[test]
+    fn decode_socket_frame_handles_text() {
+        let frame = DingTalkChannel::decode_socket_frame(Ok(Message::Text("hello".into())));
+        assert!(matches!(frame, IncomingSocketFrame::Text(text) if text == "hello"));
+    }
+
+    #[test]
+    fn decode_socket_frame_handles_close_errors_and_non_text_frames() {
+        let close_frame = DingTalkChannel::decode_socket_frame(Ok(Message::Close(None)));
+        assert!(matches!(close_frame, IncomingSocketFrame::Break));
+
+        let error_frame = DingTalkChannel::decode_socket_frame(Err(
+            tokio_tungstenite::tungstenite::Error::Io(std::io::Error::other("boom")),
+        ));
+        assert!(matches!(error_frame, IncomingSocketFrame::Break));
+
+        let continue_frame = DingTalkChannel::decode_socket_frame(Ok(Message::Ping(Vec::new())));
+        assert!(matches!(continue_frame, IncomingSocketFrame::Continue));
+    }
+
+    #[tokio::test]
+    async fn handle_stream_frame_replies_to_system_ping() {
+        let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["*".into()]);
+        let mut sink = TestSink::default();
+        let (tx, _rx) = tokio::sync::mpsc::channel(1);
+        let frame = serde_json::json!({
+            "type": "SYSTEM",
+            "headers": {
+                "messageId": "system-1",
+            }
+        });
+
+        assert!(channel.handle_stream_frame(&mut sink, &tx, &frame).await);
+        assert_eq!(sink.messages.len(), 1);
+        assert!(matches!(&sink.messages[0], Message::Text(text) if text.contains("system-1")));
+    }
+
+    #[tokio::test]
+    async fn handle_stream_frame_acks_and_forwards_event_messages() {
+        let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["*".into()]);
+        let mut sink = TestSink::default();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+        assert!(
+            channel
+                .handle_stream_frame(&mut sink, &tx, &event_frame("hello from dingtalk"))
+                .await
+        );
+
+        let message = rx.recv().await.expect("message should be forwarded");
+        assert_eq!(message.sender, "staff-1");
+        assert_eq!(message.reply_target, "staff-1");
+        assert_eq!(message.content, "hello from dingtalk");
+        assert_eq!(sink.messages.len(), 1);
+        assert!(matches!(&sink.messages[0], Message::Text(text) if text.contains("msg-1")));
+    }
+
+    #[tokio::test]
+    async fn handle_stream_frame_ignores_empty_event_payloads() {
+        let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["*".into()]);
+        let mut sink = TestSink::default();
+        let (tx, mut rx) = tokio::sync::mpsc::channel(1);
+
+        assert!(
+            channel
+                .handle_stream_frame(&mut sink, &tx, &event_frame("   "))
+                .await
+        );
+        assert!(rx.try_recv().is_err());
+        assert!(sink.messages.is_empty());
+    }
+
+    #[tokio::test]
+    async fn handle_stream_frame_returns_false_when_channel_is_closed() {
+        let channel = DingTalkChannel::new("id".into(), "secret".into(), vec!["*".into()]);
+        let mut sink = TestSink::default();
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+        drop(rx);
+
+        assert!(
+            !channel
+                .handle_stream_frame(&mut sink, &tx, &event_frame("hello"))
+                .await
+        );
+        assert_eq!(sink.messages.len(), 1);
     }
 }

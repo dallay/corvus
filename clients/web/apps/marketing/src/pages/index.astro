@@ -29,11 +29,11 @@ function resolvePublicUrl(value: string | undefined, fallback: string): string {
 const isProdLike = mode === "production";
 const marketingBaseUrl = resolvePublicUrl(
   env.MARKETING_URL,
-  isProdLike ? DEFAULT_MARKETING_PROD_URL : DEFAULT_MARKETING_DEV_URL,
+  isProdLike ? DEFAULT_MARKETING_PROD_URL : DEFAULT_MARKETING_DEV_URL
 );
 const docsBaseUrl = resolvePublicUrl(
   env.DOCS_URL,
-  isProdLike ? DEFAULT_DOCS_PROD_URL : DEFAULT_DOCS_DEV_URL,
+  isProdLike ? DEFAULT_DOCS_PROD_URL : DEFAULT_DOCS_DEV_URL
 );
 const installScriptUrl = `${marketingBaseUrl}/install`;
 const githubUrl = "https://github.com/dallay/corvus";
@@ -91,7 +91,8 @@ const installMethods = [
     title: "Build locally",
     description:
       "Build from source when you want the native Rust path, custom features, or the full contributor setup.",
-    command: "git clone https://github.com/dallay/corvus.git\ncd corvus\ncargo build --release\ncargo install --path . --force",
+    command:
+      "git clone https://github.com/dallay/corvus.git\ncd corvus\ncargo build --release\ncargo install --path . --force",
     ctaLabel: "Read architecture docs",
     ctaHref: `${docsBaseUrl}/en/guides/architecture/`,
   },

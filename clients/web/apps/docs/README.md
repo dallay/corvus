@@ -1,4 +1,4 @@
-[Astro](https://docs.astro.build/) + [Starlight](https://starlight.astro.build/) docs site.
+[Astro](https://astro.build/) + [Starlight](https://starlight.astro.build/) docs site.
 
 ```bash
 npm config get registry

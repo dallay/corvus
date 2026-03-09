@@ -762,6 +762,70 @@ mod tests {
     }
 
     #[test]
+    fn append_sse_data_accumulates_multiline_payloads() {
+        let mut current_data = String::new();
+
+        SignalChannel::append_sse_data("data: {\"envelope\":1}", &mut current_data);
+        SignalChannel::append_sse_data("data: {\"more\":2}", &mut current_data);
+
+        assert_eq!(current_data, "{\"envelope\":1}\n{\"more\":2}");
+    }
+
+    #[tokio::test]
+    async fn process_line_ignores_comments() {
+        let channel = make_channel();
+        let mut current_data = String::new();
+        let (tx, _rx) = mpsc::channel(1);
+
+        assert!(channel
+            .process_line(":keepalive", &mut current_data, &tx)
+            .await
+            .is_ok());
+        assert!(current_data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn process_line_flushes_pending_event_on_blank_line() {
+        let channel = make_channel();
+        let mut current_data = serde_json::json!({
+            "envelope": {
+                "sourceNumber": "+1111111111",
+                "timestamp": 1_700_000_000_000_u64,
+                "dataMessage": {
+                    "message": "hello",
+                    "timestamp": 1_700_000_000_000_u64
+                }
+            }
+        })
+        .to_string();
+        let (tx, mut rx) = mpsc::channel(1);
+
+        assert!(channel
+            .process_line("", &mut current_data, &tx)
+            .await
+            .is_ok());
+        assert!(current_data.is_empty());
+
+        let message = rx.recv().await.expect("message should be emitted");
+        assert_eq!(message.sender, "+1111111111");
+        assert_eq!(message.content, "hello");
+    }
+
+    #[tokio::test]
+    async fn flush_sse_event_clears_invalid_payloads() {
+        let channel = make_channel();
+        let mut current_data = "not-json".to_string();
+        let (tx, mut rx) = mpsc::channel(1);
+
+        assert!(channel
+            .flush_sse_event(&mut current_data, &tx)
+            .await
+            .is_ok());
+        assert!(current_data.is_empty());
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
     fn process_envelope_valid_dm() {
         let ch = make_channel();
         let env = make_envelope(Some("+1111111111"), Some("Hello!"));

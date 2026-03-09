@@ -18,7 +18,7 @@
 ## 🚀 Project Status
 
 [![Build Status](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml/badge.svg)](https://github.com/dallay/corvus/actions/workflows/pull-request-check.yml)
-[![codecov](https://codecov.io/gh/dallay/corvus/graph/badge.svg?token=N4THEP2OF1)](https://codecov.io/gh/dallay/corvus)
+[![codecov](https://codecov.io/gh/dallay/corvus/graph/badge.svg?token=N4THEP2OF1)](https://app.codecov.io/gh/dallay/corvus)
 [![License](https://img.shields.io/github/license/dallay/corvus?color=blue)](LICENSE)
 [![Version](https://img.shields.io/github/v/tag/dallay/corvus?sort=semver&label=version)](https://github.com/dallay/corvus/tags)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](https://github.com/dallay/corvus/compare)
@@ -87,9 +87,9 @@ Corvus is a highly extensible, multi-interface agentic platform designed to brid
 ## 🛠️ Tech Stack
 
 - **Core Logic**: [Kotlin Multiplatform (KMP)](https://kotlinlang.org/docs/multiplatform.html)
-- **Agent Runtime**: [Rust](https://www.rust-lang.org/) (High-performance sidecars and CLI)
-- **Desktop UI**: [Compose Multiplatform](https://www.jetbrains.com/lp/compose-multiplatform/)
-- **Web Stack**: [Astro](https://astro.build/), [Vue 3](https://vuejs.org/), and [Tailwind CSS](https://tailwindcss.com/docs)
+- **Agent Runtime**: [Rust](https://rust-lang.org/) (High-performance sidecars and CLI)
+- **Desktop UI**: [Compose Multiplatform](https://kotlinlang.org/compose-multiplatform/)
+- **Web Stack**: [Astro](https://astro.build/), [Vue 3](https://vuejs.org/), and [Tailwind CSS](https://tailwindcss.com/docs/installation/using-vite)
 - **Documentation**: [Starlight](https://starlight.astro.build/)
 - **Build System**: [Gradle](https://gradle.org/) & [Makefile](https://www.gnu.org/software/make/)
 

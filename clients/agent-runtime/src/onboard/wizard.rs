@@ -6178,6 +6178,35 @@ mod tests {
     }
 
     #[test]
+    fn parse_csv_values_trims_and_filters_empty_entries() {
+        assert_eq!(
+            parse_csv_values(" alpha, beta ,, gamma "),
+            vec!["alpha", "beta", "gamma"]
+        );
+    }
+
+    #[test]
+    fn parse_irc_allowed_users_preserves_wildcard() {
+        assert_eq!(parse_irc_allowed_users(" * "), vec!["*"]);
+        assert_eq!(parse_irc_allowed_users("alice, bob"), vec!["alice", "bob"]);
+    }
+
+    #[test]
+    fn trimmed_optional_returns_none_for_blank_values() {
+        assert_eq!(trimmed_optional("   \t"), None);
+        assert_eq!(trimmed_optional(" secret "), Some("secret".to_string()));
+    }
+
+    #[test]
+    fn parse_allowed_numbers_supports_wildcard_and_lists() {
+        assert_eq!(parse_allowed_numbers("*"), vec!["*"]);
+        assert_eq!(
+            parse_allowed_numbers("+1234567890, +1987654321"),
+            vec!["+1234567890", "+1987654321"]
+        );
+    }
+
+    #[test]
     fn requires_surreal_memory_setup_accepts_surreal_variants() {
         assert!(requires_surreal_memory_setup("surreal"));
         assert!(requires_surreal_memory_setup("surreal-graphs"));
