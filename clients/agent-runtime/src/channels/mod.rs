@@ -36,6 +36,7 @@ use crate::agent::dispatcher::{
 use crate::agent::prompt::{
     render_datetime_section, render_project_context_section, render_runtime_section,
     render_safety_section, render_skills_section, render_workspace_section,
+    COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS,
 };
 use crate::bootstrap;
 use crate::config::Config;
@@ -1578,7 +1579,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         .collect();
 
     let bootstrap_max_chars = if config.agent.compact_context {
-        Some(6000)
+        Some(COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS)
     } else {
         None
     };

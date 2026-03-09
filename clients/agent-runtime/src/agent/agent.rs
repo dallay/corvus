@@ -7,7 +7,9 @@ use crate::agent::mission::{
     MissionCheckpoint, MissionCoordinator, MissionOutcome, MissionPlan, MissionResumeMetadata,
     MissionState, MissionTerminationReason,
 };
-use crate::agent::prompt::{PromptContext, SystemPromptBuilder};
+use crate::agent::prompt::{
+    PromptContext, SystemPromptBuilder, COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS,
+};
 use crate::bootstrap;
 use crate::config::Config;
 use crate::memory::{Memory, MemoryCategory};
@@ -346,7 +348,7 @@ impl Agent {
             identity_config: Some(&self.identity_config),
             dispatcher_instructions: &instructions,
             bootstrap_max_chars: if self.config.compact_context {
-                Some(6000)
+                Some(COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS)
             } else {
                 None
             },
