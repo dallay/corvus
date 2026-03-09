@@ -1205,6 +1205,13 @@ fn classify_health_result(
 type DoctorChannelEntry = (&'static str, Arc<dyn Channel>);
 
 type ConfiguredChannelEntry = (&'static str, &'static str, Arc<dyn Channel>);
+type ChannelBuilder = fn(&Config) -> Option<Arc<dyn Channel>>;
+
+struct ChannelRegistryEntry {
+    key: &'static str,
+    display_name: &'static str,
+    build: ChannelBuilder,
+}
 
 fn build_telegram_channel(config: &Config) -> Option<Arc<TelegramChannel>> {
     config.channels_config.telegram.as_ref().map(|tg| {
@@ -1345,50 +1352,133 @@ fn build_qq_channel(config: &Config) -> Option<Arc<QQChannel>> {
     })
 }
 
+fn build_telegram_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_telegram_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_discord_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_discord_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_slack_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_slack_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_mattermost_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_mattermost_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_imessage_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_imessage_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_matrix_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_matrix_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_signal_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_signal_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_whatsapp_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_whatsapp_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_email_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_email_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_irc_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_irc_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_lark_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_lark_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_dingtalk_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_dingtalk_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+fn build_qq_channel_dyn(config: &Config) -> Option<Arc<dyn Channel>> {
+    build_qq_channel(config).map(|channel| channel as Arc<dyn Channel>)
+}
+
+const CHANNEL_REGISTRY: &[ChannelRegistryEntry] = &[
+    ChannelRegistryEntry {
+        key: "telegram",
+        display_name: "Telegram",
+        build: build_telegram_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "discord",
+        display_name: "Discord",
+        build: build_discord_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "slack",
+        display_name: "Slack",
+        build: build_slack_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "mattermost",
+        display_name: "Mattermost",
+        build: build_mattermost_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "imessage",
+        display_name: "iMessage",
+        build: build_imessage_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "matrix",
+        display_name: "Matrix",
+        build: build_matrix_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "signal",
+        display_name: "Signal",
+        build: build_signal_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "whatsapp",
+        display_name: "WhatsApp",
+        build: build_whatsapp_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "email",
+        display_name: "Email",
+        build: build_email_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "irc",
+        display_name: "IRC",
+        build: build_irc_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "lark",
+        display_name: "Lark",
+        build: build_lark_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "dingtalk",
+        display_name: "DingTalk",
+        build: build_dingtalk_channel_dyn,
+    },
+    ChannelRegistryEntry {
+        key: "qq",
+        display_name: "QQ",
+        build: build_qq_channel_dyn,
+    },
+];
+
 fn configured_channel_entries(config: &Config) -> Vec<ConfiguredChannelEntry> {
-    let mut channels: Vec<ConfiguredChannelEntry> = Vec::new();
-
-    if let Some(channel) = build_telegram_channel(config) {
-        channels.push(("telegram", "Telegram", channel));
-    }
-    if let Some(channel) = build_discord_channel(config) {
-        channels.push(("discord", "Discord", channel));
-    }
-    if let Some(channel) = build_slack_channel(config) {
-        channels.push(("slack", "Slack", channel));
-    }
-    if let Some(channel) = build_mattermost_channel(config) {
-        channels.push(("mattermost", "Mattermost", channel));
-    }
-    if let Some(channel) = build_imessage_channel(config) {
-        channels.push(("imessage", "iMessage", channel));
-    }
-    if let Some(channel) = build_matrix_channel(config) {
-        channels.push(("matrix", "Matrix", channel));
-    }
-    if let Some(channel) = build_signal_channel(config) {
-        channels.push(("signal", "Signal", channel));
-    }
-    if let Some(channel) = build_whatsapp_channel(config) {
-        channels.push(("whatsapp", "WhatsApp", channel));
-    }
-    if let Some(channel) = build_email_channel(config) {
-        channels.push(("email", "Email", channel));
-    }
-    if let Some(channel) = build_irc_channel(config) {
-        channels.push(("irc", "IRC", channel));
-    }
-    if let Some(channel) = build_lark_channel(config) {
-        channels.push(("lark", "Lark", channel));
-    }
-    if let Some(channel) = build_dingtalk_channel(config) {
-        channels.push(("dingtalk", "DingTalk", channel));
-    }
-    if let Some(channel) = build_qq_channel(config) {
-        channels.push(("qq", "QQ", channel));
-    }
-
-    channels
+    CHANNEL_REGISTRY
+        .iter()
+        .filter_map(|entry| {
+            (entry.build)(config).map(|channel| (entry.key, entry.display_name, channel))
+        })
+        .collect()
 }
 
 fn build_doctor_channels(config: &Config) -> Vec<DoctorChannelEntry> {
@@ -1399,29 +1489,18 @@ fn build_doctor_channels(config: &Config) -> Vec<DoctorChannelEntry> {
 }
 
 pub(crate) fn build_channel(config: &Config, channel_name: &str) -> Option<Arc<dyn Channel>> {
-    configured_channel_entries(config)
-        .into_iter()
-        .find(|(key, _, _)| key.eq_ignore_ascii_case(channel_name))
-        .map(|(_, _, channel)| channel)
+    let channel_name = channel_name.to_ascii_lowercase();
+    CHANNEL_REGISTRY
+        .iter()
+        .find(|entry| entry.key == channel_name.as_str())
+        .and_then(|entry| (entry.build)(config))
 }
 
 pub(crate) fn is_supported_channel(channel_name: &str) -> bool {
-    matches!(
-        channel_name.to_ascii_lowercase().as_str(),
-        "telegram"
-            | "discord"
-            | "slack"
-            | "mattermost"
-            | "imessage"
-            | "matrix"
-            | "signal"
-            | "whatsapp"
-            | "email"
-            | "irc"
-            | "lark"
-            | "dingtalk"
-            | "qq"
-    )
+    let channel_name = channel_name.to_ascii_lowercase();
+    CHANNEL_REGISTRY
+        .iter()
+        .any(|entry| entry.key == channel_name.as_str())
 }
 
 /// Run health checks for configured channels.

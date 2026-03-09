@@ -15,6 +15,7 @@ use tokio::time::{self, Duration};
 
 const MIN_POLL_SECONDS: u64 = 5;
 const SHELL_JOB_TIMEOUT_SECS: u64 = 120;
+const SCHEDULER_DELIVERY_CHANNELS: &[&str] = &["telegram", "discord", "slack", "mattermost"];
 
 pub async fn run(config: Config) -> Result<()> {
     let poll_secs = config.reliability.scheduler_poll_secs.max(MIN_POLL_SECONDS);
@@ -262,6 +263,9 @@ async fn deliver_if_configured(config: &Config, job: &CronJob, output: &str) -> 
     if !is_supported_channel(&channel) {
         anyhow::bail!("unsupported delivery channel: {channel}");
     }
+    if !SCHEDULER_DELIVERY_CHANNELS.contains(&channel.as_str()) {
+        anyhow::bail!("delivery channel not allowed for scheduler: {channel}");
+    }
 
     let channel = build_channel(config, &channel)
         .ok_or_else(|| anyhow::anyhow!("{channel} channel not configured"))?;
@@ -445,6 +449,7 @@ async fn run_job_command_with_timeout(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channels::email_channel::EmailConfig;
     use crate::config::Config;
     use crate::cron::{self, DeliveryConfig};
     use crate::security::SecurityPolicy;
@@ -719,5 +724,37 @@ mod tests {
         };
         let err = deliver_if_configured(&config, &job, "x").await.unwrap_err();
         assert!(err.to_string().contains("unsupported delivery channel"));
+    }
+
+    #[tokio::test]
+    async fn deliver_if_configured_rejects_configured_but_disallowed_scheduler_channel() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.channels_config.email = Some(EmailConfig {
+            imap_host: "imap.example.com".into(),
+            imap_port: 993,
+            imap_folder: "INBOX".into(),
+            smtp_host: "smtp.example.com".into(),
+            smtp_port: 465,
+            smtp_tls: true,
+            username: "bot@example.com".into(),
+            password: "secret".into(),
+            from_address: "bot@example.com".into(),
+            poll_interval_secs: 60,
+            allowed_senders: vec!["alerts@example.com".into()],
+        });
+
+        let mut job = test_job("echo ok");
+        job.delivery = DeliveryConfig {
+            mode: "announce".into(),
+            channel: Some("email".into()),
+            to: Some("alerts@example.com".into()),
+            best_effort: true,
+        };
+
+        let err = deliver_if_configured(&config, &job, "x").await.unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("delivery channel not allowed for scheduler"));
     }
 }
