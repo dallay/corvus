@@ -1,8 +1,8 @@
 # Lychee configuration file
 # See https://github.com/lycheeverse/lychee#configuration
 
-# Note: root_dir is not set because it requires absolute paths.
-# Internal docs links are handled via exclude patterns below.
+# Use the repo root to resolve root-relative docs assets.
+root_dir = "clients/web/apps/docs/public"
 
 # Exclude these URLs from link checking
 exclude = [
@@ -24,6 +24,8 @@ exclude = [
     # Any link ending with guide page names (without extension)
     '/guides/(gpg-setup|architecture|development|features|structure|getting-started|release|configuration)$',
     '/guides/(gpg-setup|architecture|development|features|structure|getting-started|release|configuration)/$',
+    # Root-relative diagram assets served from /public
+    '^/guides/architecture/diagrams/.*',
 ]
 
 # Exclude entire files or directories
