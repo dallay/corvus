@@ -238,6 +238,16 @@ impl HttpRequestTool {
         }
     }
 
+    #[cfg(test)]
+    fn truncate_response(&self, text: &str) -> String {
+        let bytes = text.as_bytes();
+        if bytes.len() <= self.max_response_size {
+            return text.to_string();
+        }
+        let capped = String::from_utf8_lossy(&bytes[..self.max_response_size]).to_string();
+        format!("{capped}\n\n... [Response truncated due to size limit] ...")
+    }
+
     fn check_action_security(&self) -> Option<ToolResult> {
         if !self.security.can_act() {
             return Some(tool_error_result(

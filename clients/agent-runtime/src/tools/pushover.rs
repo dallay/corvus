@@ -286,8 +286,8 @@ mod tests {
         assert!(required.contains(&serde_json::Value::String("message".to_string())));
     }
 
-    #[test]
-    fn credentials_parsed_from_env_file() {
+    #[tokio::test]
+    async fn credentials_parsed_from_env_file() {
         let tmp = TempDir::new().unwrap();
         let env_path = tmp.path().join(".env");
         fs::write(
@@ -300,7 +300,7 @@ mod tests {
             test_security(AutonomyLevel::Full, 100),
             tmp.path().to_path_buf(),
         );
-        let result = tool.get_credentials();
+        let result = tool.get_credentials().await;
 
         assert!(result.is_ok());
         let (token, user_key) = result.unwrap();
@@ -308,20 +308,20 @@ mod tests {
         assert_eq!(user_key, "userkey456");
     }
 
-    #[test]
-    fn credentials_fail_without_env_file() {
+    #[tokio::test]
+    async fn credentials_fail_without_env_file() {
         let tmp = TempDir::new().unwrap();
         let tool = PushoverTool::new(
             test_security(AutonomyLevel::Full, 100),
             tmp.path().to_path_buf(),
         );
-        let result = tool.get_credentials();
+        let result = tool.get_credentials().await;
 
         assert!(result.is_err());
     }
 
-    #[test]
-    fn credentials_fail_without_token() {
+    #[tokio::test]
+    async fn credentials_fail_without_token() {
         let tmp = TempDir::new().unwrap();
         let env_path = tmp.path().join(".env");
         fs::write(&env_path, "PUSHOVER_USER_KEY=userkey456\n").unwrap();
@@ -330,13 +330,13 @@ mod tests {
             test_security(AutonomyLevel::Full, 100),
             tmp.path().to_path_buf(),
         );
-        let result = tool.get_credentials();
+        let result = tool.get_credentials().await;
 
         assert!(result.is_err());
     }
 
-    #[test]
-    fn credentials_fail_without_user_key() {
+    #[tokio::test]
+    async fn credentials_fail_without_user_key() {
         let tmp = TempDir::new().unwrap();
         let env_path = tmp.path().join(".env");
         fs::write(&env_path, "PUSHOVER_TOKEN=testtoken123\n").unwrap();
@@ -345,13 +345,13 @@ mod tests {
             test_security(AutonomyLevel::Full, 100),
             tmp.path().to_path_buf(),
         );
-        let result = tool.get_credentials();
+        let result = tool.get_credentials().await;
 
         assert!(result.is_err());
     }
 
-    #[test]
-    fn credentials_ignore_comments() {
+    #[tokio::test]
+    async fn credentials_ignore_comments() {
         let tmp = TempDir::new().unwrap();
         let env_path = tmp.path().join(".env");
         fs::write(&env_path, "# This is a comment\nPUSHOVER_TOKEN=realtoken\n# Another comment\nPUSHOVER_USER_KEY=realuser\n").unwrap();
@@ -360,7 +360,7 @@ mod tests {
             test_security(AutonomyLevel::Full, 100),
             tmp.path().to_path_buf(),
         );
-        let result = tool.get_credentials();
+        let result = tool.get_credentials().await;
 
         assert!(result.is_ok());
         let (token, user_key) = result.unwrap();
@@ -388,8 +388,8 @@ mod tests {
         assert!(schema["properties"].get("sound").is_some());
     }
 
-    #[test]
-    fn credentials_support_export_and_quoted_values() {
+    #[tokio::test]
+    async fn credentials_support_export_and_quoted_values() {
         let tmp = TempDir::new().unwrap();
         let env_path = tmp.path().join(".env");
         fs::write(
@@ -402,7 +402,7 @@ mod tests {
             test_security(AutonomyLevel::Full, 100),
             tmp.path().to_path_buf(),
         );
-        let result = tool.get_credentials();
+        let result = tool.get_credentials().await;
 
         assert!(result.is_ok());
         let (token, user_key) = result.unwrap();
