@@ -64,6 +64,9 @@ const DEFAULT_CHANNEL_MAX_BACKOFF_SECS: u64 = 60;
 /// Timeout for processing a single channel message (LLM + tools).
 /// 300s for on-device LLMs (Ollama) which are slower than cloud APIs.
 const CHANNEL_MESSAGE_TIMEOUT_SECS: u64 = 300;
+#[cfg(test)]
+const CHANNEL_HEALTH_TICK_SECS: u64 = 1;
+#[cfg(not(test))]
 const CHANNEL_HEALTH_TICK_SECS: u64 = 60;
 const CHANNEL_PARALLELISM_PER_CHANNEL: usize = 4;
 const CHANNEL_MIN_IN_FLIGHT_MESSAGES: usize = 8;
@@ -216,6 +219,7 @@ fn spawn_supervised_listener(
             let result = loop {
                 tokio::select! {
                     res = &mut listen_task => break res,
+                    () = tx.closed() => break Ok(()),
                     _ = health_interval.tick() => {
                         crate::health::mark_component_ok(&component);
                     }
@@ -1708,6 +1712,10 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "tests/health.rs"]
+mod channel_health_tests;
 
 #[cfg(test)]
 mod tests {
