@@ -117,7 +117,7 @@ For a more detailed view of the architecture, see the following C4 diagrams:
 
 | Level           | Diagram                                                                    | Description                                       | Diagram ID                        |
 |-----------------|----------------------------------------------------------------------------|---------------------------------------------------|-----------------------------------|
-| C1 - Context    | [System Context](./diagrams/context/system-context.mmd)       | High-level view of the runtime and external actors | `context/system-context.mmd`     |
+| C1 - Context    | [System Context](./architecture/diagrams/context/system-context.mmd)       | High-level view of the runtime and external actors | `context/system-context.mmd`     |
 | C2 - Containers | [Runtime Containers](./diagrams/container/runtime-containers.mmd) | Runtime services and operator surfaces         | `container/runtime-containers.mmd` |
 | C3 - Components | [Runtime Core](./diagrams/component/runtime-core.mmd)         | Internal components of the runtime core           | `component/runtime-core.mmd`      |
 | -               | [Cargo Dependencies](./diagrams/cargo-dependencies.mmd)       | Cargo workspace and runtime dependency flow       | `cargo-dependencies.mmd`          |
