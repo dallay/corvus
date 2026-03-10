@@ -376,7 +376,7 @@ version: ## Show project version
 	@$(GRADLEW) --quiet version 2>/dev/null || echo "Run './gradlew version' for version info"
 
 sync-version: ## Sync VERSION with git tag
-	@bash ./sync-version-with-tag.sh
+	@bash ./scripts/sync-version-with-tag.sh
 
 .PHONY: help h check-tools setup sync-agents wrapper build build-fast clean clean-all run dev \
         android-build android-lint rust-check rust-test rust-clippy rust-fmt rust-build \

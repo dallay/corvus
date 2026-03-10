@@ -54,4 +54,6 @@ Este proyecto publica el script wizard en:
 curl -fsSL https://profiletailors.com/install | bash
 ```
 
-Archivo fuente: `public/install`
+Archivo fuente: `scripts/install.sh`
+
+El build copia el script a `public/install` vía `pnpm run copy-install`.
