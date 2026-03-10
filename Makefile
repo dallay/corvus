@@ -14,11 +14,13 @@
 # Operating System Detection & Shell Normalization
 ifeq ($(OS),Windows_NT)
     DETECTED_OS := Windows
-    # Assume bash is available in PATH (validated in check-tools)
+    # Ensure bash is present before running bash scripts on Windows.
+    REQUIRE_BASH = $(if $(shell where bash 2>nul),,$(error Bash not found in PATH on Windows. Install Git Bash or enable WSL, then rerun make bootstrap-bash))
     SHELL := bash
 else
     DETECTED_OS := $(shell uname -s 2>/dev/null || echo Unknown)
     SHELL := /bin/bash
+    REQUIRE_BASH =
 endif
 
 # Common Constants
@@ -84,7 +86,13 @@ h: help ## Alias for help
 
 # --- ENVIRONMENT & SETUP ---
 
-check-tools: ## Verify toolchain (Java 21, Node 22, pnpm 10, Rust 1.75)
+bootstrap-bash: ## Ensure bash is available (Windows)
+	$(REQUIRE_BASH)
+	@bash scripts/bootstrap-bash.sh
+
+
+check-tools: bootstrap-bash ## Verify toolchain (Java 21, Node 22, pnpm 10, Rust 1.75)
+	$(REQUIRE_BASH)
 	@bash scripts/check-tools.sh
 
 setup: check-tools ## Initial project setup (agents, web deps, rust check)
@@ -96,12 +104,8 @@ setup: check-tools ## Initial project setup (agents, web deps, rust check)
 	@echo "$(GREEN)✅ Project setup complete!$(SGR0)"
 
 doctor: check-tools ## Diagnose dev environment and repo health
-	@echo "🩺 $(BOLD)Running diagnostics...$(SGR0)"
-	@if [ -f .gitmodules ]; then echo "✅ Git submodules detected"; else echo "ℹ️  No git submodules"; fi
-	@if command -v docker >/dev/null 2>&1; then docker --version; else echo "ℹ️  Docker not installed"; fi
-	@if command -v pnpm >/dev/null 2>&1; then pnpm --version; else echo "ℹ️  pnpm not installed"; fi
-	@if command -v rustup >/dev/null 2>&1; then rustup show active-toolchain; else echo "ℹ️  rustup not installed"; fi
-	@echo "$(GREEN)✅ Diagnostics complete$(SGR0)"
+	$(REQUIRE_BASH)
+	@bash scripts/doctor.sh
 
 sync-agents: ## Sync AI agent configurations (agentsync)
 	@$(GRADLEW) agentsyncApply
@@ -361,6 +365,7 @@ version: ## Show project version
 	@$(GRADLEW) --quiet version 2>/dev/null || echo "Run './gradlew version' for version info"
 
 sync-version: ## Sync VERSION with git tag
+	$(REQUIRE_BASH)
 	@bash ./scripts/sync-version-with-tag.sh
 
 .PHONY: help h check-tools setup doctor sync-agents wrapper build build-fast clean clean-all run dev \

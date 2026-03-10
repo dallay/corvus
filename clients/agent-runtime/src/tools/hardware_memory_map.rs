@@ -73,14 +73,6 @@ impl Tool for HardwareMemoryMapTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let board = args
-            .get("board")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .or_else(|| self.boards.first().cloned());
-
-        let board = board.as_deref().unwrap_or("unknown");
-
         if self.boards.is_empty() {
             return Ok(ToolResult {
                 success: false,
@@ -93,7 +85,27 @@ impl Tool for HardwareMemoryMapTool {
             });
         }
 
+        let board = args
+            .get("board")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| self.boards[0].clone());
+
+        if !self.boards.iter().any(|known| known == &board) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "Board '{board}' is not configured. Configured boards: {}",
+                    self.boards.join(", ")
+                )),
+                structured: None,
+            });
+        }
+
         let mut output = String::new();
+        let mut map_text: Option<String> = None;
+        let mut source = "unknown";
 
         #[cfg(feature = "probe")]
         let probe_ok = {
@@ -107,6 +119,8 @@ impl Tool for HardwareMemoryMapTool {
                     Ok(probe_msg) => {
                         use std::fmt::Write;
                         let _ = writeln!(output, "**{}** (via probe-rs):\n{}", board, probe_msg);
+                        map_text = Some(probe_msg);
+                        source = "probe-rs";
                         true
                     }
                     Err(e) => {
@@ -127,6 +141,8 @@ impl Tool for HardwareMemoryMapTool {
             if let Some(map) = self.static_map_for_board(board) {
                 use std::fmt::Write;
                 let _ = write!(output, "**{board}** (from datasheet):\n{map}");
+                map_text = Some(map.to_string());
+                source = "datasheet";
             } else {
                 use std::fmt::Write;
                 let known: Vec<&str> = MEMORY_MAPS.iter().map(|(b, _)| *b).collect();
@@ -142,7 +158,11 @@ impl Tool for HardwareMemoryMapTool {
             success: true,
             output,
             error: None,
-            structured: None,
+            structured: Some(json!({
+                "board": board,
+                "source": source,
+                "map": map_text,
+            })),
         })
     }
 }

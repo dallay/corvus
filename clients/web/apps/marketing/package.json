@@ -5,7 +5,7 @@
   "description": "Corvus Marketing Site built with Astro",
   "type": "module",
   "scripts": {
-    "copy-install": "cp ../../../../scripts/install.sh public/install",
+    "copy-install": "bash -c 'if [ -f ../../../../scripts/install.sh ]; then cp ../../../../scripts/install.sh public/install; else echo \"scripts/install.sh not found; skipping copy\"; fi'",
     "dev": "astro dev",
     "predev": "pnpm run copy-install",
     "start": "astro dev",

@@ -87,14 +87,6 @@ impl Tool for HardwareBoardInfoTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let board = args
-            .get("board")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .or_else(|| self.boards.first().cloned());
-
-        let board = board.as_deref().unwrap_or("unknown");
-
         if self.boards.is_empty() {
             return Ok(ToolResult {
                 success: false,
@@ -103,6 +95,24 @@ impl Tool for HardwareBoardInfoTool {
                     "No peripherals configured. Add boards to config.toml [peripherals.boards]."
                         .into(),
                 ),
+                structured: None,
+            });
+        }
+
+        let board = args
+            .get("board")
+            .and_then(|v| v.as_str())
+            .map(String::from)
+            .unwrap_or_else(|| self.boards[0].clone());
+
+        if !self.boards.iter().any(|known| known == &board) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "Board '{board}' is not configured. Configured boards: {}",
+                    self.boards.join(", ")
+                )),
                 structured: None,
             });
         }
@@ -135,9 +145,9 @@ impl Tool for HardwareBoardInfoTool {
             }
         }
 
-        if let Some(info) = self.static_info_for_board(board) {
+        if let Some(info) = self.static_info_for_board(&board) {
             output.push_str(&info);
-            if let Some(mem) = memory_map_static(board) {
+            if let Some(mem) = memory_map_static(&board) {
                 use std::fmt::Write;
                 let _ = write!(output, "\n\n**Memory map:**\n{mem}");
             }

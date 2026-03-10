@@ -18,7 +18,7 @@ INSTALL_METHOD="${CORVUS_INSTALL_METHOD:-}"
 REQUESTED_VERSION="${CORVUS_VERSION:-latest}"
 REQUESTED_INSTALL_DIR="${CORVUS_INSTALL_DIR:-}"
 AUTO_APPROVE="${CORVUS_YES:-0}"
-RUN_ONBOARD="${CORVUS_NO_ONBOARD:-0}"
+SKIP_ONBOARD="${CORVUS_SKIP_ONBOARD:-${CORVUS_NO_ONBOARD:-0}}"
 FORCE_ONBOARD="${CORVUS_FORCE_ONBOARD:-0}"
 SKIP_CHECKSUM="${CORVUS_SKIP_CHECKSUM:-0}"
 APT_INDEX_UPDATED="0"
@@ -51,14 +51,14 @@ detect_existing_install() {
   fi
 
   if [ -f "$config_path" ]; then
-    if [ "$RUN_ONBOARD" != "1" ] && [ "$FORCE_ONBOARD" != "1" ]; then
-      RUN_ONBOARD="1"
+    if [ "$SKIP_ONBOARD" != "1" ] && [ "$FORCE_ONBOARD" != "1" ]; then
+      SKIP_ONBOARD="1"
       SKIP_ONBOARD_REASON="existing config detected"
     fi
   fi
 
-  if [ "$ALREADY_INSTALLED" = "1" ] && [ "$RUN_ONBOARD" != "1" ] && [ "$FORCE_ONBOARD" != "1" ]; then
-    RUN_ONBOARD="1"
+  if [ "$ALREADY_INSTALLED" = "1" ] && [ "$SKIP_ONBOARD" != "1" ] && [ "$FORCE_ONBOARD" != "1" ]; then
+    SKIP_ONBOARD="1"
     SKIP_ONBOARD_REASON="existing install detected"
   fi
 }
@@ -147,7 +147,7 @@ Environment variables:
   CORVUS_VERSION
   CORVUS_INSTALL_DIR
   CORVUS_YES=1
-  CORVUS_NO_ONBOARD=1
+  CORVUS_SKIP_ONBOARD=1
   CORVUS_FORCE_ONBOARD=1
   CORVUS_SKIP_CHECKSUM=1
 EOF
@@ -462,12 +462,12 @@ parse_args() {
         shift
         ;;
       --no-onboard)
-        RUN_ONBOARD="1"
+        SKIP_ONBOARD="1"
         shift
         ;;
       --force-onboard)
         FORCE_ONBOARD="1"
-        RUN_ONBOARD="0"
+        SKIP_ONBOARD="0"
         shift
         ;;
       --skip-checksum)
@@ -730,7 +730,6 @@ install_via_binary() {
   local target_path=""
   local download_path=""
   local extract_dir=""
-  local install_cleanup_trap=""
 
   asset="$(detect_binary_asset)"
   release_tag="$REQUESTED_VERSION"
@@ -745,12 +744,19 @@ install_via_binary() {
   target_path="${install_dir}/corvus"
   download_path="$(mktemp "${TMPDIR:-/tmp}/corvus-download.XXXXXX")"
   extract_dir="$(mktemp -d "${TMPDIR:-/tmp}/corvus-extract.XXXXXX")"
-  install_cleanup_trap="rm -f '$download_path'; rm -rf '$extract_dir'; trap - RETURN"
-  trap "$install_cleanup_trap" RETURN
+  cleanup_install_artifacts() {
+    if [ -n "${download_path:-}" ] && [ -e "$download_path" ]; then
+      rm -f "$download_path"
+    fi
+    if [ -n "${extract_dir:-}" ] && [ -d "$extract_dir" ]; then
+      rm -rf "$extract_dir"
+    fi
+  }
+  trap cleanup_install_artifacts EXIT INT TERM
 
   download_binary_from_releases "$normalized_release_tag" "$asset" "$download_path"
   verify_checksum "$download_path" "$RESOLVED_CHECKSUM_URL"
-  extract_or_copy_binary "$download_path" "$asset" "$target_path" "$extract_dir" "$install_cleanup_trap"
+  extract_or_copy_binary "$download_path" "$asset" "$target_path" "$extract_dir" ""
 
   INSTALLED_BINARY_PATH="$target_path"
 
@@ -868,11 +874,11 @@ post_install_steps() {
   resolved_version="$($resolved_cmd --version 2>/dev/null || echo 'installed')"
   print_success "Corvus CLI available: ${resolved_version}"
 
-  if [ "$RUN_ONBOARD" = "1" ]; then
+  if [ "$SKIP_ONBOARD" = "1" ]; then
     if [ -n "$SKIP_ONBOARD_REASON" ]; then
       print_info "Onboarding skipped (${SKIP_ONBOARD_REASON})."
     else
-      print_info "Onboarding skipped (--no-onboard or CORVUS_NO_ONBOARD=1)."
+      print_info "Onboarding skipped (--no-onboard or CORVUS_SKIP_ONBOARD=1)."
     fi
     return
   fi

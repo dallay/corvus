@@ -12,7 +12,7 @@ use crate::agent::prompt::{
     PromptContext, SystemPromptBuilder, COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS,
 };
 use crate::bootstrap;
-use crate::config::{AuditConfig, Config};
+use crate::config::Config;
 use crate::memory::{Memory, MemoryCategory};
 use crate::observability::{redact_observer_payload, Observer, ObserverEvent};
 use crate::providers::{ChatMessage, ChatRequest, ConversationMessage, Provider};
@@ -34,6 +34,7 @@ pub struct Agent {
     memory: Arc<dyn Memory>,
     observer: Arc<dyn Observer>,
     audit_logger: Option<Arc<AuditLogger>>,
+    audit_strict: bool,
     prompt_builder: SystemPromptBuilder,
     tool_dispatcher: Box<dyn ToolDispatcher>,
     memory_loader: Box<dyn MemoryLoader>,
@@ -59,6 +60,7 @@ pub struct AgentBuilder {
     memory: Option<Arc<dyn Memory>>,
     observer: Option<Arc<dyn Observer>>,
     audit_logger: Option<Arc<AuditLogger>>,
+    audit_strict: Option<bool>,
     prompt_builder: Option<SystemPromptBuilder>,
     tool_dispatcher: Option<Box<dyn ToolDispatcher>>,
     memory_loader: Option<Box<dyn MemoryLoader>>,
@@ -84,6 +86,7 @@ impl AgentBuilder {
             memory: None,
             observer: None,
             audit_logger: None,
+            audit_strict: None,
             prompt_builder: None,
             tool_dispatcher: None,
             memory_loader: None,
@@ -124,6 +127,11 @@ impl AgentBuilder {
 
     pub fn audit_logger(mut self, audit_logger: Option<Arc<AuditLogger>>) -> Self {
         self.audit_logger = audit_logger;
+        self
+    }
+
+    pub fn audit_strict(mut self, audit_strict: bool) -> Self {
+        self.audit_strict = Some(audit_strict);
         self
     }
 
@@ -224,6 +232,7 @@ impl AgentBuilder {
                 .observer
                 .ok_or_else(|| anyhow::anyhow!("observer is required"))?,
             audit_logger: self.audit_logger,
+            audit_strict: self.audit_strict.unwrap_or(false),
             prompt_builder: self
                 .prompt_builder
                 .unwrap_or_else(SystemPromptBuilder::with_defaults),
@@ -334,7 +343,8 @@ impl Agent {
             .tools(bootstrap.tools)
             .memory(bootstrap.memory)
             .observer(bootstrap.observer)
-            .audit_logger(Self::audit_logger_from_config(config))
+            .audit_logger(Self::audit_logger_from_config(config)?)
+            .audit_strict(config.security.audit.strict)
             .tool_dispatcher(tool_dispatcher)
             .memory_loader(Box::new(DefaultMemoryLoader::new(
                 5,
@@ -354,21 +364,25 @@ impl Agent {
             .build()
     }
 
-    fn audit_logger_from_config(config: &Config) -> Option<Arc<AuditLogger>> {
-        let audit_config = AuditConfig::default();
+    /// Build the audit logger from config, honoring strict initialization.
+    fn audit_logger_from_config(config: &Config) -> Result<Option<Arc<AuditLogger>>> {
+        let audit_config = config.security.audit.clone();
         if !audit_config.enabled {
-            return None;
+            return Ok(None);
         }
         let corvus_dir = config
             .config_path
             .parent()
             .map(std::path::PathBuf::from)
             .unwrap_or_else(|| config.workspace_dir.clone());
-        match AuditLogger::new(audit_config, corvus_dir) {
-            Ok(logger) => Some(Arc::new(logger)),
+        match AuditLogger::new(audit_config.clone(), corvus_dir) {
+            Ok(logger) => Ok(Some(Arc::new(logger))),
             Err(error) => {
+                if audit_config.strict {
+                    anyhow::bail!("Failed to initialize audit logger: {error}");
+                }
                 tracing::warn!("Failed to initialize audit logger: {error}");
-                None
+                Ok(None)
             }
         }
     }
@@ -734,7 +748,7 @@ impl Agent {
                 Ok(text) => CodeSessionResult::parse_from_output(text, session_id),
                 Err(error) => Self::code_session_result_from_error(session_id, error),
             };
-            self.record_code_session_result(&code_result);
+            self.record_code_session_result(&code_result)?;
         }
 
         result
@@ -755,6 +769,8 @@ impl Agent {
         )
     }
 
+    /// Resolve the code-session identifier, preferring CORVUS_SESSION_ID when set.
+    /// Falls back to a random UUID v4 for each session when unset.
     fn code_session_id() -> String {
         std::env::var("CORVUS_SESSION_ID").unwrap_or_else(|_| Uuid::new_v4().to_string())
     }
@@ -785,7 +801,7 @@ impl Agent {
         result
     }
 
-    fn record_code_session_result(&self, result: &CodeSessionResult) {
+    fn record_code_session_result(&self, result: &CodeSessionResult) -> Result<()> {
         let mut changed_files = result.changed_files.clone();
         changed_files.extend(result.files_changed.iter().map(|file| file.path.clone()));
 
@@ -854,9 +870,14 @@ impl Agent {
                 pending_work,
                 delegated: self.code_session_delegated,
             }) {
+                if self.audit_strict {
+                    anyhow::bail!("Failed to write code-session audit event: {error}");
+                }
                 tracing::warn!("Failed to write code-session audit event: {error}");
             }
         }
+
+        Ok(())
     }
 
     fn mission_id() -> String {

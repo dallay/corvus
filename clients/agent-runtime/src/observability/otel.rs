@@ -280,6 +280,10 @@ impl Observer for OtelObserver {
                 delegated,
                 ..
             } => {
+                let span_status = match status.as_str() {
+                    "success" | "completed" | "completed_with_warnings" => Status::Ok,
+                    _ => Status::error(status.clone()),
+                };
                 let mut span = tracer.build(
                     opentelemetry::trace::SpanBuilder::from_name("code_session.completed")
                         .with_kind(SpanKind::Internal)
@@ -292,6 +296,7 @@ impl Observer for OtelObserver {
                             KeyValue::new("blockers", blockers.len() as i64),
                         ]),
                 );
+                span.set_status(span_status);
                 span.end();
             }
             ObserverEvent::ToolCall {

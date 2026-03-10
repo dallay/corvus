@@ -4,6 +4,7 @@ use super::url_safety::normalize_domain;
 use super::url_safety::{extract_host, host_matches_allowlist, normalize_allowed_domains};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
@@ -201,16 +202,39 @@ impl HttpRequestTool {
         Ok(request.send().await?)
     }
 
-    fn truncate_response(&self, text: &str) -> String {
-        if text.len() > self.max_response_size {
-            let mut truncated = text
-                .chars()
-                .take(self.max_response_size)
-                .collect::<String>();
-            truncated.push_str("\n\n... [Response truncated due to size limit] ...");
-            truncated
+    async fn read_response_body(&self, response: reqwest::Response) -> String {
+        let mut body = Vec::new();
+        let mut truncated = false;
+        let mut stream = response.bytes_stream();
+
+        while let Some(chunk) = stream.next().await {
+            let chunk = match chunk {
+                Ok(bytes) => bytes,
+                Err(error) => {
+                    return format!("[Failed to read response body: {error}]");
+                }
+            };
+
+            let remaining = self.max_response_size.saturating_sub(body.len());
+            if remaining == 0 {
+                truncated = true;
+                break;
+            }
+
+            if chunk.len() > remaining {
+                body.extend_from_slice(&chunk[..remaining]);
+                truncated = true;
+                break;
+            }
+
+            body.extend_from_slice(&chunk);
+        }
+
+        let text = String::from_utf8_lossy(&body).to_string();
+        if truncated {
+            format!("{text}\n\n... [Response truncated due to size limit] ...")
         } else {
-            text.to_string()
+            text
         }
     }
 
@@ -342,10 +366,7 @@ impl Tool for HttpRequestTool {
                 let headers_text = format_response_headers(response.headers());
 
                 // Get response body with size limit
-                let response_text = match response.text().await {
-                    Ok(text) => self.truncate_response(&text),
-                    Err(e) => format!("[Failed to read response body: {e}]"),
-                };
+                let response_text = self.read_response_body(response).await;
 
                 let output = format!(
                     "Status: {} {}\nResponse Headers: {}\n\nResponse Body:\n{}",

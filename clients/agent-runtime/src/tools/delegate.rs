@@ -155,14 +155,14 @@ impl DelegateTool {
             }
         };
 
-        let timeout_secs = agent_config
+        let timeout_ms = agent_config
             .timeout_ms
-            .map(|ms| ms / 1000)
-            .or_else(|| Some(config.agent.code_session.timeout_ms / 1000))
-            .unwrap_or(DELEGATE_TIMEOUT_SECS);
+            .or_else(|| Some(config.agent.code_session.timeout_ms))
+            .unwrap_or(DELEGATE_TIMEOUT_SECS.saturating_mul(1000))
+            .max(1);
+        let timeout = Duration::from_millis(timeout_ms);
 
-        let agent_output =
-            tokio::time::timeout(Duration::from_secs(timeout_secs), agent.turn(full_prompt)).await;
+        let agent_output = tokio::time::timeout(timeout, agent.turn(full_prompt)).await;
 
         let (result, error) = match agent_output {
             Ok(Ok(output)) => (
@@ -198,7 +198,7 @@ impl DelegateTool {
                 let mut result = CodeSessionResult::from_error(
                     &session_id,
                     CodeSessionStatus::BudgetExceeded,
-                    format!("Agent '{agent_name}' session timed out after {timeout_secs}s"),
+                    format!("Agent '{agent_name}' session timed out after {timeout_ms}ms"),
                 );
                 result
                     .blockers
@@ -206,7 +206,7 @@ impl DelegateTool {
                 (
                     result,
                     Some(format!(
-                        "Agent '{agent_name}' session timed out after {timeout_secs}s"
+                        "Agent '{agent_name}' session timed out after {timeout_ms}ms"
                     )),
                 )
             }

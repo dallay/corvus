@@ -219,10 +219,15 @@ impl CodeSessionResult {
 
         let block = &output[block_start..];
         let status = parse_field(block, "status")
-            .map(|s| match s.trim() {
+            .map(|s| match s.trim().to_ascii_lowercase().as_str() {
+                "success" => CodeSessionStatus::Completed,
                 "completed" => CodeSessionStatus::Completed,
                 "completed_with_warnings" => CodeSessionStatus::CompletedWithWarnings,
+                "validation_failed" => CodeSessionStatus::ValidationFailed,
                 "blocked" => CodeSessionStatus::Blocked,
+                "budget_exceeded" => CodeSessionStatus::BudgetExceeded,
+                "failed" => CodeSessionStatus::Failed,
+                "error" => CodeSessionStatus::Error,
                 _ => CodeSessionStatus::Failed,
             })
             .unwrap_or(CodeSessionStatus::Failed);
