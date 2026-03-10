@@ -47,6 +47,24 @@ impl Observer for VerboseObserver {
             ObserverEvent::TurnComplete => {
                 eprintln!("< Complete");
             }
+            ObserverEvent::CodeSessionCompleted {
+                status,
+                changed_files,
+                commands,
+                validations,
+                blockers,
+                delegated,
+                ..
+            } => {
+                eprintln!(
+                    "< Code session {status} (files={}, commands={}, validations={}, blockers={}, delegated={})",
+                    changed_files.len(),
+                    commands.len(),
+                    validations.len(),
+                    blockers.len(),
+                    delegated
+                );
+            }
             _ => {}
         }
     }
@@ -97,5 +115,16 @@ mod tests {
             success: true,
         });
         obs.record_event(&ObserverEvent::TurnComplete);
+        obs.record_event(&ObserverEvent::CodeSessionCompleted {
+            session_id: "sess-1".into(),
+            status: "completed".into(),
+            summary: "Updated tests".into(),
+            changed_files: vec!["src/lib.rs".into()],
+            commands: vec!["cargo test".into()],
+            validations: vec!["pass:cargo test".into()],
+            blockers: vec![],
+            pending_work: vec![],
+            delegated: false,
+        });
     }
 }

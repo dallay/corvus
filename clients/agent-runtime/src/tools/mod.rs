@@ -197,6 +197,7 @@ fn add_delegate_tool(
     security: &Arc<SecurityPolicy>,
     agents: &HashMap<String, DelegateAgentConfig>,
     fallback_api_key: Option<&str>,
+    base_config: Arc<Config>,
 ) {
     if agents.is_empty() {
         return;
@@ -211,6 +212,7 @@ fn add_delegate_tool(
         delegate_agents,
         delegate_fallback_credential,
         security.clone(),
+        base_config,
     )));
 }
 
@@ -334,7 +336,13 @@ pub fn all_tools_with_runtime(
 
     add_composio_tool(&mut tools, security, composio_key, composio_entity_id);
 
-    add_delegate_tool(&mut tools, security, agents, fallback_api_key);
+    add_delegate_tool(
+        &mut tools,
+        security,
+        agents,
+        fallback_api_key,
+        config.clone(),
+    );
 
     #[cfg(feature = "mcp-runtime")]
     extend_with_mcp_tools(&mut tools, root_config);
@@ -345,7 +353,7 @@ pub fn all_tools_with_runtime(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{BrowserConfig, Config, McpConfig, MemoryConfig};
+    use crate::config::{BrowserConfig, Config, DelegateExecutionMode, McpConfig, MemoryConfig};
     use crate::test_support::{mock_mcp_server, test_config};
     use tempfile::TempDir;
 
@@ -493,6 +501,7 @@ mod tests {
             success: true,
             output: "hello".into(),
             error: None,
+            structured: None,
         };
         let json = serde_json::to_string(&result).unwrap();
         let parsed: ToolResult = serde_json::from_str(&json).unwrap();
@@ -507,6 +516,7 @@ mod tests {
             success: false,
             output: String::new(),
             error: Some("boom".into()),
+            structured: None,
         };
         let json = serde_json::to_string(&result).unwrap();
         let parsed: ToolResult = serde_json::from_str(&json).unwrap();
@@ -553,6 +563,9 @@ mod tests {
                 api_key: None,
                 temperature: None,
                 max_depth: 3,
+                execution_mode: DelegateExecutionMode::default(),
+                max_iterations: None,
+                timeout_ms: None,
             },
         );
 

@@ -211,7 +211,6 @@ impl DingTalkChannel {
                 .and_then(|topic| topic.as_str())
             {
                 Some("disconnect") => true,
-                Some("ping") => Self::handle_system_frame(write, frame).await,
                 _ => Self::handle_system_frame(write, frame).await,
             },
             "EVENT" | "CALLBACK" => {

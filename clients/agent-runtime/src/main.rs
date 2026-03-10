@@ -139,6 +139,25 @@ enum Commands {
         peripheral: Vec<String>,
     },
 
+    /// Run a code-specialist session (inspect, plan, edit, verify, report)
+    Code {
+        /// Task description or instruction for the code session
+        #[arg(short, long)]
+        message: Option<String>,
+
+        /// Provider to use (openrouter, anthropic, openai)
+        #[arg(short, long)]
+        provider: Option<String>,
+
+        /// Model to use
+        #[arg(long)]
+        model: Option<String>,
+
+        /// Temperature (0.0 - 2.0)
+        #[arg(short, long, default_value = "0.7")]
+        temperature: f64,
+    },
+
     /// Start the gateway server (webhooks, websockets)
     Gateway {
         /// Port to listen on (use 0 for random available port); defaults to config gateway.port
@@ -684,6 +703,22 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             .await
         }
 
+        Commands::Code {
+            message,
+            provider,
+            model,
+            temperature,
+        } => {
+            Box::pin(handle_code_command(
+                config,
+                message,
+                provider,
+                model,
+                temperature,
+            ))
+            .await
+        }
+
         Commands::Gateway { port, host } => handle_gateway_command(config, port, host).await,
 
         Commands::Daemon { port, host } => handle_daemon_command(config, port, host).await,
@@ -929,6 +964,43 @@ async fn handle_agent_command(
     }
 
     agent::run(config, message, provider, model, temperature, peripheral).await
+}
+
+async fn handle_code_command(
+    config: Config,
+    message: Option<String>,
+    provider: Option<String>,
+    model: Option<String>,
+    temperature: f64,
+) -> Result<()> {
+    let config = apply_code_session_config(config, provider, model, temperature);
+    info!("Starting code-specialist session (profile=code)");
+    let mut agent = crate::agent::Agent::code_from_config(&config)?;
+    if let Some(msg) = message {
+        let response = agent.run_single(&msg).await?;
+        println!("{response}");
+    } else {
+        agent.run_interactive().await?;
+    }
+    Ok(())
+}
+
+fn apply_code_session_config(
+    mut config: Config,
+    provider: Option<String>,
+    model: Option<String>,
+    temperature: f64,
+) -> Config {
+    if let Some(p) = provider {
+        config.default_provider = Some(p);
+    }
+    if let Some(m) = model {
+        config.default_model = Some(m);
+    }
+    config.default_temperature = temperature;
+    config.agent.profile = "code".to_string();
+    config.agent.code_session.enabled = true;
+    config
 }
 
 fn print_unified_loop_preview(canonical: &crate::agent::unified_entrypoint::CanonicalOutcome) {
@@ -1584,6 +1656,7 @@ mod tests {
     use super::*;
     use clap::CommandFactory;
     use clap::Parser;
+    use tempfile::TempDir;
 
     #[test]
     fn cli_definition_has_no_flag_conflicts() {
@@ -1832,6 +1905,25 @@ mod tests {
         );
     }
 
+    #[test]
+    fn apply_code_session_config_sets_code_profile_and_overrides() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+
+        let updated = apply_code_session_config(
+            config,
+            Some("openrouter".to_string()),
+            Some("model-x".to_string()),
+            0.25,
+        );
+
+        assert_eq!(updated.default_provider.as_deref(), Some("openrouter"));
+        assert_eq!(updated.default_model.as_deref(), Some("model-x"));
+        assert_eq!(updated.default_temperature, 0.25);
+        assert_eq!(updated.agent.profile, "code");
+        assert!(updated.agent.code_session.enabled);
+    }
+
     #[tokio::test]
     async fn onboard_rejects_channels_only_with_quick_setup_flags() {
         for args in [
@@ -1860,5 +1952,19 @@ mod tests {
                 "--channels-only does not accept --api-key, --provider, or --memory"
             );
         }
+    }
+
+    #[test]
+    fn code_command_is_distinct_from_agent_command() {
+        // Structural test: both Commands::Agent and Commands::Code variants must exist
+        // and be distinct. This test ensures the CLI contract is explicit.
+        // It compiles only if Commands has a Code variant.
+        let _ = |_: Commands| {};
+        // Verify Code variant parses via CLI
+        let cli = Cli::try_parse_from(["corvus", "code", "--message", "hello"]).unwrap();
+        assert!(matches!(cli.command, Commands::Code { .. }));
+        // Verify Agent variant is NOT Code
+        let agent_cli = Cli::try_parse_from(["corvus", "agent", "--message", "hello"]).unwrap();
+        assert!(matches!(agent_cli.command, Commands::Agent { .. }));
     }
 }

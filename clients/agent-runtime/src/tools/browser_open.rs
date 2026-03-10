@@ -95,6 +95,7 @@ impl Tool for BrowserOpenTool {
                 success: false,
                 output: String::new(),
                 error: Some("Action blocked: autonomy is read-only".into()),
+                structured: None,
             });
         }
 
@@ -103,6 +104,7 @@ impl Tool for BrowserOpenTool {
                 success: false,
                 output: String::new(),
                 error: Some("Action blocked: rate limit exceeded".into()),
+                structured: None,
             });
         }
 
@@ -113,6 +115,7 @@ impl Tool for BrowserOpenTool {
                     success: false,
                     output: String::new(),
                     error: Some(e.to_string()),
+                    structured: None,
                 })
             }
         };
@@ -122,11 +125,13 @@ impl Tool for BrowserOpenTool {
                 success: true,
                 output: format!("Opened in Brave: {url}"),
                 error: None,
+                structured: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to open Brave Browser: {e}")),
+                structured: None,
             }),
         }
     }

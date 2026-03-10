@@ -55,6 +55,7 @@ impl Tool for MemoryForgetTool {
                 success: false,
                 output: String::new(),
                 error: Some(error),
+                structured: None,
             });
         }
 
@@ -63,16 +64,19 @@ impl Tool for MemoryForgetTool {
                 success: true,
                 output: format!("Forgot memory: {key}"),
                 error: None,
+                structured: None,
             }),
             Ok(false) => Ok(ToolResult {
                 success: true,
                 output: format!("No memory found with key: {key}"),
                 error: None,
+                structured: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to forget memory: {e}")),
+                structured: None,
             }),
         }
     }

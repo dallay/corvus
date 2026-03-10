@@ -385,6 +385,27 @@ nav.sidebar a[aria-current="page"] {
   box-shadow: var(--glass-shadow);
 }
 
+/* ── Smooth Transitions ── */
+/* Keep transitions opt-in so third-party components retain their own timing. */
+a,
+button,
+.card,
+input,
+summary {
+  transition-property: color, background-color, border-color, opacity, box-shadow;
+  transition-duration: 0.2s;
+  transition-timing-function: ease;
+}
+
+/* ── Table of Contents ── */
+starlight-toc a {
+  transition: all 0.2s ease;
+}
+
+starlight-toc a[aria-current="true"] {
+  font-weight: 600;
+}
+
 /* ── Links ── */
 .sl-markdown-content a {
   text-decoration: none;
@@ -427,15 +448,6 @@ nav.sidebar a[aria-current="page"] {
   border-radius: 14px;
   border-left-width: 4px;
   backdrop-filter: blur(8px);
-}
-
-/* ── Table of Contents ── */
-starlight-toc a {
-  transition: all 0.2s ease;
-}
-
-starlight-toc a[aria-current="true"] {
-  font-weight: 600;
 }
 
 /* ── Scrollbar (dark) ── */
@@ -493,18 +505,6 @@ footer {
   outline: 2px solid var(--sl-color-accent);
   outline-offset: 3px;
   border-radius: 4px;
-}
-
-/* ── Smooth Transitions ── */
-/* Keep transitions opt-in so third-party components retain their own timing. */
-a,
-button,
-.card,
-input,
-summary {
-  transition-property: color, background-color, border-color, opacity, box-shadow;
-  transition-duration: 0.2s;
-  transition-timing-function: ease;
 }
 
 /* ── Responsive Touch-ups ── */

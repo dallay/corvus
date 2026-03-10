@@ -7,6 +7,9 @@ pub struct ToolResult {
     pub success: bool,
     pub output: String,
     pub error: Option<String>,
+    /// Optional structured payload for machine-readable consumers (e.g. code-session results).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub structured: Option<serde_json::Value>,
 }
 
 /// Description of a tool for the LLM
@@ -90,6 +93,7 @@ mod tests {
                     .unwrap_or_default()
                     .to_string(),
                 error: None,
+                structured: None,
             })
         }
     }
@@ -124,6 +128,7 @@ mod tests {
             success: false,
             output: String::new(),
             error: Some("boom".into()),
+            structured: None,
         };
 
         let json = serde_json::to_string(&result).unwrap();
@@ -131,5 +136,32 @@ mod tests {
 
         assert!(!parsed.success);
         assert_eq!(parsed.error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn tool_result_structured_field_serializes_and_omitted_when_none() {
+        let without = ToolResult {
+            success: true,
+            output: "ok".into(),
+            error: None,
+            structured: None,
+        };
+        let json_without = serde_json::to_string(&without).unwrap();
+        assert!(
+            !json_without.contains("structured"),
+            "structured must be omitted when None"
+        );
+
+        let with_payload = ToolResult {
+            success: true,
+            output: "ok".into(),
+            error: None,
+            structured: Some(serde_json::json!({ "status": "success", "files_changed": 3 })),
+        };
+        let json_with = serde_json::to_string(&with_payload).unwrap();
+        let parsed: ToolResult = serde_json::from_str(&json_with).unwrap();
+        let s = parsed.structured.unwrap();
+        assert_eq!(s["status"], "success");
+        assert_eq!(s["files_changed"], 3);
     }
 }

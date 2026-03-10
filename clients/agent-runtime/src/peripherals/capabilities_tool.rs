@@ -73,6 +73,7 @@ fn build_capabilities_tool_result(
         success: success_count > 0,
         output,
         error: None,
+        structured: None,
     }
 }
 
@@ -116,6 +117,7 @@ impl Tool for HardwareCapabilitiesTool {
                     success: false,
                     output: String::new(),
                     error: Some(message.to_string()),
+                    structured: None,
                 });
             }
         };
@@ -171,6 +173,7 @@ mod tests {
             success: false,
             output: String::new(),
             error: None,
+            structured: None,
         };
         let output = format_capabilities_result("uno", &result);
         assert_eq!(output, "uno: unknown");

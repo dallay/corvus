@@ -110,6 +110,7 @@ impl Tool for GovernanceTool {
             success: true,
             output: "ok".to_string(),
             error: None,
+            structured: None,
         })
     }
 }

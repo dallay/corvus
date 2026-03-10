@@ -21,6 +21,7 @@ impl CronAddTool {
             success: false,
             output: String::new(),
             error: Some(error.to_string()),
+            structured: None,
         }
     }
 
@@ -73,11 +74,13 @@ impl CronAddTool {
                 }))
                 .unwrap_or_default(),
                 error: None,
+                structured: None,
             },
             Err(e) => ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(e.to_string()),
+                structured: None,
             },
         }
     }

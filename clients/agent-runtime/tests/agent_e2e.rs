@@ -38,6 +38,7 @@ fn success_result(output: String) -> ToolResult {
         success: true,
         output,
         error: None,
+        structured: None,
     }
 }
 

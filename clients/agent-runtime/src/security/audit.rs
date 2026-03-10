@@ -21,6 +21,7 @@ pub enum AuditEventType {
     AuthFailure,
     PolicyViolation,
     SecurityEvent,
+    CodeSessionCompleted,
 }
 
 /// Actor information (who performed the action)
@@ -49,6 +50,20 @@ pub struct ExecutionResult {
     pub error: Option<String>,
 }
 
+/// Structured code-session result for audit logging.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSessionAudit {
+    pub session_id: String,
+    pub status: String,
+    pub summary: String,
+    pub changed_files: Vec<String>,
+    pub commands: Vec<String>,
+    pub validations: Vec<String>,
+    pub blockers: Vec<String>,
+    pub pending_work: Vec<String>,
+    pub delegated: bool,
+}
+
 /// Security context
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityContext {
@@ -66,6 +81,8 @@ pub struct AuditEvent {
     pub actor: Option<Actor>,
     pub action: Option<Action>,
     pub result: Option<ExecutionResult>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_session: Option<CodeSessionAudit>,
     pub security: SecurityContext,
 }
 
@@ -79,6 +96,7 @@ impl AuditEvent {
             actor: None,
             action: None,
             result: None,
+            code_session: None,
             security: SecurityContext {
                 policy_violation: false,
                 rate_limit_remaining: None,
@@ -141,6 +159,12 @@ impl AuditEvent {
         self.security.sandbox_backend = sandbox_backend;
         self
     }
+
+    /// Set code-session details
+    pub fn with_code_session(mut self, code_session: CodeSessionAudit) -> Self {
+        self.code_session = Some(code_session);
+        self
+    }
 }
 
 /// Audit logger
@@ -160,6 +184,20 @@ pub struct CommandExecutionLog<'a> {
     pub allowed: bool,
     pub success: bool,
     pub duration_ms: u64,
+}
+
+/// Structured code-session details for audit logging.
+#[derive(Debug, Clone)]
+pub struct CodeSessionAuditLog {
+    pub session_id: String,
+    pub status: String,
+    pub summary: String,
+    pub changed_files: Vec<String>,
+    pub commands: Vec<String>,
+    pub validations: Vec<String>,
+    pub blockers: Vec<String>,
+    pub pending_work: Vec<String>,
+    pub delegated: bool,
 }
 
 impl AuditLogger {
@@ -206,6 +244,25 @@ impl AuditLogger {
                 entry.allowed,
             )
             .with_result(entry.success, None, entry.duration_ms, None);
+
+        self.log(&event)
+    }
+
+    /// Log a code-session completion event.
+    pub fn log_code_session_event(&self, entry: CodeSessionAuditLog) -> Result<()> {
+        let event = AuditEvent::new(AuditEventType::CodeSessionCompleted).with_code_session(
+            CodeSessionAudit {
+                session_id: entry.session_id,
+                status: entry.status,
+                summary: entry.summary,
+                changed_files: entry.changed_files,
+                commands: entry.commands,
+                validations: entry.validations,
+                blockers: entry.blockers,
+                pending_work: entry.pending_work,
+                delegated: entry.delegated,
+            },
+        );
 
         self.log(&event)
     }
@@ -393,6 +450,50 @@ mod tests {
         let result = parsed.result.unwrap();
         assert!(result.success);
         assert_eq!(result.duration_ms, Some(42));
+        Ok(())
+    }
+
+    #[test]
+    fn audit_log_code_session_event_writes_structured_entry() -> Result<()> {
+        let tmp = TempDir::new()?;
+        let config = AuditConfig {
+            enabled: true,
+            max_size_mb: 10,
+            ..Default::default()
+        };
+        let logger = AuditLogger::new(config, tmp.path().to_path_buf())?;
+
+        logger.log_code_session_event(CodeSessionAuditLog {
+            session_id: "sess-1".to_string(),
+            status: "completed".to_string(),
+            summary: "Updated tests".to_string(),
+            changed_files: vec!["src/main.rs".to_string()],
+            commands: vec!["cargo test".to_string()],
+            validations: vec!["pass:cargo test".to_string()],
+            blockers: vec![],
+            pending_work: vec![],
+            delegated: true,
+        })?;
+
+        let log_path = tmp.path().join("audit.log");
+        let content = std::fs::read_to_string(&log_path)?;
+        let parsed: AuditEvent = serde_json::from_str(content.trim())?;
+
+        assert!(matches!(
+            parsed.event_type,
+            AuditEventType::CodeSessionCompleted
+        ));
+        let code_session = parsed.code_session.expect("code_session payload");
+        assert_eq!(code_session.session_id, "sess-1");
+        assert_eq!(code_session.status, "completed");
+        assert_eq!(code_session.summary, "Updated tests");
+        assert_eq!(code_session.changed_files, vec!["src/main.rs".to_string()]);
+        assert_eq!(code_session.commands, vec!["cargo test".to_string()]);
+        assert_eq!(
+            code_session.validations,
+            vec!["pass:cargo test".to_string()]
+        );
+        assert!(code_session.delegated);
         Ok(())
     }
 

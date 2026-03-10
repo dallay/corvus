@@ -1,3 +1,4 @@
+use crate::agent::code_session::{CodeSessionResult, CodeSessionStatus};
 use crate::agent::dispatcher::{
     DispatchAction, NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult,
     XmlToolDispatcher,
@@ -11,11 +12,11 @@ use crate::agent::prompt::{
     PromptContext, SystemPromptBuilder, COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS,
 };
 use crate::bootstrap;
-use crate::config::Config;
+use crate::config::{AuditConfig, Config};
 use crate::memory::{Memory, MemoryCategory};
 use crate::observability::{redact_observer_payload, Observer, ObserverEvent};
 use crate::providers::{ChatMessage, ChatRequest, ConversationMessage, Provider};
-use crate::security::ExecutionOrigin;
+use crate::security::{AuditLogger, CodeSessionAuditLog, ExecutionOrigin};
 use crate::tools::{Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
@@ -23,13 +24,16 @@ use futures_util::future::join_all;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use uuid::Uuid;
 
+#[allow(clippy::struct_excessive_bools)]
 pub struct Agent {
     provider: Box<dyn Provider>,
     tools: Vec<Box<dyn Tool>>,
     tool_specs: Vec<ToolSpec>,
     memory: Arc<dyn Memory>,
     observer: Arc<dyn Observer>,
+    audit_logger: Option<Arc<AuditLogger>>,
     prompt_builder: SystemPromptBuilder,
     tool_dispatcher: Box<dyn ToolDispatcher>,
     memory_loader: Box<dyn MemoryLoader>,
@@ -45,6 +49,8 @@ pub struct Agent {
     classification_config: crate::config::QueryClassificationConfig,
     available_hints: Vec<String>,
     mission_execution_context: bool,
+    code_mode: bool,
+    code_session_delegated: bool,
 }
 
 pub struct AgentBuilder {
@@ -52,6 +58,7 @@ pub struct AgentBuilder {
     tools: Option<Vec<Box<dyn Tool>>>,
     memory: Option<Arc<dyn Memory>>,
     observer: Option<Arc<dyn Observer>>,
+    audit_logger: Option<Arc<AuditLogger>>,
     prompt_builder: Option<SystemPromptBuilder>,
     tool_dispatcher: Option<Box<dyn ToolDispatcher>>,
     memory_loader: Option<Box<dyn MemoryLoader>>,
@@ -65,6 +72,8 @@ pub struct AgentBuilder {
     auto_save: Option<bool>,
     classification_config: Option<crate::config::QueryClassificationConfig>,
     available_hints: Option<Vec<String>>,
+    code_mode: bool,
+    code_session_delegated: bool,
 }
 
 impl AgentBuilder {
@@ -74,6 +83,7 @@ impl AgentBuilder {
             tools: None,
             memory: None,
             observer: None,
+            audit_logger: None,
             prompt_builder: None,
             tool_dispatcher: None,
             memory_loader: None,
@@ -87,6 +97,8 @@ impl AgentBuilder {
             auto_save: None,
             classification_config: None,
             available_hints: None,
+            code_mode: false,
+            code_session_delegated: false,
         }
     }
 
@@ -107,6 +119,11 @@ impl AgentBuilder {
 
     pub fn observer(mut self, observer: Arc<dyn Observer>) -> Self {
         self.observer = Some(observer);
+        self
+    }
+
+    pub fn audit_logger(mut self, audit_logger: Option<Arc<AuditLogger>>) -> Self {
+        self.audit_logger = audit_logger;
         self
     }
 
@@ -178,6 +195,16 @@ impl AgentBuilder {
         self
     }
 
+    pub fn code_mode(mut self, code_mode: bool) -> Self {
+        self.code_mode = code_mode;
+        self
+    }
+
+    pub fn code_session_delegated(mut self, delegated: bool) -> Self {
+        self.code_session_delegated = delegated;
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let tools = self
             .tools
@@ -196,6 +223,7 @@ impl AgentBuilder {
             observer: self
                 .observer
                 .ok_or_else(|| anyhow::anyhow!("observer is required"))?,
+            audit_logger: self.audit_logger,
             prompt_builder: self
                 .prompt_builder
                 .unwrap_or_else(SystemPromptBuilder::with_defaults),
@@ -221,6 +249,8 @@ impl AgentBuilder {
             classification_config: self.classification_config.unwrap_or_default(),
             available_hints: self.available_hints.unwrap_or_default(),
             mission_execution_context: false,
+            code_mode: self.code_mode,
+            code_session_delegated: self.code_session_delegated,
         })
     }
 }
@@ -237,7 +267,18 @@ impl Agent {
     }
 
     pub(crate) fn code_from_config(config: &Config) -> Result<Self> {
-        Self::from_config_with_profile(config, "code")
+        Self::code_from_config_with_delegated(config, false)
+    }
+
+    pub(crate) fn code_from_config_with_delegated(
+        config: &Config,
+        delegated: bool,
+    ) -> Result<Self> {
+        let bootstrap = bootstrap::BootstrapContext::from_config_with_profile(config, "code")?;
+        let mut agent = Self::from_bootstrap(config, bootstrap)?;
+        agent.code_mode = true;
+        agent.code_session_delegated = delegated;
+        Ok(agent)
     }
 
     pub fn history(&self) -> &[ConversationMessage] {
@@ -293,6 +334,7 @@ impl Agent {
             .tools(bootstrap.tools)
             .memory(bootstrap.memory)
             .observer(bootstrap.observer)
+            .audit_logger(Self::audit_logger_from_config(config))
             .tool_dispatcher(tool_dispatcher)
             .memory_loader(Box::new(DefaultMemoryLoader::new(
                 5,
@@ -310,6 +352,25 @@ impl Agent {
             .skills(crate::skills::load_skills(&config.workspace_dir))
             .auto_save(config.memory.auto_save)
             .build()
+    }
+
+    fn audit_logger_from_config(config: &Config) -> Option<Arc<AuditLogger>> {
+        let audit_config = AuditConfig::default();
+        if !audit_config.enabled {
+            return None;
+        }
+        let corvus_dir = config
+            .config_path
+            .parent()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| config.workspace_dir.clone());
+        match AuditLogger::new(audit_config, corvus_dir) {
+            Ok(logger) => Some(Arc::new(logger)),
+            Err(error) => {
+                tracing::warn!("Failed to initialize audit logger: {error}");
+                None
+            }
+        }
     }
 
     fn trim_history(&mut self) {
@@ -353,6 +414,7 @@ impl Agent {
             } else {
                 None
             },
+            code_mode: self.code_mode,
         };
         self.prompt_builder.build(&ctx)
     }
@@ -659,6 +721,26 @@ impl Agent {
     }
 
     pub async fn turn(&mut self, user_message: &str) -> Result<String> {
+        let session_id = if self.code_mode {
+            Some(Self::code_session_id())
+        } else {
+            None
+        };
+
+        let result = self.turn_inner(user_message).await;
+
+        if let Some(session_id) = session_id.as_deref() {
+            let code_result = match &result {
+                Ok(text) => CodeSessionResult::parse_from_output(text, session_id),
+                Err(error) => Self::code_session_result_from_error(session_id, error),
+            };
+            self.record_code_session_result(&code_result);
+        }
+
+        result
+    }
+
+    async fn turn_inner(&mut self, user_message: &str) -> Result<String> {
         let effective_model = self.prepare_turn(user_message).await?;
 
         for _ in 0..self.config.max_tool_iterations {
@@ -671,6 +753,110 @@ impl Agent {
             "Agent exceeded maximum tool iterations ({})",
             self.config.max_tool_iterations
         )
+    }
+
+    fn code_session_id() -> String {
+        std::env::var("CORVUS_SESSION_ID").unwrap_or_else(|_| Uuid::new_v4().to_string())
+    }
+
+    fn code_session_result_from_error(
+        session_id: &str,
+        error: &anyhow::Error,
+    ) -> CodeSessionResult {
+        let raw = error.to_string();
+        let redacted = redact_observer_payload(&raw);
+        let status = if redacted.contains("maximum tool iterations")
+            || redacted.contains("iteration budget")
+            || redacted.contains("timeout")
+        {
+            CodeSessionStatus::BudgetExceeded
+        } else if redacted.contains("approval") || redacted.contains("blocked") {
+            CodeSessionStatus::Blocked
+        } else {
+            CodeSessionStatus::Error
+        };
+
+        let mut result = CodeSessionResult::from_error(
+            session_id,
+            status,
+            format!("Session terminated: {redacted}"),
+        );
+        result.blockers.push(redacted);
+        result
+    }
+
+    fn record_code_session_result(&self, result: &CodeSessionResult) {
+        let mut changed_files = result.changed_files.clone();
+        changed_files.extend(result.files_changed.iter().map(|file| file.path.clone()));
+
+        let mut commands: Vec<String> = result
+            .commands
+            .iter()
+            .map(|cmd| redact_observer_payload(&cmd.command))
+            .collect();
+        commands.extend(
+            result
+                .commands_executed
+                .iter()
+                .map(|cmd| redact_observer_payload(cmd)),
+        );
+
+        let mut validations: Vec<String> = result
+            .validations
+            .iter()
+            .map(|validation| {
+                let status = if validation.success { "pass" } else { "fail" };
+                let command = redact_observer_payload(&validation.command);
+                format!("{status}:{command}")
+            })
+            .collect();
+        validations.extend(result.validation_outcomes.iter().map(|validation| {
+            let status = if validation.passed { "pass" } else { "fail" };
+            let command = redact_observer_payload(&validation.command);
+            format!("{status}:{command}")
+        }));
+
+        let blockers: Vec<String> = result
+            .blockers
+            .iter()
+            .map(|b| redact_observer_payload(b))
+            .collect();
+        let pending_work: Vec<String> = result
+            .pending_work
+            .iter()
+            .map(|p| redact_observer_payload(p))
+            .collect();
+        let summary = redact_observer_payload(&result.summary);
+
+        let event = ObserverEvent::CodeSessionCompleted {
+            session_id: result.session_id.clone(),
+            status: result.status.as_str().to_string(),
+            summary: summary.clone(),
+            changed_files: changed_files.clone(),
+            commands: commands.clone(),
+            validations: validations.clone(),
+            blockers: blockers.clone(),
+            pending_work: pending_work.clone(),
+            delegated: self.code_session_delegated,
+        };
+
+        self.observer.record_event(&event);
+
+        if let Some(logger) = &self.audit_logger {
+            if let Err(error) = logger.log_code_session_event(CodeSessionAuditLog {
+                session_id: result.session_id.clone(),
+                status: result.status.as_str().to_string(),
+                summary,
+                changed_files,
+                commands,
+                validations,
+                blockers,
+                pending_work,
+                delegated: self.code_session_delegated,
+            }) {
+                tracing::warn!("Failed to write code-session audit event: {error}");
+            }
+        }
     }
 
     fn mission_id() -> String {
@@ -1244,6 +1430,7 @@ mod tests {
                 success: true,
                 output: "tool-out".into(),
                 error: None,
+                structured: None,
             })
         }
     }

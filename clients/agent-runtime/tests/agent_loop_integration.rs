@@ -71,6 +71,7 @@ impl Tool for IntegrationTool {
             success: true,
             output: "tool-output".to_string(),
             error: None,
+            structured: None,
         })
     }
 }

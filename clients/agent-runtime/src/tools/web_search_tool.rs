@@ -224,6 +224,7 @@ impl Tool for WebSearchTool {
                 success: false,
                 output: String::new(),
                 error: Some("Action blocked: autonomy is read-only".into()),
+                structured: None,
             });
         }
 
@@ -243,6 +244,7 @@ impl Tool for WebSearchTool {
                 success: false,
                 output: String::new(),
                 error: Some("Action blocked: rate limit exceeded".into()),
+                structured: None,
             });
         }
 
@@ -256,6 +258,7 @@ impl Tool for WebSearchTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Unknown web search provider: '{}'. Supported providers are: duckduckgo, ddg, brave", unknown)),
+                    structured: None,
                 });
             }
         };
@@ -264,6 +267,7 @@ impl Tool for WebSearchTool {
             success: true,
             output: result,
             error: None,
+            structured: None,
         })
     }
 }

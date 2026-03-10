@@ -51,6 +51,7 @@ impl Tool for FileReadTool {
                 success: false,
                 output: String::new(),
                 error: Some("Rate limit exceeded: too many actions in the last hour".into()),
+                structured: None,
             });
         }
 
@@ -60,6 +61,7 @@ impl Tool for FileReadTool {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Path not allowed by security policy: {path}")),
+                structured: None,
             });
         }
 
@@ -71,6 +73,7 @@ impl Tool for FileReadTool {
                 success: false,
                 output: String::new(),
                 error: Some("Rate limit exceeded: action budget exhausted".into()),
+                structured: None,
             });
         }
 
@@ -84,6 +87,7 @@ impl Tool for FileReadTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to resolve file path: {e}")),
+                    structured: None,
                 });
             }
         };
@@ -96,6 +100,7 @@ impl Tool for FileReadTool {
                     "Resolved path escapes workspace: {}",
                     resolved_path.display()
                 )),
+                structured: None,
             });
         }
 
@@ -110,6 +115,7 @@ impl Tool for FileReadTool {
                             "File too large: {} bytes (limit: {MAX_FILE_SIZE_BYTES} bytes)",
                             meta.len()
                         )),
+                        structured: None,
                     });
                 }
             }
@@ -118,6 +124,7 @@ impl Tool for FileReadTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!("Failed to read file metadata: {e}")),
+                    structured: None,
                 });
             }
         }
@@ -127,11 +134,13 @@ impl Tool for FileReadTool {
                 success: true,
                 output: contents,
                 error: None,
+                structured: None,
             }),
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Failed to read file: {e}")),
+                structured: None,
             }),
         }
     }

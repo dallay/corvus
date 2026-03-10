@@ -94,6 +94,7 @@ impl SerialTransport {
             success: ok,
             output: result,
             error,
+            structured: None,
         })
     }
 

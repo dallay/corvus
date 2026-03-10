@@ -99,6 +99,7 @@ impl Tool for CountingTool {
             success: true,
             output: "ok".to_string(),
             error: None,
+            structured: None,
         })
     }
 }

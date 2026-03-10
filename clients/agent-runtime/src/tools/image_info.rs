@@ -122,6 +122,7 @@ impl ImageInfoTool {
             success: false,
             output: String::new(),
             error: Some(message.into()),
+            structured: None,
         }
     }
 
@@ -255,6 +256,7 @@ impl Tool for ImageInfoTool {
             success: true,
             output,
             error: None,
+            structured: None,
         })
     }
 }

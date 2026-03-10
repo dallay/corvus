@@ -100,6 +100,7 @@ async fn native_tool_dispatch_still_works_with_mcp_limits_enabled() {
                 success: true,
                 output: "ok".to_string(),
                 error: None,
+                structured: None,
             })
         }
     }

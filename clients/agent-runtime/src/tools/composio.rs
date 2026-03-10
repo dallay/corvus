@@ -479,12 +479,14 @@ impl Tool for ComposioTool {
                             success: true,
                             output,
                             error: None,
+                            structured: None,
                         })
                     }
                     Err(e) => Ok(ToolResult {
                         success: false,
                         output: String::new(),
                         error: Some(format!("Failed to list actions: {e}")),
+                        structured: None,
                     }),
                 }
             }
@@ -498,6 +500,7 @@ impl Tool for ComposioTool {
                         success: false,
                         output: String::new(),
                         error: Some(error),
+                        structured: None,
                     });
                 }
 
@@ -524,12 +527,14 @@ impl Tool for ComposioTool {
                             success: true,
                             output,
                             error: None,
+                            structured: None,
                         })
                     }
                     Err(e) => Ok(ToolResult {
                         success: false,
                         output: String::new(),
                         error: Some(format!("Action execution failed: {e}")),
+                        structured: None,
                     }),
                 }
             }
@@ -543,6 +548,7 @@ impl Tool for ComposioTool {
                         success: false,
                         output: String::new(),
                         error: Some(error),
+                        structured: None,
                     });
                 }
 
@@ -564,12 +570,14 @@ impl Tool for ComposioTool {
                             success: true,
                             output: format!("Open this URL to connect {target}:\n{url}"),
                             error: None,
+                            structured: None,
                         })
                     }
                     Err(e) => Ok(ToolResult {
                         success: false,
                         output: String::new(),
                         error: Some(format!("Failed to get connection URL: {e}")),
+                        structured: None,
                     }),
                 }
             }
@@ -580,6 +588,7 @@ impl Tool for ComposioTool {
                 error: Some(format!(
                     "Unknown action '{action}'. Use 'list', 'execute', or 'connect'."
                 )),
+                structured: None,
             }),
         }
     }

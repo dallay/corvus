@@ -103,6 +103,7 @@ impl Tool for MissionTool {
             success: true,
             output: "ok".to_string(),
             error: None,
+            structured: None,
         })
     }
 }
