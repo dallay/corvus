@@ -118,10 +118,10 @@ Para una vista más detallada de la arquitectura, consulta los siguientes diagra
 
 | Nivel             | Diagrama                                                                            | Descripción                                        | ID del Diagrama                   |
 |-------------------|-------------------------------------------------------------------------------------|----------------------------------------------------|-----------------------------------|
-| C1 - Contexto     | [Sistema Completo](./architecture/diagrams/context/system-context.mmd)                 | Vista de alto nivel del runtime y actores externos | `context/system-context.mmd`      |
-| C2 - Contenedores | [Contenedores del Runtime](./architecture/diagrams/container/runtime-containers.mmd) | Servicios del runtime y superficies operativas     | `container/runtime-containers.mmd` |
-| C3 - Componentes  | [Núcleo del Runtime](./architecture/diagrams/component/runtime-core.mmd)             | Componentes internos del núcleo del runtime        | `component/runtime-core.mmd`      |
-| -                 | [Dependencias de Cargo](./architecture/diagrams/cargo-dependencies.mmd)              | Flujo de dependencias del workspace Rust/Cargo     | `cargo-dependencies.mmd`          |
+| C1 - Contexto     | [Sistema Completo](/guides/architecture/diagrams/context/system-context.mmd)                 | Vista de alto nivel del runtime y actores externos | `context/system-context.mmd`      |
+| C2 - Contenedores | [Contenedores del Runtime](/guides/architecture/diagrams/container/runtime-containers.mmd) | Servicios del runtime y superficies operativas     | `container/runtime-containers.mmd` |
+| C3 - Componentes  | [Núcleo del Runtime](/guides/architecture/diagrams/component/runtime-core.mmd)             | Componentes internos del núcleo del runtime        | `component/runtime-core.mmd`      |
+| -                 | [Dependencias de Cargo](/guides/architecture/diagrams/cargo-dependencies.mmd)              | Flujo de dependencias del workspace Rust/Cargo     | `cargo-dependencies.mmd`          |
 
 Ver [Visión General de la Arquitectura](./overview) para más detalles sobre cómo
 visualizarlos.
