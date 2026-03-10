@@ -1,6 +1,7 @@
 ---
 title: Architecture Overview
 description: Collection of C4 diagrams for the Corvus project
+id: en-guides-architecture-overview
 ---
 
 # Architecture Diagrams
@@ -12,7 +13,7 @@ Context, Container, Component, Code).
 
 Shows the Corvus system as a black box and its interactions with actors and external systems.
 
-- **File**: [`context/system-context.mmd`](./diagrams/context/system-context.mmd)
+- **File**: [`context/system-context.mmd`](/guides/architecture/diagrams/context/system-context.mmd)
 - **Format**: Mermaid
 - **Description**: High-level view of the complete system, including users (Developer, End User) and
   external systems (LLM Providers, Neo4j, Web Sources).
@@ -22,8 +23,8 @@ Shows the Corvus system as a black box and its interactions with actors and exte
 Decomposes the system into main containers/applications and their interactions.
 
 - **Files**:
-  - [`container/runtime-containers.mmd`](./diagrams/container/runtime-containers.mmd) (Mermaid)
-  - [`container/runtime-containers.puml`](./diagrams/container/runtime-containers.puml) (PlantUML)
+  - [`container/runtime-containers.mmd`](/guides/architecture/diagrams/container/runtime-containers.mmd) (Mermaid)
+  - [`container/runtime-containers.puml`](/guides/architecture/diagrams/container/runtime-containers.puml) (PlantUML)
 - **Description**: Shows the runtime containers: CLI, gateway, daemon services, tool execution,
   memory backends, and operator surfaces around Corvus.
 
@@ -33,7 +34,7 @@ Decomposes individual containers into their internal components.
 
 ### Runtime Core
 
-- **File**: [`component/runtime-core.mmd`](./diagrams/component/runtime-core.mmd)
+- **File**: [`component/runtime-core.mmd`](/guides/architecture/diagrams/component/runtime-core.mmd)
 - **Description**: Internal components of the runtime core: config, agent loop, providers,
   memory, tools, channels, security, and observability.
 
@@ -41,7 +42,7 @@ Decomposes individual containers into their internal components.
 
 Additional diagram showing Cargo dependencies between workspace modules.
 
-- **File**: [`cargo-dependencies.mmd`](./diagrams/cargo-dependencies.mmd)
+- **File**: [`cargo-dependencies.mmd`](/guides/architecture/diagrams/cargo-dependencies.mmd)
 - **Description**: Shows the Cargo workspace layout and the runtime's primary Rust dependency flow.
 
 ## How to Visualize
