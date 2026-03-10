@@ -189,6 +189,13 @@
       "automerge": false,
       "minimumReleaseAge": "5 days",
       "addLabels": ["unstable-dependency"]
+    },
+    {
+      "description": "Ignore platform-specific Corvus binaries (released together)",
+      "matchPackagePatterns": [
+        "^@dallay/corvus-(darwin|linux|windows)-(x64|arm64)$"
+      ],
+      "enabled": false
     }
   ]
 }
