@@ -29,6 +29,7 @@ pub async fn run(config: Config) -> Result<()> {
 
     loop {
         interval.tick().await;
+        crate::health::mark_component_ok("scheduler");
 
         let jobs = match due_jobs(&config, Utc::now()) {
             Ok(jobs) => jobs,
