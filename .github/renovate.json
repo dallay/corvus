@@ -17,14 +17,18 @@
     "github-actions",
     "dockerfile"
   ],
-  "reviewers": ["yacosta738"],
+  "reviewers": [
+    "yacosta738"
+  ],
   "timezone": "America/Havana",
   "schedule": [
     "after 10pm every weekday",
     "before 5am every weekday",
     "every weekend"
   ],
-  "automergeSchedule": ["before 4am on the first day of the month"],
+  "automergeSchedule": [
+    "before 4am on the first day of the month"
+  ],
   "prConcurrentLimit": 1,
   "prHourlyLimit": 1,
   "branchConcurrentLimit": 1,
@@ -39,8 +43,12 @@
   "separateMultipleMajor": true,
   "ignoreUnstable": true,
   "pinDigests": true,
-  "labels": ["dependencies"],
-  "addLabels": ["renovate"],
+  "labels": [
+    "dependencies"
+  ],
+  "addLabels": [
+    "renovate"
+  ],
   "postUpdateOptions": [],
   "constraints": {
     "node": ">=22.0.0",
@@ -48,20 +56,33 @@
   },
   "lockFileMaintenance": {
     "enabled": true,
-    "schedule": ["before 5am on the first day of the month"]
+    "schedule": [
+      "before 5am on the first day of the month"
+    ]
   },
-  "ignoreDeps": ["AddNullMarkedToClass:MissingSummary"],
+  "ignoreDeps": [
+    "AddNullMarkedToClass:MissingSummary"
+  ],
   "vulnerabilityAlerts": {
     "enabled": true,
-    "labels": ["security"],
-    "assignees": ["yacosta738"],
+    "labels": [
+      "security"
+    ],
+    "assignees": [
+      "yacosta738"
+    ],
     "automerge": false,
     "osvVulnerabilityAlerts": true
   },
   "packageRules": [
     {
       "description": "Automerge non-breaking updates for stable versions",
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
       "matchCurrentVersion": "!/^0/",
       "automerge": true,
       "automergeType": "pr",
@@ -70,16 +91,27 @@
     },
     {
       "description": "Kotlin ecosystem - batch updates",
-      "extends": ["monorepo:kotlin"],
+      "extends": [
+        "monorepo:kotlin"
+      ],
       "groupName": "Kotlin monorepo",
-      "matchUpdateTypes": ["digest", "patch", "minor", "major"],
-      "schedule": ["before 5am on the first day of the month"],
+      "matchUpdateTypes": [
+        "digest",
+        "patch",
+        "minor",
+        "major"
+      ],
+      "schedule": [
+        "before 5am on the first day of the month"
+      ],
       "minimumReleaseAge": "3 days",
       "prPriority": 2
     },
     {
       "description": "Compose Multiplatform & AndroidX",
-      "matchManagers": ["gradle"],
+      "matchManagers": [
+        "gradle"
+      ],
       "groupName": "Compose & AndroidX",
       "matchPackageNames": [
         "org.jetbrains.compose:{/,}**",
@@ -98,22 +130,30 @@
     },
     {
       "description": "Rust ecosystem - batch updates",
-      "matchManagers": ["cargo"],
+      "matchManagers": [
+        "cargo"
+      ],
       "groupName": "Rust dependencies",
       "semanticCommitType": "chore",
       "minimumReleaseAge": "3 days"
     },
     {
       "description": "Web ecosystem - batch updates",
-      "matchManagers": ["npm"],
+      "matchManagers": [
+        "npm"
+      ],
       "groupName": "Web dependencies",
       "semanticCommitType": "chore",
       "minimumReleaseAge": "2 days"
     },
     {
       "description": "Gradle wrapper - cautious updates with lockfile refresh",
-      "matchPackageNames": ["gradle"],
-      "matchManagers": ["gradle-wrapper"],
+      "matchPackageNames": [
+        "gradle"
+      ],
+      "matchManagers": [
+        "gradle-wrapper"
+      ],
       "groupName": "Gradle wrapper",
       "minimumReleaseAge": "7 days",
       "automerge": false,
@@ -129,7 +169,11 @@
         "org.springframework.boot:{/,}**",
         "org.springframework:{/,}**"
       ],
-      "matchUpdateTypes": ["minor", "patch", "major"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "major"
+      ],
       "semanticCommitType": "fix",
       "automerge": false,
       "minimumReleaseAge": "5 days",
@@ -137,29 +181,35 @@
     },
     {
       "description": "Gradle tooling & plugins - batch updates",
-      "matchManagers": ["gradle"],
-      "groupName": "Gradle build tooling",
-      "excludePackageNames": [
-        "org.jetbrains.compose:{/,}**",
-        "androidx.compose:{/,}**",
-        "androidx.activity:{/,}**",
-        "androidx.lifecycle:{/,}**",
-        "org.jetbrains.androidx.lifecycle:{/,}**",
-        "org.jetbrains.compose.components:{/,}**",
-        "org.jetbrains.compose.foundation:{/,}**",
-        "org.jetbrains.compose.material3:{/,}**",
-        "org.jetbrains.compose.runtime:{/,}**",
-        "org.jetbrains.compose.ui:{/,}**",
-        "org.springframework.boot:{/,}**",
-        "org.springframework:{/,}**"
+      "matchManagers": [
+        "gradle"
       ],
-      "minimumReleaseAge": "3 days"
+      "groupName": "Gradle build tooling",
+      "minimumReleaseAge": "3 days",
+      "matchPackageNames": [
+        "!org.jetbrains.compose:{/,}**",
+        "!androidx.compose:{/,}**",
+        "!androidx.activity:{/,}**",
+        "!androidx.lifecycle:{/,}**",
+        "!org.jetbrains.androidx.lifecycle:{/,}**",
+        "!org.jetbrains.compose.components:{/,}**",
+        "!org.jetbrains.compose.foundation:{/,}**",
+        "!org.jetbrains.compose.material3:{/,}**",
+        "!org.jetbrains.compose.runtime:{/,}**",
+        "!org.jetbrains.compose.ui:{/,}**",
+        "!org.springframework.boot:{/,}**",
+        "!org.springframework:{/,}**"
+      ]
     },
     {
       "description": "GitHub Actions - batch updates",
-      "matchManagers": ["github-actions"],
+      "matchManagers": [
+        "github-actions"
+      ],
       "groupName": "GitHub Actions",
-      "schedule": ["before 5am on the first day of the month"],
+      "schedule": [
+        "before 5am on the first day of the month"
+      ],
       "automerge": true,
       "semanticCommitType": "ci",
       "pinDigests": true,
@@ -168,27 +218,40 @@
     },
     {
       "description": "Docker images - manual review",
-      "matchDatasources": ["docker"],
+      "matchDatasources": [
+        "docker"
+      ],
       "groupName": "Docker images",
-      "schedule": ["before 5am on the first day of the month"],
+      "schedule": [
+        "before 5am on the first day of the month"
+      ],
       "automerge": false,
       "semanticCommitType": "chore"
     },
     {
       "description": "Major updates - delay for stability",
-      "matchUpdateTypes": ["major"],
+      "matchUpdateTypes": [
+        "major"
+      ],
       "minimumReleaseAge": "3 days",
       "automerge": false,
       "prPriority": -1,
-      "addLabels": ["major-update"]
+      "addLabels": [
+        "major-update"
+      ]
     },
     {
       "description": "0.x versions - treat as major",
       "matchCurrentVersion": "/^0\\./",
-      "matchUpdateTypes": ["minor", "patch"],
+      "matchUpdateTypes": [
+        "minor",
+        "patch"
+      ],
       "automerge": false,
       "minimumReleaseAge": "5 days",
-      "addLabels": ["unstable-dependency"]
+      "addLabels": [
+        "unstable-dependency"
+      ]
     }
   ]
 }
