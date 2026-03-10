@@ -22,6 +22,7 @@ use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
 use futures_util::future::join_all;
 use std::collections::HashMap;
+use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
@@ -53,6 +54,24 @@ pub struct Agent {
     code_mode: bool,
     code_session_delegated: bool,
 }
+
+#[derive(Debug)]
+pub enum AgentExecutionError {
+    IterationBudgetExceeded { max_iterations: usize },
+}
+
+impl fmt::Display for AgentExecutionError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AgentExecutionError::IterationBudgetExceeded { max_iterations } => write!(
+                f,
+                "Agent exceeded maximum tool iterations ({max_iterations})"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for AgentExecutionError {}
 
 pub struct AgentBuilder {
     provider: Option<Box<dyn Provider>>,
@@ -763,10 +782,10 @@ impl Agent {
             }
         }
 
-        anyhow::bail!(
-            "Agent exceeded maximum tool iterations ({})",
-            self.config.max_tool_iterations
-        )
+        Err(AgentExecutionError::IterationBudgetExceeded {
+            max_iterations: self.config.max_tool_iterations,
+        }
+        .into())
     }
 
     /// Resolve the code-session identifier, preferring CORVUS_SESSION_ID when set.

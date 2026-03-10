@@ -220,13 +220,11 @@ impl CodeSessionResult {
         let block = &output[block_start..];
         let status = parse_field(block, "status")
             .map(|s| match s.trim().to_ascii_lowercase().as_str() {
-                "success" => CodeSessionStatus::Completed,
-                "completed" => CodeSessionStatus::Completed,
+                "success" | "completed" => CodeSessionStatus::Completed,
                 "completed_with_warnings" => CodeSessionStatus::CompletedWithWarnings,
                 "validation_failed" => CodeSessionStatus::ValidationFailed,
                 "blocked" => CodeSessionStatus::Blocked,
                 "budget_exceeded" => CodeSessionStatus::BudgetExceeded,
-                "failed" => CodeSessionStatus::Failed,
                 "error" => CodeSessionStatus::Error,
                 _ => CodeSessionStatus::Failed,
             })
@@ -241,10 +239,13 @@ impl CodeSessionResult {
         let commands_raw = parse_list_field(block, "commands_run");
         let commands = commands_raw
             .into_iter()
-            .map(|cmd| ExecutedCommandSummary {
-                command: cmd,
-                success: true,
-                risk_level: None,
+            .map(|cmd| {
+                let (command, success) = parse_command_entry(&cmd);
+                ExecutedCommandSummary {
+                    command,
+                    success,
+                    risk_level: None,
+                }
             })
             .collect();
 
@@ -286,6 +287,29 @@ impl CodeSessionResult {
             validation_outcomes: vec![],
         }
     }
+}
+
+fn parse_command_entry(raw: &str) -> (String, bool) {
+    let trimmed = raw.trim();
+    let lowered = trimmed.to_ascii_lowercase();
+    let is_failure = lowered.starts_with("fail:")
+        || lowered.starts_with("failed:")
+        || lowered.starts_with("error:")
+        || lowered.contains("[fail]")
+        || lowered.contains("status: failed");
+    let success = !is_failure;
+
+    let cleaned = trimmed
+        .strip_prefix("fail:")
+        .or_else(|| trimmed.strip_prefix("failed:"))
+        .or_else(|| trimmed.strip_prefix("error:"))
+        .or_else(|| trimmed.strip_prefix("success:"))
+        .or_else(|| trimmed.strip_prefix("succeeded:"))
+        .unwrap_or(trimmed)
+        .trim()
+        .to_string();
+
+    (cleaned, success)
 }
 
 /// Parse a single `key: value` line from the FINAL RESULT block.

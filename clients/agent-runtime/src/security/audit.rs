@@ -1,6 +1,7 @@
 //! Audit logging for security events
 
 use crate::config::AuditConfig;
+use crate::observability::redact_observer_payload;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
@@ -253,14 +254,26 @@ impl AuditLogger {
 
     /// Log a code-session completion event.
     pub fn log_code_session_event(&self, entry: CodeSessionAuditLog) -> Result<()> {
+        let redacted_summary = redact_observer_payload(&entry.summary);
+        let redacted_commands: Vec<String> = entry
+            .commands
+            .iter()
+            .map(|value| redact_observer_payload(value))
+            .collect();
+        let redacted_validations: Vec<String> = entry
+            .validations
+            .iter()
+            .map(|value| redact_observer_payload(value))
+            .collect();
+
         let event = AuditEvent::new(AuditEventType::CodeSessionCompleted).with_code_session(
             CodeSessionAudit {
                 session_id: entry.session_id,
                 status: entry.status,
-                summary: entry.summary,
+                summary: redacted_summary,
                 changed_files: entry.changed_files,
-                commands: entry.commands,
-                validations: entry.validations,
+                commands: redacted_commands,
+                validations: redacted_validations,
                 blockers: entry.blockers,
                 pending_work: entry.pending_work,
                 delegated: entry.delegated,

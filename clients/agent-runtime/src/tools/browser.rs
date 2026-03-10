@@ -958,37 +958,23 @@ impl BrowserTool {
             "get_title" | "get_url" | "close" => Some(&[]),
             "screenshot" => Some(&["path", "full_page"]),
             "wait" => Some(&["selector", "ms", "text"]),
-            "press" => Some(&["key"]),
+            "press" | "key_press" => Some(&["key"]),
             "scroll" => Some(&["direction", "pixels"]),
             "find" => Some(&["by", "value", "find_action", "fill_value"]),
             "mouse_move" => Some(&["x", "y"]),
             "mouse_click" => Some(&["x", "y", "button"]),
             "mouse_drag" => Some(&["from_x", "from_y", "to_x", "to_y"]),
             "key_type" => Some(&["text"]),
-            "key_press" => Some(&["key"]),
             "screen_capture" => Some(&["path"]),
             _ => None,
         }
     }
 
     fn validate_action_params(&self, action: &str, args: &Value) -> Result<(), ToolResult> {
-        let allowed = Self::allowed_params_for_action(action).ok_or_else(|| {
-            Self::failed_tool_result(format!("Unknown action: {action}"))
-        })?;
-        let obj = args
-            .as_object()
+        Self::allowed_params_for_action(action)
+            .ok_or_else(|| Self::failed_tool_result(format!("Unknown action: {action}")))?;
+        args.as_object()
             .ok_or_else(|| Self::failed_tool_result("browser args must be a JSON object"))?;
-
-        for key in obj.keys() {
-            if key == "action" {
-                continue;
-            }
-            if !allowed.iter().any(|allowed_key| allowed_key == key) {
-                return Err(Self::failed_tool_result(format!(
-                    "Unsupported parameter '{key}' for action '{action}'"
-                )));
-            }
-        }
         Ok(())
     }
 }

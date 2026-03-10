@@ -202,18 +202,13 @@ impl HttpRequestTool {
         Ok(request.send().await?)
     }
 
-    async fn read_response_body(&self, response: reqwest::Response) -> String {
+    async fn read_response_body(&self, response: reqwest::Response) -> anyhow::Result<String> {
         let mut body = Vec::new();
         let mut truncated = false;
         let mut stream = response.bytes_stream();
 
         while let Some(chunk) = stream.next().await {
-            let chunk = match chunk {
-                Ok(bytes) => bytes,
-                Err(error) => {
-                    return format!("[Failed to read response body: {error}]");
-                }
-            };
+            let chunk = chunk?;
 
             let remaining = self.max_response_size.saturating_sub(body.len());
             if remaining == 0 {
@@ -232,9 +227,11 @@ impl HttpRequestTool {
 
         let text = String::from_utf8_lossy(&body).to_string();
         if truncated {
-            format!("{text}\n\n... [Response truncated due to size limit] ...")
+            Ok(format!(
+                "{text}\n\n... [Response truncated due to size limit] ..."
+            ))
         } else {
-            text
+            Ok(text)
         }
     }
 
@@ -376,7 +373,14 @@ impl Tool for HttpRequestTool {
                 let headers_text = format_response_headers(response.headers());
 
                 // Get response body with size limit
-                let response_text = self.read_response_body(response).await;
+                let response_text = match self.read_response_body(response).await {
+                    Ok(text) => text,
+                    Err(error) => {
+                        return Ok(tool_error_result(format!(
+                            "Failed to read response body: {error}"
+                        )));
+                    }
+                };
 
                 let output = format!(
                     "Status: {} {}\nResponse Headers: {}\n\nResponse Body:\n{}",

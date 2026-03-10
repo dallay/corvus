@@ -118,6 +118,9 @@ fn handle_add_command(board: String, path: String) -> Result<()> {
         anyhow::bail!("Peripheral board name cannot be empty");
     }
     let path = path.trim().to_string();
+    if path.is_empty() {
+        anyhow::bail!("Peripheral path cannot be empty");
+    }
     let transport = if path == "native" { "native" } else { "serial" };
     let path_opt = if path == "native" {
         None
@@ -179,7 +182,7 @@ pub async fn create_peripheral_tools(config: &PeripheralsConfig) -> Result<Vec<B
     }
 
     // Phase B: Add hardware tools when any boards configured
-    if !tools.is_empty() {
+    if !board_names.is_empty() {
         tools.push(Box::new(HardwareMemoryMapTool::new(board_names.clone())));
         tools.push(Box::new(crate::tools::HardwareBoardInfoTool::new(
             board_names.clone(),
@@ -207,7 +210,13 @@ fn validate_board_config(board: &PeripheralBoardConfig) -> Result<(), String> {
 
     match board.transport.as_str() {
         "serial" => {
-            if board.path.as_deref().map(str::trim).unwrap_or("").is_empty() {
+            if board
+                .path
+                .as_deref()
+                .map(str::trim)
+                .unwrap_or("")
+                .is_empty()
+            {
                 return Err("serial transport requires a path".to_string());
             }
         }

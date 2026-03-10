@@ -34,6 +34,9 @@ pub struct Config {
     pub autonomy: AutonomyConfig,
 
     #[serde(default)]
+    pub security: SecurityConfig,
+
+    #[serde(default)]
     pub runtime: RuntimeConfig,
 
     #[serde(default)]
@@ -579,7 +582,7 @@ pub struct PeripheralsConfig {
 pub struct PeripheralBoardConfig {
     /// Board type: "nucleo-f401re", "rpi-gpio", "esp32", etc.
     pub board: String,
-    /// Transport: "serial", "native", "websocket"
+    /// Transport: "serial", "native", "bridge"
     #[serde(default = "default_peripheral_transport")]
     pub transport: String,
     /// Path for serial: "/dev/ttyACM0", "/dev/ttyUSB0"
@@ -2108,6 +2111,7 @@ impl Default for Config {
             default_temperature: 0.7,
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
+            security: SecurityConfig::default(),
             runtime: RuntimeConfig::default(),
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),
@@ -2888,6 +2892,12 @@ impl Config {
 
     fn validate_code_session_config(&self) -> Result<()> {
         let code_session = &self.agent.code_session;
+        if code_session.max_iterations == 0 {
+            anyhow::bail!("agent.code_session.max_iterations must be greater than zero");
+        }
+        if code_session.timeout_ms == 0 {
+            anyhow::bail!("agent.code_session.timeout_ms must be greater than zero");
+        }
         if code_session.enabled && code_session.validation_commands.is_empty() {
             anyhow::bail!(
                 "agent.code_session.validation_commands must be non-empty when code_session is enabled"
@@ -2898,6 +2908,11 @@ impl Config {
             if validation.command.trim().is_empty() {
                 anyhow::bail!(
                     "agent.code_session.validation_commands[{idx}].command must be non-empty"
+                );
+            }
+            if validation.timeout_ms == 0 {
+                anyhow::bail!(
+                    "agent.code_session.validation_commands[{idx}].timeout_ms must be greater than zero"
                 );
             }
         }
@@ -3316,6 +3331,7 @@ default_temperature = 0.7
                 auto_approve: vec!["file_read".into()],
                 always_ask: vec![],
             },
+            security: SecurityConfig::default(),
             runtime: RuntimeConfig {
                 kind: "docker".into(),
                 ..RuntimeConfig::default()
@@ -3533,6 +3549,7 @@ tool_dispatcher = "xml"
             default_temperature: 0.9,
             observability: ObservabilityConfig::default(),
             autonomy: AutonomyConfig::default(),
+            security: SecurityConfig::default(),
             runtime: RuntimeConfig::default(),
             reliability: ReliabilityConfig::default(),
             scheduler: SchedulerConfig::default(),

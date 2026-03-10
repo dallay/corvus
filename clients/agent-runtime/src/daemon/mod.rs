@@ -113,7 +113,7 @@ pub async fn run(config: Config, host: String, port: u16) -> Result<()> {
             max_backoff,
             move || {
                 let cfg = update_cfg.clone();
-                async move { run_daemon_updater_component(cfg).await }
+                Box::pin(run_daemon_updater_component(cfg))
             },
         ));
     } else {
@@ -562,7 +562,7 @@ mod tests {
     async fn daemon_updater_component_exits_cleanly_when_updates_disabled() {
         let mut config = Config::default();
         config.updates.enabled = false;
-        let result = run_daemon_updater_component(config).await;
+        let result = Box::pin(run_daemon_updater_component(config)).await;
         assert!(result.is_ok());
     }
 }

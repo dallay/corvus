@@ -26,6 +26,7 @@ APT_INDEX_UPDATED="0"
 ALREADY_INSTALLED="0"
 EXISTING_CMD_PATH=""
 EXISTING_INSTALL_DIR=""
+EXISTING_INSTALL_METHOD=""
 SKIP_ONBOARD_REASON=""
 
 OS_TYPE=""
@@ -48,6 +49,28 @@ detect_existing_install() {
     EXISTING_CMD_PATH="$(command -v corvus)"
     EXISTING_INSTALL_DIR="$(dirname "$EXISTING_CMD_PATH")"
     ALREADY_INSTALLED="1"
+    if [ -L "$EXISTING_CMD_PATH" ] || printf "%s" "$EXISTING_CMD_PATH" | grep -q "/node_modules/.bin/"; then
+      EXISTING_INSTALL_METHOD="package"
+    else
+      local first_line=""
+      first_line="$(head -n 1 "$EXISTING_CMD_PATH" 2>/dev/null || true)"
+      if printf "%s" "$first_line" | grep -qi "node"; then
+        EXISTING_INSTALL_METHOD="package"
+      fi
+    fi
+
+    if [ "$EXISTING_INSTALL_METHOD" = "package" ]; then
+      case "$EXISTING_CMD_PATH" in
+        *pnpm*) EXISTING_INSTALL_METHOD="pnpm" ;;
+        *yarn*) EXISTING_INSTALL_METHOD="yarn" ;;
+        *bun*) EXISTING_INSTALL_METHOD="bun" ;;
+        *npm*) EXISTING_INSTALL_METHOD="npm" ;;
+      esac
+    fi
+
+    if [ -z "$EXISTING_INSTALL_METHOD" ]; then
+      EXISTING_INSTALL_METHOD="binary"
+    fi
   fi
 
   if [ -f "$config_path" ]; then
@@ -555,7 +578,7 @@ resolve_install_dir() {
     return
   fi
 
-  if [ -n "$EXISTING_INSTALL_DIR" ]; then
+  if [ -n "$EXISTING_INSTALL_DIR" ] && [ "$EXISTING_INSTALL_METHOD" = "binary" ]; then
     printf "%s" "$EXISTING_INSTALL_DIR"
     return
   fi
@@ -775,7 +798,15 @@ install_via_package_manager() {
       ;;
     yarn)
       has_cmd yarn || die "yarn is not installed."
-      yarn global add "$CLI_PACKAGE"
+      local yarn_version=""
+      local yarn_major=""
+      yarn_version="$(yarn --version 2>/dev/null || true)"
+      yarn_major="${yarn_version%%.*}"
+      if [ -n "$yarn_version" ] && [ "$yarn_major" -ge 2 ] 2>/dev/null; then
+        yarn dlx "$CLI_PACKAGE"
+      else
+        yarn global add "$CLI_PACKAGE"
+      fi
       ;;
     bun)
       has_cmd bun || die "bun is not installed."
@@ -798,10 +829,23 @@ select_install_method() {
     return
   fi
 
-  if [ "$ALREADY_INSTALLED" = "1" ]; then
+  if [ "$ALREADY_INSTALLED" = "1" ] && [ "$EXISTING_INSTALL_METHOD" = "binary" ]; then
     INSTALL_METHOD="binary"
     print_info "Existing Corvus install detected at ${EXISTING_CMD_PATH}. Updating in place."
     return
+  fi
+
+  if [ "$ALREADY_INSTALLED" = "1" ] && [ -n "$EXISTING_INSTALL_METHOD" ] && [ "$EXISTING_INSTALL_METHOD" != "binary" ]; then
+    case "$EXISTING_INSTALL_METHOD" in
+      pnpm|npm|yarn|bun)
+        INSTALL_METHOD="$EXISTING_INSTALL_METHOD"
+        print_info "Existing Corvus install detected at ${EXISTING_CMD_PATH}."
+        return
+        ;;
+      *)
+        print_info "Existing Corvus install detected at ${EXISTING_CMD_PATH}."
+        ;;
+    esac
   fi
 
   candidates=("binary")
@@ -811,7 +855,18 @@ select_install_method() {
   has_cmd bun && candidates+=("bun")
 
   if ! is_interactive; then
-    INSTALL_METHOD="binary"
+    if [ "$ALREADY_INSTALLED" = "1" ] && [ -n "$EXISTING_INSTALL_METHOD" ] && [ "$EXISTING_INSTALL_METHOD" != "binary" ]; then
+      case "$EXISTING_INSTALL_METHOD" in
+        pnpm|npm|yarn|bun)
+          INSTALL_METHOD="$EXISTING_INSTALL_METHOD"
+          ;;
+        *)
+          INSTALL_METHOD="binary"
+          ;;
+      esac
+    else
+      INSTALL_METHOD="binary"
+    fi
     return
   fi
 
@@ -859,10 +914,10 @@ post_install_steps() {
   local resolved_cmd=""
   local resolved_version=""
 
-  if has_cmd corvus; then
-    resolved_cmd="$(command -v corvus)"
-  elif [ -n "$INSTALLED_BINARY_PATH" ] && [ -x "$INSTALLED_BINARY_PATH" ]; then
+  if [ -n "$INSTALLED_BINARY_PATH" ] && [ -x "$INSTALLED_BINARY_PATH" ]; then
     resolved_cmd="$INSTALLED_BINARY_PATH"
+  elif has_cmd corvus; then
+    resolved_cmd="$(command -v corvus)"
   fi
 
   if [ -z "$resolved_cmd" ]; then
@@ -871,7 +926,7 @@ post_install_steps() {
     return
   fi
 
-  resolved_version="$($resolved_cmd --version 2>/dev/null || echo 'installed')"
+  resolved_version="$("$resolved_cmd" --version 2>/dev/null || echo 'installed')"
   print_success "Corvus CLI available: ${resolved_version}"
 
   if [ "$SKIP_ONBOARD" = "1" ]; then
@@ -895,10 +950,10 @@ post_install_steps() {
 restart_daemon_if_available() {
   local resolved_cmd=""
 
-  if has_cmd corvus; then
-    resolved_cmd="$(command -v corvus)"
-  elif [ -n "$INSTALLED_BINARY_PATH" ] && [ -x "$INSTALLED_BINARY_PATH" ]; then
+  if [ -n "$INSTALLED_BINARY_PATH" ] && [ -x "$INSTALLED_BINARY_PATH" ]; then
     resolved_cmd="$INSTALLED_BINARY_PATH"
+  elif has_cmd corvus; then
+    resolved_cmd="$(command -v corvus)"
   fi
 
   if [ -z "$resolved_cmd" ]; then
@@ -908,9 +963,15 @@ restart_daemon_if_available() {
   if "$resolved_cmd" service status >/dev/null 2>&1; then
     print_info "Restarting Corvus service to apply updates..."
     if "$resolved_cmd" service restart >/dev/null 2>&1; then
-      print_success "Corvus service restarted"
+      if "$resolved_cmd" doctor >/dev/null 2>&1; then
+        print_success "Corvus service restarted"
+      else
+        print_warn "Corvus service restart completed, but health check failed"
+        return 1
+      fi
     else
       print_warn "Corvus service restart failed. Try: corvus service restart"
+      return 1
     fi
   else
     print_info "Corvus service not installed; skipping restart."

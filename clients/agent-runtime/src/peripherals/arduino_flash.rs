@@ -175,7 +175,7 @@ mod tests {
         let mut cfg = crate::config::Config::default();
         cfg.peripherals.boards.push(PeripheralBoardConfig {
             board: "arduino-uno".to_string(),
-            transport: "websocket".to_string(),
+            transport: "bridge".to_string(),
             path: Some("ws://localhost:9000".to_string()),
             baud: 115_200,
         });

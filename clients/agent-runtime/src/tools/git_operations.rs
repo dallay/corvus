@@ -515,7 +515,15 @@ impl GitOperationsTool {
             anyhow::bail!("Invalid branch name: {error}");
         }
 
-        let output = self.run_git_command(&["checkout", branch_name]).await;
+        let branch_ref = format!("refs/heads/{branch_name}");
+        if let Err(error) = self
+            .run_git_command(&["show-ref", "--verify", branch_ref.as_str()])
+            .await
+        {
+            anyhow::bail!("Branch does not exist: {error}");
+        }
+
+        let output = self.run_git_command(&["switch", branch_name]).await;
 
         match output {
             Ok(_) => Ok(ToolResult {

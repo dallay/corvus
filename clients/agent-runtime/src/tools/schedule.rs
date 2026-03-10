@@ -167,10 +167,7 @@ impl ScheduleTool {
         }
 
         let mut lines = Vec::with_capacity(jobs.len());
-        let structured_jobs: Vec<serde_json::Value> = jobs
-            .iter()
-            .map(job_to_structured)
-            .collect();
+        let structured_jobs: Vec<serde_json::Value> = jobs.iter().map(job_to_structured).collect();
         for job in jobs {
             let paused = !job.enabled;
             let one_shot = matches!(job.schedule, cron::Schedule::At { .. });
@@ -210,16 +207,7 @@ impl ScheduleTool {
     fn handle_get(&self, id: &str) -> Result<ToolResult> {
         match cron::get_job(&self.config, id) {
             Ok(job) => {
-                let detail = json!({
-                    "id": job.id,
-                    "expression": job.expression,
-                    "command": job.command,
-                    "next_run": job.next_run.to_rfc3339(),
-                    "last_run": job.last_run.map(|value| value.to_rfc3339()),
-                    "last_status": job.last_status,
-                    "enabled": job.enabled,
-                    "one_shot": matches!(job.schedule, cron::Schedule::At { .. }),
-                });
+                let detail = job_to_structured(&job);
                 Ok(ToolResult {
                     success: true,
                     output: serde_json::to_string_pretty(&detail)?,
