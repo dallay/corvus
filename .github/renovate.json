@@ -25,9 +25,9 @@
     "every weekend"
   ],
   "automergeSchedule": ["before 4am on the first day of the month"],
-  "prConcurrentLimit": 5,
-  "prHourlyLimit": 5,
-  "branchConcurrentLimit": 5,
+  "prConcurrentLimit": 1,
+  "prHourlyLimit": 1,
+  "branchConcurrentLimit": 1,
   "prCreation": "immediate",
   "platformAutomerge": true,
   "rebaseWhen": "auto",
@@ -41,7 +41,7 @@
   "pinDigests": true,
   "labels": ["dependencies"],
   "addLabels": ["renovate"],
-  "postUpdateOptions": ["npmDedupe", "pnpmDedupe"],
+  "postUpdateOptions": [],
   "constraints": {
     "node": ">=22.0.0",
     "pnpm": ">=10.28.0"
