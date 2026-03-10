@@ -8,6 +8,7 @@ updates:
       day: "saturday"
       time: "00:00"
       timezone: "UTC"
+    open-pull-requests-limit: 3
 
   # Rust (Agent Runtime)
   - package-ecosystem: "cargo"
@@ -17,6 +18,7 @@ updates:
       day: "saturday"
       time: "00:00"
       timezone: "UTC"
+    open-pull-requests-limit: 3
 
   # Root NPM
   - package-ecosystem: "npm"
@@ -26,6 +28,12 @@ updates:
       day: "saturday"
       time: "00:00"
       timezone: "UTC"
+    open-pull-requests-limit: 3
+    groups:
+      dependencies:
+        update-types:
+          - "minor"
+          - "patch"
 
   # Web Monorepo (pnpm)
   - package-ecosystem: "npm"
@@ -35,6 +43,12 @@ updates:
       day: "saturday"
       time: "00:00"
       timezone: "UTC"
+    open-pull-requests-limit: 3
+    groups:
+      dependencies:
+        update-types:
+          - "minor"
+          - "patch"
 
   # NPM CLI Wrappers
   - package-ecosystem: "npm"
@@ -44,6 +58,12 @@ updates:
       day: "saturday"
       time: "00:00"
       timezone: "UTC"
+    open-pull-requests-limit: 3
+    groups:
+      dependencies:
+        update-types:
+          - "minor"
+          - "patch"
   - package-ecosystem: "npm"
     directory: "/clients/agent-runtime/npm/corvus"
     schedule:
@@ -51,6 +71,12 @@ updates:
       day: "saturday"
       time: "00:00"
       timezone: "UTC"
+    open-pull-requests-limit: 3
+    groups:
+      dependencies:
+        update-types:
+          - "minor"
+          - "patch"
 
   # Gradle (Kotlin/Android)
   - package-ecosystem: "gradle"
@@ -60,6 +86,7 @@ updates:
       day: "saturday"
       time: "00:00"
       timezone: "UTC"
+    open-pull-requests-limit: 3
 
   # Docker
   - package-ecosystem: "docker"
@@ -69,6 +96,7 @@ updates:
       day: "saturday"
       time: "00:00"
       timezone: "UTC"
+    open-pull-requests-limit: 3
   - package-ecosystem: "docker"
     directory: "/dev/sandbox"
     schedule:
@@ -76,3 +104,4 @@ updates:
       day: "saturday"
       time: "00:00"
       timezone: "UTC"
+    open-pull-requests-limit: 3
