@@ -131,7 +131,7 @@ make sync-version
 git diff gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json clients/agent-runtime/npm/corvus/package.json clients/agent-runtime/npm/corvus-*/package.json
 ```
 
-The `make sync-version` command runs `./sync-version-with-tag.sh` which:
+The `make sync-version` command runs `./scripts/sync-version-with-tag.sh` which:
 
 - Finds the latest semantic Git tag (`vX.Y.Z`)
 - Extracts the numeric version (drops leading `v`)

@@ -89,7 +89,7 @@ clients/agent-runtime/src/main.rs (actualiza #[command(version = "...")])
 Puedes mantener la versión del proyecto en sincronía con el tag Git automáticamente con el script y
 el target Make incluidos en este repositorio.
 
-- `make sync-version` — ejecuta `./sync-version-with-tag.sh` y sincroniza la última versión
+- `make sync-version` — ejecuta `./scripts/sync-version-with-tag.sh` y sincroniza la última versión
   semántica del tag Git (`vX.Y.Z`) en:
   - `gradle.properties` (`VERSION=`)
   - `gradle/build-logic/gradle.properties` (`VERSION=`)
@@ -106,7 +106,7 @@ el target Make incluidos en este repositorio.
   - `clients/agent-runtime/npm/corvus-windows-arm64/package.json` (`"version"`)
   - `clients/agent-runtime/npm/corvus-windows-x64/package.json` (`"version"`)
   - `clients/agent-runtime/src/main.rs` (`#[command(version = "...")]`)
-- `./sync-version-with-tag.sh` — script shell que selecciona el tag semántico más reciente global
+- `./scripts/sync-version-with-tag.sh` — script shell que selecciona el tag semántico más reciente global
   usando `git tag --sort=-v:refname | grep -Em1 '^v[0-9]+\.[0-9]+\.[0-9]+$'` (no el tag más cercano
   desde `HEAD`), extrae la versión numérica (quita la `v` inicial) y actualiza todos los targets de
   versión listados arriba.
