@@ -504,7 +504,7 @@ All workflows use **pinned commit SHAs** for action references instead of tags:
 
 ```yaml
 # ✅ Good - Pinned by SHA
-uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
 
 # ❌ Bad - Mutable tag
 uses: actions/checkout@v6
@@ -563,18 +563,18 @@ permissions:
 
 ```yaml
 - name: 📦 Setup Node
-  uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+  uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
   with:
     node-version: "24"
 
 - name: ☕ Setup Java
-  uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+  uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0
   with:
     java-version: "25"
     distribution: "corretto"
 
 - name: 🐘 Setup Gradle
-  uses: gradle/actions/setup-gradle@4d9f0ba0025fe599b4ebab900eb7f3a1d93ef4c2 # v5.0.0
+  uses: gradle/actions/setup-gradle@0723195856401067f7a2779048b490ace7a47d7c # v5.0.2
   with:
     gradle-version: wrapper
     cache-read-only: false
