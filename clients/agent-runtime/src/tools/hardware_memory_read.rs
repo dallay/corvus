@@ -76,8 +76,19 @@ impl Tool for HardwareMemoryReadTool {
             .get("board")
             .and_then(|v| v.as_str())
             .map(String::from)
-            .or_else(|| self.boards.first().cloned())
-            .unwrap_or_else(|| "nucleo-f401re".into());
+            .unwrap_or_else(|| self.boards[0].clone());
+
+        if !self.boards.iter().any(|known| known == &board) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(format!(
+                    "Board '{board}' is not configured. Configured boards: {}",
+                    self.boards.join(", ")
+                )),
+                structured: None,
+            });
+        }
 
         let chip = Self::chip_for_board(&board);
         if chip.is_none() {

@@ -2033,6 +2033,10 @@ pub struct AuditConfig {
     #[serde(default = "default_audit_max_size_mb")]
     pub max_size_mb: u32,
 
+    /// Fail startup if audit logging cannot be initialized
+    #[serde(default)]
+    pub strict: bool,
+
     /// Sign events with HMAC for tamper evidence
     #[serde(default)]
     pub sign_events: bool,
@@ -2056,6 +2060,7 @@ impl Default for AuditConfig {
             enabled: default_audit_enabled(),
             log_path: default_audit_log_path(),
             max_size_mb: default_audit_max_size_mb(),
+            strict: false,
             sign_events: false,
         }
     }
@@ -2835,7 +2840,9 @@ impl Config {
 
     pub fn validate_for_runtime(&self) -> Result<()> {
         self.validate_agent_profile()?;
-        self.validate_mcp_servers()
+        self.validate_mcp_servers()?;
+        self.validate_delegate_overrides()?;
+        self.validate_code_session_config()
     }
 
     fn validate_agent_profile(&self) -> Result<()> {
@@ -2856,6 +2863,43 @@ impl Config {
 
         for (idx, server) in self.mcp.servers.iter().enumerate() {
             Self::validate_mcp_server(server, idx)?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_delegate_overrides(&self) -> Result<()> {
+        for (name, agent) in &self.agents {
+            let base = format!("agents.{name}");
+            if let Some(max_iterations) = agent.max_iterations {
+                if max_iterations == 0 {
+                    anyhow::bail!("{base}.max_iterations must be greater than zero");
+                }
+            }
+            if let Some(timeout_ms) = agent.timeout_ms {
+                if timeout_ms == 0 {
+                    anyhow::bail!("{base}.timeout_ms must be greater than zero");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_code_session_config(&self) -> Result<()> {
+        let code_session = &self.agent.code_session;
+        if code_session.enabled && code_session.validation_commands.is_empty() {
+            anyhow::bail!(
+                "agent.code_session.validation_commands must be non-empty when code_session is enabled"
+            );
+        }
+
+        for (idx, validation) in code_session.validation_commands.iter().enumerate() {
+            if validation.command.trim().is_empty() {
+                anyhow::bail!(
+                    "agent.code_session.validation_commands[{idx}].command must be non-empty"
+                );
+            }
         }
 
         Ok(())
@@ -3397,6 +3441,20 @@ tool_dispatcher = "xml"
         assert_eq!(parsed.agent.tool_dispatcher, "xml");
     }
 
+    fn sample_delegate_config() -> DelegateAgentConfig {
+        DelegateAgentConfig {
+            provider: "openrouter".into(),
+            model: "gpt-4o".into(),
+            system_prompt: None,
+            api_key: None,
+            temperature: None,
+            max_depth: 1,
+            execution_mode: DelegateExecutionMode::default(),
+            max_iterations: None,
+            timeout_ms: None,
+        }
+    }
+
     #[test]
     fn validate_for_runtime_rejects_unknown_agent_profile() {
         let mut config = Config::default();
@@ -3404,6 +3462,58 @@ tool_dispatcher = "xml"
 
         let err = config.validate_for_runtime().unwrap_err();
         assert!(err.to_string().contains("unsupported agent.profile"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_delegate_max_iterations_zero() {
+        let mut config = Config::default();
+        let mut delegate = sample_delegate_config();
+        delegate.max_iterations = Some(0);
+        config.agents.insert("child".into(), delegate);
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("agents.child.max_iterations must be greater than zero"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_delegate_timeout_zero() {
+        let mut config = Config::default();
+        let mut delegate = sample_delegate_config();
+        delegate.timeout_ms = Some(0);
+        config.agents.insert("child".into(), delegate);
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("agents.child.timeout_ms must be greater than zero"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_code_session_without_validations() {
+        let mut config = Config::default();
+        config.agent.code_session.enabled = true;
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("agent.code_session.validation_commands must be non-empty"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_empty_validation_command() {
+        let mut config = Config::default();
+        config.agent.code_session.validation_commands = vec![ValidationCommandConfig {
+            command: "   ".into(),
+            required: true,
+            timeout_ms: 1_000,
+        }];
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("agent.code_session.validation_commands[0].command must be non-empty"));
     }
 
     #[test]

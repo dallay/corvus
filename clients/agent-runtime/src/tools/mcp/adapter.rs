@@ -37,39 +37,35 @@ impl McpToolAdapter {
     }
 
     fn enforce_output_limit(&self, output: String) -> String {
-        let bytes = output.as_bytes();
-        if bytes.len() <= self.output_limit_bytes {
+        if output.len() <= self.output_limit_bytes {
             return output;
         }
 
         let marker = format!(
             "\n[output_limit_enforced limit_bytes={} original_bytes={}]",
             self.output_limit_bytes,
-            bytes.len()
+            output.len()
         );
-        let max_body = self.output_limit_bytes.saturating_sub(marker.len());
+        if self.output_limit_bytes <= marker.len() {
+            let mut end = self.output_limit_bytes;
+            while end > 0 && !marker.is_char_boundary(end) {
+                end -= 1;
+            }
+            return marker[..end].to_string();
+        }
 
-        // Find a valid UTF-8 char boundary <= max_body
-        let truncated = if max_body >= bytes.len() {
-            output.clone()
+        let max_body = self.output_limit_bytes.saturating_sub(marker.len());
+        let mut end = max_body.min(output.len());
+        while end > 0 && !output.is_char_boundary(end) {
+            end -= 1;
+        }
+        let truncated = if end == 0 {
+            String::new()
         } else {
-            output
-                .chars()
-                .take_while(|_| true)
-                .scan(0usize, |acc, c| {
-                    let next = *acc + c.len_utf8();
-                    if next <= max_body {
-                        Some(next)
-                    } else {
-                        None
-                    }
-                })
-                .last()
-                .map(|end| output[..end].to_string())
-                .unwrap_or_else(|| output[..max_body].to_string())
+            output[..end].to_string()
         };
 
-        format!("{}{}", truncated, marker)
+        format!("{truncated}{marker}")
     }
 }
 

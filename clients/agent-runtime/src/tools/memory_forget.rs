@@ -34,6 +34,7 @@ impl Tool for MemoryForgetTool {
             "properties": {
                 "key": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "The key of the memory to forget"
                 }
             },
@@ -45,6 +46,8 @@ impl Tool for MemoryForgetTool {
         let key = args
             .get("key")
             .and_then(|v| v.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
             .ok_or_else(|| anyhow::anyhow!("Missing 'key' parameter"))?;
 
         if let Err(error) = self

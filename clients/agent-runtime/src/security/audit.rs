@@ -78,8 +78,11 @@ pub struct AuditEvent {
     pub timestamp: DateTime<Utc>,
     pub event_id: String,
     pub event_type: AuditEventType,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actor: Option<Actor>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<Action>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result: Option<ExecutionResult>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_session: Option<CodeSessionAudit>,

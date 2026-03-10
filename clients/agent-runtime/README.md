@@ -369,6 +369,11 @@ format = "openclaw"             # "openclaw" (default, markdown files) or "aieos
 # aieos_inline = '{"identity":{"names":{"first":"Nova"}}}'  # inline AIEOS JSON
 ```
 
+Code-session environment overrides:
+
+- `CORVUS_SESSION_ID` sets the code-session identifier for audit/observability correlation.
+  When unset, a random UUID v4 is generated per session.
+
 SurrealDB environment overrides (env-first):
 
 ```bash

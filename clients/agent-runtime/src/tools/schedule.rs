@@ -159,11 +159,18 @@ impl ScheduleTool {
                 success: true,
                 output: "No scheduled jobs.".to_string(),
                 error: None,
-                structured: None,
+                structured: Some(json!({
+                    "count": 0,
+                    "jobs": [],
+                })),
             });
         }
 
         let mut lines = Vec::with_capacity(jobs.len());
+        let structured_jobs: Vec<serde_json::Value> = jobs
+            .iter()
+            .map(job_to_structured)
+            .collect();
         for job in jobs {
             let paused = !job.enabled;
             let one_shot = matches!(job.schedule, cron::Schedule::At { .. });
@@ -193,7 +200,10 @@ impl ScheduleTool {
             success: true,
             output: format!("Scheduled jobs ({}):\n{}", lines.len(), lines.join("\n")),
             error: None,
-            structured: None,
+            structured: Some(json!({
+                "count": structured_jobs.len(),
+                "jobs": structured_jobs,
+            })),
         })
     }
 
@@ -214,7 +224,7 @@ impl ScheduleTool {
                     success: true,
                     output: serde_json::to_string_pretty(&detail)?,
                     error: None,
-                    structured: None,
+                    structured: Some(detail),
                 })
             }
             Err(_) => Ok(ToolResult {
@@ -297,7 +307,7 @@ impl ScheduleTool {
                     job.command
                 ),
                 error: None,
-                structured: None,
+                structured: Some(job_to_structured(&job)),
             });
         }
 
@@ -312,7 +322,7 @@ impl ScheduleTool {
                     job.command
                 ),
                 error: None,
-                structured: None,
+                structured: Some(job_to_structured(&job)),
             });
         }
 
@@ -331,7 +341,7 @@ impl ScheduleTool {
                 job.command
             ),
             error: None,
-            structured: None,
+            structured: Some(job_to_structured(&job)),
         })
     }
 
@@ -341,7 +351,10 @@ impl ScheduleTool {
                 success: true,
                 output: format!("Cancelled job {id}"),
                 error: None,
-                structured: None,
+                structured: Some(json!({
+                    "id": id,
+                    "action": "cancel",
+                })),
             },
             Err(error) => ToolResult {
                 success: false,
@@ -368,7 +381,10 @@ impl ScheduleTool {
                     format!("Resumed job {id}")
                 },
                 error: None,
-                structured: None,
+                structured: Some(json!({
+                    "id": id,
+                    "action": if pause { "pause" } else { "resume" },
+                })),
             },
             Err(error) => ToolResult {
                 success: false,
@@ -378,6 +394,20 @@ impl ScheduleTool {
             },
         }
     }
+}
+
+fn job_to_structured(job: &cron::CronJob) -> serde_json::Value {
+    json!({
+        "id": job.id,
+        "expression": job.expression,
+        "command": job.command,
+        "next_run": job.next_run.to_rfc3339(),
+        "last_run": job.last_run.map(|value| value.to_rfc3339()),
+        "last_status": job.last_status,
+        "enabled": job.enabled,
+        "one_shot": matches!(job.schedule, cron::Schedule::At { .. }),
+        "delete_after_run": job.delete_after_run,
+    })
 }
 
 #[cfg(test)]

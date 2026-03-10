@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
+use crate::tools::schema::SchemaCleanr;
 
 /// Result of a tool execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,10 +52,18 @@ pub trait Tool: Send + Sync {
 
     /// Get the full spec for LLM registration
     fn spec(&self) -> ToolSpec {
+        let mut parameters = self.parameters_schema();
+        if let Err(error) = SchemaCleanr::validate(&parameters) {
+            tracing::warn!(tool = %self.name(), "Invalid tool schema: {error}");
+            parameters = json!({
+                "type": "object",
+                "properties": {},
+            });
+        }
         ToolSpec {
             name: self.name().to_string(),
             description: self.description().to_string(),
-            parameters: self.parameters_schema(),
+            parameters,
             source: None,
         }
     }

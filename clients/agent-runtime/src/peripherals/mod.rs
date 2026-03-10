@@ -113,6 +113,11 @@ fn print_no_peripherals_help() {
 }
 
 fn handle_add_command(board: String, path: String) -> Result<()> {
+    let board = board.trim().to_string();
+    if board.is_empty() {
+        anyhow::bail!("Peripheral board name cannot be empty");
+    }
+    let path = path.trim().to_string();
     let transport = if path == "native" { "native" } else { "serial" };
     let path_opt = if path == "native" {
         None
@@ -154,8 +159,14 @@ pub async fn create_peripheral_tools(config: &PeripheralsConfig) -> Result<Vec<B
 
     let mut tools: Vec<Box<dyn Tool>> = Vec::new();
     let mut serial_transports: Vec<(String, std::sync::Arc<serial::SerialTransport>)> = Vec::new();
+    let mut board_names: Vec<String> = Vec::new();
 
     for board in &config.boards {
+        if let Err(reason) = validate_board_config(board) {
+            tracing::warn!(board = %board.board, "Skipping peripheral config: {reason}");
+            continue;
+        }
+        board_names.push(board.board.clone());
         if try_add_uno_q_bridge_tools(board, &mut tools) {
             continue;
         }
@@ -169,7 +180,6 @@ pub async fn create_peripheral_tools(config: &PeripheralsConfig) -> Result<Vec<B
 
     // Phase B: Add hardware tools when any boards configured
     if !tools.is_empty() {
-        let board_names: Vec<String> = config.boards.iter().map(|b| b.board.clone()).collect();
         tools.push(Box::new(HardwareMemoryMapTool::new(board_names.clone())));
         tools.push(Box::new(crate::tools::HardwareBoardInfoTool::new(
             board_names.clone(),
@@ -187,6 +197,29 @@ pub async fn create_peripheral_tools(config: &PeripheralsConfig) -> Result<Vec<B
     }
 
     Ok(tools)
+}
+
+fn validate_board_config(board: &PeripheralBoardConfig) -> Result<(), String> {
+    let board_name = board.board.trim();
+    if board_name.is_empty() {
+        return Err("board name is empty".to_string());
+    }
+
+    match board.transport.as_str() {
+        "serial" => {
+            if board.path.as_deref().map(str::trim).unwrap_or("").is_empty() {
+                return Err("serial transport requires a path".to_string());
+            }
+        }
+        "native" | "bridge" => {}
+        other => {
+            return Err(format!(
+                "unsupported transport '{other}' (use: serial, native, bridge)"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(feature = "hardware")]

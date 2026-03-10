@@ -50,9 +50,10 @@ impl PushoverTool {
         )
     }
 
-    fn get_credentials(&self) -> anyhow::Result<(String, String)> {
+    async fn get_credentials(&self) -> anyhow::Result<(String, String)> {
         let env_path = self.workspace_dir.join(".env");
-        let content = std::fs::read_to_string(&env_path)
+        let content = tokio::fs::read_to_string(&env_path)
+            .await
             .map_err(|e| anyhow::anyhow!("Failed to read {}: {}", env_path.display(), e))?;
 
         let mut token = None;
@@ -166,7 +167,7 @@ impl Tool for PushoverTool {
 
         let sound = args.get("sound").and_then(|v| v.as_str()).map(String::from);
 
-        let (token, user_key) = self.get_credentials()?;
+        let (token, user_key) = self.get_credentials().await?;
 
         let mut form = reqwest::multipart::Form::new()
             .text("token", token)
