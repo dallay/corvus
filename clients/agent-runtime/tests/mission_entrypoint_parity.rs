@@ -91,6 +91,7 @@ impl Tool for ParityTool {
             success: true,
             output: "ok".to_string(),
             error: None,
+            structured: None,
         })
     }
 }

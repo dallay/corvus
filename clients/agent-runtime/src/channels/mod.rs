@@ -2023,6 +2023,7 @@ mod tests {
                     success: false,
                     output: String::new(),
                     error: Some("unexpected symbol".to_string()),
+                    structured: None,
                 });
             }
 
@@ -2030,6 +2031,7 @@ mod tests {
                 success: true,
                 output: r#"{"symbol":"BTC","price_usd":65000}"#.to_string(),
                 error: None,
+                structured: None,
             })
         }
     }

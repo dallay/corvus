@@ -166,6 +166,7 @@ impl Observer for PrometheusObserver {
             }
             ObserverEvent::ToolCallStart { tool: _ }
             | ObserverEvent::TurnComplete
+            | ObserverEvent::CodeSessionCompleted { .. }
             | ObserverEvent::LlmRequest { .. }
             | ObserverEvent::LlmResponse { .. }
             | ObserverEvent::MissionStarted { .. }
@@ -282,6 +283,17 @@ mod tests {
         obs.record_event(&ObserverEvent::Error {
             component: "provider".into(),
             message: "timeout".into(),
+        });
+        obs.record_event(&ObserverEvent::CodeSessionCompleted {
+            session_id: "sess-1".into(),
+            status: "completed".into(),
+            summary: "Updated tests".into(),
+            changed_files: vec!["src/lib.rs".into()],
+            commands: vec!["cargo test".into()],
+            validations: vec!["pass:cargo test".into()],
+            blockers: vec![],
+            pending_work: vec![],
+            delegated: false,
         });
     }
 

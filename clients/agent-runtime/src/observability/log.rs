@@ -1,4 +1,4 @@
-use super::traits::{Observer, ObserverEvent, ObserverMetric};
+use super::traits::{redact_observer_payload, Observer, ObserverEvent, ObserverMetric};
 use std::any::Any;
 use tracing::info;
 
@@ -40,6 +40,30 @@ impl Observer for LogObserver {
             }
             ObserverEvent::TurnComplete => {
                 info!("turn.complete");
+            }
+            ObserverEvent::CodeSessionCompleted {
+                session_id,
+                status,
+                summary,
+                changed_files,
+                commands,
+                validations,
+                blockers,
+                pending_work,
+                delegated,
+            } => {
+                info!(
+                    session_id = %session_id,
+                    status = %status,
+                    summary = %redact_observer_payload(summary),
+                    files = changed_files.len(),
+                    commands = commands.len(),
+                    validations = validations.len(),
+                    blockers = blockers.len(),
+                    pending_work = pending_work.len(),
+                    delegated = delegated,
+                    "code_session.completed"
+                );
             }
             ObserverEvent::ChannelMessage { channel, direction } => {
                 info!(channel = %channel, direction = %direction, "channel.message");
@@ -226,6 +250,17 @@ mod tests {
         obs.record_event(&ObserverEvent::Error {
             component: "provider".into(),
             message: "timeout".into(),
+        });
+        obs.record_event(&ObserverEvent::CodeSessionCompleted {
+            session_id: "sess-1".into(),
+            status: "completed".into(),
+            summary: "Updated tests".into(),
+            changed_files: vec!["src/lib.rs".into()],
+            commands: vec!["cargo test".into()],
+            validations: vec!["pass:cargo test".into()],
+            blockers: vec![],
+            pending_work: vec![],
+            delegated: false,
         });
     }
 

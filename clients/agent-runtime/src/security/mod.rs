@@ -13,7 +13,7 @@ pub mod secrets;
 pub mod traits;
 
 #[allow(unused_imports)]
-pub use audit::{AuditEvent, AuditEventType, AuditLogger};
+pub use audit::{AuditEvent, AuditEventType, AuditLogger, CodeSessionAuditLog};
 #[allow(unused_imports)]
 pub use detect::create_sandbox;
 #[allow(unused_imports)]

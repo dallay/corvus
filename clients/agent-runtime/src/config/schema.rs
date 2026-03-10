@@ -134,10 +134,95 @@ pub struct DelegateAgentConfig {
     /// Max recursion depth for nested delegation
     #[serde(default = "default_max_depth")]
     pub max_depth: u32,
+    /// Execution mode for delegated sessions.
+    #[serde(default)]
+    pub execution_mode: DelegateExecutionMode,
+    /// Max tool iterations override for delegated sessions (None = inherit from agent config).
+    #[serde(default)]
+    pub max_iterations: Option<usize>,
+    /// Max wall-clock time in milliseconds for delegated sessions (None = no override).
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
 }
 
 fn default_max_depth() -> u32 {
     3
+}
+
+// ── Code Session Config ──────────────────────────────────────────
+
+/// How a delegate agent executes its session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DelegateExecutionMode {
+    /// Single LLM call, no tool loop (one-shot).
+    #[default]
+    OneShot,
+    /// Full agent loop with tool iteration (session).
+    Session,
+}
+
+/// Configuration for a validation command run after code changes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ValidationCommandConfig {
+    /// Shell command to run (e.g. "cargo test").
+    pub command: String,
+    /// Whether this validation step is required to pass.
+    #[serde(default = "default_true")]
+    pub required: bool,
+    /// Maximum time in milliseconds to wait for the command.
+    #[serde(default = "default_validation_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+fn default_validation_timeout_ms() -> u64 {
+    60_000
+}
+
+impl Default for ValidationCommandConfig {
+    fn default() -> Self {
+        Self {
+            command: String::new(),
+            required: true,
+            timeout_ms: default_validation_timeout_ms(),
+        }
+    }
+}
+
+/// Configuration for the code-session capability.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CodeSessionConfig {
+    /// Whether code-session mode is enabled.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Validation commands to run after changes (e.g. build, test, lint).
+    #[serde(default)]
+    pub validation_commands: Vec<ValidationCommandConfig>,
+    /// Maximum tool iterations for a code session (overrides agent.max_tool_iterations).
+    #[serde(default = "default_code_session_max_iterations")]
+    pub max_iterations: usize,
+    /// Maximum wall-clock time in milliseconds for a code session.
+    #[serde(default = "default_code_session_timeout_ms")]
+    pub timeout_ms: u64,
+}
+
+fn default_code_session_max_iterations() -> usize {
+    50
+}
+
+fn default_code_session_timeout_ms() -> u64 {
+    600_000
+}
+
+impl Default for CodeSessionConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            validation_commands: Vec::new(),
+            max_iterations: default_code_session_max_iterations(),
+            timeout_ms: default_code_session_timeout_ms(),
+        }
+    }
 }
 
 // ── Hardware Config (wizard-driven) ─────────────────────────────
@@ -227,6 +312,9 @@ pub struct AgentConfig {
     pub parallel_tools: bool,
     #[serde(default = "default_agent_tool_dispatcher")]
     pub tool_dispatcher: String,
+    /// Code-session specific configuration.
+    #[serde(default)]
+    pub code_session: CodeSessionConfig,
 }
 
 fn default_agent_max_tool_iterations() -> usize {
@@ -261,6 +349,7 @@ impl Default for AgentConfig {
             max_history_messages: default_agent_max_history_messages(),
             parallel_tools: false,
             tool_dispatcher: default_agent_tool_dispatcher(),
+            code_session: CodeSessionConfig::default(),
         }
     }
 }
@@ -3410,6 +3499,9 @@ tool_dispatcher = "xml"
                 api_key: Some("agent-credential".into()),
                 temperature: None,
                 max_depth: 3,
+                execution_mode: DelegateExecutionMode::default(),
+                max_iterations: None,
+                timeout_ms: None,
             },
         );
 
@@ -5013,6 +5105,9 @@ default_model = "legacy-model"
             api_key: None,
             temperature: None,
             max_depth: default_max_depth(),
+            execution_mode: DelegateExecutionMode::default(),
+            max_iterations: None,
+            timeout_ms: None,
         };
         assert_eq!(delegate.max_depth, 3);
     }
@@ -5110,6 +5205,9 @@ default_model = "legacy-model"
             api_key: Some("sk-test".to_string()),
             temperature: Some(0.5),
             max_depth: 2,
+            execution_mode: DelegateExecutionMode::default(),
+            max_iterations: None,
+            timeout_ms: None,
         };
         let json = serde_json::to_string(&delegate).unwrap();
         let parsed: DelegateAgentConfig = serde_json::from_str(&json).unwrap();
@@ -5143,5 +5241,115 @@ default_model = "legacy-model"
         assert_eq!(rule.min_length, None);
         assert_eq!(rule.max_length, None);
         assert_eq!(rule.priority, 0);
+    }
+
+    // ── Phase 1.1: CodeSessionConfig / ValidationCommandConfig / DelegateExecutionMode ──
+
+    #[test]
+    fn code_session_config_default_values() {
+        let cfg = CodeSessionConfig::default();
+        assert!(!cfg.enabled);
+        assert!(cfg.validation_commands.is_empty());
+        assert_eq!(cfg.max_iterations, 50);
+        assert_eq!(cfg.timeout_ms, 600_000);
+    }
+
+    #[test]
+    fn validation_command_config_required_defaults_to_true() {
+        let cmd = ValidationCommandConfig {
+            command: "cargo test".into(),
+            ..ValidationCommandConfig::default()
+        };
+        assert!(cmd.required, "required must default to true");
+        assert_eq!(cmd.timeout_ms, 60_000);
+    }
+
+    #[test]
+    fn validation_command_config_toml_roundtrip() {
+        let toml_str = r#"
+            command = "cargo clippy"
+            required = false
+            timeout_ms = 30000
+        "#;
+        let parsed: ValidationCommandConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(parsed.command, "cargo clippy");
+        assert!(!parsed.required);
+        assert_eq!(parsed.timeout_ms, 30_000);
+
+        let back = toml::to_string(&parsed).unwrap();
+        let reparsed: ValidationCommandConfig = toml::from_str(&back).unwrap();
+        assert_eq!(reparsed.command, parsed.command);
+        assert_eq!(reparsed.required, parsed.required);
+        assert_eq!(reparsed.timeout_ms, parsed.timeout_ms);
+    }
+
+    #[test]
+    fn delegate_execution_mode_defaults_to_one_shot() {
+        let mode = DelegateExecutionMode::default();
+        assert_eq!(mode, DelegateExecutionMode::OneShot);
+    }
+
+    #[test]
+    fn delegate_execution_mode_toml_roundtrip() {
+        #[derive(Debug, Serialize, Deserialize)]
+        struct Wrapper {
+            mode: DelegateExecutionMode,
+        }
+
+        let session: Wrapper = toml::from_str(r#"mode = "session""#).unwrap();
+        assert_eq!(session.mode, DelegateExecutionMode::Session);
+
+        let one_shot: Wrapper = toml::from_str(r#"mode = "one_shot""#).unwrap();
+        assert_eq!(one_shot.mode, DelegateExecutionMode::OneShot);
+
+        let back = toml::to_string(&session).unwrap();
+        let reparsed: Wrapper = toml::from_str(&back).unwrap();
+        assert_eq!(reparsed.mode, DelegateExecutionMode::Session);
+    }
+
+    #[test]
+    fn delegate_agent_config_new_fields_have_safe_defaults() {
+        let toml_str = r#"
+            provider = "anthropic"
+            model = "claude-3-5-haiku"
+        "#;
+        let cfg: DelegateAgentConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(cfg.execution_mode, DelegateExecutionMode::OneShot);
+        assert_eq!(cfg.max_iterations, None);
+        assert_eq!(cfg.timeout_ms, None);
+        assert_eq!(cfg.max_depth, 3);
+    }
+
+    #[test]
+    fn agent_config_includes_code_session_with_defaults() {
+        let cfg = AgentConfig::default();
+        assert!(!cfg.code_session.enabled);
+        assert!(cfg.code_session.validation_commands.is_empty());
+        assert_eq!(cfg.code_session.max_iterations, 50);
+        assert_eq!(cfg.code_session.timeout_ms, 600_000);
+    }
+
+    #[test]
+    fn agent_config_code_session_deserializes_from_toml() {
+        let toml_str = r#"
+            [code_session]
+            enabled = true
+            max_iterations = 30
+            timeout_ms = 120000
+
+            [[code_session.validation_commands]]
+            command = "cargo test"
+            required = true
+        "#;
+        let cfg: AgentConfig = toml::from_str(toml_str).unwrap();
+        assert!(cfg.code_session.enabled);
+        assert_eq!(cfg.code_session.max_iterations, 30);
+        assert_eq!(cfg.code_session.timeout_ms, 120_000);
+        assert_eq!(cfg.code_session.validation_commands.len(), 1);
+        assert_eq!(
+            cfg.code_session.validation_commands[0].command,
+            "cargo test"
+        );
+        assert!(cfg.code_session.validation_commands[0].required);
     }
 }

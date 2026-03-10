@@ -1,5 +1,35 @@
+//! # Delegate Tool
+//!
+//! Delegates a subtask to a named sub-agent configured in `config.agents`.
+//!
+//! ## Execution Modes
+//!
+//! - **OneShot** (default): A single LLM call via provider. No tool loop.
+//! - **Session**: Launches a bounded child `Agent` in code mode with full tool iteration.
+//!   The child agent runs until it emits a `FINAL RESULT` block, hits the iteration budget,
+//!   or times out.
+//!
+//! ## Security Boundary
+//!
+//! Child sessions run through the same `SecurityPolicy` stack as direct sessions.
+//! There is no bypass path for delegated sessions — the child `Agent` is bootstrapped
+//! via `Agent::code_from_config` which applies the same policy defaults.
+//!
+//! ## Rollback
+//!
+//! To revert Session mode: remove the `DelegateExecutionMode::Session` branch in
+//! `execute()` and the `run_session()` helper. The `OneShot` path is unmodified and
+//! fully backward-compatible.
+//!
+//! ## Config Inheritance
+//!
+//! Child sessions clone the parent `Config` and apply overrides from `DelegateAgentConfig`,
+//! preserving policy, workspace, and audit settings.
+
 use super::traits::{Tool, ToolResult};
-use crate::config::DelegateAgentConfig;
+use crate::agent::code_session::{CodeSessionResult, CodeSessionStatus};
+use crate::agent::Agent;
+use crate::config::{Config, DelegateAgentConfig, DelegateExecutionMode};
 use crate::providers::{self, Provider};
 use crate::security::policy::ToolOperation;
 use crate::security::SecurityPolicy;
@@ -23,6 +53,7 @@ pub struct DelegateTool {
     fallback_credential: Option<String>,
     /// Depth at which this tool instance lives in the delegation chain.
     depth: u32,
+    base_config: Arc<Config>,
 }
 
 impl DelegateTool {
@@ -30,12 +61,14 @@ impl DelegateTool {
         agents: HashMap<String, DelegateAgentConfig>,
         fallback_credential: Option<String>,
         security: Arc<SecurityPolicy>,
+        base_config: Arc<Config>,
     ) -> Self {
         Self {
             agents: Arc::new(agents),
             security,
             fallback_credential,
             depth: 0,
+            base_config,
         }
     }
 
@@ -47,13 +80,152 @@ impl DelegateTool {
         fallback_credential: Option<String>,
         security: Arc<SecurityPolicy>,
         depth: u32,
+        base_config: Arc<Config>,
     ) -> Self {
         Self {
             agents: Arc::new(agents),
             security,
             fallback_credential,
             depth,
+            base_config,
         }
+    }
+
+    /// Run a delegated sub-agent in Session (full tool-loop) mode.
+    ///
+    /// Constructs a child `Agent` via `Agent::code_from_config`, applies
+    /// overrides from `agent_config`, and runs a single `turn()`. The
+    /// agent output is parsed via `CodeSessionResult::parse_from_output`
+    /// and returned as a structured `ToolResult`.
+    async fn run_session(
+        &self,
+        agent_name: &str,
+        agent_config: &DelegateAgentConfig,
+        full_prompt: &str,
+    ) -> anyhow::Result<ToolResult> {
+        let session_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis()
+            .to_string();
+
+        // Build a Config that the child agent can bootstrap from.
+        // Start from defaults and apply delegate-specific overrides.
+        let mut config = (*self.base_config).clone();
+        config.default_provider = Some(agent_config.provider.clone());
+        config.default_model = Some(agent_config.model.clone());
+        config.agent.profile = "code".to_string();
+        config.agent.code_session.enabled = true;
+        if let Some(iterations) = agent_config.max_iterations {
+            config.agent.max_tool_iterations = iterations;
+            config.agent.code_session.max_iterations = iterations;
+        }
+        if let Some(key) = &agent_config.api_key {
+            config.api_key = Some(key.clone());
+        } else if let Some(key) = &self.fallback_credential {
+            config.api_key = Some(key.clone());
+        }
+
+        let mut agent = match Agent::code_from_config_with_delegated(&config, true) {
+            Ok(a) => a,
+            Err(e) => {
+                let mut result = CodeSessionResult::from_error(
+                    &session_id,
+                    CodeSessionStatus::Error,
+                    format!(
+                        "Failed to create provider '{}' for agent '{agent_name}' session: {e}",
+                        agent_config.provider
+                    ),
+                );
+                result.blockers.push(format!("provider init failed: {e}"));
+                let rendered = result.render();
+                return Ok(ToolResult {
+                    success: false,
+                    output: format!(
+                        "[Agent '{agent_name}' session ({provider}/{model})]\n{rendered}",
+                        provider = agent_config.provider,
+                        model = agent_config.model,
+                    ),
+                    error: Some(format!(
+                        "Failed to create provider '{}' for agent '{agent_name}' session: {e}",
+                        agent_config.provider
+                    )),
+                    structured: Some(result.to_structured()),
+                });
+            }
+        };
+
+        let timeout_secs = agent_config
+            .timeout_ms
+            .map(|ms| ms / 1000)
+            .or_else(|| Some(config.agent.code_session.timeout_ms / 1000))
+            .unwrap_or(DELEGATE_TIMEOUT_SECS);
+
+        let agent_output =
+            tokio::time::timeout(Duration::from_secs(timeout_secs), agent.turn(full_prompt)).await;
+
+        let (result, error) = match agent_output {
+            Ok(Ok(output)) => (
+                CodeSessionResult::parse_from_output(&output, &session_id),
+                None,
+            ),
+            Ok(Err(e)) => {
+                let error_text = e.to_string();
+                let status = if error_text.contains("maximum tool iterations")
+                    || error_text.contains("iteration budget")
+                    || error_text.contains("timeout")
+                {
+                    CodeSessionStatus::BudgetExceeded
+                } else if error_text.contains("approval") || error_text.contains("blocked") {
+                    CodeSessionStatus::Blocked
+                } else {
+                    CodeSessionStatus::Error
+                };
+                let mut result = CodeSessionResult::from_error(
+                    &session_id,
+                    status,
+                    format!("Agent '{agent_name}' session failed: {error_text}"),
+                );
+                result
+                    .blockers
+                    .push(format!("session failed: {error_text}"));
+                (
+                    result,
+                    Some(format!("Agent '{agent_name}' session failed: {e}")),
+                )
+            }
+            Err(_elapsed) => {
+                let mut result = CodeSessionResult::from_error(
+                    &session_id,
+                    CodeSessionStatus::BudgetExceeded,
+                    format!("Agent '{agent_name}' session timed out after {timeout_secs}s"),
+                );
+                result
+                    .blockers
+                    .push("timeout exceeded before completion".to_string());
+                (
+                    result,
+                    Some(format!(
+                        "Agent '{agent_name}' session timed out after {timeout_secs}s"
+                    )),
+                )
+            }
+        };
+
+        let success = result.is_success();
+        let rendered = result.render();
+        let structured = Some(result.to_structured());
+
+        Ok(ToolResult {
+            success,
+            output: format!(
+                "[Agent '{agent_name}' session ({provider}/{model})]\n{rendered}",
+                provider = agent_config.provider,
+                model = agent_config.model,
+            ),
+            error,
+            structured,
+        })
     }
 }
 
@@ -113,6 +285,7 @@ impl Tool for DelegateTool {
                 success: false,
                 output: String::new(),
                 error: Some("'agent' parameter must not be empty".into()),
+                structured: None,
             });
         }
 
@@ -127,6 +300,7 @@ impl Tool for DelegateTool {
                 success: false,
                 output: String::new(),
                 error: Some("'prompt' parameter must not be empty".into()),
+                structured: None,
             });
         }
 
@@ -153,6 +327,7 @@ impl Tool for DelegateTool {
                             available.join(", ")
                         }
                     )),
+                    structured: None,
                 });
             }
         };
@@ -168,6 +343,7 @@ impl Tool for DelegateTool {
                     depth = self.depth,
                     max = agent_config.max_depth
                 )),
+                structured: None,
             });
         }
 
@@ -179,6 +355,7 @@ impl Tool for DelegateTool {
                 success: false,
                 output: String::new(),
                 error: Some(error),
+                structured: None,
             });
         }
 
@@ -201,6 +378,7 @@ impl Tool for DelegateTool {
                             "Failed to create provider '{}' for agent '{agent_name}': {e}",
                             agent_config.provider
                         )),
+                        structured: None,
                     });
                 }
             };
@@ -211,6 +389,13 @@ impl Tool for DelegateTool {
         } else {
             format!("[Context]\n{context}\n\n[Task]\n{prompt}")
         };
+
+        // Dispatch to Session or OneShot based on the agent's execution_mode
+        if agent_config.execution_mode == DelegateExecutionMode::Session {
+            return self
+                .run_session(agent_name, agent_config, &full_prompt)
+                .await;
+        }
 
         let temperature = agent_config.temperature.unwrap_or(0.7);
 
@@ -235,6 +420,7 @@ impl Tool for DelegateTool {
                     error: Some(format!(
                         "Agent '{agent_name}' timed out after {DELEGATE_TIMEOUT_SECS}s"
                     )),
+                    structured: None,
                 });
             }
         };
@@ -254,12 +440,14 @@ impl Tool for DelegateTool {
                         model = agent_config.model
                     ),
                     error: None,
+                    structured: None,
                 })
             }
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(format!("Agent '{agent_name}' failed: {e}",)),
+                structured: None,
             }),
         }
     }
@@ -268,10 +456,18 @@ impl Tool for DelegateTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{Config, DelegateExecutionMode};
     use crate::security::{AutonomyLevel, SecurityPolicy};
+    use tempfile::TempDir;
 
     fn test_security() -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy::default())
+    }
+
+    fn test_base_config(tmp: &TempDir) -> Arc<Config> {
+        let mut config = crate::test_support::test_config(tmp);
+        config.memory.backend = "none".to_string();
+        Arc::new(config)
     }
 
     fn sample_agents() -> HashMap<String, DelegateAgentConfig> {
@@ -285,6 +481,9 @@ mod tests {
                 api_key: None,
                 temperature: Some(0.3),
                 max_depth: 3,
+                execution_mode: DelegateExecutionMode::default(),
+                max_iterations: None,
+                timeout_ms: None,
             },
         );
         agents.insert(
@@ -296,6 +495,9 @@ mod tests {
                 api_key: Some("delegate-test-credential".to_string()),
                 temperature: None,
                 max_depth: 2,
+                execution_mode: DelegateExecutionMode::default(),
+                max_iterations: None,
+                timeout_ms: None,
             },
         );
         agents
@@ -303,7 +505,13 @@ mod tests {
 
     #[test]
     fn name_and_schema() {
-        let tool = DelegateTool::new(sample_agents(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            sample_agents(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         assert_eq!(tool.name(), "delegate");
         let schema = tool.parameters_schema();
         assert!(schema["properties"]["agent"].is_object());
@@ -319,13 +527,25 @@ mod tests {
 
     #[test]
     fn description_not_empty() {
-        let tool = DelegateTool::new(sample_agents(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            sample_agents(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         assert!(!tool.description().is_empty());
     }
 
     #[test]
     fn schema_lists_agent_names() {
-        let tool = DelegateTool::new(sample_agents(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            sample_agents(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         let schema = tool.parameters_schema();
         let desc = schema["properties"]["agent"]["description"]
             .as_str()
@@ -335,21 +555,39 @@ mod tests {
 
     #[tokio::test]
     async fn missing_agent_param() {
-        let tool = DelegateTool::new(sample_agents(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            sample_agents(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         let result = tool.execute(json!({"prompt": "test"})).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn missing_prompt_param() {
-        let tool = DelegateTool::new(sample_agents(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            sample_agents(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         let result = tool.execute(json!({"agent": "researcher"})).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn unknown_agent_returns_error() {
-        let tool = DelegateTool::new(sample_agents(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            sample_agents(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         let result = tool
             .execute(json!({"agent": "nonexistent", "prompt": "test"}))
             .await
@@ -360,7 +598,14 @@ mod tests {
 
     #[tokio::test]
     async fn depth_limit_enforced() {
-        let tool = DelegateTool::with_depth(sample_agents(), None, test_security(), 3);
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::with_depth(
+            sample_agents(),
+            None,
+            test_security(),
+            3,
+            test_base_config(&tmp),
+        );
         let result = tool
             .execute(json!({"agent": "researcher", "prompt": "test"}))
             .await
@@ -372,7 +617,14 @@ mod tests {
     #[tokio::test]
     async fn depth_limit_per_agent() {
         // coder has max_depth=2, so depth=2 should be blocked
-        let tool = DelegateTool::with_depth(sample_agents(), None, test_security(), 2);
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::with_depth(
+            sample_agents(),
+            None,
+            test_security(),
+            2,
+            test_base_config(&tmp),
+        );
         let result = tool
             .execute(json!({"agent": "coder", "prompt": "test"}))
             .await
@@ -383,7 +635,13 @@ mod tests {
 
     #[test]
     fn empty_agents_schema() {
-        let tool = DelegateTool::new(HashMap::new(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            HashMap::new(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         let schema = tool.parameters_schema();
         let desc = schema["properties"]["agent"]["description"]
             .as_str()
@@ -403,9 +661,13 @@ mod tests {
                 api_key: None,
                 temperature: None,
                 max_depth: 3,
+                execution_mode: DelegateExecutionMode::default(),
+                max_iterations: None,
+                timeout_ms: None,
             },
         );
-        let tool = DelegateTool::new(agents, None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(agents, None, test_security(), test_base_config(&tmp));
         let result = tool
             .execute(json!({"agent": "broken", "prompt": "test"}))
             .await
@@ -416,7 +678,13 @@ mod tests {
 
     #[tokio::test]
     async fn blank_agent_rejected() {
-        let tool = DelegateTool::new(sample_agents(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            sample_agents(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         let result = tool
             .execute(json!({"agent": "  ", "prompt": "test"}))
             .await
@@ -427,7 +695,13 @@ mod tests {
 
     #[tokio::test]
     async fn blank_prompt_rejected() {
-        let tool = DelegateTool::new(sample_agents(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            sample_agents(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         let result = tool
             .execute(json!({"agent": "researcher", "prompt": "  \t  "}))
             .await
@@ -438,7 +712,13 @@ mod tests {
 
     #[tokio::test]
     async fn whitespace_agent_name_trimmed_and_found() {
-        let tool = DelegateTool::new(sample_agents(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            sample_agents(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         // " researcher " with surrounding whitespace — after trim becomes "researcher"
         let result = tool
             .execute(json!({"agent": " researcher ", "prompt": "test"}))
@@ -462,7 +742,8 @@ mod tests {
             autonomy: AutonomyLevel::ReadOnly,
             ..SecurityPolicy::default()
         });
-        let tool = DelegateTool::new(sample_agents(), None, readonly);
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(sample_agents(), None, readonly, test_base_config(&tmp));
         let result = tool
             .execute(json!({"agent": "researcher", "prompt": "test"}))
             .await
@@ -481,7 +762,8 @@ mod tests {
             max_actions_per_hour: 0,
             ..SecurityPolicy::default()
         });
-        let tool = DelegateTool::new(sample_agents(), None, limited);
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(sample_agents(), None, limited, test_base_config(&tmp));
         let result = tool
             .execute(json!({"agent": "researcher", "prompt": "test"}))
             .await
@@ -506,9 +788,13 @@ mod tests {
                 api_key: None,
                 temperature: None,
                 max_depth: 3,
+                execution_mode: DelegateExecutionMode::default(),
+                max_iterations: None,
+                timeout_ms: None,
             },
         );
-        let tool = DelegateTool::new(agents, None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(agents, None, test_security(), test_base_config(&tmp));
         let result = tool
             .execute(json!({
                 "agent": "tester",
@@ -538,9 +824,13 @@ mod tests {
                 api_key: None,
                 temperature: None,
                 max_depth: 3,
+                execution_mode: DelegateExecutionMode::default(),
+                max_iterations: None,
+                timeout_ms: None,
             },
         );
-        let tool = DelegateTool::new(agents, None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(agents, None, test_security(), test_base_config(&tmp));
         let result = tool
             .execute(json!({
                 "agent": "tester",
@@ -560,18 +850,242 @@ mod tests {
 
     #[test]
     fn delegate_depth_construction() {
-        let tool = DelegateTool::with_depth(sample_agents(), None, test_security(), 5);
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::with_depth(
+            sample_agents(),
+            None,
+            test_security(),
+            5,
+            test_base_config(&tmp),
+        );
         assert_eq!(tool.depth, 5);
     }
 
     #[tokio::test]
     async fn delegate_no_agents_configured() {
-        let tool = DelegateTool::new(HashMap::new(), None, test_security());
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(
+            HashMap::new(),
+            None,
+            test_security(),
+            test_base_config(&tmp),
+        );
         let result = tool
             .execute(json!({"agent": "any", "prompt": "test"}))
             .await
             .unwrap();
         assert!(!result.success);
         assert!(result.error.unwrap().contains("none configured"));
+    }
+
+    // ── Task 3.1: Session mode RED tests ──────────────────────────
+
+    /// Session mode agent with an invalid provider must return a graceful error
+    /// (not panic) before any agent loop is entered.
+    #[tokio::test]
+    async fn session_mode_invalid_provider_returns_error() {
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "totally-invalid-provider".to_string(),
+                model: "model".to_string(),
+                system_prompt: None,
+                api_key: None,
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: None,
+                timeout_ms: None,
+            },
+        );
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(agents, None, test_security(), test_base_config(&tmp));
+        let result = tool
+            .execute(json!({"agent": "code_agent", "prompt": "write tests"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        // Must fail at provider/config level — not at "Unknown agent"
+        assert!(
+            result
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("Failed to create provider")
+                || result.error.as_deref().unwrap_or("").contains("session")
+                || result.error.as_deref().unwrap_or("").contains("provider")
+                || result.error.as_deref().unwrap_or("").contains("config"),
+            "unexpected error: {:?}",
+            result.error
+        );
+    }
+
+    /// Session mode must be blocked in read-only security policy (same as OneShot).
+    #[tokio::test]
+    async fn session_mode_blocked_in_readonly_policy() {
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "openrouter".to_string(),
+                model: "anthropic/claude-sonnet-4-20250514".to_string(),
+                system_prompt: None,
+                api_key: Some("test-key".to_string()),
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: None,
+                timeout_ms: None,
+            },
+        );
+        let readonly = Arc::new(SecurityPolicy {
+            autonomy: crate::security::AutonomyLevel::ReadOnly,
+            ..SecurityPolicy::default()
+        });
+        let tmp = TempDir::new().unwrap();
+        let tool = DelegateTool::new(agents, None, readonly, test_base_config(&tmp));
+        let result = tool
+            .execute(json!({"agent": "code_agent", "prompt": "write tests"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(
+            result
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("read-only mode"),
+            "expected read-only error, got: {:?}",
+            result.error
+        );
+    }
+
+    /// Session mode must respect the depth limit (same as OneShot).
+    #[tokio::test]
+    async fn session_mode_respects_depth_limit() {
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "openrouter".to_string(),
+                model: "anthropic/claude-sonnet-4-20250514".to_string(),
+                system_prompt: None,
+                api_key: Some("test-key".to_string()),
+                temperature: None,
+                max_depth: 2,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: None,
+                timeout_ms: None,
+            },
+        );
+        // depth=2 equals max_depth=2, so it is at the limit and must be blocked
+        let tmp = TempDir::new().unwrap();
+        let tool =
+            DelegateTool::with_depth(agents, None, test_security(), 2, test_base_config(&tmp));
+        let result = tool
+            .execute(json!({"agent": "code_agent", "prompt": "write tests"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(
+            result
+                .error
+                .as_deref()
+                .unwrap_or("")
+                .contains("depth limit"),
+            "expected depth limit error, got: {:?}",
+            result.error
+        );
+    }
+
+    /// Session mode hitting the iteration budget must return a structured non-success result.
+    #[tokio::test]
+    async fn session_mode_iteration_budget_returns_structured_result() {
+        let tmp = TempDir::new().unwrap();
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "ollama".to_string(),
+                model: "llama3".to_string(),
+                system_prompt: None,
+                api_key: None,
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: Some(0),
+                timeout_ms: Some(60_000),
+            },
+        );
+        let tool = DelegateTool::new(agents, None, test_security(), test_base_config(&tmp));
+        let result = tool
+            .execute(json!({"agent": "code_agent", "prompt": "write tests"}))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        let structured = result.structured.expect("structured result");
+        assert_eq!(structured["status"], "budget_exceeded");
+        let blockers = structured["blockers"].as_array().unwrap();
+        assert!(blockers
+            .iter()
+            .any(|b| { b.as_str().unwrap_or("").contains("maximum tool iterations") }));
+    }
+
+    /// Session mode timeout must return a structured non-success result.
+    #[tokio::test]
+    async fn session_mode_timeout_returns_structured_result() {
+        let tmp = TempDir::new().unwrap();
+        let mut agents = HashMap::new();
+        agents.insert(
+            "code_agent".to_string(),
+            DelegateAgentConfig {
+                provider: "ollama".to_string(),
+                model: "llama3".to_string(),
+                system_prompt: None,
+                api_key: None,
+                temperature: None,
+                max_depth: 3,
+                execution_mode: DelegateExecutionMode::Session,
+                max_iterations: Some(1),
+                timeout_ms: Some(0),
+            },
+        );
+        let tool = DelegateTool::new(agents, None, test_security(), test_base_config(&tmp));
+        let result = tool
+            .execute(json!({"agent": "code_agent", "prompt": "write tests"}))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        let structured = result.structured.expect("structured result");
+        assert_eq!(structured["status"], "budget_exceeded");
+        let blockers = structured["blockers"].as_array().unwrap();
+        assert!(blockers.iter().any(|b| {
+            b.as_str().unwrap_or("").contains("timeout")
+                || b.as_str().unwrap_or("").contains("timeout exceeded")
+        }));
+    }
+
+    /// A `DelegateAgentConfig` with `execution_mode: Session` must not be confused
+    /// with `OneShot` — verify the config field round-trips correctly.
+    #[test]
+    fn session_mode_config_field_is_session() {
+        let cfg = DelegateAgentConfig {
+            provider: "openrouter".to_string(),
+            model: "anthropic/claude-sonnet-4-20250514".to_string(),
+            system_prompt: None,
+            api_key: None,
+            temperature: None,
+            max_depth: 3,
+            execution_mode: DelegateExecutionMode::Session,
+            max_iterations: Some(10),
+            timeout_ms: Some(30_000),
+        };
+        assert_eq!(cfg.execution_mode, DelegateExecutionMode::Session);
+        assert_ne!(cfg.execution_mode, DelegateExecutionMode::OneShot);
+        assert_eq!(cfg.max_iterations, Some(10));
+        assert_eq!(cfg.timeout_ms, Some(30_000));
     }
 }

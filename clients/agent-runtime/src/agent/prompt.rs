@@ -18,6 +18,8 @@ pub struct PromptContext<'a> {
     pub identity_config: Option<&'a IdentityConfig>,
     pub dispatcher_instructions: &'a str,
     pub bootstrap_max_chars: Option<usize>,
+    /// Whether this session is running in explicit code-specialist mode.
+    pub code_mode: bool,
 }
 
 pub trait PromptSection: Send + Sync {
@@ -41,6 +43,7 @@ impl SystemPromptBuilder {
                 Box::new(WorkspaceSection),
                 Box::new(DateTimeSection),
                 Box::new(RuntimeSection),
+                Box::new(CodeSpecialistSection),
             ],
         }
     }
@@ -71,6 +74,7 @@ pub struct SkillsSection;
 pub struct WorkspaceSection;
 pub struct RuntimeSection;
 pub struct DateTimeSection;
+pub struct CodeSpecialistSection;
 
 impl PromptSection for IdentitySection {
     fn name(&self) -> &str {
@@ -157,6 +161,41 @@ impl PromptSection for DateTimeSection {
 
     fn build(&self, _ctx: &PromptContext<'_>) -> Result<String> {
         Ok(render_datetime_section())
+    }
+}
+
+impl PromptSection for CodeSpecialistSection {
+    fn name(&self) -> &str {
+        "code_specialist"
+    }
+
+    fn build(&self, ctx: &PromptContext<'_>) -> Result<String> {
+        if !ctx.code_mode {
+            return Ok(String::new());
+        }
+        Ok(
+            "## CODE-SPECIALIST SESSION\n\n\
+            You are operating as a code-specialist agent. Follow this workflow strictly:\n\n\
+            1. **Inspect** — read and understand relevant files before making changes\n\
+            2. **Plan** — identify the minimal set of edits required\n\
+            3. **Edit** — apply targeted changes using available file tools\n\
+            4. **Verify** — run configured validation commands (fmt, lint, test) to confirm correctness\n\
+            5. **Report** — emit a structured FINAL RESULT when the task is complete or blocked\n\n\
+            ### FINAL RESULT format\n\n\
+            When you have finished your work (or cannot proceed), output this exact block:\n\n\
+            ```\n\
+            FINAL RESULT\n\
+            status: completed|completed_with_warnings|blocked|failed\n\
+            summary: <one sentence>\n\
+            changed_files: [file1, file2] or []\n\
+            commands_run: [cmd1, cmd2] or []\n\
+            validations: [pass:cmd, fail:cmd] or []\n\
+            blockers: [reason] or []\n\
+            pending_work: [item] or []\n\
+            ```\n\n\
+            Do not omit this block. It is required for structured session output."
+                .to_string(),
+        )
     }
 }
 
@@ -343,6 +382,7 @@ mod tests {
                 success: true,
                 output: "ok".into(),
                 error: None,
+                structured: None,
             })
         }
     }
@@ -358,10 +398,56 @@ mod tests {
             identity_config: None,
             dispatcher_instructions: "instr",
             bootstrap_max_chars: None,
+            code_mode: false,
         };
         let prompt = SystemPromptBuilder::with_defaults().build(&ctx).unwrap();
         assert!(prompt.contains("## Tools"));
         assert!(prompt.contains("test_tool"));
         assert!(prompt.contains("instr"));
+    }
+
+    #[test]
+    fn code_mode_section_included_when_active() {
+        let tools: Vec<Box<dyn Tool>> = vec![];
+        let ctx = PromptContext {
+            workspace_dir: Path::new("/workspace"),
+            model_name: "test-model",
+            tools: &tools,
+            skills: &[],
+            identity_config: None,
+            dispatcher_instructions: "",
+            bootstrap_max_chars: None,
+            code_mode: true,
+        };
+        let builder = SystemPromptBuilder::with_defaults();
+        let prompt = builder.build(&ctx).unwrap();
+        assert!(
+            prompt.contains("inspect")
+                || prompt.contains("code-specialist")
+                || prompt.contains("FINAL RESULT"),
+            "Expected code-specialist guidance in prompt, got: {prompt}"
+        );
+    }
+
+    #[test]
+    fn code_mode_section_absent_when_not_active() {
+        let tools: Vec<Box<dyn Tool>> = vec![];
+        let ctx = PromptContext {
+            workspace_dir: Path::new("/workspace"),
+            model_name: "test-model",
+            tools: &tools,
+            skills: &[],
+            identity_config: None,
+            dispatcher_instructions: "",
+            bootstrap_max_chars: None,
+            code_mode: false,
+        };
+        let builder = SystemPromptBuilder::with_defaults();
+        let prompt = builder.build(&ctx).unwrap();
+        // The code section header should not appear in a generic session
+        assert!(
+            !prompt.contains("CODE-SPECIALIST SESSION"),
+            "Code section must not appear in generic mode"
+        );
     }
 }

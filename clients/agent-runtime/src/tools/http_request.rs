@@ -240,6 +240,7 @@ fn tool_error_result(error: String) -> ToolResult {
         success: false,
         output: String::new(),
         error: Some(error),
+        structured: None,
     }
 }
 
@@ -362,6 +363,7 @@ impl Tool for HttpRequestTool {
                     } else {
                         None
                     },
+                    structured: None,
                 })
             }
             Err(e) => Ok(tool_error_result(format!("HTTP request failed: {e}"))),

@@ -270,7 +270,8 @@ private fun ChatPanel(
       modifier = Modifier.fillMaxSize().padding(12.dp),
       verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-      items(items = messages, key = { it.id }) { message ->
+      // Performance: contentType helps LazyColumn reuse item slots efficiently.
+      items(items = messages, key = { it.id }, contentType = { it.role }) { message ->
         ChatBubble(message = message, modelName = state.modelName)
       }
     }

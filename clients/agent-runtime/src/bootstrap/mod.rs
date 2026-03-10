@@ -260,7 +260,7 @@ pub fn create_memory_and_observer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::DelegateAgentConfig;
+    use crate::config::{DelegateAgentConfig, DelegateExecutionMode};
     use crate::test_support::{mock_mcp_server, test_config};
     use std::collections::HashSet;
 
@@ -342,6 +342,9 @@ mod tests {
                 api_key: None,
                 temperature: None,
                 max_depth: 3,
+                execution_mode: DelegateExecutionMode::default(),
+                max_iterations: None,
+                timeout_ms: None,
             },
         );
 

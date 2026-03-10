@@ -271,6 +271,29 @@ impl Observer for OtelObserver {
                 // Note: tokens are recorded via record_metric(TokensUsed) to avoid
                 // double-counting. AgentEnd only records duration.
             }
+            ObserverEvent::CodeSessionCompleted {
+                status,
+                changed_files,
+                commands,
+                validations,
+                blockers,
+                delegated,
+                ..
+            } => {
+                let mut span = tracer.build(
+                    opentelemetry::trace::SpanBuilder::from_name("code_session.completed")
+                        .with_kind(SpanKind::Internal)
+                        .with_attributes(vec![
+                            KeyValue::new("status", status.clone()),
+                            KeyValue::new("delegated", delegated.to_string()),
+                            KeyValue::new("files", changed_files.len() as i64),
+                            KeyValue::new("commands", commands.len() as i64),
+                            KeyValue::new("validations", validations.len() as i64),
+                            KeyValue::new("blockers", blockers.len() as i64),
+                        ]),
+                );
+                span.end();
+            }
             ObserverEvent::ToolCall {
                 tool,
                 duration,
@@ -453,6 +476,17 @@ mod tests {
         obs.record_event(&ObserverEvent::Error {
             component: "provider".into(),
             message: "timeout".into(),
+        });
+        obs.record_event(&ObserverEvent::CodeSessionCompleted {
+            session_id: "sess-1".into(),
+            status: "completed".into(),
+            summary: "Updated tests".into(),
+            changed_files: vec!["src/lib.rs".into()],
+            commands: vec!["cargo test".into()],
+            validations: vec!["pass:cargo test".into()],
+            blockers: vec![],
+            pending_work: vec![],
+            delegated: false,
         });
     }
 

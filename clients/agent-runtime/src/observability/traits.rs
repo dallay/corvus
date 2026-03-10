@@ -61,6 +61,18 @@ pub enum ObserverEvent {
     },
     /// The agent produced a final answer for the current user message.
     TurnComplete,
+    /// A code-specialist session completed with structured output.
+    CodeSessionCompleted {
+        session_id: String,
+        status: String,
+        summary: String,
+        changed_files: Vec<String>,
+        commands: Vec<String>,
+        validations: Vec<String>,
+        blockers: Vec<String>,
+        pending_work: Vec<String>,
+        delegated: bool,
+    },
     ChannelMessage {
         channel: String,
         direction: String,
@@ -202,6 +214,47 @@ mod tests {
 
         assert!(matches!(cloned_event, ObserverEvent::ToolCall { .. }));
         assert!(matches!(cloned_metric, ObserverMetric::RequestLatency(_)));
+    }
+
+    #[test]
+    fn observer_event_code_session_completed_retains_fields() {
+        let event = ObserverEvent::CodeSessionCompleted {
+            session_id: "sess-123".into(),
+            status: "completed".into(),
+            summary: "Updated tests".into(),
+            changed_files: vec!["src/lib.rs".into()],
+            commands: vec!["cargo test".into()],
+            validations: vec!["pass:cargo test".into()],
+            blockers: vec![],
+            pending_work: vec!["follow-up".into()],
+            delegated: true,
+        };
+
+        let cloned = event.clone();
+        match cloned {
+            ObserverEvent::CodeSessionCompleted {
+                session_id,
+                status,
+                summary,
+                changed_files,
+                commands,
+                validations,
+                blockers,
+                pending_work,
+                delegated,
+            } => {
+                assert_eq!(session_id, "sess-123");
+                assert_eq!(status, "completed");
+                assert_eq!(summary, "Updated tests");
+                assert_eq!(changed_files, vec!["src/lib.rs".to_string()]);
+                assert_eq!(commands, vec!["cargo test".to_string()]);
+                assert_eq!(validations, vec!["pass:cargo test".to_string()]);
+                assert!(blockers.is_empty());
+                assert_eq!(pending_work, vec!["follow-up".to_string()]);
+                assert!(delegated);
+            }
+            _ => panic!("unexpected event variant"),
+        }
     }
 
     #[test]

@@ -195,6 +195,7 @@ impl BrowserTool {
             success: false,
             output: String::new(),
             error: Some(error.into()),
+            structured: None,
         }
     }
 
@@ -665,6 +666,7 @@ impl BrowserTool {
                 success: true,
                 output: serde_json::to_string_pretty(&output).unwrap_or_default(),
                 error: None,
+                structured: None,
             })
         }
 
@@ -812,6 +814,7 @@ impl BrowserTool {
                     success: true,
                     output,
                     error: None,
+                    structured: None,
                 });
             }
 
@@ -829,6 +832,7 @@ impl BrowserTool {
                 success: false,
                 output: String::new(),
                 error,
+                structured: None,
             });
         }
 
@@ -837,6 +841,7 @@ impl BrowserTool {
                 success: true,
                 output: body,
                 error: None,
+                structured: None,
             });
         }
 
@@ -847,6 +852,7 @@ impl BrowserTool {
                 "computer-use sidecar request failed with status {status}: {}",
                 body.trim()
             )),
+            structured: None,
         })
     }
 
@@ -875,12 +881,14 @@ impl BrowserTool {
                 success: true,
                 output,
                 error: None,
+                structured: None,
             })
         } else {
             Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: resp.error,
+                structured: None,
             })
         }
     }

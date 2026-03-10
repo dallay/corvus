@@ -14,12 +14,8 @@
 # Operating System Detection & Shell Normalization
 ifeq ($(OS),Windows_NT)
     DETECTED_OS := Windows
-    # Find bash.exe and convert to short path (8.3) to avoid space issues
-    SHELL_PATH := $(shell for /f "delims=" %i in ('where bash.exe 2^>NUL') do @(for %j in ("%i") do @echo %~sj & exit /b 0))
-    ifeq ($(SHELL_PATH),)
-        $(error ❌ A bash-compatible shell (Git Bash, WSL) is required on Windows.)
-    endif
-    SHELL := $(SHELL_PATH)
+    # Assume bash is available in PATH (validated in check-tools)
+    SHELL := bash
 else
     DETECTED_OS := $(shell uname -s 2>/dev/null || echo Unknown)
     SHELL := /bin/bash
@@ -89,42 +85,7 @@ h: help ## Alias for help
 # --- ENVIRONMENT & SETUP ---
 
 check-tools: ## Verify toolchain (Java 21, Node 22, pnpm 10, Rust 1.75)
-	@echo "🔍 Checking required tools and versions..."
-	@bash -ec ' \
-		require_cmd() { \
-			command -v "$$1" >/dev/null 2>&1 || { echo "$(RED)❌ Error: '\''$$1'\'' is not installed.$(SGR0)"; return 1; }; \
-		}; \
-		require_cmd java && require_cmd git && require_cmd node && require_cmd pnpm && require_cmd rustc && require_cmd cargo || exit 1; \
-		java_ver=$$(java -version 2>&1 | sed -nE '\''s/.*version \"([0-9]+).*/\1/p'\'' | head -n1); \
-		if [ -z "$$java_ver" ]; then java_ver=$$(java -version 2>&1 | head -n 1 | awk -F '\''"'\'' '\''{print $$2}'\'' | cut -d. -f1); fi; \
-		node_ver=$$(node -p "process.versions.node.split(\".\")[0]"); \
-		pnpm_ver=$$(pnpm --version | awk -F. '\''{print $$1}'\''); \
-		rust_full_ver=$$(rustc --version | awk '\''{print $$2}'\''); \
-		rust_major=$${rust_full_ver%%.*}; \
-		rust_minor_part=$${rust_full_ver#*.}; \
-		rust_minor=$${rust_minor_part%%.*}; \
-		if [ -z "$$java_ver" ] || [ "$$java_ver" -lt 21 ]; then \
-			echo "$(RED)❌ Error: JDK 21+ required. Found: $${java_ver:-unknown}$(SGR0)"; exit 1; \
-		fi; \
-		if [ "$$node_ver" -lt 22 ]; then \
-			echo "$(RED)❌ Error: Node.js 22+ required. Found: $$node_ver$(SGR0)"; exit 1; \
-		fi; \
-		if [ "$$pnpm_ver" -lt 10 ]; then \
-			echo "$(RED)❌ Error: pnpm 10+ required. Found: $$pnpm_ver$(SGR0)"; exit 1; \
-		fi; \
-		if [ "$$rust_major" -lt 1 ] || { [ "$$rust_major" -eq 1 ] && [ "$$rust_minor" -lt 75 ]; }; then \
-			echo "$(RED)❌ Error: Rust 1.75+ required. Found: $$rust_full_ver$(SGR0)"; exit 1; \
-		fi; \
-		if ! command -v docker >/dev/null 2>&1; then \
-			echo "$(YELLOW)⚠️  Docker is not installed (optional; required for sandbox/dev containers).$(SGR0)"; \
-		fi; \
-		if [ "$$(uname -s 2>/dev/null || echo unknown)" = "Darwin" ]; then \
-			if ! command -v xcodebuild >/dev/null 2>&1; then \
-				echo "$(YELLOW)⚠️  Xcode CLI tools not found (optional; required for iOS development).$(SGR0)"; \
-			fi; \
-		fi; \
-		echo "$(GREEN)✅ Toolchain OK: java=$$java_ver, node=$$node_ver, pnpm=$$pnpm_ver, rustc=$$rust_full_ver$(SGR0)"; \
-	'
+	@bash scripts/check-tools.sh
 
 setup: check-tools ## Initial project setup (agents, web deps, rust check)
 	@echo "🔧 $(BOLD)Setting up project...$(SGR0)"
@@ -133,6 +94,14 @@ setup: check-tools ## Initial project setup (agents, web deps, rust check)
 	@$(GRADLEW) $(WEB_MODULE):workspaceInstall
 	@$(GRADLEW) $(RUST_MODULE):cargoCheck -PenableRustTasks=true
 	@echo "$(GREEN)✅ Project setup complete!$(SGR0)"
+
+doctor: check-tools ## Diagnose dev environment and repo health
+	@echo "🩺 $(BOLD)Running diagnostics...$(SGR0)"
+	@if [ -f .gitmodules ]; then echo "✅ Git submodules detected"; else echo "ℹ️  No git submodules"; fi
+	@if command -v docker >/dev/null 2>&1; then docker --version; else echo "ℹ️  Docker not installed"; fi
+	@if command -v pnpm >/dev/null 2>&1; then pnpm --version; else echo "ℹ️  pnpm not installed"; fi
+	@if command -v rustup >/dev/null 2>&1; then rustup show active-toolchain; else echo "ℹ️  rustup not installed"; fi
+	@echo "$(GREEN)✅ Diagnostics complete$(SGR0)"
 
 sync-agents: ## Sync AI agent configurations (agentsync)
 	@$(GRADLEW) agentsyncApply
@@ -151,11 +120,11 @@ build-fast: ## Build skipping tests
 	@$(GRADLEW) build -x test
 
 clean: ## Clean build artifacts
-	@echo "🧹 $(BOLD)Cleaning build artifacts...$(SGR0)"
+	@echo "CLEAN: $(BOLD)Cleaning build artifacts...$(SGR0)"
 	@$(GRADLEW) clean
 
 clean-all: clean ## Deep clean including caches
-	@echo "🧹 $(BOLD)Wiping caches...$(SGR0)"
+	@echo "CLEAN: $(BOLD)Wiping caches...$(SGR0)"
 	@rm -rf .gradle
 	@echo "$(GREEN)✅ Clean complete$(SGR0)"
 
@@ -165,7 +134,7 @@ run: check-tools ## Run the desktop application
 	@echo "🚀 $(BOLD)Running application...$(SGR0)"
 	@$(GRADLEW) $(APP_MODULE):run
 
-dev: run ## Alias for run
+dev: setup run ## Setup + run (recommended local dev)
 
 # --- ANDROID ---
 
@@ -252,6 +221,12 @@ web-clean-all: ## Clean all web applications
 web-test-all: ## Run all web application tests
 	@$(GRADLEW) $(WEB_MODULE):testCoverageAllWebApps
 
+web-check-all: ## Run all web application checks
+	@$(GRADLEW) $(WEB_MODULE):docsCheck
+	@$(GRADLEW) $(WEB_MODULE):chatCheck
+	@$(GRADLEW) $(WEB_MODULE):dashboardCheck
+	@$(GRADLEW) $(WEB_MODULE):marketingCheck
+
 # --- QUALITY & LINTING ---
 
 format: ## Apply formatting (Spotless)
@@ -292,6 +267,10 @@ test-coverage: ## Run tests with Kover coverage report
 	@$(GRADLEW) koverHtmlReport
 	@echo "📊 Report: $(APP_MODULE)/build/reports/kover/html/index.html"
 
+test-all: test rust-test web-test-all ## Run all tests (Gradle + Rust + Web)
+
+check-all: check-format lint-all web-check-all test-all ## Full quality gate
+
 # --- DOCUMENTATION ---
 
 docs-code: ## Generate Kotlin documentation (Dokka)
@@ -330,6 +309,12 @@ dev-build: ## Rebuild dev images
 dev-clean: ## Stop and wipe dev environment
 	@./dev/cli.sh clean
 
+clean-web: ## Clean web app build outputs
+	@$(GRADLEW) $(WEB_MODULE):cleanAllWebApps
+
+clean-pnpm: ## Clean pnpm store (optional)
+	@if command -v pnpm >/dev/null 2>&1; then pnpm store prune; else echo "ℹ️  pnpm not installed"; fi
+
 # --- LOCAL RUNTIME (Docker Compose) ---
 
 runtime-up: ## Start local gateway runtime (clients/agent-runtime)
@@ -356,7 +341,7 @@ ci-check: ## CI: Run all checks without daemon
 
 # --- FULL WORKFLOWS ---
 
-all: clean build check ## Run full pipeline (clean, build, check)
+all: clean build check-all ## Run full pipeline (clean, build, check-all)
 	@echo "$(GREEN)✨ Full pipeline completed!$(SGR0)"
 
 quick: format build-fast ## Quick cycle (format + build-fast)
@@ -378,14 +363,14 @@ version: ## Show project version
 sync-version: ## Sync VERSION with git tag
 	@bash ./scripts/sync-version-with-tag.sh
 
-.PHONY: help h check-tools setup sync-agents wrapper build build-fast clean clean-all run dev \
+.PHONY: help h check-tools setup doctor sync-agents wrapper build build-fast clean clean-all run dev \
         android-build android-lint rust-check rust-test rust-clippy rust-fmt rust-build \
         web-install docs-dev docs-build docs-check docs-format \
         chat-dev chat-build chat-check chat-test dashboard-dev dashboard-build dashboard-check dashboard-test \
-        marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all \
+        marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all web-check-all \
         format check-format check lint-kotlin lint-rust lint-android lint-all \
-        test test-app test-core test-verbose test-coverage docs-code \
+        test test-app test-core test-verbose test-coverage test-all check-all docs-code \
         deps deps-app deps-analysis deps-update \
-         dev-up dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean \
+         dev-up dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean clean-web clean-pnpm \
          runtime-up runtime-up-dashboard runtime-down runtime-logs runtime-status \
          ci-build ci-test ci-check all quick tasks info version sync-version

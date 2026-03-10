@@ -96,6 +96,7 @@ impl Tool for LegacyTool {
             success: true,
             output: "ok".to_string(),
             error: None,
+            structured: None,
         })
     }
 }

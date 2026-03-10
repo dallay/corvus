@@ -105,6 +105,7 @@ impl Tool for McpToolAdapter {
                     success: false,
                     output: String::new(),
                     error: Some("MCP tool arguments must be a JSON object".to_string()),
+                    structured: None,
                 });
             }
         };
@@ -115,6 +116,7 @@ impl Tool for McpToolAdapter {
                 success: false,
                 output: String::new(),
                 error: Some("output_limit_bytes exceeds maximum allowed (10MB)".to_string()),
+                structured: None,
             });
         }
 
@@ -127,11 +129,13 @@ impl Tool for McpToolAdapter {
                 success: true,
                 output: self.enforce_output_limit(output),
                 error: None,
+                structured: None,
             }),
             Err(error) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
                 error: Some(error.to_string()),
+                structured: None,
             }),
         }
     }
