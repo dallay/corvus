@@ -28,7 +28,7 @@
 
 use super::traits::{Tool, ToolResult};
 use crate::agent::code_session::{CodeSessionResult, CodeSessionStatus};
-use crate::agent::Agent;
+use crate::agent::{Agent, AgentExecutionError};
 use crate::config::{Config, DelegateAgentConfig, DelegateExecutionMode};
 use crate::providers::{self, Provider};
 use crate::security::policy::ToolOperation;
@@ -170,17 +170,13 @@ impl DelegateTool {
                 None,
             ),
             Ok(Err(e)) => {
-                let error_text = e.to_string();
-                let status = if error_text.contains("maximum tool iterations")
-                    || error_text.contains("iteration budget")
-                    || error_text.contains("timeout")
-                {
-                    CodeSessionStatus::BudgetExceeded
-                } else if error_text.contains("approval") || error_text.contains("blocked") {
-                    CodeSessionStatus::Blocked
-                } else {
-                    CodeSessionStatus::Error
+                let status = match e.downcast_ref::<AgentExecutionError>() {
+                    Some(AgentExecutionError::IterationBudgetExceeded { .. }) => {
+                        CodeSessionStatus::BudgetExceeded
+                    }
+                    None => CodeSessionStatus::Error,
                 };
+                let error_text = e.to_string();
                 let mut result = CodeSessionResult::from_error(
                     &session_id,
                     status,

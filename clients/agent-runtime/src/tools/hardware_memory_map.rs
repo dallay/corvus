@@ -81,15 +81,44 @@ impl Tool for HardwareMemoryMapTool {
                     "No peripherals configured. Add boards to config.toml [peripherals.boards]."
                         .into(),
                 ),
-                structured: None,
+                structured: Some(json!({
+                    "code": "no_peripherals",
+                    "message": "No peripherals configured. Add boards to config.toml [peripherals.boards].",
+                })),
             });
         }
 
-        let board = args
-            .get("board")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .unwrap_or_else(|| self.boards[0].clone());
+        let obj = match args.as_object() {
+            Some(obj) => obj,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("hardware_memory_map args must be a JSON object".into()),
+                    structured: Some(json!({
+                        "code": "invalid_args",
+                        "message": "hardware_memory_map args must be a JSON object",
+                    })),
+                });
+            }
+        };
+        let board = match obj.get("board") {
+            Some(value) => match value.as_str() {
+                Some(board) => board.to_string(),
+                None => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("'board' must be a string".into()),
+                        structured: Some(json!({
+                            "code": "invalid_args",
+                            "message": "'board' must be a string",
+                        })),
+                    });
+                }
+            },
+            None => self.boards[0].clone(),
+        };
 
         if !self.boards.iter().any(|known| known == &board) {
             return Ok(ToolResult {
@@ -138,7 +167,7 @@ impl Tool for HardwareMemoryMapTool {
         let probe_ok = false;
 
         if !probe_ok {
-            if let Some(map) = self.static_map_for_board(board) {
+            if let Some(map) = self.static_map_for_board(&board) {
                 use std::fmt::Write;
                 let _ = write!(output, "**{board}** (from datasheet):\n{map}");
                 map_text = Some(map.to_string());
@@ -152,6 +181,19 @@ impl Tool for HardwareMemoryMapTool {
                     known.join(", ")
                 );
             }
+        }
+
+        if map_text.is_none() {
+            return Ok(ToolResult {
+                success: false,
+                output,
+                error: Some(format!("No memory map for board '{board}'")),
+                structured: Some(json!({
+                    "board": board,
+                    "source": source,
+                    "map": map_text,
+                })),
+            });
         }
 
         Ok(ToolResult {

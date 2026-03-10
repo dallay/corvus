@@ -103,7 +103,7 @@ setup: check-tools ## Initial project setup (agents, web deps, rust check)
 	@$(GRADLEW) $(RUST_MODULE):cargoCheck -PenableRustTasks=true
 	@echo "$(GREEN)✅ Project setup complete!$(SGR0)"
 
-doctor: check-tools ## Diagnose dev environment and repo health
+doctor: bootstrap-bash ## Diagnose dev environment and repo health
 	$(REQUIRE_BASH)
 	@bash scripts/doctor.sh
 

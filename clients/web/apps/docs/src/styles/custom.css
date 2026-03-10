@@ -386,7 +386,8 @@ nav.sidebar a[aria-current="page"] {
 }
 
 /* ── Smooth Transitions ── */
-/* Keep transitions opt-in so third-party components retain their own timing. */
+/* Applies broadly to common elements; third-party components may inherit these transitions. */
+/* Components can override or opt out via their own transition rules. */
 a,
 button,
 .card,

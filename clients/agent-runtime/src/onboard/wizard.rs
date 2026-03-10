@@ -2,7 +2,8 @@ use crate::config::schema::{DingTalkConfig, IrcConfig, QQConfig, StreamMode, Wha
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
     HeartbeatConfig, IMessageConfig, MatrixConfig, McpConfig, MemoryConfig, ObservabilityConfig,
-    RuntimeConfig, SecretsConfig, SlackConfig, SurrealMemoryConfig, TelegramConfig, WebhookConfig,
+    RuntimeConfig, SecretsConfig, SecurityConfig, SlackConfig, SurrealMemoryConfig, TelegramConfig,
+    WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
 use crate::memory::{
@@ -556,6 +557,7 @@ pub fn run_wizard() -> Result<Config> {
         default_temperature: 0.7,
         observability: ObservabilityConfig::default(),
         autonomy: AutonomyConfig::default(),
+        security: SecurityConfig::default(),
         runtime: RuntimeConfig::default(),
         reliability: crate::config::ReliabilityConfig::default(),
         scheduler: crate::config::schema::SchedulerConfig::default(),
@@ -795,6 +797,7 @@ pub fn run_quick_setup(
         default_temperature: 0.7,
         observability: ObservabilityConfig::default(),
         autonomy: AutonomyConfig::default(),
+        security: SecurityConfig::default(),
         runtime: RuntimeConfig::default(),
         reliability: crate::config::ReliabilityConfig::default(),
         scheduler: crate::config::schema::SchedulerConfig::default(),

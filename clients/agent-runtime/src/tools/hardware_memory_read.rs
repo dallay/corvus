@@ -72,11 +72,23 @@ impl Tool for HardwareMemoryReadTool {
             });
         }
 
-        let board = args
-            .get("board")
-            .and_then(|v| v.as_str())
-            .map(String::from)
-            .unwrap_or_else(|| self.boards[0].clone());
+        let board = match args.get("board").and_then(|v| v.as_str()) {
+            Some(value) => value.to_string(),
+            None => {
+                if self.boards.len() == 1 {
+                    self.boards[0].clone()
+                } else {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(
+                            "Multiple boards configured; specify a 'board' parameter".into(),
+                        ),
+                        structured: None,
+                    });
+                }
+            }
+        };
 
         if !self.boards.iter().any(|known| known == &board) {
             return Ok(ToolResult {

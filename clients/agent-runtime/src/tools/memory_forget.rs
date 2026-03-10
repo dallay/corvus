@@ -43,12 +43,22 @@ impl Tool for MemoryForgetTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let key = args
+        let key = match args
             .get("key")
             .and_then(|v| v.as_str())
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'key' parameter"))?;
+        {
+            Some(value) => value,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Missing or empty 'key' parameter".into()),
+                    structured: None,
+                });
+            }
+        };
 
         if let Err(error) = self
             .security
@@ -138,8 +148,13 @@ mod tests {
     async fn forget_missing_key() {
         let (_tmp, mem) = test_mem();
         let tool = MemoryForgetTool::new(mem, test_security());
-        let result = tool.execute(json!({})).await;
-        assert!(result.is_err());
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Missing or empty 'key'"));
     }
 
     #[tokio::test]
