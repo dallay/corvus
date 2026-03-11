@@ -140,11 +140,16 @@ jobs:
             const currentSha = pr.head.sha
 
             core.info(`Expected repo/SHA: ${expectedRepo} @ ${expectedSha}`)
-            core.info(`Current  repo/SHA: ${currentRepo} @ ${currentSha}`)
+            core.info(`Current  repo/SHA (remote): ${currentRepo} @ ${currentSha}`)
 
-            if (currentRepo !== expectedRepo || currentSha !== expectedSha) {
+            // Also ensure that the locally checked-out commit matches the expected SHA
+            const { execSync } = require('node:child_process')
+            const localSha = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim()
+            core.info(`Current  repo/SHA (local HEAD): ${expectedRepo} @ ${localSha}`)
+
+            if (currentRepo !== expectedRepo || currentSha !== expectedSha || localSha !== expectedSha) {
               core.setFailed(
-                `PR head changed after approval/check (expected ${expectedRepo}@${expectedSha}, got ${currentRepo}@${currentSha}). Re-run /fix-lock.`
+                `PR head changed after approval/check (expected ${expectedRepo}@${expectedSha}, got remote ${currentRepo}@${currentSha}, local HEAD ${expectedRepo}@${localSha}). Re-run /fix-lock.`
               )
             }
 
