@@ -1,9 +1,10 @@
+/// <reference types="vitest" />
 import { fileURLToPath, URL } from "node:url";
 
 import vue from "@vitejs/plugin-vue";
-import { defineConfig } from "vitest/config";
+import { defineConfig } from "vite";
 
-export default defineConfig({
+const config = {
   plugins: [vue()],
   resolve: {
     alias: {
@@ -27,4 +28,6 @@ export default defineConfig({
       },
     },
   },
-});
+};
+
+export default defineConfig(config);

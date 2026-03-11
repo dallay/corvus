@@ -10,7 +10,7 @@ const DEFAULT_PROD_URL = "https://docs.profiletailors.com";
 const mode = process.env.NODE_ENV || "production";
 const env = loadEnv(mode, process.cwd(), "");
 const portlessUrl =
-  mode === "production" ? undefined : process.env.PORTLESS_URL ?? env.PORTLESS_URL;
+  mode === "production" ? undefined : (process.env.PORTLESS_URL ?? env.PORTLESS_URL);
 const runtimeEnv = portlessUrl ? { ...env, DOCS_URL: portlessUrl } : env;
 const docsUrl = resolveSiteUrl({
   env: runtimeEnv,
@@ -27,9 +27,7 @@ const docsUrl = resolveSiteUrl({
 });
 const portCandidate = process.env.PORT ?? env.PORT;
 const parsedPort = Number.parseInt(portCandidate ?? "", 10);
-const resolvedPort = Number.isFinite(parsedPort)
-  ? parsedPort
-  : getPortFromUrl(docsUrl, PORTS.DOCS);
+const resolvedPort = Number.isFinite(parsedPort) ? parsedPort : getPortFromUrl(docsUrl, PORTS.DOCS);
 
 export default defineConfig({
   site: docsUrl,
@@ -170,6 +168,35 @@ export default defineConfig({
               slug: "guides/architecture",
               translations: {
                 es: "Visión General",
+              },
+            },
+          ],
+        },
+        {
+          label: "Agent Runtime",
+          translations: {
+            es: "Agent Runtime",
+          },
+          items: [
+            {
+              label: "Overview",
+              slug: "clients/agent-runtime",
+              translations: {
+                es: "Visión General",
+              },
+            },
+            {
+              label: "AI Providers",
+              slug: "clients/agent-runtime/providers",
+              translations: {
+                es: "Providers de IA",
+              },
+            },
+            {
+              label: "Architecture",
+              slug: "clients/agent-runtime/architecture",
+              translations: {
+                es: "Arquitectura",
               },
             },
           ],
