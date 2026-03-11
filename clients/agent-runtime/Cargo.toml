@@ -95,7 +95,7 @@ prost = { version = "0.14", default-features = false }
 
 # Memory / persistence
 rusqlite = { version = "0.38", features = ["bundled"] }
-surrealdb = { version = "2.3", optional = true, default-features = false, features = ["protocol-ws", "rustls"] }
+surrealdb = { version = "3.0", optional = true, default-features = false, features = ["protocol-ws", "rustls"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
 cron = "0.15"
