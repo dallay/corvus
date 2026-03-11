@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ── Stage 1: Build ────────────────────────────────────────────
-FROM rust:1.93-slim-trixie AS builder
+FROM rust:1.94-slim-trixie AS builder
 
 WORKDIR /app
 
