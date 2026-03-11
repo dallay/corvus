@@ -20,4 +20,6 @@ pnpm install
 pnpm dev:chat
 ```
 
-Chat runs on <http://localhost:4323>.
+Chat runs on <http://chat.localhost:1355> via portless.
+
+Use `PORTLESS=0 pnpm dev:chat` to run on <http://localhost:4323>.

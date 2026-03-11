@@ -9,8 +9,11 @@ const DEFAULT_PROD_URL = "https://docs.profiletailors.com";
 
 const mode = process.env.NODE_ENV || "production";
 const env = loadEnv(mode, process.cwd(), "");
+const portlessUrl =
+  mode === "production" ? undefined : process.env.PORTLESS_URL ?? env.PORTLESS_URL;
+const runtimeEnv = portlessUrl ? { ...env, DOCS_URL: portlessUrl } : env;
 const docsUrl = resolveSiteUrl({
-  env,
+  env: runtimeEnv,
   primaryKey: "DOCS_URL",
   localDefault: DEFAULT_DEV_URL,
   productionDefault: DEFAULT_PROD_URL,
@@ -22,7 +25,11 @@ const docsUrl = resolveSiteUrl({
   },
   isProdLike: mode === "production",
 });
-const resolvedPort = getPortFromUrl(docsUrl, PORTS.DOCS);
+const portCandidate = process.env.PORT ?? env.PORT;
+const parsedPort = Number.parseInt(portCandidate ?? "", 10);
+const resolvedPort = Number.isFinite(parsedPort)
+  ? parsedPort
+  : getPortFromUrl(docsUrl, PORTS.DOCS);
 
 export default defineConfig({
   site: docsUrl,
@@ -42,9 +49,9 @@ export default defineConfig({
         light: "./public/favicon.svg",
         dark: "./public/favicon-light.svg",
       },
-      defaultLocale: "en",
+      defaultLocale: "root",
       locales: {
-        en: { label: "English", lang: "en" },
+        root: { label: "English", lang: "en" },
         es: { label: "Español", lang: "es" },
       },
       plugins: [viewTransitions()],

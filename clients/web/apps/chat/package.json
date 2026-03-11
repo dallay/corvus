@@ -8,9 +8,9 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "vite --config vite.config.ts --port 4323",
+    "dev": "portless run --name chat vite --config vite.config.ts",
     "build": "vue-tsc -b && vite build --config vite.config.ts",
-    "preview": "vite preview --config vite.config.ts --port 4323",
+    "preview": "portless run --name chat vite preview --config vite.config.ts",
     "format": "biome format --write src package.json components.json tsconfig*.json vite.config.ts index.html",
     "check": "biome check src package.json components.json tsconfig*.json vite.config.ts index.html",
     "test": "vitest --config vite.config.ts --run",
@@ -29,7 +29,7 @@
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@tailwindcss/postcss": "catalog:",
-    "@tsconfig/node24": "catalog:",
+    "@tsconfig/node22": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "@vitest/coverage-v8": "catalog:",
@@ -37,6 +37,7 @@
     "@vue/tsconfig": "catalog:",
     "happy-dom": "catalog:",
     "postcss": "catalog:",
+    "portless": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

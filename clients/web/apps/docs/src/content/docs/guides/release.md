@@ -1,6 +1,5 @@
 ---
 title: Release Process
-id: en-guides-release
 ---
 
 This guide explains how to publish a full Corvus release (KMP + Rust + web artifacts) using
@@ -10,7 +9,7 @@ GitHub Actions.
 
 Before you can publish, ensure you have:
 
-1. **GPG Key configured**: Follow the [GPG Setup Guide](/guides/gpg-setup/) to create and configure your
+1. **GPG Key configured**: Follow the [GPG Setup Guide](./gpg-setup/) to create and configure your
    signing key
 2. **Maven Central access**: Repository secrets configured:
 
@@ -255,6 +254,6 @@ Use this checklist before publishing:
 
 ## See Also
 
-- [GPG Setup Guide](/guides/gpg-setup/)
+- [GPG Setup Guide](./gpg-setup/)
 - [GitHub Workflows](https://github.com/dallay/corvus/blob/main/.github/workflows/README.md)
 - [Contributing Guide](https://github.com/dallay/corvus/blob/main/.github/CONTRIBUTING.md)

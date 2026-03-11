@@ -45,7 +45,7 @@ Contiene todas las aplicaciones cliente que consumen los módulos compartidos:
 
 ## El Directorio `docs`
 
-- **`docs/es/`**: Documentación en español.
+- **`docs/`**: Documentación en inglés (locale raíz).
   - `index.mdx`: Página de inicio.
   - `guides/`: Guías detalladas del proyecto.
-- **`docs/en/`**: Documentación en inglés (si aplica).
+- **`docs/es/`**: Documentación en español.
