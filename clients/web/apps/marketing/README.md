@@ -23,11 +23,15 @@ pnpm build:marketing
 pnpm --filter @corvus/marketing run check
 ```
 
+Dev URL (portless): <http://marketing.localhost:1355>
+
+Sin portless: `PORTLESS=0 pnpm dev:marketing` (usa `http://localhost:9988`).
+
 ## Configuración de dominio y puerto
 
-- Dev default: `http://localhost:9988`
+- Dev default: `http://marketing.localhost:1355` (portless)
 - Prod default: `https://profiletailors.com`
-- El puerto de `dev/preview` se toma de `MARKETING_URL` si incluye puerto; si no, usa `9988`
+- El puerto de `dev/preview` se toma de `PORT` (portless) o de `MARKETING_URL` si incluye puerto; si no, usa `9988`
 
 Variable soportada:
 

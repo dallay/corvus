@@ -8,9 +8,9 @@
     "node": ">=22.0.0"
   },
   "scripts": {
-    "dev": "vite --port 4324",
+    "dev": "portless run --name dashboard vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview --port 4324",
+    "preview": "portless run --name dashboard vite preview",
     "format": "biome format --write src package.json components.json tsconfig*.json vite.config.ts index.html",
     "check": "biome check src package.json components.json tsconfig*.json vite.config.ts index.html",
     "test": "vitest --run --environment happy-dom --exclude e2e/**",
@@ -30,7 +30,7 @@
     "@biomejs/biome": "catalog:",
     "@playwright/test": "catalog:",
     "@tailwindcss/postcss": "catalog:",
-    "@tsconfig/node24": "catalog:",
+    "@tsconfig/node22": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "@vitest/coverage-v8": "catalog:",
@@ -38,6 +38,7 @@
     "@vue/tsconfig": "catalog:",
     "happy-dom": "catalog:",
     "postcss": "catalog:",
+    "portless": "catalog:",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",

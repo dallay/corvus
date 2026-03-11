@@ -13,8 +13,11 @@ const mode = process.env.NODE_ENV || "production";
 const env = loadEnv(mode, process.cwd(), "");
 
 const isProdLike = mode === "production";
+const portlessUrl = isProdLike
+  ? ""
+  : resolvePublicUrl(process.env.PORTLESS_URL ?? env.PORTLESS_URL, "");
 const marketingBaseUrl = resolvePublicUrl(
-  env.MARKETING_URL,
+  env.MARKETING_URL ?? (portlessUrl || undefined),
   isProdLike ? DEFAULT_MARKETING_PROD_URL : DEFAULT_MARKETING_DEV_URL
 );
 const docsBaseUrl = resolvePublicUrl(

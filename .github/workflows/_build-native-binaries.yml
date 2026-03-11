@@ -34,7 +34,7 @@ jobs:
 
     steps:
       - name: ✈ Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
       - name: 🦀 Resolve Rust channel
         id: rust-channel
@@ -101,7 +101,7 @@ jobs:
           Compress-Archive -Path "clients/agent-runtime/dist/${{ matrix.artifact_name }}.exe" -DestinationPath "clients/agent-runtime/dist/${{ matrix.artifact_name }}.zip" -Force
 
       - name: ⬆ Upload release artifact
-        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f # v7.0.0
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
         with:
           name: ${{ matrix.artifact_name }}
           path: clients/agent-runtime/dist/${{ matrix.artifact_name }}.${{ matrix.archive_ext }}

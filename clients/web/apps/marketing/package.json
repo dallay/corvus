@@ -6,12 +6,12 @@
   "type": "module",
   "scripts": {
     "copy-install": "bash -c 'if [ -f ../../../../scripts/install.sh ]; then cp ../../../../scripts/install.sh public/install; else echo \"scripts/install.sh not found; skipping copy\"; fi'",
-    "dev": "astro dev",
+    "dev": "portless run --name marketing astro dev",
     "predev": "pnpm run copy-install",
-    "start": "astro dev",
+    "start": "portless run --name marketing astro dev",
     "build": "astro build",
     "prebuild": "pnpm run copy-install",
-    "preview": "astro preview",
+    "preview": "portless run --name marketing astro preview",
     "astro": "astro",
     "format": "biome format --write src public package.json astro.config.mjs tsconfig.json README.md",
     "check": "biome check src public package.json astro.config.mjs tsconfig.json README.md",
@@ -23,6 +23,7 @@
     "sharp": "catalog:"
   },
   "devDependencies": {
+    "portless": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:"
   }
