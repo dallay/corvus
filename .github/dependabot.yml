@@ -41,6 +41,8 @@ updates:
           - "patch"
       security-updates:
         applies-to: "security-updates"
+        patterns:
+          - "*"
 
   # Gradle (Kotlin/Android)
   - package-ecosystem: "gradle"
@@ -54,15 +56,9 @@ updates:
 
   # Docker
   - package-ecosystem: "docker"
-    directory: "/clients/agent-runtime"
-    schedule:
-      interval: "weekly"
-      day: "saturday"
-      time: "00:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 3
-  - package-ecosystem: "docker"
-    directory: "/dev/sandbox"
+    directories:
+      - "/clients/agent-runtime"
+      - "/dev/sandbox"
     schedule:
       interval: "weekly"
       day: "saturday"
