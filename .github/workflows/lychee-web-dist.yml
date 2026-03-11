@@ -52,6 +52,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual trigger: building all apps" >> "$GITHUB_STEP_SUMMARY"
+            echo "apps=--filter @corvus/marketing --filter @corvus/docs --filter @corvus/dashboard --filter @corvus/chat " >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
           BASE_SHA="${{ github.event.pull_request.base.sha }}"
           HEAD_SHA="${{ github.event.pull_request.head.sha }}"
           CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
@@ -111,7 +117,7 @@ jobs:
           fi
 
       - name: 🔗 Restore lychee cache
-        uses: actions/cache@v4
+        uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
         with:
           path: .lycheecache
           key: cache-lychee-web-${{ github.sha }}
@@ -132,9 +138,8 @@ jobs:
           fail: true
 
       - name: 💾 Save lychee cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
         if: always()
         with:
           path: .lycheecache
           key: cache-lychee-web-${{ github.sha }}
-          restore-keys: cache-lychee-web-
