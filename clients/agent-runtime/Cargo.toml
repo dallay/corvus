@@ -204,7 +204,7 @@ panic = "abort"
 
 [dev-dependencies]
 tempfile = "=3.27.0"
-criterion = { version = "=0.5.1", features = ["async_tokio"] }
+criterion = { version = "=0.8.2", features = ["async_tokio"] }
 wat = "=1.245.1"
 rcgen = "0.13"
 
