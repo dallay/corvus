@@ -1,7 +1,11 @@
 ---
+export function getStaticPaths() {
+  return [{ params: { slug: undefined } }];
+}
+
 const { slug } = Astro.params;
 const baseUrl = import.meta.env.BASE_URL.endsWith("/")
   ? import.meta.env.BASE_URL.slice(0, -1)
   : import.meta.env.BASE_URL;
-Astro.redirect(`${baseUrl}${slug ? `/${slug}` : "/"}`);
+return Astro.redirect(`${baseUrl}${slug ? `/${slug}` : "/"}`);
 ---
