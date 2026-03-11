@@ -54,7 +54,7 @@ jobs:
         with:
           script: |
             const title = "[Automated] Link Checker Report";
-            const { data: issues } = await github.rest.issues.listForRepo({
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: "open",
@@ -64,7 +64,7 @@ jobs:
             core.setOutput("issue_number", match?.number ?? "");
 
       - name: 📝 Create Issue From File
-        if: steps.lychee.outputs.exit_code != 0 && steps.find-issue.outputs.issue_number == ''
+        if: steps.lychee.outputs.exit_code != 0 && steps.find-issue.outputs.issue_number == '' && github.ref == 'refs/heads/main'
         uses: peter-evans/create-issue-from-file@e8ef132d6df98ed982188e460ebb3b5d4ef3a9cd # v5
         with:
           title: "[Automated] Link Checker Report"
@@ -75,7 +75,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: 📝 Update existing issue
-        if: steps.lychee.outputs.exit_code != 0 && steps.find-issue.outputs.issue_number != ''
+        if: steps.lychee.outputs.exit_code != 0 && steps.find-issue.outputs.issue_number != '' && github.ref == 'refs/heads/main'
         uses: peter-evans/create-issue-from-file@e8ef132d6df98ed982188e460ebb3b5d4ef3a9cd # v5
         with:
           title: "[Automated] Link Checker Report"
