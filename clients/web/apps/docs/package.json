@@ -3,10 +3,10 @@
   "type": "module",
   "version": "0.4.0",
   "scripts": {
-    "dev": "astro dev",
-    "start": "astro dev",
+    "dev": "portless run --name docs astro dev",
+    "start": "portless run --name docs astro dev",
     "build": "astro build",
-    "preview": "astro preview",
+    "preview": "portless run --name docs astro preview",
     "astro": "astro",
     "format": "biome format --write src astro.config.mjs package.json tsconfig.json",
     "lint": "biome lint src astro.config.mjs",
@@ -21,6 +21,7 @@
   "devDependencies": {
     "@astrojs/check": "catalog:",
     "astro-vtbot": "catalog:",
+    "portless": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:"
   }
