@@ -1,0 +1,61 @@
+---
+title: AI Providers
+description: Supported AI providers and their configuration.
+---
+
+Corvus supports a wide range of AI providers, including both cloud-based and local options. You can configure your preferred provider during the onboarding process or by editing your `config.toml` file.
+
+## Supported Providers
+
+| Provider | ID (for config) | Environment Variable | Notes |
+| :--- | :--- | :--- | :--- |
+| **OpenRouter** | `openrouter` | `OPENROUTER_API_KEY` | Recommended. Access to 200+ models. |
+| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` | Direct access to Claude models. |
+| **OpenAI** | `openai` | `OPENAI_API_KEY` | Direct access to GPT models. |
+| **Google Gemini** | `gemini` | `GEMINI_API_KEY` | Supports CLI auth with `gcloud`. |
+| **Ollama** | `ollama` | `OLLAMA_API_KEY` | Local models by default. |
+| **Venice AI** | `venice` | `VENICE_API_KEY` | Privacy-focused provider. |
+| **Groq** | `groq` | `GROQ_API_KEY` | High-speed inference. |
+| **Mistral** | `mistral` | `MISTRAL_API_KEY` | Direct access to Mistral models. |
+| **DeepSeek** | `deepseek` | `DEEPSEEK_API_KEY` | Affordable, high-quality models. |
+| **xAI (Grok)** | `xai` | `XAI_API_KEY` | Direct access to Grok models. |
+| **Together AI** | `together` | `TOGETHER_API_KEY` | Open-source model hosting. |
+| **Fireworks AI** | `fireworks` | `FIREWORKS_API_KEY` | Fast open-source inference. |
+| **Perplexity** | `perplexity` | `PERPLEXITY_API_KEY` | Search-augmented AI. |
+| **Cohere** | `cohere` | `COHERE_API_KEY` | Enterprise-grade models. |
+| **GitHub Copilot** | `copilot` | `GITHUB_TOKEN` | Uses your GitHub subscription. |
+| **NVIDIA NIM** | `nvidia` | `NVIDIA_API_KEY` | High-performance inference. |
+| **Vercel AI** | `vercel` | `VERCEL_API_KEY` | AI gateway. |
+| **Cloudflare AI** | `cloudflare` | `CLOUDFLARE_API_KEY` | AI gateway. |
+| **Astrai** | `astrai` | `ASTRAI_API_KEY` | Compliant AI routing. |
+
+## Regional & Specialized Providers
+
+Corvus also supports several regional and specialized providers, particularly for the Chinese market:
+
+- **Moonshot (Kimi)**: `moonshot`, `moonshot-intl` (`MOONSHOT_API_KEY`)
+- **GLM (Zhipu)**: `glm`, `glm-cn` (`GLM_API_KEY`)
+- **MiniMax**: `minimax`, `minimax-cn` (`MINIMAX_API_KEY`)
+- **Qwen (DashScope)**: `qwen`, `qwen-intl`, `qwen-us` (`DASHSCOPE_API_KEY`)
+- **Qianfan (Baidu)**: `qianfan` (`QIANFAN_API_KEY`)
+- **Z.AI**: `zai`, `zai-cn` (`ZAI_API_KEY`)
+
+## Custom Endpoints
+
+If you have a self-hosted or OpenAI/Anthropic-compatible API, you can use a custom provider string:
+
+- **OpenAI-compatible**: Use `custom:<URL>` as the provider name.
+- **Anthropic-compatible**: Use `anthropic-custom:<URL>` as the provider name.
+
+Example:
+```bash
+corvus onboard --provider "custom:http://localhost:1234/v1" --api-key "your-key"
+```
+
+## Credential Resolution
+
+Corvus resolves credentials in the following order:
+
+1. Explicitly provided `api_key` in `config.toml`.
+2. Provider-specific environment variable (e.g., `ANTHROPIC_API_KEY`).
+3. Generic fallback environment variables (`CORVUS_API_KEY` or `API_KEY`).
