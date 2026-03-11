@@ -10,9 +10,7 @@ const mode = process.env.NODE_ENV || "production";
 const env = loadEnv(mode, process.cwd(), "");
 
 const portlessUrl =
-  mode === "production"
-    ? ""
-    : resolvePublicUrl(process.env.PORTLESS_URL ?? env.PORTLESS_URL, "");
+  mode === "production" ? "" : resolvePublicUrl(process.env.PORTLESS_URL ?? env.PORTLESS_URL, "");
 const marketingUrl = resolvePublicUrl(
   env.MARKETING_URL ?? (portlessUrl || undefined),
   mode === "production" ? DEFAULT_PROD_URL : DEFAULT_DEV_URL
