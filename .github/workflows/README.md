@@ -21,7 +21,8 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 | **Repo Mgmt**   | `git-sync-labels.yml`                | Sync labels from config                     | Push to `labels.yml`                    |
 | **Quality**     | `semantic-pull-request.yml`          | Lint PR titles                              | PR open/edit                            |
 | **Quality**     | `pull-request-limit.yml`             | Block changes to restricted files           | PR touching CODEOWNERS/workflows        |
-| **Quality**     | `lychee-links.yml`                   | Check project links with Lychee             | Push, PR, daily schedule, manual        |
+| **Quality**     | `lychee-links.yml`                   | Check project links with Lychee (full repo) | Push, PR, daily schedule (4am), manual  |
+| **Quality**     | `lychee-web-dist.yml`                | Build web apps and check dist links         | PR changes in `clients/web/**`, manual  |
 | **Maintenance** | `cleanup-cache.yml`                  | Clean up Action caches                      | PR closed                               |
 | **Maintenance** | `stale.yml`                          | Mark stale issues/PRs                       | Daily schedule                          |
 | **Reporting**   | `contributor-report.yml`             | PR contributor reports                      | PR events                               |
@@ -422,18 +423,48 @@ Calls the shared workflow from `dallay/common-actions/.github/workflows/semantic
 
 - Push to any branch (excluding tags)
 - Pull requests to `main`, `minor`, `fix/**`, `feat/**`, `patch/**`
-- Daily schedule (cron: `0 6 * * *`)
+- Daily schedule (cron: `0 4 * * *` - 4am UTC)
 - Manual trigger
 
 **What it does**:
 
 1. ✈ Checks out the repository
-2. 🔗 Runs `lycheeverse/lychee-action` with retries and private-link exclusions
-3. Fails the job when broken links are detected
+2. 🔗 Runs `lycheeverse/lychee-action` with cache and private-link exclusions
+3. 📝 Creates an issue with the report if broken links are found (labels: `automated-issue`, `broken-links`)
+4. 💾 Maintains lychee cache for faster subsequent runs
 
 **Config files**:
 
 - `.lycheeignore` for ignored URLs/patterns
+- `lychee.toml` for lychee configuration
+
+---
+
+### `lychee-web-dist.yml` - Web Dist Link Validation
+
+**Purpose**: Validates links in built web applications (dist folders) on PRs.
+
+**Triggers**:
+
+- Pull requests to `main`, `minor`, `fix/**`, `feat/**`, `patch/**`
+- Only when files in `clients/web/**` change
+- Manual trigger
+
+**What it does**:
+
+1. ✈ Checks out the repository
+2. 📦 Installs dependencies
+3. 🧭 Detects which web apps changed (builds all if shared packages changed)
+4. 🏗 Builds only affected web apps
+5. 🔗 Runs `lycheeverse/lychee-action` on HTML files in dist folders
+6. Fails the job when broken links are detected in the built web apps
+
+**Target directories**:
+
+- `clients/web/apps/marketing/dist/`
+- `clients/web/apps/docs/dist/`
+- `clients/web/apps/dashboard/dist/`
+- `clients/web/apps/chat/dist/`
 
 ---
 

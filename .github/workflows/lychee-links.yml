@@ -15,7 +15,7 @@ on:
       - feat/**
       - patch/**
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 4 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -29,11 +29,40 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      issues: write
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
+      - name: 🔗 Restore lychee cache
+        uses: actions/cache@v4
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}
+          restore-keys: cache-lychee-
+
       - name: 🔗 Check links
+        id: lychee
         uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
         with:
-          args: --no-progress --exclude-all-private .
+          args: --no-progress --exclude-all-private --cache --max-cache-age 1d .
+          fail: false
+
+      - name: 📝 Create Issue From File
+        if: steps.lychee.outputs.exit_code != 0
+        uses: peter-evans/create-issue-from-file@v5
+        with:
+          title: "[Automated] Link Checker Report"
+          content-filepath: ./lychee/out.md
+          labels: "automated-issue, broken-links"
+          repository: dallay/corvus
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 💾 Save lychee cache
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}
+          restore-keys: cache-lychee-
