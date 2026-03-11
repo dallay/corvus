@@ -48,6 +48,9 @@ catalogs:
     happy-dom:
       specifier: 20.8.3
       version: 20.8.3
+    portless:
+      specifier: 0.6.0
+      version: 0.6.0
     postcss:
       specifier: 8.5.8
       version: 8.5.8
@@ -157,6 +160,9 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.8.3
+      portless:
+        specifier: 'catalog:'
+        version: 0.6.0
       postcss:
         specifier: 'catalog:'
         version: 8.5.8
@@ -227,6 +233,9 @@ importers:
       happy-dom:
         specifier: 'catalog:'
         version: 20.8.3
+      portless:
+        specifier: 'catalog:'
+        version: 0.6.0
       postcss:
         specifier: 'catalog:'
         version: 8.5.8
@@ -267,6 +276,9 @@ importers:
       astro-vtbot:
         specifier: 'catalog:'
         version: 2.1.11
+      portless:
+        specifier: 'catalog:'
+        version: 0.6.0
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -286,6 +298,9 @@ importers:
         specifier: 'catalog:'
         version: 0.34.5
     devDependencies:
+      portless:
+        specifier: 'catalog:'
+        version: 0.6.0
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -2571,6 +2586,12 @@ packages:
   playwright@1.58.2:
     resolution: {integrity: sha512-vA30H8Nvkq/cPBnNw4Q8TWz1EJyqgpuinBcHET0YVJVFldr8JDNiU9LaWAE1KqSkRYazuaBhTpB5ZzShOezQ6A==}
     engines: {node: '>=18'}
+    hasBin: true
+
+  portless@0.6.0:
+    resolution: {integrity: sha512-Jjk36bsWGTrqo+uyfKtHaXOfXq80BJ5EOdIRCWCbhYyJ04uV8dVw9/G4u31u1zQWmcE5WrZEYMGAm5XE+tDtXg==}
+    engines: {node: '>=20'}
+    os: [darwin, linux]
     hasBin: true
 
   postcss-nested@6.2.0:
@@ -5947,6 +5968,10 @@ snapshots:
       playwright-core: 1.58.2
     optionalDependencies:
       fsevents: 2.3.2
+
+  portless@0.6.0:
+    dependencies:
+      chalk: 5.6.2
 
   postcss-nested@6.2.0(postcss@8.5.8):
     dependencies:

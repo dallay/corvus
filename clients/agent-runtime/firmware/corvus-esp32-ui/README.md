@@ -103,4 +103,4 @@ MIT - See root `LICENSE`
 
 - [Slint ESP32 Documentation](https://slint.dev/esp32)
 - [ESP-IDF Rust Book](https://docs.espressif.com/projects/rust/book/)
-- [Corvus Hardware Design](../../../web/apps/docs/src/content/docs/en/guides/hardware-peripherals-design.md)
+- [Corvus Hardware Design](../../../web/apps/docs/src/content/docs/guides/hardware-peripherals-design.md)

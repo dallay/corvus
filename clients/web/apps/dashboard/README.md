@@ -16,7 +16,9 @@ pnpm install
 pnpm dev:dashboard
 ```
 
-Dashboard corre en <http://localhost:4324>.
+Dashboard corre en <http://dashboard.localhost:1355> vía portless.
+
+Usa `PORTLESS=0 pnpm dev:dashboard` para correr en <http://localhost:4324>.
 
 ## Docker (local-first)
 
