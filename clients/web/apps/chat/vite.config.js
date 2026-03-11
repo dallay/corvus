@@ -1,6 +1,6 @@
+/// <reference types="vitest" />
 import { fileURLToPath, URL } from "node:url";
 import vue from "@vitejs/plugin-vue";
-import "vitest/config";
 import { defineConfig } from "vite";
 const config = {
     plugins: [vue()],
