@@ -1,8 +1,0 @@
----
-// This page handles the redirect from the base root to the default locale
-return Astro.redirect(
-  import.meta.env.BASE_URL.endsWith("/")
-    ? `${import.meta.env.BASE_URL}en/`
-    : `${import.meta.env.BASE_URL}/en/`
-);
----

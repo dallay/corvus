@@ -42,7 +42,7 @@ Contains all client applications that consume the shared modules:
 
 ## Documentation
 
-- **`clients/web/apps/docs/src/content/docs/es/`**: Documentation in Spanish.
+- **`clients/web/apps/docs/src/content/docs/`**: Documentation in English (root locale).
   - `index.mdx`: Home page.
   - `guides/`: Detailed project guides.
-- **`clients/web/apps/docs/src/content/docs/en/`**: Documentation in English.
+- **`clients/web/apps/docs/src/content/docs/es/`**: Documentation in Spanish.

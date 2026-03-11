@@ -12,7 +12,8 @@
     "build:landing": "pnpm run build:marketing",
     "build:chat": "pnpm --filter @corvus/chat run build",
     "build:dashboard": "pnpm --filter @corvus/dashboard run build",
-    "dev": "pnpm --filter @corvus/docs run dev",
+    "dev": "pnpm --parallel -r run dev",
+    "dev:docs": "pnpm --filter @corvus/docs run dev",
     "dev:marketing": "pnpm --filter @corvus/marketing run dev",
     "dev:landing": "pnpm run dev:marketing",
     "dev:chat": "pnpm --filter @corvus/chat run dev",
@@ -38,7 +39,7 @@
       "rollup": "^4.59.0"
     }
   },
-  "packageManager": "pnpm@10.31.0",
+  "packageManager": "pnpm@10.32.1",
   "engines": {
     "node": ">=22.0.0",
     "pnpm": ">=10.28.0"

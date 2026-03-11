@@ -23,24 +23,29 @@ clients/web/
 ### docs
 
 - Framework: Astro + Starlight
-- Default port: 4321
+- Portless dev URL: `http://docs.localhost:1355`
+- Legacy dev port (PORTLESS=0): 4321
 
 ### marketing
 
 - Framework: Astro
-- URL configurable with `MARKETING_URL` (dev default: `http://localhost:9988`)
+- Portless dev URL: `http://marketing.localhost:1355`
+- Legacy dev port (PORTLESS=0): 9988
+- URL configurable with `MARKETING_URL` (dev fallback: `http://localhost:9988`)
 - Includes public install script at `/install`
 
 ### chat
 
 - Framework: Vue 3 + Vite + Tailwind + shadcn-vue style components
-- Default port: 4323
+- Portless dev URL: `http://chat.localhost:1355`
+- Legacy dev port (PORTLESS=0): 4323
 - ChatGPT-style conversational interface
 
 ### dashboard
 
 - Framework: Vue 3 + Vite
-- Default port: 4324
+- Portless dev URL: `http://dashboard.localhost:1355`
+- Legacy dev port (PORTLESS=0): 4324
 - Secure admin panel for `GET/PUT /web/admin/config`
 - `GET/PUT /web/admin/config` require auth when pairing is enabled (`[gateway] require_pairing = true` in `clients/agent-runtime/config.toml`)
 - Supported mechanism: bearer token (`Authorization: Bearer <token>`)
@@ -53,6 +58,8 @@ Minimum requirements:
 
 - Node.js 22.0.0+
 - pnpm 10.30+
+- portless (local devDependency; installed via `pnpm install`)
+- One-off usage without install: `pnpm dlx portless` or `npx portless`
 
 ```bash
 # Install workspace dependencies
@@ -75,6 +82,9 @@ pnpm dev
 pnpm dev:marketing
 pnpm dev:chat
 pnpm dev:dashboard
+
+# Run without portless (uses legacy localhost ports)
+PORTLESS=0 pnpm dev:chat
 
 # Compatibility (legacy alias)
 pnpm dev:landing

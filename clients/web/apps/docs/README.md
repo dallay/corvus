@@ -14,6 +14,12 @@ pnpm install
 # Start dev server
 pnpm run dev
 
+# Portless URL (default)
+# http://docs.localhost:1355
+
+# Run without portless (legacy localhost port)
+PORTLESS=0 pnpm run dev
+
 # Build static site
 pnpm run build
 
