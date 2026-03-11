@@ -113,13 +113,6 @@ jobs:
         continue-on-error: true
         run: ./gradlew :build-logic:help
 
-      - name: 🔏 Write build-logic locks (conditional)
-        if: steps.check_build_logic.outcome == 'success'
-        run: ./gradlew :build-logic:writeLocks --no-parallel --no-configuration-cache
-
-      - name: 🔒 Write global locks
-        run: ./gradlew writeLocks --no-parallel --no-configuration-cache
-
       - name: 🔐 Re-validate PR head SHA before write actions
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
         env:
@@ -153,6 +146,13 @@ jobs:
               )
             }
 
+      - name: 🔏 Write build-logic locks (conditional)
+        if: steps.check_build_logic.outcome == 'success'
+        run: ./gradlew :build-logic:writeLocks --no-parallel --no-configuration-cache
+
+      - name: 🔒 Write global locks
+        run: ./gradlew writeLocks --no-parallel --no-configuration-cache
+
       - name: 📝 Get Commit Message
         run: |
           COMMIT_MSG=$(git log --format=%s -n 1 "${{ steps.get-pr-data.outputs.head_sha }}")
@@ -165,7 +165,42 @@ jobs:
           git add -A
 
           git diff --cached --quiet || git commit -m "${COMMIT_MSG}"
-          git push origin HEAD:${{ steps.get-pr-data.outputs.head_branch }}
+
+      - name: 🔐 Re-validate PR head SHA before push
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        env:
+          EXPECTED_SHA: ${{ steps.get-pr-data.outputs.head_sha }}
+          EXPECTED_REPO: ${{ steps.get-pr-data.outputs.head_repo }}
+        with:
+          # language=javascript
+          script: |
+            const expectedSha = process.env.EXPECTED_SHA
+            const expectedRepo = process.env.EXPECTED_REPO
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            })
+
+            const currentRepo = pr.head.repo.full_name
+            const currentSha = pr.head.sha
+
+            core.info(`Expected repo/SHA: ${expectedRepo} @ ${expectedSha}`)
+            core.info(`Current  repo/SHA (remote): ${currentRepo} @ ${currentSha}`)
+
+            // Also ensure that the locally checked-out commit matches the expected SHA
+            const { execSync } = require('node:child_process')
+            const localSha = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim()
+            core.info(`Current  repo/SHA (local HEAD): ${expectedRepo} @ ${localSha}`)
+
+            if (currentRepo !== expectedRepo || currentSha !== expectedSha || localSha !== expectedSha) {
+              core.setFailed(
+                `PR head changed after approval/check (expected ${expectedRepo}@${expectedSha}, got remote ${currentRepo}@${currentSha}, local HEAD ${expectedRepo}@${localSha}). Re-run /fix-lock.`
+              )
+            }
+
+      - name: 🚀 Push lockfile updates
+        run: git push origin HEAD:${{ steps.get-pr-data.outputs.head_branch }}
 
       - name: 💬 Add reaction to trigger comment
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
