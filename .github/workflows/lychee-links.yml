@@ -15,7 +15,7 @@ on:
       - feat/**
       - patch/**
   schedule:
-    - cron: "0 6 * * *"
+    - cron: "0 4 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -29,11 +29,67 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      issues: write
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
 
+      - name: 🔗 Restore lychee cache
+        uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}
+          restore-keys: cache-lychee-
+
       - name: 🔗 Check links
+        id: lychee
         uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
         with:
-          args: --no-progress --exclude-all-private .
+          args: --no-progress --exclude-all-private --cache --max-cache-age 1d .
+          output: ./lychee/out.md
+          fail: false
+
+      - name: 🔍 Find existing issue
+        id: find-issue
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+        with:
+          script: |
+            const title = "[Automated] Link Checker Report";
+            const issues = await github.paginate(github.rest.issues.listForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: "open",
+              per_page: 100,
+            });
+            const match = issues.find((issue) => issue.title === title);
+            core.setOutput("issue_number", match?.number ?? "");
+
+      - name: 📝 Create Issue From File
+        if: steps.lychee.outputs.exit_code != 0 && steps.find-issue.outputs.issue_number == '' && github.ref == 'refs/heads/main'
+        uses: peter-evans/create-issue-from-file@e8ef132d6df98ed982188e460ebb3b5d4ef3a9cd # v5
+        with:
+          title: "[Automated] Link Checker Report"
+          content-filepath: ./lychee/out.md
+          labels: "automated-issue, broken-links"
+          repository: ${{ github.repository }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📝 Update existing issue
+        if: steps.lychee.outputs.exit_code != 0 && steps.find-issue.outputs.issue_number != '' && github.ref == 'refs/heads/main'
+        uses: peter-evans/create-issue-from-file@e8ef132d6df98ed982188e460ebb3b5d4ef3a9cd # v5
+        with:
+          title: "[Automated] Link Checker Report"
+          content-filepath: ./lychee/out.md
+          labels: "automated-issue, broken-links"
+          issue-number: ${{ steps.find-issue.outputs.issue_number }}
+          repository: ${{ github.repository }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 💾 Save lychee cache
+        uses: actions/cache/save@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
+        if: always()
+        with:
+          path: .lycheecache
+          key: cache-lychee-${{ github.sha }}

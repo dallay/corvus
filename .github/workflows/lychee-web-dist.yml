@@ -1,0 +1,146 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Link Checker - Web Dist
+
+on:
+  pull_request:
+    branches:
+      - main
+      - minor
+      - fix/**
+      - feat/**
+      - patch/**
+    paths:
+      - "clients/web/**"
+      - ".github/workflows/lychee-web-dist.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  lychee-web:
+    name: Check web dist links
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
+
+      - name: 🧰 Setup pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: 10
+
+      - name: 🧩 Setup Node.js
+        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        with:
+          node-version: 24
+          cache: "pnpm"
+          cache-dependency-path: clients/web/pnpm-lock.yaml
+
+      - name: 📦 Install dependencies
+        run: pnpm install --frozen-lockfile
+        working-directory: clients/web
+
+      - name: 🧭 Detect affected web apps
+        id: affected-apps
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual trigger: building all apps" >> "$GITHUB_STEP_SUMMARY"
+            echo "apps=--filter @corvus/marketing --filter @corvus/docs --filter @corvus/dashboard --filter @corvus/chat " >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          CHANGED_FILES=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+
+          echo "Changed files:" >> "$GITHUB_STEP_SUMMARY"
+          echo "$CHANGED_FILES" >> "$GITHUB_STEP_SUMMARY"
+
+          BUILD_ALL=false
+          if echo "$CHANGED_FILES" | grep -E '^clients/web/packages/' >/dev/null; then
+            BUILD_ALL=true
+          fi
+          if echo "$CHANGED_FILES" | grep -E '^clients/web/(pnpm-lock\.yaml|package\.json|pnpm-workspace\.yaml)$' >/dev/null; then
+            BUILD_ALL=true
+          fi
+
+          APPS=()
+          if [ "$BUILD_ALL" = true ]; then
+            APPS=(marketing docs dashboard chat)
+          else
+            for APP in marketing docs dashboard chat; do
+              if echo "$CHANGED_FILES" | grep -E "^clients/web/apps/${APP}/" >/dev/null; then
+                APPS+=("$APP")
+              fi
+            done
+          fi
+
+          if [ ${#APPS[@]} -eq 0 ]; then
+            echo "No app changes detected. Skipping build." >> "$GITHUB_STEP_SUMMARY"
+            echo "apps=" >> "$GITHUB_OUTPUT"
+          else
+            APP_FILTERS=""
+            for APP in "${APPS[@]}"; do
+              APP_FILTERS+="--filter @corvus/${APP} "
+            done
+            echo "apps=${APP_FILTERS}" >> "$GITHUB_OUTPUT"
+            echo "Apps to build: ${APPS[*]}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 🏗 Build affected web apps
+        if: steps.affected-apps.outputs.apps != ''
+        run: pnpm ${{ steps.affected-apps.outputs.apps }}run build
+        working-directory: clients/web
+
+      - name: 🔍 Detect dist HTML files
+        id: dist-files
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s globstar nullglob
+          FILES=(clients/web/apps/*/dist/**/*.html clients/web/apps/*/dist/**/*.htm)
+          if [ ${#FILES[@]} -eq 0 ]; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "No dist HTML files found; skipping lychee." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "found=true" >> "$GITHUB_OUTPUT"
+            echo "Found ${#FILES[@]} dist HTML files." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: 🔗 Restore lychee cache
+        uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
+        if: steps.dist-files.outputs.found == 'true'
+        with:
+          path: .lycheecache
+          key: cache-lychee-web-${{ github.sha }}
+          restore-keys: cache-lychee-web-
+
+      - name: 🔗 Check web dist links
+        id: lychee
+        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411 # v2.8.0
+        if: steps.dist-files.outputs.found == 'true'
+        with:
+          args: >
+            --no-progress
+            --exclude-all-private
+            --cache
+            --max-cache-age 1d
+            './clients/web/apps/*/dist/**/*.html'
+            './clients/web/apps/*/dist/**/*.htm'
+          fail: true
+
+      - name: 💾 Save lychee cache
+        uses: actions/cache/save@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
+        if: always() && steps.dist-files.outputs.found == 'true'
+        with:
+          path: .lycheecache
+          key: cache-lychee-web-${{ github.sha }}

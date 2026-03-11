@@ -1,8 +1,8 @@
 # Lychee configuration file
 # See https://github.com/lycheeverse/lychee#configuration
 
-# Use the repo root to resolve root-relative docs assets.
-root_dir = "clients/web/apps/docs/public"
+# Root directory for link checking (repo root for full scans)
+root_dir = "."
 
 # Exclude these URLs from link checking
 exclude = [
