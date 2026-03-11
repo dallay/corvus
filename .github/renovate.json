@@ -9,14 +9,7 @@
     ":pinDevDependencies",
     "helpers:pinGitHubActionDigests"
   ],
-  "enabledManagers": [
-    "gradle",
-    "gradle-wrapper",
-    "npm",
-    "cargo",
-    "github-actions",
-    "dockerfile"
-  ],
+  "enabledManagers": [],
   "reviewers": ["yacosta738"],
   "timezone": "America/Havana",
   "schedule": [
@@ -184,7 +177,7 @@
     },
     {
       "description": "0.x versions - treat as major",
-      "matchCurrentVersion": "/^0\\./",
+      "matchCurrentVersion": "/^0\./",
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": false,
       "minimumReleaseAge": "5 days",

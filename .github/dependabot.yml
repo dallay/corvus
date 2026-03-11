@@ -1,0 +1,67 @@
+version: 2
+updates:
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+      time: "00:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+
+  # Rust (Agent Runtime)
+  - package-ecosystem: "cargo"
+    directory: "/clients/agent-runtime"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+      time: "00:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+
+  # NPM Packages (Monorepo & Wrappers)
+  - package-ecosystem: "npm"
+    directories:
+      - "/"
+      - "/clients/web"
+      - "/clients/agent-runtime/npm/corvus-cli"
+      - "/clients/agent-runtime/npm/corvus"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+      time: "00:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    groups:
+      dependencies:
+        group-by: dependency-name
+        update-types:
+          - "minor"
+          - "patch"
+      security-updates:
+        applies-to: "security-updates"
+        patterns:
+          - "*"
+
+  # Gradle (Kotlin/Android)
+  - package-ecosystem: "gradle"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+      time: "00:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+
+  # Docker
+  - package-ecosystem: "docker"
+    directories:
+      - "/clients/agent-runtime"
+      - "/dev/sandbox"
+    schedule:
+      interval: "weekly"
+      day: "saturday"
+      time: "00:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3

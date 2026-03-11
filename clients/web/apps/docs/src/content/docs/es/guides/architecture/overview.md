@@ -1,7 +1,6 @@
 ---
 title: Descripción de Arquitectura
 description: Colección de diagramas C4 para el proyecto Corvus
-id: es-guides-architecture-overview
 ---
 
 # Diagramas de Arquitectura
@@ -13,7 +12,7 @@ Context, Container, Component, Code).
 
 Muestra el sistema Corvus como una caja negra y sus interacciones con actores y sistemas externos.
 
-- **Archivo**: [`context/system-context.mmd`](/guides/architecture/diagrams/context/system-context.mmd)
+- **Archivo**: [`context/system-context.mmd`](./diagrams/context/system-context.mmd)
 - **Formato**: Mermaid
 - **Descripción**: Vista de alto nivel del sistema completo, incluyendo usuarios (Developer, End
   User) y sistemas externos (LLM Providers, Neo4j, Fuentes Web).
@@ -23,8 +22,8 @@ Muestra el sistema Corvus como una caja negra y sus interacciones con actores y 
 Descompone el sistema en contenedores/aplicaciones principales y sus interacciones.
 
 - **Archivos**:
-  - [`container/runtime-containers.mmd`](/guides/architecture/diagrams/container/runtime-containers.mmd) (Mermaid)
-  - [`container/runtime-containers.puml`](/guides/architecture/diagrams/container/runtime-containers.puml) (PlantUML)
+  - [`container/runtime-containers.mmd`](./diagrams/container/runtime-containers.mmd) (Mermaid)
+  - [`container/runtime-containers.puml`](./diagrams/container/runtime-containers.puml) (PlantUML)
 - **Descripción**: Muestra los contenedores del runtime: CLI, gateway, servicios daemon,
   ejecución de tools, backends de memoria y superficies operativas alrededor de Corvus.
 
@@ -34,7 +33,7 @@ Descompone contenedores individuales en sus componentes internos.
 
 ### Núcleo del Runtime
 
-- **Archivo**: [`component/runtime-core.mmd`](/guides/architecture/diagrams/component/runtime-core.mmd)
+- **Archivo**: [`component/runtime-core.mmd`](./diagrams/component/runtime-core.mmd)
 - **Descripción**: Componentes internos del núcleo del runtime: configuración, agent loop,
   providers, memoria, tools, canales, seguridad y observabilidad.
 
@@ -42,7 +41,7 @@ Descompone contenedores individuales en sus componentes internos.
 
 Diagrama adicional mostrando las dependencias de Cargo entre módulos del workspace.
 
-- **Archivo**: [`cargo-dependencies.mmd`](/guides/architecture/diagrams/cargo-dependencies.mmd)
+- **Archivo**: [`cargo-dependencies.mmd`](./diagrams/cargo-dependencies.mmd)
 - **Descripción**: Muestra la estructura del workspace Cargo y el flujo principal de dependencias Rust del runtime.
 
 ## Cómo Visualizar

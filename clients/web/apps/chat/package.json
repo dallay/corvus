@@ -29,7 +29,7 @@
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@tailwindcss/postcss": "catalog:",
-    "@tsconfig/node24": "catalog:",
+    "@tsconfig/node22": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-vue": "catalog:",
     "@vitest/coverage-v8": "catalog:",
