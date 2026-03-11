@@ -20,9 +20,13 @@ updates:
       timezone: "UTC"
     open-pull-requests-limit: 3
 
-  # Root NPM
+  # NPM Packages (Monorepo & Wrappers)
   - package-ecosystem: "npm"
-    directory: "/"
+    directories:
+      - "/"
+      - "/clients/web"
+      - "/clients/agent-runtime/npm/corvus-cli"
+      - "/clients/agent-runtime/npm/corvus"
     schedule:
       interval: "weekly"
       day: "saturday"
@@ -31,52 +35,12 @@ updates:
     open-pull-requests-limit: 3
     groups:
       dependencies:
+        group-by: dependency-name
         update-types:
           - "minor"
           - "patch"
-
-  # Web Monorepo (pnpm)
-  - package-ecosystem: "npm"
-    directory: "/clients/web"
-    schedule:
-      interval: "weekly"
-      day: "saturday"
-      time: "00:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 3
-    groups:
-      dependencies:
-        update-types:
-          - "minor"
-          - "patch"
-
-  # NPM CLI Wrappers
-  - package-ecosystem: "npm"
-    directory: "/clients/agent-runtime/npm/corvus-cli"
-    schedule:
-      interval: "weekly"
-      day: "saturday"
-      time: "00:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 3
-    groups:
-      dependencies:
-        update-types:
-          - "minor"
-          - "patch"
-  - package-ecosystem: "npm"
-    directory: "/clients/agent-runtime/npm/corvus"
-    schedule:
-      interval: "weekly"
-      day: "saturday"
-      time: "00:00"
-      timezone: "UTC"
-    open-pull-requests-limit: 3
-    groups:
-      dependencies:
-        update-types:
-          - "minor"
-          - "patch"
+      security-updates:
+        applies-to: "security-updates"
 
   # Gradle (Kotlin/Android)
   - package-ecosystem: "gradle"
