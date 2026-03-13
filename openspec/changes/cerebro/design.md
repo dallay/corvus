@@ -30,7 +30,7 @@ adapters, preserving existing tool names via aliases during migration.
 
 ### Modules
 
-- **Cerebro (new module)**
+- **Cerebro (`modules/cerebro`)**
   - Rust binary exposing MCP JSON-RPC tools.
   - Owns long-term memory storage, hygiene, and enrichment pipeline.
 - **agent-runtime (existing)**
@@ -137,7 +137,11 @@ adapters, preserving existing tool names via aliases during migration.
 
 - Enforce `https/wss` by default; allow `http/ws` only for explicit loopback.
 - Validate and size-limit all inputs: topic keys, content, metadata.
-- Token-based auth for MCP; no root credentials in client configs.
+- Token-based auth for MCP with scoped tokens: short TTL (hours), rotate at least weekly, automate
+  rotation via CI/ops secrets tooling, and support immediate revocation for compromised scopes.
+- Certificate validation rules: disallow unaudited self-signed certs except documented
+  loopback/dev; require CA-validated certs in production; recommend cert pinning for long-lived MCP
+  endpoints (aligns with transport security and token auth bullets above).
 - Principle of least privilege: scoped token for memory tools only.
 - Redact sensitive fields in logs and metrics.
 

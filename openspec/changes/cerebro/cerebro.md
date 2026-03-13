@@ -107,13 +107,19 @@ Memory is currently implemented inside `clients/agent-runtime`.
 
 ### Decision for now
 
-* **Short term:** evolve in place to avoid duplicate backends and migration risk.
-* **Long term:** keep an extraction path toward a standalone Cerebro binary when tool/API surface
-  and operational needs justify it.
+* **Module location:** `modules/cerebro` as the standalone Rust crate/binary that owns the MCP
+  memory service.
+* **Integration path:** `clients/agent-runtime` uses MCP adapters; no in-place Cerebro backend code
+  remains inside the runtime.
+
+### Extraction path
+
+* Keep `modules/cerebro` as the canonical source; if a separately released service is required,
+  split deployment artifacts (service binary/Docker) without reintroducing runtime-local backends.
 
 ### Extraction triggers
 
-Extract to standalone when at least one is true:
+Extract to a separately released service when at least one is true:
 
 1. independent release cadence is required,
 2. multiple runtimes must share one central memory service,

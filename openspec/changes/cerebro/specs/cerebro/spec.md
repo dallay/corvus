@@ -54,6 +54,13 @@ operations only to Cerebro via MCP.
 - THEN the runtime routes the request to Cerebro via MCP
 - AND local memory is not used as the long-term store
 
+#### Data classification guidance
+
+- The agent runtime MUST treat the MCP boundary as long-term, shared memory only.
+- `mem_save` SHOULD carry non-sensitive, durable observations appropriate for long-term storage.
+- Secrets, credentials, PII, and ephemeral context MUST remain local-only in the runtime and MUST
+  NOT be sent to Cerebro via MCP.
+
 ### Requirement: Remove SurrealDB Backend from Runtime
 
 The agent runtime MUST NOT include the SurrealDB memory backend or the `memory-surreal` feature
@@ -76,6 +83,11 @@ flag after this change.
 
 The runtime MUST preserve legacy tool names by aliasing `memory_store`, `memory_recall`, and
 `memory_forget` to `mem_save`, `mem_search`, and `mem_delete` respectively.
+
+Out of scope: SurrealDB migration. The runtime alias/bridge only maps
+`memory_store`/`memory_recall`/`memory_forget` to `mem_save`/`mem_search`/`mem_delete` over the
+Cerebro MCP service; existing SurrealDB memories remain inaccessible to aliased tools unless
+migrated externally.
 
 #### Scenario: Legacy tool name usage (happy path)
 
@@ -110,7 +122,8 @@ for insecure endpoints.
 
 ### Requirement: Data Hygiene Defaults
 
-Cerebro MUST exclude soft-deleted records from retrieval APIs by default.
+Cerebro MUST exclude soft-deleted records from retrieval APIs by default and return a `deleted`
+status for direct fetches of soft-deleted IDs.
 
 #### Scenario: Deleted memory is hidden (happy path)
 
@@ -122,7 +135,8 @@ Cerebro MUST exclude soft-deleted records from retrieval APIs by default.
 
 - GIVEN a memory entry that has been soft-deleted via `mem_delete`
 - WHEN an agent calls `mem_get_observation` for that ID
-- THEN the service returns a not-found or deleted status error
+- THEN the service returns a `deleted` status response
+- AND a truly non-existent ID returns a structured not-found error
 
 ## Acceptance Criteria
 

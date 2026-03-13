@@ -24,6 +24,11 @@ from the agent runtime so memory persistence flows through Cerebro via MCP.
 - Full data migration tooling beyond the initial alias/bridge strategy.
 - Embedding SurrealDB as a default deployment mode for Cerebro.
 
+The **initial alias/bridge strategy** is limited to runtime tool aliasing and a lightweight
+in-process bridge in `clients/agent-runtime` that forwards reads/writes to the Cerebro MCP service
+in `modules/cerebro`, as defined in `openspec/changes/cerebro/cerebro.md`. It explicitly excludes
+bulk migration/ETL/import/export; historical data must be migrated manually or via future tooling.
+
 ## Approach
 
 Implement a new `cerebro` Rust module that exposes the MCP tools API described in
@@ -51,7 +56,8 @@ Cerebro, retaining legacy tool names as aliases during a transition period.
 |-----------------------------------------------|------------|-----------------------------------------------------------------------|
 | Memory regressions from backend removal       | Medium     | Maintain legacy tool aliases; validate via integration tests.         |
 | Data loss or missing history                  | Medium     | Preserve existing SQLite/local memory; plan migration in later phase. |
-| MCP connectivity failures                     | Medium     | Add graceful fallback to local memory with explicit error reporting.  |
+| MCP connectivity failures                     | Medium     | Return structured errors, log/alert on failures, and enforce no
+|                                               |            | fallback to local memory (legacy-only opt-in is out of scope).         |
 | Security misconfiguration of remote endpoints | Low        | Enforce secure defaults and explicit opt-in for insecure modes.       |
 
 ## Rollback Plan
