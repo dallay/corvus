@@ -2,12 +2,10 @@
 
 ## Phase 1: Infrastructure
 
-- [ ] 1.1 Add Cerebro workspace crate skeleton at `clients/agent-runtime/crates/cerebro/` (add
-  `Cargo.toml`, `src/main.rs`, `src/lib.rs`) and register it in `clients/agent-runtime/Cargo.toml`
-  workspace members.
-- [ ] 1.2 Define Cerebro service config schema and defaults in
-  `clients/agent-runtime/crates/cerebro/src/config.rs` (host/port, auth token, storage mode, worker
-  toggles).
+- [ ] 1.1 Add Cerebro workspace crate skeleton at `modules/cerebro/` (add `Cargo.toml`,
+  `src/main.rs`, `src/lib.rs`) and register it in root workspace members.
+- [ ] 1.2 Define Cerebro service config schema and defaults in `modules/cerebro/src/config.rs`
+  (host/port, auth token, storage mode, worker toggles).
 - [ ] 1.3 Remove SurrealDB feature/dependency from `clients/agent-runtime/Cargo.toml` and delete
   `clients/agent-runtime/src/memory/surreal.rs`.
 - [ ] 1.4 Remove SurrealDB backend wiring from `clients/agent-runtime/src/memory/mod.rs` and
@@ -42,13 +40,11 @@
 - [ ] 2.9 REFACTOR: Remove dead memory backend branches and update related trait docs in
   `clients/agent-runtime/src/memory/traits.rs`.
 - [ ] 2.10 RED: Add failing MCP tool contract tests for Cerebro (input validation, soft-delete
-  behavior, drill-in recall) in `clients/agent-runtime/crates/cerebro/tests/mcp_tools_contract.rs`.
+  behavior, drill-in recall) in `modules/cerebro/tests/mcp_tools_contract.rs`.
 - [ ] 2.11 GREEN: Implement Cerebro MCP handlers and storage abstractions in
-  `clients/agent-runtime/crates/cerebro/src/` (e.g., `server.rs`, `tools.rs`, `storage/`) to satisfy
-  tool contract tests.
+  `modules/cerebro/src/` (e.g., `server.rs`, `tools.rs`, `storage/`) to satisfy tool contract tests.
 - [ ] 2.12 REFACTOR: Extract shared validation and error mapping into
-  `clients/agent-runtime/crates/cerebro/src/validation.rs` and
-  `clients/agent-runtime/crates/cerebro/src/errors.rs`.
+  `modules/cerebro/src/validation.rs` and `modules/cerebro/src/errors.rs`.
 
 ## Phase 3: Testing
 
@@ -56,14 +52,21 @@
   `clients/agent-runtime/tests/memory_cerebro_integration.rs`.
 - [ ] 3.2 Add security tests for endpoint policy and auth token requirements in
   `clients/agent-runtime/tests/mcp_config_validation.rs` and
-  `clients/agent-runtime/crates/cerebro/tests/mcp_auth_policy.rs`.
+  `modules/cerebro/tests/mcp_auth_policy.rs`.
 - [ ] 3.3 Run `make test` and capture any gaps or skipped suites in the test log notes.
 
 ## Phase 4: Documentation
 
-- [ ] 4.1 Update `clients/agent-runtime/README.md` with Cerebro MCP configuration, secure defaults,
-  and legacy tool alias behavior.
-- [ ] 4.2 Update `clients/agent-runtime/examples/custom_memory.rs` to reflect MCP-backed long-term
-  memory usage.
-- [ ] 4.3 Update root `README.md` to note the new Cerebro module and removal of the SurrealDB memory
-  backend.
+- [ ] 4.1 Create a migration guide at
+  `clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md` with secure defaults and
+  Cerebro MCP configuration guidance (link `openspec/changes/cerebro/cerebro.md` for narrative
+  context).
+- [ ] 4.2 Update `clients/agent-runtime/README.md` with Cerebro MCP configuration, secure defaults,
+  legacy tool alias behavior, and links to the migration guide and MCP schemas.
+- [ ] 4.3 Update `clients/agent-runtime/examples/custom_memory.rs` to reflect MCP-backed long-term
+  memory usage and link the migration guide.
+- [ ] 4.4 Update root `README.md` to note the new `modules/cerebro` module, removal of the
+  SurrealDB memory backend, and links to the migration guide and MCP schemas.
+- [ ] 4.5 Add machine-readable JSON schema files for the 13 Cerebro tools in
+  `clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/`, and link them from the
+  READMEs (reference `openspec/changes/cerebro/cerebro.md` for narrative details).
