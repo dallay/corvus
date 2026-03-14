@@ -73,7 +73,7 @@ sha2 = "0.10"
 hex = "0.4"
 
 # CSPRNG for secure token generation
-rand = "0.9"
+rand = "0.10"
 
 # Constant-time primitives for secret/token comparisons
 subtle = "2.6"
