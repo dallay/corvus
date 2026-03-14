@@ -117,7 +117,7 @@ jobs:
           fi
 
       - name: 🔗 Restore lychee cache
-        uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
+        uses: actions/cache@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         if: steps.dist-files.outputs.found == 'true'
         with:
           path: .lycheecache
@@ -139,7 +139,7 @@ jobs:
           fail: true
 
       - name: 💾 Save lychee cache
-        uses: actions/cache/save@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
+        uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
         if: always() && steps.dist-files.outputs.found == 'true'
         with:
           path: .lycheecache
