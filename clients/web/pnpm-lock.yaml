@@ -100,7 +100,7 @@ importers:
         version: 5.2.8
     devDependencies:
       '@biomejs/biome':
-        specifier: 2.4.7
+        specifier: 'catalog:'
         version: 2.4.7
       typescript:
         specifier: 'catalog:'
