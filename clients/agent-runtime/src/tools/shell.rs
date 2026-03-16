@@ -317,6 +317,7 @@ mod tests {
 
     #[tokio::test]
     async fn shell_preserves_path_and_home() {
+        let _g = EnvGuard::set("HOME", "/home/corvus");
         let tool = ShellTool::new(test_security_with_env_cmd(), test_runtime());
 
         let result = tool
@@ -324,9 +325,10 @@ mod tests {
             .await
             .unwrap();
         assert!(result.success);
-        assert!(
-            !result.output.trim().is_empty(),
-            "HOME should be available in shell"
+        assert_eq!(
+            result.output.trim(),
+            "/home/corvus",
+            "HOME should be preserved in shell"
         );
 
         let result = tool

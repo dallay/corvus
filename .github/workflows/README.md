@@ -13,7 +13,6 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 | **Security**    | `snyk-security.yml`                  | Snyk SAST/SCA/Container/IaC scans           | Push/PR to main/minor, manual           |
 | **Publishing**  | `publish-release.yml`                | Publish release (Maven, Cargo, npm, Docker) | Tag push `v*.*.*`                       |
 | **Publishing**  | `publish-snapshot.yml`               | Publish snapshot versions                   | Manual, daily schedule                  |
-| **Publishing**  | `release-please.yml`                 | Create release PRs and tags                 | Push to `main`, manual                  |
 | **Publishing**  | `_publish.yml`                       | Reusable publish workflow                   | Called by other workflows               |
 | **Automation**  | `auto-fix-lockfile.yml`              | Auto-update lockfiles                       | Daily schedule, manual                  |
 | **Automation**  | `fix-renovate.yml`                   | Fix lockfiles for Renovate PRs              | Comment `/fix-lock` on PR               |
@@ -218,27 +217,6 @@ Calls the reusable `_publish.yml` workflow with:
 **Restrictions**:
 
 - Only runs on `dallay/corvus` repository
-
----
-
-### `release-please.yml` - Release PR Automation
-
-**Purpose**: Opens/updates release PRs and creates release tags from `main`.
-
-**Triggers**:
-
-- Push to `main`
-- Manual trigger (`workflow_dispatch`)
-
-**What it does**:
-
-- Runs release-please with `release-please-config.json`
-- Creates/updates a release PR with version bumps
-- On merge, creates a `vX.Y.Z` tag that triggers `publish-release.yml`
-
-**Secrets Required**:
-
-- `RELEASE_PLEASE_TOKEN` - Fine-grained PAT scoped only to this repository (no org-wide tokens). Minimum permissions: Contents: Read and write, Pull requests: Read and write, Issues: Read and write. Set a short expiry (<= 90 days) and rotate on a 90-day cadence; document who owns the rotation and where it is tracked. Store only in GitHub Secrets using the exact name `RELEASE_PLEASE_TOKEN`. Broader scopes or long-lived tokens are not permitted.
 
 ---
 

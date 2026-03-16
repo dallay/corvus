@@ -7,7 +7,7 @@
 latest = "latest.release"
 # https://services.gradle.org/versions
 gradle = "9.5.0-milestone-1"
-kotlin = "2.3.10"
+kotlin = "2.3.0"
 jdk = "21"
 node = "22.13.0"
 agp = "8.12.0"
@@ -68,7 +68,7 @@ dev-detekt = { id = "dev.detekt", version = "2.0.0-alpha.2" }
 org-jetbrains-dokka = { id = "org.jetbrains.dokka", version = "2.2.0-Beta" }
 me-champeau-jmh = { id = "me.champeau.jmh", version = "0.7.3" }
 org-gradlex-jvm-dependency-conflict-resolution = { id = "org.gradlex.jvm-dependency-conflict-resolution", version = "2.5" }
-org-gradlex-java-module-dependencies = { id = "org.gradlex.java-module-dependencies", version = "1.12.1" }
+org-gradlex-java-module-dependencies = { id = "org.gradlex.java-module-dependencies", version = "1.12" }
 org-gradlex-java-module-testing = { id = "org.gradlex.java-module-testing", version = "1.8" }
 org-gradlex-extra-java-module-info = { id = "org.gradlex.extra-java-module-info", version = "1.14" }
 com-gradleup-shadow = { id = "com.gradleup.shadow", version = "9.3.1" }
@@ -78,7 +78,7 @@ com-autonomousapps-dependency-analysis = { id = "com.autonomousapps.dependency-a
 io-fuchs-gradle-classpath-collision-detector = { id = "io.fuchs.gradle.classpath-collision-detector", version = "1.0.0" }
 org-cyclonedx-bom = { id = "org.cyclonedx.bom", version = "3.1.0" }
 com-github-spotbugs = { id = "com.github.spotbugs", version = "6.4.8" }
-org-jetbrains-kotlinx-kover = { id = "org.jetbrains.kotlinx.kover", version = "0.9.7" }
+org-jetbrains-kotlinx-kover = { id = "org.jetbrains.kotlinx.kover", version = "0.9.6" }
 com-google-devtools-ksp = { id = "com.google.devtools.ksp", version = "2.3.5" }
 com-google-cloud-tools-jib = { id = "com.google.cloud.tools.jib", version = "3.5.3" }
 org-nosphere-apache-rat = { id = "org.nosphere.apache.rat", version = "0.8.1" }

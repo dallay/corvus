@@ -211,8 +211,9 @@ fn spawn_supervised_listener(
 
         loop {
             crate::health::mark_component_ok(&component);
-            let mut health_interval =
-                tokio::time::interval(Duration::from_secs(CHANNEL_HEALTH_TICK_SECS));
+            let mut health_interval = tokio::time::interval(Duration::from_secs(
+                CHANNEL_HEALTH_TICK_SECS,
+            ));
             let mut listen_task = Box::pin(ch.listen(tx.clone()));
 
             let result = loop {
