@@ -10,6 +10,7 @@
         "session_id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
           "description": "Session identifier to end."
         },
         "ended_at": {
@@ -20,6 +21,8 @@
         "metadata": {
           "type": "object",
           "description": "Optional session metadata.",
+          "maxProperties": 50,
+          "propertyNames": { "type": "string", "maxLength": 64 },
           "additionalProperties": true
         }
       },
@@ -31,7 +34,8 @@
       "properties": {
         "session_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 128
         },
         "status": {
           "type": "string",

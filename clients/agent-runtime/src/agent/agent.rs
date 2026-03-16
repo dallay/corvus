@@ -357,13 +357,7 @@ impl Agent {
         let available_hints: Vec<String> =
             config.model_routes.iter().map(|r| r.hint.clone()).collect();
 
-        let cerebro_configured = config
-            .memory
-            .cerebro
-            .endpoint
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty());
+        let cerebro_configured = crate::memory::cerebro_configured(&config.memory);
         let memory_loader: Box<dyn MemoryLoader> = if cerebro_configured {
             Box::new(CerebroMemoryLoader::new(
                 config.memory.cerebro.clone(),
@@ -573,7 +567,11 @@ impl Agent {
         let context = self
             .memory_loader
             .load_context(self.memory.as_ref(), user_message)
-            .await?;
+            .await
+            .unwrap_or_else(|error| {
+                tracing::warn!(error = %error, "Memory context load failed");
+                String::new()
+            });
 
         let enriched = if context.is_empty() {
             user_message.to_string()

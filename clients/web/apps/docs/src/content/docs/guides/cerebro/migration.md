@@ -42,16 +42,19 @@ backend = "sqlite"              # local short-term memory
 
 [memory.cerebro]
 endpoint = "https://cerebro.example.com/mcp"
-auth_token = "token-rotate-regularly"
+# auth_token is read from CORVUS_CEREBRO_AUTH_TOKEN
 request_timeout_ms = 30000
 allow_insecure_loopback = false
 ```
+
+Set `CORVUS_CEREBRO_AUTH_TOKEN` in your environment; avoid committing tokens to config files.
 
 Loopback-only development example:
 
 ```toml
 [memory.cerebro]
 endpoint = "http://127.0.0.1:4040/mcp"
+# auth_token is read from CORVUS_CEREBRO_AUTH_TOKEN
 allow_insecure_loopback = true
 ```
 
@@ -83,4 +86,5 @@ Use these schemas to validate tool calls and responses in agents and integration
 5. Import or rehydrate critical memories into Cerebro via `mem_save`.
 6. Update custom tool usage to prefer `mem_*` names; legacy aliases remain supported.
 7. Validate integrations against MCP schemas before rollout.
-8. Prepare a rollback plan (restore old config + re-enable legacy storage if needed).
+8. Prepare a rollback plan (restore old config + disable Cerebro) and keep an export snapshot for recovery.
+9. Run a canary test (`mem_save` -> `mem_search` -> `mem_get_observation`) before full cutover.

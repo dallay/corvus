@@ -44,7 +44,7 @@ async fn rejects_invalid_mem_save_payload() {
     .await;
 
     let error = response.error.expect("expected validation error");
-    assert_eq!(error.code, "validation_error");
+    assert_eq!(error.code, -32000);
 }
 
 #[tokio::test]
@@ -150,6 +150,14 @@ async fn drill_in_recall_returns_full_observation() {
     )
     .await;
     assert!(save.error.is_none());
+    let memory_id = save
+        .result
+        .as_ref()
+        .and_then(|value| value.get("output"))
+        .and_then(|value| value.get("memory_id"))
+        .and_then(|value| value.as_str())
+        .expect("mem_save should return memory_id")
+        .to_string();
 
     let search = call_tool(
         &service,
@@ -170,9 +178,10 @@ async fn drill_in_recall_returns_full_observation() {
 
     let get = call_tool(
         &service,
+        Some("Bearer secret"),
         "mem_get_observation",
         json!({
-            "input": { "memory_id": "topic" }
+            "input": { "memory_id": memory_id }
         }),
     )
     .await;
@@ -192,10 +201,15 @@ async fn drill_in_recall_returns_full_observation() {
 #[tokio::test]
 async fn deleted_fetch_without_record_returns_not_found() {
     let storage = InMemoryStorage::new();
-    let service = CerebroService::new(CerebroConfig::default(), storage);
+    let config = CerebroConfig {
+        auth_token: Some(SecretString::new("secret".to_string())),
+        ..CerebroConfig::default()
+    };
+    let service = CerebroService::new(config, storage);
 
     let response = call_tool(
         &service,
+        Some("Bearer secret"),
         "mem_get_observation",
         json!({
             "input": { "memory_id": "missing" }
@@ -204,5 +218,5 @@ async fn deleted_fetch_without_record_returns_not_found() {
     .await;
 
     let error = response.error.expect("expected not_found error");
-    assert_eq!(error.code, "not_found");
+    assert_eq!(error.code, -32005);
 }

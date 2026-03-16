@@ -10,11 +10,13 @@
         "seed": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
           "description": "Seed text or phrase describing the topic."
         },
         "scope": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
           "description": "Optional scope for topic suggestions."
         }
       },
@@ -26,11 +28,13 @@
       "properties": {
         "topic_key": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 128
         },
         "candidates": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 }
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
         }
       },
       "required": ["topic_key"],

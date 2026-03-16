@@ -251,10 +251,12 @@ impl McpClient {
             body.extend_from_slice(&chunk);
         }
 
-        let payload: serde_json::Value = serde_json::from_slice(&body)
-            .context("MCP HTTP response was not valid JSON")?;
-
         if !status.is_success() {
+            let details = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or_else(|_| {
+                json!({
+                    "raw": String::from_utf8_lossy(&body).to_string(),
+                })
+            });
             anyhow::bail!(
                 "{}",
                 json!({
@@ -262,10 +264,13 @@ impl McpClient {
                     "server": self.server.name,
                     "tool": name,
                     "reason": format!("HTTP {}", status.as_u16()),
-                    "details": payload,
+                    "details": details,
                 })
             );
         }
+
+        let payload: serde_json::Value = serde_json::from_slice(&body)
+            .context("MCP HTTP response was not valid JSON")?;
 
         if let Some(error) = payload.get("error") {
             anyhow::bail!(

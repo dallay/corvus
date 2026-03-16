@@ -83,7 +83,7 @@ clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md
 - GIVEN a legacy configuration that references the SurrealDB backend
 - WHEN the runtime loads the configuration
 - THEN the runtime rejects the configuration with a clear error indicating the backend is removed
-  ("memory.backend 'surreal' is not supported; SurrealDB backend has been removed...")
+  ("SurrealDB backend has been removed; use the Cerebro backend for long-term memory. See clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md")
 
 ### Requirement: Legacy Tool Aliases
 
@@ -139,6 +139,21 @@ endpoint = "http://127.0.0.1:4040/mcp"
 auth_token = "token"
 allow_insecure_loopback = true
 ```
+
+### Requirement: MCP Authentication
+
+All MCP requests MUST be authenticated with a Bearer token.
+
+- The Cerebro service MUST require an `Authorization: Bearer <token>` header for all MCP calls.
+- The Cerebro service MUST reject missing, empty, or non-Bearer authorization headers.
+- If an audit token is configured, only the audit token MUST grant audit privileges.
+- If no audit token is configured, authenticated requests MUST be treated as non-audit.
+
+#### Scenario: Authorization header required (edge case)
+
+- GIVEN a running Cerebro MCP service with authentication enabled
+- WHEN a client calls `tools/call` without a Bearer token
+- THEN the service returns an unauthorized error
 
 ### Requirement: Data Hygiene Defaults
 

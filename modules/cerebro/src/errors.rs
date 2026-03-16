@@ -28,11 +28,24 @@ impl CerebroErrorCode {
             Self::Internal => "internal_error",
         }
     }
+
+    pub fn as_i64(&self) -> i64 {
+        match self {
+            Self::Validation => -32000,
+            Self::Unauthorized => -32001,
+            Self::Forbidden => -32003,
+            Self::NotImplemented => -32004,
+            Self::NotFound => -32005,
+            Self::Conflict => -32006,
+            Self::Storage => -32010,
+            Self::Internal => -32603,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CerebroErrorResponse {
-    pub code: String,
+    pub code: i64,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<Value>,
@@ -74,7 +87,7 @@ impl CerebroError {
 
     pub fn to_response(&self) -> CerebroErrorResponse {
         CerebroErrorResponse {
-            code: self.code().as_str().to_string(),
+            code: self.code().as_i64(),
             message: self.to_string(),
             details: None,
         }

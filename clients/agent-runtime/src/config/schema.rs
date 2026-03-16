@@ -2675,8 +2675,8 @@ impl Config {
                 if matches!(backend.as_str(), "sqlite" | "lucid" | "markdown" | "none") {
                     self.memory.backend = backend;
                 } else {
-                    tracing::warn!(
-                        "ignoring unknown memory backend override '{}'; allowed: sqlite, lucid, markdown, none",
+                    tracing::error!(
+                        "invalid memory backend override '{}'; allowed: sqlite, lucid, markdown, none",
                         backend_raw
                     );
                 }
@@ -2847,7 +2847,7 @@ impl Config {
             "sqlite" | "lucid" | "markdown" | "none" => {}
             "surreal" | "surreal-graphs" => {
                 anyhow::bail!(
-                    "memory.backend '{}' is not supported; SurrealDB backend has been removed. Use the Cerebro backend for long-term memory. See https://github.com/dallay/corvus/blob/main/clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md",
+                    "memory.backend '{}' is not supported; SurrealDB backend has been removed; valid options are: sqlite, lucid, markdown, none. For Cerebro, keep memory.backend to a supported local backend and configure [memory.cerebro] (see https://github.com/dallay/corvus/blob/main/clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md).",
                     self.memory.backend
                 );
             }

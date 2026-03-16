@@ -145,6 +145,7 @@ impl Tool for MemoryStoreTool {
             "properties": {
                 "key": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "Unique key for this memory (e.g. 'user_lang', 'project_stack')"
                 },
                 "content": {
@@ -161,15 +162,48 @@ impl Tool for MemoryStoreTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let key = args
+        let key = match args
             .get("key")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'key' parameter"))?;
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(value) => value,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Missing or empty 'key' parameter".into()),
+                    structured: None,
+                });
+            }
+        };
 
-        let content = args
+        if contains_sensitive_data(key) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(SENSITIVE_DATA_ERROR.to_string()),
+                structured: None,
+            });
+        }
+
+        let content = match args
             .get("content")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'content' parameter"))?;
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(value) => value,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Missing or empty 'content' parameter".into()),
+                    structured: None,
+                });
+            }
+        };
 
         let category = match args.get("category").and_then(|v| v.as_str()) {
             Some("core") | None => MemoryCategory::Core,
@@ -200,13 +234,20 @@ impl Tool for MemoryStoreTool {
         }
 
         if let Some(local) = &self.local {
-            local.store(key, content, category, None).await?;
-            return Ok(ToolResult {
-                success: true,
-                output: format!("Stored memory: {key}"),
-                error: None,
-                structured: None,
-            });
+            return match local.store(key, content, category, None).await {
+                Ok(()) => Ok(ToolResult {
+                    success: true,
+                    output: format!("Stored memory: {key}"),
+                    error: None,
+                    structured: None,
+                }),
+                Err(error) => Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                }),
+            };
         }
 
         let endpoint = self
@@ -237,7 +278,19 @@ impl Tool for MemoryStoreTool {
             });
         }
 
-        let adapter = cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_STORE)?;
+        let adapter = match
+            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_STORE)
+        {
+            Ok(adapter) => adapter,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
         let payload = json!({
             "input": {
                 "scope": "shared",
@@ -250,7 +303,17 @@ impl Tool for MemoryStoreTool {
                 }
             }
         });
-        let response = adapter.execute(payload).await?;
+        let response = match adapter.execute(payload).await {
+            Ok(response) => response,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
         if response.success {
             return Ok(ToolResult {
                 success: true,
@@ -338,15 +401,25 @@ mod tests {
     #[tokio::test]
     async fn store_missing_key() {
         let tool = MemoryStoreTool::new(MemoryCerebroConfig::default(), test_security());
-        let result = tool.execute(json!({"content": "no key"})).await;
-        assert!(result.is_err());
+        let result = tool.execute(json!({"content": "no key"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Missing or empty 'key'"));
     }
 
     #[tokio::test]
     async fn store_missing_content() {
         let tool = MemoryStoreTool::new(MemoryCerebroConfig::default(), test_security());
-        let result = tool.execute(json!({"key": "no_content"})).await;
-        assert!(result.is_err());
+        let result = tool.execute(json!({"key": "no_content"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Missing or empty 'content'"));
     }
 
     #[tokio::test]

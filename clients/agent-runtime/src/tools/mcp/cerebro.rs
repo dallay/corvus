@@ -25,6 +25,8 @@ fn build_cerebro_server(cerebro: &MemoryCerebroConfig) -> anyhow::Result<McpServ
     let endpoint = cerebro
         .endpoint
         .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow::anyhow!("memory.cerebro.endpoint must be configured"))?;
     let token = cerebro
         .auth_token

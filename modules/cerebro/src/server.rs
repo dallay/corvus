@@ -27,7 +27,7 @@ pub struct JsonRpcParams {
 
 #[derive(Debug, Serialize)]
 pub struct JsonRpcError {
-    pub code: String,
+    pub code: i64,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Value>,
@@ -80,7 +80,7 @@ impl CerebroService {
                 id,
                 result: None,
                 error: Some(JsonRpcError {
-                    code: "invalid_request".to_string(),
+                    code: -32600,
                     message: "jsonrpc must be '2.0'".to_string(),
                     data: None,
                 }),
@@ -93,7 +93,7 @@ impl CerebroService {
                 id,
                 result: None,
                 error: Some(JsonRpcError {
-                    code: "invalid_method".to_string(),
+                    code: -32601,
                     message: "unsupported method".to_string(),
                     data: None,
                 }),
@@ -139,19 +139,21 @@ impl CerebroService {
             .filter(|token| !token.is_empty());
 
         let header = auth_header.unwrap_or("");
-        let token = header.strip_prefix("Bearer ").unwrap_or(header).trim();
+        let token = header
+            .strip_prefix("Bearer ")
+            .ok_or(CerebroError::Unauthorized)?
+            .trim();
 
         if token.is_empty() {
             return Err(CerebroError::Unauthorized);
         }
 
-        if token == expected {
-            let is_audit = audit_token.is_none();
-            return Ok(AuthContext { is_audit });
-        }
-
         if audit_token.is_some_and(|audit| token == audit) {
             return Ok(AuthContext { is_audit: true });
+        }
+
+        if token == expected {
+            return Ok(AuthContext { is_audit: false });
         }
 
         Err(CerebroError::Unauthorized)

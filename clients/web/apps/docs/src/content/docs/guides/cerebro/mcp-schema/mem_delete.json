@@ -10,11 +10,13 @@
         "memory_id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
           "description": "Memory identifier to delete."
         },
         "topic_key": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
           "description": "Topic key to delete (resolved to latest memory)."
         },
         "hard_delete": {
@@ -24,7 +26,8 @@
         "reason": {
           "type": "string",
           "minLength": 1,
-          "description": "Optional deletion reason."
+          "maxLength": 256,
+          "description": "Optional deletion reason (max 256 chars)."
         }
       },
       "oneOf": [{ "required": ["memory_id"] }, { "required": ["topic_key"] }],
@@ -35,7 +38,8 @@
       "properties": {
         "memory_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 128
         },
         "status": {
           "type": "string",

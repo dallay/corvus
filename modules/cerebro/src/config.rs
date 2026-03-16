@@ -69,7 +69,7 @@ impl Default for CerebroConfig {
 
 impl CerebroConfig {
     pub fn bind_addr(&self) -> String {
-        format!("{}:{}", self.host, self.port)
+        format!("{}:{}", format_host(&self.host), self.port)
     }
 
     pub fn endpoint(&self) -> String {
@@ -85,7 +85,16 @@ impl CerebroConfig {
                     "https"
                 }
             });
-        format!("{scheme}://{}:{}/mcp", self.host, self.port)
+        format!("{scheme}://{}:{}/mcp", format_host(&self.host), self.port)
+    }
+}
+
+fn format_host(host: &str) -> String {
+    let trimmed = host.trim();
+    let unbracketed = trimmed.trim_matches('[').trim_matches(']');
+    match IpAddr::from_str(unbracketed) {
+        Ok(IpAddr::V6(_)) => format!("[{unbracketed}]"),
+        _ => trimmed.to_string(),
     }
 }
 

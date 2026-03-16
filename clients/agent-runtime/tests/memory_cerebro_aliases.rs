@@ -93,7 +93,7 @@ async fn legacy_memory_recall_aliases_to_mem_search() {
         allow_insecure_loopback: true,
     };
 
-    let tool = MemoryRecallTool::new(cerebro);
+    let tool = MemoryRecallTool::new(cerebro, Arc::new(SecurityPolicy::default()));
     let result = tool.execute(json!({"query": "Stored"})).await.unwrap();
 
     assert!(result.success);

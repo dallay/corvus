@@ -10,11 +10,13 @@
         "session_id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
           "description": "Client-generated session identifier."
         },
         "agent_id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
           "description": "Agent identifier for attribution."
         },
         "started_at": {
@@ -25,6 +27,8 @@
         "metadata": {
           "type": "object",
           "description": "Optional session metadata.",
+          "maxProperties": 50,
+          "propertyNames": { "type": "string", "maxLength": 64 },
           "additionalProperties": true
         }
       },
@@ -36,7 +40,8 @@
       "properties": {
         "session_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 128
         },
         "status": {
           "type": "string",

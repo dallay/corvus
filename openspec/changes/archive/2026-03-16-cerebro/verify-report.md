@@ -1,7 +1,8 @@
-## Verification Report
+# Verification Report
 
 **Change**: cerebro
 **Version**: N/A
+**EN/ES parity**: Verified
 
 ---
 

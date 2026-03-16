@@ -41,7 +41,7 @@ async fn runtime_round_trips_to_cerebro() {
         .unwrap();
     assert!(store_result.success);
 
-    let recall = MemoryRecallTool::new(cerebro);
+    let recall = MemoryRecallTool::new(cerebro, Arc::new(SecurityPolicy::default()));
     let recall_result = recall.execute(json!({"query": "Remote"})).await.unwrap();
     assert!(recall_result.success);
     assert!(recall_result.output.contains("Remote note"));

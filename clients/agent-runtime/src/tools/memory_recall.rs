@@ -1,6 +1,9 @@
 use super::traits::{Tool, ToolResult};
 use crate::config::MemoryCerebroConfig;
 use crate::memory::{Memory, MemoryEntry};
+use crate::security::egress::enforce_cerebro_egress;
+use crate::security::policy::ToolOperation;
+use crate::security::SecurityPolicy;
 use crate::tools::mcp::{cerebro, normalize};
 use async_trait::async_trait;
 use serde_json::json;
@@ -10,20 +13,23 @@ use std::sync::Arc;
 pub struct MemoryRecallTool {
     cerebro: MemoryCerebroConfig,
     local: Option<Arc<dyn Memory>>,
+    security: Arc<SecurityPolicy>,
 }
 
 impl MemoryRecallTool {
-    pub fn new(cerebro: MemoryCerebroConfig) -> Self {
+    pub fn new(cerebro: MemoryCerebroConfig, security: Arc<SecurityPolicy>) -> Self {
         Self {
             cerebro,
             local: None,
+            security,
         }
     }
 
-    pub fn with_local(memory: Arc<dyn Memory>) -> Self {
+    pub fn with_local(memory: Arc<dyn Memory>, security: Arc<SecurityPolicy>) -> Self {
         Self {
             cerebro: MemoryCerebroConfig::default(),
             local: Some(memory),
+            security,
         }
     }
 }
@@ -111,6 +117,18 @@ impl Tool for MemoryRecallTool {
             },
         };
 
+        if let Err(error) = self
+            .security
+            .enforce_tool_operation(ToolOperation::Read, "memory_recall")
+        {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error),
+                structured: None,
+            });
+        }
+
         if let Some(local) = &self.local {
             let entries = local.recall(query, limit, None).await?;
             let output = format_local_recall_output(entries);
@@ -129,23 +147,57 @@ impl Tool for MemoryRecallTool {
             .map(str::trim)
             .filter(|value| !value.is_empty());
 
-        if endpoint.is_none() {
+        let endpoint = match endpoint {
+            Some(value) => value,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Cerebro MCP endpoint is required for memory_recall".into()),
+                    structured: None,
+                });
+            }
+        };
+
+        if let Err(error) = enforce_cerebro_egress(endpoint, &self.cerebro, ToolOperation::Read) {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some("Cerebro MCP endpoint is required for memory_recall".into()),
+                error: Some(error.to_string()),
                 structured: None,
             });
         }
 
-        let adapter = cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)?;
+        let adapter = match
+            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)
+        {
+            Ok(adapter) => adapter,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
         let payload = json!({
             "input": {
                 "query": query,
                 "limit": limit
             }
         });
-        let response = adapter.execute(payload).await?;
+        let response = match adapter.execute(payload).await {
+            Ok(response) => response,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
         if !response.success {
             return Ok(ToolResult {
                 success: false,
@@ -155,7 +207,17 @@ impl Tool for MemoryRecallTool {
             });
         }
 
-        let output = normalize::normalize_legacy_recall_output(&response.output)?;
+        let output = match normalize::normalize_legacy_recall_output(&response.output) {
+            Ok(output) => output,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
         Ok(ToolResult {
             success: true,
             output,
@@ -182,9 +244,13 @@ fn format_local_recall_output(entries: Vec<MemoryEntry>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::SecurityPolicy;
     #[tokio::test]
     async fn recall_missing_query() {
-        let tool = MemoryRecallTool::new(MemoryCerebroConfig::default());
+        let tool = MemoryRecallTool::new(
+            MemoryCerebroConfig::default(),
+            Arc::new(SecurityPolicy::default()),
+        );
         let result = tool.execute(json!({})).await.unwrap();
         assert!(!result.success);
         assert!(result
@@ -196,7 +262,10 @@ mod tests {
 
     #[test]
     fn name_and_schema() {
-        let tool = MemoryRecallTool::new(MemoryCerebroConfig::default());
+        let tool = MemoryRecallTool::new(
+            MemoryCerebroConfig::default(),
+            Arc::new(SecurityPolicy::default()),
+        );
         assert_eq!(tool.name(), "memory_recall");
         assert!(tool.parameters_schema()["properties"]["query"].is_object());
     }

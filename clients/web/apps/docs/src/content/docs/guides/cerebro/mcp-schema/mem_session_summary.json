@@ -10,6 +10,7 @@
         "session_id": {
           "type": "string",
           "minLength": 1,
+          "maxLength": 128,
           "description": "Session identifier to summarize."
         },
         "summary": {
@@ -18,30 +19,38 @@
           "properties": {
             "goal": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "maxLength": 512
             },
             "discoveries": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 }
+              "maxItems": 50,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
             },
             "accomplished": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 }
+              "maxItems": 50,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
             },
             "blockers": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 }
+              "maxItems": 50,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
             },
             "next_steps": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 }
+              "maxItems": 50,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
             }
           },
+          "required": ["goal", "discoveries", "accomplished", "blockers", "next_steps"],
           "additionalProperties": false
         },
         "metadata": {
           "type": "object",
           "description": "Optional summary metadata.",
+          "maxProperties": 50,
+          "propertyNames": { "type": "string", "maxLength": 64 },
           "additionalProperties": true
         }
       },
@@ -53,7 +62,8 @@
       "properties": {
         "session_id": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 128
         },
         "status": {
           "type": "string",

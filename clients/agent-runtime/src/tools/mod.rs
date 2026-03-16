@@ -330,7 +330,10 @@ pub fn all_tools_with_runtime(
             memory.clone(),
             security.clone(),
         )));
-        tools.push(Box::new(MemoryRecallTool::with_local(memory.clone())));
+        tools.push(Box::new(MemoryRecallTool::with_local(
+            memory.clone(),
+            security.clone(),
+        )));
         tools.push(Box::new(MemoryForgetTool::with_local(
             memory.clone(),
             security.clone(),
@@ -342,6 +345,7 @@ pub fn all_tools_with_runtime(
         )));
         tools.push(Box::new(MemoryRecallTool::new(
             root_config.memory.cerebro.clone(),
+            security.clone(),
         )));
         tools.push(Box::new(MemoryForgetTool::new(
             root_config.memory.cerebro.clone(),

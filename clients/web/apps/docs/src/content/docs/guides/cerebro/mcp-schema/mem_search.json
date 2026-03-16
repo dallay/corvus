@@ -30,6 +30,7 @@
         },
         "include_deleted": {
           "type": "boolean",
+          "default": false,
           "description": "Include soft-deleted records (default false)."
         }
       },
@@ -41,6 +42,7 @@
       "properties": {
         "results": {
           "type": "array",
+          "maxItems": 100,
           "items": {
             "type": "object",
             "properties": {

@@ -4,6 +4,7 @@ use crate::storage::{MemoryRecord, Storage};
 use crate::validation::require_non_empty;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use uuid::Uuid;
 use std::sync::Arc;
 
 #[derive(Debug, Deserialize)]
@@ -224,7 +225,7 @@ impl CerebroTools {
           "metadata": input.input.observation.metadata,
         });
 
-        let memory_id = input.input.topic_key.clone();
+        let memory_id = Uuid::new_v4().to_string();
         let record = MemoryRecord::new(
             memory_id.clone(),
             input.input.scope,

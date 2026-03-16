@@ -1,6 +1,7 @@
 use super::traits::{Tool, ToolResult};
 use crate::config::MemoryCerebroConfig;
 use crate::memory::Memory;
+use crate::security::egress::enforce_cerebro_egress;
 use crate::security::policy::ToolOperation;
 use crate::security::SecurityPolicy;
 use crate::tools::mcp::{cerebro, normalize};
@@ -88,18 +89,27 @@ impl Tool for MemoryForgetTool {
         }
 
         if let Some(local) = &self.local {
-            let deleted = local.forget(key).await?;
-            let output = if deleted {
-                format!("Forgot memory: {key}")
-            } else {
-                format!("No memory found with key: {key}")
+            return match local.forget(key).await {
+                Ok(deleted) => {
+                    let output = if deleted {
+                        format!("Forgot memory: {key}")
+                    } else {
+                        format!("No memory found with key: {key}")
+                    };
+                    Ok(ToolResult {
+                        success: true,
+                        output,
+                        error: None,
+                        structured: None,
+                    })
+                }
+                Err(error) => Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                }),
             };
-            return Ok(ToolResult {
-                success: true,
-                output,
-                error: None,
-                structured: None,
-            });
         }
 
         let endpoint = self
@@ -109,17 +119,40 @@ impl Tool for MemoryForgetTool {
             .map(str::trim)
             .filter(|value| !value.is_empty());
 
-        if endpoint.is_none() {
+        let endpoint = match endpoint {
+            Some(value) => value,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Cerebro MCP endpoint is required for memory_forget".into()),
+                    structured: None,
+                });
+            }
+        };
+
+        if let Err(error) = enforce_cerebro_egress(endpoint, &self.cerebro, ToolOperation::Act) {
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some("Cerebro MCP endpoint is required for memory_forget".into()),
+                error: Some(error.to_string()),
                 structured: None,
             });
         }
 
-        let recall_adapter =
-            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)?;
+        let recall_adapter = match
+            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)
+        {
+            Ok(adapter) => adapter,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
         let recall_payload = json!({
             "input": {
                 "query": key,
@@ -127,7 +160,17 @@ impl Tool for MemoryForgetTool {
                 "topic_key": key
             }
         });
-        let recall = recall_adapter.execute(recall_payload).await?;
+        let recall = match recall_adapter.execute(recall_payload).await {
+            Ok(recall) => recall,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
         if !recall.success {
             return Ok(ToolResult {
                 success: false,
@@ -137,16 +180,55 @@ impl Tool for MemoryForgetTool {
             });
         }
 
-        let resolved_id = resolve_memory_id(&recall.output)?;
+        let resolved_id = match resolve_memory_id(&recall.output) {
+            Ok(value) => value,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
+        let Some(resolved_id) = resolved_id else {
+            return Ok(ToolResult {
+                success: true,
+                output: format!("No memory found with key: {key}"),
+                error: None,
+                structured: None,
+            });
+        };
         let payload = json!({
             "input": {
                 "memory_id": resolved_id,
                 "topic_key": key
             }
         });
-        let adapter =
-            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_FORGET)?;
-        let response = adapter.execute(payload).await?;
+        let adapter = match
+            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_FORGET)
+        {
+            Ok(adapter) => adapter,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
+        let response = match adapter.execute(payload).await {
+            Ok(response) => response,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
         if !response.success {
             return Ok(ToolResult {
                 success: false,
@@ -156,7 +238,17 @@ impl Tool for MemoryForgetTool {
             });
         }
 
-        let output = normalize::normalize_legacy_forget_output(&response.output, key)?;
+        let output = match normalize::normalize_legacy_forget_output(&response.output, key) {
+            Ok(output) => output,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
         Ok(ToolResult {
             success: true,
             output,
@@ -169,10 +261,12 @@ impl Tool for MemoryForgetTool {
 fn resolve_memory_id(raw_output: &str) -> anyhow::Result<Option<String>> {
     let value: serde_json::Value = serde_json::from_str(raw_output)
         .map_err(|err| anyhow::anyhow!("invalid Cerebro response: {err}"))?;
-    let memory_id = value
+    let results = value
         .get("results")
         .and_then(serde_json::Value::as_array)
-        .and_then(|results| results.first())
+        .ok_or_else(|| anyhow::anyhow!("Cerebro response missing results"))?;
+    let memory_id = results
+        .first()
         .and_then(|entry| entry.get("memory_id"))
         .and_then(serde_json::Value::as_str)
         .map(|value| value.to_string());
@@ -182,10 +276,130 @@ fn resolve_memory_id(raw_output: &str) -> anyhow::Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::routing::post;
+    use axum::{Json, Router};
     use crate::security::{AutonomyLevel, SecurityPolicy};
+    use tokio::net::TcpListener;
+
+    struct MockMemory {
+        deleted: bool,
+    }
+
+    #[async_trait]
+    impl Memory for MockMemory {
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: crate::memory::MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            Ok(vec![])
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&crate::memory::MemoryCategory>,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            Ok(vec![])
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(self.deleted)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+
+        fn name(&self) -> &str {
+            "mock"
+        }
+    }
 
     fn test_security() -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy::default())
+    }
+
+    fn test_cerebro_config(endpoint: String) -> MemoryCerebroConfig {
+        MemoryCerebroConfig {
+            endpoint: Some(endpoint),
+            auth_token: Some("test-token".to_string()),
+            request_timeout_ms: 5_000,
+            allow_insecure_loopback: true,
+        }
+    }
+
+    async fn handler_success(Json(payload): Json<serde_json::Value>) -> Json<serde_json::Value> {
+        let tool = payload
+            .get("params")
+            .and_then(|params| params.get("name"))
+            .and_then(|name| name.as_str())
+            .unwrap_or("unknown");
+        let output = match tool {
+            "mem_search" => json!({
+                "results": [{
+                    "memory_id": "mem-1",
+                    "summary": "prefers rust",
+                    "topic_key": "lang",
+                    "score": 0.9
+                }]
+            }),
+            "mem_delete" => json!({ "deleted": true }),
+            _ => json!({ "error": "unexpected tool" }),
+        };
+
+        Json(json!({
+            "jsonrpc": "2.0",
+            "id": payload.get("id").cloned().unwrap_or(json!("1")),
+            "result": { "output": output }
+        }))
+    }
+
+    async fn handler_bad_recall(Json(payload): Json<serde_json::Value>) -> Json<serde_json::Value> {
+        Json(json!({
+            "jsonrpc": "2.0",
+            "id": payload.get("id").cloned().unwrap_or(json!("1")),
+            "result": { "output": "not-json" }
+        }))
+    }
+
+    async fn start_mock_server_success() -> String {
+        let app = Router::new().route("/mcp", post(handler_success));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}/mcp")
+    }
+
+    async fn start_mock_server_bad_recall() -> String {
+        let app = Router::new().route("/mcp", post(handler_bad_recall));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}/mcp")
     }
 
     #[test]
@@ -237,5 +451,48 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("Rate limit exceeded"));
+    }
+
+    #[tokio::test]
+    async fn forget_local_success() {
+        let memory = Arc::new(MockMemory { deleted: true });
+        let tool = MemoryForgetTool::with_local(memory, test_security());
+        let result = tool.execute(json!({"key": "temp"})).await.unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("Forgot memory: temp"));
+    }
+
+    #[tokio::test]
+    async fn forget_missing_endpoint() {
+        let tool = MemoryForgetTool::new(MemoryCerebroConfig::default(), test_security());
+        let result = tool.execute(json!({"key": "temp"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Cerebro MCP endpoint"));
+    }
+
+    #[tokio::test]
+    async fn forget_recall_malformed_response() {
+        let endpoint = start_mock_server_bad_recall().await;
+        let tool = MemoryForgetTool::new(test_cerebro_config(endpoint), test_security());
+        let result = tool.execute(json!({"key": "temp"})).await.unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("invalid Cerebro response"));
+    }
+
+    #[tokio::test]
+    async fn forget_cerebro_success() {
+        let endpoint = start_mock_server_success().await;
+        let tool = MemoryForgetTool::new(test_cerebro_config(endpoint), test_security());
+        let result = tool.execute(json!({"key": "lang"})).await.unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("Forgot memory: lang"));
     }
 }

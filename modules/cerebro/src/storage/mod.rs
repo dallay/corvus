@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MemoryRecord {
     pub memory_id: String,
     pub scope: String,
@@ -97,25 +97,62 @@ impl DiskBackedStorage {
         }))
     }
 
-    fn persist(&self, map: &HashMap<String, MemoryRecord>) -> Result<(), CerebroError> {
-        let Some(parent) = self.path.parent() else {
-            return Err(CerebroError::Storage(
-                "storage path must include a parent directory".to_string(),
-            ));
-        };
-        fs::create_dir_all(parent)
-            .map_err(|err| CerebroError::Storage(format!("failed to create storage dir: {err}")))?;
-        let mut ordered: Vec<&MemoryRecord> = map.values().collect();
-        ordered.sort_by(|a, b| a.memory_id.cmp(&b.memory_id));
-        let encoded = serde_json::to_vec_pretty(&ordered)
-            .map_err(|err| CerebroError::Storage(format!("failed to encode storage: {err}")))?;
-        let tmp_path = self.path.with_extension("tmp");
-        fs::write(&tmp_path, encoded)
-            .map_err(|err| CerebroError::Storage(format!("failed to write storage: {err}")))?;
-        fs::rename(&tmp_path, &self.path)
-            .map_err(|err| CerebroError::Storage(format!("failed to commit storage: {err}")))?;
+    async fn persist_records(&self, records: Vec<MemoryRecord>) -> Result<(), CerebroError> {
+        let path = self.path.clone();
+        let path_for_task = path.clone();
+        tokio::task::spawn_blocking(move || persist_records_to_path(&path_for_task, records))
+            .await
+            .map_err(|err| {
+                CerebroError::Storage(format!(
+                    "storage persist task failed for {}: {err}",
+                    path.display()
+                ))
+            })??;
         Ok(())
     }
+}
+
+fn persist_records_to_path(
+    path: &Path,
+    mut records: Vec<MemoryRecord>,
+) -> Result<(), CerebroError> {
+    let Some(parent) = path.parent() else {
+        return Err(CerebroError::Storage(
+            "storage path must include a parent directory".to_string(),
+        ));
+    };
+    fs::create_dir_all(parent).map_err(|err| {
+        CerebroError::Storage(format!(
+            "failed to create storage dir {}: {err}",
+            parent.display()
+        ))
+    })?;
+    records.sort_by(|a, b| a.memory_id.cmp(&b.memory_id));
+    let encoded = serde_json::to_vec_pretty(&records).map_err(|err| {
+        CerebroError::Storage(format!("failed to encode storage {}: {err}", path.display()))
+    })?;
+    let tmp_path = path.with_extension("tmp");
+    fs::write(&tmp_path, encoded).map_err(|err| {
+        CerebroError::Storage(format!(
+            "failed to write storage {}: {err}",
+            tmp_path.display()
+        ))
+    })?;
+    if path.exists() {
+        fs::remove_file(path).map_err(|err| {
+            CerebroError::Storage(format!(
+                "failed to remove existing storage {}: {err}",
+                path.display()
+            ))
+        })?;
+    }
+    fs::rename(&tmp_path, path).map_err(|err| {
+        CerebroError::Storage(format!(
+            "failed to commit storage {}: {err}",
+            path.display()
+        ))
+    })?;
+    Ok(())
 }
 
 #[async_trait]
@@ -192,9 +229,28 @@ impl Storage for InMemoryStorage {
 #[async_trait]
 impl Storage for DiskBackedStorage {
     async fn save(&self, record: MemoryRecord) -> Result<(), CerebroError> {
+        let memory_id = record.memory_id.clone();
         let mut map = self.records.write().await;
-        map.insert(record.memory_id.clone(), record);
-        self.persist(&map)
+        let previous = map.insert(memory_id.clone(), record.clone());
+        let snapshot: Vec<MemoryRecord> = map.values().cloned().collect();
+        drop(map);
+
+        if let Err(error) = self.persist_records(snapshot).await {
+            let mut map = self.records.write().await;
+            if map.get(&memory_id).is_some_and(|current| current == &record) {
+                match previous {
+                    Some(prev) => {
+                        map.insert(memory_id, prev);
+                    }
+                    None => {
+                        map.remove(&memory_id);
+                    }
+                }
+            }
+            return Err(error);
+        }
+
+        Ok(())
     }
 
     async fn get(&self, memory_id: &str) -> Result<Option<MemoryRecord>, CerebroError> {
@@ -204,6 +260,7 @@ impl Storage for DiskBackedStorage {
 
     async fn delete(&self, memory_id: &str, hard_delete: bool) -> Result<bool, CerebroError> {
         let mut map = self.records.write().await;
+        let previous = map.get(memory_id).cloned();
         let deleted = if hard_delete {
             map.remove(memory_id).is_some()
         } else if let Some(entry) = map.get_mut(memory_id) {
@@ -212,7 +269,28 @@ impl Storage for DiskBackedStorage {
         } else {
             false
         };
-        self.persist(&map)?;
+        let snapshot: Vec<MemoryRecord> = map.values().cloned().collect();
+        drop(map);
+
+        if let Err(error) = self.persist_records(snapshot).await {
+            let mut map = self.records.write().await;
+            if hard_delete {
+                if map.get(memory_id).is_none() {
+                    if let Some(prev) = previous {
+                        map.insert(memory_id.to_string(), prev);
+                    }
+                }
+            } else if let Some(prev) = previous {
+                if map
+                    .get(memory_id)
+                    .is_some_and(|current| current.deleted && current.memory_id == prev.memory_id)
+                {
+                    map.insert(memory_id.to_string(), prev);
+                }
+            }
+            return Err(error);
+        }
+
         Ok(deleted)
     }
 
@@ -278,10 +356,14 @@ fn load_records(path: &Path) -> Result<HashMap<String, MemoryRecord>, CerebroErr
     if !path.exists() {
         return Ok(HashMap::new());
     }
-    let data = fs::read(path)
-        .map_err(|err| CerebroError::Storage(format!("failed to read storage: {err}")))?;
+    let data = fs::read(path).map_err(|err| {
+        CerebroError::Storage(format!("failed to read storage {}: {err}", path.display()))
+    })?;
     let records: Vec<MemoryRecord> = serde_json::from_slice(&data).map_err(|err| {
-        CerebroError::Storage(format!("failed to parse storage file: {err}"))
+        CerebroError::Storage(format!(
+            "failed to parse storage file {}: {err}",
+            path.display()
+        ))
     })?;
     Ok(records
         .into_iter()

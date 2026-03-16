@@ -1,5 +1,5 @@
 use crate::config::MemoryCerebroConfig;
-use crate::memory::Memory;
+use crate::memory::{Memory, MemoryEntry};
 use crate::tools::mcp::{cerebro, normalize};
 use crate::tools::traits::Tool;
 use async_trait::async_trait;
@@ -59,22 +59,9 @@ impl MemoryLoader for DefaultMemoryLoader {
         user_message: &str,
     ) -> anyhow::Result<String> {
         let entries = memory.recall(user_message, self.limit, None).await?;
-        if entries.is_empty() {
-            return Ok(String::new());
-        }
-
-        let mut context = String::from("[Memory context]\n");
-        for entry in entries {
-            if let Some(score) = entry.score {
-                if score < self.min_relevance_score {
-                    continue;
-                }
-            }
-            let _ = writeln!(context, "- {}: {}", entry.key, entry.content);
-        }
-
-        // If all entries were below threshold, return empty
-        if context == "[Memory context]\n" {
+        let mut context = String::new();
+        let added = append_local_entries(&mut context, &entries, self.min_relevance_score);
+        if !added {
             return Ok(String::new());
         }
 
@@ -87,9 +74,13 @@ impl MemoryLoader for DefaultMemoryLoader {
 impl MemoryLoader for CerebroMemoryLoader {
     async fn load_context(
         &self,
-        _memory: &dyn Memory,
+        memory: &dyn Memory,
         user_message: &str,
     ) -> anyhow::Result<String> {
+        let entries = memory.recall(user_message, self.limit, None).await?;
+        let mut context = String::new();
+        let mut added = append_local_entries(&mut context, &entries, self.min_relevance_score);
+
         let endpoint = self
             .config
             .endpoint
@@ -98,7 +89,11 @@ impl MemoryLoader for CerebroMemoryLoader {
             .filter(|value| !value.is_empty());
 
         if endpoint.is_none() {
-            anyhow::bail!("Cerebro MCP endpoint is missing for memory loader");
+            if added {
+                context.push('\n');
+                return Ok(context);
+            }
+            anyhow::bail!("Cerebro MCP endpoint is not configured");
         }
 
         let adapter =
@@ -118,45 +113,64 @@ impl MemoryLoader for CerebroMemoryLoader {
         }
 
         let value: serde_json::Value = serde_json::from_str(&response.output)?;
-        let results = match value
+        let results = value
             .get("results")
             .and_then(serde_json::Value::as_array)
-        {
-            Some(results) => results,
-            None => return Ok(String::new()),
-        };
+            .ok_or_else(|| anyhow::anyhow!("Cerebro response missing results"))?;
 
-        if results.is_empty() {
-            return Ok(String::new());
-        }
-
-        let mut context = String::from("[Memory context]\n");
-        for entry in results {
-            let score = entry.get("score").and_then(serde_json::Value::as_f64);
-            if let Some(score) = score {
-                if score < self.min_relevance_score {
-                    continue;
+        if !results.is_empty() {
+            for entry in results {
+                let score = entry.get("score").and_then(serde_json::Value::as_f64);
+                if let Some(score) = score {
+                    if score < self.min_relevance_score {
+                        continue;
+                    }
                 }
+                let key = entry
+                    .get("topic_key")
+                    .or_else(|| entry.get("memory_id"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or("memory");
+                let summary = entry
+                    .get("summary")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                if context.is_empty() {
+                    context.push_str("[Memory context]\n");
+                }
+                let _ = writeln!(context, "- {key}: {summary}");
+                added = true;
             }
-            let key = entry
-                .get("topic_key")
-                .or_else(|| entry.get("memory_id"))
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or("memory");
-            let summary = entry
-                .get("summary")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-            let _ = writeln!(context, "- {key}: {summary}");
         }
 
-        if context == "[Memory context]\n" {
+        if !added {
             return Ok(String::new());
         }
 
         context.push('\n');
         Ok(context)
     }
+}
+
+fn append_local_entries(
+    context: &mut String,
+    entries: &[MemoryEntry],
+    min_relevance_score: f64,
+) -> bool {
+    let mut added = false;
+    for entry in entries {
+        if let Some(score) = entry.score {
+            if score < min_relevance_score {
+                continue;
+            }
+        }
+        if context.is_empty() {
+            context.push_str("[Memory context]\n");
+        }
+        let _ = writeln!(context, "- {}: {}", entry.key, entry.content);
+        added = true;
+    }
+    added
 }
 
 #[cfg(test)]
@@ -230,6 +244,14 @@ mod tests {
     #[tokio::test]
     async fn default_loader_formats_context() {
         let loader = DefaultMemoryLoader::default();
+        let context = loader.load_context(&MockMemory, "hello").await.unwrap();
+        assert!(context.contains("[Memory context]"));
+        assert!(context.contains("- k: v"));
+    }
+
+    #[tokio::test]
+    async fn cerebro_loader_returns_local_context_when_endpoint_missing() {
+        let loader = CerebroMemoryLoader::new(MemoryCerebroConfig::default(), 5, 0.4);
         let context = loader.load_context(&MockMemory, "hello").await.unwrap();
         assert!(context.contains("[Memory context]"));
         assert!(context.contains("- k: v"));
