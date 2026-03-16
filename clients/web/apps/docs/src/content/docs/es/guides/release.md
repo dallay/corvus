@@ -25,8 +25,11 @@ Antes de poder publicar, asegúrate de tener:
 - `DOCKERHUB_USERNAME`: usuario de Docker Hub
 - `DOCKERHUB_TOKEN`: token de acceso de Docker Hub
 
-1. **Token de Release Please**: `RELEASE_PLEASE_TOKEN` con acceso de escritura al repo para que
-   release-please pueda abrir PRs y crear tags que disparen los workflows de publicación
+1. **Token de Release Please**: `RELEASE_PLEASE_TOKEN` debe ser un **PAT fine-grained** limitado
+   a este repositorio (sin tokens de alcance global de organización).
+   Permisos mínimos: **Contents (Read/Write)**, **Pull requests (Read/Write)**, **Issues (Read/Write)**.
+   Usa expiración corta (≤ 90 días), rota cada 90 días y documenta ownership/seguimiento de la rotación.
+   El secret debe guardarse en GitHub Secrets con el nombre exacto `RELEASE_PLEASE_TOKEN`.
 2. **Permisos de escritura**: Debes ser mantenedor del repositorio
 
 ### Qué publica un release
