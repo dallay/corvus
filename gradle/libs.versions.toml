@@ -68,7 +68,7 @@ dev-detekt = { id = "dev.detekt", version = "2.0.0-alpha.2" }
 org-jetbrains-dokka = { id = "org.jetbrains.dokka", version = "2.2.0-Beta" }
 me-champeau-jmh = { id = "me.champeau.jmh", version = "0.7.3" }
 org-gradlex-jvm-dependency-conflict-resolution = { id = "org.gradlex.jvm-dependency-conflict-resolution", version = "2.5" }
-org-gradlex-java-module-dependencies = { id = "org.gradlex.java-module-dependencies", version = "1.12" }
+org-gradlex-java-module-dependencies = { id = "org.gradlex.java-module-dependencies", version = "1.12.1" }
 org-gradlex-java-module-testing = { id = "org.gradlex.java-module-testing", version = "1.8" }
 org-gradlex-extra-java-module-info = { id = "org.gradlex.extra-java-module-info", version = "1.14" }
 com-gradleup-shadow = { id = "com.gradleup.shadow", version = "9.3.1" }
