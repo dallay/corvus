@@ -2844,13 +2844,18 @@ impl Config {
 
     fn validate_memory_config(&self) -> Result<()> {
         match self.memory.backend.as_str() {
+            "sqlite" | "lucid" | "markdown" | "none" => {}
             "surreal" | "surreal-graphs" => {
                 anyhow::bail!(
-                    "memory.backend '{}' is no longer supported; configure memory.cerebro instead",
+                    "SurrealDB backend has been removed; use the Cerebro backend for long-term memory. See https://github.com/dallay/corvus/blob/main/clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md"
+                );
+            }
+            _ => {
+                anyhow::bail!(
+                    "memory.backend '{}' is not supported; valid options are: sqlite, lucid, markdown, none",
                     self.memory.backend
                 );
             }
-            _ => {}
         }
 
         if let Some(endpoint) = self.memory.cerebro.endpoint.as_deref() {

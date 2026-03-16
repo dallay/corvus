@@ -119,6 +119,11 @@ pub fn create_memory(
         }
         MemoryBackendKind::Markdown => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
         MemoryBackendKind::None => Ok(Box::new(NoneMemory::new())),
+        MemoryBackendKind::LegacySurreal => {
+            anyhow::bail!(
+                "SurrealDB backend has been removed; use the Cerebro backend for long-term memory. See https://github.com/dallay/corvus/blob/main/clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md"
+            );
+        }
         MemoryBackendKind::Unknown => {
             tracing::warn!(
                 "Unknown memory backend '{}', falling back to markdown",
@@ -147,6 +152,11 @@ pub fn create_memory_for_migration(
         }
         MemoryBackendKind::Markdown | MemoryBackendKind::Unknown => {
             Ok(Box::new(MarkdownMemory::new(workspace_dir)))
+        }
+        MemoryBackendKind::LegacySurreal => {
+            anyhow::bail!(
+                "SurrealDB backend has been removed; use the Cerebro backend for long-term memory. See https://github.com/dallay/corvus/blob/main/clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md"
+            );
         }
         MemoryBackendKind::None => unreachable!("checked above"),
     }

@@ -60,11 +60,16 @@ operations only to Cerebro via MCP.
 - `mem_save` SHOULD carry non-sensitive, durable observations appropriate for long-term storage.
 - Secrets, credentials, PII, and ephemeral context MUST remain local-only in the runtime and MUST
   NOT be sent to Cerebro via MCP.
+- The runtime MUST enforce a local PII/secret guard before MCP calls and return a structured error
+  when sensitive content is detected.
 
 ### Requirement: Remove SurrealDB Backend from Runtime
 
 The agent runtime MUST NOT include the SurrealDB memory backend or the `memory-surreal` feature
 flag after this change.
+
+See the migration guide for operational steps:
+clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md
 
 #### Scenario: Runtime memory backend selection (happy path)
 
@@ -78,6 +83,7 @@ flag after this change.
 - GIVEN a legacy configuration that references the SurrealDB backend
 - WHEN the runtime loads the configuration
 - THEN the runtime rejects the configuration with a clear error indicating the backend is removed
+  ("SurrealDB backend has been removed; use the Cerebro backend for long-term memory...")
 
 ### Requirement: Legacy Tool Aliases
 
@@ -119,6 +125,20 @@ for insecure endpoints.
 - GIVEN a configuration that uses `http` or `ws` without explicit loopback opt-in
 - WHEN the runtime validates the configuration
 - THEN the configuration is rejected with a security error
+
+#### Loopback opt-in definition
+
+`allow_insecure_loopback` (aka loopback opt-in) permits `http`/`ws` endpoints only when the host is
+loopback (e.g., `127.0.0.1`, `localhost`, `[::1]`). Any non-loopback host must use `https`/`wss`.
+
+Example (allowed for local dev only):
+
+```toml
+[memory.cerebro]
+endpoint = "http://127.0.0.1:4040/mcp"
+auth_token = "token"
+allow_insecure_loopback = true
+```
 
 ### Requirement: Data Hygiene Defaults
 

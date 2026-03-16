@@ -4,6 +4,7 @@ pub enum MemoryBackendKind {
     Lucid,
     Markdown,
     None,
+    LegacySurreal,
     Unknown,
 }
 
@@ -84,6 +85,7 @@ pub fn classify_memory_backend(backend: &str) -> MemoryBackendKind {
         "lucid" => MemoryBackendKind::Lucid,
         "markdown" => MemoryBackendKind::Markdown,
         "none" => MemoryBackendKind::None,
+        "surreal" | "surreal-graphs" => MemoryBackendKind::LegacySurreal,
         _ => MemoryBackendKind::Unknown,
     }
 }
@@ -94,6 +96,7 @@ pub fn memory_backend_profile(backend: &str) -> MemoryBackendProfile {
         MemoryBackendKind::Lucid => LUCID_PROFILE,
         MemoryBackendKind::Markdown => MARKDOWN_PROFILE,
         MemoryBackendKind::None => NONE_PROFILE,
+        MemoryBackendKind::LegacySurreal => CUSTOM_PROFILE,
         MemoryBackendKind::Unknown => CUSTOM_PROFILE,
     }
 }
@@ -111,6 +114,18 @@ mod tests {
             MemoryBackendKind::Markdown
         );
         assert_eq!(classify_memory_backend("none"), MemoryBackendKind::None);
+    }
+
+    #[test]
+    fn classify_legacy_surreal_backend() {
+        assert_eq!(
+            classify_memory_backend("surreal"),
+            MemoryBackendKind::LegacySurreal
+        );
+        assert_eq!(
+            classify_memory_backend("surreal-graphs"),
+            MemoryBackendKind::LegacySurreal
+        );
     }
 
     #[test]

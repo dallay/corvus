@@ -9,6 +9,7 @@
       "properties": {
         "session_id": {
           "type": "string",
+          "minLength": 1,
           "description": "Session identifier to summarize."
         },
         "summary": {
@@ -16,26 +17,27 @@
           "description": "Structured session summary payload.",
           "properties": {
             "goal": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "discoveries": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": { "type": "string", "minLength": 1 }
             },
             "accomplished": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": { "type": "string", "minLength": 1 }
             },
             "blockers": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": { "type": "string", "minLength": 1 }
             },
             "next_steps": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": { "type": "string", "minLength": 1 }
             }
           },
-          "additionalProperties": true
+          "additionalProperties": false
         },
         "metadata": {
           "type": "object",
@@ -50,7 +52,8 @@
       "type": "object",
       "properties": {
         "session_id": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "status": {
           "type": "string",

@@ -80,6 +80,9 @@
 - [x] 4.5 Add machine-readable JSON schema files for the 13 Cerebro tools in
   `clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/`, and link them from the
   READMEs (reference `openspec/changes/cerebro/cerebro.md` for narrative details).
+- [x] 4.6 Tighten MCP JSON schema constraints (minLength, maximums, timestamps, enums).
+- [x] 4.7 Update the migration guide with parity notice + expanded checklist.
+- [x] 4.8 Update Cerebro spec + root README for loopback opt-in and Surreal removal.
 
 ## Phase 5: Verification Gaps
 
@@ -87,3 +90,5 @@
 - [x] 5.2 Add tests ensuring local-only memory operations do not emit MCP calls.
 - [x] 5.3 Add runtime tests confirming SurrealDB backend removal (local + MCP only).
 - [x] 5.4 Update verification report with coverage guidance and new test evidence.
+- [x] 5.5 Add ws insecure endpoint validation test.
+- [x] 5.6 Reformat verification report code blocks with language tags.

@@ -99,6 +99,9 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 chrono-tz = "0.10"
 cron = "0.15"
 
+# Cerebro MCP service client
+cerebro = { path = "../../modules/cerebro" }
+
 # Interactive CLI prompts
 dialoguer = { version = "0.12", features = ["fuzzy-select"] }
 console = "0.16"
@@ -200,11 +203,11 @@ strip = true
 panic = "abort"
 
 [dev-dependencies]
-cerebro = { path = "../../modules/cerebro" }
 tempfile = "=3.27.0"
 criterion = { version = "=0.8.2", features = ["async_tokio"] }
 wat = "=1.245.1"
 rcgen = "0.13"
+secrecy = "0.10"
 
 [[bench]]
 name = "agent_benchmarks"

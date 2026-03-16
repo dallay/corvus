@@ -6,10 +6,11 @@
 ---
 
 ### Completeness
+
 | Metric | Value |
 |--------|-------|
-| Tasks total | 34 |
-| Tasks complete | 34 |
+| Tasks total | 39 |
+| Tasks complete | 39 |
 | Tasks incomplete | 0 |
 
 ---
@@ -17,13 +18,15 @@
 ### Build & Tests Execution
 
 **Build**: ✅ Passed
-```
+
+```bash
 make build
 BUILD SUCCESSFUL in 19s
 ```
 
 **Tests**: ✅ 31 passed / ❌ 0 failed / ⚠️ 0 skipped
-```
+
+```bash
 make test
 BUILD SUCCESSFUL
 
@@ -50,7 +53,8 @@ cargo test --manifest-path modules/cerebro/Cargo.toml --test mcp_auth_policy
 ```
 
 **Coverage**: 76.29% / threshold: 60% → ✅ Above threshold
-```
+
+```bash
 cargo llvm-cov --summary-only
 regions: 76.29%
 ```
@@ -81,6 +85,7 @@ regions: 76.29%
 ---
 
 ### Correctness (Static — Structural Evidence)
+
 | Requirement | Status | Notes |
 |------------|--------|-------|
 | Cerebro MCP Tool Surface | ✅ Implemented | Tool dispatch for full MCP surface in `modules/cerebro/src/tools.rs`. |
@@ -93,6 +98,7 @@ regions: 76.29%
 ---
 
 ### Coherence (Design)
+
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
 | Replace SurrealDB backend with MCP | ✅ Yes | Runtime uses MCP adapters; Surreal backend removed. |

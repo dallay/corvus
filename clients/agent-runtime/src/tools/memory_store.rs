@@ -1,12 +1,15 @@
 use super::traits::{Tool, ToolResult};
 use crate::config::MemoryCerebroConfig;
-use crate::memory::MemoryCategory;
+use crate::memory::{Memory, MemoryCategory};
+use crate::security::egress::enforce_cerebro_egress;
 use crate::security::policy::ToolOperation;
 use crate::security::SecurityPolicy;
 use crate::tools::mcp::{cerebro, normalize};
 use async_trait::async_trait;
+use regex::RegexSet;
 use serde_json::json;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 const SENSITIVE_DATA_ERROR: &str = "Sensitive data is not allowed to be stored in Cerebro. Remove secrets, credentials, PII, or ephemeral context before calling memory_store.";
 
@@ -18,7 +21,15 @@ fn contains_sensitive_data(content: &str) -> bool {
         return true;
     }
 
-    looks_like_api_key(&lower)
+    if looks_like_api_key(&lower) {
+        return true;
+    }
+
+    if sensitive_regex_set().is_match(content) {
+        return true;
+    }
+
+    false
 }
 
 fn contains_sensitive_labels(normalized: &str) -> bool {
@@ -67,15 +78,54 @@ fn looks_like_api_key(lower: &str) -> bool {
     false
 }
 
+fn sensitive_regex_set() -> &'static RegexSet {
+    static REGEXES: OnceLock<RegexSet> = OnceLock::new();
+    REGEXES.get_or_init(|| {
+        RegexSet::new([
+            r"(?i)\bpassword\s*[:=]",
+            r"(?i)\bpassphrase\s*[:=]",
+            r"(?i)\bapi[_-]?key\s*[:=]",
+            r"(?i)\baccess[_-]?key\s*[:=]",
+            r"(?i)\bsecret\s*[:=]",
+            r"(?i)\btoken\s*[:=]",
+            r"(?i)authorization\s*:\s*bearer\s+[A-Za-z0-9\-_.=]+",
+            r"(?i)\bbearer\s+[A-Za-z0-9\-_.=]+",
+            r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
+            r"\bAKIA[0-9A-Z]{16}\b",
+            r"\bASIA[0-9A-Z]{16}\b",
+            r"\bghp_[A-Za-z0-9]{20,}\b",
+            r"\bxox[baprs]-[A-Za-z0-9-]+\b",
+            r"(?i)-----BEGIN (OPENSSH|RSA|EC|PGP|PRIVATE) KEY-----",
+            r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
+            r"\b\+?\d[\d\s().-]{7,}\d\b",
+            r"(?i)\"(password|passphrase|api[_-]?key|access[_-]?key|secret|token)\"\s*:\s*\"[^"]+\"",
+        ])
+        .expect("invalid sensitive data regex set")
+    })
+}
+
 /// Let the agent store memories — its own brain writes
 pub struct MemoryStoreTool {
     cerebro: MemoryCerebroConfig,
     security: Arc<SecurityPolicy>,
+    local: Option<Arc<dyn Memory>>,
 }
 
 impl MemoryStoreTool {
     pub fn new(cerebro: MemoryCerebroConfig, security: Arc<SecurityPolicy>) -> Self {
-        Self { cerebro, security }
+        Self {
+            cerebro,
+            security,
+            local: None,
+        }
+    }
+
+    pub fn with_local(memory: Arc<dyn Memory>, security: Arc<SecurityPolicy>) -> Self {
+        Self {
+            cerebro: MemoryCerebroConfig::default(),
+            security,
+            local: Some(memory),
+        }
     }
 }
 
@@ -137,22 +187,6 @@ impl Tool for MemoryStoreTool {
             });
         }
 
-        let endpoint = self
-            .cerebro
-            .endpoint
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-
-        if endpoint.is_none() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("Cerebro MCP endpoint is required for memory_store".into()),
-                structured: None,
-            });
-        }
-
         if let Err(error) = self
             .security
             .enforce_tool_operation(ToolOperation::Act, "memory_store")
@@ -161,6 +195,44 @@ impl Tool for MemoryStoreTool {
                 success: false,
                 output: String::new(),
                 error: Some(error),
+                structured: None,
+            });
+        }
+
+        if let Some(local) = &self.local {
+            local.store(key, content, category, None).await?;
+            return Ok(ToolResult {
+                success: true,
+                output: format!("Stored memory: {key}"),
+                error: None,
+                structured: None,
+            });
+        }
+
+        let endpoint = self
+            .cerebro
+            .endpoint
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        let endpoint = match endpoint {
+            Some(value) => value,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Cerebro MCP endpoint is required for memory_store".into()),
+                    structured: None,
+                });
+            }
+        };
+
+        if let Err(error) = enforce_cerebro_egress(endpoint, &self.cerebro, ToolOperation::Act) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error.to_string()),
                 structured: None,
             });
         }
@@ -278,6 +350,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn store_rejects_insecure_non_loopback_endpoint() {
+        let cerebro = MemoryCerebroConfig {
+            endpoint: Some("http://cerebro.example.com/mcp".to_string()),
+            auth_token: Some("token".to_string()),
+            request_timeout_ms: 5_000,
+            allow_insecure_loopback: true,
+        };
+        let tool = MemoryStoreTool::new(cerebro, test_security());
+        let result = tool
+            .execute(json!({"key": "lang", "content": "Prefers Rust"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .unwrap_or_default()
+            .contains("loopback"));
+    }
+
+    #[tokio::test]
     async fn store_blocked_in_readonly_mode() {
         let readonly = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::ReadOnly,
@@ -318,8 +410,9 @@ mod tests {
     #[tokio::test]
     async fn store_blocks_api_key_pattern() {
         let tool = MemoryStoreTool::new(MemoryCerebroConfig::default(), test_security());
+        let token = format!("{}{}{}", "sk-", "1234567890abcdef", "1234567890");
         let result = tool
-            .execute(json!({"key": "token", "content": "api_key: sk-1234567890abcdef1234567890"}))
+            .execute(json!({"key": "token", "content": format!("api_key: {token}")}))
             .await
             .unwrap();
         assert!(!result.success);

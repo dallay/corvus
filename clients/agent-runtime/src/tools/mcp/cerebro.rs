@@ -26,10 +26,14 @@ fn build_cerebro_server(cerebro: &MemoryCerebroConfig) -> anyhow::Result<McpServ
         .endpoint
         .as_deref()
         .ok_or_else(|| anyhow::anyhow!("memory.cerebro.endpoint must be configured"))?;
+    let token = cerebro
+        .auth_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("memory.cerebro.auth_token must be configured"))?;
     let mut env = BTreeMap::new();
-    if let Some(token) = cerebro.auth_token.as_deref() {
-        env.insert("MCP_AUTH_TOKEN".to_string(), token.to_string());
-    }
+    env.insert("MCP_AUTH_TOKEN".to_string(), token.to_string());
 
     Ok(McpServerConfig {
         name: CEREBRO_SERVER_NAME.to_string(),

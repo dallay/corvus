@@ -1,10 +1,10 @@
 use crate::errors::CerebroError;
+use crate::server::AuthContext;
 use crate::storage::{MemoryRecord, Storage};
 use crate::validation::require_non_empty;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::sync::Arc;
-use uuid::Uuid;
 
 #[derive(Debug, Deserialize)]
 struct ToolInput<T> {
@@ -51,10 +51,12 @@ struct MemSearchRequest {
     include_deleted: Option<bool>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct MemDeleteRequest {
-    memory_id: String,
+    #[serde(default)]
+    memory_id: Option<String>,
+    #[serde(default)]
+    topic_key: Option<String>,
     #[serde(default)]
     hard_delete: Option<bool>,
     #[serde(default)]
@@ -160,12 +162,20 @@ pub struct CerebroTools {
     storage: Arc<dyn Storage>,
 }
 
+const MAX_MEM_SEARCH_LIMIT: usize = 100;
+const MAX_TIMELINE_ITEMS: usize = 100;
+
 impl CerebroTools {
     pub fn new(storage: Arc<dyn Storage>) -> Self {
         Self { storage }
     }
 
-    pub async fn handle(&self, tool: &str, payload: Value) -> Result<Value, CerebroError> {
+    pub async fn handle(
+        &self,
+        tool: &str,
+        payload: Value,
+        auth: &AuthContext,
+    ) -> Result<Value, CerebroError> {
         match tool {
             "mem_save" => self.mem_save(payload).await,
             "mem_search" => self.mem_search(payload).await,
@@ -173,12 +183,22 @@ impl CerebroTools {
             "mem_get_observation" => self.mem_get_observation(payload).await,
             "mem_update" => self.mem_update(payload).await,
             "mem_suggest_topic_key" => self.mem_suggest_topic_key(payload).await,
-            "mem_timeline" => self.mem_timeline(payload).await,
-            "mem_save_prompt" => self.mem_save_prompt(payload).await,
-            "mem_session_start" => self.mem_session_start(payload).await,
-            "mem_session_end" => self.mem_session_end(payload).await,
-            "mem_session_summary" => self.mem_session_summary(payload).await,
-            "mem_context" => self.mem_context(payload).await,
+            "mem_timeline" => self.mem_timeline(payload, auth).await,
+            "mem_save_prompt" => Err(CerebroError::NotImplemented(
+                "mem_save_prompt".to_string(),
+            )),
+            "mem_session_start" => Err(CerebroError::NotImplemented(
+                "mem_session_start".to_string(),
+            )),
+            "mem_session_end" => Err(CerebroError::NotImplemented(
+                "mem_session_end".to_string(),
+            )),
+            "mem_session_summary" => Err(CerebroError::NotImplemented(
+                "mem_session_summary".to_string(),
+            )),
+            "mem_context" => Err(CerebroError::NotImplemented(
+                "mem_context".to_string(),
+            )),
             "mem_stats" => self.mem_stats(payload).await,
             _ => Err(CerebroError::Validation(format!(
                 "unsupported tool '{tool}'",
@@ -224,7 +244,11 @@ impl CerebroTools {
             .map_err(|err| CerebroError::Validation(err.to_string()))?;
         require_non_empty("query", &input.input.query)?;
 
-        let limit = input.input.limit.unwrap_or(5).max(1);
+        let limit = input
+            .input
+            .limit
+            .unwrap_or(5)
+            .clamp(1, MAX_MEM_SEARCH_LIMIT);
         let include_deleted = input.input.include_deleted.unwrap_or(false);
 
         let results = self
@@ -261,19 +285,43 @@ impl CerebroTools {
     async fn mem_delete(&self, payload: Value) -> Result<Value, CerebroError> {
         let input: ToolInput<MemDeleteRequest> = serde_json::from_value(payload)
             .map_err(|err| CerebroError::Validation(err.to_string()))?;
-        require_non_empty("memory_id", &input.input.memory_id)?;
+        let hard_delete = input.input.hard_delete.unwrap_or(false);
+        let memory_id = match (
+            input.input.memory_id.as_deref(),
+            input.input.topic_key.as_deref(),
+        ) {
+            (Some(id), _) => {
+                require_non_empty("memory_id", id)?;
+                id.to_string()
+            }
+            (None, Some(topic_key)) => {
+                require_non_empty("topic_key", topic_key)?;
+                let record = self
+                    .storage
+                    .search("", 1, true, None, Some(topic_key))
+                    .await?
+                    .into_iter()
+                    .next()
+                    .ok_or(CerebroError::NotFound)?;
+                record.memory_id
+            }
+            _ => {
+                return Err(CerebroError::Validation(
+                    "memory_id or topic_key must be provided".to_string(),
+                ));
+            }
+        };
 
-        let deleted = self
-            .storage
-            .delete(
-                &input.input.memory_id,
-                input.input.hard_delete.unwrap_or(false),
-            )
-            .await?;
+        let deleted = self.storage.delete(&memory_id, hard_delete).await?;
+        let status = if hard_delete {
+            "hard_deleted"
+        } else {
+            "soft_deleted"
+        };
 
         Ok(json!({
-          "memory_id": input.input.memory_id,
-          "status": "deleted",
+          "memory_id": memory_id,
+          "status": status,
           "deleted": deleted
         }))
     }
@@ -364,72 +412,30 @@ impl CerebroTools {
         }))
     }
 
-    async fn mem_timeline(&self, payload: Value) -> Result<Value, CerebroError> {
+    async fn mem_timeline(
+        &self,
+        payload: Value,
+        auth: &AuthContext,
+    ) -> Result<Value, CerebroError> {
         let input: ToolInput<MemTimelineRequest> = serde_json::from_value(payload)
             .map_err(|err| CerebroError::Validation(err.to_string()))?;
         require_non_empty("memory_id", &input.input.memory_id)?;
 
-        Ok(json!({
-          "center_id": input.input.memory_id,
-          "before": [],
-          "after": []
-        }))
-    }
+        let before = input.input.before.unwrap_or(0);
+        let after = input.input.after.unwrap_or(0);
+        if before > MAX_TIMELINE_ITEMS || after > MAX_TIMELINE_ITEMS {
+            return Err(CerebroError::Validation(format!(
+                "before/after must be <= {MAX_TIMELINE_ITEMS}"
+            )));
+        }
 
-    async fn mem_save_prompt(&self, payload: Value) -> Result<Value, CerebroError> {
-        let input: ToolInput<MemSavePromptRequest> = serde_json::from_value(payload)
-            .map_err(|err| CerebroError::Validation(err.to_string()))?;
-        require_non_empty("prompt", &input.input.prompt)?;
+        if input.input.include_deleted.unwrap_or(false) && !auth.is_audit {
+            return Err(CerebroError::Forbidden(
+                "include_deleted requires audit permissions".to_string(),
+            ));
+        }
 
-        Ok(json!({
-          "prompt_id": format!("prompt_{}", Uuid::new_v4()),
-          "status": "saved"
-        }))
-    }
-
-    async fn mem_session_start(&self, payload: Value) -> Result<Value, CerebroError> {
-        let input: ToolInput<MemSessionStartRequest> = serde_json::from_value(payload)
-            .map_err(|err| CerebroError::Validation(err.to_string()))?;
-        require_non_empty("session_id", &input.input.session_id)?;
-
-        Ok(json!({
-          "session_id": input.input.session_id,
-          "status": "started"
-        }))
-    }
-
-    async fn mem_session_end(&self, payload: Value) -> Result<Value, CerebroError> {
-        let input: ToolInput<MemSessionEndRequest> = serde_json::from_value(payload)
-            .map_err(|err| CerebroError::Validation(err.to_string()))?;
-        require_non_empty("session_id", &input.input.session_id)?;
-
-        Ok(json!({
-          "session_id": input.input.session_id,
-          "status": "ended"
-        }))
-    }
-
-    async fn mem_session_summary(&self, payload: Value) -> Result<Value, CerebroError> {
-        let input: ToolInput<MemSessionSummaryRequest> = serde_json::from_value(payload)
-            .map_err(|err| CerebroError::Validation(err.to_string()))?;
-        require_non_empty("session_id", &input.input.session_id)?;
-
-        Ok(json!({
-          "session_id": input.input.session_id,
-          "status": "summarized"
-        }))
-    }
-
-    async fn mem_context(&self, payload: Value) -> Result<Value, CerebroError> {
-        let input: ToolInput<MemContextRequest> = serde_json::from_value(payload)
-            .map_err(|err| CerebroError::Validation(err.to_string()))?;
-        require_non_empty("session_id", &input.input.session_id)?;
-
-        Ok(json!({
-          "session_id": input.input.session_id,
-          "items": [],
-          "truncated": false
-        }))
+        Err(CerebroError::NotImplemented("mem_timeline".to_string()))
     }
 
     async fn mem_stats(&self, _payload: Value) -> Result<Value, CerebroError> {

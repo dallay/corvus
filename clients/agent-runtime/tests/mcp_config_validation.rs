@@ -81,13 +81,25 @@ fn rejects_legacy_surreal_memory_backend() {
 
     let err = config.validate_for_runtime().unwrap_err().to_string();
     assert!(err.contains("memory.backend"));
-    assert!(err.contains("no longer supported"));
+    assert!(err.contains("SurrealDB backend has been removed"));
 }
 
 #[test]
 fn rejects_insecure_cerebro_endpoint_without_loopback_opt_in() {
     let mut config = Config::default();
     config.memory.cerebro.endpoint = Some("http://cerebro.example.com/mcp".into());
+    config.memory.cerebro.auth_token = Some("token".into());
+    config.memory.cerebro.request_timeout_ms = 5_000;
+
+    let err = config.validate_for_runtime().unwrap_err().to_string();
+    assert!(err.contains("memory.cerebro.endpoint"));
+    assert!(err.contains("allow_insecure_loopback"));
+}
+
+#[test]
+fn rejects_insecure_ws_cerebro_endpoint_without_loopback_opt_in() {
+    let mut config = Config::default();
+    config.memory.cerebro.endpoint = Some("ws://cerebro.example.com/mcp".into());
     config.memory.cerebro.auth_token = Some("token".into());
     config.memory.cerebro.request_timeout_ms = 5_000;
 

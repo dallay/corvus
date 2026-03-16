@@ -1,11 +1,12 @@
 use cerebro::{CerebroConfig, CerebroService, InMemoryStorage};
+use secrecy::SecretString;
 use serde_json::json;
 
 #[tokio::test]
 async fn rejects_requests_without_auth_token() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some("secret".into()),
+        auth_token: Some(SecretString::new("secret".to_string())),
         ..Default::default()
     };
     let service = CerebroService::new(config, storage);
@@ -29,7 +30,7 @@ async fn rejects_requests_without_auth_token() {
 async fn accepts_requests_with_valid_auth_token() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some("secret".into()),
+        auth_token: Some(SecretString::new("secret".to_string())),
         ..Default::default()
     };
     let service = CerebroService::new(config, storage);

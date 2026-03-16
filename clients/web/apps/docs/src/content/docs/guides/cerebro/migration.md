@@ -13,6 +13,16 @@ https://github.com/dallay/corvus/blob/main/openspec/changes/cerebro/cerebro.md.
 - Local runtime memory remains short-term and private unless saved via Cerebro tools.
 - Legacy tools (`memory_store`, `memory_recall`, `memory_forget`) are aliases to MCP tools.
 
+## Parity notice (EN/ES)
+
+EN: Cerebro is not a drop-in replacement for SurrealDB. There is no automatic migration, and
+search/ranking behavior may differ. Plan a deliberate export/import step and a rollback path before
+cutover.
+
+ES: Cerebro no es un reemplazo 1:1 de SurrealDB. No hay migracion automatica y el comportamiento de
+busqueda/ordenamiento puede variar. Planifica exportar/importar y un plan de rollback antes del
+cambio.
+
 ## Secure defaults (required)
 
 Cerebro and the runtime enforce secure transport by default:
@@ -66,8 +76,11 @@ Use these schemas to validate tool calls and responses in agents and integration
 
 ## Migration checklist
 
-1. Remove SurrealDB memory backend references from runtime configs.
-2. Configure `memory.cerebro.endpoint` and `memory.cerebro.auth_token`.
-3. Confirm secure transport (https/wss) or enable loopback-only `allow_insecure_loopback`.
-4. Update custom tool usage to prefer `mem_*` names; legacy aliases remain supported.
-5. Validate integrations against MCP schemas before rollout.
+1. Export any SurrealDB memories you need to keep (expect data loss if skipped).
+2. Remove SurrealDB memory backend references from runtime configs.
+3. Configure `memory.cerebro.endpoint` and `memory.cerebro.auth_token`.
+4. Confirm secure transport (https/wss) or enable loopback-only `allow_insecure_loopback`.
+5. Import or rehydrate critical memories into Cerebro via `mem_save`.
+6. Update custom tool usage to prefer `mem_*` names; legacy aliases remain supported.
+7. Validate integrations against MCP schemas before rollout.
+8. Prepare a rollback plan (restore old config + re-enable legacy storage if needed).

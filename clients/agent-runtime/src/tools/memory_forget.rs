@@ -1,5 +1,6 @@
 use super::traits::{Tool, ToolResult};
 use crate::config::MemoryCerebroConfig;
+use crate::memory::Memory;
 use crate::security::policy::ToolOperation;
 use crate::security::SecurityPolicy;
 use crate::tools::mcp::{cerebro, normalize};
@@ -11,11 +12,24 @@ use std::sync::Arc;
 pub struct MemoryForgetTool {
     cerebro: MemoryCerebroConfig,
     security: Arc<SecurityPolicy>,
+    local: Option<Arc<dyn Memory>>,
 }
 
 impl MemoryForgetTool {
     pub fn new(cerebro: MemoryCerebroConfig, security: Arc<SecurityPolicy>) -> Self {
-        Self { cerebro, security }
+        Self {
+            cerebro,
+            security,
+            local: None,
+        }
+    }
+
+    pub fn with_local(memory: Arc<dyn Memory>, security: Arc<SecurityPolicy>) -> Self {
+        Self {
+            cerebro: MemoryCerebroConfig::default(),
+            security,
+            local: Some(memory),
+        }
     }
 }
 
@@ -73,6 +87,21 @@ impl Tool for MemoryForgetTool {
             });
         }
 
+        if let Some(local) = &self.local {
+            let deleted = local.forget(key).await?;
+            let output = if deleted {
+                format!("Forgot memory: {key}")
+            } else {
+                format!("No memory found with key: {key}")
+            };
+            return Ok(ToolResult {
+                success: true,
+                output,
+                error: None,
+                structured: None,
+            });
+        }
+
         let endpoint = self
             .cerebro
             .endpoint
@@ -89,13 +118,34 @@ impl Tool for MemoryForgetTool {
             });
         }
 
-        let adapter =
-            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_FORGET)?;
-        let payload = json!({
+        let recall_adapter =
+            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)?;
+        let recall_payload = json!({
             "input": {
-                "memory_id": key
+                "query": key,
+                "limit": 1,
+                "topic_key": key
             }
         });
+        let recall = recall_adapter.execute(recall_payload).await?;
+        if !recall.success {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: recall.error,
+                structured: None,
+            });
+        }
+
+        let resolved_id = resolve_memory_id(&recall.output)?;
+        let payload = json!({
+            "input": {
+                "memory_id": resolved_id,
+                "topic_key": key
+            }
+        });
+        let adapter =
+            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_FORGET)?;
         let response = adapter.execute(payload).await?;
         if !response.success {
             return Ok(ToolResult {
@@ -114,6 +164,19 @@ impl Tool for MemoryForgetTool {
             structured: None,
         })
     }
+}
+
+fn resolve_memory_id(raw_output: &str) -> anyhow::Result<Option<String>> {
+    let value: serde_json::Value = serde_json::from_str(raw_output)
+        .map_err(|err| anyhow::anyhow!("invalid Cerebro response: {err}"))?;
+    let memory_id = value
+        .get("results")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|results| results.first())
+        .and_then(|entry| entry.get("memory_id"))
+        .and_then(serde_json::Value::as_str)
+        .map(|value| value.to_string());
+    Ok(memory_id)
 }
 
 #[cfg(test)]

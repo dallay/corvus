@@ -9,7 +9,13 @@
       "properties": {
         "memory_id": {
           "type": "string",
+          "minLength": 1,
           "description": "Memory identifier to delete."
+        },
+        "topic_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Topic key to delete (resolved to latest memory)."
         },
         "hard_delete": {
           "type": "boolean",
@@ -17,21 +23,23 @@
         },
         "reason": {
           "type": "string",
+          "minLength": 1,
           "description": "Optional deletion reason."
         }
       },
-      "required": ["memory_id"],
+      "oneOf": [{ "required": ["memory_id"] }, { "required": ["topic_key"] }],
       "additionalProperties": false
     },
     "output": {
       "type": "object",
       "properties": {
         "memory_id": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "status": {
           "type": "string",
-          "enum": ["deleted"]
+          "enum": ["soft_deleted", "hard_deleted"]
         },
         "deleted": {
           "type": "boolean"

@@ -9,10 +9,12 @@
       "properties": {
         "session_id": {
           "type": "string",
+          "minLength": 1,
           "description": "Session identifier to end."
         },
         "ended_at": {
           "type": "string",
+          "format": "date-time",
           "description": "RFC 3339 timestamp for session end."
         },
         "metadata": {
@@ -28,7 +30,8 @@
       "type": "object",
       "properties": {
         "session_id": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "status": {
           "type": "string",

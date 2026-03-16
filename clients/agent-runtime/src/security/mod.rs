@@ -3,6 +3,7 @@ pub mod audit;
 pub mod bubblewrap;
 pub mod detect;
 pub mod docker;
+pub mod egress;
 #[cfg(target_os = "linux")]
 pub mod firejail;
 #[cfg(feature = "sandbox-landlock")]

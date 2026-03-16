@@ -98,7 +98,7 @@ impl MemoryLoader for CerebroMemoryLoader {
             .filter(|value| !value.is_empty());
 
         if endpoint.is_none() {
-            return Ok(String::new());
+            anyhow::bail!("Cerebro MCP endpoint is missing for memory loader");
         }
 
         let adapter =
@@ -111,7 +111,10 @@ impl MemoryLoader for CerebroMemoryLoader {
         });
         let response = adapter.execute(payload).await?;
         if !response.success {
-            return Ok(String::new());
+            let message = response
+                .error
+                .unwrap_or_else(|| "Cerebro mem_search failed".to_string());
+            anyhow::bail!(message);
         }
 
         let value: serde_json::Value = serde_json::from_str(&response.output)?;

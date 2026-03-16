@@ -97,8 +97,8 @@ async fn cerebro_memory_loader_skips_mcp_without_endpoint() {
     let loader = CerebroMemoryLoader::new(MemoryCerebroConfig::default(), 5, 0.1);
     let memory = NoneMemory::new();
 
-    let context = loader.load_context(&memory, "hello").await.unwrap();
-    assert!(context.is_empty());
+    let err = loader.load_context(&memory, "hello").await.unwrap_err();
+    assert!(err.to_string().contains("Cerebro MCP endpoint"));
 }
 
 #[tokio::test]
@@ -121,5 +121,8 @@ async fn default_memory_loader_does_not_emit_mcp_calls() {
 fn runtime_memory_backends_exclude_surreal() {
     let backends = selectable_memory_backends();
     assert!(!backends.iter().any(|backend| backend.key == "surreal"));
-    assert_eq!(classify_memory_backend("surreal"), MemoryBackendKind::Unknown);
+    assert_eq!(
+        classify_memory_backend("surreal"),
+        MemoryBackendKind::LegacySurreal
+    );
 }

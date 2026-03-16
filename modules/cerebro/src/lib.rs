@@ -8,4 +8,4 @@ pub mod validation;
 pub use config::{CerebroConfig, StorageMode, WorkerConfig};
 pub use errors::{CerebroError, CerebroErrorCode};
 pub use server::{CerebroService, JsonRpcRequest, JsonRpcResponse};
-pub use storage::{InMemoryStorage, MemoryRecord, Storage};
+pub use storage::{storage_from_config, DiskBackedStorage, InMemoryStorage, MemoryRecord, Storage};

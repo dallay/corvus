@@ -9,10 +9,12 @@
       "properties": {
         "seed": {
           "type": "string",
+          "minLength": 1,
           "description": "Seed text or phrase describing the topic."
         },
         "scope": {
           "type": "string",
+          "minLength": 1,
           "description": "Optional scope for topic suggestions."
         }
       },
@@ -23,11 +25,12 @@
       "type": "object",
       "properties": {
         "topic_key": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "candidates": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": { "type": "string", "minLength": 1 }
         }
       },
       "required": ["topic_key"],

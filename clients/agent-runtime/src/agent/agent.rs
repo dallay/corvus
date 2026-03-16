@@ -573,8 +573,7 @@ impl Agent {
         let context = self
             .memory_loader
             .load_context(self.memory.as_ref(), user_message)
-            .await
-            .unwrap_or_default();
+            .await?;
 
         let enriched = if context.is_empty() {
             user_message.to_string()

@@ -9,19 +9,23 @@
       "properties": {
         "query": {
           "type": "string",
+          "minLength": 1,
           "description": "Search query string."
         },
         "limit": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 100,
           "description": "Maximum number of results to return."
         },
         "scope": {
           "type": "string",
+          "minLength": 1,
           "description": "Optional scope filter."
         },
         "topic_key": {
           "type": "string",
+          "minLength": 1,
           "description": "Optional topic key filter."
         },
         "include_deleted": {
@@ -40,14 +44,14 @@
           "items": {
             "type": "object",
             "properties": {
-              "memory_id": { "type": "string" },
-              "summary": { "type": "string" },
-              "score": { "type": "number" },
-              "topic_key": { "type": "string" },
-              "scope": { "type": "string" },
-              "timestamp": { "type": "string" }
+              "memory_id": { "type": "string", "minLength": 1 },
+              "summary": { "type": "string", "minLength": 1 },
+              "score": { "type": "number", "minimum": 0 },
+              "topic_key": { "type": "string", "minLength": 1 },
+              "scope": { "type": "string", "minLength": 1 },
+              "timestamp": { "type": "string", "format": "date-time" }
             },
-            "required": ["memory_id", "summary"],
+            "required": ["memory_id", "summary", "score", "topic_key", "scope", "timestamp"],
             "additionalProperties": false
           }
         },
@@ -55,7 +59,7 @@
           "type": "boolean"
         }
       },
-      "required": ["results"],
+      "required": ["results", "truncated"],
       "additionalProperties": false
     }
   },

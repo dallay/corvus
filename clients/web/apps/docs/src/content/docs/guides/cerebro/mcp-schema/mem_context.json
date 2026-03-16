@@ -9,15 +9,18 @@
       "properties": {
         "session_id": {
           "type": "string",
+          "minLength": 1,
           "description": "Session identifier requesting context."
         },
         "limit": {
           "type": "integer",
           "minimum": 1,
+          "maximum": 100,
           "description": "Maximum number of context items to return."
         },
         "scope": {
           "type": "string",
+          "minLength": 1,
           "description": "Optional memory scope filter."
         }
       },
@@ -28,20 +31,21 @@
       "type": "object",
       "properties": {
         "session_id": {
-          "type": "string"
+          "type": "string",
+          "minLength": 1
         },
         "items": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "memory_id": { "type": "string" },
-              "summary": { "type": "string" },
-              "topic_key": { "type": "string" },
-              "scope": { "type": "string" },
-              "timestamp": { "type": "string" }
+              "memory_id": { "type": "string", "minLength": 1 },
+              "summary": { "type": "string", "minLength": 1 },
+              "topic_key": { "type": "string", "minLength": 1 },
+              "scope": { "type": "string", "minLength": 1 },
+              "timestamp": { "type": "string", "format": "date-time" }
             },
-            "required": ["memory_id", "summary"],
+            "required": ["memory_id", "summary", "topic_key", "scope", "timestamp"],
             "additionalProperties": false
           }
         },
@@ -49,7 +53,7 @@
           "type": "boolean"
         }
       },
-      "required": ["session_id", "items"],
+      "required": ["session_id", "items", "truncated"],
       "additionalProperties": false
     }
   },

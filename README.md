@@ -79,7 +79,7 @@ Corvus is a highly extensible, multi-interface agentic platform designed to brid
 - **Always-On Autonomy**: A daemon mode for long-running agents that can handle background tasks and persistent orchestration.
 - **Secure Sandboxing**: Execute dangerous commands safely within isolated Docker containers or restricted native runtimes.
 - **Standardized Identity (AIEOS)**: Support for AIEOS v1.1, allowing for portable and model-agnostic AI personas.
-- **Hybrid Memory Model**: Pluggable memory backends including SQLite, Neo4j, and MCP-backed Cerebro for high-context retrieval.
+- **Hybrid Memory Model**: Pluggable memory backends including SQLite and MCP-backed Cerebro for high-context retrieval.
 - **Rich Integrations**: First-class support for WhatsApp (via Meta Cloud API), git, npm, cargo, and more.
 
 ---

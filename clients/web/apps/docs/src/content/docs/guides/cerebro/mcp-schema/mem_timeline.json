@@ -9,16 +9,19 @@
       "properties": {
         "memory_id": {
           "type": "string",
+          "minLength": 1,
           "description": "Center memory identifier."
         },
         "before": {
           "type": "integer",
           "minimum": 0,
+          "maximum": 100,
           "description": "Number of items before the center."
         },
         "after": {
           "type": "integer",
           "minimum": 0,
+          "maximum": 100,
           "description": "Number of items after the center."
         },
         "include_deleted": {
@@ -32,17 +35,17 @@
     "output": {
       "type": "object",
       "properties": {
-        "center_id": { "type": "string" },
+        "center_id": { "type": "string", "minLength": 1 },
         "before": {
           "type": "array",
           "items": {
             "type": "object",
             "properties": {
-              "memory_id": { "type": "string" },
-              "summary": { "type": "string" },
-              "timestamp": { "type": "string" }
+              "memory_id": { "type": "string", "minLength": 1 },
+              "summary": { "type": "string", "minLength": 1 },
+              "timestamp": { "type": "string", "format": "date-time" }
             },
-            "required": ["memory_id"],
+            "required": ["memory_id", "summary", "timestamp"],
             "additionalProperties": false
           }
         },
@@ -51,11 +54,11 @@
           "items": {
             "type": "object",
             "properties": {
-              "memory_id": { "type": "string" },
-              "summary": { "type": "string" },
-              "timestamp": { "type": "string" }
+              "memory_id": { "type": "string", "minLength": 1 },
+              "summary": { "type": "string", "minLength": 1 },
+              "timestamp": { "type": "string", "format": "date-time" }
             },
-            "required": ["memory_id"],
+            "required": ["memory_id", "summary", "timestamp"],
             "additionalProperties": false
           }
         }

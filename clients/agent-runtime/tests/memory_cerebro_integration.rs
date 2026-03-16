@@ -1,5 +1,6 @@
 use axum::Router;
 use cerebro::{CerebroConfig, CerebroService, InMemoryStorage};
+use secrecy::SecretString;
 use corvus::config::MemoryCerebroConfig;
 use corvus::security::SecurityPolicy;
 use corvus::tools::memory_recall::MemoryRecallTool;
@@ -13,7 +14,7 @@ use tokio::net::TcpListener;
 async fn runtime_round_trips_to_cerebro() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some("secret".into()),
+        auth_token: Some(SecretString::new("secret".to_string())),
         ..Default::default()
     };
 

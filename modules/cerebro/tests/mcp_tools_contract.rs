@@ -1,8 +1,10 @@
 use cerebro::{CerebroConfig, CerebroService, InMemoryStorage};
+use secrecy::SecretString;
 use serde_json::json;
 
 async fn call_tool(
     service: &CerebroService,
+    auth_header: Option<&str>,
     name: &str,
     arguments: serde_json::Value,
 ) -> cerebro::JsonRpcResponse {
@@ -15,16 +17,21 @@ async fn call_tool(
             arguments,
         },
     };
-    service.handle_json_rpc(request, None).await
+    service.handle_json_rpc(request, auth_header).await
 }
 
 #[tokio::test]
 async fn rejects_invalid_mem_save_payload() {
     let storage = InMemoryStorage::new();
-    let service = CerebroService::new(CerebroConfig::default(), storage);
+    let config = CerebroConfig {
+        auth_token: Some(SecretString::new("secret".to_string())),
+        ..CerebroConfig::default()
+    };
+    let service = CerebroService::new(config, storage);
 
     let response = call_tool(
         &service,
+        Some("Bearer secret"),
         "mem_save",
         json!({
             "input": {
@@ -43,10 +50,15 @@ async fn rejects_invalid_mem_save_payload() {
 #[tokio::test]
 async fn soft_deleted_memories_are_hidden_by_default() {
     let storage = InMemoryStorage::new();
-    let service = CerebroService::new(CerebroConfig::default(), storage);
+    let config = CerebroConfig {
+        auth_token: Some(SecretString::new("secret".to_string())),
+        ..CerebroConfig::default()
+    };
+    let service = CerebroService::new(config, storage);
 
     let save = call_tool(
         &service,
+        Some("Bearer secret"),
         "mem_save",
         json!({
             "input": {
@@ -58,12 +70,21 @@ async fn soft_deleted_memories_are_hidden_by_default() {
     )
     .await;
     assert!(save.error.is_none());
+    let memory_id = save
+        .result
+        .as_ref()
+        .and_then(|value| value.get("output"))
+        .and_then(|value| value.get("memory_id"))
+        .and_then(|value| value.as_str())
+        .expect("mem_save should return memory_id")
+        .to_string();
 
     let delete = call_tool(
         &service,
+        Some("Bearer secret"),
         "mem_delete",
         json!({
-            "input": { "memory_id": "topic" }
+            "input": { "memory_id": memory_id }
         }),
     )
     .await;
@@ -71,6 +92,7 @@ async fn soft_deleted_memories_are_hidden_by_default() {
 
     let search = call_tool(
         &service,
+        Some("Bearer secret"),
         "mem_search",
         json!({
             "input": { "query": "Hello" }
@@ -89,9 +111,10 @@ async fn soft_deleted_memories_are_hidden_by_default() {
 
     let get = call_tool(
         &service,
+        Some("Bearer secret"),
         "mem_get_observation",
         json!({
-            "input": { "memory_id": "topic" }
+            "input": { "memory_id": memory_id }
         }),
     )
     .await;
@@ -107,10 +130,15 @@ async fn soft_deleted_memories_are_hidden_by_default() {
 #[tokio::test]
 async fn drill_in_recall_returns_full_observation() {
     let storage = InMemoryStorage::new();
-    let service = CerebroService::new(CerebroConfig::default(), storage);
+    let config = CerebroConfig {
+        auth_token: Some(SecretString::new("secret".to_string())),
+        ..CerebroConfig::default()
+    };
+    let service = CerebroService::new(config, storage);
 
     let save = call_tool(
         &service,
+        Some("Bearer secret"),
         "mem_save",
         json!({
             "input": {
@@ -125,6 +153,7 @@ async fn drill_in_recall_returns_full_observation() {
 
     let search = call_tool(
         &service,
+        Some("Bearer secret"),
         "mem_search",
         json!({
             "input": { "query": "Deep" }

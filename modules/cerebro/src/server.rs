@@ -1,11 +1,12 @@
 use crate::config::CerebroConfig;
 use crate::errors::{CerebroError, CerebroErrorResponse};
-use crate::storage::Storage;
+use crate::storage::{storage_from_config, Storage};
 use crate::tools::CerebroTools;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::routing::post;
 use axum::{Json, Router};
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -56,6 +57,11 @@ impl CerebroService {
         }
     }
 
+    pub fn from_config(config: CerebroConfig) -> Result<Self, CerebroError> {
+        let storage = storage_from_config(&config)?;
+        Ok(Self::new(config, storage))
+    }
+
     pub fn router(self: Arc<Self>) -> Router {
         Router::new()
             .route("/mcp", post(handle_mcp))
@@ -94,13 +100,14 @@ impl CerebroService {
             };
         }
 
-        if let Err(error) = self.authorize(auth_header) {
-            return error_response(id, error);
-        }
+        let auth_context = match self.authorize(auth_header) {
+            Ok(context) => context,
+            Err(error) => return error_response(id, error),
+        };
 
         match self
             .tools
-            .handle(&request.params.name, request.params.arguments)
+            .handle(&request.params.name, request.params.arguments, &auth_context)
             .await
         {
             Ok(output) => JsonRpcResponse {
@@ -113,21 +120,47 @@ impl CerebroService {
         }
     }
 
-    fn authorize(&self, auth_header: Option<&str>) -> Result<(), CerebroError> {
-        let expected = match self.config.auth_token.as_deref() {
-            Some(token) if !token.trim().is_empty() => token,
-            _ => return Ok(()),
-        };
+    fn authorize(&self, auth_header: Option<&str>) -> Result<AuthContext, CerebroError> {
+        let expected = self
+            .config
+            .auth_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .ok_or(CerebroError::Unauthorized)?;
+
+        let audit_token = self
+            .config
+            .audit_token
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+            .map(str::trim)
+            .filter(|token| !token.is_empty());
 
         let header = auth_header.unwrap_or("");
         let token = header.strip_prefix("Bearer ").unwrap_or(header).trim();
 
-        if token.is_empty() || token != expected {
+        if token.is_empty() {
             return Err(CerebroError::Unauthorized);
         }
 
-        Ok(())
+        if token == expected {
+            let is_audit = audit_token.is_none();
+            return Ok(AuthContext { is_audit });
+        }
+
+        if audit_token.is_some_and(|audit| token == audit) {
+            return Ok(AuthContext { is_audit: true });
+        }
+
+        Err(CerebroError::Unauthorized)
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct AuthContext {
+    pub is_audit: bool,
 }
 
 fn error_response(id: Value, error: CerebroError) -> JsonRpcResponse {

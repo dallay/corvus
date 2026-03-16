@@ -7,6 +7,8 @@ use thiserror::Error;
 pub enum CerebroErrorCode {
     Validation,
     Unauthorized,
+    Forbidden,
+    NotImplemented,
     NotFound,
     Conflict,
     Storage,
@@ -18,6 +20,8 @@ impl CerebroErrorCode {
         match self {
             Self::Validation => "validation_error",
             Self::Unauthorized => "unauthorized",
+            Self::Forbidden => "forbidden",
+            Self::NotImplemented => "not_implemented",
             Self::NotFound => "not_found",
             Self::Conflict => "conflict",
             Self::Storage => "storage_error",
@@ -40,6 +44,10 @@ pub enum CerebroError {
     Validation(String),
     #[error("unauthorized")]
     Unauthorized,
+    #[error("forbidden: {0}")]
+    Forbidden(String),
+    #[error("not implemented: {0}")]
+    NotImplemented(String),
     #[error("not found")]
     NotFound,
     #[error("conflict: {0}")]
@@ -55,6 +63,8 @@ impl CerebroError {
         match self {
             Self::Validation(_) => CerebroErrorCode::Validation,
             Self::Unauthorized => CerebroErrorCode::Unauthorized,
+            Self::Forbidden(_) => CerebroErrorCode::Forbidden,
+            Self::NotImplemented(_) => CerebroErrorCode::NotImplemented,
             Self::NotFound => CerebroErrorCode::NotFound,
             Self::Conflict(_) => CerebroErrorCode::Conflict,
             Self::Storage(_) => CerebroErrorCode::Storage,

@@ -3,7 +3,7 @@
 //! This demonstrates how to create a custom in-process memory backend.
 //! The Memory trait is async and pluggable — implement it for short-term storage.
 //! Long-term memory is handled by the MCP-backed Cerebro service.
-//! See: clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md
+//! See: https://github.com/dallay/corvus/blob/main/clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md
 //!
 //! Run: cargo run --example custom_memory
 
