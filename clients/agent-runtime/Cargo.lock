@@ -1148,7 +1148,7 @@ dependencies = [
  "wasmi",
  "wat",
  "webpki-roots 1.0.6",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
  "x509-cert",
  "zeroize",
 ]
@@ -6574,6 +6574,7 @@ dependencies = [
  "cfg-if",
  "libc",
  "psm",
+ "windows-sys 0.52.0",
  "windows-sys 0.59.0",
 ]
 
