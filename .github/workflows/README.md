@@ -238,7 +238,7 @@ Calls the reusable `_publish.yml` workflow with:
 
 **Secrets Required**:
 
-- `RELEASE_PLEASE_TOKEN` - PAT with repo write access to allow tag-triggered workflows
+- `RELEASE_PLEASE_TOKEN` - Fine-grained PAT scoped only to this repository (no org-wide tokens). Minimum permissions: Contents: Read and write, Pull requests: Read and write, Issues: Read and write. Set a short expiry (<= 90 days) and rotate on a 90-day cadence; document who owns the rotation and where it is tracked. Store only in GitHub Secrets using the exact name `RELEASE_PLEASE_TOKEN`. Broader scopes or long-lived tokens are not permitted.
 
 ---
 
