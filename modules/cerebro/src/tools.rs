@@ -285,6 +285,7 @@ impl CerebroTools {
     async fn mem_delete(&self, payload: Value) -> Result<Value, CerebroError> {
         let input: ToolInput<MemDeleteRequest> = serde_json::from_value(payload)
             .map_err(|err| CerebroError::Validation(err.to_string()))?;
+        let _ = input.input.reason.as_deref();
         let hard_delete = input.input.hard_delete.unwrap_or(false);
         let memory_id = match (
             input.input.memory_id.as_deref(),

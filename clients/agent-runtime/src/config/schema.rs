@@ -2847,7 +2847,8 @@ impl Config {
             "sqlite" | "lucid" | "markdown" | "none" => {}
             "surreal" | "surreal-graphs" => {
                 anyhow::bail!(
-                    "SurrealDB backend has been removed; use the Cerebro backend for long-term memory. See https://github.com/dallay/corvus/blob/main/clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md"
+                    "memory.backend '{}' is not supported; SurrealDB backend has been removed. Use the Cerebro backend for long-term memory. See https://github.com/dallay/corvus/blob/main/clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md",
+                    self.memory.backend
                 );
             }
             _ => {

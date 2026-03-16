@@ -98,7 +98,7 @@ fn sensitive_regex_set() -> &'static RegexSet {
             r"(?i)-----BEGIN (OPENSSH|RSA|EC|PGP|PRIVATE) KEY-----",
             r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b",
             r"\b\+?\d[\d\s().-]{7,}\d\b",
-            r"(?i)\"(password|passphrase|api[_-]?key|access[_-]?key|secret|token)\"\s*:\s*\"[^"]+\"",
+            r#"(?i)"(password|passphrase|api[_-]?key|access[_-]?key|secret|token)"\s*:\s*"[^"]+""#,
         ])
         .expect("invalid sensitive data regex set")
     })

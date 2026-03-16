@@ -96,8 +96,7 @@ pub fn memory_backend_profile(backend: &str) -> MemoryBackendProfile {
         MemoryBackendKind::Lucid => LUCID_PROFILE,
         MemoryBackendKind::Markdown => MARKDOWN_PROFILE,
         MemoryBackendKind::None => NONE_PROFILE,
-        MemoryBackendKind::LegacySurreal => CUSTOM_PROFILE,
-        MemoryBackendKind::Unknown => CUSTOM_PROFILE,
+        MemoryBackendKind::LegacySurreal | MemoryBackendKind::Unknown => CUSTOM_PROFILE,
     }
 }
 

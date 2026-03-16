@@ -223,7 +223,13 @@ impl McpClient {
         let limit = self.server.output_limit_bytes as usize;
 
         if let Some(content_length) = response.content_length() {
-            if content_length as usize > limit {
+            let content_length = usize::try_from(content_length).map_err(|_| {
+                anyhow::anyhow!(
+                    "MCP HTTP response exceeded output_limit_bytes ({})",
+                    limit
+                )
+            })?;
+            if content_length > limit {
                 anyhow::bail!(
                     "MCP HTTP response exceeded output_limit_bytes ({} > {})",
                     content_length,

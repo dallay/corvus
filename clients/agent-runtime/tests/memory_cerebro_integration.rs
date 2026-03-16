@@ -14,7 +14,7 @@ use tokio::net::TcpListener;
 async fn runtime_round_trips_to_cerebro() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some(SecretString::new("secret".to_string())),
+        auth_token: Some(SecretString::new("secret".to_string().into_boxed_str())),
         ..Default::default()
     };
 
