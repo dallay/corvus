@@ -419,6 +419,7 @@ impl SecurityPolicy {
             || command.contains("<(")
             || command.contains(">(")
             || command.contains('>')
+            || command.contains('<')
             || self.contains_dangerous_commands(command)
             || contains_single_ampersand(command)
     }
@@ -513,10 +514,17 @@ impl SecurityPolicy {
             return false;
         }
 
-        // Block path traversal: check for ".." as a path component
+        // Percent-decode path to detect encoded traversal patterns (e.g. %2e%2e)
+        let decoded =
+            urlencoding::decode(path).unwrap_or_else(|_| std::borrow::Cow::Borrowed(path));
+
+        // Block path traversal: check for ".." as a path component in both raw and decoded path
         if Path::new(path)
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
+            || Path::new(decoded.as_ref())
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
         {
             return false;
         }
@@ -1129,6 +1137,14 @@ mod tests {
         let p = default_policy();
         assert!(!p.is_command_allowed("echo secret > /etc/crontab"));
         assert!(!p.is_command_allowed("ls >> /tmp/exfil.txt"));
+        assert!(
+            !p.is_command_allowed("cat < /etc/passwd"),
+            "Input redirection must be blocked"
+        );
+        assert!(
+            !p.is_command_allowed("cat <<EOF\nhello\nEOF"),
+            "Here-doc redirection must be blocked"
+        );
     }
 
     #[test]
@@ -1585,6 +1601,14 @@ mod tests {
         assert!(
             !policy.is_path_allowed("subdir%2f..%2f..%2fetc"),
             "URL-encoded parent dir traversal must be blocked"
+        );
+        assert!(
+            !policy.is_path_allowed("%2e%2e/%2e%2e/etc/passwd"),
+            "Double-dot URL encoding must be blocked"
+        );
+        assert!(
+            !policy.is_path_allowed("%2e%2e%2fetc/passwd"),
+            "Fully encoded traversal must be blocked"
         );
     }
 

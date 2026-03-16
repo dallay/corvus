@@ -16,10 +16,7 @@ impl Channel for PendingChannel {
         Ok(())
     }
 
-    async fn listen(
-        &self,
-        _tx: tokio::sync::mpsc::Sender<ChannelMessage>,
-    ) -> anyhow::Result<()> {
+    async fn listen(&self, _tx: tokio::sync::mpsc::Sender<ChannelMessage>) -> anyhow::Result<()> {
         future::pending::<()>().await;
         Ok(())
     }
@@ -32,12 +29,10 @@ async fn long_running_listener_refreshes_health_without_restart() {
     let component = format!("channel:{}", channel.name());
 
     assert!(channel.health_check().await);
-    assert!(
-        channel
-            .send(&SendMessage::new("ping", "tester"))
-            .await
-            .is_ok()
-    );
+    assert!(channel
+        .send(&SendMessage::new("ping", "tester"))
+        .await
+        .is_ok());
 
     crate::health::clear_component(&component);
     crate::health::mark_component_ok(&component);
@@ -68,9 +63,7 @@ async fn long_running_listener_refreshes_health_without_restart() {
     assert_eq!(last_ok_values.len(), 3);
     assert!(last_ok_values.iter().all(|value| value.is_some()));
     assert!(
-        last_ok_values
-            .windows(2)
-            .all(|pair| pair[0] != pair[1]),
+        last_ok_values.windows(2).all(|pair| pair[0] != pair[1]),
         "last_ok should refresh while listener is pending"
     );
 }

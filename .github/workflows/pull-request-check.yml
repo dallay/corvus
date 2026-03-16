@@ -82,7 +82,7 @@ jobs:
       #        run: ./gradlew checkLocks --no-parallel
 
       - name: 🏗 Run main checks
-        run: ./gradlew check
+        run: ./gradlew check -PenableRustTasks=true
 
       - name: 🛠 Generate CycloneDX BOM
         if: github.event_name != 'pull_request'
