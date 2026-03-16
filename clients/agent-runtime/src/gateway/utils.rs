@@ -147,10 +147,7 @@ pub fn admin_requires_auth(
 }
 
 pub fn validate_memory_backend(backend: &str) -> bool {
-    matches!(
-        backend,
-        "sqlite" | "lucid" | "surreal-graphs" | "markdown" | "surreal" | "none"
-    )
+    matches!(backend, "sqlite" | "lucid" | "markdown" | "none")
 }
 
 pub fn validate_observability_backend(backend: &str) -> bool {

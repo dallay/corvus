@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_session_summary",
+  "description": "Save end-of-session summary (goal, discoveries, accomplished).",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Session identifier to summarize."
+        },
+        "summary": {
+          "type": "object",
+          "description": "Structured session summary payload.",
+          "properties": {
+            "goal": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "discoveries": {
+              "type": "array",
+              "maxItems": 50,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            },
+            "accomplished": {
+              "type": "array",
+              "maxItems": 50,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            },
+            "blockers": {
+              "type": "array",
+              "maxItems": 50,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            },
+            "next_steps": {
+              "type": "array",
+              "maxItems": 50,
+              "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+            }
+          },
+          "required": ["goal", "discoveries", "accomplished", "blockers", "next_steps"],
+          "additionalProperties": false
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional summary metadata.",
+          "maxProperties": 50,
+          "propertyNames": { "type": "string", "maxLength": 64 },
+          "additionalProperties": true
+        }
+      },
+      "required": ["session_id", "summary"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "enum": ["summarized"]
+        }
+      },
+      "required": ["session_id", "status"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

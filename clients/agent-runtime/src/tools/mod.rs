@@ -302,6 +302,8 @@ pub fn all_tools_with_runtime(
     fallback_api_key: Option<&str>,
     root_config: &crate::config::Config,
 ) -> Vec<Box<dyn Tool>> {
+    let local_memory_available = memory.name() != "none";
+    let cerebro_configured = crate::memory::cerebro_configured(&root_config.memory);
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ShellTool::new(security.clone(), runtime)),
         Box::new(FileReadTool::new(security.clone())),
@@ -312,9 +314,6 @@ pub fn all_tools_with_runtime(
         Box::new(CronUpdateTool::new(config.clone(), security.clone())),
         Box::new(CronRunTool::new(config.clone())),
         Box::new(CronRunsTool::new(config.clone())),
-        Box::new(MemoryStoreTool::new(memory.clone(), security.clone())),
-        Box::new(MemoryRecallTool::new(memory.clone())),
-        Box::new(MemoryForgetTool::new(memory, security.clone())),
         Box::new(ScheduleTool::new(security.clone(), root_config.clone())),
         Box::new(GitOperationsTool::new(
             security.clone(),
@@ -325,6 +324,34 @@ pub fn all_tools_with_runtime(
             workspace_dir.to_path_buf(),
         )),
     ];
+
+    if local_memory_available {
+        tools.push(Box::new(MemoryStoreTool::with_local(
+            memory.clone(),
+            security.clone(),
+        )));
+        tools.push(Box::new(MemoryRecallTool::with_local(
+            memory.clone(),
+            security.clone(),
+        )));
+        tools.push(Box::new(MemoryForgetTool::with_local(
+            memory.clone(),
+            security.clone(),
+        )));
+    } else if cerebro_configured {
+        tools.push(Box::new(MemoryStoreTool::new(
+            root_config.memory.cerebro.clone(),
+            security.clone(),
+        )));
+        tools.push(Box::new(MemoryRecallTool::new(
+            root_config.memory.cerebro.clone(),
+            security.clone(),
+        )));
+        tools.push(Box::new(MemoryForgetTool::new(
+            root_config.memory.cerebro.clone(),
+            security.clone(),
+        )));
+    }
 
     add_browser_tools(&mut tools, security, browser_config);
     add_http_request_tool(&mut tools, security, http_config);

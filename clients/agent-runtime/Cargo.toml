@@ -95,10 +95,12 @@ prost = { version = "0.14", default-features = false }
 
 # Memory / persistence
 rusqlite = { version = "0.38", features = ["bundled"] }
-surrealdb = { version = "3.0", optional = true, default-features = false, features = ["protocol-ws", "rustls"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std", "serde"] }
 chrono-tz = "0.10"
 cron = "0.15"
+
+# Cerebro MCP service client
+cerebro = { path = "../../modules/cerebro" }
 
 # Interactive CLI prompts
 dialoguer = { version = "0.12", features = ["fuzzy-select"] }
@@ -179,8 +181,6 @@ landlock = ["sandbox-landlock"]
 probe = ["dep:probe-rs"]
 # rag-pdf = PDF ingestion for datasheet RAG
 rag-pdf = ["dep:pdf-extract"]
-# memory-surreal = SurrealDB-backed memory backend
-memory-surreal = ["dep:surrealdb"]
 [profile.release]
 opt-level = "z"      # Optimize for size
 lto = "thin"         # Lower memory use during release builds
@@ -207,6 +207,7 @@ tempfile = "=3.27.0"
 criterion = { version = "=0.8.2", features = ["async_tokio"] }
 wat = "=1.245.1"
 rcgen = "0.13"
+secrecy = "0.10"
 
 [[bench]]
 name = "agent_benchmarks"

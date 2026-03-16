@@ -7,8 +7,6 @@ use tempfile::TempDir;
 
 // We test both backends through the public memory module
 use corvus::memory::{markdown::MarkdownMemory, sqlite::SqliteMemory, Memory, MemoryCategory};
-#[cfg(feature = "memory-surreal")]
-use corvus::{config::MemoryConfig, memory::surreal::SurrealMemory};
 
 // ── Helpers ────────────────────────────────────────────────────
 
@@ -20,26 +18,6 @@ fn markdown_backend(dir: &std::path::Path) -> MarkdownMemory {
     MarkdownMemory::new(dir)
 }
 
-#[cfg(feature = "memory-surreal")]
-fn maybe_surreal_backend(dir: &std::path::Path) -> Option<SurrealMemory> {
-    let endpoint = std::env::var("CORVUS_TEST_SURREALDB_URL").ok()?;
-    let mut config = MemoryConfig {
-        backend: "surreal".to_string(),
-        ..MemoryConfig::default()
-    };
-    config.surreal.url = Some(endpoint);
-    config.surreal.namespace = Some(format!("memory_cmp_ns_{}", uuid::Uuid::new_v4()));
-    config.surreal.database = Some(format!("memory_cmp_db_{}", uuid::Uuid::new_v4()));
-    config.surreal.username = std::env::var("CORVUS_TEST_SURREALDB_USERNAME").ok();
-    config.surreal.password = std::env::var("CORVUS_TEST_SURREALDB_PASSWORD").ok();
-    config.surreal.token = std::env::var("CORVUS_TEST_SURREALDB_TOKEN").ok();
-    config.surreal.allow_http_loopback = true;
-
-    let embedder: std::sync::Arc<dyn corvus::memory::embeddings::EmbeddingProvider> =
-        std::sync::Arc::new(corvus::memory::embeddings::NoopEmbedding);
-
-    SurrealMemory::new(dir, &config, embedder, 0.7, 0.3).ok()
-}
 
 // ── Test 1: Store performance ──────────────────────────────────
 
@@ -467,37 +445,4 @@ async fn compare_category_filter() {
     // Markdown: categories determined by file location
     assert!(!md_core.is_empty());
     assert!(!md_all.is_empty());
-}
-
-#[cfg(feature = "memory-surreal")]
-#[tokio::test]
-async fn compare_surreal_store_and_recall_when_available() {
-    let tmp = TempDir::new().unwrap();
-    let Some(sr) = maybe_surreal_backend(tmp.path()) else {
-        return;
-    };
-
-    sr.store(
-        "lang_pref",
-        "User prefers Rust over Python",
-        MemoryCategory::Core,
-        Some("session-surreal"),
-    )
-    .await
-    .unwrap();
-    sr.store(
-        "deploy",
-        "Deploys with Docker Compose",
-        MemoryCategory::Daily,
-        Some("session-surreal"),
-    )
-    .await
-    .unwrap();
-
-    let got = sr.get("lang_pref").await.unwrap();
-    assert!(got.is_some());
-
-    let recall = sr.recall("Rust", 5, Some("session-surreal")).await.unwrap();
-    assert!(!recall.is_empty());
-    assert!(recall.iter().any(|item| item.key == "lang_pref"));
 }

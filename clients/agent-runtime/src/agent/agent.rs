@@ -3,7 +3,7 @@ use crate::agent::dispatcher::{
     DispatchAction, NativeToolDispatcher, ParsedToolCall, ToolDispatcher, ToolExecutionResult,
     XmlToolDispatcher,
 };
-use crate::agent::memory_loader::{DefaultMemoryLoader, MemoryLoader};
+use crate::agent::memory_loader::{CerebroMemoryLoader, DefaultMemoryLoader, MemoryLoader};
 use crate::agent::mission::{
     MissionCheckpoint, MissionCoordinator, MissionOutcome, MissionPlan, MissionResumeMetadata,
     MissionState, MissionTerminationReason,
@@ -357,6 +357,20 @@ impl Agent {
         let available_hints: Vec<String> =
             config.model_routes.iter().map(|r| r.hint.clone()).collect();
 
+        let cerebro_configured = crate::memory::cerebro_configured(&config.memory);
+        let memory_loader: Box<dyn MemoryLoader> = if cerebro_configured {
+            Box::new(CerebroMemoryLoader::new(
+                config.memory.cerebro.clone(),
+                5,
+                config.memory.min_relevance_score,
+            ))
+        } else {
+            Box::new(DefaultMemoryLoader::new(
+                5,
+                config.memory.min_relevance_score,
+            ))
+        };
+
         Agent::builder()
             .provider(provider)
             .tools(bootstrap.tools)
@@ -365,10 +379,7 @@ impl Agent {
             .audit_logger(Self::audit_logger_from_config(config)?)
             .audit_strict(config.security.audit.strict)
             .tool_dispatcher(tool_dispatcher)
-            .memory_loader(Box::new(DefaultMemoryLoader::new(
-                5,
-                config.memory.min_relevance_score,
-            )))
+            .memory_loader(memory_loader)
             .prompt_builder(SystemPromptBuilder::with_defaults())
             .config(config.agent.clone())
             .mission_config(config.mission.clone())
@@ -557,7 +568,10 @@ impl Agent {
             .memory_loader
             .load_context(self.memory.as_ref(), user_message)
             .await
-            .unwrap_or_default();
+            .unwrap_or_else(|error| {
+                tracing::warn!(error = %error, "Memory context load failed");
+                String::new()
+            });
 
         let enriched = if context.is_empty() {
             user_message.to_string()

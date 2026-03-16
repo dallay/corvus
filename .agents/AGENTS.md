@@ -188,7 +188,7 @@ Located in `.agents/skills/`. Reference for detailed patterns:
 | [kotlin-multiplatform](.agents/skills/kotlin-multiplatform/SKILL.md)  | KMP patterns, expect/actual                                                                         | KMP modules                                                               |
 | [tdd](.agents/skills/tdd/SKILL.md)                                    | Test-Driven Development workflow                                                                    | Red/Green/Refactor, new behavior                                          |
 | [frontend-design](.agents/skills/frontend-design/SKILL.md)            | Create production-grade frontend UI with strong visual direction while avoiding generic AI patterns | Building or refining web components, pages, dashboards, or application UI |
-| [conventional-commits](.opencode/skill/conventional-commits/SKILL.md) | Conventional Commits specification                                                                  | Creating commits, git messages                                            |
+| [conventional-commits](.agents/skills/conventional-commits/SKILL.md)  | Conventional Commits specification                                                                  | Creating commits, git messages                                            |
 
 ## Testing
 

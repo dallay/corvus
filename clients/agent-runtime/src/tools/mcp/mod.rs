@@ -1,4 +1,5 @@
 pub mod adapter;
+pub mod cerebro;
 pub mod client;
 pub mod normalize;
 

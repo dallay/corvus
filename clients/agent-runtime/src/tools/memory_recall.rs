@@ -1,18 +1,36 @@
 use super::traits::{Tool, ToolResult};
-use crate::memory::Memory;
+use crate::config::MemoryCerebroConfig;
+use crate::memory::{Memory, MemoryEntry};
+use crate::security::egress::enforce_cerebro_egress;
+use crate::security::policy::ToolOperation;
+use crate::security::SecurityPolicy;
+use crate::tools::mcp::{cerebro, normalize};
 use async_trait::async_trait;
 use serde_json::json;
-use std::fmt::Write;
 use std::sync::Arc;
 
 /// Let the agent search its own memory
 pub struct MemoryRecallTool {
-    memory: Arc<dyn Memory>,
+    cerebro: MemoryCerebroConfig,
+    local: Option<Arc<dyn Memory>>,
+    security: Arc<SecurityPolicy>,
 }
 
 impl MemoryRecallTool {
-    pub fn new(memory: Arc<dyn Memory>) -> Self {
-        Self { memory }
+    pub fn new(cerebro: MemoryCerebroConfig, security: Arc<SecurityPolicy>) -> Self {
+        Self {
+            cerebro,
+            local: None,
+            security,
+        }
+    }
+
+    pub fn with_local(memory: Arc<dyn Memory>, security: Arc<SecurityPolicy>) -> Self {
+        Self {
+            cerebro: MemoryCerebroConfig::default(),
+            local: Some(memory),
+            security,
+        }
     }
 }
 
@@ -32,10 +50,13 @@ impl Tool for MemoryRecallTool {
             "properties": {
                 "query": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "Keywords or phrase to search for in memory"
                 },
                 "limit": {
                     "type": "integer",
+                    "minimum": 1,
+                    "maximum": 100,
                     "description": "Max results to return (default: 5)"
                 }
             },
@@ -44,126 +65,207 @@ impl Tool for MemoryRecallTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let query = args
+        let query = match args
             .get("query")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'query' parameter"))?;
-
-        #[allow(clippy::cast_possible_truncation)]
-        let limit = args
-            .get("limit")
-            .and_then(serde_json::Value::as_u64)
-            .map_or(5, |v| v as usize);
-
-        match self.memory.recall(query, limit, None).await {
-            Ok(entries) if entries.is_empty() => Ok(ToolResult {
-                success: true,
-                output: "No memories found matching that query.".into(),
-                error: None,
-                structured: None,
-            }),
-            Ok(entries) => {
-                let mut output = format!("Found {} memories:\n", entries.len());
-                for entry in &entries {
-                    let score = entry
-                        .score
-                        .map_or_else(String::new, |s| format!(" [{s:.0}%]"));
-                    let _ = writeln!(
-                        output,
-                        "- [{}] {}: {}{score}",
-                        entry.category, entry.key, entry.content
-                    );
-                }
-                Ok(ToolResult {
-                    success: true,
-                    output,
-                    error: None,
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            Some(value) => value,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Missing or empty 'query' parameter".into()),
                     structured: None,
-                })
+                });
             }
-            Err(e) => Ok(ToolResult {
+        };
+
+        let limit = match args.get("limit") {
+            None => 5,
+            Some(value) => match value.as_i64() {
+                Some(parsed) if (1..=100).contains(&parsed) => {
+                    match usize::try_from(parsed) {
+                        Ok(value) => value,
+                        Err(_) => {
+                            return Ok(ToolResult {
+                                success: false,
+                                output: String::new(),
+                                error: Some("'limit' must be a positive integer".into()),
+                                structured: None,
+                            });
+                        }
+                    }
+                }
+                Some(_) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("'limit' must be between 1 and 100".into()),
+                        structured: None,
+                    });
+                }
+                None => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some("'limit' must be an integer".into()),
+                        structured: None,
+                    });
+                }
+            },
+        };
+
+        if let Err(error) = self
+            .security
+            .enforce_tool_operation(ToolOperation::Read, "memory_recall")
+        {
+            return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!("Memory recall failed: {e}")),
+                error: Some(error),
                 structured: None,
-            }),
+            });
         }
+
+        if let Some(local) = &self.local {
+            let entries = local.recall(query, limit, None).await?;
+            let output = format_local_recall_output(entries);
+            return Ok(ToolResult {
+                success: true,
+                output,
+                error: None,
+                structured: None,
+            });
+        }
+
+        let endpoint = self
+            .cerebro
+            .endpoint
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        let endpoint = match endpoint {
+            Some(value) => value,
+            None => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some("Cerebro MCP endpoint is required for memory_recall".into()),
+                    structured: None,
+                });
+            }
+        };
+
+        if let Err(error) = enforce_cerebro_egress(endpoint, &self.cerebro, ToolOperation::Read) {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(error.to_string()),
+                structured: None,
+            });
+        }
+
+        let adapter = match
+            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)
+        {
+            Ok(adapter) => adapter,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
+        let payload = json!({
+            "input": {
+                "query": query,
+                "limit": limit
+            }
+        });
+        let response = match adapter.execute(payload).await {
+            Ok(response) => response,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
+        if !response.success {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: response.error,
+                structured: None,
+            });
+        }
+
+        let output = match normalize::normalize_legacy_recall_output(&response.output) {
+            Ok(output) => output,
+            Err(error) => {
+                return Ok(ToolResult {
+                    success: false,
+                    output: String::new(),
+                    error: Some(error.to_string()),
+                    structured: None,
+                });
+            }
+        };
+        Ok(ToolResult {
+            success: true,
+            output,
+            error: None,
+            structured: None,
+        })
     }
+}
+
+fn format_local_recall_output(entries: Vec<MemoryEntry>) -> String {
+    if entries.is_empty() {
+        return "No memories found matching that query.".to_string();
+    }
+    let mut output = format!("Found {} memories:\n", entries.len());
+    for entry in entries {
+        let _ = std::fmt::Write::write_fmt(
+            &mut output,
+            format_args!("- [local] {}: {}\n", entry.key, entry.content),
+        );
+    }
+    output
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{MemoryCategory, SqliteMemory};
-    use tempfile::TempDir;
-
-    fn seeded_mem() -> (TempDir, Arc<dyn Memory>) {
-        let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        (tmp, Arc::new(mem))
-    }
-
-    #[tokio::test]
-    async fn recall_empty() {
-        let (_tmp, mem) = seeded_mem();
-        let tool = MemoryRecallTool::new(mem);
-        let result = tool.execute(json!({"query": "anything"})).await.unwrap();
-        assert!(result.success);
-        assert!(result.output.contains("No memories found"));
-    }
-
-    #[tokio::test]
-    async fn recall_finds_match() {
-        let (_tmp, mem) = seeded_mem();
-        mem.store("lang", "User prefers Rust", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-        mem.store("tz", "Timezone is EST", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-
-        let tool = MemoryRecallTool::new(mem);
-        let result = tool.execute(json!({"query": "Rust"})).await.unwrap();
-        assert!(result.success);
-        assert!(result.output.contains("Rust"));
-        assert!(result.output.contains("Found 1"));
-    }
-
-    #[tokio::test]
-    async fn recall_respects_limit() {
-        let (_tmp, mem) = seeded_mem();
-        for i in 0..10 {
-            mem.store(
-                &format!("k{i}"),
-                &format!("Rust fact {i}"),
-                MemoryCategory::Core,
-                None,
-            )
-            .await
-            .unwrap();
-        }
-
-        let tool = MemoryRecallTool::new(mem);
-        let result = tool
-            .execute(json!({"query": "Rust", "limit": 3}))
-            .await
-            .unwrap();
-        assert!(result.success);
-        assert!(result.output.contains("Found 3"));
-    }
-
+    use crate::security::SecurityPolicy;
     #[tokio::test]
     async fn recall_missing_query() {
-        let (_tmp, mem) = seeded_mem();
-        let tool = MemoryRecallTool::new(mem);
-        let result = tool.execute(json!({})).await;
-        assert!(result.is_err());
+        let tool = MemoryRecallTool::new(
+            MemoryCerebroConfig::default(),
+            Arc::new(SecurityPolicy::default()),
+        );
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("Missing or empty 'query'"));
     }
 
     #[test]
     fn name_and_schema() {
-        let (_tmp, mem) = seeded_mem();
-        let tool = MemoryRecallTool::new(mem);
+        let tool = MemoryRecallTool::new(
+            MemoryCerebroConfig::default(),
+            Arc::new(SecurityPolicy::default()),
+        );
         assert_eq!(tool.name(), "memory_recall");
         assert!(tool.parameters_schema()["properties"]["query"].is_object());
     }

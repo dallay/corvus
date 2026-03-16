@@ -54,7 +54,8 @@ impl std::fmt::Display for MemoryCategory {
     }
 }
 
-/// Core memory trait — implement for any persistence backend
+/// Core memory trait — local short-term memory backends only.
+/// Long-term memory is routed through Cerebro MCP tools.
 #[async_trait]
 pub trait Memory: Send + Sync {
     /// Backend name

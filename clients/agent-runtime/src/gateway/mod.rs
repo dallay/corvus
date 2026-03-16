@@ -289,10 +289,7 @@ fn admin_config_view(cfg: &Config) -> AdminConfigView {
 }
 
 fn validate_memory_backend(value: &str) -> bool {
-    matches!(
-        value,
-        "sqlite" | "lucid" | "surreal-graphs" | "markdown" | "surreal" | "none"
-    )
+    matches!(value, "sqlite" | "lucid" | "markdown" | "none")
 }
 
 fn validate_observability_backend(value: &str) -> bool {

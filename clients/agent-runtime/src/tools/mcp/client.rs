@@ -1,10 +1,12 @@
 use crate::config::McpServerConfig;
 use anyhow::Context;
+use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::json;
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
+use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub struct McpToolManifest {
@@ -48,6 +50,7 @@ impl McpClient {
             "__mcp_mock_sleep__" => self.call_tool_mock_sleep(name, &arguments),
             "__mcp_mock_output__" => self.call_tool_mock_output(&arguments),
             "__mcp_mock_error__" => self.call_tool_mock_error(name, &arguments),
+            "__mcp_cerebro_http__" => self.call_tool_http(name, &arguments).await,
             "__mcp_mock__" => Ok("mock-ok".to_string()),
             _ => self.call_tool_from_command(name, arguments).await,
         }
@@ -180,6 +183,117 @@ impl McpClient {
 
         let stdout = String::from_utf8(output.stdout).context("MCP call output was not UTF-8")?;
         Ok(stdout)
+    }
+
+    async fn call_tool_http(
+        &self,
+        name: &str,
+        arguments: &serde_json::Value,
+    ) -> anyhow::Result<String> {
+        let endpoint = self
+            .server
+            .args
+            .first()
+            .context("MCP HTTP endpoint missing in server args")?;
+
+        let client = reqwest::Client::builder()
+            .timeout(Duration::from_millis(self.server.call_timeout_ms))
+            .build()
+            .context("failed to build MCP HTTP client")?;
+
+        let request = json!({
+            "jsonrpc": "2.0",
+            "id": Uuid::new_v4().to_string(),
+            "method": "tools/call",
+            "params": {
+                "name": name,
+                "arguments": arguments,
+            }
+        });
+
+        let mut req = client.post(endpoint).json(&request);
+        if let Some(token) = self.server.env.get("MCP_AUTH_TOKEN") {
+            if !token.trim().is_empty() {
+                req = req.bearer_auth(token.trim());
+            }
+        }
+
+        let response = req.send().await.context("MCP HTTP call failed")?;
+        let status = response.status();
+        let limit = self.server.output_limit_bytes as usize;
+
+        if let Some(content_length) = response.content_length() {
+            let content_length = usize::try_from(content_length).map_err(|_| {
+                anyhow::anyhow!(
+                    "MCP HTTP response exceeded output_limit_bytes ({})",
+                    limit
+                )
+            })?;
+            if content_length > limit {
+                anyhow::bail!(
+                    "MCP HTTP response exceeded output_limit_bytes ({} > {})",
+                    content_length,
+                    limit
+                );
+            }
+        }
+
+        let mut body = Vec::new();
+        let mut stream = response.bytes_stream();
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.context("MCP HTTP response stream failed")?;
+            if body.len().saturating_add(chunk.len()) > limit {
+                anyhow::bail!(
+                    "MCP HTTP response exceeded output_limit_bytes ({})",
+                    limit
+                );
+            }
+            body.extend_from_slice(&chunk);
+        }
+
+        if !status.is_success() {
+            let details = serde_json::from_slice::<serde_json::Value>(&body).unwrap_or_else(|_| {
+                json!({
+                    "raw": String::from_utf8_lossy(&body).to_string(),
+                })
+            });
+            anyhow::bail!(
+                "{}",
+                json!({
+                    "code": "mcp_transport_error",
+                    "server": self.server.name,
+                    "tool": name,
+                    "reason": format!("HTTP {}", status.as_u16()),
+                    "details": details,
+                })
+            );
+        }
+
+        let payload: serde_json::Value = serde_json::from_slice(&body)
+            .context("MCP HTTP response was not valid JSON")?;
+
+        if let Some(error) = payload.get("error") {
+            anyhow::bail!(
+                "{}",
+                json!({
+                    "code": "mcp_error",
+                    "server": self.server.name,
+                    "tool": name,
+                    "error": error,
+                })
+            );
+        }
+
+        let output = payload
+            .get("result")
+            .and_then(|value| value.get("output"))
+            .ok_or_else(|| anyhow::anyhow!("MCP HTTP response missing result.output"))?;
+
+        if let Some(value) = output.as_str() {
+            Ok(value.to_string())
+        } else {
+            Ok(output.to_string())
+        }
     }
 
     fn list_tools_from_mock_payload(&self) -> anyhow::Result<Vec<McpToolManifest>> {

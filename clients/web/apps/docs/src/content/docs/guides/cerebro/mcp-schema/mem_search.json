@@ -1,0 +1,70 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_search",
+  "description": "Full-text or semantic search with compact result payload.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Search query string."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum number of results to return."
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional scope filter."
+        },
+        "topic_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Optional topic key filter."
+        },
+        "include_deleted": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include soft-deleted records (default false)."
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {
+            "type": "object",
+            "properties": {
+              "memory_id": { "type": "string", "minLength": 1 },
+              "summary": { "type": "string", "minLength": 1 },
+              "score": { "type": "number", "minimum": 0 },
+              "topic_key": { "type": "string", "minLength": 1 },
+              "scope": { "type": "string", "minLength": 1 },
+              "timestamp": { "type": "string", "format": "date-time" }
+            },
+            "required": ["memory_id", "summary", "score", "topic_key", "scope", "timestamp"],
+            "additionalProperties": false
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": ["results", "truncated"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

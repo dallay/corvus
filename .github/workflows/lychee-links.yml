@@ -2,18 +2,6 @@
 name: Link Checker
 
 on:
-  push:
-    branches:
-      - "**"
-    tags:
-      - "!**"
-  pull_request:
-    branches:
-      - main
-      - minor
-      - fix/**
-      - feat/**
-      - patch/**
   schedule:
     - cron: "0 4 * * *"
   workflow_dispatch:
@@ -28,11 +16,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: read
-      issues: write
+      contents: write
+      pull-requests: write
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          fetch-depth: 0
 
       - name: 🔗 Restore lychee cache
         uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
@@ -49,43 +39,27 @@ jobs:
           output: ./lychee/out.md
           fail: false
 
-      - name: 🔍 Find existing issue
-        id: find-issue
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
-        with:
-          script: |
-            const title = "[Automated] Link Checker Report";
-            const issues = await github.paginate(github.rest.issues.listForRepo, {
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              state: "open",
-              per_page: 100,
-            });
-            const match = issues.find((issue) => issue.title === title);
-            core.setOutput("issue_number", match?.number ?? "");
+      - name: 📝 Prepare report
+        if: steps.lychee.outputs.exit_code != 0
+        run: |
+          mkdir -p .github/lychee
+          cp ./lychee/out.md .github/lychee/report.md
 
-      - name: 📝 Create Issue From File
-        if: steps.lychee.outputs.exit_code != 0 && steps.find-issue.outputs.issue_number == '' && github.ref == 'refs/heads/main'
-        uses: peter-evans/create-issue-from-file@e8ef132d6df98ed982188e460ebb3b5d4ef3a9cd # v5
+      - name: 💾 Create PR with report
+        if: steps.lychee.outputs.exit_code != 0
+        uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v8.0.0
         with:
-          title: "[Automated] Link Checker Report"
-          content-filepath: ./lychee/out.md
-          labels: "automated-issue, broken-links"
-          repository: ${{ github.repository }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: "auto-pr/lychee-broken-links"
+          commit-message: "chore: update lychee link report [skip ci]"
+          title: "chore: update lychee link report"
+          labels: |
+            pr|chore
+            broken-links
+          body: |
+            ## Summary
 
-      - name: 📝 Update existing issue
-        if: steps.lychee.outputs.exit_code != 0 && steps.find-issue.outputs.issue_number != '' && github.ref == 'refs/heads/main'
-        uses: peter-evans/create-issue-from-file@e8ef132d6df98ed982188e460ebb3b5d4ef3a9cd # v5
-        with:
-          title: "[Automated] Link Checker Report"
-          content-filepath: ./lychee/out.md
-          labels: "automated-issue, broken-links"
-          issue-number: ${{ steps.find-issue.outputs.issue_number }}
-          repository: ${{ github.repository }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+            Automated lychee report for broken links.
 
       - name: 💾 Save lychee cache
         uses: actions/cache/save@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1

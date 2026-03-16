@@ -79,7 +79,7 @@ Corvus is a highly extensible, multi-interface agentic platform designed to brid
 - **Always-On Autonomy**: A daemon mode for long-running agents that can handle background tasks and persistent orchestration.
 - **Secure Sandboxing**: Execute dangerous commands safely within isolated Docker containers or restricted native runtimes.
 - **Standardized Identity (AIEOS)**: Support for AIEOS v1.1, allowing for portable and model-agnostic AI personas.
-- **Hybrid Memory Model**: Pluggable memory backends including SQLite, Neo4j, and SurrealDB for high-context retrieval.
+- **Hybrid Memory Model**: Pluggable memory backends including SQLite and MCP-backed Cerebro for high-context retrieval.
 - **Rich Integrations**: First-class support for WhatsApp (via Meta Cloud API), git, npm, cargo, and more.
 
 ---
@@ -108,7 +108,8 @@ corvus/
 │   ├── androidApp/       # Android specific wrapper
 │   └── iosApp/           # iOS specific wrapper
 ├── modules/
-│   └── agent-core-kmp/   # Core Kotlin Multiplatform logic & contracts
+│   ├── agent-core-kmp/   # Core Kotlin Multiplatform logic & contracts
+│   └── cerebro/          # MCP-backed long-term memory service
 ├── dev/                  # Local development environment (Docker/Sandbox)
 ├── gradle/               # Build logic and configurations
 └── Makefile              # Standard entry point for development tasks
@@ -181,6 +182,14 @@ Detailed documentation is available in the `clients/web/apps/docs/` directory. Y
 make docs-build
 make docs-dev
 ```
+
+The runtime SurrealDB memory backend has been removed; long-term memory now routes through the
+MCP-backed Cerebro service.
+
+Memory migration and schemas:
+
+- Migration guide: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md)
+- MCP schemas: [clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/](clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/)
 
 ---
 

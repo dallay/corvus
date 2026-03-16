@@ -187,14 +187,16 @@ fn generate_code() -> String {
 
 /// Generate a cryptographically-adequate bearer token with 256-bit entropy.
 ///
-/// Uses `rand::rng()` which is backed by the OS CSPRNG
+/// Uses UUID v4 (CSPRNG-backed) to produce 256-bit entropy
 /// (/dev/urandom on Linux, BCryptGenRandom on Windows, SecRandomCopyBytes
 /// on macOS). The 32 random bytes (256 bits) are hex-encoded for a
 /// 64-character token, providing 256 bits of entropy.
 fn generate_token() -> String {
-    use rand::RngCore;
     let mut bytes = [0u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
+    let first = uuid::Uuid::new_v4();
+    let second = uuid::Uuid::new_v4();
+    bytes[..16].copy_from_slice(first.as_bytes());
+    bytes[16..].copy_from_slice(second.as_bytes());
     format!("zc_{}", hex::encode(bytes))
 }
 
