@@ -517,12 +517,13 @@ impl SecurityPolicy {
         // Percent-decode path to detect encoded traversal patterns (e.g. %2e%2e)
         let decoded =
             urlencoding::decode(path).unwrap_or_else(|_| std::borrow::Cow::Borrowed(path));
+        let policy_path = decoded.as_ref();
 
         // Block path traversal: check for ".." as a path component in both raw and decoded path
         if Path::new(path)
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
-            || Path::new(decoded.as_ref())
+            || Path::new(policy_path)
                 .components()
                 .any(|c| matches!(c, std::path::Component::ParentDir))
         {
@@ -530,24 +531,29 @@ impl SecurityPolicy {
         }
 
         // Block URL-encoded traversal attempts (e.g. ..%2f)
-        let lower = path.to_lowercase();
+        let lower = path.to_ascii_lowercase();
         if lower.contains("..%2f") || lower.contains("%2f..") {
             return false;
         }
 
-        // Expand tilde for comparison
-        let expanded = if let Some(stripped) = path.strip_prefix("~/") {
+        // Expand tilde for comparison using the decoded policy path
+        let expanded = if let Some(stripped) = policy_path.strip_prefix("~/") {
             if let Some(home) = std::env::var("HOME").ok().map(PathBuf::from) {
                 home.join(stripped).to_string_lossy().to_string()
             } else {
-                path.to_string()
+                policy_path.to_string()
             }
         } else {
-            path.to_string()
+            policy_path.to_string()
         };
 
         // Block absolute paths when workspace_only is set
         if self.workspace_only && Path::new(&expanded).is_absolute() {
+            return false;
+        }
+
+        // Block percent-encoded absolute paths (e.g. %2fetc%2fpasswd)
+        if self.workspace_only && expanded.starts_with('/') {
             return false;
         }
 
@@ -1609,6 +1615,14 @@ mod tests {
         assert!(
             !policy.is_path_allowed("%2e%2e%2fetc/passwd"),
             "Fully encoded traversal must be blocked"
+        );
+        assert!(
+            !policy.is_path_allowed("%2fetc%2fpasswd"),
+            "Encoded absolute path must be blocked"
+        );
+        assert!(
+            !policy.is_path_allowed("%7e/.ssh/id_rsa"),
+            "Encoded tilde path must be blocked"
         );
     }
 
