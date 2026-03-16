@@ -25,7 +25,9 @@ Antes de poder publicar, asegúrate de tener:
 - `DOCKERHUB_USERNAME`: usuario de Docker Hub
 - `DOCKERHUB_TOKEN`: token de acceso de Docker Hub
 
-4. **Permisos de escritura**: Debes ser mantenedor del repositorio
+4. **Token de Release Please**: `RELEASE_PLEASE_TOKEN` con acceso de escritura al repo para que
+   release-please pueda abrir PRs y crear tags que disparen los workflows de publicación
+5. **Permisos de escritura**: Debes ser mantenedor del repositorio
 
 ### Qué publica un release
 
@@ -45,135 +47,39 @@ crates.io o npm desde `publish-release.yml`.
 
 ## Entendiendo el Modelo de Branches
 
-Este proyecto usa un modelo de dos branches para los releases:
-
-- **`main`**: Releases estables. Los bug fixes y cambios no-breaking van aquí
-- **`minor`**: Desarrollo de la siguiente versión minor. Las features van aquí
-
-Consulta [MAINTENANCE.md](https://github.com/dallay/corvus/blob/main/.github/MAINTENANCE.md) para el
-flujo de trabajo completo.
+Los releases salen de `main`. Todos los cambios listos para publicar deben estar mergeados en
+`main` antes de mergear el PR de release.
 
 ## Publicar un Release
 
-### Paso 1: Asegurar que todos los cambios estén mergeados
+### Paso 1: Mergea cambios en `main`
 
-Asegúrate de que todos los cambios que quieres publicar estén en el branch correcto:
+Asegúrate de que todos los cambios que quieres publicar estén mergeados en `main`.
 
-- **Patch release**: Los cambios deben estar en `main`
-- **Minor release**: Los cambios deben estar en `minor`
+### Paso 2: Release Please abre el PR de release
 
-### Paso 2: Actualizar la versión
+En cada push a `main`, Release Please crea o actualiza un PR de release que:
 
-Actualiza la versión en todos los targets de versión del release:
+- Bumpea versiones en Gradle, Cargo, npm y paquetes web
+- Actualiza `optionalDependencies` en `clients/agent-runtime/npm/corvus/package.json`
+- Genera notas de release con Conventional Commits
 
-```text
-gradle.properties
-gradle/build-logic/gradle.properties
-clients/web/package.json
-clients/web/apps/*/package.json
-clients/web/packages/*/package.json
-clients/agent-runtime/Cargo.toml
-clients/agent-runtime/npm/corvus-cli/package.json
-clients/agent-runtime/npm/corvus/package.json
-clients/agent-runtime/npm/corvus-darwin-arm64/package.json
-clients/agent-runtime/npm/corvus-darwin-x64/package.json
-clients/agent-runtime/npm/corvus-linux-arm64/package.json
-clients/agent-runtime/npm/corvus-linux-x64/package.json
-clients/agent-runtime/npm/corvus-windows-arm64/package.json
-clients/agent-runtime/npm/corvus-windows-x64/package.json
-clients/agent-runtime/src/main.rs (actualiza #[command(version = "...")])
-```
+Para controlar el bump, usa Conventional Commits:
 
-### Sincronizar la versión desde el tag Git automáticamente
+- `fix:` -> patch
+- `feat:` -> minor
+- `feat!:` o `BREAKING CHANGE:` -> major
 
-Puedes mantener la versión del proyecto en sincronía con el tag Git automáticamente con el script y
-el target Make incluidos en este repositorio.
+### Paso 3: Revisa y mergea el PR de release
 
-- `make sync-version` — ejecuta `./scripts/sync-version-with-tag.sh` y sincroniza la última versión
-  semántica del tag Git (`vX.Y.Z`) en:
-  - `gradle.properties` (`VERSION=`)
-  - `gradle/build-logic/gradle.properties` (`VERSION=`)
-  - `clients/web/package.json` (`"version"`)
-  - cada app web en `clients/web/apps/*/package.json` (`"version"`)
-  - cada package compartido en `clients/web/packages/*/package.json` (`"version"`)
-  - `clients/agent-runtime/Cargo.toml` (`version = "..."`)
-  - `clients/agent-runtime/npm/corvus-cli/package.json` (`"version"`)
-  - `clients/agent-runtime/npm/corvus/package.json` (`"version"`)
-  - `clients/agent-runtime/npm/corvus-darwin-arm64/package.json` (`"version"`)
-  - `clients/agent-runtime/npm/corvus-darwin-x64/package.json` (`"version"`)
-  - `clients/agent-runtime/npm/corvus-linux-arm64/package.json` (`"version"`)
-  - `clients/agent-runtime/npm/corvus-linux-x64/package.json` (`"version"`)
-  - `clients/agent-runtime/npm/corvus-windows-arm64/package.json` (`"version"`)
-  - `clients/agent-runtime/npm/corvus-windows-x64/package.json` (`"version"`)
-  - `clients/agent-runtime/src/main.rs` (`#[command(version = "...")]`)
-- `./scripts/sync-version-with-tag.sh` — script shell que selecciona el tag semántico más reciente global
-  usando `git tag --sort=-v:refname | grep -Em1 '^v[0-9]+\.[0-9]+\.[0-9]+$'` (no el tag más cercano
-  desde `HEAD`), extrae la versión numérica (quita la `v` inicial) y actualiza todos los targets de
-  versión listados arriba.
+Revisa el PR, valida las versiones y mergea cuando esté listo.
 
-Flujos de uso (elige uno):
+### Paso 4: Tag y publicación
 
-1) Recomendado (actualiza el código primero, luego el tag)
+Al mergear el PR, Release Please crea el tag `vX.Y.Z`. Ese tag dispara `publish-release.yml`,
+que ejecuta `_publish.yml` para publicar todos los artefactos.
 
-```bash
-# Actualiza los archivos de build y commitea
-# incrementar version en gradle.properties o build.gradle.kts a 0.1.1
-git add gradle.properties
-git commit -m "chore: bump version to 0.1.1"
-
-# Crear un tag anotado que coincida con la version
-git tag -a v0.1.1 -m "Release v0.1.1"
-# Pushear commit y tag
-git push origin main
-git push origin v0.1.1
-```
-
-2) Si creaste el tag primero (causa del fallo en CI), sincroniza el código con el tag localmente y
-   commitea el cambio
-
-```bash
-# Asegúrate de tener el tag localmente (o fetch)
-git fetch --tags
-
-# Sincronizar los archivos de versión con el último tag
-make sync-version
-# Revisar y commitear el cambio
-git add gradle.properties gradle/build-logic/gradle.properties clients/web/package.json clients/web/apps/*/package.json clients/web/packages/*/package.json clients/agent-runtime/Cargo.toml clients/agent-runtime/npm/corvus-cli/package.json clients/agent-runtime/npm/corvus/package.json clients/agent-runtime/npm/corvus-*/package.json
-git commit -m "chore: sync version to $(awk -F= '/^VERSION=/{print $2; exit}' gradle.properties)"
-# Pushear el commit (no es necesario recrear el tag)
-git push origin main
-```
-
-Notas y advertencias:
-
-- El CI de release exige que el tag Git (ej. `v0.1.1`) coincida con todos los archivos de
-  versión controlados (Gradle + monorepo web + Cargo + matriz de paquetes npm del runtime). Si no
-  coinciden, el build falla.
-- En `clients/agent-runtime/npm/corvus/package.json`, mantén las versiones de
-  `optionalDependencies` alineadas con la misma versión del release.
-- Es preferible crear el commit que actualiza la versión antes de crear el tag para evitar
-  desajustes.
-- El script solo reconoce tags que cumplen la expresión `^v[0-9]+\.[0-9]+\.[0-9]+$`.
-
-### Paso 3: Crear y pushear un tag
-
-```bash
-# Checkout del branch apropiado
-git checkout main  # o git checkout minor
-
-# Pull de los últimos cambios
-git pull origin main
-
-# Crear un tag anotado
-git tag -a v1.2.3 -m "Release version 1.2.3"
-
-# Pushear el tag (esto dispara el workflow de release)
-git push origin v1.2.3
-```
-
-**Importante**: El tag debe coincidir con el patrón `v[0-9]+.[0-9]+.[0-9]+` (ej., `v1.2.3`)
-
-### Paso 4: Monitorear el workflow
+### Paso 5: Monitorear el workflow
 
 1. Ve a la pestaña **Actions** en GitHub
 2. Haz clic en el workflow **Publish Release**
@@ -205,7 +111,7 @@ El workflow `publish-snapshot.yml` corre diariamente a las 02:12 UTC.
 
 1. Ve a la pestaña **Actions** → **Publish Snapshot**
 2. Haz clic en **Run workflow**
-3. Selecciona el branch (usualmente `main` o `minor`)
+3. Selecciona el branch (usualmente `main`)
 4. Haz clic en **Run workflow**
 
 Los snapshots usan la versión definida en los archivos de build de Gradle con sufijo
@@ -223,8 +129,9 @@ releases estables `vX.Y.Z`.
 - **Firma fallida**: Verifica que los secrets GPG estén correctamente configurados
 - **Autenticación Maven Central fallida**: Verifica que las credenciales no hayan expirado
 - **Build fallido**: Asegúrate de que todos los tests pasen localmente con `./gradlew check`
-- **Versiones desalineadas**: La versión del tag debe coincidir con Gradle + monorepo web + Cargo
-  + versiones de paquetes npm del runtime (`clients/agent-runtime/npm/*`)
+- **Versiones desalineadas**: Release Please mantiene versiones alineadas. Si falla, revisa
+  `release-please-config.json` y el diff del PR de release
+- **PR de release no creado**: Falta `RELEASE_PLEASE_TOKEN` o los commits no son Conventional
 - **Secret faltante de release**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
   `DOCKERHUB_USERNAME` o `DOCKERHUB_TOKEN`
 
@@ -248,14 +155,12 @@ Los snapshots pueden ser cacheados por Maven/Gradle. Fuerza una actualización:
 Usa este checklist antes de publicar:
 
 - [ ] Todos los tests pasan localmente (`./gradlew check`)
-- [ ] La versión está sincronizada en todos los targets (Gradle, monorepo web, Cargo, matriz de
-  paquetes npm del runtime)
-- [ ] CHANGELOG.md está actualizado (si se mantiene manualmente)
+- [ ] PR de release actualizado y mergeado
+- [ ] Versiones alineadas en el diff del PR de release
 - [ ] La clave GPG es válida y no ha expirado
 - [ ] Las credenciales de Maven Central son actuales
 - [ ] Los secrets de crates.io, npm y Docker Hub están configurados
-- [ ] El tag sigue el formato `vX.Y.Z`
-- [ ] Se está trabajando en el branch correcto (`main` para patches, `minor` para features)
+- [ ] Tag `vX.Y.Z` creado por Release Please
 
 ## Ver También
 
