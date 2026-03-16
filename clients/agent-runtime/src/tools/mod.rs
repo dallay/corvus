@@ -292,7 +292,7 @@ pub fn all_tools_with_runtime(
     config: Arc<Config>,
     security: &Arc<SecurityPolicy>,
     runtime: Arc<dyn RuntimeAdapter>,
-    memory: Arc<dyn Memory>,
+    _memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
     composio_entity_id: Option<&str>,
     browser_config: &crate::config::BrowserConfig,
@@ -312,9 +312,17 @@ pub fn all_tools_with_runtime(
         Box::new(CronUpdateTool::new(config.clone(), security.clone())),
         Box::new(CronRunTool::new(config.clone())),
         Box::new(CronRunsTool::new(config.clone())),
-        Box::new(MemoryStoreTool::new(memory.clone(), security.clone())),
-        Box::new(MemoryRecallTool::new(memory.clone())),
-        Box::new(MemoryForgetTool::new(memory, security.clone())),
+        Box::new(MemoryStoreTool::new(
+            root_config.memory.cerebro.clone(),
+            security.clone(),
+        )),
+        Box::new(MemoryRecallTool::new(
+            root_config.memory.cerebro.clone(),
+        )),
+        Box::new(MemoryForgetTool::new(
+            root_config.memory.cerebro.clone(),
+            security.clone(),
+        )),
         Box::new(ScheduleTool::new(security.clone(), root_config.clone())),
         Box::new(GitOperationsTool::new(
             security.clone(),

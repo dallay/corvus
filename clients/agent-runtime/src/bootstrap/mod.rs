@@ -422,12 +422,6 @@ mod tests {
         } else {
             None
         };
-        let expected_surreal_memory = if cfg!(feature = "memory-surreal") {
-            "surreal"
-        } else {
-            "markdown"
-        };
-
         let cases = [
             BootstrapMatrixCase {
                 name: "baseline-full",
@@ -448,15 +442,6 @@ mod tests {
                 expected_absent: &[],
             },
             BootstrapMatrixCase {
-                name: "full-with-mcp-surreal",
-                profile: "full",
-                memory_backend: "surreal",
-                enable_mcp: true,
-                expect_memory_name: expected_surreal_memory,
-                expected_present: &["shell", "git_operations", "memory_store"],
-                expected_absent: &[],
-            },
-            BootstrapMatrixCase {
                 name: "code-with-mcp",
                 profile: "code",
                 memory_backend: "sqlite",
@@ -466,18 +451,9 @@ mod tests {
                 expected_absent: &["schedule", "pushover", "cron_add"],
             },
             BootstrapMatrixCase {
-                name: "full-surreal-backend",
-                profile: "full",
-                memory_backend: "surreal",
-                enable_mcp: false,
-                expect_memory_name: expected_surreal_memory,
-                expected_present: &["shell", "memory_store"],
-                expected_absent: &["mcp.docs.search"],
-            },
-            BootstrapMatrixCase {
                 name: "lite-overrides-memory-backend",
                 profile: "lite",
-                memory_backend: "surreal",
+                memory_backend: "markdown",
                 enable_mcp: true,
                 expect_memory_name: "none",
                 expected_present: &["shell", "file_read", "file_write"],

@@ -1,20 +1,21 @@
 use super::traits::{Tool, ToolResult};
-use crate::memory::Memory;
+use crate::config::MemoryCerebroConfig;
 use crate::security::policy::ToolOperation;
 use crate::security::SecurityPolicy;
+use crate::tools::mcp::{cerebro, normalize};
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
 
 /// Let the agent forget/delete a memory entry
 pub struct MemoryForgetTool {
-    memory: Arc<dyn Memory>,
+    cerebro: MemoryCerebroConfig,
     security: Arc<SecurityPolicy>,
 }
 
 impl MemoryForgetTool {
-    pub fn new(memory: Arc<dyn Memory>, security: Arc<SecurityPolicy>) -> Self {
-        Self { memory, security }
+    pub fn new(cerebro: MemoryCerebroConfig, security: Arc<SecurityPolicy>) -> Self {
+        Self { cerebro, security }
     }
 }
 
@@ -72,82 +73,68 @@ impl Tool for MemoryForgetTool {
             });
         }
 
-        match self.memory.forget(key).await {
-            Ok(true) => Ok(ToolResult {
-                success: true,
-                output: format!("Forgot memory: {key}"),
-                error: None,
-                structured: None,
-            }),
-            Ok(false) => Ok(ToolResult {
-                success: true,
-                output: format!("No memory found with key: {key}"),
-                error: None,
-                structured: None,
-            }),
-            Err(e) => Ok(ToolResult {
+        let endpoint = self
+            .cerebro
+            .endpoint
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        if endpoint.is_none() {
+            return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!("Failed to forget memory: {e}")),
+                error: Some("Cerebro MCP endpoint is required for memory_forget".into()),
                 structured: None,
-            }),
+            });
         }
+
+        let adapter =
+            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_FORGET)?;
+        let payload = json!({
+            "input": {
+                "memory_id": key
+            }
+        });
+        let response = adapter.execute(payload).await?;
+        if !response.success {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: response.error,
+                structured: None,
+            });
+        }
+
+        let output = normalize::normalize_legacy_forget_output(&response.output, key)?;
+        Ok(ToolResult {
+            success: true,
+            output,
+            error: None,
+            structured: None,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{MemoryCategory, SqliteMemory};
     use crate::security::{AutonomyLevel, SecurityPolicy};
-    use tempfile::TempDir;
 
     fn test_security() -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy::default())
     }
 
-    fn test_mem() -> (TempDir, Arc<dyn Memory>) {
-        let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        (tmp, Arc::new(mem))
-    }
-
     #[test]
     fn name_and_schema() {
-        let (_tmp, mem) = test_mem();
-        let tool = MemoryForgetTool::new(mem, test_security());
+        let tool = MemoryForgetTool::new(MemoryCerebroConfig::default(), test_security());
         assert_eq!(tool.name(), "memory_forget");
         assert!(tool.parameters_schema()["properties"]["key"].is_object());
     }
 
     #[tokio::test]
-    async fn forget_existing() {
-        let (_tmp, mem) = test_mem();
-        mem.store("temp", "temporary", MemoryCategory::Conversation, None)
-            .await
-            .unwrap();
-
-        let tool = MemoryForgetTool::new(mem.clone(), test_security());
-        let result = tool.execute(json!({"key": "temp"})).await.unwrap();
-        assert!(result.success);
-        assert!(result.output.contains("Forgot"));
-
-        assert!(mem.get("temp").await.unwrap().is_none());
-    }
-
-    #[tokio::test]
-    async fn forget_nonexistent() {
-        let (_tmp, mem) = test_mem();
-        let tool = MemoryForgetTool::new(mem, test_security());
-        let result = tool.execute(json!({"key": "nope"})).await.unwrap();
-        assert!(result.success);
-        assert!(result.output.contains("No memory found"));
-    }
-
-    #[tokio::test]
     async fn forget_missing_key() {
-        let (_tmp, mem) = test_mem();
-        let tool = MemoryForgetTool::new(mem, test_security());
+        let tool = MemoryForgetTool::new(MemoryCerebroConfig::default(), test_security());
         let result = tool.execute(json!({})).await.unwrap();
         assert!(!result.success);
         assert!(result
@@ -159,15 +146,11 @@ mod tests {
 
     #[tokio::test]
     async fn forget_blocked_in_readonly_mode() {
-        let (_tmp, mem) = test_mem();
-        mem.store("temp", "temporary", MemoryCategory::Conversation, None)
-            .await
-            .unwrap();
         let readonly = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::ReadOnly,
             ..SecurityPolicy::default()
         });
-        let tool = MemoryForgetTool::new(mem.clone(), readonly);
+        let tool = MemoryForgetTool::new(MemoryCerebroConfig::default(), readonly);
         let result = tool.execute(json!({"key": "temp"})).await.unwrap();
         assert!(!result.success);
         assert!(result
@@ -175,20 +158,15 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("read-only mode"));
-        assert!(mem.get("temp").await.unwrap().is_some());
     }
 
     #[tokio::test]
     async fn forget_blocked_when_rate_limited() {
-        let (_tmp, mem) = test_mem();
-        mem.store("temp", "temporary", MemoryCategory::Conversation, None)
-            .await
-            .unwrap();
         let limited = Arc::new(SecurityPolicy {
             max_actions_per_hour: 0,
             ..SecurityPolicy::default()
         });
-        let tool = MemoryForgetTool::new(mem.clone(), limited);
+        let tool = MemoryForgetTool::new(MemoryCerebroConfig::default(), limited);
         let result = tool.execute(json!({"key": "temp"})).await.unwrap();
         assert!(!result.success);
         assert!(result
@@ -196,6 +174,5 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("Rate limit exceeded"));
-        assert!(mem.get("temp").await.unwrap().is_some());
     }
 }

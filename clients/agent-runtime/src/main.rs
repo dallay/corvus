@@ -111,7 +111,7 @@ enum Commands {
         #[arg(long)]
         provider: Option<String>,
 
-        /// Memory backend (sqlite, lucid, surreal-graphs, surreal, markdown, none) - used in quick mode (default: sqlite)
+        /// Memory backend (sqlite, lucid, markdown, none) - used in quick mode (default: sqlite)
         #[arg(long)]
         memory: Option<String>,
     },

@@ -1,5 +1,9 @@
+use crate::config::MemoryCerebroConfig;
 use crate::memory::Memory;
+use crate::tools::mcp::{cerebro, normalize};
+use crate::tools::traits::Tool;
 use async_trait::async_trait;
+use serde_json::json;
 use std::fmt::Write;
 
 #[async_trait]
@@ -9,6 +13,12 @@ pub trait MemoryLoader: Send + Sync {
 }
 
 pub struct DefaultMemoryLoader {
+    limit: usize,
+    min_relevance_score: f64,
+}
+
+pub struct CerebroMemoryLoader {
+    config: MemoryCerebroConfig,
     limit: usize,
     min_relevance_score: f64,
 }
@@ -25,6 +35,16 @@ impl Default for DefaultMemoryLoader {
 impl DefaultMemoryLoader {
     pub fn new(limit: usize, min_relevance_score: f64) -> Self {
         Self {
+            limit: limit.max(1),
+            min_relevance_score,
+        }
+    }
+}
+
+impl CerebroMemoryLoader {
+    pub fn new(config: MemoryCerebroConfig, limit: usize, min_relevance_score: f64) -> Self {
+        Self {
+            config,
             limit: limit.max(1),
             min_relevance_score,
         }
@@ -54,6 +74,79 @@ impl MemoryLoader for DefaultMemoryLoader {
         }
 
         // If all entries were below threshold, return empty
+        if context == "[Memory context]\n" {
+            return Ok(String::new());
+        }
+
+        context.push('\n');
+        Ok(context)
+    }
+}
+
+#[async_trait]
+impl MemoryLoader for CerebroMemoryLoader {
+    async fn load_context(
+        &self,
+        _memory: &dyn Memory,
+        user_message: &str,
+    ) -> anyhow::Result<String> {
+        let endpoint = self
+            .config
+            .endpoint
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        if endpoint.is_none() {
+            return Ok(String::new());
+        }
+
+        let adapter =
+            cerebro::cerebro_tool_adapter(&self.config, normalize::CEREBRO_TOOL_RECALL)?;
+        let payload = json!({
+            "input": {
+                "query": user_message,
+                "limit": self.limit
+            }
+        });
+        let response = adapter.execute(payload).await?;
+        if !response.success {
+            return Ok(String::new());
+        }
+
+        let value: serde_json::Value = serde_json::from_str(&response.output)?;
+        let results = match value
+            .get("results")
+            .and_then(serde_json::Value::as_array)
+        {
+            Some(results) => results,
+            None => return Ok(String::new()),
+        };
+
+        if results.is_empty() {
+            return Ok(String::new());
+        }
+
+        let mut context = String::from("[Memory context]\n");
+        for entry in results {
+            let score = entry.get("score").and_then(serde_json::Value::as_f64);
+            if let Some(score) = score {
+                if score < self.min_relevance_score {
+                    continue;
+                }
+            }
+            let key = entry
+                .get("topic_key")
+                .or_else(|| entry.get("memory_id"))
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("memory");
+            let summary = entry
+                .get("summary")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let _ = writeln!(context, "- {key}: {summary}");
+        }
+
         if context == "[Memory context]\n" {
             return Ok(String::new());
         }

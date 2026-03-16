@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_update",
+  "description": "Update an observation by memory ID.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "memory_id": {
+          "type": "string",
+          "description": "Memory identifier to update."
+        },
+        "observation": {
+          "type": "object",
+          "description": "Updated observation payload.",
+          "properties": {
+            "content": { "type": "string" },
+            "what": { "type": "string" },
+            "why": { "type": "string" },
+            "where": { "type": "string" },
+            "learned": { "type": "string" },
+            "source": { "type": "string" },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "metadata": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "additionalProperties": false
+        },
+        "topic_key": {
+          "type": "string"
+        },
+        "scope": {
+          "type": "string"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": ["memory_id"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "memory_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["updated"]
+        }
+      },
+      "required": ["memory_id", "status"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

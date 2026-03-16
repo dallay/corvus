@@ -95,8 +95,8 @@ cd corvus
 cargo build --release
 cargo install --path . --force
 
-# Enable SurrealDB memory backend support
-cargo build --release --features memory-surreal
+# Cerebro long-term memory runs as a separate MCP service
+# See docs: ../../clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md
 
 # Quick setup (no prompts)
 corvus onboard --api-key sk-... --provider openrouter
@@ -161,7 +161,7 @@ Every subsystem is a **trait** — swap implementations with a config change, ze
 |-------------------|------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|
 | **AI Models**     | `Provider`       | 22+ providers (OpenRouter, Anthropic, OpenAI, Ollama, Venice, Groq, Mistral, xAI, DeepSeek, Together, Fireworks, Perplexity, Cohere, Bedrock, etc.) | `custom:https://your-api.com` — any OpenAI-compatible API |
 | **Channels**      | `Channel`        | CLI, Telegram, Discord, Slack, iMessage, Matrix, WhatsApp, Webhook                                                                                  | Any messaging API                                         |
-| **Memory**        | `Memory`         | SQLite (hybrid search), SurrealDB (feature: `memory-surreal`), Markdown                                                                              | Any persistence backend                                   |
+| **Memory**        | `Memory`         | SQLite (hybrid search), Markdown, MCP-backed Cerebro                                                                                                  | Any persistence backend                                   |
 | **Tools**         | `Tool`           | shell, file_read, file_write, memory_store, memory_recall, memory_forget, browser_open (Brave + allowlist), composio (optional)                     | Any capability                                            |
 | **Observability** | `Observer`       | Noop, Log, Multi                                                                                                                                    | Prometheus, OTel                                          |
 | **Runtime**       | `RuntimeAdapter` | Native, Docker (sandboxed)                                                                                                                          | WASM (planned; unsupported kinds fail fast)               |
@@ -198,17 +198,17 @@ The agent automatically recalls, saves, and manages memory via tools.
 
 ```toml
 [memory]
-backend = "sqlite"          # "sqlite", "lucid", "surreal", "markdown", "none"
+backend = "sqlite"          # local short-term: "sqlite", "markdown", "none"
 auto_save = true
 embedding_provider = "openai"
 vector_weight = 0.7
 keyword_weight = 0.3
 
-[memory.surreal]
-url = "http://127.0.0.1:8000"
-namespace = "corvus"
-database = "memory"
-allow_http_loopback = true
+[memory.cerebro]
+endpoint = "https://cerebro.example.com/mcp"
+auth_token = "token-rotate-regularly"
+request_timeout_ms = 30000
+allow_insecure_loopback = false
 ```
 
 ## Security
@@ -299,8 +299,7 @@ WhatsApp uses Meta's Cloud API with webhooks (push-based, not polling):
 
 ## Configuration
 
-Config: `~/.corvus/config.toml` (created by `onboard`; wizard now includes SurrealDB prompts when
-available)
+Config: `~/.corvus/config.toml` (created by `onboard`)
 
 ```toml
 api_key = "sk-..."
@@ -309,20 +308,17 @@ default_model = "anthropic/claude-sonnet-4-20250514"
 default_temperature = 0.7
 
 [memory]
-backend = "sqlite"              # "sqlite", "lucid", "surreal", "markdown", "none"
+backend = "sqlite"              # local short-term: "sqlite", "markdown", "none"
 auto_save = true
 embedding_provider = "openai"   # "openai", "noop"
 vector_weight = 0.7
 keyword_weight = 0.3
 
-[memory.surreal]
-url = "http://127.0.0.1:8000"
-namespace = "corvus"
-database = "memory"
-# username = "corvus"
-# password = "corvus-pass"
-# token = "..."                  # preferred over username/password when set
-allow_http_loopback = true
+[memory.cerebro]
+endpoint = "https://cerebro.example.com/mcp"
+auth_token = "token-rotate-regularly"
+request_timeout_ms = 30000
+allow_insecure_loopback = false
 
 [gateway]
 require_pairing = true          # require pairing code on first connect
@@ -374,18 +370,21 @@ Code-session environment overrides:
 - `CORVUS_SESSION_ID` sets the code-session identifier for audit/observability correlation.
   When unset, a random UUID v4 is generated per session.
 
-SurrealDB environment overrides (env-first):
+### Cerebro MCP (long-term memory)
 
-```bash
-export CORVUS_MEMORY_BACKEND=surreal
-export CORVUS_SURREALDB_URL=http://127.0.0.1:8000
-export CORVUS_SURREALDB_NAMESPACE=corvus
-export CORVUS_SURREALDB_DATABASE=memory
-export CORVUS_SURREALDB_USERNAME=corvus
-export CORVUS_SURREALDB_PASSWORD=your-password-here
-# optional:
-export CORVUS_SURREALDB_TOKEN=...
-```
+Cerebro is the MCP-backed long-term memory service. The runtime SurrealDB backend is removed.
+Secure transport is enforced by default; `http`/`ws` endpoints require explicit loopback opt-in.
+
+Legacy tool aliases are preserved during migration:
+
+- `memory_store` -> `mem_save`
+- `memory_recall` -> `mem_search`
+- `memory_forget` -> `mem_delete`
+
+Docs:
+
+- Migration guide: [../../clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md](../../clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md)
+- MCP schemas: [../../clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/](../../clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/)
 
 ## Identity System (AIEOS Support)
 
@@ -472,7 +471,7 @@ See the AIEOS specification for the full schema and examples.
 | Command                                       | Description                                             |
 |-----------------------------------------------|---------------------------------------------------------|
 | `onboard`                                     | Quick setup (default)                                   |
-| `onboard --interactive`                       | Full interactive 7-step wizard (includes memory backend + Surreal options) |
+| `onboard --interactive`                       | Full interactive 7-step wizard (includes memory backend options) |
 | `onboard --channels-only`                     | Reconfigure channels/allowlists only (fast repair flow) |
 | `agent -m "..."`                              | Single message mode                                     |
 | `agent`                                       | Interactive chat mode                                   |

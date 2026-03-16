@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_get_observation",
+  "description": "Fetch full observation content by memory ID.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "memory_id": {
+          "type": "string",
+          "description": "Memory identifier to fetch."
+        },
+        "include_deleted": {
+          "type": "boolean",
+          "description": "Allow returning deleted records (default false)."
+        }
+      },
+      "required": ["memory_id"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "memory_id": { "type": "string" },
+        "status": {
+          "type": "string",
+          "enum": ["active", "deleted"]
+        },
+        "observation": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": ["memory_id", "status"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

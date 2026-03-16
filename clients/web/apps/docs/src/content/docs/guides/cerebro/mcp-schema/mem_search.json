@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_search",
+  "description": "Full-text or semantic search with compact result payload.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string",
+          "description": "Search query string."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of results to return."
+        },
+        "scope": {
+          "type": "string",
+          "description": "Optional scope filter."
+        },
+        "topic_key": {
+          "type": "string",
+          "description": "Optional topic key filter."
+        },
+        "include_deleted": {
+          "type": "boolean",
+          "description": "Include soft-deleted records (default false)."
+        }
+      },
+      "required": ["query"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "results": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "memory_id": { "type": "string" },
+              "summary": { "type": "string" },
+              "score": { "type": "number" },
+              "topic_key": { "type": "string" },
+              "scope": { "type": "string" },
+              "timestamp": { "type": "string" }
+            },
+            "required": ["memory_id", "summary"],
+            "additionalProperties": false
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": ["results"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

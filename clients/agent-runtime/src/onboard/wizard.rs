@@ -1,8 +1,8 @@
 use crate::config::schema::{DingTalkConfig, IrcConfig, QQConfig, StreamMode, WhatsAppConfig};
 use crate::config::{
     AutonomyConfig, BrowserConfig, ChannelsConfig, ComposioConfig, Config, DiscordConfig,
-    HeartbeatConfig, IMessageConfig, MatrixConfig, McpConfig, MemoryConfig, ObservabilityConfig,
-    RuntimeConfig, SecretsConfig, SecurityConfig, SlackConfig, SurrealMemoryConfig, TelegramConfig,
+    HeartbeatConfig, IMessageConfig, MatrixConfig, McpConfig, MemoryCerebroConfig, MemoryConfig,
+    ObservabilityConfig, RuntimeConfig, SecretsConfig, SecurityConfig, SlackConfig, TelegramConfig,
     WebhookConfig,
 };
 use crate::hardware::{self, HardwareConfig};
@@ -16,7 +16,6 @@ use crate::providers::{
 use anyhow::{bail, Context, Result};
 use console::style;
 use dialoguer::{Confirm, Input, Password, Select};
-use directories::UserDirs;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeSet;
@@ -709,7 +708,7 @@ pub fn run_channels_repair_wizard() -> Result<Config> {
 
 /// Non-interactive setup: generates a sensible default config instantly.
 /// Use `corvus onboard` or
-/// `corvus onboard --api-key sk-... --provider openrouter --memory sqlite|lucid|surreal-graphs`.
+/// `corvus onboard --api-key sk-... --provider openrouter --memory sqlite|lucid|markdown|none`.
 /// Use `corvus onboard --interactive` for the full wizard.
 fn backend_key_from_choice(choice: usize) -> &'static str {
     selectable_memory_backends()
@@ -746,7 +745,7 @@ fn memory_config_defaults_for_backend(backend: &str) -> MemoryConfig {
         snapshot_on_hygiene: false,
         auto_hydrate: true,
         sqlite_open_timeout_secs: None,
-        surreal: SurrealMemoryConfig::default(),
+        cerebro: MemoryCerebroConfig::default(),
     }
 }
 
@@ -779,11 +778,6 @@ pub fn run_quick_setup(
     let memory_backend_name = memory_backend
         .unwrap_or(default_memory_backend_key())
         .to_string();
-    #[cfg(not(feature = "memory-surreal"))]
-    if memory_backend_name == "surreal" {
-        bail!("memory backend 'surreal' requires a binary built with feature 'memory-surreal'");
-    }
-
     // Create memory config based on backend choice
     let memory_config = memory_config_defaults_for_backend(&memory_backend_name);
 
@@ -2905,183 +2899,6 @@ fn setup_project_context() -> Result<ProjectContext> {
 
 // ── Step 6: Memory Configuration ───────────────────────────────
 
-fn scaffold_surreal_docker_files() -> Result<PathBuf> {
-    let home = UserDirs::new()
-        .map(|dirs| dirs.home_dir().to_path_buf())
-        .context("Could not find home directory")?;
-    let surreal_dir = home.join(".corvus").join("surreal");
-    fs::create_dir_all(&surreal_dir).context("Failed to create Surreal helper directory")?;
-
-    let compose_path = surreal_dir.join("docker-compose.yml");
-    let env_example_path = surreal_dir.join(".env.example");
-
-    let compose_contents = r#"services:
-  surrealdb:
-    image: surrealdb/surrealdb:v2.3
-    # Do not use the in-memory backend ("memory") in production; it is non-persistent.
-    command: start --log info --user ${SURREALDB_USER:-corvus} --pass ${SURREALDB_PASS:-corvus-pass} surrealkv://data/corvus.db
-    ports:
-      - "8000:8000"
-    volumes:
-      - surrealdb-data:/data
-    healthcheck:
-      test: ["CMD", "surreal", "is-ready", "--conn", "http://127.0.0.1:8000"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
-volumes:
-  surrealdb-data:
-"#;
-
-    let env_contents = r#"# Copy to .env and adjust values.
-SURREALDB_USER=corvus
-SURREALDB_PASS=corvus-pass
-
-# Corvus env-first memory config
-CORVUS_SURREALDB_URL=http://127.0.0.1:8000
-CORVUS_SURREALDB_NAMESPACE=corvus
-CORVUS_SURREALDB_DATABASE=memory
-CORVUS_SURREALDB_USERNAME=corvus
-CORVUS_SURREALDB_PASSWORD=corvus-pass
-"#;
-
-    fs::write(&compose_path, compose_contents).context("Failed to write Surreal docker compose")?;
-    fs::write(&env_example_path, env_contents).context("Failed to write Surreal env example")?;
-
-    Ok(surreal_dir)
-}
-
-#[allow(clippy::too_many_lines)]
-fn setup_surreal_memory_options(config: &mut MemoryConfig) -> Result<()> {
-    print_bullet("SurrealDB backend selected.");
-    print_bullet("Environment variables are preferred for credentials (recommended).");
-    print_bullet("If you save credentials here, they are encrypted when [secrets].encrypt=true.");
-    println!();
-
-    println!("  Expected env vars (env-first):");
-    println!("    - CORVUS_SURREALDB_URL");
-    println!("    - CORVUS_SURREALDB_NAMESPACE");
-    println!("    - CORVUS_SURREALDB_DATABASE");
-    println!("    - CORVUS_SURREALDB_USERNAME");
-    println!("    - CORVUS_SURREALDB_PASSWORD");
-    println!("    - CORVUS_SURREALDB_TOKEN");
-    println!();
-
-    let endpoint: String = Input::new()
-        .with_prompt("  SurrealDB URL")
-        .default(
-            config
-                .surreal
-                .url
-                .clone()
-                .unwrap_or_else(|| "http://127.0.0.1:8000".to_string()),
-        )
-        .interact_text()?;
-    let namespace: String = Input::new()
-        .with_prompt("  Namespace")
-        .default(
-            config
-                .surreal
-                .namespace
-                .clone()
-                .unwrap_or_else(|| "corvus".to_string()),
-        )
-        .interact_text()?;
-    let database: String = Input::new()
-        .with_prompt("  Database")
-        .default(
-            config
-                .surreal
-                .database
-                .clone()
-                .unwrap_or_else(|| "memory".to_string()),
-        )
-        .interact_text()?;
-
-    let auth_modes = vec![
-        "Use environment variables only (recommended)",
-        "Save username/password fallback now",
-        "Save token fallback now",
-    ];
-    let auth_choice = Select::new()
-        .with_prompt("  Authentication fallback")
-        .items(&auth_modes)
-        .default(0)
-        .interact()?;
-
-    let (username, password, token) = match auth_choice {
-        1 => {
-            let user: String = Input::new()
-                .with_prompt("  SurrealDB username")
-                .allow_empty(true)
-                .interact_text()?;
-            let pass = Password::new()
-                .with_prompt("  SurrealDB password (hidden)")
-                .allow_empty_password(true)
-                .interact()?;
-            (trim_non_empty(user), trim_non_empty(pass), None)
-        }
-        2 => {
-            let token = Password::new()
-                .with_prompt("  SurrealDB token (hidden)")
-                .allow_empty_password(true)
-                .interact()?;
-            (None, None, trim_non_empty(token))
-        }
-        _ => (None, None, None),
-    };
-
-    config.surreal = SurrealMemoryConfig {
-        url: trim_non_empty(endpoint),
-        namespace: trim_non_empty(namespace),
-        database: trim_non_empty(database),
-        username,
-        password,
-        token,
-        allow_http_loopback: true,
-    };
-
-    let generate_docker = Confirm::new()
-        .with_prompt("  Generate local SurrealDB Docker helper files in ~/.corvus/surreal?")
-        .default(true)
-        .interact()?;
-    if generate_docker {
-        let helper_dir = scaffold_surreal_docker_files()?;
-        println!(
-            "  {} Docker helper files generated:",
-            style("✓").green().bold(),
-        );
-        println!(
-            "    {}",
-            style(helper_dir.join("docker-compose.yml").display()).green()
-        );
-        println!(
-            "    {}",
-            style(helper_dir.join(".env.example").display()).green()
-        );
-        println!("  Run manually:");
-        println!("    cd {}", style(helper_dir.display()).green());
-        println!("    cp .env.example .env");
-        println!("    docker compose up -d");
-    }
-
-    Ok(())
-}
-
-fn trim_non_empty(value: String) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        None
-    } else {
-        Some(trimmed.to_string())
-    }
-}
-
-fn requires_surreal_memory_setup(backend: &str) -> bool {
-    matches!(backend, "surreal" | "surreal-graphs")
-}
-
 fn setup_memory() -> Result<MemoryConfig> {
     print_bullet("Choose how Corvus stores and searches memories.");
     print_bullet("You can always change this later in config.toml.");
@@ -3116,10 +2933,6 @@ fn setup_memory() -> Result<MemoryConfig> {
 
     let mut config = memory_config_defaults_for_backend(backend);
     config.auto_save = auto_save;
-
-    if requires_surreal_memory_setup(&config.backend) {
-        setup_surreal_memory_options(&mut config)?;
-    }
 
     Ok(config)
 }
@@ -6137,9 +5950,8 @@ mod tests {
     fn backend_key_from_choice_maps_supported_backends() {
         assert_eq!(backend_key_from_choice(0), "sqlite");
         assert_eq!(backend_key_from_choice(1), "lucid");
-        assert_eq!(backend_key_from_choice(2), "surreal-graphs");
-        assert_eq!(backend_key_from_choice(3), "markdown");
-        assert_eq!(backend_key_from_choice(4), "none");
+        assert_eq!(backend_key_from_choice(2), "markdown");
+        assert_eq!(backend_key_from_choice(3), "none");
         assert_eq!(backend_key_from_choice(999), "sqlite");
     }
 
@@ -6187,17 +5999,11 @@ mod tests {
     }
 
     #[test]
-    fn memory_config_defaults_include_surreal_defaults() {
+    fn memory_config_defaults_include_cerebro_defaults() {
         let config = memory_config_defaults_for_backend("sqlite");
-        assert_eq!(config.surreal.namespace.as_deref(), Some("corvus"));
-        assert_eq!(config.surreal.database.as_deref(), Some("memory"));
-        assert!(config.surreal.allow_http_loopback);
-    }
-
-    #[test]
-    fn trim_non_empty_returns_none_for_blank() {
-        assert_eq!(trim_non_empty("   ".into()), None);
-        assert_eq!(trim_non_empty("value".into()), Some("value".into()));
+        assert!(config.cerebro.endpoint.is_none());
+        assert_eq!(config.cerebro.request_timeout_ms, 30_000);
+        assert!(!config.cerebro.allow_insecure_loopback);
     }
 
     #[test]
@@ -6251,12 +6057,5 @@ mod tests {
             parse_allowed_numbers("+1234567890, +1987654321"),
             vec!["+1234567890", "+1987654321"]
         );
-    }
-
-    #[test]
-    fn requires_surreal_memory_setup_accepts_surreal_variants() {
-        assert!(requires_surreal_memory_setup("surreal"));
-        assert!(requires_surreal_memory_setup("surreal-graphs"));
-        assert!(!requires_surreal_memory_setup("sqlite"));
     }
 }

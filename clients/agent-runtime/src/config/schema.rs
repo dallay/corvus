@@ -8,6 +8,7 @@ use std::fmt;
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use url::Url;
 
 // ── Top-level config ──────────────────────────────────────────────
 
@@ -981,62 +982,46 @@ impl Default for McpServerConfig {
 // ── Memory ───────────────────────────────────────────────────
 
 #[derive(Clone, Serialize, Deserialize)]
-pub struct SurrealMemoryConfig {
-    /// SurrealDB endpoint URL, e.g. "http://127.0.0.1:8000" or "ws://127.0.0.1:8000/rpc"
+pub struct MemoryCerebroConfig {
+    /// MCP endpoint URL, e.g. "https://cerebro.example.com/mcp" or "wss://cerebro.example.com/mcp"
     #[serde(default)]
-    pub url: Option<String>,
-    /// SurrealDB namespace
-    #[serde(default = "default_surreal_namespace")]
-    pub namespace: Option<String>,
-    /// SurrealDB database
-    #[serde(default = "default_surreal_database")]
-    pub database: Option<String>,
-    /// SurrealDB username (ignored if token is provided)
+    pub endpoint: Option<String>,
+    /// MCP auth token for Cerebro
     #[serde(default)]
-    pub username: Option<String>,
-    /// SurrealDB password (ignored if token is provided)
+    pub auth_token: Option<String>,
+    /// Request timeout in milliseconds
+    #[serde(default = "default_cerebro_timeout_ms")]
+    pub request_timeout_ms: u64,
+    /// Allow plain HTTP/WS for loopback addresses only.
     #[serde(default)]
-    pub password: Option<String>,
-    /// SurrealDB auth token (preferred over username/password)
-    #[serde(default)]
-    pub token: Option<String>,
-    /// Allow plain HTTP for loopback addresses only.
-    #[serde(default = "default_true")]
-    pub allow_http_loopback: bool,
+    pub allow_insecure_loopback: bool,
 }
 
-fn default_surreal_namespace() -> Option<String> {
-    Some("corvus".to_string())
+fn default_cerebro_timeout_ms() -> u64 {
+    30_000
 }
 
-fn default_surreal_database() -> Option<String> {
-    Some("memory".to_string())
-}
-
-impl Default for SurrealMemoryConfig {
+impl Default for MemoryCerebroConfig {
     fn default() -> Self {
         Self {
-            url: None,
-            namespace: default_surreal_namespace(),
-            database: default_surreal_database(),
-            username: None,
-            password: None,
-            token: None,
-            allow_http_loopback: true,
+            endpoint: None,
+            auth_token: None,
+            request_timeout_ms: default_cerebro_timeout_ms(),
+            allow_insecure_loopback: false,
         }
     }
 }
 
-impl fmt::Debug for SurrealMemoryConfig {
+impl fmt::Debug for MemoryCerebroConfig {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("SurrealMemoryConfig")
-            .field("url", &self.url)
-            .field("namespace", &self.namespace)
-            .field("database", &self.database)
-            .field("username", &self.username.as_ref().map(|_| "<redacted>"))
-            .field("password", &self.password.as_ref().map(|_| "<redacted>"))
-            .field("token", &self.token.as_ref().map(|_| "<redacted>"))
-            .field("allow_http_loopback", &self.allow_http_loopback)
+        f.debug_struct("MemoryCerebroConfig")
+            .field("endpoint", &self.endpoint)
+            .field(
+                "auth_token",
+                &self.auth_token.as_ref().map(|_| "<redacted>"),
+            )
+            .field("request_timeout_ms", &self.request_timeout_ms)
+            .field("allow_insecure_loopback", &self.allow_insecure_loopback)
             .finish()
     }
 }
@@ -1044,7 +1029,7 @@ impl fmt::Debug for SurrealMemoryConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 pub struct MemoryConfig {
-    /// "sqlite" | "lucid" | "surreal-graphs" | "markdown" | "surreal" | "none" (`none` = explicit no-op memory)
+    /// "sqlite" | "lucid" | "markdown" | "none" (`none` = explicit no-op memory)
     pub backend: String,
     /// Auto-save conversation context to memory
     pub auto_save: bool,
@@ -1115,9 +1100,9 @@ pub struct MemoryConfig {
     #[serde(default)]
     pub sqlite_open_timeout_secs: Option<u64>,
 
-    /// SurrealDB backend settings.
+    /// Cerebro MCP endpoint settings.
     #[serde(default)]
-    pub surreal: SurrealMemoryConfig,
+    pub cerebro: MemoryCerebroConfig,
 }
 
 fn default_embedding_provider() -> String {
@@ -1187,7 +1172,7 @@ impl Default for MemoryConfig {
             snapshot_on_hygiene: false,
             auto_hydrate: true,
             sqlite_open_timeout_secs: None,
-            surreal: SurrealMemoryConfig::default(),
+            cerebro: MemoryCerebroConfig::default(),
         }
     }
 }
@@ -2615,18 +2600,8 @@ impl Config {
             )?;
             decrypt_optional_secret(
                 &store,
-                &mut config.memory.surreal.username,
-                "config.memory.surreal.username",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.memory.surreal.password,
-                "config.memory.surreal.password",
-            )?;
-            decrypt_optional_secret(
-                &store,
-                &mut config.memory.surreal.token,
-                "config.memory.surreal.token",
+                &mut config.memory.cerebro.auth_token,
+                "config.memory.cerebro.auth_token",
             )?;
 
             for agent in config.agents.values_mut() {
@@ -2659,7 +2634,7 @@ impl Config {
         self.apply_workspace_override();
         self.apply_gateway_env_overrides();
         self.apply_web_search_env_overrides();
-        self.apply_surreal_env_overrides();
+        self.apply_cerebro_env_overrides();
         self.apply_updates_env_overrides();
 
         self.normalize_query_classification_keywords();
@@ -2697,14 +2672,11 @@ impl Config {
             let backend_raw = backend.trim();
             if !backend_raw.is_empty() {
                 let backend = backend_raw.to_ascii_lowercase();
-                if matches!(
-                    backend.as_str(),
-                    "sqlite" | "lucid" | "surreal-graphs" | "markdown" | "surreal" | "none"
-                ) {
+                if matches!(backend.as_str(), "sqlite" | "lucid" | "markdown" | "none") {
                     self.memory.backend = backend;
                 } else {
                     tracing::warn!(
-                        "ignoring unknown memory backend override '{}'; allowed: sqlite, lucid, surreal-graphs, markdown, surreal, none",
+                        "ignoring unknown memory backend override '{}'; allowed: sqlite, lucid, markdown, none",
                         backend_raw
                     );
                 }
@@ -2774,25 +2746,22 @@ impl Config {
         );
     }
 
-    fn apply_surreal_env_overrides(&mut self) {
-        env_override_optional("CORVUS_SURREALDB_URL", &mut self.memory.surreal.url);
+    fn apply_cerebro_env_overrides(&mut self) {
+        env_override_optional("CORVUS_CEREBRO_ENDPOINT", &mut self.memory.cerebro.endpoint);
         env_override_optional(
-            "CORVUS_SURREALDB_NAMESPACE",
-            &mut self.memory.surreal.namespace,
+            "CORVUS_CEREBRO_AUTH_TOKEN",
+            &mut self.memory.cerebro.auth_token,
         );
-        env_override_optional(
-            "CORVUS_SURREALDB_DATABASE",
-            &mut self.memory.surreal.database,
+        env_override_u64_positive(
+            "CORVUS_CEREBRO_TIMEOUT_MS",
+            "CEREBRO_TIMEOUT_MS",
+            &mut self.memory.cerebro.request_timeout_ms,
         );
-        env_override_optional(
-            "CORVUS_SURREALDB_USERNAME",
-            &mut self.memory.surreal.username,
+        env_override_bool(
+            "CORVUS_CEREBRO_ALLOW_INSECURE_LOOPBACK",
+            Some("CEREBRO_ALLOW_INSECURE_LOOPBACK"),
+            &mut self.memory.cerebro.allow_insecure_loopback,
         );
-        env_override_optional(
-            "CORVUS_SURREALDB_PASSWORD",
-            &mut self.memory.surreal.password,
-        );
-        env_override_optional("CORVUS_SURREALDB_TOKEN", &mut self.memory.surreal.token);
     }
 
     fn apply_updates_env_overrides(&mut self) {
@@ -2845,6 +2814,7 @@ impl Config {
     pub fn validate_for_runtime(&self) -> Result<()> {
         self.validate_agent_profile()?;
         self.validate_mcp_servers()?;
+        self.validate_memory_config()?;
         self.validate_delegate_overrides()?;
         self.validate_code_session_config()
     }
@@ -2867,6 +2837,24 @@ impl Config {
 
         for (idx, server) in self.mcp.servers.iter().enumerate() {
             Self::validate_mcp_server(server, idx)?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_memory_config(&self) -> Result<()> {
+        match self.memory.backend.as_str() {
+            "surreal" | "surreal-graphs" => {
+                anyhow::bail!(
+                    "memory.backend '{}' is no longer supported; configure memory.cerebro instead",
+                    self.memory.backend
+                );
+            }
+            _ => {}
+        }
+
+        if let Some(endpoint) = self.memory.cerebro.endpoint.as_deref() {
+            Self::validate_cerebro_endpoint(endpoint, &self.memory.cerebro)?;
         }
 
         Ok(())
@@ -2973,6 +2961,66 @@ impl Config {
         Ok(())
     }
 
+    fn validate_cerebro_endpoint(endpoint: &str, config: &MemoryCerebroConfig) -> Result<()> {
+        let endpoint = endpoint.trim();
+        if endpoint.is_empty() {
+            anyhow::bail!("memory.cerebro.endpoint must be non-empty when configured");
+        }
+
+        if config.request_timeout_ms == 0 {
+            anyhow::bail!("memory.cerebro.request_timeout_ms must be greater than zero");
+        }
+
+        let parsed = Url::parse(endpoint)
+            .with_context(|| format!("memory.cerebro.endpoint is not a valid URL: {endpoint}"))?;
+
+        let scheme = parsed.scheme();
+        let is_insecure = matches!(scheme, "http" | "ws");
+        let is_secure = matches!(scheme, "https" | "wss");
+
+        if !is_insecure && !is_secure {
+            anyhow::bail!("memory.cerebro.endpoint must use http, https, ws, or wss transport");
+        }
+
+        let host = parsed
+            .host_str()
+            .ok_or_else(|| anyhow::anyhow!("memory.cerebro.endpoint must include a host"))?;
+
+        if is_insecure && !config.allow_insecure_loopback {
+            anyhow::bail!(
+                "memory.cerebro.endpoint requires https/wss or allow_insecure_loopback=true"
+            );
+        }
+
+        if is_insecure && config.allow_insecure_loopback && !Self::is_loopback_host(host) {
+            anyhow::bail!(
+                "memory.cerebro.endpoint allows insecure transport only for loopback addresses"
+            );
+        }
+
+        if config
+            .auth_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|token| !token.is_empty())
+            .is_none()
+        {
+            anyhow::bail!("memory.cerebro.auth_token is required when endpoint is configured");
+        }
+
+        Ok(())
+    }
+
+    fn is_loopback_host(host: &str) -> bool {
+        if host.eq_ignore_ascii_case("localhost") {
+            return true;
+        }
+
+        host.parse::<std::net::IpAddr>()
+            .map(|ip| ip.is_loopback())
+            .unwrap_or(false)
+    }
+
     pub fn save(&self) -> Result<()> {
         // Encrypt secrets before serialization
         let mut config_to_save = self.clone();
@@ -3002,18 +3050,8 @@ impl Config {
         )?;
         encrypt_optional_secret(
             &store,
-            &mut config_to_save.memory.surreal.username,
-            "config.memory.surreal.username",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.memory.surreal.password,
-            "config.memory.surreal.password",
-        )?;
-        encrypt_optional_secret(
-            &store,
-            &mut config_to_save.memory.surreal.token,
-            "config.memory.surreal.token",
+            &mut config_to_save.memory.cerebro.auth_token,
+            "config.memory.cerebro.auth_token",
         )?;
 
         for agent in config_to_save.agents.values_mut() {
@@ -3257,26 +3295,21 @@ default_temperature = 0.7
         assert_eq!(m.purge_after_days, 30);
         assert_eq!(m.conversation_retention_days, 30);
         assert!(m.sqlite_open_timeout_secs.is_none());
-        assert_eq!(m.surreal.namespace.as_deref(), Some("corvus"));
-        assert_eq!(m.surreal.database.as_deref(), Some("memory"));
-        assert!(m.surreal.allow_http_loopback);
+        assert!(m.cerebro.endpoint.is_none());
+        assert_eq!(m.cerebro.request_timeout_ms, 30_000);
+        assert!(!m.cerebro.allow_insecure_loopback);
     }
 
     #[test]
-    fn surreal_memory_config_debug_redacts_sensitive_fields() {
-        let cfg = SurrealMemoryConfig {
-            url: Some("http://127.0.0.1:8000".into()),
-            namespace: Some("corvus".into()),
-            database: Some("memory".into()),
-            username: Some("svc-user".into()),
-            password: Some("secret-pass".into()),
-            token: Some("secret-token".into()),
-            allow_http_loopback: true,
+    fn cerebro_memory_config_debug_redacts_sensitive_fields() {
+        let cfg = MemoryCerebroConfig {
+            endpoint: Some("https://cerebro.example.com/mcp".into()),
+            auth_token: Some("secret-token".into()),
+            request_timeout_ms: 30_000,
+            allow_insecure_loopback: false,
         };
         let rendered = format!("{cfg:?}");
         assert!(rendered.contains("<redacted>"));
-        assert!(!rendered.contains("svc-user"));
-        assert!(!rendered.contains("secret-pass"));
         assert!(!rendered.contains("secret-token"));
     }
 
@@ -3610,12 +3643,8 @@ tool_dispatcher = "xml"
         config.composio.api_key = Some("composio-credential".into());
         config.browser.computer_use.api_key = Some("browser-credential".into());
         config.web_search.brave_api_key = Some("brave-credential".into());
-        config.memory.surreal.url = Some("http://127.0.0.1:8000".into());
-        config.memory.surreal.namespace = Some("test-ns".into());
-        config.memory.surreal.database = Some("test-db".into());
-        config.memory.surreal.username = Some("test-user".into());
-        config.memory.surreal.password = Some("test-pass".into());
-        config.memory.surreal.token = Some("test-token".into());
+        config.memory.cerebro.endpoint = Some("https://cerebro.example.com/mcp".into());
+        config.memory.cerebro.auth_token = Some("test-token".into());
 
         config.agents.insert(
             "worker".into(),
@@ -3669,40 +3698,18 @@ tool_dispatcher = "xml"
             "brave-credential"
         );
 
-        let surreal_url = stored.memory.surreal.url.as_deref().unwrap();
-        assert!(!crate::security::SecretStore::is_encrypted(surreal_url));
-        assert_eq!(surreal_url, "http://127.0.0.1:8000");
-
-        let surreal_namespace = stored.memory.surreal.namespace.as_deref().unwrap();
+        let cerebro_endpoint = stored.memory.cerebro.endpoint.as_deref().unwrap();
         assert!(!crate::security::SecretStore::is_encrypted(
-            surreal_namespace
+            cerebro_endpoint
         ));
-        assert_eq!(surreal_namespace, "test-ns");
+        assert_eq!(cerebro_endpoint, "https://cerebro.example.com/mcp");
 
-        let surreal_database = stored.memory.surreal.database.as_deref().unwrap();
-        assert!(!crate::security::SecretStore::is_encrypted(
-            surreal_database
-        ));
-        assert_eq!(surreal_database, "test-db");
-
-        let surreal_user_encrypted = stored.memory.surreal.username.as_deref().unwrap();
+        let cerebro_token_encrypted = stored.memory.cerebro.auth_token.as_deref().unwrap();
         assert!(crate::security::SecretStore::is_encrypted(
-            surreal_user_encrypted
-        ));
-        assert_eq!(store.decrypt(surreal_user_encrypted).unwrap(), "test-user");
-
-        let surreal_pass_encrypted = stored.memory.surreal.password.as_deref().unwrap();
-        assert!(crate::security::SecretStore::is_encrypted(
-            surreal_pass_encrypted
-        ));
-        assert_eq!(store.decrypt(surreal_pass_encrypted).unwrap(), "test-pass");
-
-        let surreal_token_encrypted = stored.memory.surreal.token.as_deref().unwrap();
-        assert!(crate::security::SecretStore::is_encrypted(
-            surreal_token_encrypted
+            cerebro_token_encrypted
         ));
         assert_eq!(
-            store.decrypt(surreal_token_encrypted).unwrap(),
+            store.decrypt(cerebro_token_encrypted).unwrap(),
             "test-token"
         );
 
@@ -4522,9 +4529,9 @@ enabled = true
         let mut config = Config::default();
         assert_eq!(config.memory.backend, "sqlite");
 
-        std::env::set_var("CORVUS_MEMORY_BACKEND", "surreal");
+        std::env::set_var("CORVUS_MEMORY_BACKEND", "markdown");
         config.apply_env_overrides();
-        assert_eq!(config.memory.backend, "surreal");
+        assert_eq!(config.memory.backend, "markdown");
 
         std::env::remove_var("CORVUS_MEMORY_BACKEND");
     }
@@ -4924,35 +4931,32 @@ default_model = "legacy-model"
     }
 
     #[test]
-    fn env_override_surreal_memory_config() {
+    fn env_override_cerebro_memory_config() {
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
 
-        std::env::set_var("CORVUS_SURREALDB_URL", "https://db.example.com");
-        std::env::set_var("CORVUS_SURREALDB_NAMESPACE", "prod-ns");
-        std::env::set_var("CORVUS_SURREALDB_DATABASE", "prod-db");
-        std::env::set_var("CORVUS_SURREALDB_USERNAME", "svc-user");
-        std::env::set_var("CORVUS_SURREALDB_PASSWORD", "svc-pass");
-        std::env::set_var("CORVUS_SURREALDB_TOKEN", "svc-token");
+        std::env::set_var("CORVUS_CEREBRO_ENDPOINT", "https://cerebro.example.com/mcp");
+        std::env::set_var("CORVUS_CEREBRO_AUTH_TOKEN", "svc-token");
+        std::env::set_var("CORVUS_CEREBRO_TIMEOUT_MS", "45000");
+        std::env::set_var("CORVUS_CEREBRO_ALLOW_INSECURE_LOOPBACK", "true");
 
         config.apply_env_overrides();
 
         assert_eq!(
-            config.memory.surreal.url.as_deref(),
-            Some("https://db.example.com")
+            config.memory.cerebro.endpoint.as_deref(),
+            Some("https://cerebro.example.com/mcp")
         );
-        assert_eq!(config.memory.surreal.namespace.as_deref(), Some("prod-ns"));
-        assert_eq!(config.memory.surreal.database.as_deref(), Some("prod-db"));
-        assert_eq!(config.memory.surreal.username.as_deref(), Some("svc-user"));
-        assert_eq!(config.memory.surreal.password.as_deref(), Some("svc-pass"));
-        assert_eq!(config.memory.surreal.token.as_deref(), Some("svc-token"));
+        assert_eq!(
+            config.memory.cerebro.auth_token.as_deref(),
+            Some("svc-token")
+        );
+        assert_eq!(config.memory.cerebro.request_timeout_ms, 45_000);
+        assert!(config.memory.cerebro.allow_insecure_loopback);
 
-        std::env::remove_var("CORVUS_SURREALDB_URL");
-        std::env::remove_var("CORVUS_SURREALDB_NAMESPACE");
-        std::env::remove_var("CORVUS_SURREALDB_DATABASE");
-        std::env::remove_var("CORVUS_SURREALDB_USERNAME");
-        std::env::remove_var("CORVUS_SURREALDB_PASSWORD");
-        std::env::remove_var("CORVUS_SURREALDB_TOKEN");
+        std::env::remove_var("CORVUS_CEREBRO_ENDPOINT");
+        std::env::remove_var("CORVUS_CEREBRO_AUTH_TOKEN");
+        std::env::remove_var("CORVUS_CEREBRO_TIMEOUT_MS");
+        std::env::remove_var("CORVUS_CEREBRO_ALLOW_INSECURE_LOOPBACK");
     }
 
     #[test]

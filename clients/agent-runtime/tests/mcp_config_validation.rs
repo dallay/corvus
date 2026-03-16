@@ -73,3 +73,52 @@ fn validation_error_redacts_secret_values() {
     assert!(!err.contains("super-secret-value"));
     assert!(err.contains("mcp.servers[0]"));
 }
+
+#[test]
+fn rejects_legacy_surreal_memory_backend() {
+    let mut config = Config::default();
+    config.memory.backend = "surreal".to_string();
+
+    let err = config.validate_for_runtime().unwrap_err().to_string();
+    assert!(err.contains("memory.backend"));
+    assert!(err.contains("no longer supported"));
+}
+
+#[test]
+fn rejects_insecure_cerebro_endpoint_without_loopback_opt_in() {
+    let mut config = Config::default();
+    config.memory.cerebro.endpoint = Some("http://cerebro.example.com/mcp".into());
+    config.memory.cerebro.auth_token = Some("token".into());
+    config.memory.cerebro.request_timeout_ms = 5_000;
+
+    let err = config.validate_for_runtime().unwrap_err().to_string();
+    assert!(err.contains("memory.cerebro.endpoint"));
+    assert!(err.contains("allow_insecure_loopback"));
+}
+
+#[test]
+fn rejects_cerebro_endpoint_without_auth_token() {
+    let mut config = Config::default();
+    config.memory.cerebro.endpoint = Some("https://cerebro.example.com/mcp".into());
+
+    let err = config.validate_for_runtime().unwrap_err().to_string();
+    assert!(err.contains("memory.cerebro.auth_token"));
+}
+
+#[test]
+fn accepts_secure_https_cerebro_endpoint() {
+    let mut config = Config::default();
+    config.memory.cerebro.endpoint = Some("https://cerebro.example.com/mcp".into());
+    config.memory.cerebro.auth_token = Some("token".into());
+
+    assert!(config.validate_for_runtime().is_ok());
+}
+
+#[test]
+fn accepts_secure_wss_cerebro_endpoint() {
+    let mut config = Config::default();
+    config.memory.cerebro.endpoint = Some("wss://cerebro.example.com/mcp".into());
+    config.memory.cerebro.auth_token = Some("token".into());
+
+    assert!(config.validate_for_runtime().is_ok());
+}

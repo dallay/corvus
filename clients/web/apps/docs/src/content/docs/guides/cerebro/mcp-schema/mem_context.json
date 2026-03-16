@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_context",
+  "description": "Fetch recent context at the start of a session.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Session identifier requesting context."
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum number of context items to return."
+        },
+        "scope": {
+          "type": "string",
+          "description": "Optional memory scope filter."
+        }
+      },
+      "required": ["session_id"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "memory_id": { "type": "string" },
+              "summary": { "type": "string" },
+              "topic_key": { "type": "string" },
+              "scope": { "type": "string" },
+              "timestamp": { "type": "string" }
+            },
+            "required": ["memory_id", "summary"],
+            "additionalProperties": false
+          }
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      },
+      "required": ["session_id", "items"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

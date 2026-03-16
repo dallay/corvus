@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_session_summary",
+  "description": "Save end-of-session summary (goal, discoveries, accomplished).",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "description": "Session identifier to summarize."
+        },
+        "summary": {
+          "type": "object",
+          "description": "Structured session summary payload.",
+          "properties": {
+            "goal": {
+              "type": "string"
+            },
+            "discoveries": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "accomplished": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "blockers": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "next_steps": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": true
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional summary metadata.",
+          "additionalProperties": true
+        }
+      },
+      "required": ["session_id", "summary"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["summarized"]
+        }
+      },
+      "required": ["session_id", "status"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

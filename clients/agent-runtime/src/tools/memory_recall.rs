@@ -1,18 +1,17 @@
 use super::traits::{Tool, ToolResult};
-use crate::memory::Memory;
+use crate::config::MemoryCerebroConfig;
+use crate::tools::mcp::{cerebro, normalize};
 use async_trait::async_trait;
 use serde_json::json;
-use std::fmt::Write;
-use std::sync::Arc;
 
 /// Let the agent search its own memory
 pub struct MemoryRecallTool {
-    memory: Arc<dyn Memory>,
+    cerebro: MemoryCerebroConfig,
 }
 
 impl MemoryRecallTool {
-    pub fn new(memory: Arc<dyn Memory>) -> Self {
-        Self { memory }
+    pub fn new(cerebro: MemoryCerebroConfig) -> Self {
+        Self { cerebro }
     }
 }
 
@@ -55,115 +54,62 @@ impl Tool for MemoryRecallTool {
             .and_then(serde_json::Value::as_u64)
             .map_or(5, |v| v as usize);
 
-        match self.memory.recall(query, limit, None).await {
-            Ok(entries) if entries.is_empty() => Ok(ToolResult {
-                success: true,
-                output: "No memories found matching that query.".into(),
-                error: None,
-                structured: None,
-            }),
-            Ok(entries) => {
-                let mut output = format!("Found {} memories:\n", entries.len());
-                for entry in &entries {
-                    let score = entry
-                        .score
-                        .map_or_else(String::new, |s| format!(" [{s:.0}%]"));
-                    let _ = writeln!(
-                        output,
-                        "- [{}] {}: {}{score}",
-                        entry.category, entry.key, entry.content
-                    );
-                }
-                Ok(ToolResult {
-                    success: true,
-                    output,
-                    error: None,
-                    structured: None,
-                })
-            }
-            Err(e) => Ok(ToolResult {
+        let endpoint = self
+            .cerebro
+            .endpoint
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+
+        if endpoint.is_none() {
+            return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!("Memory recall failed: {e}")),
+                error: Some("Cerebro MCP endpoint is required for memory_recall".into()),
                 structured: None,
-            }),
+            });
         }
+
+        let adapter = cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)?;
+        let payload = json!({
+            "input": {
+                "query": query,
+                "limit": limit
+            }
+        });
+        let response = adapter.execute(payload).await?;
+        if !response.success {
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: response.error,
+                structured: None,
+            });
+        }
+
+        let output = normalize::normalize_legacy_recall_output(&response.output)?;
+        Ok(ToolResult {
+            success: true,
+            output,
+            error: None,
+            structured: None,
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::memory::{MemoryCategory, SqliteMemory};
-    use tempfile::TempDir;
-
-    fn seeded_mem() -> (TempDir, Arc<dyn Memory>) {
-        let tmp = TempDir::new().unwrap();
-        let mem = SqliteMemory::new(tmp.path()).unwrap();
-        (tmp, Arc::new(mem))
-    }
-
-    #[tokio::test]
-    async fn recall_empty() {
-        let (_tmp, mem) = seeded_mem();
-        let tool = MemoryRecallTool::new(mem);
-        let result = tool.execute(json!({"query": "anything"})).await.unwrap();
-        assert!(result.success);
-        assert!(result.output.contains("No memories found"));
-    }
-
-    #[tokio::test]
-    async fn recall_finds_match() {
-        let (_tmp, mem) = seeded_mem();
-        mem.store("lang", "User prefers Rust", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-        mem.store("tz", "Timezone is EST", MemoryCategory::Core, None)
-            .await
-            .unwrap();
-
-        let tool = MemoryRecallTool::new(mem);
-        let result = tool.execute(json!({"query": "Rust"})).await.unwrap();
-        assert!(result.success);
-        assert!(result.output.contains("Rust"));
-        assert!(result.output.contains("Found 1"));
-    }
-
-    #[tokio::test]
-    async fn recall_respects_limit() {
-        let (_tmp, mem) = seeded_mem();
-        for i in 0..10 {
-            mem.store(
-                &format!("k{i}"),
-                &format!("Rust fact {i}"),
-                MemoryCategory::Core,
-                None,
-            )
-            .await
-            .unwrap();
-        }
-
-        let tool = MemoryRecallTool::new(mem);
-        let result = tool
-            .execute(json!({"query": "Rust", "limit": 3}))
-            .await
-            .unwrap();
-        assert!(result.success);
-        assert!(result.output.contains("Found 3"));
-    }
-
     #[tokio::test]
     async fn recall_missing_query() {
-        let (_tmp, mem) = seeded_mem();
-        let tool = MemoryRecallTool::new(mem);
+        let tool = MemoryRecallTool::new(MemoryCerebroConfig::default());
         let result = tool.execute(json!({})).await;
         assert!(result.is_err());
     }
 
     #[test]
     fn name_and_schema() {
-        let (_tmp, mem) = seeded_mem();
-        let tool = MemoryRecallTool::new(mem);
+        let tool = MemoryRecallTool::new(MemoryCerebroConfig::default());
         assert_eq!(tool.name(), "memory_recall");
         assert!(tool.parameters_schema()["properties"]["query"].is_object());
     }

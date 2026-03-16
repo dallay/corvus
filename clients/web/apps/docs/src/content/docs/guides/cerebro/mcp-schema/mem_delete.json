@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_delete",
+  "description": "Soft-delete an observation (hard delete optional).",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "memory_id": {
+          "type": "string",
+          "description": "Memory identifier to delete."
+        },
+        "hard_delete": {
+          "type": "boolean",
+          "description": "If true, request hard deletion (subject to policy)."
+        },
+        "reason": {
+          "type": "string",
+          "description": "Optional deletion reason."
+        }
+      },
+      "required": ["memory_id"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "memory_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["deleted"]
+        },
+        "deleted": {
+          "type": "boolean"
+        }
+      },
+      "required": ["memory_id", "status", "deleted"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

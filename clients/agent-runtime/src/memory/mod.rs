@@ -8,8 +8,6 @@ pub mod none;
 pub mod response_cache;
 pub mod snapshot;
 pub mod sqlite;
-#[cfg(feature = "memory-surreal")]
-pub mod surreal;
 pub mod traits;
 pub mod vector;
 
@@ -23,8 +21,6 @@ pub use markdown::MarkdownMemory;
 pub use none::NoneMemory;
 pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
-#[cfg(feature = "memory-surreal")]
-pub use surreal::SurrealMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
 pub use traits::{MemoryCategory, MemoryEntry, MemoryValidationResult};
@@ -32,6 +28,15 @@ pub use traits::{MemoryCategory, MemoryEntry, MemoryValidationResult};
 use crate::config::MemoryConfig;
 use std::path::Path;
 use std::sync::Arc;
+
+pub fn cerebro_configured(config: &MemoryConfig) -> bool {
+    config
+        .cerebro
+        .endpoint
+        .as_deref()
+        .map(str::trim)
+        .is_some_and(|value| !value.is_empty())
+}
 
 fn build_sqlite_memory(
     config: &MemoryConfig,
@@ -58,29 +63,6 @@ fn build_sqlite_memory(
     Ok(mem)
 }
 
-#[cfg(feature = "memory-surreal")]
-fn build_surreal_memory(
-    config: &MemoryConfig,
-    workspace_dir: &Path,
-    api_key: Option<&str>,
-) -> anyhow::Result<SurrealMemory> {
-    let embedder: Arc<dyn embeddings::EmbeddingProvider> =
-        Arc::from(embeddings::create_embedding_provider(
-            &config.embedding_provider,
-            api_key,
-            &config.embedding_model,
-            config.embedding_dimensions,
-        ));
-    #[allow(clippy::cast_possible_truncation)]
-    let mem = SurrealMemory::new(
-        workspace_dir,
-        config,
-        embedder,
-        config.vector_weight as f32,
-        config.keyword_weight as f32,
-    )?;
-    Ok(mem)
-}
 
 /// Factory: create the right memory backend from config
 pub fn create_memory(
@@ -88,6 +70,9 @@ pub fn create_memory(
     workspace_dir: &Path,
     api_key: Option<&str>,
 ) -> anyhow::Result<Box<dyn Memory>> {
+    if cerebro_configured(config) {
+        tracing::info!("Cerebro MCP configured; local memory remains short-term only");
+    }
     // Best-effort memory hygiene/retention pass (throttled by state file).
     if let Err(e) = hygiene::run_if_due(config, workspace_dir) {
         tracing::warn!("memory hygiene skipped: {e}");
@@ -132,45 +117,6 @@ pub fn create_memory(
             let local = build_sqlite_memory(config, workspace_dir, api_key)?;
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
         }
-        MemoryBackendKind::SurrealGraphs => {
-            #[cfg(feature = "memory-surreal")]
-            {
-                tracing::info!(
-                    "Memory backend 'surreal-graphs' mapped to built-in surreal memory backend"
-                );
-                Ok(Box::new(build_surreal_memory(
-                    config,
-                    workspace_dir,
-                    api_key,
-                )?))
-            }
-            #[cfg(not(feature = "memory-surreal"))]
-            {
-                tracing::warn!(
-                    "Memory backend 'surreal-graphs' requested but binary was built without \
-                     feature 'memory-surreal'; falling back to markdown"
-                );
-                Ok(Box::new(MarkdownMemory::new(workspace_dir)))
-            }
-        }
-        MemoryBackendKind::Surreal => {
-            #[cfg(feature = "memory-surreal")]
-            {
-                Ok(Box::new(build_surreal_memory(
-                    config,
-                    workspace_dir,
-                    api_key,
-                )?))
-            }
-            #[cfg(not(feature = "memory-surreal"))]
-            {
-                tracing::warn!(
-                    "Memory backend 'surreal' requested but binary was built without \
-                     feature 'memory-surreal'; falling back to markdown"
-                );
-                Ok(Box::new(MarkdownMemory::new(workspace_dir)))
-            }
-        }
         MemoryBackendKind::Markdown => Ok(Box::new(MarkdownMemory::new(workspace_dir))),
         MemoryBackendKind::None => Ok(Box::new(NoneMemory::new())),
         MemoryBackendKind::Unknown => {
@@ -189,7 +135,7 @@ pub fn create_memory_for_migration(
 ) -> anyhow::Result<Box<dyn Memory>> {
     if matches!(classify_memory_backend(backend), MemoryBackendKind::None) {
         anyhow::bail!(
-            "memory backend 'none' disables persistence; choose sqlite, lucid, surreal, or markdown before migration"
+            "memory backend 'none' disables persistence; choose sqlite, lucid, or markdown before migration"
         );
     }
 
@@ -198,56 +144,6 @@ pub fn create_memory_for_migration(
         MemoryBackendKind::Lucid => {
             let local = SqliteMemory::new(workspace_dir)?;
             Ok(Box::new(LucidMemory::new(workspace_dir, local)))
-        }
-        MemoryBackendKind::SurrealGraphs => {
-            #[cfg(feature = "memory-surreal")]
-            {
-                let config = MemoryConfig {
-                    backend: "surreal-graphs".to_string(),
-                    ..MemoryConfig::default()
-                };
-                let embedder: Arc<dyn embeddings::EmbeddingProvider> =
-                    Arc::new(embeddings::NoopEmbedding);
-                #[allow(clippy::cast_possible_truncation)]
-                return Ok(Box::new(SurrealMemory::new(
-                    workspace_dir,
-                    &config,
-                    embedder,
-                    config.vector_weight as f32,
-                    config.keyword_weight as f32,
-                )?));
-            }
-            #[cfg(not(feature = "memory-surreal"))]
-            {
-                anyhow::bail!(
-                    "backend 'surreal-graphs' requires the binary to be built with feature 'memory-surreal'"
-                );
-            }
-        }
-        MemoryBackendKind::Surreal => {
-            #[cfg(feature = "memory-surreal")]
-            #[allow(clippy::cast_possible_truncation)]
-            {
-                let config = MemoryConfig {
-                    backend: "surreal".to_string(),
-                    ..MemoryConfig::default()
-                };
-                let embedder: Arc<dyn embeddings::EmbeddingProvider> =
-                    Arc::new(embeddings::NoopEmbedding);
-                Ok(Box::new(SurrealMemory::new(
-                    workspace_dir,
-                    &config,
-                    embedder,
-                    config.vector_weight as f32,
-                    config.keyword_weight as f32,
-                )?))
-            }
-            #[cfg(not(feature = "memory-surreal"))]
-            {
-                anyhow::bail!(
-                    "backend 'surreal' requires the binary to be built with feature 'memory-surreal'"
-                );
-            }
         }
         MemoryBackendKind::Markdown | MemoryBackendKind::Unknown => {
             Ok(Box::new(MarkdownMemory::new(workspace_dir)))
@@ -332,20 +228,6 @@ mod tests {
     }
 
     #[test]
-    fn factory_surreal_graphs_uses_built_in_surreal_or_markdown_fallback() {
-        let tmp = TempDir::new().unwrap();
-        let cfg = MemoryConfig {
-            backend: "surreal-graphs".into(),
-            ..MemoryConfig::default()
-        };
-        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
-        #[cfg(feature = "memory-surreal")]
-        assert_eq!(mem.name(), "surreal");
-        #[cfg(not(feature = "memory-surreal"))]
-        assert_eq!(mem.name(), "markdown");
-    }
-
-    #[test]
     fn factory_unknown_falls_back_to_markdown() {
         let tmp = TempDir::new().unwrap();
         let cfg = MemoryConfig {
@@ -354,30 +236,6 @@ mod tests {
         };
         let mem = create_memory(&cfg, tmp.path(), None).unwrap();
         assert_eq!(mem.name(), "markdown");
-    }
-
-    #[cfg(not(feature = "memory-surreal"))]
-    #[test]
-    fn factory_surreal_without_feature_falls_back_to_markdown() {
-        let tmp = TempDir::new().unwrap();
-        let cfg = MemoryConfig {
-            backend: "surreal".into(),
-            ..MemoryConfig::default()
-        };
-        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
-        assert_eq!(mem.name(), "markdown");
-    }
-
-    #[cfg(feature = "memory-surreal")]
-    #[test]
-    fn factory_surreal_with_feature_uses_surreal_backend() {
-        let tmp = TempDir::new().unwrap();
-        let cfg = MemoryConfig {
-            backend: "surreal".into(),
-            ..MemoryConfig::default()
-        };
-        let mem = create_memory(&cfg, tmp.path(), None).unwrap();
-        assert_eq!(mem.name(), "surreal");
     }
 
     #[test]
@@ -396,15 +254,6 @@ mod tests {
         assert!(error.to_string().contains("disables persistence"));
     }
 
-    #[cfg(not(feature = "memory-surreal"))]
-    #[test]
-    fn migration_surreal_requires_feature() {
-        let tmp = TempDir::new().unwrap();
-        let error = create_memory_for_migration("surreal", tmp.path())
-            .err()
-            .expect("surreal should require memory-surreal feature");
-        assert!(error.to_string().contains("memory-surreal"));
-    }
 
     #[test]
     fn factory_creates_correct_backend_types() {
@@ -452,22 +301,6 @@ mod tests {
         assert!(cache.is_some());
     }
 
-    #[test]
-    fn migration_factory_handles_surreal_graphs() {
-        let tmp = TempDir::new().unwrap();
-        #[cfg(feature = "memory-surreal")]
-        {
-            let mem = create_memory_for_migration("surreal-graphs", tmp.path()).unwrap();
-            assert_eq!(mem.name(), "surreal");
-        }
-        #[cfg(not(feature = "memory-surreal"))]
-        {
-            let error = create_memory_for_migration("surreal-graphs", tmp.path())
-                .err()
-                .expect("surreal-graphs should require memory-surreal feature");
-            assert!(error.to_string().contains("memory-surreal"));
-        }
-    }
 
     #[test]
     fn migration_factory_accepts_markdown() {

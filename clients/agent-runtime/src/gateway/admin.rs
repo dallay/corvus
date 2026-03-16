@@ -143,19 +143,16 @@ pub struct AdminWebSearchView {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AdminMemoryView {
     pub backend: String,
-    pub surreal: AdminSurrealMemoryView,
+    pub cerebro: AdminCerebroMemoryView,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
 #[allow(clippy::struct_excessive_bools)]
-pub struct AdminSurrealMemoryView {
-    pub url: Option<String>,
-    pub namespace: Option<String>,
-    pub database: Option<String>,
-    pub has_username: bool,
-    pub has_password: bool,
-    pub has_token: bool,
-    pub allow_http_loopback: bool,
+pub struct AdminCerebroMemoryView {
+    pub endpoint: Option<String>,
+    pub has_auth_token: bool,
+    pub request_timeout_ms: u64,
+    pub allow_insecure_loopback: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -354,26 +351,20 @@ pub struct AdminMemoryPatch {
     #[serde(default)]
     pub backend: Option<String>,
     #[serde(default)]
-    pub surreal: Option<AdminSurrealMemoryPatch>,
+    pub cerebro: Option<AdminCerebroMemoryPatch>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
-pub struct AdminSurrealMemoryPatch {
+pub struct AdminCerebroMemoryPatch {
     #[serde(default)]
-    pub url: Option<String>,
+    pub endpoint: Option<String>,
     #[serde(default)]
-    pub namespace: Option<String>,
+    pub request_timeout_ms: Option<u64>,
     #[serde(default)]
-    pub database: Option<String>,
+    pub allow_insecure_loopback: Option<bool>,
     #[serde(default)]
-    pub allow_http_loopback: Option<bool>,
-    #[serde(default)]
-    pub username: Option<AdminSecretUpdate>,
-    #[serde(default)]
-    pub password: Option<AdminSecretUpdate>,
-    #[serde(default)]
-    pub token: Option<AdminSecretUpdate>,
+    pub auth_token: Option<AdminSecretUpdate>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -436,7 +427,7 @@ fn secret_update_changes(current: Option<&str>, update: &AdminSecretUpdate) -> b
 
 pub fn admin_options_payload() -> serde_json::Value {
     serde_json::json!({
-        "memory_backends": ["sqlite", "lucid", "surreal-graphs", "markdown", "surreal", "none"],
+        "memory_backends": ["sqlite", "lucid", "markdown", "none"],
         "observability_backends": ["none", "log", "prometheus", "otel"],
         "runtime_kinds": ["native", "docker"],
         "autonomy_levels": ["readonly", "supervised", "full"],
@@ -538,14 +529,11 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
         },
         memory: AdminMemoryView {
             backend: cfg.memory.backend.clone(),
-            surreal: AdminSurrealMemoryView {
-                url: cfg.memory.surreal.url.clone(),
-                namespace: cfg.memory.surreal.namespace.clone(),
-                database: cfg.memory.surreal.database.clone(),
-                has_username: has_secret(cfg.memory.surreal.username.as_deref()),
-                has_password: has_secret(cfg.memory.surreal.password.as_deref()),
-                has_token: has_secret(cfg.memory.surreal.token.as_deref()),
-                allow_http_loopback: cfg.memory.surreal.allow_http_loopback,
+            cerebro: AdminCerebroMemoryView {
+                endpoint: cfg.memory.cerebro.endpoint.clone(),
+                has_auth_token: has_secret(cfg.memory.cerebro.auth_token.as_deref()),
+                request_timeout_ms: cfg.memory.cerebro.request_timeout_ms,
+                allow_insecure_loopback: cfg.memory.cerebro.allow_insecure_loopback,
             },
         },
         browser: AdminBrowserView {
@@ -814,27 +802,15 @@ fn collect_secret_restart_fields(
             .and_then(|browser| browser.computer_use_api_key.as_ref()),
     );
 
-    let surreal_patch = patch
+    let cerebro_patch = patch
         .memory
         .as_ref()
-        .and_then(|memory| memory.surreal.as_ref());
+        .and_then(|memory| memory.cerebro.as_ref());
     push_secret_if_changed(
         fields,
-        "memory.surreal.username",
-        cfg.memory.surreal.username.as_deref(),
-        surreal_patch.and_then(|surreal| surreal.username.as_ref()),
-    );
-    push_secret_if_changed(
-        fields,
-        "memory.surreal.password",
-        cfg.memory.surreal.password.as_deref(),
-        surreal_patch.and_then(|surreal| surreal.password.as_ref()),
-    );
-    push_secret_if_changed(
-        fields,
-        "memory.surreal.token",
-        cfg.memory.surreal.token.as_deref(),
-        surreal_patch.and_then(|surreal| surreal.token.as_ref()),
+        "memory.cerebro.auth_token",
+        cfg.memory.cerebro.auth_token.as_deref(),
+        cerebro_patch.and_then(|cerebro| cerebro.auth_token.as_ref()),
     );
 }
 
@@ -1374,7 +1350,7 @@ fn apply_memory_patch(
     };
 
     apply_memory_backend_patch(cfg, memory.backend.as_deref())?;
-    apply_surreal_memory_patch(cfg, memory.surreal.as_ref())?;
+    apply_cerebro_memory_patch(cfg, memory.cerebro.as_ref())?;
 
     Ok(())
 }
@@ -1395,42 +1371,29 @@ fn apply_memory_backend_patch(
     Ok(())
 }
 
-fn apply_surreal_memory_patch(
+fn apply_cerebro_memory_patch(
     cfg: &mut Config,
-    surreal: Option<&AdminSurrealMemoryPatch>,
+    cerebro: Option<&AdminCerebroMemoryPatch>,
 ) -> Result<(), AdminResponse> {
-    let Some(surreal) = surreal else {
+    let Some(cerebro) = cerebro else {
         return Ok(());
     };
 
-    if let Some(url) = surreal.url.as_ref() {
-        cfg.memory.surreal.url = normalize_optional_string(url);
+    if let Some(endpoint) = cerebro.endpoint.as_ref() {
+        cfg.memory.cerebro.endpoint = normalize_optional_string(endpoint);
     }
-    if let Some(namespace) = surreal.namespace.as_ref() {
-        cfg.memory.surreal.namespace = normalize_optional_string(namespace);
+    if let Some(timeout_ms) = cerebro.request_timeout_ms {
+        cfg.memory.cerebro.request_timeout_ms = timeout_ms;
     }
-    if let Some(database) = surreal.database.as_ref() {
-        cfg.memory.surreal.database = normalize_optional_string(database);
+    if let Some(allow_insecure_loopback) = cerebro.allow_insecure_loopback {
+        cfg.memory.cerebro.allow_insecure_loopback = allow_insecure_loopback;
     }
-    if let Some(allow_http_loopback) = surreal.allow_http_loopback {
-        cfg.memory.surreal.allow_http_loopback = allow_http_loopback;
-    }
-    if let Some(username) = surreal.username.as_ref() {
+    if let Some(auth_token) = cerebro.auth_token.as_ref() {
         apply_secret_update(
-            &mut cfg.memory.surreal.username,
-            username,
-            "memory.surreal.username",
+            &mut cfg.memory.cerebro.auth_token,
+            auth_token,
+            "memory.cerebro.auth_token",
         )?;
-    }
-    if let Some(password) = surreal.password.as_ref() {
-        apply_secret_update(
-            &mut cfg.memory.surreal.password,
-            password,
-            "memory.surreal.password",
-        )?;
-    }
-    if let Some(token) = surreal.token.as_ref() {
-        apply_secret_update(&mut cfg.memory.surreal.token, token, "memory.surreal.token")?;
     }
 
     Ok(())
@@ -1664,7 +1627,7 @@ mod tests {
         cfg.composio.api_key = Some("composio-key".into());
         cfg.web_search.brave_api_key = Some("brave-key".into());
         cfg.browser.computer_use.api_key = Some("computer-use-key".into());
-        cfg.memory.surreal.username = Some("surreal-user".into());
+        cfg.memory.cerebro.auth_token = Some("cerebro-token".into());
         cfg.channels_config.webhook = Some(crate::config::schema::WebhookConfig {
             port: 3009,
             secret: Some("webhook-secret".into()),
@@ -1714,9 +1677,8 @@ mod tests {
                 }
             },
             "memory": {
-                "surreal": {
-                    "username": { "mode": "replace", "value": "u" },
-                    "password": { "mode": "unchanged" }
+                "cerebro": {
+                    "auth_token": { "mode": "replace", "value": "u" }
                 }
             }
         });
@@ -1807,9 +1769,7 @@ mod tests {
         let mut cfg = Config::default();
         cfg.web_search.brave_api_key = Some("old-brave".into());
         cfg.browser.computer_use.api_key = Some("old-computer".into());
-        cfg.memory.surreal.username = Some("old-user".into());
-        cfg.memory.surreal.password = Some("old-pass".into());
-        cfg.memory.surreal.token = Some("old-token".into());
+        cfg.memory.cerebro.auth_token = Some("old-token".into());
 
         let cases: Vec<(&str, AdminConfigUpdateRequest, Vec<&str>)> = vec![
             (
@@ -1829,7 +1789,7 @@ mod tests {
                 vec!["web_search.brave_api_key"],
             ),
             (
-                "multiple browser and surreal key changes",
+                "multiple browser and cerebro key changes",
                 AdminConfigUpdateRequest {
                     browser: Some(AdminBrowserPatch {
                         computer_use_api_key: Some(AdminSecretUpdate::Replace {
@@ -1838,16 +1798,11 @@ mod tests {
                     }),
                     memory: Some(AdminMemoryPatch {
                         backend: None,
-                        surreal: Some(AdminSurrealMemoryPatch {
-                            url: None,
-                            namespace: None,
-                            database: None,
-                            allow_http_loopback: None,
-                            username: Some(AdminSecretUpdate::Replace {
-                                value: "new-user".into(),
-                            }),
-                            password: Some(AdminSecretUpdate::Clear),
-                            token: Some(AdminSecretUpdate::Replace {
+                        cerebro: Some(AdminCerebroMemoryPatch {
+                            endpoint: None,
+                            request_timeout_ms: None,
+                            allow_insecure_loopback: None,
+                            auth_token: Some(AdminSecretUpdate::Replace {
                                 value: "new-token".into(),
                             }),
                         }),
@@ -1856,9 +1811,7 @@ mod tests {
                 },
                 vec![
                     "browser.computer_use.api_key",
-                    "memory.surreal.username",
-                    "memory.surreal.password",
-                    "memory.surreal.token",
+                    "memory.cerebro.auth_token",
                 ],
             ),
             (
@@ -1875,18 +1828,11 @@ mod tests {
                     }),
                     memory: Some(AdminMemoryPatch {
                         backend: None,
-                        surreal: Some(AdminSurrealMemoryPatch {
-                            url: None,
-                            namespace: None,
-                            database: None,
-                            allow_http_loopback: None,
-                            username: Some(AdminSecretUpdate::Replace {
-                                value: "old-user".into(),
-                            }),
-                            password: Some(AdminSecretUpdate::Replace {
-                                value: "old-pass".into(),
-                            }),
-                            token: Some(AdminSecretUpdate::Replace {
+                        cerebro: Some(AdminCerebroMemoryPatch {
+                            endpoint: None,
+                            request_timeout_ms: None,
+                            allow_insecure_loopback: None,
+                            auth_token: Some(AdminSecretUpdate::Replace {
                                 value: "old-token".into(),
                             }),
                         }),
