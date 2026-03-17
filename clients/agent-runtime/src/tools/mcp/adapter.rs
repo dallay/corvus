@@ -148,3 +148,57 @@ impl Tool for McpToolAdapter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_adapter_enforces_output_limit() {
+        let adapter = McpToolAdapter {
+            name: "test".into(),
+            description: "test".into(),
+            parameters: serde_json::Value::Null,
+            original_name: "test".into(),
+            server_name: "test".into(),
+            call_timeout_ms: 1000,
+            output_limit_bytes: 100, // Very small limit for testing
+            client: McpClient::new(
+                "test", // Name
+                crate::config::McpServerConfig::default(),
+            ),
+        };
+
+        let large_output = "A".repeat(200);
+        let enforced = adapter.enforce_output_limit(large_output.clone());
+        
+        // Ensure it's truncated and contains the marker
+        assert!(enforced.len() <= 100 + 100); // 100 bytes limit + marker size
+        assert!(enforced.contains("[output_limit_enforced limit_bytes=100 original_bytes=200]"));
+        
+        let small_output = "A".repeat(50);
+        let unenforced = adapter.enforce_output_limit(small_output.clone());
+        assert_eq!(small_output, unenforced);
+    }
+    
+    #[tokio::test]
+    async fn mcp_adapter_blocks_massive_limit_configuration() {
+        let adapter = McpToolAdapter {
+            name: "test".into(),
+            description: "test".into(),
+            parameters: serde_json::Value::Null,
+            original_name: "test".into(),
+            server_name: "test".into(),
+            call_timeout_ms: 1000,
+            output_limit_bytes: 20 * 1024 * 1024, // 20MB, exceeds the hardcoded 10MB limit in execute
+            client: McpClient::new(
+                "test",
+                crate::config::McpServerConfig::default(),
+            ),
+        };
+        
+        let result = adapter.execute(serde_json::json!({})).await.unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("exceeds maximum allowed"));
+    }
+}
