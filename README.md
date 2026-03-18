@@ -191,6 +191,7 @@ Memory migration and schemas:
 - Migration guide: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md)
 - MCP schemas: [clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/](clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/)
 
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/dallay/corvus)
 ---
 
 ## 🤝 Contributing
