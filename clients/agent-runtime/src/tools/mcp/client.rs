@@ -333,7 +333,7 @@ impl McpClient {
             .args(&self.server.args)
             .envs(self.server.env.clone())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::inherit()) // inherit stderr so we don't block the pipe and capture diagnostic logs
             .spawn()
             .with_context(|| {
                 format!(
@@ -342,21 +342,23 @@ impl McpClient {
                 )
             })?;
 
+        let mut stdout = child.stdout.take().context("child process has no stdout")?;
+        let output_limit = self.server.output_limit_bytes;
+        
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            let mut buffer = Vec::new();
+            // Read up to limit + 1 bytes to detect truncation without unbounded allocation
+            use std::io::Read;
+            let result = stdout.by_ref().take((output_limit as u64) + 1).read_to_end(&mut buffer);
+            let _ = tx.send((buffer, result));
+        });
+
         let timeout = Duration::from_millis(self.server.startup_timeout_ms);
         let start = Instant::now();
-        let output = loop {
+        let status = loop {
             if let Some(status) = child.try_wait()? {
-                let output = child
-                    .wait_with_output()
-                    .context("failed to read MCP discovery output")?;
-                if !status.success() {
-                    anyhow::bail!(
-                        "MCP server '{}' exited during discovery with status {}",
-                        self.server.name,
-                        status
-                    );
-                }
-                break output;
+                break status;
             }
 
             if start.elapsed() >= timeout {
@@ -371,9 +373,28 @@ impl McpClient {
             thread::sleep(Duration::from_millis(10));
         };
 
-        let stdout =
-            String::from_utf8(output.stdout).context("MCP discovery output was not UTF-8")?;
-        parse_tool_manifest_payload(&stdout)
+        if !status.success() {
+            anyhow::bail!(
+                "MCP server '{}' exited during discovery with status {}",
+                self.server.name,
+                status
+            );
+        }
+
+        let (mut stdout_bytes, read_result) = rx.recv_timeout(Duration::from_secs(2))
+            .context("failed to consume stdout from reader thread")?;
+            
+        read_result.context("failed to read MCP discovery output")?;
+
+        if stdout_bytes.len() > output_limit {
+            anyhow::bail!(
+                "MCP discovery output exceeded output_limit_bytes ({})",
+                output_limit
+            );
+        }
+
+        let stdout_str = String::from_utf8(stdout_bytes).context("MCP discovery output was not UTF-8")?;
+        parse_tool_manifest_payload(&stdout_str)
     }
 }
 
