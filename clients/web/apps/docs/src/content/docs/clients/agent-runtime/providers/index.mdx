@@ -10,10 +10,12 @@ Corvus supports a wide range of AI providers, including both cloud-based and loc
 | Provider | ID (for config) | Environment Variable | Notes |
 | :--- | :--- | :--- | :--- |
 | **OpenRouter** | `openrouter` | `OPENROUTER_API_KEY` | Recommended. Access to 200+ models. |
-| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY` | Direct access to Claude models. |
+| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY`, `ANTHROPIC_OAUTH_TOKEN` | Supports Claude models and setup-tokens. |
 | **OpenAI** | `openai` | `OPENAI_API_KEY` | Direct access to GPT models. |
-| **Google Gemini** | `gemini` | `GEMINI_API_KEY` | Supports CLI auth with `gcloud`. |
+| **OpenAI Codex** | `openai-codex` | — | Access via OAuth. |
+| **Google Gemini** | `gemini` | `GEMINI_API_KEY`, `GOOGLE_API_KEY` | Supports `gemini-cli` OAuth tokens. |
 | **Ollama** | `ollama` | `OLLAMA_API_KEY` | Local models by default. |
+| **LM Studio** | `lmstudio` | — | Local models (default `http://localhost:1234`). |
 | **Venice AI** | `venice` | `VENICE_API_KEY` | Privacy-focused provider. |
 | **Groq** | `groq` | `GROQ_API_KEY` | High-speed inference. |
 | **Mistral** | `mistral` | `MISTRAL_API_KEY` | Direct access to Mistral models. |
@@ -23,11 +25,28 @@ Corvus supports a wide range of AI providers, including both cloud-based and loc
 | **Fireworks AI** | `fireworks` | `FIREWORKS_API_KEY` | Fast open-source inference. |
 | **Perplexity** | `perplexity` | `PERPLEXITY_API_KEY` | Search-augmented AI. |
 | **Cohere** | `cohere` | `COHERE_API_KEY` | Enterprise-grade models. |
-| **GitHub Copilot** | `copilot` | `GITHUB_TOKEN` | Uses your GitHub subscription. |
+| **GitHub Copilot** | `copilot` | `GITHUB_TOKEN`, `GH_TOKEN` | Uses your GitHub subscription. |
+| **Amazon Bedrock** | `bedrock` | `API_KEY` | AWS Bedrock (OpenAI-compatible). |
+| **Synthetic** | `synthetic` | `SYNTHETIC_API_KEY` | |
+| **OpenCode Zen** | `opencode` | `OPENCODE_API_KEY` | |
 | **NVIDIA NIM** | `nvidia` | `NVIDIA_API_KEY` | High-performance inference. |
 | **Vercel AI** | `vercel` | `VERCEL_API_KEY` | AI gateway. |
 | **Cloudflare AI** | `cloudflare` | `CLOUDFLARE_API_KEY` | AI gateway. |
 | **Astrai** | `astrai` | `ASTRAI_API_KEY` | Compliant AI routing. |
+
+## Advanced Authentication
+
+Some providers support advanced authentication methods beyond simple API keys:
+
+### OAuth & CLI Authentication
+
+- **Google Gemini**: Corvus can automatically reuse credentials from the Gemini CLI. If you have run `gemini` and authenticated, Corvus will find your OAuth tokens in `~/.gemini/oauth_creds.json`.
+- **OpenAI Codex**: Uses an OAuth-based flow for authentication.
+- **GitHub Copilot**: Reuses your GitHub CLI authentication or environment-provided tokens.
+
+### Setup Tokens
+
+For **Anthropic**, you can use an `ANTHROPIC_OAUTH_TOKEN` (setup token) as an alternative to a standard API key.
 
 ## Regional & Specialized Providers
 
