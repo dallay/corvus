@@ -23,10 +23,10 @@ pub(in crate::tui) fn render(
         .iter()
         .map(|item| {
             Row::new(vec![
-                Cell::from(item.timestamp.clone()),
-                Cell::from(item.topic_key.clone()),
-                Cell::from(item.scope.clone()),
-                Cell::from(item.summary.clone()),
+                Cell::from(item.timestamp.as_str()),
+                Cell::from(item.topic_key.as_str()),
+                Cell::from(item.scope.as_str()),
+                Cell::from(item.summary.as_str()),
             ])
         })
         .collect();

@@ -15,7 +15,7 @@ fn parses_legacy_export_fixture() {
 fn normalizes_memory_ids_and_sorting() {
     let path = PathBuf::from("tests/fixtures/legacy/legacy_export.json");
     let export = read_legacy_export(&path).expect("legacy export should parse");
-    let normalized = normalize_export(export);
+    let normalized = normalize_export(export).expect("normalized export should succeed");
 
     assert_eq!(normalized.memory.len(), 2);
     assert_eq!(normalized.memory[0].memory_id, "01");

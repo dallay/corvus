@@ -2,6 +2,7 @@ use anyhow::{anyhow, Result};
 use cerebro::tui::{start_tui_task, TuiLaunch, TuiError};
 use cerebro::{CerebroConfig, CerebroService};
 use std::sync::Arc;
+use std::path::PathBuf;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
@@ -14,8 +15,8 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
-    let mut config = CerebroConfig::load(None)?;
-    config.tui.enabled = config.tui.enabled || env_flag("CEREBRO_TUI_ENABLED");
+    let config_path = std::env::var("CEREBRO_CONFIG").ok().map(PathBuf::from);
+    let config = CerebroConfig::load(config_path.as_deref())?.apply_env_overrides();
     let addr = config.bind_addr();
     let service = Arc::new(CerebroService::from_config(config.clone()).await?);
     let listener = TcpListener::bind(&addr).await?;
@@ -28,27 +29,33 @@ async fn main() -> Result<()> {
         if let Err(err) = cerebro::tui::validate_no_network_listeners() {
             return Err(anyhow!("tui validation failed: {err}"));
         }
-        match start_tui_task(
-            config.tui.clone(),
-            service.storage(),
-            service.event_bus(),
-            shutdown_rx.clone(),
-        )
-        .await
-        {
-            Ok(TuiLaunch::Started(_handle)) => {
-                tracing::info!("tui started");
+        let tui_config = config.tui.clone();
+        let storage = service.storage();
+        let event_bus = service.event_bus();
+        let shutdown_rx = shutdown_rx.clone();
+        tokio::spawn(async move {
+            match start_tui_task(
+                tui_config,
+                storage,
+                event_bus,
+                shutdown_rx,
+            )
+            .await
+            {
+                Ok(TuiLaunch::Started(_handle)) => {
+                    tracing::info!("tui started");
+                }
+                Ok(TuiLaunch::Disabled) => {
+                    tracing::info!("tui disabled");
+                }
+                Err(TuiError::FeatureDisabled) => {
+                    tracing::warn!("tui requested but binary built without tui feature");
+                }
+                Err(err) => {
+                    tracing::warn!("tui failed to start: {err}");
+                }
             }
-            Ok(TuiLaunch::Disabled) => {
-                tracing::info!("tui disabled");
-            }
-            Err(TuiError::FeatureDisabled) => {
-                tracing::warn!("tui requested but binary built without tui feature");
-            }
-            Err(err) => {
-                tracing::warn!("tui failed to start: {err}");
-            }
-        }
+        });
     }
 
     axum::serve(listener, service.router())
@@ -95,11 +102,4 @@ async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
             break;
         }
     }
-}
-
-fn env_flag(key: &str) -> bool {
-    std::env::var(key)
-        .ok()
-        .map(|value| value.trim().to_ascii_lowercase())
-        .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
 }

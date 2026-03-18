@@ -107,9 +107,10 @@ and MUST NOT serve MCP requests.
 - THEN the service fails to start
 - AND no MCP requests are served
 
-### Requirement: TUI Out of Scope for Phase 1
+### Requirement: Optional TUI Compatibility
 
-This change SHALL NOT introduce or modify TUI requirements or behavior.
+This change MAY include optional TUI behavior, but the TUI MUST remain optional and MUST NOT be
+required for migration tooling or MCP availability.
 
 Migration tooling MUST be operable without any TUI dependency.
 

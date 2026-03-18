@@ -12,6 +12,29 @@ fn base_config() -> CerebroConfig {
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
+struct EnvVarGuard {
+    key: &'static str,
+    previous: Option<String>,
+}
+
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, previous }
+    }
+}
+
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(value) = &self.previous {
+            std::env::set_var(self.key, value);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
+
 #[test]
 fn default_storage_mode_is_embedded() {
     let config = base_config();
@@ -33,7 +56,7 @@ async fn explicit_storage_override_bypasses_embedded_default() {
 #[tokio::test]
 async fn fallback_policy_is_used_on_primary_init_failure() {
     let _guard = ENV_LOCK.lock().expect("env lock");
-    std::env::set_var("CEREBRO_TEST_FAIL_STORAGE", "1");
+    let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
     let config = CerebroConfig {
         storage_mode: StorageMode::EmbeddedSurreal,
         storage_fallback: cerebro::StorageFallback::InMemory,
@@ -43,13 +66,12 @@ async fn fallback_policy_is_used_on_primary_init_failure() {
         .await
         .expect("fallback storage should initialize");
     assert!(storage.as_any().is::<InMemoryStorage>());
-    std::env::remove_var("CEREBRO_TEST_FAIL_STORAGE");
 }
 
 #[tokio::test]
 async fn no_fallback_configured_fails_fast() {
     let _guard = ENV_LOCK.lock().expect("env lock");
-    std::env::set_var("CEREBRO_TEST_FAIL_STORAGE", "1");
+    let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
     let config = CerebroConfig {
         storage_mode: StorageMode::EmbeddedSurreal,
         storage_fallback: cerebro::StorageFallback::None,
@@ -57,32 +79,18 @@ async fn no_fallback_configured_fails_fast() {
     };
     let result = storage_from_config(&config).await;
     assert!(result.is_err());
-    std::env::remove_var("CEREBRO_TEST_FAIL_STORAGE");
 }
 
 #[test]
-fn validation_enforces_loopback_only_remote_and_auth_required() {
-    let mut config = CerebroConfig {
+fn validation_rejects_remote_surreal_mode() {
+    let config = CerebroConfig {
         storage_mode: StorageMode::RemoteSurreal,
         ..base_config()
     };
-    config.surreal.remote_url = Some("http://10.10.0.1:8000".to_string());
     let error = config
         .validate_storage()
-        .expect_err("non-loopback remote url should be rejected");
-    assert!(error.to_string().contains("loopback"));
-
-    config.surreal.remote_url = Some("http://127.0.0.1:8000".to_string());
-    config.surreal.username = None;
-    config.surreal.password = None;
-    let error = config
-        .validate_storage()
-        .expect_err("missing credentials should be rejected");
-    assert!(error.to_string().contains("credentials"));
-
-    config.surreal.username = Some("root".to_string());
-    config.surreal.password = Some(SecretString::new("secret".to_string().into_boxed_str()));
-    assert!(config.validate_storage().is_ok());
+        .expect_err("remote surrealdb mode should be rejected");
+    assert!(error.to_string().contains("not available"));
 }
 
 #[test]
@@ -146,7 +154,7 @@ async fn fallback_reports_active_mode() {
     let subscriber = tracing_subscriber::fmt().with_writer(writer).finish();
     let _guard = tracing::subscriber::set_default(subscriber);
 
-    std::env::set_var("CEREBRO_TEST_FAIL_STORAGE", "1");
+    let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
     let config = CerebroConfig {
         storage_mode: StorageMode::EmbeddedSurreal,
         storage_fallback: cerebro::StorageFallback::InMemory,
@@ -155,7 +163,6 @@ async fn fallback_reports_active_mode() {
     let _ = storage_from_config(&config)
         .await
         .expect("fallback storage should initialize");
-    std::env::remove_var("CEREBRO_TEST_FAIL_STORAGE");
 
     let output = String::from_utf8_lossy(&buffer.lock().expect("buffer")).to_string();
     assert!(output.contains("storage fallback active"));

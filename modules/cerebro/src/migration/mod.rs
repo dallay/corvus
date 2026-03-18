@@ -28,7 +28,10 @@ pub async fn import_legacy_export(
     target: &Path,
     options: &MigrationOptions,
 ) -> Result<MigrationReport, CerebroError> {
-    let export = normalize_export(read_legacy_export(source)?);
+    let export = read_legacy_export(source)?;
+    let export = normalize_export(export).map_err(|e| {
+        CerebroError::Validation(format!("migration normalization failed: {}", e))
+    })?;
     if !options.dry_run {
         let storage = embedded_storage(target, options).await?;
         storage.write_batches(&export).await?;
@@ -47,7 +50,9 @@ pub async fn validate_legacy_export(
     target: &Path,
     options: &MigrationOptions,
 ) -> Result<MigrationReport, CerebroError> {
-    let export = normalize_export(read_legacy_export(source)?);
+    let export = normalize_export(read_legacy_export(source)?).map_err(|e| {
+        CerebroError::Validation(format!("migration normalization failed: {}", e))
+    })?;
     let expected = collection_reports(&export)?;
 
     let storage = embedded_storage(target, options).await?;

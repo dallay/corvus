@@ -370,7 +370,13 @@ pub async fn storage_from_config(
                     fallback = "disk",
                     "storage fallback active after embedded surrealdb failure"
                 );
-                storage_from_mode(config, StorageMode::Disk).await
+                storage_from_mode(config, StorageMode::Disk)
+                    .await
+                    .map_err(|fallback_error| {
+                        CerebroError::Storage(format!(
+                            "primary storage failed ({error}); fallback failed ({fallback_error})"
+                        ))
+                    })
             }
             StorageFallback::RemoteSurreal => {
                 tracing::warn!(

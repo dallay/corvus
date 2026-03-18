@@ -1,5 +1,6 @@
 use cerebro::tui::event_bus::ToolCallEventKind;
 use serde_json::json;
+use tokio::time::{timeout, Duration};
 
 mod helpers;
 
@@ -14,9 +15,15 @@ async fn emits_started_and_finished_events() {
         .handle_json_rpc(request, helpers::auth_header())
         .await;
 
-    let started = stream.recv().await.expect("started event");
+    let started = timeout(Duration::from_secs(1), stream.recv())
+        .await
+        .expect("started event timeout")
+        .expect("started event");
     assert!(matches!(started.kind, ToolCallEventKind::Started));
-    let finished = stream.recv().await.expect("finished event");
+    let finished = timeout(Duration::from_secs(1), stream.recv())
+        .await
+        .expect("finished event timeout")
+        .expect("finished event");
     assert!(matches!(finished.kind, ToolCallEventKind::Finished));
 }
 
@@ -36,8 +43,14 @@ async fn emits_failed_event_on_error() {
         .handle_json_rpc(request, helpers::auth_header())
         .await;
 
-    let started = stream.recv().await.expect("started event");
+    let started = timeout(Duration::from_secs(1), stream.recv())
+        .await
+        .expect("started event timeout")
+        .expect("started event");
     assert!(matches!(started.kind, ToolCallEventKind::Started));
-    let failed = stream.recv().await.expect("failed event");
+    let failed = timeout(Duration::from_secs(1), stream.recv())
+        .await
+        .expect("failed event timeout")
+        .expect("failed event");
     assert!(matches!(failed.kind, ToolCallEventKind::Failed));
 }

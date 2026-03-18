@@ -9,6 +9,7 @@ to move to the embedded storage path without relying on alias/bridge behavior al
 ## Scope
 
 ### In Scope
+
 - Default Cerebro storage mode set to embedded SurrealDB for new deployments.
 - Migration tooling beyond alias/bridge, including import of legacy SurrealDB data and validation of
   migrated content.
@@ -16,6 +17,7 @@ to move to the embedded storage path without relying on alias/bridge behavior al
 - Explicit confirmation that MCP server/tools already exist in `modules/cerebro/` and are reused.
 
 ### Out of Scope
+
 - TUI enhancements or implementation (explicitly optional for this phase).
 - Changes to the MCP tool surface beyond what is necessary to support migration tooling.
 - Any new runtime-local SurrealDB backend (remains removed per current Cerebro spec).

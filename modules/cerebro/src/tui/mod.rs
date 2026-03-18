@@ -45,6 +45,8 @@ pub enum TuiError {
     FeatureDisabled,
     #[error("tui initialization failed: {0}")]
     InitFailed(String),
+    #[error("tui render failed: {0}")]
+    RenderFailed(String),
     #[error("tui task failed to start: {0}")]
     TaskStart(String),
 }
@@ -164,7 +166,7 @@ fn run_tui(
         panic!("forced tui crash");
     }
 
-    let mut app = TuiApp::new(config.refresh_ms, redaction);
+    let mut app = TuiApp::new(config.refresh_ms, config.event_buffer, redaction);
     let mut last_tick = Instant::now();
     let mut refresh_interval = Duration::from_millis(config.refresh_ms.max(50));
     let handle = tokio::runtime::Handle::current();
@@ -196,7 +198,7 @@ fn run_tui(
         guard
             .terminal
             .draw(|frame| app.draw(frame))
-            .map_err(|err| TuiError::InitFailed(err.to_string()))?;
+            .map_err(|err| TuiError::RenderFailed(err.to_string()))?;
 
         if crossterm::event::poll(Duration::from_millis(50))
             .map_err(|err| TuiError::InitFailed(err.to_string()))?
@@ -296,6 +298,7 @@ enum ViewKind {
 struct TuiApp {
     active_view: ViewKind,
     events: VecDeque<ToolCallEvent>,
+    event_buffer: usize,
     drop_count: u64,
     event_stats: EventStats,
     memory_items: Vec<MemorySummary>,
@@ -308,11 +311,13 @@ struct TuiApp {
 
 #[cfg(feature = "tui")]
 impl TuiApp {
-    fn new(refresh_ms: u64, redaction: RedactionPolicy) -> Self {
+    fn new(refresh_ms: u64, event_buffer: usize, redaction: RedactionPolicy) -> Self {
         let disabled_views = disabled_views_from_env();
+        let event_buffer = event_buffer.max(1);
         Self {
             active_view: ViewKind::Dashboard,
-            events: VecDeque::with_capacity(200),
+            events: VecDeque::with_capacity(event_buffer),
+            event_buffer,
             drop_count: 0,
             event_stats: EventStats::default(),
             memory_items: Vec::new(),
@@ -333,7 +338,7 @@ impl TuiApp {
         self.event_stats.last_tool = Some(event.tool_name.clone());
         self.event_stats.last_status = event.status.clone();
         self.events.push_front(event);
-        if self.events.len() > 200 {
+        if self.events.len() > self.event_buffer {
             self.events.pop_back();
         }
     }
@@ -360,19 +365,12 @@ impl TuiApp {
             .search("", limit, false, None, None)
             .await
             .map_err(|err| err.to_string())?;
-        self.memory_items = memory
+        let summaries: Vec<MemorySummary> = memory
             .iter()
             .map(|record| self.to_summary(record))
             .collect();
-
-        let timeline = storage
-            .search("", limit, false, None, None)
-            .await
-            .map_err(|err| err.to_string())?;
-        self.timeline_items = timeline
-            .iter()
-            .map(|record| self.to_summary(record))
-            .collect();
+        self.memory_items = summaries.clone();
+        self.timeline_items = summaries;
         Ok(())
     }
 
@@ -530,7 +528,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().expect("env lock");
         std::env::set_var("CEREBRO_TUI_DISABLE_VIEWS", "dashboard,live_logs");
         let redaction = RedactionPolicy::from_config(&TuiConfig::default());
-        let app = TuiApp::new(500, redaction);
+        let app = TuiApp::new(500, 200, redaction);
         assert!(!app.is_view_available(ViewKind::Dashboard));
         assert!(!app.is_view_available(ViewKind::LiveLogs));
         assert!(app.is_view_available(ViewKind::MemoryExplorer));
@@ -552,7 +550,7 @@ mod tests {
         let _guard = ENV_LOCK.lock().expect("env lock");
         std::env::set_var("CEREBRO_TUI_DISABLE_VIEWS", "live_logs");
         let redaction = RedactionPolicy::from_config(&TuiConfig::default());
-        let mut app = TuiApp::new(500, redaction);
+        let mut app = TuiApp::new(500, 200, redaction);
         app.active_view = ViewKind::LiveLogs;
 
         let backend = TestBackend::new(60, 10);

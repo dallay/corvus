@@ -4,6 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::Path;
 
+#[derive(Debug, thiserror::Error)]
+pub enum MigrationError {
+    #[error("invalid observation in memory record {0}: {1}")]
+    InvalidObservation(String, String),
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct LegacyExport {
     pub memory: Vec<LegacyMemoryRecord>,
@@ -60,20 +66,21 @@ pub fn read_legacy_export(path: &Path) -> Result<LegacyExport, CerebroError> {
     })
 }
 
-pub fn normalize_export(export: LegacyExport) -> NormalizedExport {
-    let mut memory: Vec<MemoryRecord> = export
-        .memory
-        .into_iter()
-        .map(|record| MemoryRecord {
-            memory_id: normalize_memory_id(&record.id),
+pub fn normalize_export(export: LegacyExport) -> Result<NormalizedExport, MigrationError> {
+    let mut memory: Vec<MemoryRecord> = Vec::new();
+    for record in export.memory {
+        let memory_id = normalize_memory_id(&record.id);
+        validate_observation(&record.observation, &memory_id)?;
+        memory.push(MemoryRecord {
+            memory_id,
             scope: record.scope,
             topic_key: record.topic_key,
             observation: record.observation,
             summary: record.summary,
             deleted: record.deleted,
             timestamp: record.timestamp,
-        })
-        .collect();
+        });
+    }
     memory.sort_by(|a, b| a.memory_id.cmp(&b.memory_id));
 
     let mut session = export.session;
@@ -82,11 +89,27 @@ pub fn normalize_export(export: LegacyExport) -> NormalizedExport {
     let mut prompt = export.prompt;
     prompt.sort_by(|a, b| a.id.cmp(&b.id));
 
-    NormalizedExport {
+    Ok(NormalizedExport {
         memory,
         session,
         prompt,
+    })
+}
+
+fn validate_observation(observation: &Value, memory_id: &str) -> Result<(), MigrationError> {
+    if !observation.is_object() {
+        return Err(MigrationError::InvalidObservation(
+            memory_id.to_string(),
+            "observation must be an object".to_string(),
+        ));
     }
+    if !observation.get("content").is_some() {
+        tracing::warn!(
+            memory_id = %memory_id,
+            "observation missing 'content' field, allowing with empty content"
+        );
+    }
+    Ok(())
 }
 
 fn normalize_memory_id(value: &str) -> String {

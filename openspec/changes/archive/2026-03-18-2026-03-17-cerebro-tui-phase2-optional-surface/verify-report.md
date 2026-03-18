@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: 2026-03-17-cerebro-tui-phase2-optional-surface
 **Version**: N/A
@@ -6,6 +6,7 @@
 ---
 
 ### Completeness
+
 | Metric | Value |
 |--------|-------|
 | Tasks total | 29 |
@@ -48,6 +49,7 @@
 ---
 
 ### Correctness (Static — Structural Evidence)
+
 | Requirement | Status | Notes |
 |------------|--------|-------|
 | In-Process TUI Toggle | ✅ Implemented | `modules/cerebro/src/config.rs` defines `TuiConfig`; `modules/cerebro/src/main.rs` gates `start_tui_task` and honors env flag. |
@@ -61,6 +63,7 @@
 ---
 
 ### Coherence (Design)
+
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
 | In-process TUI with a feature flag | ✅ Yes | `start_tui_task` gated by `config.tui.enabled` and feature flag. |

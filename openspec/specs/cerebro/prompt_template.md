@@ -3,6 +3,9 @@
 Use this template as a system prompt or agent policy snippet when integrating with Cerebro.
 It enforces drill-in retrieval to avoid context bloat and requires structured observations.
 
+> **ES pending**: Spanish translation is pending for "Copy-Paste Template" and "Usage Notes".
+> Tracking: DOC-ES-CEREBRO-PROMPT.
+
 ## Copy-Paste Template
 
 ```text

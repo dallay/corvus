@@ -25,7 +25,7 @@ Cerebro uses a synchronous MCP request path for tool calls with an optional asyn
 worker for long-running LLM tasks (embeddings, relation extraction). The system MUST function
 without any LLM configuration; enrichment is optional and off by default.
 
-```
+```text
 Agent Runtime ── MCP tools/call ──→ Cerebro MCP Server ──→ SurrealDB (embedded or remote)
   │                               │
   │                               └── Enrichment Queue ──→ Async Worker ──→ LLM/Embeddings

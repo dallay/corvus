@@ -230,6 +230,25 @@ impl CerebroConfig {
         }
     }
 
+    pub fn apply_env_overrides(mut self) -> Self {
+        if let Ok(token) = std::env::var("CEREBRO_AUTH_TOKEN") {
+            let token = token.trim();
+            if !token.is_empty() {
+                self.auth_token = Some(SecretString::new(token.to_string().into_boxed_str()));
+            }
+        }
+        if let Ok(token) = std::env::var("CEREBRO_AUDIT_TOKEN") {
+            let token = token.trim();
+            if !token.is_empty() {
+                self.audit_token = Some(SecretString::new(token.to_string().into_boxed_str()));
+            }
+        }
+        if env_flag("CEREBRO_TUI_ENABLED") {
+            self.tui.enabled = true;
+        }
+        self
+    }
+
     pub fn bind_addr(&self) -> String {
         format!("{}:{}", format_host(&self.host), self.port)
     }
@@ -252,59 +271,18 @@ impl CerebroConfig {
 
     pub fn validate_storage(&self) -> Result<(), crate::errors::CerebroError> {
         match self.storage_mode {
-            StorageMode::RemoteSurreal => self.validate_remote_surreal(),
+            StorageMode::RemoteSurreal => {
+                return Err(crate::errors::CerebroError::NotImplemented(
+                    "remote surrealdb storage is not available in this build".to_string(),
+                ))
+            }
             StorageMode::EmbeddedSurreal => self.validate_embedded_surreal(),
             _ => Ok(()),
         }?;
 
         if matches!(self.storage_fallback, StorageFallback::RemoteSurreal) {
-            self.validate_remote_surreal()?;
-        }
-
-        Ok(())
-    }
-
-    fn validate_remote_surreal(&self) -> Result<(), crate::errors::CerebroError> {
-        let remote_url = self
-            .surreal
-            .remote_url
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .ok_or_else(|| {
-                crate::errors::CerebroError::Validation(
-                    "remote surrealdb requires remote_url".to_string(),
-                )
-            })?;
-
-        let url = url::Url::parse(remote_url).map_err(|err| {
-            crate::errors::CerebroError::Validation(format!(
-                "remote surrealdb url is invalid: {err}"
-            ))
-        })?;
-        let host = url.host_str().unwrap_or_default();
-        if !is_loopback_host(host) {
-            return Err(crate::errors::CerebroError::Validation(
-                "remote surrealdb must bind to loopback only".to_string(),
-            ));
-        }
-
-        let has_username = self
-            .surreal
-            .username
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty());
-        let has_password = self
-            .surreal
-            .password
-            .as_ref()
-            .map(ExposeSecret::expose_secret)
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty());
-        if !has_username || !has_password {
-            return Err(crate::errors::CerebroError::Validation(
-                "remote surrealdb credentials are required".to_string(),
+            return Err(crate::errors::CerebroError::NotImplemented(
+                "remote surrealdb storage fallback is not available in this build".to_string(),
             ));
         }
 
@@ -391,16 +369,23 @@ fn parse_bind_host(value: &str) -> Result<String, crate::errors::CerebroError> {
     Ok(host.trim_matches('[').trim_matches(']').to_string())
 }
 
+fn env_flag(key: &str) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
+}
+
 mod secret_string_opt {
-    use secrecy::{ExposeSecret, SecretString};
+    use secrecy::SecretString;
     use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-    pub fn serialize<S>(value: &Option<SecretString>, serializer: S) -> Result<S::Ok, S::Error>
+    /// Serialization that always returns None to prevent leaking secrets.
+    pub fn serialize<S>(_value: &Option<SecretString>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let exposed = value.as_ref().map(|secret| secret.expose_secret());
-        exposed.serialize(serializer)
+        Option::<String>::serialize(&None, serializer)
     }
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<SecretString>, D::Error>

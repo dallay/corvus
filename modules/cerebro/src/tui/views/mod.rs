@@ -12,7 +12,7 @@ pub(in crate::tui) fn render_tabs(
     refresh_ms: u64,
     drop_count: u64,
 ) {
-    use ratatui::layout::Alignment;
+    use ratatui::layout::{Alignment, Constraint, Direction, Layout};
     use ratatui::style::{Modifier, Style};
     use ratatui::text::{Line, Span};
     use ratatui::widgets::{Block, Borders, Paragraph, Tabs};
@@ -29,12 +29,19 @@ pub(in crate::tui) fn render_tabs(
         ViewKind::SessionTimeline => 2,
         ViewKind::LiveLogs => 3,
     };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(2), Constraint::Length(1)])
+        .split(area);
+    let tabs_area = chunks[0];
+    let meta_area = chunks[1];
+
     let tabs = Tabs::new(titles)
         .select(selected)
         .block(Block::default().borders(Borders::ALL).title("Cerebro TUI"))
         .style(Style::default())
         .highlight_style(Style::default().add_modifier(Modifier::BOLD));
-    frame.render_widget(tabs, area);
+    frame.render_widget(tabs, tabs_area);
 
     let meta = Line::from(vec![
         Span::raw(format!("refresh: {}ms", refresh_ms)),
@@ -43,12 +50,6 @@ pub(in crate::tui) fn render_tabs(
         Span::raw(" | "),
         Span::raw("keys: 1-4 tabs, q quit"),
     ]);
-    let meta_area = ratatui::layout::Rect {
-        x: area.x + 1,
-        y: area.y + 1,
-        width: area.width.saturating_sub(2),
-        height: 1,
-    };
     let paragraph = Paragraph::new(meta).alignment(Alignment::Left);
     frame.render_widget(paragraph, meta_area);
 }

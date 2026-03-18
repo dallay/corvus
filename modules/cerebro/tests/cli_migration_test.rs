@@ -12,14 +12,10 @@ fn cli_migrate_import_and_validate_workflow() {
 
     let mut import_cmd = Command::cargo_bin("cerebro").expect("binary");
     let import_output = import_cmd
-        .args([
-            "migrate",
-            "import",
-            "--source",
-            source.to_str().unwrap(),
-            "--target",
-            target.to_str().unwrap(),
-        ])
+        .args(["migrate", "import", "--source"])
+        .arg(source.as_path())
+        .args(["--target"])
+        .arg(target.as_path())
         .output()
         .expect("import output");
     assert!(import_output.status.success());
@@ -31,14 +27,10 @@ fn cli_migrate_import_and_validate_workflow() {
 
     let mut validate_cmd = Command::cargo_bin("cerebro").expect("binary");
     let validate_output = validate_cmd
-        .args([
-            "migrate",
-            "validate",
-            "--source",
-            source.to_str().unwrap(),
-            "--target",
-            target.to_str().unwrap(),
-        ])
+        .args(["migrate", "validate", "--source"])
+        .arg(source.as_path())
+        .args(["--target"])
+        .arg(target.as_path())
         .output()
         .expect("validate output");
     assert!(validate_output.status.success());
@@ -58,14 +50,10 @@ fn cli_validate_exits_nonzero_on_mismatch() {
 
     let mut import_cmd = Command::cargo_bin("cerebro").expect("binary");
     let import_output = import_cmd
-        .args([
-            "migrate",
-            "import",
-            "--source",
-            source.to_str().unwrap(),
-            "--target",
-            target.to_str().unwrap(),
-        ])
+        .args(["migrate", "import", "--source"])
+        .arg(source.as_path())
+        .args(["--target"])
+        .arg(target.as_path())
         .output()
         .expect("import output");
     assert!(import_output.status.success());
@@ -81,14 +69,10 @@ fn cli_validate_exits_nonzero_on_mismatch() {
 
     let mut validate_cmd = Command::cargo_bin("cerebro").expect("binary");
     let validate_output = validate_cmd
-        .args([
-            "migrate",
-            "validate",
-            "--source",
-            bad_source.to_str().unwrap(),
-            "--target",
-            target.to_str().unwrap(),
-        ])
+        .args(["migrate", "validate", "--source"])
+        .arg(bad_source.as_path())
+        .args(["--target"])
+        .arg(target.as_path())
         .output()
         .expect("validate output");
     assert_eq!(validate_output.status.code(), Some(2));

@@ -7,6 +7,7 @@ use serde_json::Value;
 use std::any::Any;
 use std::path::PathBuf;
 use surrealdb::engine::local::{Db, RocksDb};
+use surrealdb::sql::statements::{BeginStatement, CommitStatement};
 use surrealdb::Surreal;
 
 #[derive(Clone)]
@@ -62,35 +63,91 @@ impl SurrealStorage {
     }
 
     pub async fn write_batches(&self, export: &NormalizedExport) -> Result<(), CerebroError> {
-        self.write_batch_memory(&export.memory).await?;
-        self.write_batch_sessions(&export.session).await?;
-        self.write_batch_prompts(&export.prompt).await?;
+        let mut query = self.db.query(BeginStatement::default());
+        let mut index = 0usize;
+
+        for record in &export.memory {
+            let id_key = format!("mem_id_{index}");
+            let data_key = format!("mem_data_{index}");
+            let statement =
+                format!("UPSERT type::thing('memory', ${id_key}) CONTENT ${data_key};");
+            let payload = serde_json::to_value(record).map_err(|err| {
+                CerebroError::Storage(format!("failed to encode memory record: {err}"))
+            })?;
+            query = query.query(statement);
+            query = query.bind((id_key, record.memory_id.clone()));
+            query = query.bind((data_key, payload));
+            index += 1;
+        }
+
+        for record in &export.session {
+            let record_id = self.normalize_table_id("session", &record.id);
+            let mut payload = serde_json::to_value(record).map_err(|err| {
+                CerebroError::Storage(format!("failed to encode session record: {err}"))
+            })?;
+            if let Value::Object(object) = &mut payload {
+                object.remove("id");
+            }
+            let id_key = format!("session_id_{index}");
+            let data_key = format!("session_data_{index}");
+            let statement =
+                format!("UPSERT type::thing('session', ${id_key}) CONTENT ${data_key};");
+            query = query.query(statement);
+            query = query.bind((id_key, record_id));
+            query = query.bind((data_key, payload));
+            index += 1;
+        }
+
+        for record in &export.prompt {
+            let record_id = self.normalize_table_id("prompt", &record.id);
+            let mut payload = serde_json::to_value(record).map_err(|err| {
+                CerebroError::Storage(format!("failed to encode prompt record: {err}"))
+            })?;
+            if let Value::Object(object) = &mut payload {
+                object.remove("id");
+            }
+            let id_key = format!("prompt_id_{index}");
+            let data_key = format!("prompt_data_{index}");
+            let statement =
+                format!("UPSERT type::thing('prompt', ${id_key}) CONTENT ${data_key};");
+            query = query.query(statement);
+            query = query.bind((id_key, record_id));
+            query = query.bind((data_key, payload));
+            index += 1;
+        }
+
+        query = query.query(CommitStatement::default());
+        let response = query
+            .await
+            .map_err(|err| CerebroError::Storage(format!("surrealdb batch transaction failed: {err}")))?;
+        response
+            .check()
+            .map_err(|err| CerebroError::Storage(format!("surrealdb batch transaction failed: {err}")))?;
         Ok(())
     }
 
     pub async fn export_collections(&self) -> Result<NormalizedExport, CerebroError> {
-        let mut memory: Vec<MemoryRecord> = self
+        let mut response = self
             .db
-            .select::<Vec<MemoryRecord>>("memory")
+            .query("SELECT *, type::string(id) AS id FROM memory")
+            .query("SELECT *, type::string(id) AS id FROM session")
+            .query("SELECT *, type::string(id) AS id FROM prompt")
             .await
             .map_err(|err| CerebroError::Storage(format!("surrealdb export failed: {err}")))?;
+        let memory_json: Vec<Value> = response
+            .take(0)
+            .map_err(|err| CerebroError::Storage(format!("surrealdb export failed: {err}")))?;
+        let mut memory: Vec<MemoryRecord> = parse_legacy_records(memory_json, "memory")?;
         memory.sort_by(|a, b| a.memory_id.cmp(&b.memory_id));
-
-        let session_raw: Vec<Value> = self
-            .db
-            .select::<Vec<Value>>("session")
-            .await
+        let session_json: Vec<Value> = response
+            .take(1)
             .map_err(|err| CerebroError::Storage(format!("surrealdb export failed: {err}")))?;
-        let mut session: Vec<LegacySessionRecord> =
-            parse_legacy_records(session_raw, "session")?;
+        let mut session: Vec<LegacySessionRecord> = parse_legacy_records(session_json, "session")?;
         session.sort_by(|a, b| a.id.cmp(&b.id));
-
-        let prompt_raw: Vec<Value> = self
-            .db
-            .select::<Vec<Value>>("prompt")
-            .await
+        let prompt_json: Vec<Value> = response
+            .take(2)
             .map_err(|err| CerebroError::Storage(format!("surrealdb export failed: {err}")))?;
-        let mut prompt: Vec<LegacyPromptRecord> = parse_legacy_records(prompt_raw, "prompt")?;
+        let mut prompt: Vec<LegacyPromptRecord> = parse_legacy_records(prompt_json, "prompt")?;
         prompt.sort_by(|a, b| a.id.cmp(&b.id));
 
         Ok(NormalizedExport {
@@ -100,97 +157,6 @@ impl SurrealStorage {
         })
     }
 
-    async fn write_batch_memory(&self, records: &[MemoryRecord]) -> Result<(), CerebroError> {
-        let mut written = Vec::new();
-        for record in records {
-            let record_id = record.memory_id.clone();
-            if let Err(err) = self
-                .db
-                .update::<Option<MemoryRecord>>(("memory", record_id.as_str()))
-                .content(record)
-                .await
-            {
-                self.rollback_records("memory", &written).await?;
-                return Err(CerebroError::Storage(format!(
-                    "surrealdb memory batch failed: {err}"
-                )));
-            }
-            written.push(record_id);
-        }
-        Ok(())
-    }
-
-    async fn write_batch_sessions(
-        &self,
-        records: &[LegacySessionRecord],
-    ) -> Result<(), CerebroError> {
-        let mut written = Vec::new();
-        for record in records {
-            let record_id = self.normalize_table_id("session", &record.id);
-            let mut payload = serde_json::to_value(record).map_err(|err| {
-                CerebroError::Storage(format!("failed to encode session record: {err}"))
-            })?;
-            if let Value::Object(object) = &mut payload {
-                object.remove("id");
-            }
-            if let Err(err) = self
-                .db
-                .update::<Option<Value>>(("session", record_id.as_str()))
-                .content(payload)
-                .await
-            {
-                self.rollback_records("session", &written).await?;
-                return Err(CerebroError::Storage(format!(
-                    "surrealdb session batch failed: {err}"
-                )));
-            }
-            written.push(record_id);
-        }
-        Ok(())
-    }
-
-    async fn write_batch_prompts(
-        &self,
-        records: &[LegacyPromptRecord],
-    ) -> Result<(), CerebroError> {
-        let mut written = Vec::new();
-        for record in records {
-            let record_id = self.normalize_table_id("prompt", &record.id);
-            let mut payload = serde_json::to_value(record).map_err(|err| {
-                CerebroError::Storage(format!("failed to encode prompt record: {err}"))
-            })?;
-            if let Value::Object(object) = &mut payload {
-                object.remove("id");
-            }
-            if let Err(err) = self
-                .db
-                .update::<Option<Value>>(("prompt", record_id.as_str()))
-                .content(payload)
-                .await
-            {
-                self.rollback_records("prompt", &written).await?;
-                return Err(CerebroError::Storage(format!(
-                    "surrealdb prompt batch failed: {err}"
-                )));
-            }
-            written.push(record_id);
-        }
-        Ok(())
-    }
-
-    async fn rollback_records(
-        &self,
-        table: &str,
-        record_ids: &[String],
-    ) -> Result<(), CerebroError> {
-        for record_id in record_ids.iter().rev() {
-            let _ = self
-                .db
-                .delete::<Option<serde_json::Value>>((table, record_id.as_str()))
-                .await;
-        }
-        Ok(())
-    }
 }
 
 fn parse_legacy_records<T>(records: Vec<Value>, table: &str) -> Result<Vec<T>, CerebroError>
@@ -223,7 +189,12 @@ fn normalize_id_field(value: Value, table: &str) -> Result<Value, CerebroError> 
     };
 
     if let Some(id_value) = object.get("id").cloned() {
-        if !id_value.is_string() {
+        if let Some(id_string) = id_value.as_str() {
+            let cleaned = id_string.replace('`', "");
+            if cleaned != id_string {
+                object.insert("id".to_string(), Value::String(cleaned));
+            }
+        } else {
             let id_string = thing_to_string(&id_value).ok_or_else(|| {
                 CerebroError::Storage(format!(
                     "surrealdb export failed: {table} record id could not be normalized"
@@ -240,19 +211,72 @@ fn thing_to_string(value: &Value) -> Option<String> {
     match value {
         Value::String(value) => Some(value.clone()),
         Value::Object(object) => {
+            if let Some(thing_value) = object.get("Thing").or_else(|| object.get("thing")) {
+                return thing_value_to_string(thing_value);
+            }
             let table = object.get("tb")?.as_str()?;
             let id_value = object.get("id")?;
-            let id = match id_value {
-                Value::String(value) => value.clone(),
-                Value::Number(value) => value.to_string(),
-                Value::Object(inner) => inner.iter().next().and_then(|(_, v)| match v {
-                    Value::String(value) => Some(value.clone()),
-                    Value::Number(value) => Some(value.to_string()),
-                    _ => None,
-                })?,
-                _ => return None,
-            };
+            let id = extract_thing_id(id_value)?;
             Some(format!("{table}:{id}"))
+        }
+        _ => None,
+    }
+}
+
+fn thing_value_to_string(value: &Value) -> Option<String> {
+    match value {
+        Value::Object(object) => {
+            let table = object.get("tb")?.as_str()?;
+            let id_value = object.get("id")?;
+            let id = extract_thing_id(id_value)?;
+            Some(format!("{table}:{id}"))
+        }
+        Value::Array(items) => {
+            if items.len() != 2 {
+                return None;
+            }
+            let table = items.first()?.as_str()?;
+            let id = extract_thing_id(items.get(1)?)?;
+            Some(format!("{table}:{id}"))
+        }
+        _ => None,
+    }
+}
+
+fn extract_thing_id(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Object(inner) => {
+            if let Some(thing_value) = inner.get("Thing").or_else(|| inner.get("thing")) {
+                return thing_value_to_id(thing_value);
+            }
+            inner.iter().next().and_then(|(_, v)| match v {
+                Value::String(value) => Some(value.clone()),
+                Value::Number(value) => Some(value.to_string()),
+                _ => None,
+            })
+        }
+        Value::Array(items) => {
+            if items.len() != 1 {
+                return None;
+            }
+            extract_thing_id(items.first()?)
+        }
+        _ => None,
+    }
+}
+
+fn thing_value_to_id(value: &Value) -> Option<String> {
+    match value {
+        Value::String(value) => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        Value::Object(object) => extract_thing_id(object.get("id")?),
+        Value::Array(items) => {
+            if items.len() != 2 {
+                return None;
+            }
+            extract_thing_id(items.get(1)?)
         }
         _ => None,
     }
@@ -265,11 +289,16 @@ impl Storage for SurrealStorage {
     }
 
     async fn save(&self, record: MemoryRecord) -> Result<(), CerebroError> {
-        let record_id = record.memory_id.as_str();
-        self.db
-            .update::<Option<MemoryRecord>>(("memory", record_id))
-            .content(record)
+        let record_id = record.memory_id.clone();
+        let response = self
+            .db
+            .query("UPSERT type::thing('memory', $id) CONTENT $data")
+            .bind(("id", record_id))
+            .bind(("data", record))
             .await
+            .map_err(|err| CerebroError::Storage(format!("surrealdb save failed: {err}")))?;
+        response
+            .check()
             .map_err(|err| CerebroError::Storage(format!("surrealdb save failed: {err}")))?;
         Ok(())
     }

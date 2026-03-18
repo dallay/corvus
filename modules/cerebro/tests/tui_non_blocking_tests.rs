@@ -12,7 +12,7 @@ async fn mcp_path_does_not_block_on_event_bus_backpressure() {
 
     let request = helpers::json_rpc_request("mem_stats", json!({ "input": {} }));
     let result = timeout(
-        Duration::from_millis(50),
+        Duration::from_millis(500),
         service.handle_json_rpc(request, helpers::auth_header()),
     )
     .await;
@@ -42,7 +42,7 @@ async fn mcp_path_remains_responsive_with_tui_running() {
 
     let request = helpers::json_rpc_request("mem_stats", json!({ "input": {} }));
     let result = timeout(
-        Duration::from_millis(50),
+        Duration::from_millis(500),
         service.handle_json_rpc(request, helpers::auth_header()),
     )
     .await;

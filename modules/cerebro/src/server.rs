@@ -181,6 +181,7 @@ impl CerebroService {
                 }
             }
             Err(error) => {
+                let redacted_error = self.redaction.redact_text(&error.to_string());
                 self.event_bus.publish(ToolCallEvent {
                     kind: ToolCallEventKind::Failed,
                     request_id,
@@ -190,7 +191,7 @@ impl CerebroService {
                     status: Some("error".to_string()),
                     redacted_args: None,
                     redacted_output: None,
-                    error: Some(error.to_string()),
+                    error: Some(redacted_error),
                 });
                 error_response(id, error)
             }

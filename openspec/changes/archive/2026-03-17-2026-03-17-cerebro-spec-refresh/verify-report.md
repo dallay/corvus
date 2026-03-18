@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: 2026-03-17-cerebro-spec-refresh
 **Version**: N/A
@@ -6,6 +6,7 @@
 ---
 
 ### Completeness
+
 | Metric | Value |
 |--------|-------|
 | Tasks total | 11 |
@@ -47,6 +48,7 @@
 ---
 
 ### Correctness (Static — Structural Evidence)
+
 | Requirement | Status | Notes |
 |------------|--------|-------|
 | MCP Tool Inventory | ✅ Implemented | Inventory and scenarios included in `openspec/specs/cerebro/spec.md`. |
@@ -59,6 +61,7 @@
 ---
 
 ### Coherence (Design)
+
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
 | Sync MCP server with async enrichment worker | ✅ Yes | Architecture section reflects sync MCP + optional async worker. |

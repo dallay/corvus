@@ -331,6 +331,18 @@ impl CerebroTools {
                     "candidates_count": candidates_count,
                 }))
             }
+            "mem_timeline" => {
+                let items_count = output
+                    .get("items_count")
+                    .and_then(|value| value.as_u64())
+                    .or_else(|| {
+                        output
+                            .get("items")
+                            .and_then(|value| value.as_array())
+                            .map(|value| value.len() as u64)
+                    });
+                Some(json!({ "items_count": items_count }))
+            }
             "mem_stats" => Some(json!({
                 "memory_count": output.get("memory_count"),
                 "session_count": output.get("session_count"),

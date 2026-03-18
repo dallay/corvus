@@ -57,7 +57,7 @@ practical integrity guarantee without requiring full cryptographic provenance.
 
 ### Embedded storage initialization and fallback
 
-```
+```text
 Cerebro::main
   └─ CerebroConfig::load
         └─ storage_from_config
@@ -71,7 +71,7 @@ Cerebro::main
 
 ### Migration import and validation
 
-```
+```text
 Operator
   └─ cerebro migrate import --source export.surreal --target ./cerebro.db
         ├─ parse legacy export
@@ -88,7 +88,7 @@ Operator
 
 ### Sequence diagram: startup with explicit fallback
 
-```
+```text
 Client/Operator -> Cerebro binary: start
 Cerebro binary -> CerebroConfig: load defaults + overrides
 CerebroConfig -> storage_from_config: init EmbeddedSurrealStore
@@ -101,7 +101,7 @@ Cerebro binary -> MCP server: serve requests
 
 ### Sequence diagram: migration import + validation
 
-```
+```text
 Operator -> CLI: migrate import
 CLI -> LegacyReader: parse export
 LegacyReader --> CLI: normalized records + checksums

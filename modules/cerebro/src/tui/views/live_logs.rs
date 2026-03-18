@@ -23,13 +23,13 @@ pub(in crate::tui) fn render(
         .map(|event| {
             let status = event
                 .status
-                .clone()
-                .or_else(|| event.error.clone())
-                .unwrap_or_else(|| "-".to_string());
+                .as_deref()
+                .or(event.error.as_deref())
+                .unwrap_or("-");
             ListItem::new(Line::from(vec![
-                Span::raw(event.timestamp.clone()),
+                Span::raw(event.timestamp.as_str()),
                 Span::raw(" | "),
-                Span::raw(event.tool_name.clone()),
+                Span::raw(event.tool_name.as_str()),
                 Span::raw(" | "),
                 Span::raw(status),
             ]))

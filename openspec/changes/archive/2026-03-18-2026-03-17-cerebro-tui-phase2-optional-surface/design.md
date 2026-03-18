@@ -49,7 +49,7 @@ area minimal.
 
 ### MCP request lifecycle + event emission
 
-```
+```text
 Client ── tools/call ──→ CerebroService
   │                          │
   │                          ├─ emit ToolCallStarted (redacted)
@@ -61,7 +61,7 @@ Client ── tools/call ──→ CerebroService
 
 ### TUI task lifecycle
 
-```
+```text
 Cerebro main ── config flag ──→ start_tui_task()
          │                             │
          │                             ├─ subscribe to broadcast bus
@@ -73,7 +73,7 @@ Cerebro main ── config flag ──→ start_tui_task()
 
 ### View query and refresh loop
 
-```
+```text
 TUI view ── periodic query ──→ Storage (search/get/count)
    │                                 │
    └─ render summaries               └─ read-only results
@@ -163,6 +163,5 @@ No migration required. TUI remains disabled by default and is enabled via config
 
 ## Open Questions
 
-- [ ] Which terminal UI crate should be used (none found in repo), and is it already approved for
-  Cerebro?
-
+- Resolved: ratatui v0.28.0 with crossterm v0.28.0 is used for the terminal UI. Dependencies are
+  declared in `modules/cerebro/Cargo.toml`.

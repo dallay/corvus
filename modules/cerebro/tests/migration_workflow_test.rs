@@ -1,4 +1,5 @@
 use cerebro::migration::{import_legacy_export, validate_legacy_export, MigrationOptions};
+use cerebro::migration::report::MigrationStatus;
 use std::path::PathBuf;
 use tempfile::TempDir;
 use std::fs;
@@ -19,13 +20,13 @@ async fn import_and_validate_reports_match() {
     let import_report = import_legacy_export(&source, &target, &options)
         .await
         .expect("import should succeed");
-    assert_eq!(import_report.status.as_str(), "ok");
+    assert_eq!(import_report.status, MigrationStatus::Ok);
     assert_eq!(import_report.collections.get("memory").unwrap().count, 2);
 
     let validate_report = validate_legacy_export(&source, &target, &options)
         .await
         .expect("validate should succeed");
-    assert_eq!(validate_report.status.as_str(), "ok");
+    assert_eq!(validate_report.status, MigrationStatus::Ok);
     assert_eq!(validate_report.collections.get("session").unwrap().count, 1);
 }
 
@@ -57,5 +58,5 @@ async fn validation_reports_mismatch_on_modified_source() {
     let report = validate_legacy_export(&bad_source, &target, &options)
         .await
         .expect("validate should succeed");
-    assert_eq!(report.status.as_str(), "mismatch");
+    assert_eq!(report.status, MigrationStatus::Mismatch);
 }

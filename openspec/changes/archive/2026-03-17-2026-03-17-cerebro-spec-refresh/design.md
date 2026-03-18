@@ -54,7 +54,7 @@ spec refresh.
 
 Core sync + async enrichment flow:
 
-```
+```text
 Agent ── MCP tools/call ──→ Cerebro MCP server ──→ SurrealDB (embedded or remote)
   │                               │
   │                               └── Enrichment Queue ──→ Async Worker ──→ LLM/Embeddings
