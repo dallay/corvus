@@ -358,9 +358,25 @@ pub async fn storage_from_config(
         Ok(storage) => Ok(storage),
         Err(error) => match config.storage_fallback {
             StorageFallback::None => Err(error),
-            StorageFallback::InMemory => Ok(InMemoryStorage::new()),
-            StorageFallback::Disk => storage_from_mode(config, StorageMode::Disk).await,
+            StorageFallback::InMemory => {
+                tracing::warn!(
+                    fallback = "in_memory",
+                    "storage fallback active after embedded surrealdb failure"
+                );
+                Ok(InMemoryStorage::new())
+            }
+            StorageFallback::Disk => {
+                tracing::warn!(
+                    fallback = "disk",
+                    "storage fallback active after embedded surrealdb failure"
+                );
+                storage_from_mode(config, StorageMode::Disk).await
+            }
             StorageFallback::RemoteSurreal => {
+                tracing::warn!(
+                    fallback = "remote_surreal",
+                    "storage fallback active after embedded surrealdb failure"
+                );
                 storage_from_mode(config, StorageMode::RemoteSurreal)
                     .await
                     .map_err(|fallback_error| {

@@ -10,6 +10,10 @@ async fn embedded_storage_supports_crud() {
     let mut config = CerebroConfig::default();
     config.storage_mode = StorageMode::EmbeddedSurreal;
     config.storage_path = Some(path.display().to_string());
+    config.surreal.username = Some("root".to_string());
+    config.surreal.password = Some(secrecy::SecretString::new(
+        "secret".to_string().into_boxed_str(),
+    ));
 
     let storage = storage_from_config(&config)
         .await

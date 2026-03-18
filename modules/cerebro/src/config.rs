@@ -1,6 +1,8 @@
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::net::IpAddr;
+use std::path::Path;
 use std::str::FromStr;
 
 /// Storage mode for Cerebro's internal persistence. This is independent from the runtime memory
@@ -49,6 +51,10 @@ pub struct SurrealConfig {
     pub username: Option<String>,
     #[serde(default, with = "secret_string_opt")]
     pub password: Option<SecretString>,
+    #[serde(default)]
+    pub embedded_bind: Option<String>,
+    #[serde(default)]
+    pub embedded_allow_non_loopback: bool,
 }
 
 impl Default for SurrealConfig {
@@ -60,6 +66,8 @@ impl Default for SurrealConfig {
             remote_url: None,
             username: None,
             password: None,
+            embedded_bind: None,
+            embedded_allow_non_loopback: false,
         }
     }
 }
@@ -189,6 +197,39 @@ impl Default for CerebroConfig {
 }
 
 impl CerebroConfig {
+    pub fn load(path: Option<&Path>) -> Result<Self, crate::errors::CerebroError> {
+        let Some(path) = path else {
+            return Ok(Self::default());
+        };
+        let contents = fs::read_to_string(path).map_err(|err| {
+            crate::errors::CerebroError::Validation(format!(
+                "failed to read config {}: {err}",
+                path.display()
+            ))
+        })?;
+        let extension = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| ext.to_ascii_lowercase());
+        match extension.as_deref() {
+            Some("toml") => toml::from_str(&contents).map_err(|err| {
+                crate::errors::CerebroError::Validation(format!(
+                    "failed to parse toml config {}: {err}",
+                    path.display()
+                ))
+            }),
+            Some("json") => serde_json::from_str(&contents).map_err(|err| {
+                crate::errors::CerebroError::Validation(format!(
+                    "failed to parse json config {}: {err}",
+                    path.display()
+                ))
+            }),
+            _ => Err(crate::errors::CerebroError::Validation(
+                "config file must be .toml or .json".to_string(),
+            )),
+        }
+    }
+
     pub fn bind_addr(&self) -> String {
         format!("{}:{}", format_host(&self.host), self.port)
     }
@@ -212,6 +253,7 @@ impl CerebroConfig {
     pub fn validate_storage(&self) -> Result<(), crate::errors::CerebroError> {
         match self.storage_mode {
             StorageMode::RemoteSurreal => self.validate_remote_surreal(),
+            StorageMode::EmbeddedSurreal => self.validate_embedded_surreal(),
             _ => Ok(()),
         }?;
 
@@ -268,6 +310,44 @@ impl CerebroConfig {
 
         Ok(())
     }
+
+    fn validate_embedded_surreal(&self) -> Result<(), crate::errors::CerebroError> {
+        let bind_host = self
+            .surreal
+            .embedded_bind
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(parse_bind_host)
+            .transpose()?
+            .unwrap_or_else(|| "127.0.0.1".to_string());
+        if !is_loopback_host(&bind_host) && !self.surreal.embedded_allow_non_loopback {
+            return Err(crate::errors::CerebroError::Validation(
+                "embedded surrealdb must bind to loopback only".to_string(),
+            ));
+        }
+
+        let has_username = self
+            .surreal
+            .username
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+        let has_password = self
+            .surreal
+            .password
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+        if !has_username || !has_password {
+            return Err(crate::errors::CerebroError::Validation(
+                "embedded surrealdb credentials are required".to_string(),
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 fn format_host(host: &str) -> String {
@@ -285,6 +365,30 @@ fn is_loopback_host(host: &str) -> bool {
         return true;
     }
     IpAddr::from_str(trimmed).is_ok_and(|addr| addr.is_loopback())
+}
+
+fn parse_bind_host(value: &str) -> Result<String, crate::errors::CerebroError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(crate::errors::CerebroError::Validation(
+            "embedded bind address cannot be empty".to_string(),
+        ));
+    }
+
+    if let Ok(url) = url::Url::parse(trimmed) {
+        let host = url.host_str().unwrap_or_default();
+        return Ok(host.to_string());
+    }
+
+    if let Ok(addr) = trimmed.parse::<std::net::SocketAddr>() {
+        return Ok(addr.ip().to_string());
+    }
+
+    let host = trimmed
+        .rsplit_once(':')
+        .map(|(host, _)| host)
+        .unwrap_or(trimmed);
+    Ok(host.trim_matches('[').trim_matches(']').to_string())
 }
 
 mod secret_string_opt {

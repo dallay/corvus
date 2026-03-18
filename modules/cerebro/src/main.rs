@@ -14,7 +14,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
-    let mut config = CerebroConfig::default();
+    let mut config = CerebroConfig::load(None)?;
     config.tui.enabled = config.tui.enabled || env_flag("CEREBRO_TUI_ENABLED");
     let addr = config.bind_addr();
     let service = Arc::new(CerebroService::from_config(config.clone()).await?);

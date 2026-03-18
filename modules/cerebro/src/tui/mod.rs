@@ -5,13 +5,22 @@ pub mod redaction;
 pub mod views;
 
 use crate::config::TuiConfig;
-use crate::storage::{MemoryRecord, Storage};
-use event_bus::{EventBus, EventStream, ToolCallEvent, ToolCallEventKind};
+use crate::storage::Storage;
+#[cfg(feature = "tui")]
+use crate::storage::MemoryRecord;
+use event_bus::EventBus;
+#[cfg(feature = "tui")]
+use event_bus::{EventStream, ToolCallEvent, ToolCallEventKind};
+#[cfg(feature = "tui")]
 use redaction::RedactionPolicy;
+#[cfg(feature = "tui")]
 use std::collections::{HashSet, VecDeque};
 use std::sync::Arc;
+#[cfg(feature = "tui")]
 use std::time::{Duration, Instant};
-use tokio::sync::{oneshot, watch};
+#[cfg(feature = "tui")]
+use tokio::sync::oneshot;
+use tokio::sync::watch;
 
 #[derive(Debug)]
 pub enum TuiLaunch {
