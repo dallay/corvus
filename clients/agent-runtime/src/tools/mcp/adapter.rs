@@ -106,7 +106,8 @@ impl Tool for McpToolAdapter {
             }
         };
 
-        // Check output limit bounds to prevent abuse
+        // Check output limit bounds to prevent abuse from dynamically loaded in-memory configs
+        // Even though schema validation catches file-based configs, in-memory instances could bypass it.
         if self.output_limit_bytes > 10 * 1024 * 1024 {
             return Ok(ToolResult {
                 success: false,
@@ -115,6 +116,7 @@ impl Tool for McpToolAdapter {
                 structured: None,
             });
         }
+
 
         match self
             .client
@@ -146,5 +148,118 @@ impl Tool for McpToolAdapter {
                 &self.original_name,
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mcp_adapter_enforces_output_limit() {
+        let adapter = McpToolAdapter {
+            name: "test".into(),
+            description: "test".into(),
+            parameters: serde_json::Value::Null,
+            original_name: "test".into(),
+            server_name: "test".into(),
+            call_timeout_ms: 1000,
+            output_limit_bytes: 100, // Very small limit for testing
+            client: McpClient::new(
+                "test", // Name
+                crate::config::McpServerConfig::default(),
+            ),
+        };
+
+        let large_output = "A".repeat(200);
+        let enforced = adapter.enforce_output_limit(large_output.clone());
+        
+        // Ensure it's truncated and exactly matches limit
+        assert_eq!(enforced.len(), 100);
+        assert!(enforced.ends_with("[output_limit_enforced limit_bytes=100 original_bytes=200]"));
+        
+        let exact_output = "A".repeat(100);
+        let unenforced_exact = adapter.enforce_output_limit(exact_output.clone());
+        assert_eq!(exact_output, unenforced_exact);
+
+        let over_limit_output = "A".repeat(101);
+        let enforced_over = adapter.enforce_output_limit(over_limit_output.clone());
+        assert_eq!(enforced_over.len(), 100);
+        assert!(enforced_over.ends_with("[output_limit_enforced limit_bytes=100 original_bytes=101]"));
+
+        let small_output = "A".repeat(50);
+        let unenforced = adapter.enforce_output_limit(small_output.clone());
+        assert_eq!(small_output, unenforced);
+    }
+
+    #[test]
+    fn mcp_adapter_enforces_marker_truncation() {
+        let adapter = McpToolAdapter {
+            name: "test".into(),
+            description: "test".into(),
+            parameters: serde_json::Value::Null,
+            original_name: "test".into(),
+            server_name: "test".into(),
+            call_timeout_ms: 1000,
+            output_limit_bytes: 10,
+            client: McpClient::new(
+                "test", // Name
+                crate::config::McpServerConfig::default(),
+            ),
+        };
+
+        let large_output = "A".repeat(200);
+        let enforced = adapter.enforce_output_limit(large_output);
+        
+        // Assert length is EXACTLY 10 and that it actually truncated the marker itself
+        assert_eq!(enforced.len(), 10);
+        assert!(enforced.starts_with("\n[output_l"));
+    }
+
+    #[test]
+    fn mcp_adapter_enforces_multibyte_truncation() {
+        let adapter = McpToolAdapter {
+            name: "test".into(),
+            description: "test".into(),
+            parameters: serde_json::Value::Null,
+            original_name: "test".into(),
+            server_name: "test".into(),
+            call_timeout_ms: 1000,
+            output_limit_bytes: 50,
+            client: McpClient::new(
+                "test", // Name
+                crate::config::McpServerConfig::default(),
+            ),
+        };
+
+        // 'é' is 2 bytes in UTF-8. 100 characters = 200 bytes.
+        let multibyte_output = "é".repeat(100);
+        let enforced = adapter.enforce_output_limit(multibyte_output);
+        
+        // Ensure strictly bounded and ends cleanly on a valid char boundary without panicking
+        assert!(enforced.len() <= 50);
+        assert!(enforced.is_char_boundary(enforced.len()));
+        assert!(std::str::from_utf8(enforced.as_bytes()).is_ok());
+    }
+
+    #[tokio::test]
+    async fn mcp_adapter_blocks_massive_limit_configuration() {
+        let adapter = McpToolAdapter {
+            name: "test".into(),
+            description: "test".into(),
+            parameters: serde_json::Value::Null,
+            original_name: "test".into(),
+            server_name: "test".into(),
+            call_timeout_ms: 1000,
+            output_limit_bytes: 20 * 1024 * 1024, // 20MB, exceeds the hardcoded 10MB limit in execute
+            client: super::super::client::McpClient::new(
+                "test",
+                crate::config::McpServerConfig::default(),
+            ),
+        };
+        
+        let result = adapter.execute(serde_json::json!({})).await.unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("exceeds maximum allowed"));
     }
 }
