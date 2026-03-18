@@ -39,25 +39,34 @@ const config = useConfig(t);
 
     <section class="card">
       <h2>{{ t("sections.auth") }}</h2>
-      <div class="grid">
-        <label>
-          <span>{{ t("auth.baseUrl") }}</span>
-          <Input v-model="config.baseUrl.value" :placeholder="t('form.baseUrlPlaceholder')" />
-        </label>
-        <label>
-          <span>{{ t("auth.pairingCode") }}</span>
-          <Input v-model="config.pairingCode.value" type="password" />
-        </label>
-        <label>
-          <span>{{ t("auth.bearerToken") }}</span>
-          <Input v-model="config.bearerToken.value" type="password" />
-        </label>
+      <div v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state">
+        <p>{{ t("auth.quickPairValidating") }}</p>
       </div>
-      <div class="actions">
-        <Button :disabled="config.loading.value" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
-        <Button :disabled="config.loading.value" variant="outline" @click="config.connectGateway">
-          {{ t("auth.connect") }}
-        </Button>
+      <div v-else-if="config.quickPairState.value === 'connecting'" class="quick-pair-state">
+        <p>{{ t("auth.quickPairConnecting") }}</p>
+      </div>
+      <div v-else>
+        <p v-if="config.quickPairState.value === 'failed'" class="error">{{ t("auth.quickPairFailed") }}</p>
+        <div class="grid">
+          <label>
+            <span>{{ t("auth.baseUrl") }}</span>
+            <Input v-model="config.baseUrl.value" :placeholder="t('form.baseUrlPlaceholder')" />
+          </label>
+          <label>
+            <span>{{ t("auth.pairingCode") }}</span>
+            <Input v-model="config.pairingCode.value" type="password" />
+          </label>
+          <label>
+            <span>{{ t("auth.bearerToken") }}</span>
+            <Input v-model="config.bearerToken.value" type="password" />
+          </label>
+        </div>
+        <div class="actions">
+          <Button :disabled="config.loading.value" @click="config.pairGateway">{{ t("auth.pair") }}</Button>
+          <Button :disabled="config.loading.value" variant="outline" @click="config.connectGateway">
+            {{ t("auth.connect") }}
+          </Button>
+        </div>
       </div>
     </section>
 
@@ -237,5 +246,11 @@ label span {
 
 .error {
   color: #ef4444;
+}
+
+.quick-pair-state p {
+  margin: 10px 0;
+  font-size: 14px;
+  color: var(--color-text-secondary);
 }
 </style>

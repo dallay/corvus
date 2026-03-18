@@ -24,6 +24,10 @@ function isUrlSafeForSecrets(rawUrl: string): boolean {
     return false;
   }
 
+  if (parsed.username || parsed.password || parsed.search || parsed.hash) {
+    return false;
+  }
+
   return ["http:", "https:"].includes(parsed.protocol) && isTrustedLocalHost(parsed.hostname);
 }
 
@@ -130,6 +134,19 @@ function mapFormToSnapshot(form: AdminConfigForm): AdminConfigSnapshot {
   };
 }
 
+export type QuickPairState =
+  | "idle"
+  | "validating"
+  | "pairing"
+  | "connecting"
+  | "failed"
+  | "connected";
+
+type PairGatewayOptions = {
+  autoConnect?: boolean;
+  onBeforeConnect?: () => void;
+};
+
 export function useConfig(t: (key: string, params?: Record<string, unknown>) => string) {
   const baseUrl = ref(DEFAULT_GATEWAY_BASE_URL);
   const pairingCode = ref("");
@@ -137,6 +154,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   const loading = ref(false);
   const statusMessage = ref("");
   const errorMessage = ref("");
+  const quickPairState = ref<QuickPairState>("idle");
   const form = reactive(defaultForm());
   const initialConfig = ref<AdminConfigSnapshot | null>(null);
   const memoryBackendOptions = ref([
@@ -199,7 +217,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     initialConfig.value = mapFormToSnapshot(nextForm);
   }
 
-  async function pairGateway(): Promise<void> {
+  async function pairGateway(options?: PairGatewayOptions): Promise<void> {
     errorMessage.value = "";
     statusMessage.value = "";
     const code = pairingCode.value.trim();
@@ -229,6 +247,11 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       bearerToken.value = data.token;
       pairingCode.value = "";
       statusMessage.value = t("auth.pairSuccess");
+
+      if (options?.autoConnect ?? true) {
+        options?.onBeforeConnect?.();
+        await connectGateway();
+      }
     } catch {
       errorMessage.value = t("auth.loadError");
     } finally {
@@ -292,6 +315,50 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       loading.value = false;
     }
   }
+
+  function initQuickPair() {
+    if (typeof window === "undefined" || !window.location.hash.startsWith("#/quick-pair?")) {
+      return;
+    }
+
+    const hashParams = new URLSearchParams(window.location.hash.slice(13));
+    const qpCode = hashParams.get("pairingCode");
+    const qpUrl = hashParams.get("gatewayUrl");
+
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+
+    if (qpCode && qpUrl) {
+      quickPairState.value = "validating";
+      const safe = isUrlSafeForSecrets(qpUrl);
+      baseUrl.value = qpUrl;
+
+      if (!safe) {
+        quickPairState.value = "failed";
+        errorMessage.value = t("errors.insecureUrlError");
+        return;
+      }
+
+      pairingCode.value = qpCode;
+      quickPairState.value = "pairing";
+
+      void (async () => {
+        await pairGateway({
+          onBeforeConnect: () => {
+            quickPairState.value = "connecting";
+          },
+        });
+        if (errorMessage.value) {
+          quickPairState.value = "failed";
+          pairingCode.value = "";
+          return;
+        }
+
+        quickPairState.value = "connected";
+      })();
+    }
+  }
+
+  initQuickPair();
 
   async function saveSection(section: ConfigSection): Promise<void> {
     if (!canSave.value || sectionSaving[section]) {
@@ -371,6 +438,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     observabilityBackendOptions,
     runtimeKindOptions,
     autonomyLevelOptions,
+    quickPairState,
     pairGateway,
     connectGateway,
     saveSection,
