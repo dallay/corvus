@@ -1,0 +1,38 @@
+{
+  "memory": [
+    {
+      "id": "memory:01",
+      "scope": "shared",
+      "topic_key": "topic.alpha",
+      "observation": { "content": "First memory" },
+      "summary": "First memory",
+      "deleted": false,
+      "timestamp": "2026-03-16T12:00:00Z"
+    },
+    {
+      "id": "memory:02",
+      "scope": "shared",
+      "topic_key": "topic.beta",
+      "observation": { "content": "Second memory" },
+      "summary": "Second memory",
+      "deleted": true,
+      "timestamp": "2026-03-16T12:05:00Z"
+    }
+  ],
+  "session": [
+    {
+      "id": "session:01",
+      "agent": "agent-a",
+      "started_at": "2026-03-16T10:00:00Z",
+      "ended_at": "2026-03-16T11:00:00Z"
+    }
+  ],
+  "prompt": [
+    {
+      "id": "prompt:01",
+      "session_id": "session:01",
+      "content": "Prompt content",
+      "created_at": "2026-03-16T10:05:00Z"
+    }
+  ]
+}
