@@ -53,7 +53,8 @@ If the user accepts activation, the system shall provide a compact activation gu
 Constraints:
 
 - Guidance is 3-5 actionable steps.
-- Canonical local defaults are used consistently (`127.0.0.1:3000` for gateway).
+- Canonical local defaults are used consistently (`http://corvus.localhost` entrypoint with
+  proxied gateway health at `/api/health`).
 
 ### RF3 - Decline Preserves CLI-Only Experience
 
@@ -181,9 +182,12 @@ through the same secure path.
 
 1. Should resume guidance include a dedicated future command alias (for example
    `corvus dashboard resume`) or only existing commands in this change?
-2. Resolved in implementation Phase 3.2: optional browser-open targets dashboard UI URL
-   (`http://localhost:4324`) only.
-3. Resolved in implementation Phase 4.1: bounded diagnosis uses 500 ms request timeout, one retry,
+2. Resolved in implementation Phase 4.1: bounded diagnosis uses 500 ms request timeout, one retry,
    and <= 1.5 s total budget.
-4. Should deterministic diagnosis be exposed only in onboarding output, or also reusable by a future
+3. Should deterministic diagnosis be exposed only in onboarding output, or also reusable by a future
    standalone command?
+
+## Implementation Notes
+
+1. Optional browser-open targets the local proxied entrypoint (`http://corvus.localhost`) only.
+2. Phase 4.1 bounded diagnosis uses 500 ms request timeout, one retry, and <= 1.5 s total budget.

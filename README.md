@@ -167,7 +167,8 @@ We use a `Makefile` to standardize common operations:
 To test agents in a controlled environment, you can spin up the local dev stack:
 
 ```bash
-make dev-up      # Start Agent + Sandbox containers
+make dev-up      # Start proxy + Agent + Sandbox at http://corvus.localhost
+./dev/cli.sh up-dashboard  # Swap the landing page for the dashboard UI on the same origin
 make dev-shell   # Enter the Sandbox (Ubuntu)
 make dev-down    # Stop the environment
 ```
@@ -191,8 +192,21 @@ Memory migration and schemas:
 - Migration guide: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md)
 - MCP schemas: [clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/](clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/)
 
+### Cerebro embedded storage & operations
+
+SurrealDB is removed as a runtime memory backend and retained only for embedded Cerebro storage and
+migration workflows.
+
+ES: Traduccion pendiente.
+
+- Embedded Cerebro storage defaults + fallback guidance: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#cerebro-storage-defaults-embedded](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#cerebro-storage-defaults-embedded)
+- Cerebro migration CLI import/validate: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#migration-cli](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#migration-cli)
+- Optional operator TUI for Cerebro: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#optional-tui-operator-only](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#optional-tui-operator-only)
+- Embedded fallback behavior + exit codes: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#operational-notes](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#operational-notes)
+
+## 🔎 DeepWiki
+
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/dallay/corvus)
----
 
 ## 🤝 Contributing
 

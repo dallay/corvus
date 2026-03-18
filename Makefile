@@ -309,7 +309,7 @@ deps-update: ## Check for dependency updates
 
 # --- DEV ENVIRONMENT (Docker) ---
 
-dev-up: ## Start Docker dev environment
+dev-up: ## Start proxied dev environment at corvus.localhost
 	@./dev/cli.sh up
 dev-down: ## Stop Docker dev environment
 	@docker compose -f dev/docker-compose.yml down

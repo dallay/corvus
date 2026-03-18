@@ -5,7 +5,7 @@ description: >
   Trigger: Creating commits, git messages, or commit guidelines.
 license: Apache-2.0
 metadata:
-  author: generic-author
+  author: yuniel-acosta
   version: "1.0"
 ---
 

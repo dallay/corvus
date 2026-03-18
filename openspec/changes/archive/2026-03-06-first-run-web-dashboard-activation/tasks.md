@@ -56,7 +56,7 @@
   - Depends on: 2.2
   - Covers: RF5, AC5
   - Tests: rendering tests assert commands include `corvus status`, `corvus gateway`,
-    `make dashboard-dev`, and dashboard URL/pair reminder.
+    `make dev-up`, `./dev/cli.sh up-dashboard`, and proxied URL/pair reminder.
   - Done when: resume block is always shown for decline and commands are copy-paste ready.
 
 - [x] 2.4 Phase 2 verification gate.
@@ -72,7 +72,7 @@
   - Covers: RF2, NFR-U1, AC2, AC7
   - Tests: output-format tests assert step count, canonical URLs, and pairing instructions via
     secure flow.
-  - Done when: guidance is compact, actionable, and uses `127.0.0.1:3000` + `http://localhost:4324`
+  - Done when: guidance is compact, actionable, and uses `http://corvus.localhost` + `/api`
     consistently.
 
 - [x] 3.2 Add optional browser-open attempt targeting dashboard URL with non-fatal fallback.

@@ -128,6 +128,7 @@ Servers/
 !**/src/test/**/logs/
 tmp/
 tmp
+modules/cerebro/cerebro.db/
 # Note: Lockfiles (package-lock.json, pnpm-lock.yaml, yarn.lock) should be
 # committed for reproducible builds. Only ignore if you have a specific reason.
 
@@ -147,6 +148,7 @@ docs/website/package-lock.json
 **/.astro/
 clients/web/apps/**/dist/
 clients/web/apps/**/node_modules/
+dev/Caddyfile.active
 
 # Symlinks auto-generados por Gradle
 /docs

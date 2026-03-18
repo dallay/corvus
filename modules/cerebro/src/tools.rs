@@ -2,10 +2,66 @@ use crate::errors::CerebroError;
 use crate::server::AuthContext;
 use crate::storage::{MemoryRecord, Storage};
 use crate::validation::require_non_empty;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
 use std::sync::Arc;
+
+#[derive(Debug, Clone, Copy)]
+pub struct ToolRedaction {
+    pub allowed_arg_fields: &'static [&'static str],
+    pub allowed_output_fields: &'static [&'static str],
+}
+
+impl ToolRedaction {
+    pub fn for_tool(tool: &str) -> Self {
+        match tool {
+            "mem_save" => Self {
+                allowed_arg_fields: &["scope", "topic_key"],
+                allowed_output_fields: &["memory_id", "status"],
+            },
+            "mem_search" => Self {
+                allowed_arg_fields: &["limit", "scope", "topic_key", "include_deleted"],
+                allowed_output_fields: &["results_count", "truncated"],
+            },
+            "mem_delete" => Self {
+                allowed_arg_fields: &["memory_id", "topic_key", "hard_delete"],
+                allowed_output_fields: &["memory_id", "status", "deleted"],
+            },
+            "mem_get_observation" => Self {
+                allowed_arg_fields: &["memory_id", "include_deleted"],
+                allowed_output_fields: &["memory_id", "status"],
+            },
+            "mem_update" => Self {
+                allowed_arg_fields: &["memory_id"],
+                allowed_output_fields: &["memory_id", "status"],
+            },
+            "mem_suggest_topic_key" => Self {
+                allowed_arg_fields: &["scope"],
+                allowed_output_fields: &["topic_key", "candidates_count"],
+            },
+            "mem_timeline" => Self {
+                allowed_arg_fields: &["memory_id", "before", "after", "include_deleted"],
+                allowed_output_fields: &["items_count"],
+            },
+            "mem_stats" => Self {
+                allowed_arg_fields: &[],
+                allowed_output_fields: &[
+                    "memory_count",
+                    "session_count",
+                    "prompt_count",
+                    "worker_enabled",
+                    "worker_queue_depth",
+                ],
+            },
+            _ => Self {
+                allowed_arg_fields: &[],
+                allowed_output_fields: &[],
+            },
+        }
+    }
+}
 
 #[derive(Debug, Deserialize)]
 struct ToolInput<T> {
@@ -169,6 +225,138 @@ const MAX_TIMELINE_ITEMS: usize = 100;
 impl CerebroTools {
     pub fn new(storage: Arc<dyn Storage>) -> Self {
         Self { storage }
+    }
+
+    pub fn redaction_for_tool(&self, tool: &str) -> ToolRedaction {
+        ToolRedaction::for_tool(tool)
+    }
+
+    pub fn extract_safe_args(&self, tool: &str, payload: &Value) -> Option<Value> {
+        fn parse_input<T: DeserializeOwned>(payload: &Value) -> Option<ToolInput<T>> {
+            serde_json::from_value(payload.clone()).ok()
+        }
+        match tool {
+            "mem_save" => {
+                let input: ToolInput<MemSaveRequest> = parse_input(payload)?;
+                Some(json!({
+                    "scope": input.input.scope,
+                    "topic_key": input.input.topic_key,
+                }))
+            }
+            "mem_search" => {
+                let input: ToolInput<MemSearchRequest> = parse_input(payload)?;
+                Some(json!({
+                    "limit": input.input.limit,
+                    "scope": input.input.scope,
+                    "topic_key": input.input.topic_key,
+                    "include_deleted": input.input.include_deleted,
+                }))
+            }
+            "mem_delete" => {
+                let input: ToolInput<MemDeleteRequest> = parse_input(payload)?;
+                Some(json!({
+                    "memory_id": input.input.memory_id,
+                    "topic_key": input.input.topic_key,
+                    "hard_delete": input.input.hard_delete,
+                }))
+            }
+            "mem_get_observation" => {
+                let input: ToolInput<MemGetObservationRequest> = parse_input(payload)?;
+                Some(json!({
+                    "memory_id": input.input.memory_id,
+                    "include_deleted": input.input.include_deleted,
+                }))
+            }
+            "mem_update" => {
+                let input: ToolInput<MemUpdateRequest> = parse_input(payload)?;
+                Some(json!({
+                    "memory_id": input.input.memory_id,
+                }))
+            }
+            "mem_suggest_topic_key" => {
+                let input: ToolInput<MemSuggestTopicKeyRequest> = parse_input(payload)?;
+                Some(json!({
+                    "scope": input.input.scope,
+                }))
+            }
+            "mem_timeline" => {
+                let input: ToolInput<MemTimelineRequest> = parse_input(payload)?;
+                Some(json!({
+                    "memory_id": input.input.memory_id,
+                    "before": input.input.before,
+                    "after": input.input.after,
+                    "include_deleted": input.input.include_deleted,
+                }))
+            }
+            "mem_stats" => Some(json!({})),
+            _ => None,
+        }
+    }
+
+    pub fn extract_safe_output(&self, tool: &str, output: &Value) -> Option<Value> {
+        match tool {
+            "mem_save" => Some(json!({
+                "memory_id": output.get("memory_id"),
+                "status": output.get("status"),
+            })),
+            "mem_search" => {
+                let results_count = output
+                    .get("results")
+                    .and_then(|value| value.as_array())
+                    .map(|value| value.len());
+                Some(json!({
+                    "results_count": results_count,
+                    "truncated": output.get("truncated"),
+                }))
+            }
+            "mem_delete" => Some(json!({
+                "memory_id": output.get("memory_id"),
+                "status": output.get("status"),
+                "deleted": output.get("deleted"),
+            })),
+            "mem_get_observation" => Some(json!({
+                "memory_id": output.get("memory_id"),
+                "status": output.get("status"),
+            })),
+            "mem_update" => Some(json!({
+                "memory_id": output.get("memory_id"),
+                "status": output.get("status"),
+            })),
+            "mem_suggest_topic_key" => {
+                let candidates_count = output
+                    .get("candidates")
+                    .and_then(|value| value.as_array())
+                    .map(|value| value.len());
+                Some(json!({
+                    "topic_key": output.get("topic_key"),
+                    "candidates_count": candidates_count,
+                }))
+            }
+            "mem_timeline" => {
+                let items_count = output
+                    .get("items_count")
+                    .and_then(|value| value.as_u64())
+                    .or_else(|| {
+                        output
+                            .get("items")
+                            .and_then(|value| value.as_array())
+                            .map(|value| value.len() as u64)
+                    });
+                Some(json!({ "items_count": items_count }))
+            }
+            "mem_stats" => Some(json!({
+                "memory_count": output.get("memory_count"),
+                "session_count": output.get("session_count"),
+                "prompt_count": output.get("prompt_count"),
+                "worker_enabled": output
+                    .get("worker")
+                    .and_then(|value| value.get("enabled")),
+                "worker_queue_depth": output
+                    .get("worker")
+                    .and_then(|value| value.get("queue_depth")),
+            })),
+            _ => None,
+        }
     }
 
     pub async fn handle(

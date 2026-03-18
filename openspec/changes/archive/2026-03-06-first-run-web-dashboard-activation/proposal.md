@@ -80,7 +80,7 @@ security defaults.
 | Accidental exposure of secrets in activation output                    | High   | Enforce output guardrails: never print bearer tokens; only emit pairing instructions already compatible with current secure flow. Add redaction/assertion tests. |
 | Diagnostics become flaky due to timing/network assumptions             | Medium | Use bounded local checks with explicit timeouts and deterministic mapping; avoid dependence on external network.                                                 |
 | Browser-open behavior differs across platforms                         | Low    | Treat browser open as optional best-effort; always print copy-paste URLs and commands as primary path.                                                           |
-| Confusion from stale/default port messaging                            | Medium | Standardize onboarding messaging to canonical schema defaults (`127.0.0.1:3000`) and reuse shared constants where possible.                                      |
+| Confusion from stale/default port messaging                            | Medium | Standardize onboarding messaging to canonical proxied local defaults (`http://corvus.localhost` + `/api`) and reuse shared constants where possible.             |
 
 ## Proposed Implementation Phases
 

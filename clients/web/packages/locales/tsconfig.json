@@ -4,6 +4,8 @@
     "composite": true,
     "declaration": true,
     "emitDeclarationOnly": true,
+    "lib": ["DOM", "DOM.Iterable", "ESNext", "ESNext.Disposable"],
+    "skipLibCheck": true,
     "resolveJsonModule": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
