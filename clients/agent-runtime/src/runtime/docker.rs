@@ -88,6 +88,11 @@ impl RuntimeAdapter for DockerRuntime {
         command: &str,
         workspace_dir: &Path,
     ) -> anyhow::Result<tokio::process::Command> {
+        // Note: Unlike NativeRuntime, we DO NOT use `process.kill_on_drop(true)` here.
+        // Docker containers are managed via the `--rm` and `--init` flags which govern
+        // lifecycle and signal/cleanup semantics. Force-killing the host `docker` CLI client
+        // via `kill_on_drop` drops the invocation but can detach and orphan the actual running
+        // container in the Daemon engine. We rely on Docker's native mechanisms for cleanup.
         let mut process = tokio::process::Command::new("docker");
         process
             .arg("run")

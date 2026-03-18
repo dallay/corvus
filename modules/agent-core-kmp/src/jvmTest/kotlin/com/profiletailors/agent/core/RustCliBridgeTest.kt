@@ -63,6 +63,27 @@ class RustCliBridgeTest {
   }
 
   @Test
+  fun `should handle partial output before timeout without descriptor leak`() {
+    val bridge =
+      RustCliBridge(
+        config =
+          RustCliBridgeConfig(
+            executable = "sh",
+            arguments = listOf("-c", "echo 'partial output'; sleep 2", "bridge"),
+            defaultTimeoutMs = 50,
+          )
+      )
+
+    for (i in 1..50) {
+      val result = bridge.invoke(CoreInvocation(prompt = "ignored"))
+      val failure = assertIs<CoreResult.Failure>(result)
+
+      assertTrue(failure.message.contains("timed out"))
+      assertTrue(failure.recoverable)
+    }
+  }
+
+  @Test
   fun `should fail when executable is missing`() {
     val bridge =
       RustCliBridge(config = RustCliBridgeConfig(executable = "definitely-missing-corvus-binary"))
