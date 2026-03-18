@@ -440,7 +440,14 @@ mod tests {
 
     #[tokio::test]
     async fn shell_handles_timeout_gracefully() {
-        let tool = ShellTool::new(test_security(AutonomyLevel::Supervised), test_runtime())
+        let security = Arc::new(SecurityPolicy {
+            autonomy: AutonomyLevel::Supervised,
+            workspace_dir: std::env::temp_dir(),
+            allowed_commands: vec!["sleep".into()],
+            ..SecurityPolicy::default()
+        });
+
+        let tool = ShellTool::new(security, test_runtime())
             .with_timeout(Duration::from_secs(1));
 
         // Sleep for 3 seconds to trigger the 1-second timeout
