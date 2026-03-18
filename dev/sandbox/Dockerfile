@@ -25,7 +25,13 @@ RUN apt-get update && apt-get install -y curl && \
     vim \
     wget \
     zip \
-    && useradd -m -s /bin/bash -u 1000 developer && \
+    && if id -u developer >/dev/null 2>&1; then \
+         true; \
+       elif getent passwd 1000 >/dev/null 2>&1; then \
+         useradd -m -s /bin/bash developer; \
+       else \
+         useradd -m -s /bin/bash -u 1000 developer; \
+       fi && \
     echo "developer ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/developer && \
     chmod 0440 /etc/sudoers.d/developer && \
     rm -rf /var/lib/apt/lists/* && \

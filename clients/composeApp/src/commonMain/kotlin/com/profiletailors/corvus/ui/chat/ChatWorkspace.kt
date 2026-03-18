@@ -190,10 +190,14 @@ private fun ChatWorkspaceScreen(
 ) {
   val colors = MaterialTheme.colorScheme
 
-  Column(
-    modifier =
+  // Performance: Remember the modifier chain to avoid redundant allocations
+  // and chain reconstructions on every recomposition (e.g. during typing).
+  val screenModifier =
+    remember(modifier, colors.background) {
       modifier.fillMaxSize().background(colors.background).safeContentPadding().padding(16.dp)
-  ) {
+    }
+
+  Column(modifier = screenModifier) {
     ChatHeader(
       modelName = uiState.workspaceState.modelName,
       showConfig = uiState.showConfig,
@@ -292,7 +296,9 @@ private fun ChatPanel(
 
     Spacer(modifier = Modifier.width(8.dp))
 
-    val isSendEnabled = query.trim().isNotBlank()
+    // Performance: Use remember(query) to avoid redundant blank checks on every
+    // recomposition when the query hasn't changed.
+    val isSendEnabled = remember(query) { query.trim().isNotBlank() }
     Button(onClick = actions.onSend, enabled = isSendEnabled, modifier = Modifier.height(56.dp)) {
       Text("Send")
     }

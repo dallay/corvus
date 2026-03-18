@@ -78,3 +78,12 @@ Corvus resolves credentials in the following order:
 1. Explicitly provided `api_key` in `config.toml`.
 2. Provider-specific environment variable (e.g., `ANTHROPIC_API_KEY`).
 3. Generic fallback environment variables (`CORVUS_API_KEY` or `API_KEY`).
+
+## Provider Pools (Reusable)
+
+Account pools are provider-agnostic: the pool wrapper applies to any provider
+registered in the provider factory. Configure pools under
+`reliability.account_pools.<provider>` and the runtime will select an account
+per request while keeping providers cached per account. This means new or
+custom providers automatically inherit pooling behavior once they are wired
+into the provider factory.
