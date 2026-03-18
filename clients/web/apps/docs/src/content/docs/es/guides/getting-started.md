@@ -71,8 +71,8 @@ canonicos:
 
 - Entrada local: `http://corvus.localhost`
 - URL de chequeo del gateway: `http://corvus.localhost/api/health`
-- Base URL del dashboard: `/api`
-- Ruta de pairing: proxied por `/api/pair`
+- Base URL de la API: `/api`
+- Ruta de emparejamiento: enrutada por proxy mediante `/api/pair`
 
 Si rechazas, Corvus mantiene el flujo CLI-only e imprime un bloque para retomar luego con
 comandos exactos.

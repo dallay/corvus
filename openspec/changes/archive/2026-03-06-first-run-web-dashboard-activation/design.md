@@ -70,12 +70,20 @@ Control flow:
 
 Bounded checks (deterministic order):
 
-1. Gateway health probe against local base URL (`GET /health`) with fixed timeout budget.
-2. If healthy, evaluate `paired` status only (boolean, no token exposure).
-3. Determine dashboard UI availability from execution environment capability:
-  - If CLI can launch/open browser in current runtime, mark available.
-  - If unsupported/fails, classify as `DashboardUiUnavailable` for guidance only, not a hard
-    onboarding error.
+1. Run a direct gateway probe (`gatewayHealthProbe`) against the gateway's native local health /
+   pairing surface with a fixed timeout budget so gateway-only failures are distinguishable from
+   proxy/UI failures.
+2. If the direct gateway probe is healthy, evaluate `paired` status only (boolean, no token
+   exposure).
+3. Run a separate proxied/UI reachability probe against `http://corvus.localhost/api/health` to
+   determine whether Caddy + dashboard entrypoint are reachable.
+4. Determine dashboard UI availability from execution environment capability:
+   - If CLI can launch/open browser in current runtime, mark available.
+   - If unsupported/fails, classify as `DashboardUiUnavailable` for guidance only, not a hard
+     onboarding error.
+5. Combine direct gateway probe + proxied/UI probe results to classify `GatewayNotRunning`,
+   `GatewayRunningPairingRequired`, `GatewayRunningAlreadyPaired`, or `DashboardUiUnavailable`
+   deterministically.
 
 Timeout defaults (design baseline):
 
@@ -200,8 +208,8 @@ Each diagnosis output block:
 - Do not print bearer tokens, token hashes, auth headers, or persisted secret paths.
 - Pairing code display remains only within existing controlled gateway flow.
 - Do not recommend bypass paths that violate origin/referer protections.
-- Keep all probes local to the proxied entrypoint (`http://corvus.localhost/api/health`) and
-  read-only.
+- Keep direct gateway probes local/private and read-only, and keep proxied entrypoint probes
+  limited to `http://corvus.localhost/api/health` for UI/proxy reachability.
 - Ensure diagnostic logs are sanitized and avoid embedding user-provided strings without escaping.
 
 ## Test Strategy and Requirement Mapping

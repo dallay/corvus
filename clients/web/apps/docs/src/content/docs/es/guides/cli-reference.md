@@ -74,10 +74,22 @@ corvus gateway --port 3001
 
 Muestra los detalles completos del estado del sistema.
 
+Incluye una seccion `Web dashboard (resume anytime)` con comandos seguros para retomar:
+
+- `corvus gateway`
+- `make dev-up` y luego `./dev/cli.sh up-dashboard` (desde la raiz del repositorio Corvus)
+- `http://corvus.localhost` + flujo seguro de `/api/pair` a traves del proxy
+- `corvus --help` para ayuda de comandos
+
 **Ejemplo:**
 
 ```bash
 corvus status
+corvus doctor
+corvus gateway
+# desde la raiz del repositorio Corvus (source checkout):
+make dev-up
+./dev/cli.sh up-dashboard
 ```
 
 ### `doctor`

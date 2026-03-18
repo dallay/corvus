@@ -12,20 +12,19 @@ import type {
 const DEFAULT_GATEWAY_BASE_URL = "/api";
 const ALLOWED_LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
+function isTrustedLocalHost(hostname: string): boolean {
+  return ALLOWED_LOCAL_HOSTS.has(hostname) || hostname === "::1" || hostname.endsWith(".localhost");
+}
+
 function isUrlSafeForSecrets(rawUrl: string): boolean {
-  if (!rawUrl || rawUrl.startsWith("/")) {
-    return true;
-  }
   let parsed: URL;
   try {
-    parsed = new URL(rawUrl);
+    parsed = rawUrl.startsWith("/") ? new URL(rawUrl, window.location.href) : new URL(rawUrl);
   } catch {
     return false;
   }
-  if (parsed.protocol === "https:") {
-    return true;
-  }
-  return parsed.protocol === "http:" && ALLOWED_LOCAL_HOSTS.has(parsed.hostname);
+
+  return ["http:", "https:"].includes(parsed.protocol) && isTrustedLocalHost(parsed.hostname);
 }
 
 function defaultForm(): AdminConfigForm {
@@ -179,7 +178,10 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     if (normalizedBaseUrl.startsWith("/")) {
       return new URL(`${normalizedBaseUrl}${path}`, window.location.origin).toString();
     }
-    return new URL(path, normalizedBaseUrl).toString();
+
+    const cleanPath = path.replace(/^\/+/, "");
+    const baseWithSlash = `${normalizedBaseUrl.replace(/\/+$/, "")}/`;
+    return new URL(cleanPath, baseWithSlash).toString();
   }
 
   function authHeaders(): Record<string, string> {

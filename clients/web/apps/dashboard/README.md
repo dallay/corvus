@@ -29,5 +29,5 @@ make dev-up
 ```
 
 Luego abre <http://corvus.localhost>, deja `Base URL` en `/api` y completa el pairing para obtener
-bearer token. El dashboard y el gateway se comunican a través de Caddy con mismo origen, igual que
-en un despliegue productivo detrás de reverse proxy.
+el bearer token. El dashboard y el gateway se comunican a través de Caddy con el mismo origen,
+igual que en un despliegue productivo detrás de un reverse proxy.

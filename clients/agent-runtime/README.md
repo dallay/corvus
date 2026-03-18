@@ -84,7 +84,8 @@ Open:
 
 - Proxy entrypoint: `http://corvus.localhost`
 - Gateway API via proxy: `http://corvus.localhost/api`
-- Dashboard via proxy: `http://corvus.localhost` (after `./dev/cli.sh up-dashboard`)
+- Dashboard via proxy: `http://corvus.localhost` (after running from repo root:
+  `./dev/cli.sh up-dashboard`)
 
 Then pair in the dashboard through the proxied same-origin flow and use the returned bearer token
 for admin config actions.

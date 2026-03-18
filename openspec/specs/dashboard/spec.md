@@ -182,9 +182,12 @@ through the same secure path.
 
 1. Should resume guidance include a dedicated future command alias (for example
    `corvus dashboard resume`) or only existing commands in this change?
-2. Resolved in implementation: optional browser-open targets the local proxied entrypoint
-   (`http://corvus.localhost`) only.
-3. Resolved in implementation Phase 4.1: bounded diagnosis uses 500 ms request timeout, one retry,
+2. Resolved in implementation Phase 4.1: bounded diagnosis uses 500 ms request timeout, one retry,
    and <= 1.5 s total budget.
-4. Should deterministic diagnosis be exposed only in onboarding output, or also reusable by a future
+3. Should deterministic diagnosis be exposed only in onboarding output, or also reusable by a future
    standalone command?
+
+## Implementation Notes
+
+1. Optional browser-open targets the local proxied entrypoint (`http://corvus.localhost`) only.
+2. Phase 4.1 bounded diagnosis uses 500 ms request timeout, one retry, and <= 1.5 s total budget.

@@ -9,7 +9,7 @@
   },
   "scripts": {
     "dev": "portless run --name dashboard vite",
-    "build": "vue-tsc -p tsconfig.app.json --noEmit && vite build",
+    "build": "vue-tsc -b --noEmit && vite build",
     "preview": "portless run --name dashboard vite preview",
     "format": "biome format --write src package.json components.json tsconfig*.json vite.config.ts index.html",
     "check": "biome check src package.json components.json tsconfig*.json vite.config.ts index.html",

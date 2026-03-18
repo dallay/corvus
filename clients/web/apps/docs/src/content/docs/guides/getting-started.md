@@ -69,7 +69,7 @@ If you accept, Corvus prints a one-screen activation guide with canonical local 
 
 - Local entrypoint: `http://corvus.localhost`
 - Gateway check URL: `http://corvus.localhost/api/health`
-- Dashboard base URL: `/api`
+- API gateway base path: `/api`
 - Pairing path: proxied via `/api/pair`
 
 If you decline, Corvus keeps the CLI-only path and prints a resume-later block with exact commands.
