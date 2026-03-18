@@ -170,9 +170,11 @@ pub struct AccountPoolProvider {
   strategy: AccountPoolStrategy,
   accounts: Vec<ProviderAccountConfig>,
   index: std::sync::atomic::AtomicUsize,
-  cooldown_until: parking_lot::Mutex<HashMap<String, std::time::Instant>>,
-  cache: parking_lot::Mutex<HashMap<String, Box<dyn Provider>>>,
+  cooldown_until: std::sync::Arc<parking_lot::Mutex<HashMap<String, std::time::Instant>>>,
+  cache: parking_lot::Mutex<HashMap<String, std::sync::Arc<dyn Provider>>>,
+  weighted_state: parking_lot::Mutex<WeightedState>,
   runtime: ProviderRuntimeOptions,
+  default_api_url: Option<String>,
 }
 ```
 
@@ -181,6 +183,8 @@ Key behaviors:
 - Provider instance is created lazily per account and cached by `id`.
 - Errors are inspected for rate-limits; if detected, the account enters cooldown
   (using Retry-After when available, otherwise a small backoff window).
+- Admin pool read/patch is gated by `gateway.admin_expose_provider_pools`.
+- Account entries require non-empty `api_key` values (blank keys are rejected at validation).
 
 ## Testing Strategy
 
@@ -199,7 +203,4 @@ Existing `reliability.api_keys` rotation remains supported for non-pooled provid
 
 ## Open Questions
 
-- [ ] Should admin config API expose pool read/patch in this phase, or defer to reduce
-      secret-handling scope?
-- [ ] Should pooled accounts allow `api_key` omission (fall back to `config.api_key`), or
-      require explicit keys for clarity and safety?
+- None.

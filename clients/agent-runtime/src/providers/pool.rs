@@ -1,4 +1,7 @@
-use super::traits::{ChatMessage, ChatResponse, StreamChunk, StreamError, StreamOptions, StreamResult};
+use super::traits::{
+    build_tool_instructions_text, ChatMessage, ChatResponse, StreamChunk, StreamError,
+    StreamOptions, StreamResult, ToolsPayload,
+};
 use super::{Provider, ProviderRuntimeOptions};
 use crate::config::{AccountPoolStrategy, ProviderAccountConfig, ProviderAccountPoolConfig};
 use anyhow::{Context, Result};
@@ -29,7 +32,7 @@ pub struct AccountPoolProvider {
     strategy: AccountPoolStrategy,
     accounts: Vec<ProviderAccountConfig>,
     index: AtomicUsize,
-    cooldown_until: Mutex<HashMap<String, Instant>>,
+    cooldown_until: Arc<Mutex<HashMap<String, Instant>>>,
     cache: Mutex<HashMap<String, Arc<dyn Provider>>>,
     weighted_state: Mutex<WeightedState>,
     runtime: ProviderRuntimeOptions,
@@ -49,7 +52,7 @@ impl AccountPoolProvider {
             strategy: pool.strategy,
             accounts: pool.accounts,
             index: AtomicUsize::new(0),
-            cooldown_until: Mutex::new(HashMap::new()),
+            cooldown_until: Arc::new(Mutex::new(HashMap::new())),
             cache: Mutex::new(HashMap::new()),
             weighted_state: Mutex::new(WeightedState::new(len)),
             runtime,
@@ -158,13 +161,7 @@ impl AccountPoolProvider {
             return;
         }
 
-        let cooldown_ms = parse_retry_after_ms(err)
-            .unwrap_or(DEFAULT_COOLDOWN_MS)
-            .min(MAX_COOLDOWN_MS);
-        let until = Instant::now() + Duration::from_millis(cooldown_ms);
-        self.cooldown_until
-            .lock()
-            .insert(account_id.to_string(), until);
+        mark_cooldown_inner(&self.cooldown_until, account_id, err);
     }
 
     async fn with_account<T, F, Fut>(&self, f: F) -> Result<T>
@@ -208,6 +205,24 @@ impl Provider for AccountPoolProvider {
     fn supports_native_tools(&self) -> bool {
         self.provider_capabilities()
             .is_some_and(|caps| caps.native_tool_calling)
+    }
+
+    fn convert_tools(&self, tools: &[crate::tools::ToolSpec]) -> ToolsPayload {
+        let account = self
+            .accounts
+            .iter()
+            .find(|account| account.enabled)
+            .or_else(|| self.accounts.first());
+
+        if let Some(account) = account {
+            if let Ok(provider) = self.provider_for_account(account) {
+                return provider.convert_tools(tools);
+            }
+        }
+
+        ToolsPayload::PromptGuided {
+            instructions: build_tool_instructions_text(tools),
+        }
     }
 
     async fn chat_with_system(
@@ -284,6 +299,9 @@ impl Provider for AccountPoolProvider {
             }
         };
 
+        let cooldowns = Arc::clone(&self.cooldown_until);
+        let account_id = account.id.clone();
+
         provider.stream_chat_with_system(
             system_prompt,
             message,
@@ -291,6 +309,13 @@ impl Provider for AccountPoolProvider {
             temperature,
             options,
         )
+        .map(move |item| {
+            if let Err(err) = &item {
+                mark_stream_cooldown(&cooldowns, &account_id, err);
+            }
+            item
+        })
+        .boxed()
     }
 
     fn stream_chat_with_history(
@@ -316,7 +341,18 @@ impl Provider for AccountPoolProvider {
             }
         };
 
-        provider.stream_chat_with_history(messages, model, temperature, options)
+        let cooldowns = Arc::clone(&self.cooldown_until);
+        let account_id = account.id.clone();
+
+        provider
+            .stream_chat_with_history(messages, model, temperature, options)
+            .map(move |item| {
+                if let Err(err) = &item {
+                    mark_stream_cooldown(&cooldowns, &account_id, err);
+                }
+                item
+            })
+            .boxed()
     }
 }
 
@@ -328,11 +364,14 @@ fn is_rate_limited(err: &anyhow::Error) -> bool {
     {
         return true;
     }
-    let msg = err.to_string();
-    msg.contains("429") && (msg.contains("Too Many") || msg.contains("rate") || msg.contains("limit"))
+    message_indicates_rate_limit(&err.to_string())
 }
 
 fn parse_retry_after_ms(err: &anyhow::Error) -> Option<u64> {
+    parse_retry_after_ms_from_message(&err.to_string())
+}
+
+fn parse_retry_after_ms_from_message(message: &str) -> Option<u64> {
     const RETRY_AFTER_PREFIXES: [&str; 4] = [
         "retry-after:",
         "retry_after:",
@@ -340,12 +379,11 @@ fn parse_retry_after_ms(err: &anyhow::Error) -> Option<u64> {
         "retry_after ",
     ];
 
-    let msg = err.to_string();
-    let lower = msg.to_lowercase();
+    let lower = message.to_lowercase();
 
     RETRY_AFTER_PREFIXES
         .iter()
-        .find_map(|prefix| parse_retry_after_with_prefix(&msg, &lower, prefix))
+        .find_map(|prefix| parse_retry_after_with_prefix(message, &lower, prefix))
 }
 
 fn parse_retry_after_with_prefix(msg: &str, lower: &str, prefix: &str) -> Option<u64> {
@@ -353,6 +391,48 @@ fn parse_retry_after_with_prefix(msg: &str, lower: &str, prefix: &str) -> Option
     let after = &msg[pos + prefix.len()..];
     let secs = parse_retry_after_seconds(after)?;
     secs_to_millis(secs)
+}
+
+fn message_indicates_rate_limit(message: &str) -> bool {
+    let lower = message.to_lowercase();
+    lower.contains("429")
+        && (lower.contains("too many") || lower.contains("rate") || lower.contains("limit"))
+}
+
+fn mark_cooldown_inner(
+    cooldowns: &Mutex<HashMap<String, Instant>>,
+    account_id: &str,
+    err: &anyhow::Error,
+) {
+    let cooldown_ms = parse_retry_after_ms(err)
+        .unwrap_or(DEFAULT_COOLDOWN_MS)
+        .min(MAX_COOLDOWN_MS);
+    let until = Instant::now() + Duration::from_millis(cooldown_ms);
+    cooldowns.lock().insert(account_id.to_string(), until);
+}
+
+fn mark_stream_cooldown(
+    cooldowns: &Mutex<HashMap<String, Instant>>,
+    account_id: &str,
+    err: &StreamError,
+) {
+    let is_rate_limited = match err {
+        StreamError::Http(http_err) => http_err
+            .status()
+            .is_some_and(|status| status.as_u16() == 429),
+        StreamError::Provider(message) => message_indicates_rate_limit(message),
+        _ => message_indicates_rate_limit(&err.to_string()),
+    };
+
+    if !is_rate_limited {
+        return;
+    }
+
+    let cooldown_ms = parse_retry_after_ms_from_message(&err.to_string())
+        .unwrap_or(DEFAULT_COOLDOWN_MS)
+        .min(MAX_COOLDOWN_MS);
+    let until = Instant::now() + Duration::from_millis(cooldown_ms);
+    cooldowns.lock().insert(account_id.to_string(), until);
 }
 
 fn parse_retry_after_seconds(input: &str) -> Option<f64> {

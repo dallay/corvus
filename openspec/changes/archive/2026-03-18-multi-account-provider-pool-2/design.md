@@ -32,7 +32,7 @@ changing the `Provider` trait to accept per-request credentials.
 minimizing changes to reliability code. It also enables reuse by any caller that wants
 multi-account pooling without altering routing semantics.
 
-### Decision: Rate-limit aware selection with cooldown hints
+### Decision: Rate-limit-aware selection with cooldown hints
 
 **Choice**: Track per-account cooldown timestamps in `AccountPoolProvider` and skip accounts
 temporarily when rate-limit errors are detected; retries by `ReliableProvider` naturally
@@ -110,71 +110,65 @@ Request with account selection + rate-limit cooldown:
 
 ### Config shape
 
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AccountPoolStrategy {
-  RoundRobin,
-  WeightedRoundRobin,
-}
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[serde(rename_all = "snake_case")]
+    pub enum AccountPoolStrategy {
+      RoundRobin,
+      WeightedRoundRobin,
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderAccountConfig {
-  pub id: String,
-  pub api_key: String,
-  #[serde(default)]
-  pub api_url: Option<String>,
-  #[serde(default = "default_account_weight")]
-  pub weight: u32,
-  #[serde(default = "default_true")]
-  pub enabled: bool,
-}
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct ProviderAccountConfig {
+      pub id: String,
+      pub api_key: String,
+      #[serde(default)]
+      pub api_url: Option<String>,
+      #[serde(default = "default_account_weight")]
+      pub weight: u32,
+      #[serde(default = "default_true")]
+      pub enabled: bool,
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProviderAccountPoolConfig {
-  #[serde(default)]
-  pub strategy: AccountPoolStrategy,
-  pub accounts: Vec<ProviderAccountConfig>,
-}
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct ProviderAccountPoolConfig {
+      #[serde(default)]
+      pub strategy: AccountPoolStrategy,
+      pub accounts: Vec<ProviderAccountConfig>,
+    }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReliabilityConfig {
-  // existing fields...
-  #[serde(default)]
-  pub account_pools: std::collections::HashMap<String, ProviderAccountPoolConfig>,
-}
-```
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct ReliabilityConfig {
+      // existing fields...
+      #[serde(default)]
+      pub account_pools: std::collections::HashMap<String, ProviderAccountPoolConfig>,
+    }
 
 TOML example:
 
-```toml
-[reliability.account_pools.openrouter]
-strategy = "round_robin"
+    [reliability.account_pools.openrouter]
+    strategy = "round_robin"
 
-[[reliability.account_pools.openrouter.accounts]]
-id = "acct-1"
-api_key = "enc:..."
-weight = 1
+    [[reliability.account_pools.openrouter.accounts]]
+    id = "acct-1"
+    api_key = "enc:..."
+    weight = 1
 
-[[reliability.account_pools.openrouter.accounts]]
-id = "acct-2"
-api_key = "enc:..."
-weight = 2
-```
+    [[reliability.account_pools.openrouter.accounts]]
+    id = "acct-2"
+    api_key = "enc:..."
+    weight = 2
 
 ### Provider wrapper
 
-```rust
-pub struct AccountPoolProvider {
-  provider_name: String,
-  strategy: AccountPoolStrategy,
-  accounts: Vec<ProviderAccountConfig>,
-  index: std::sync::atomic::AtomicUsize,
-  cooldown_until: parking_lot::Mutex<HashMap<String, std::time::Instant>>,
-  cache: parking_lot::Mutex<HashMap<String, Box<dyn Provider>>>,
-  runtime: ProviderRuntimeOptions,
-}
-```
+    pub struct AccountPoolProvider {
+      provider_name: String,
+      strategy: AccountPoolStrategy,
+      accounts: Vec<ProviderAccountConfig>,
+      index: std::sync::atomic::AtomicUsize,
+      cooldown_until: parking_lot::Mutex<HashMap<String, std::time::Instant>>,
+      cache: parking_lot::Mutex<HashMap<String, Box<dyn Provider>>>,
+      runtime: ProviderRuntimeOptions,
+    }
 
 Key behaviors:
 - `select_account()` skips disabled accounts and those with active cooldowns.

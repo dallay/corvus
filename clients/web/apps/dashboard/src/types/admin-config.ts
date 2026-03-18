@@ -38,7 +38,7 @@ export interface AdminProviderPoolsView {
 }
 
 export interface AdminProviderPoolsResponse {
-  pools?: AdminProviderPoolsView;
+  pools: AdminProviderPoolsView;
 }
 
 export interface AdminProviderPoolsUpdateRequest {
@@ -46,8 +46,8 @@ export interface AdminProviderPoolsUpdateRequest {
 }
 
 export interface AdminProviderPoolsUpdateResponse {
-  updated?: boolean;
-  pools?: AdminProviderPoolsView;
+  updated: boolean;
+  pools: AdminProviderPoolsView;
 }
 
 export interface AdminOptionsResponse {

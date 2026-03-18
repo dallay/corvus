@@ -612,9 +612,11 @@ pub fn create_resilient_provider_with_options(
     options: &ProviderRuntimeOptions,
 ) -> anyhow::Result<Box<dyn Provider>> {
     let mut providers: Vec<(String, Box<dyn Provider>)> = Vec::new();
+    let mut has_pool_provider = false;
 
     // If a pool is configured for the provider, select accounts per request.
     let primary_provider = if let Some(pool) = reliability.account_pools.get(primary_name) {
+        has_pool_provider = true;
         Box::new(AccountPoolProvider::new(
             primary_name.to_string(),
             pool.clone(),
@@ -633,6 +635,7 @@ pub fn create_resilient_provider_with_options(
 
         // Fallback providers don't use the custom api_url (it's specific to primary).
         let fallback_provider = if let Some(pool) = reliability.account_pools.get(fallback) {
+            has_pool_provider = true;
             Ok(Box::new(AccountPoolProvider::new(
                 fallback.clone(),
                 pool.clone(),
@@ -654,13 +657,17 @@ pub fn create_resilient_provider_with_options(
         }
     }
 
-    let reliable = ReliableProvider::new(
+    let mut reliable = ReliableProvider::new(
         providers,
         reliability.provider_retries,
         reliability.provider_backoff_ms,
-    )
-    .with_api_keys(reliability.api_keys.clone())
-    .with_model_fallbacks(reliability.model_fallbacks.clone());
+    );
+
+    if !has_pool_provider {
+        reliable = reliable.with_api_keys(reliability.api_keys.clone());
+    }
+
+    let reliable = reliable.with_model_fallbacks(reliability.model_fallbacks.clone());
 
     Ok(Box::new(reliable))
 }

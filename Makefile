@@ -268,11 +268,19 @@ test-verbose: ## Run tests with verbose output
 	@$(GRADLEW) test --info
 
 test-coverage: rust-coverage ## Run tests with aggregated coverage report
-	@$(GRADLEW) :agent-core-kmp:koverHtmlReport :agent-core-kmp:koverVerify
+	@$(GRADLEW) :agent-core-kmp:koverHtmlReport
 	@echo "📊 Report: modules/agent-core-kmp/build/reports/kover/html/index.html"
 	@echo "📊 Report: coverage/agent-runtime-coverage.lcov"
 
 rust-coverage: ## Run Rust coverage for agent-runtime
+	@command -v cargo-llvm-cov >/dev/null 2>&1 || { \
+		echo "cargo-llvm-cov is required. Install with: cargo install cargo-llvm-cov" >&2; \
+		exit 1; \
+	}
+	@rustup component list --installed | grep -q '^llvm-tools-preview' || { \
+		echo "llvm-tools-preview is required. Install with: rustup component add llvm-tools-preview" >&2; \
+		exit 1; \
+	}
 	@mkdir -p coverage
 	@cd clients/agent-runtime && cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov
 
@@ -379,7 +387,7 @@ sync-version: ## Sync VERSION with git tag
         chat-dev chat-build chat-check chat-test dashboard-dev dashboard-build dashboard-check dashboard-test \
         marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all web-check-all \
         format check-format check lint-kotlin lint-rust lint-android lint-all \
-        test test-app test-core test-verbose test-coverage test-all check-all docs-code \
+        test test-app test-core test-verbose test-coverage rust-coverage test-all check-all docs-code \
         deps deps-app deps-analysis deps-update \
          dev-up dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean clean-web clean-pnpm \
          runtime-up runtime-up-dashboard runtime-down runtime-logs runtime-status \

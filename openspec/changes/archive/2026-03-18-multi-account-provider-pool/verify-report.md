@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: multi-account-provider-pool
 **Version**: N/A
@@ -19,13 +19,13 @@ All tasks marked complete.
 ### Build & Tests Execution
 
 **Build**: ✅ Passed
-```
+```text
 make build
 BUILD SUCCESSFUL
 ```
 
 **Tests**: ✅ Passed
-```
+```text
 make test
 BUILD SUCCESSFUL
 

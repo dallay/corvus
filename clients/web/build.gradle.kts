@@ -101,6 +101,10 @@ webApps.forEach { appName ->
       inputs.file("${appDir}/package.json")
     }
 
+  workspaceInstall.configure {
+    inputs.file("${appDir}/package.json")
+  }
+
   // Build task
   val appBuild =
     tasks.register<Exec>("${appName}Build") {
