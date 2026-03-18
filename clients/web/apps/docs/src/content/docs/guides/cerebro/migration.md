@@ -1,6 +1,7 @@
 ---
 title: Cerebro Migration Guide
 description: Move long-term memory to the MCP-backed Cerebro service.
+slug: guides/cerebro/migration-guide
 ---
 
 This guide covers the migration from runtime-local SurrealDB memory to the MCP-backed Cerebro
