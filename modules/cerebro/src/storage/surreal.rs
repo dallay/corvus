@@ -394,7 +394,7 @@ impl Storage for SurrealStorage {
     async fn count(&self) -> Result<usize, CerebroError> {
         let response = self
             .db
-            .query("SELECT count() AS count FROM memory;")
+            .query("SELECT count FROM memory GROUP ALL;")
             .await
             .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
         let mut response = response

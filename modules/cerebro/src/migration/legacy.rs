@@ -2,12 +2,15 @@ use crate::errors::CerebroError;
 use crate::storage::MemoryRecord;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashSet;
 use std::path::Path;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MigrationError {
     #[error("invalid observation in memory record {0}: {1}")]
     InvalidObservation(String, String),
+    #[error("duplicate memory id in legacy export: source_id={0} normalized_id={1}")]
+    DuplicateMemoryId(String, String),
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -68,8 +71,12 @@ pub fn read_legacy_export(path: &Path) -> Result<LegacyExport, CerebroError> {
 
 pub fn normalize_export(export: LegacyExport) -> Result<NormalizedExport, MigrationError> {
     let mut memory: Vec<MemoryRecord> = Vec::new();
+    let mut seen_ids = HashSet::new();
     for record in export.memory {
         let memory_id = normalize_memory_id(&record.id);
+        if !seen_ids.insert(memory_id.clone()) {
+            return Err(MigrationError::DuplicateMemoryId(record.id, memory_id));
+        }
         validate_observation(&record.observation, &memory_id)?;
         memory.push(MemoryRecord {
             memory_id,

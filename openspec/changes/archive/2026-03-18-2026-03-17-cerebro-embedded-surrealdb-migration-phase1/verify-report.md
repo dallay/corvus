@@ -114,4 +114,4 @@ None
 ### Verdict
 PASS
 
-Migration and embedded-default behaviors verified with targeted tests, but coverage reporting was not performed in this run.
+Migration and embedded-default behaviors verified with targeted tests, and coverage reporting was captured via `make test-coverage`.

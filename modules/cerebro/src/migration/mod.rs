@@ -96,19 +96,22 @@ async fn embedded_storage(
         config.surreal.database,
     );
     let cache = STORAGE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    if let Ok(cache) = cache.lock() {
-        if let Some(storage) = cache.get(&cache_key) {
-            return Ok(storage.clone());
-        }
+    let cache_guard = cache.lock().map_err(|err| {
+        CerebroError::Internal(format!("migration storage cache lock poisoned: {err}"))
+    })?;
+    if let Some(storage) = cache_guard.get(&cache_key) {
+        return Ok(storage.clone());
     }
+    drop(cache_guard);
 
     let storage = SurrealStorage::new_embedded(&config).await?;
-    if let Ok(mut cache) = cache.lock() {
-        if let Some(existing) = cache.get(&cache_key) {
-            return Ok(existing.clone());
-        }
-        cache.insert(cache_key, storage.clone());
+    let mut cache_guard = cache.lock().map_err(|err| {
+        CerebroError::Internal(format!("migration storage cache lock poisoned: {err}"))
+    })?;
+    if let Some(existing) = cache_guard.get(&cache_key) {
+        return Ok(existing.clone());
     }
+    cache_guard.insert(cache_key, storage.clone());
     Ok(storage)
 }
 

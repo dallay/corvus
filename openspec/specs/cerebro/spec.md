@@ -26,7 +26,7 @@ worker for long-running LLM tasks (embeddings, relation extraction). The system 
 without any LLM configuration; enrichment is optional and off by default.
 
 ```text
-Agent Runtime ── MCP tools/call ──→ Cerebro MCP Server ──→ SurrealDB (embedded or remote)
+Agent Runtime ── MCP tools/call ──→ Cerebro MCP Server ──→ SurrealDB (embedded; remote unavailable in this build)
   │                               │
   │                               └── Enrichment Queue ──→ Async Worker ──→ LLM/Embeddings
   │

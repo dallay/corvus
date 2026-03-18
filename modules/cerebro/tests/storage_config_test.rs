@@ -55,7 +55,7 @@ async fn explicit_storage_override_bypasses_embedded_default() {
 
 #[tokio::test]
 async fn fallback_policy_is_used_on_primary_init_failure() {
-    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _env_guard = ENV_LOCK.lock().expect("env lock");
     let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
     let config = CerebroConfig {
         storage_mode: StorageMode::EmbeddedSurreal,
@@ -154,7 +154,7 @@ async fn fallback_reports_active_mode() {
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let writer = BufferWriter(buffer.clone());
     let subscriber = tracing_subscriber::fmt().with_writer(writer).finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
+    let _tracing_guard = tracing::subscriber::set_default(subscriber);
 
     let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
     let config = CerebroConfig {
