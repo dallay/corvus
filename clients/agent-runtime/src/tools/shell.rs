@@ -170,8 +170,8 @@ impl Tool for ShellTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!(
-                        "Command timed out after {}s and was killed.",
-                        self.timeout.as_secs()
+                        "Command timed out after {}ms and was killed.",
+                        self.timeout.as_millis()
                     )),
                     structured: None,
                 })
@@ -458,6 +458,6 @@ mod tests {
 
         assert!(!result.success);
         let err = result.error.expect("Expected an error from timeout");
-        assert!(err.contains("timed out after 1s"));
+        assert!(err.contains("timed out after 1000ms"));
     }
 }
