@@ -25,6 +25,19 @@ cargo fmt && cargo clippy -- -D warnings
 cargo build --release
 ```
 
+### Rust coverage prerequisites
+
+Rust coverage reports for `clients/agent-runtime` use `cargo-llvm-cov` and the
+`llvm-tools-preview` component:
+
+```bash
+cargo install cargo-llvm-cov
+rustup component add llvm-tools-preview
+```
+
+These are required for `make rust-coverage` and `make test-coverage` to generate
+`coverage/agent-runtime-coverage.lcov`.
+
 ### Pre-push hook
 
 The repo includes a pre-push hook in `.githooks/` that enforces `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test` before every push. Enable it with `git config core.hooksPath .githooks`.

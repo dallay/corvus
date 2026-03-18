@@ -2,14 +2,18 @@ use crate::config::CerebroConfig;
 use crate::errors::{CerebroError, CerebroErrorResponse};
 use crate::storage::{storage_from_config, Storage};
 use crate::tools::CerebroTools;
+use crate::tui::event_bus::{EventBus, ToolCallEvent, ToolCallEventKind};
+use crate::tui::redaction::RedactionPolicy;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::routing::post;
 use axum::{Json, Router};
+use chrono::Utc;
 use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::sync::Arc;
+use std::time::Instant;
 
 #[derive(Debug, Deserialize)]
 pub struct JsonRpcRequest {
@@ -46,19 +50,28 @@ pub struct JsonRpcResponse {
 #[derive(Clone)]
 pub struct CerebroService {
     config: CerebroConfig,
+    storage: Arc<dyn Storage>,
     tools: CerebroTools,
+    event_bus: EventBus,
+    redaction: RedactionPolicy,
 }
 
 impl CerebroService {
     pub fn new(config: CerebroConfig, storage: Arc<dyn Storage>) -> Self {
+        let event_bus = EventBus::new(config.tui.event_buffer);
+        let redaction = RedactionPolicy::from_config(&config.tui);
+        let tools = CerebroTools::new(storage.clone());
         Self {
             config,
-            tools: CerebroTools::new(storage),
+            storage,
+            tools,
+            event_bus,
+            redaction,
         }
     }
 
-    pub fn from_config(config: CerebroConfig) -> Result<Self, CerebroError> {
-        let storage = storage_from_config(&config)?;
+    pub async fn from_config(config: CerebroConfig) -> Result<Self, CerebroError> {
+        let storage = storage_from_config(&config).await?;
         Ok(Self::new(config, storage))
     }
 
@@ -66,6 +79,14 @@ impl CerebroService {
         Router::new()
             .route("/mcp", post(handle_mcp))
             .with_state(self)
+    }
+
+    pub fn event_bus(&self) -> EventBus {
+        self.event_bus.clone()
+    }
+
+    pub fn storage(&self) -> Arc<dyn Storage> {
+        self.storage.clone()
     }
 
     pub async fn handle_json_rpc(
@@ -105,19 +126,77 @@ impl CerebroService {
             Err(error) => return error_response(id, error),
         };
 
-        match self
+        let tool_name = request.params.name.clone();
+        let redaction = self.tools.redaction_for_tool(&tool_name);
+        let redacted_args = self
             .tools
-            .handle(&request.params.name, request.params.arguments, &auth_context)
+            .extract_safe_args(&tool_name, &request.params.arguments)
+            .and_then(|value| {
+                self.redaction
+                    .redact_with_allowlist(&value, redaction.allowed_arg_fields)
+            });
+        let request_id = request.id.to_string();
+        let start = Instant::now();
+        self.event_bus.publish(ToolCallEvent {
+            kind: ToolCallEventKind::Started,
+            request_id: request_id.clone(),
+            tool_name: tool_name.clone(),
+            timestamp: Utc::now().to_rfc3339(),
+            duration_ms: None,
+            status: Some("started".to_string()),
+            redacted_args,
+            redacted_output: None,
+            error: None,
+        });
+
+        let response = match self
+            .tools
+            .handle(&tool_name, request.params.arguments, &auth_context)
             .await
         {
-            Ok(output) => JsonRpcResponse {
-                jsonrpc: "2.0".to_string(),
-                id,
-                result: Some(json!({ "output": output })),
-                error: None,
-            },
-            Err(error) => error_response(id, error),
-        }
+            Ok(output) => {
+                let safe_output = self
+                    .tools
+                    .extract_safe_output(&tool_name, &output)
+                    .and_then(|value| {
+                        self.redaction
+                            .redact_with_allowlist(&value, redaction.allowed_output_fields)
+                    });
+                self.event_bus.publish(ToolCallEvent {
+                    kind: ToolCallEventKind::Finished,
+                    request_id,
+                    tool_name,
+                    timestamp: Utc::now().to_rfc3339(),
+                    duration_ms: Some(start.elapsed().as_millis() as u64),
+                    status: Some("ok".to_string()),
+                    redacted_args: None,
+                    redacted_output: safe_output,
+                    error: None,
+                });
+                JsonRpcResponse {
+                    jsonrpc: "2.0".to_string(),
+                    id,
+                    result: Some(json!({ "output": output })),
+                    error: None,
+                }
+            }
+            Err(error) => {
+                let redacted_error = self.redaction.redact_text(&error.to_string());
+                self.event_bus.publish(ToolCallEvent {
+                    kind: ToolCallEventKind::Failed,
+                    request_id,
+                    tool_name,
+                    timestamp: Utc::now().to_rfc3339(),
+                    duration_ms: Some(start.elapsed().as_millis() as u64),
+                    status: Some("error".to_string()),
+                    redacted_args: None,
+                    redacted_output: None,
+                    error: Some(redacted_error),
+                });
+                error_response(id, error)
+            }
+        };
+        response
     }
 
     fn authorize(&self, auth_header: Option<&str>) -> Result<AuthContext, CerebroError> {
