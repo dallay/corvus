@@ -267,9 +267,14 @@ test-core: ## Run tests for core module
 test-verbose: ## Run tests with verbose output
 	@$(GRADLEW) test --info
 
-test-coverage: ## Run tests with Kover coverage report
-	@$(GRADLEW) koverHtmlReport
-	@echo "📊 Report: $(APP_MODULE)/build/reports/kover/html/index.html"
+test-coverage: rust-coverage ## Run tests with aggregated coverage report
+	@$(GRADLEW) :agent-core-kmp:koverHtmlReport :agent-core-kmp:koverVerify
+	@echo "📊 Report: modules/agent-core-kmp/build/reports/kover/html/index.html"
+	@echo "📊 Report: coverage/agent-runtime-coverage.lcov"
+
+rust-coverage: ## Run Rust coverage for agent-runtime
+	@mkdir -p coverage
+	@cd clients/agent-runtime && cargo llvm-cov --lcov --output-path ../../coverage/agent-runtime-coverage.lcov
 
 test-all: test rust-test web-test-all ## Run all tests (Gradle + Rust + Web)
 

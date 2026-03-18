@@ -11,7 +11,7 @@ use axum::{
 use parking_lot::Mutex;
 
 use corvus::{
-    config::Config,
+    config::{AccountPoolStrategy, Config, ProviderAccountConfig, ProviderAccountPoolConfig},
     gateway::{admin, AppState, GatewayRateLimiter, IdempotencyStore},
     providers::Provider,
     security::pairing::PairingGuard,
@@ -43,6 +43,19 @@ fn temp_config() -> Config {
     };
     std::fs::create_dir_all(&config.workspace_dir).expect("create workspace");
     config
+}
+
+fn sample_pool(account_id: &str, api_key: &str) -> ProviderAccountPoolConfig {
+    ProviderAccountPoolConfig {
+        strategy: AccountPoolStrategy::RoundRobin,
+        accounts: vec![ProviderAccountConfig {
+            id: account_id.to_string(),
+            api_key: api_key.to_string(),
+            api_url: None,
+            weight: 1,
+            enabled: true,
+        }],
+    }
 }
 
 fn headers() -> HeaderMap {
@@ -200,4 +213,95 @@ async fn put_admin_config_rolls_back_on_save_failure() {
             .into_response();
     assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     assert_eq!(state.config.lock().default_provider, before);
+}
+
+#[tokio::test]
+async fn admin_provider_pools_rejects_when_disabled() {
+    let mut config = temp_config();
+    config.reliability.account_pools.insert(
+        "openrouter".into(),
+        sample_pool("acct-a", "secret-key"),
+    );
+    let state = state_with_config(config);
+
+    let response = admin::handle_admin_get_provider_pools(State(state.clone()), headers())
+        .await
+        .into_response();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+
+    let patch = admin::AdminProviderPoolsPatch {
+        account_pools: std::collections::HashMap::new(),
+    };
+    let response = admin::handle_admin_update_provider_pools(
+        State(state),
+        headers(),
+        Ok(Json(patch)),
+    )
+    .await
+    .into_response();
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn admin_provider_pools_redacts_api_keys() {
+    let mut config = temp_config();
+    config.gateway.admin_expose_provider_pools = true;
+    config.reliability.account_pools.insert(
+        "openrouter".into(),
+        sample_pool("acct-a", "secret-key"),
+    );
+    let state = state_with_config(config);
+
+    let response = admin::handle_admin_get_provider_pools(State(state), headers())
+        .await
+        .into_response();
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let body = body_json(response).await;
+    assert_eq!(
+        body.pointer("/pools/account_pools/openrouter/accounts/0/has_api_key"),
+        Some(&serde_json::json!(true))
+    );
+    let text = body.to_string();
+    assert!(!text.contains("secret-key"));
+}
+
+#[tokio::test]
+async fn admin_provider_pools_rejects_invalid_patch_when_enabled() {
+    let mut config = temp_config();
+    config.gateway.admin_expose_provider_pools = true;
+    config.reliability.account_pools.insert(
+        "openrouter".into(),
+        sample_pool("acct-a", "secret-key"),
+    );
+    let state = state_with_config(config);
+
+    let patch = admin::AdminProviderPoolsPatch {
+        account_pools: std::collections::HashMap::from([(
+            "openrouter".into(),
+            ProviderAccountPoolConfig {
+                strategy: AccountPoolStrategy::RoundRobin,
+                accounts: vec![ProviderAccountConfig {
+                    id: "".into(),
+                    api_key: "missing".into(),
+                    api_url: None,
+                    weight: 1,
+                    enabled: true,
+                }],
+            },
+        )]),
+    };
+
+    let response = admin::handle_admin_update_provider_pools(
+        State(state.clone()),
+        headers(),
+        Ok(Json(patch)),
+    )
+    .await
+    .into_response();
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+    let stored = state.config.lock();
+    let pool = stored.reliability.account_pools.get("openrouter").unwrap();
+    assert_eq!(pool.accounts[0].id, "acct-a");
 }

@@ -6,6 +6,7 @@ pub mod ollama;
 pub mod openai;
 pub mod openai_codex;
 pub mod openrouter;
+pub mod pool;
 pub mod reliable;
 pub mod router;
 pub mod traits;
@@ -17,6 +18,7 @@ pub use traits::{
 };
 
 use compatible::{AuthStyle, OpenAiCompatibleProvider};
+use pool::AccountPoolProvider;
 use reliable::ReliableProvider;
 use std::path::PathBuf;
 
@@ -397,6 +399,20 @@ pub fn create_provider_with_options(
     }
 }
 
+pub(crate) fn create_provider_for_pool(
+    name: &str,
+    api_key: Option<&str>,
+    api_url: Option<&str>,
+    options: &ProviderRuntimeOptions,
+) -> anyhow::Result<Box<dyn Provider>> {
+    match name {
+        "openai-codex" | "openai_codex" | "codex" => {
+            create_provider_with_options(name, api_key, options)
+        }
+        _ => create_provider_with_url(name, api_key, api_url),
+    }
+}
+
 /// Factory: create the right provider from config with optional custom base URL
 #[allow(clippy::too_many_lines)]
 pub fn create_provider_with_url(
@@ -408,6 +424,8 @@ pub fn create_provider_with_url(
     #[allow(clippy::option_as_ref_deref)]
     let key = resolved_credential.as_ref().map(String::as_str);
     match name {
+        #[cfg(test)]
+        "test-provider" => Ok(Box::new(TestProvider::new(key.map(str::to_string)))),
         // ── Primary providers (custom implementations) ───────
         "openrouter" => Ok(Box::new(openrouter::OpenRouterProvider::new(key))),
         "anthropic" => Ok(Box::new(anthropic::AnthropicProvider::new(key))),
@@ -595,11 +613,16 @@ pub fn create_resilient_provider_with_options(
 ) -> anyhow::Result<Box<dyn Provider>> {
     let mut providers: Vec<(String, Box<dyn Provider>)> = Vec::new();
 
-    let primary_provider = match primary_name {
-        "openai-codex" | "openai_codex" | "codex" => {
-            create_provider_with_options(primary_name, api_key, options)?
-        }
-        _ => create_provider_with_url(primary_name, api_key, api_url)?,
+    // If a pool is configured for the provider, select accounts per request.
+    let primary_provider = if let Some(pool) = reliability.account_pools.get(primary_name) {
+        Box::new(AccountPoolProvider::new(
+            primary_name.to_string(),
+            pool.clone(),
+            options.clone(),
+            api_url.map(|value| value.to_string()),
+        )) as Box<dyn Provider>
+    } else {
+        create_provider_for_pool(primary_name, api_key, api_url, options)?
     };
     providers.push((primary_name.to_string(), primary_provider));
 
@@ -609,7 +632,18 @@ pub fn create_resilient_provider_with_options(
         }
 
         // Fallback providers don't use the custom api_url (it's specific to primary).
-        match create_provider_with_options(fallback, api_key, options) {
+        let fallback_provider = if let Some(pool) = reliability.account_pools.get(fallback) {
+            Ok(Box::new(AccountPoolProvider::new(
+                fallback.clone(),
+                pool.clone(),
+                options.clone(),
+                None,
+            )) as Box<dyn Provider>)
+        } else {
+            create_provider_for_pool(fallback, api_key, None, options)
+        };
+
+        match fallback_provider {
             Ok(provider) => providers.push((fallback.clone(), provider)),
             Err(_error) => {
                 tracing::warn!(
@@ -629,6 +663,32 @@ pub fn create_resilient_provider_with_options(
     .with_model_fallbacks(reliability.model_fallbacks.clone());
 
     Ok(Box::new(reliable))
+}
+
+#[cfg(test)]
+struct TestProvider {
+    api_key: Option<String>,
+}
+
+#[cfg(test)]
+impl TestProvider {
+    fn new(api_key: Option<String>) -> Self {
+        Self { api_key }
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl Provider for TestProvider {
+    async fn chat_with_system(
+        &self,
+        _system_prompt: Option<&str>,
+        _message: &str,
+        _model: &str,
+        _temperature: f64,
+    ) -> anyhow::Result<String> {
+        Ok(self.api_key.clone().unwrap_or_default())
+    }
 }
 
 /// Create a RouterProvider if model routes are configured, otherwise return a
@@ -1344,6 +1404,7 @@ mod tests {
             ],
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
+            account_pools: std::collections::HashMap::new(),
             channel_initial_backoff_secs: 2,
             channel_max_backoff_secs: 60,
             scheduler_poll_secs: 15,
@@ -1369,6 +1430,92 @@ mod tests {
             &reliability,
         );
         assert!(provider.is_err());
+    }
+
+    fn pool_account(id: &str, api_key: &str) -> crate::config::ProviderAccountConfig {
+        crate::config::ProviderAccountConfig {
+            id: id.to_string(),
+            api_key: api_key.to_string(),
+            api_url: None,
+            weight: 1,
+            enabled: true,
+        }
+    }
+
+    #[tokio::test]
+    async fn resilient_provider_uses_account_pool_when_configured() {
+        let mut reliability = crate::config::ReliabilityConfig::default();
+        reliability.account_pools.insert(
+            "test-provider".into(),
+            crate::config::ProviderAccountPoolConfig {
+                strategy: crate::config::AccountPoolStrategy::RoundRobin,
+                accounts: vec![
+                    pool_account("acct-a", "key-a"),
+                    pool_account("acct-b", "key-b"),
+                ],
+            },
+        );
+
+        let provider = create_resilient_provider_with_options(
+            "test-provider",
+            None,
+            None,
+            &reliability,
+            &ProviderRuntimeOptions::default(),
+        )
+        .unwrap();
+
+        let first = provider.simple_chat("hello", "test", 0.0).await.unwrap();
+        let second = provider.simple_chat("hello", "test", 0.0).await.unwrap();
+
+        assert_eq!(first, "key-a");
+        assert_eq!(second, "key-b");
+    }
+
+    #[tokio::test]
+    async fn resilient_provider_single_account_pool_uses_account_credentials() {
+        let mut reliability = crate::config::ReliabilityConfig::default();
+        reliability.account_pools.insert(
+            "test-provider".into(),
+            crate::config::ProviderAccountPoolConfig {
+                strategy: crate::config::AccountPoolStrategy::RoundRobin,
+                accounts: vec![pool_account("acct-solo", "solo-key")],
+            },
+        );
+
+        let provider = create_resilient_provider_with_options(
+            "test-provider",
+            None,
+            None,
+            &reliability,
+            &ProviderRuntimeOptions::default(),
+        )
+        .unwrap();
+
+        let first = provider.simple_chat("hello", "test", 0.0).await.unwrap();
+        let second = provider.simple_chat("hello", "test", 0.0).await.unwrap();
+
+        assert_eq!(first, "solo-key");
+        assert_eq!(second, "solo-key");
+    }
+
+    #[tokio::test]
+    async fn resilient_provider_without_pool_uses_base_provider() {
+        let reliability = crate::config::ReliabilityConfig::default();
+        let provider = create_resilient_provider_with_options(
+            "test-provider",
+            Some("primary-key"),
+            None,
+            &reliability,
+            &ProviderRuntimeOptions::default(),
+        )
+        .unwrap();
+
+        let first = provider.simple_chat("hello", "test", 0.0).await.unwrap();
+        let second = provider.simple_chat("hello", "test", 0.0).await.unwrap();
+
+        assert_eq!(first, "primary-key");
+        assert_eq!(second, "primary-key");
     }
 
     #[test]

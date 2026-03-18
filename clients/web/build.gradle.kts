@@ -94,14 +94,11 @@ webApps.forEach { appName ->
 
   // Install task (depends on workspace install)
   val appInstall =
-    tasks.register<Exec>("${appName}Install") {
+    tasks.register("${appName}Install") {
       group = "web"
-      description = "Install dependencies for ${appName}"
+      description = "Ensure dependencies for ${appName}"
       dependsOn(workspaceInstall)
-      workingDir = appDir
-      commandLine(listOf(pnpmShim) + installArgs)
       inputs.file("${appDir}/package.json")
-      outputs.dir("${appDir}/node_modules")
     }
 
   // Build task
