@@ -103,7 +103,7 @@ fn validate_observation(observation: &Value, memory_id: &str) -> Result<(), Migr
             "observation must be an object".to_string(),
         ));
     }
-    if !observation.get("content").is_some() {
+    if observation.get("content").is_none() {
         tracing::warn!(
             memory_id = %memory_id,
             "observation missing 'content' field, allowing with empty content"

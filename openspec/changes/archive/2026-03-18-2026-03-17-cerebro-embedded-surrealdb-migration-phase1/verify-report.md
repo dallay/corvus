@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: 2026-03-17-cerebro-embedded-surrealdb-migration-phase1
 **Version**: N/A
@@ -6,6 +6,7 @@
 ---
 
 ### Completeness
+
 | Metric | Value |
 |--------|-------|
 | Tasks total | 29 |
@@ -19,6 +20,7 @@
 **Build**: ⚠️ Not run in this verification pass
 
 **Tests**: ✅ Passed (requested subset)
+
 ```
 Command: cargo test --test storage_config_test --test embedded_storage_test --test migration_workflow_test --test cli_migration_test
 Results:
@@ -29,6 +31,7 @@ Results:
 ```
 
 **Tests (additional)**: ✅ Passed
+
 ```
 Command: cargo test --test migration_legacy_test --test migration_report_test --test migration_checksum_test --test migration_integration_test
 Results:
@@ -41,6 +44,7 @@ Results:
 **Tests (repo default)**: ⚠️ Not run in this verification pass
 
 **Coverage**: ✅ Passed (threshold: 60%)
+
 ```
 Command: make test-coverage
 Kover report: gradle/aggregation/build/reports/kover/html/index.html
@@ -70,6 +74,7 @@ Notes: Configuration cache reused.
 ---
 
 ### Correctness (Static — Structural Evidence)
+
 | Requirement | Status | Notes |
 |------------|--------|-------|
 | Embedded storage default | ✅ Implemented | `modules/cerebro/src/config.rs` default `StorageMode::EmbeddedSurreal`.
@@ -82,6 +87,7 @@ Notes: Configuration cache reused.
 ---
 
 ### Coherence (Design)
+
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
 | Default storage mode is embedded SurrealDB | ✅ Yes | Default set in `modules/cerebro/src/config.rs`.

@@ -16,7 +16,7 @@ static JWT_RE: Lazy<Regex> = Lazy::new(|| {
 static HEX_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)\b[a-f0-9]{32,}\b").expect("hex"));
 static BASE64_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\b[A-Za-z0-9+/]{32,}={0,2}\b").expect("base64 regex"));
-static TOKEN_RE: Lazy<Regex> =
+static TOKEN_CANDIDATE_RE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\b[A-Za-z0-9_-]{24,}\b").expect("token regex"));
 
 #[derive(Debug, Clone)]
@@ -97,14 +97,14 @@ impl RedactionPolicy {
                         output.insert(key.clone(), Value::String(REDACTED.to_string()));
                         continue;
                     }
-                    output.insert(key.clone(), self.redact_value(value, None));
+                    output.insert(key.clone(), self.redact_value(value, allowlist));
                 }
                 Value::Object(output)
             }
             Value::Array(values) => Value::Array(
                 values
                     .iter()
-                    .map(|value| self.redact_value(value, None))
+                    .map(|value| self.redact_value(value, allowlist))
                     .collect(),
             ),
             Value::String(value) => Value::String(self.redact_text(value)),
@@ -127,5 +127,24 @@ fn contains_secret_pattern(text: &str) -> bool {
         || JWT_RE.is_match(text)
         || HEX_RE.is_match(text)
         || BASE64_RE.is_match(text)
-        || TOKEN_RE.is_match(text)
+        || contains_token_candidate(text)
+}
+
+fn contains_token_candidate(text: &str) -> bool {
+    for candidate in TOKEN_CANDIDATE_RE.find_iter(text) {
+        let token = candidate.as_str();
+        let mut has_alpha = false;
+        let mut has_digit = false;
+        for ch in token.chars() {
+            if ch.is_ascii_alphabetic() {
+                has_alpha = true;
+            } else if ch.is_ascii_digit() {
+                has_digit = true;
+            }
+        }
+        if has_alpha && has_digit {
+            return true;
+        }
+    }
+    false
 }

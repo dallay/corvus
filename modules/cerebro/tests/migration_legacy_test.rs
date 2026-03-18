@@ -3,7 +3,8 @@ use std::path::PathBuf;
 
 #[test]
 fn parses_legacy_export_fixture() {
-    let path = PathBuf::from("tests/fixtures/legacy/legacy_export.json");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/legacy/legacy_export.json");
     let export = read_legacy_export(&path).expect("legacy export should parse");
 
     assert_eq!(export.memory.len(), 2);
@@ -13,7 +14,8 @@ fn parses_legacy_export_fixture() {
 
 #[test]
 fn normalizes_memory_ids_and_sorting() {
-    let path = PathBuf::from("tests/fixtures/legacy/legacy_export.json");
+    let path =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/legacy/legacy_export.json");
     let export = read_legacy_export(&path).expect("legacy export should parse");
     let normalized = normalize_export(export).expect("normalized export should succeed");
 

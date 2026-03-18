@@ -5,6 +5,7 @@ use cerebro::tui::{start_tui_task, validate_no_network_listeners, TuiLaunch};
 use cerebro::{InMemoryStorage, TuiConfig};
 use std::sync::Mutex;
 use tokio::sync::watch;
+use tokio::time::{timeout, Duration};
 
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
@@ -69,7 +70,10 @@ async fn tui_toggle_enabled_starts_headless() {
     };
 
     tx.send(true).expect("shutdown send should succeed");
-    handle.join().await.expect("tui join should succeed");
+    timeout(Duration::from_secs(1), handle.join())
+        .await
+        .expect("tui join timeout")
+        .expect("tui join should succeed");
 }
 
 #[test]

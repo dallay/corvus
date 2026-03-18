@@ -521,11 +521,10 @@ and MUST NOT serve MCP requests.
 - THEN the service fails to start
 - AND no MCP requests are served
 
-### Requirement: TUI Out of Scope for Phase 1
+### Requirement: Migration Tooling Without TUI Dependency
 
-This change SHALL NOT introduce or modify TUI requirements or behavior.
-
-Migration tooling MUST be operable without any TUI dependency.
+Migration tooling MUST be operable without any TUI dependency, and the TUI remains optional and
+independent of migration operations.
 
 #### Scenario: Migration tooling operates without TUI (happy path)
 

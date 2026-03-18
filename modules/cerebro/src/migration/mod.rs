@@ -104,6 +104,9 @@ async fn embedded_storage(
 
     let storage = SurrealStorage::new_embedded(&config).await?;
     if let Ok(mut cache) = cache.lock() {
+        if let Some(existing) = cache.get(&cache_key) {
+            return Ok(existing.clone());
+        }
         cache.insert(cache_key, storage.clone());
     }
     Ok(storage)

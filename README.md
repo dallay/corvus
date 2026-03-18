@@ -191,7 +191,16 @@ Memory migration and schemas:
 - Migration guide: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md)
 - MCP schemas: [clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/](clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/)
 
-## [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/dallay/corvus)
+### Cerebro storage & operations
+
+- Embedded SurrealDB defaults + fallback guidance: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#cerebro-storage-defaults-embedded](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#cerebro-storage-defaults-embedded)
+- Migration CLI import/validate: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#migration-cli](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#migration-cli)
+- Optional operator TUI: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#optional-tui-operator-only](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#optional-tui-operator-only)
+- Fallback behavior + exit codes: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#operational-notes](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#operational-notes)
+
+## 🔎 DeepWiki
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/dallay/corvus)
 
 ## 🤝 Contributing
 

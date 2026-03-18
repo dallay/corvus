@@ -60,9 +60,12 @@ fn cli_validate_exits_nonzero_on_mismatch() {
 
     let raw = fs::read_to_string(&source).expect("read source");
     let mut json: Value = serde_json::from_str(&raw).expect("json parse");
-    if let Some(array) = json.get_mut("memory").and_then(Value::as_array_mut) {
-        array.pop();
-    }
+    let memory = json
+        .get_mut("memory")
+        .and_then(Value::as_array_mut)
+        .expect("memory array");
+    assert!(!memory.is_empty(), "memory array should not be empty");
+    memory.pop();
     let bad_source = temp_dir.path().join("legacy_export_modified.json");
     fs::write(&bad_source, serde_json::to_vec(&json).expect("json encode"))
         .expect("write modified source");

@@ -136,9 +136,10 @@ struct BufferGuard(Arc<Mutex<Vec<u8>>>);
 
 impl std::io::Write for BufferGuard {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        if let Ok(mut guard) = self.0.lock() {
-            guard.extend_from_slice(buf);
-        }
+        let mut guard = self.0.lock().map_err(|_| {
+            std::io::Error::new(std::io::ErrorKind::Other, "buffer lock poisoned")
+        })?;
+        guard.extend_from_slice(buf);
         Ok(buf.len())
     }
 
@@ -149,6 +150,7 @@ impl std::io::Write for BufferGuard {
 
 #[tokio::test]
 async fn fallback_reports_active_mode() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
     let buffer = Arc::new(Mutex::new(Vec::new()));
     let writer = BufferWriter(buffer.clone());
     let subscriber = tracing_subscriber::fmt().with_writer(writer).finish();

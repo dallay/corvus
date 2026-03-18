@@ -31,7 +31,7 @@ pub(in crate::tui) fn render_tabs(
     };
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Length(2), Constraint::Length(1)])
+        .constraints([Constraint::Length(3), Constraint::Length(1)])
         .split(area);
     let tabs_area = chunks[0];
     let meta_area = chunks[1];

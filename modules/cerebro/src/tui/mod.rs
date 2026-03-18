@@ -45,6 +45,8 @@ pub enum TuiError {
     FeatureDisabled,
     #[error("tui initialization failed: {0}")]
     InitFailed(String),
+    #[error("tui event handling failed: {0}")]
+    EventFailed(String),
     #[error("tui render failed: {0}")]
     RenderFailed(String),
     #[error("tui task failed to start: {0}")]
@@ -201,10 +203,10 @@ fn run_tui(
             .map_err(|err| TuiError::RenderFailed(err.to_string()))?;
 
         if crossterm::event::poll(Duration::from_millis(50))
-            .map_err(|err| TuiError::InitFailed(err.to_string()))?
+            .map_err(|err| TuiError::EventFailed(err.to_string()))?
         {
             if let crossterm::event::Event::Key(key) = crossterm::event::read()
-                .map_err(|err| TuiError::InitFailed(err.to_string()))?
+                .map_err(|err| TuiError::EventFailed(err.to_string()))?
             {
                 if app.on_key(key) {
                     break;
@@ -397,7 +399,7 @@ impl TuiApp {
         let chunks = ratatui::layout::Layout::default()
             .direction(ratatui::layout::Direction::Vertical)
             .constraints([
-                ratatui::layout::Constraint::Length(3),
+                ratatui::layout::Constraint::Length(4),
                 ratatui::layout::Constraint::Min(0),
             ])
             .split(area);

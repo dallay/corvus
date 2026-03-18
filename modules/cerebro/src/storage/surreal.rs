@@ -346,42 +346,69 @@ impl Storage for SurrealStorage {
         scope: Option<&str>,
         topic_key: Option<&str>,
     ) -> Result<Vec<MemoryRecord>, CerebroError> {
-        let mut records: Vec<MemoryRecord> = self
+        let mut clauses: Vec<String> = Vec::new();
+        let mut variables = Variables::new();
+        if !include_deleted {
+            clauses.push("deleted = false".to_string());
+        }
+        if let Some(scope) = scope {
+            clauses.push("scope = $scope".to_string());
+            variables.insert("scope", scope.to_string());
+        }
+        if let Some(topic_key) = topic_key {
+            clauses.push("topic_key = $topic_key".to_string());
+            variables.insert("topic_key", topic_key.to_string());
+        }
+        let normalized_query = query.trim().to_ascii_lowercase();
+        if !normalized_query.is_empty() {
+            clauses.push(
+                "(string::contains(string::lowercase(summary), $query) OR string::contains(string::lowercase(topic_key), $query))"
+                    .to_string(),
+            );
+            variables.insert("query", normalized_query);
+        }
+
+        variables.insert("limit", limit as i64);
+        let mut statement = String::from("SELECT * FROM memory");
+        if !clauses.is_empty() {
+            statement.push_str(" WHERE ");
+            statement.push_str(&clauses.join(" AND "));
+        }
+        statement.push_str(" ORDER BY timestamp DESC LIMIT $limit;");
+
+        let mut response = self
             .db
-            .select::<Vec<MemoryRecord>>("memory")
+            .query(statement)
+            .bind(variables)
             .await
             .map_err(|err| CerebroError::Storage(format!("surrealdb search failed: {err}")))?;
-
-        let query = query.to_ascii_lowercase();
-        records.retain(|record| {
-            if !include_deleted && record.deleted {
-                return false;
-            }
-            if let Some(scope) = scope {
-                if record.scope != scope {
-                    return false;
-                }
-            }
-            if let Some(topic_key) = topic_key {
-                if record.topic_key != topic_key {
-                    return false;
-                }
-            }
-            let haystack = format!("{} {}", record.summary, record.topic_key).to_ascii_lowercase();
-            haystack.contains(&query)
-        });
-
-        records.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        records.truncate(limit);
+        response
+            .check()
+            .map_err(|err| CerebroError::Storage(format!("surrealdb search failed: {err}")))?;
+        let records: Vec<MemoryRecord> = response
+            .take(0)
+            .map_err(|err| CerebroError::Storage(format!("surrealdb search failed: {err}")))?;
         Ok(records)
     }
 
     async fn count(&self) -> Result<usize, CerebroError> {
-        let records: Vec<MemoryRecord> = self
+        #[derive(serde::Deserialize)]
+        struct CountRow {
+            count: u64,
+        }
+
+        let mut response = self
             .db
-            .select::<Vec<MemoryRecord>>("memory")
+            .query("SELECT count() AS count FROM memory;")
             .await
             .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
-        Ok(records.len())
+        response
+            .check()
+            .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
+        let rows: Vec<CountRow> = response
+            .take(0)
+            .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
+        let count = rows.first().map(|row| row.count).unwrap_or(0);
+        Ok(count as usize)
     }
 }

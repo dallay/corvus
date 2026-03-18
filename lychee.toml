@@ -13,8 +13,8 @@ exclude = [
     # Avoid local development URLs
     '^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0)',
     # Flaky upstream docs and mirrors
-    'https://docs\.github\.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets',
-    'https://packages\.ubuntu\.com/?',
+    '^https://docs\.github\.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets(?:[?].*)?$',
+    '^https://packages\.ubuntu\.com/?(?:[?].*)?$',
     # Common placeholders
     'mailto:.*@example\.com',
     # Internal docs links resolved by Astro/Starlight at build time

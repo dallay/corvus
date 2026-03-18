@@ -2,6 +2,7 @@ use crate::errors::CerebroError;
 use crate::server::AuthContext;
 use crate::storage::{MemoryRecord, Storage};
 use crate::validation::require_non_empty;
+use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -37,7 +38,7 @@ impl ToolRedaction {
                 allowed_output_fields: &["memory_id", "status"],
             },
             "mem_suggest_topic_key" => Self {
-                allowed_arg_fields: &["seed", "scope"],
+                allowed_arg_fields: &["scope"],
                 allowed_output_fields: &["topic_key", "candidates_count"],
             },
             "mem_timeline" => Self {
@@ -231,16 +232,19 @@ impl CerebroTools {
     }
 
     pub fn extract_safe_args(&self, tool: &str, payload: &Value) -> Option<Value> {
+        fn parse_input<T: DeserializeOwned>(payload: &Value) -> Option<ToolInput<T>> {
+            serde_json::from_value(payload.clone()).ok()
+        }
         match tool {
             "mem_save" => {
-                let input: ToolInput<MemSaveRequest> = serde_json::from_value(payload.clone()).ok()?;
+                let input: ToolInput<MemSaveRequest> = parse_input(payload)?;
                 Some(json!({
                     "scope": input.input.scope,
                     "topic_key": input.input.topic_key,
                 }))
             }
             "mem_search" => {
-                let input: ToolInput<MemSearchRequest> = serde_json::from_value(payload.clone()).ok()?;
+                let input: ToolInput<MemSearchRequest> = parse_input(payload)?;
                 Some(json!({
                     "limit": input.input.limit,
                     "scope": input.input.scope,
@@ -249,7 +253,7 @@ impl CerebroTools {
                 }))
             }
             "mem_delete" => {
-                let input: ToolInput<MemDeleteRequest> = serde_json::from_value(payload.clone()).ok()?;
+                let input: ToolInput<MemDeleteRequest> = parse_input(payload)?;
                 Some(json!({
                     "memory_id": input.input.memory_id,
                     "topic_key": input.input.topic_key,
@@ -257,29 +261,26 @@ impl CerebroTools {
                 }))
             }
             "mem_get_observation" => {
-                let input: ToolInput<MemGetObservationRequest> =
-                    serde_json::from_value(payload.clone()).ok()?;
+                let input: ToolInput<MemGetObservationRequest> = parse_input(payload)?;
                 Some(json!({
                     "memory_id": input.input.memory_id,
                     "include_deleted": input.input.include_deleted,
                 }))
             }
             "mem_update" => {
-                let input: ToolInput<MemUpdateRequest> = serde_json::from_value(payload.clone()).ok()?;
+                let input: ToolInput<MemUpdateRequest> = parse_input(payload)?;
                 Some(json!({
                     "memory_id": input.input.memory_id,
                 }))
             }
             "mem_suggest_topic_key" => {
-                let input: ToolInput<MemSuggestTopicKeyRequest> =
-                    serde_json::from_value(payload.clone()).ok()?;
+                let input: ToolInput<MemSuggestTopicKeyRequest> = parse_input(payload)?;
                 Some(json!({
-                    "seed": input.input.seed,
                     "scope": input.input.scope,
                 }))
             }
             "mem_timeline" => {
-                let input: ToolInput<MemTimelineRequest> = serde_json::from_value(payload.clone()).ok()?;
+                let input: ToolInput<MemTimelineRequest> = parse_input(payload)?;
                 Some(json!({
                     "memory_id": input.input.memory_id,
                     "before": input.input.before,

@@ -3,8 +3,11 @@
 use cerebro::tui::event_bus::EventBus;
 use cerebro::tui::{start_tui_task, TuiLaunch};
 use cerebro::{InMemoryStorage, TuiConfig};
+use std::sync::Mutex;
 use tokio::sync::watch;
 use tokio::time::{timeout, Duration};
+
+static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 struct EnvVarGuard {
     key: &'static str,
@@ -31,6 +34,7 @@ impl Drop for EnvVarGuard {
 
 #[tokio::test]
 async fn tui_exits_on_shutdown_signal() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
     let _headless = EnvVarGuard::set("CEREBRO_TUI_HEADLESS", "1");
     let mut config = TuiConfig::default();
     config.enabled = true;
@@ -55,6 +59,7 @@ async fn tui_exits_on_shutdown_signal() {
 
 #[tokio::test]
 async fn tui_crash_isolated_from_caller() {
+    let _guard = ENV_LOCK.lock().expect("env lock");
     let _headless = EnvVarGuard::set("CEREBRO_TUI_HEADLESS", "1");
     let _crash = EnvVarGuard::set("CEREBRO_TUI_TEST_CRASH", "1");
     let mut config = TuiConfig::default();

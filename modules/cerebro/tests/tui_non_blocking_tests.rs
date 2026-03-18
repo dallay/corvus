@@ -1,7 +1,38 @@
 use serde_json::json;
+#[cfg(feature = "tui")]
+use std::sync::Mutex;
 use tokio::time::{timeout, Duration};
 
 mod helpers;
+
+#[cfg(feature = "tui")]
+static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+#[cfg(feature = "tui")]
+struct EnvVarGuard {
+    key: &'static str,
+    previous: Option<String>,
+}
+
+#[cfg(feature = "tui")]
+impl EnvVarGuard {
+    fn set(key: &'static str, value: &str) -> Self {
+        let previous = std::env::var(key).ok();
+        std::env::set_var(key, value);
+        Self { key, previous }
+    }
+}
+
+#[cfg(feature = "tui")]
+impl Drop for EnvVarGuard {
+    fn drop(&mut self) {
+        if let Some(value) = &self.previous {
+            std::env::set_var(self.key, value);
+        } else {
+            std::env::remove_var(self.key);
+        }
+    }
+}
 
 #[tokio::test]
 async fn mcp_path_does_not_block_on_event_bus_backpressure() {
@@ -25,7 +56,8 @@ async fn mcp_path_remains_responsive_with_tui_running() {
     use cerebro::tui::{start_tui_task, TuiLaunch};
     use tokio::sync::watch;
 
-    std::env::set_var("CEREBRO_TUI_HEADLESS", "1");
+    let _guard = ENV_LOCK.lock().expect("env lock");
+    let _headless = EnvVarGuard::set("CEREBRO_TUI_HEADLESS", "1");
     let mut config = helpers::test_config();
     config.tui.enabled = true;
     let tui_config = config.tui.clone();
@@ -48,7 +80,9 @@ async fn mcp_path_remains_responsive_with_tui_running() {
     .await;
     assert!(result.is_ok());
 
-    let _ = shutdown_tx.send(true);
-    handle.join().await.expect("tui join");
-    std::env::remove_var("CEREBRO_TUI_HEADLESS");
+    shutdown_tx.send(true).expect("shutdown send should succeed");
+    timeout(Duration::from_secs(1), handle.join())
+        .await
+        .expect("tui join timeout")
+        .expect("tui join should succeed");
 }
