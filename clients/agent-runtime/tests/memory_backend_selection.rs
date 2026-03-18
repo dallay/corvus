@@ -4,8 +4,8 @@ use axum::{Json, Router};
 use corvus::agent::memory_loader::{CerebroMemoryLoader, DefaultMemoryLoader, MemoryLoader};
 use corvus::config::MemoryCerebroConfig;
 use corvus::memory::{
-    classify_memory_backend, selectable_memory_backends, Memory, MemoryBackendKind,
-    MemoryCategory, NoneMemory, SqliteMemory,
+    classify_memory_backend, selectable_memory_backends, Memory, MemoryBackendKind, MemoryCategory,
+    NoneMemory, SqliteMemory,
 };
 use serde_json::json;
 use std::sync::{Arc, Mutex};

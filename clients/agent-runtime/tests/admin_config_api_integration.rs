@@ -218,10 +218,10 @@ async fn put_admin_config_rolls_back_on_save_failure() {
 #[tokio::test]
 async fn admin_provider_pools_rejects_when_disabled() {
     let mut config = temp_config();
-    config.reliability.account_pools.insert(
-        "openrouter".into(),
-        sample_pool("acct-a", "secret-key"),
-    );
+    config
+        .reliability
+        .account_pools
+        .insert("openrouter".into(), sample_pool("acct-a", "secret-key"));
     let state = state_with_config(config);
 
     let response = admin::handle_admin_get_provider_pools(State(state.clone()), headers())
@@ -232,13 +232,10 @@ async fn admin_provider_pools_rejects_when_disabled() {
     let patch = admin::AdminProviderPoolsPatch {
         account_pools: std::collections::HashMap::new(),
     };
-    let response = admin::handle_admin_update_provider_pools(
-        State(state),
-        headers(),
-        Ok(Json(patch)),
-    )
-    .await
-    .into_response();
+    let response =
+        admin::handle_admin_update_provider_pools(State(state), headers(), Ok(Json(patch)))
+            .await
+            .into_response();
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
 }
 
@@ -246,10 +243,10 @@ async fn admin_provider_pools_rejects_when_disabled() {
 async fn admin_provider_pools_redacts_api_keys() {
     let mut config = temp_config();
     config.gateway.admin_expose_provider_pools = true;
-    config.reliability.account_pools.insert(
-        "openrouter".into(),
-        sample_pool("acct-a", "secret-key"),
-    );
+    config
+        .reliability
+        .account_pools
+        .insert("openrouter".into(), sample_pool("acct-a", "secret-key"));
     let state = state_with_config(config);
 
     let response = admin::handle_admin_get_provider_pools(State(state), headers())
@@ -270,10 +267,10 @@ async fn admin_provider_pools_redacts_api_keys() {
 async fn admin_provider_pools_rejects_invalid_patch_when_enabled() {
     let mut config = temp_config();
     config.gateway.admin_expose_provider_pools = true;
-    config.reliability.account_pools.insert(
-        "openrouter".into(),
-        sample_pool("acct-a", "secret-key"),
-    );
+    config
+        .reliability
+        .account_pools
+        .insert("openrouter".into(), sample_pool("acct-a", "secret-key"));
     let state = state_with_config(config);
 
     let patch = admin::AdminProviderPoolsPatch {
@@ -292,13 +289,10 @@ async fn admin_provider_pools_rejects_invalid_patch_when_enabled() {
         )]),
     };
 
-    let response = admin::handle_admin_update_provider_pools(
-        State(state.clone()),
-        headers(),
-        Ok(Json(patch)),
-    )
-    .await
-    .into_response();
+    let response =
+        admin::handle_admin_update_provider_pools(State(state.clone()), headers(), Ok(Json(patch)))
+            .await
+            .into_response();
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
 
     let stored = state.config.lock();

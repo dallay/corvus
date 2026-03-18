@@ -2,6 +2,7 @@
 # CORVUS MONOREPO - MAKEFILE
 #
 # Standardized commands for all developers and operating systems.
+# On Windows, run them from Git Bash (or WSL) so the same make targets work unchanged.
 # Run `make help` to see all available commands.
 # ====================================================================================
 
@@ -14,17 +15,16 @@
 # Operating System Detection & Shell Normalization
 ifeq ($(OS),Windows_NT)
     DETECTED_OS := Windows
-    # Ensure bash is present before running bash scripts on Windows.
-    REQUIRE_BASH = $(if $(shell where bash 2>nul),,$(error Bash not found in PATH on Windows. Install Git Bash or enable WSL, then rerun make bootstrap-bash))
     SHELL := bash
 else
     DETECTED_OS := $(shell uname -s 2>/dev/null || echo Unknown)
-    SHELL := /bin/bash
-    REQUIRE_BASH =
+    SHELL := /usr/bin/env bash
 endif
 
 # Common Constants
-GRADLEW := ./gradlew
+GRADLEW := bash ./scripts/gradlew.sh
+DEV_CLI := bash ./dev/cli.sh
+RUNTIME_CLI := bash ./scripts/runtime-compose.sh
 DEV_NULL := /dev/null
 MKDIR_P := mkdir -p
 
@@ -50,68 +50,34 @@ RED   := $(shell tput setaf 1 2>/dev/null || echo "")
 # ------------------------------------------------------------------------------------
 
 help: ## Show this help message
-	@if [ "$(DETECTED_OS)" = "Windows" ]; then \
-		echo "-----------------------------------------------------------------------"; \
-		echo "                 CORVUS - MONOREPO COMMAND CENTER                      "; \
-		echo "-----------------------------------------------------------------------"; \
-	else \
-		echo "$(BOLD)╔═══════════════════════════════════════════════════════════════════════╗$(SGR0)"; \
-		echo "$(BOLD)║                 CORVUS - MONOREPO COMMAND CENTER                      ║$(SGR0)"; \
-		echo "$(BOLD)╚═══════════════════════════════════════════════════════════════════════╝$(SGR0)"; \
-	fi
-	@echo ""
-	@echo "$(BOLD)Usage:$(SGR0) make $(CYAN)[target]$(SGR0)"
-	@echo ""
-	@echo "$(BOLD)Quick Start:$(SGR0)"
-	@echo "  $(CYAN)make run$(SGR0)           - Run the main Desktop application"
-	@echo "  $(CYAN)make setup$(SGR0)         - Initial project setup and tool validation"
-	@echo "  $(CYAN)make build$(SGR0)         - Build the entire project"
-	@echo "  $(CYAN)make test$(SGR0)          - Run all project tests"
-	@echo ""
-	@echo "$(BOLD)Available Commands:$(SGR0)"
-	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$|^# --- .* ---$$' $(MAKEFILE_LIST) | \
-		awk 'BEGIN {FS = ":.*?## "}; \
-			/^# --- / { \
-				section = $$0; \
-				gsub(/^# --- /, "", section); \
-				gsub(/ ---$$/, "", section); \
-				printf "\n\033[1m%s\033[0m\n", section; \
-				next; \
-			} \
-			/^[a-zA-Z0-9_-]+:/ { \
-				printf "  \033[36m%-20s\033[0m %s\n", $$1, $$2; \
-			}'
+	@bash ./scripts/print-make-help.sh $(MAKEFILE_LIST)
 
 h: help ## Alias for help
 
 # --- ENVIRONMENT & SETUP ---
 
 bootstrap-bash: ## Ensure bash is available (Windows)
-	$(REQUIRE_BASH)
 	@bash scripts/bootstrap-bash.sh
 
 
 check-tools: bootstrap-bash ## Verify toolchain (Java 21, Node 22, pnpm 10, Rust 1.75)
-	$(REQUIRE_BASH)
 	@bash scripts/check-tools.sh
 
 setup: check-tools ## Initial project setup (agents, web deps, rust check)
 	@echo "🔧 $(BOLD)Setting up project...$(SGR0)"
-	@chmod +x gradlew
 	@$(GRADLEW) agentsyncApply
 	@$(GRADLEW) $(WEB_MODULE):workspaceInstall
 	@$(GRADLEW) $(RUST_MODULE):cargoCheck -PenableRustTasks=true
 	@echo "$(GREEN)✅ Project setup complete!$(SGR0)"
 
 doctor: bootstrap-bash ## Diagnose dev environment and repo health
-	$(REQUIRE_BASH)
 	@bash scripts/doctor.sh
 
 sync-agents: ## Sync AI agent configurations (agentsync)
 	@$(GRADLEW) agentsyncApply
 
 wrapper: ## Update Gradle wrapper
-	@$(GRADLEW) wrapper --gradle-version $(shell grep -E '^gradle\s*=' gradle/libs.versions.toml | sed 's/.*= "\(.*\)".*/\1/')
+	@$(GRADLEW) wrapper --gradle-version "$$(node -e "const fs=require('fs'); const m=fs.readFileSync('gradle/libs.versions.toml','utf8').match(/^gradle\s*=\s*\"([^\"]+)\"/m); if(!m){process.exit(1)} process.stdout.write(m[1])")"
 
 # --- BUILD & CLEAN ---
 
@@ -310,21 +276,23 @@ deps-update: ## Check for dependency updates
 # --- DEV ENVIRONMENT (Docker) ---
 
 dev-up: ## Start proxied dev environment at corvus.localhost
-	@./dev/cli.sh up
+	@$(DEV_CLI) up
+dev-up-dashboard: ## Start proxied dev environment with dashboard at corvus.localhost
+	@$(DEV_CLI) up-dashboard
 dev-down: ## Stop Docker dev environment
-	@docker compose -f dev/docker-compose.yml down
+	@$(DEV_CLI) down
 dev-shell: ## Enter Sandbox container
-	@./dev/cli.sh shell
+	@$(DEV_CLI) shell
 dev-agent: ## Enter Agent container
-	@./dev/cli.sh agent
+	@$(DEV_CLI) agent
 dev-logs: ## Follow Docker logs
-	@docker compose -f dev/docker-compose.yml logs -f
+	@$(DEV_CLI) logs
 dev-status: ## Show dev container status
-	@docker compose -f dev/docker-compose.yml ps
+	@$(DEV_CLI) status
 dev-build: ## Rebuild dev images
-	@./dev/cli.sh build
+	@$(DEV_CLI) build
 dev-clean: ## Stop and wipe dev environment
-	@./dev/cli.sh clean
+	@$(DEV_CLI) clean
 
 clean-web: ## Clean web app build outputs
 	@$(GRADLEW) $(WEB_MODULE):cleanAllWebApps
@@ -335,15 +303,15 @@ clean-pnpm: ## Clean pnpm store (optional)
 # --- LOCAL RUNTIME (Docker Compose) ---
 
 runtime-up: ## Start local gateway runtime (clients/agent-runtime)
-	@docker compose -f clients/agent-runtime/docker-compose.yml up -d
+	@$(RUNTIME_CLI) up
 runtime-up-dashboard: ## Start local gateway + dashboard runtime
-	@docker compose -f clients/agent-runtime/docker-compose.yml --profile dashboard up -d
+	@$(RUNTIME_CLI) up-dashboard
 runtime-down: ## Stop local gateway/dashboard runtime
-	@docker compose -f clients/agent-runtime/docker-compose.yml down
+	@$(RUNTIME_CLI) down
 runtime-logs: ## Follow local gateway/dashboard logs
-	@docker compose -f clients/agent-runtime/docker-compose.yml logs -f
+	@$(RUNTIME_CLI) logs
 runtime-status: ## Show local gateway/dashboard status
-	@docker compose -f clients/agent-runtime/docker-compose.yml ps
+	@$(RUNTIME_CLI) status
 
 # --- CONTINUOUS INTEGRATION ---
 
@@ -378,7 +346,6 @@ version: ## Show project version
 	@$(GRADLEW) --quiet version 2>/dev/null || echo "Run './gradlew version' for version info"
 
 sync-version: ## Sync VERSION with git tag
-	$(REQUIRE_BASH)
 	@bash ./scripts/sync-version-with-tag.sh
 
 .PHONY: help h check-tools setup doctor sync-agents wrapper build build-fast clean clean-all run dev \
@@ -388,7 +355,7 @@ sync-version: ## Sync VERSION with git tag
         marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all web-check-all \
         format check-format check lint-kotlin lint-rust lint-android lint-all \
         test test-app test-core test-verbose test-coverage rust-coverage test-all check-all docs-code \
-        deps deps-app deps-analysis deps-update \
-         dev-up dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean clean-web clean-pnpm \
-         runtime-up runtime-up-dashboard runtime-down runtime-logs runtime-status \
-         ci-build ci-test ci-check all quick tasks info version sync-version
+         deps deps-app deps-analysis deps-update \
+          dev-up dev-up-dashboard dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean clean-web clean-pnpm \
+          runtime-up runtime-up-dashboard runtime-down runtime-logs runtime-status \
+          ci-build ci-test ci-check all quick tasks info version sync-version

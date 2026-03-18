@@ -18,7 +18,6 @@ fn markdown_backend(dir: &std::path::Path) -> MarkdownMemory {
     MarkdownMemory::new(dir)
 }
 
-
 // ── Test 1: Store performance ──────────────────────────────────
 
 #[tokio::test]

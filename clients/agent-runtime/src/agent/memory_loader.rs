@@ -96,8 +96,7 @@ impl MemoryLoader for CerebroMemoryLoader {
             anyhow::bail!("Cerebro MCP endpoint is not configured");
         }
 
-        let adapter =
-            cerebro::cerebro_tool_adapter(&self.config, normalize::CEREBRO_TOOL_RECALL)?;
+        let adapter = cerebro::cerebro_tool_adapter(&self.config, normalize::CEREBRO_TOOL_RECALL)?;
         let payload = json!({
             "input": {
                 "query": user_message,

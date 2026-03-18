@@ -107,27 +107,27 @@
   <body>
     <main>
       <span class="eyebrow">Corvus Dev</span>
-      <h1>Gateway listo, dashboard opcional.</h1>
+      <h1>Gateway ready, dashboard optional.</h1>
       <p>
-        Este entrypoint local imita produccion: todo entra por <code>corvus.localhost</code>,
-        y el agent vive detras del proxy.
+        This local entrypoint mimics production: everything enters via <code>corvus.localhost</code>,
+        and the agent lives behind the proxy.
       </p>
 
       <section class="grid">
         <div class="card">
-          <strong>API del gateway</strong>
+          <strong>Gateway API</strong>
           <p>
-            Salud:
+            Health:
             <a href="http://corvus.localhost/api/health"><code>http://corvus.localhost/api/health</code></a>
           </p>
         </div>
         <div class="card">
-          <strong>Levantar dashboard</strong>
-          <p>Corre <code>./dev/cli.sh up-dashboard</code> para publicar la UI en esta misma URL.</p>
+          <strong>Start dashboard</strong>
+          <p>Run <code>./dev/cli.sh up-dashboard</code> to publish the UI at this same URL.</p>
         </div>
         <div class="card">
-          <strong>Por que asi</strong>
-          <p>Mismo origen, sin CORS raro, y el browser nunca habla directo con el agent.</p>
+          <strong>Why this way</strong>
+          <p>Same origin, no weird CORS, and the browser never talks directly to the agent.</p>
         </div>
       </section>
     </main>

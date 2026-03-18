@@ -103,12 +103,18 @@ async fn legacy_memory_recall_aliases_to_mem_search() {
 
 #[tokio::test]
 async fn legacy_memory_store_requires_cerebro_endpoint() {
-    let tool = MemoryStoreTool::new(MemoryCerebroConfig::default(), Arc::new(SecurityPolicy::default()));
+    let tool = MemoryStoreTool::new(
+        MemoryCerebroConfig::default(),
+        Arc::new(SecurityPolicy::default()),
+    );
     let result = tool
         .execute(json!({"key": "topic-key", "content": "Stored note"}))
         .await
         .unwrap();
 
     assert!(!result.success);
-    assert!(result.error.unwrap_or_default().contains("Cerebro MCP endpoint"));
+    assert!(result
+        .error
+        .unwrap_or_default()
+        .contains("Cerebro MCP endpoint"));
 }

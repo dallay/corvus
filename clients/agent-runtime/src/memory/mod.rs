@@ -63,7 +63,6 @@ fn build_sqlite_memory(
     Ok(mem)
 }
 
-
 /// Factory: create the right memory backend from config
 pub fn create_memory(
     config: &MemoryConfig,
@@ -264,7 +263,6 @@ mod tests {
         assert!(error.to_string().contains("disables persistence"));
     }
 
-
     #[test]
     fn factory_creates_correct_backend_types() {
         let tmp = TempDir::new().unwrap();
@@ -310,7 +308,6 @@ mod tests {
         let cache = create_response_cache(&cfg, tmp.path());
         assert!(cache.is_some());
     }
-
 
     #[test]
     fn migration_factory_accepts_markdown() {

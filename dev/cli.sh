@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 
 # Detect execution context (root or dev/)
@@ -88,6 +88,7 @@ function print_help {
     echo -e "  ${GREEN}shell${NC}   Enter Sandbox (Ubuntu)"
     echo -e "  ${GREEN}agent${NC}   Enter Agent (Corvus CLI)"
     echo -e "  ${GREEN}logs${NC}    View logs"
+    echo -e "  ${GREEN}status${NC}  Show container status"
     echo -e "  ${GREEN}build${NC}             Rebuild agent + sandbox images"
     echo -e "  ${GREEN}build-dashboard${NC}   Rebuild dashboard image"
     echo -e "  ${GREEN}smoke${NC}             Quick health checks (gateway + optional dashboard)"
@@ -129,7 +130,7 @@ case "$1" in
 
     down)
         echo -e "${YELLOW}🛑 Stopping services...${NC}"
-        docker compose -f "$COMPOSE_FILE" down
+        docker compose -f "$COMPOSE_FILE" --profile dashboard down --remove-orphans
         echo -e "${GREEN}✅ Stopped.${NC}"
         ;;
 
@@ -145,6 +146,10 @@ case "$1" in
 
     logs)
         docker compose -f "$COMPOSE_FILE" logs -f
+        ;;
+
+    status)
+        docker compose -f "$COMPOSE_FILE" --profile dashboard ps
         ;;
 
     build)
@@ -194,7 +199,7 @@ case "$1" in
         read -r -n 1 -p "Are you sure? (y/N) " REPLY
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            docker compose -f "$COMPOSE_FILE" down -v
+            docker compose -f "$COMPOSE_FILE" --profile dashboard down -v --remove-orphans
             rm -rf "$HOST_TARGET_DIR/.corvus"
             echo -e "${GREEN}🧹 Cleaned up (playground/ remains intact).${NC}"
         else
