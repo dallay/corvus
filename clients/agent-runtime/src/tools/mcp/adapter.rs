@@ -189,6 +189,56 @@ mod tests {
         let unenforced = adapter.enforce_output_limit(small_output.clone());
         assert_eq!(small_output, unenforced);
     }
+
+    #[test]
+    fn mcp_adapter_enforces_marker_truncation() {
+        let adapter = McpToolAdapter {
+            name: "test".into(),
+            description: "test".into(),
+            parameters: serde_json::Value::Null,
+            original_name: "test".into(),
+            server_name: "test".into(),
+            call_timeout_ms: 1000,
+            output_limit_bytes: 10,
+            client: McpClient::new(
+                "test", // Name
+                crate::config::McpServerConfig::default(),
+            ),
+        };
+
+        let large_output = "A".repeat(200);
+        let enforced = adapter.enforce_output_limit(large_output);
+        
+        // Assert length is EXACTLY 10 and that it actually truncated the marker itself
+        assert_eq!(enforced.len(), 10);
+        assert!(enforced.starts_with("\n[output_l"));
+    }
+
+    #[test]
+    fn mcp_adapter_enforces_multibyte_truncation() {
+        let adapter = McpToolAdapter {
+            name: "test".into(),
+            description: "test".into(),
+            parameters: serde_json::Value::Null,
+            original_name: "test".into(),
+            server_name: "test".into(),
+            call_timeout_ms: 1000,
+            output_limit_bytes: 50,
+            client: McpClient::new(
+                "test", // Name
+                crate::config::McpServerConfig::default(),
+            ),
+        };
+
+        // 'é' is 2 bytes in UTF-8. 100 characters = 200 bytes.
+        let multibyte_output = "é".repeat(100);
+        let enforced = adapter.enforce_output_limit(multibyte_output);
+        
+        // Ensure strictly bounded and ends cleanly on a valid char boundary without panicking
+        assert!(enforced.len() <= 50);
+        assert!(enforced.is_char_boundary(enforced.len()));
+        assert!(std::str::from_utf8(enforced.as_bytes()).is_ok());
+    }
     
     #[tokio::test]
     async fn mcp_adapter_blocks_massive_limit_configuration() {
