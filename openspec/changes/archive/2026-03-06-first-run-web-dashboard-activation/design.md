@@ -60,9 +60,9 @@ Proposed orchestrator method in onboarding domain (name illustrative):
 Control flow:
 
 1. Render one-screen activation guide (3-5 steps):
-  - Dashboard UI URL (dev default: `http://localhost:4324`)
-  - Gateway URL/API base (`http://127.0.0.1:3000`)
-  - Pairing instruction through existing `/pair` UI flow
+  - Proxied local entrypoint (`http://corvus.localhost`)
+  - Gateway URL/API base (`/api` under the same origin)
+  - Pairing instruction through existing proxied `/api/pair` flow
   - Optional browser open attempt (non-fatal)
 1. Run bounded local diagnosis checks (below).
 2. Print diagnosed state and exact fallback command block.
@@ -70,12 +70,20 @@ Control flow:
 
 Bounded checks (deterministic order):
 
-1. Gateway health probe against local base URL (`GET /health`) with fixed timeout budget.
-2. If healthy, evaluate `paired` status only (boolean, no token exposure).
-3. Determine dashboard UI availability from execution environment capability:
-  - If CLI can launch/open browser in current runtime, mark available.
-  - If unsupported/fails, classify as `DashboardUiUnavailable` for guidance only, not a hard
-    onboarding error.
+1. Run a direct gateway probe (`gatewayHealthProbe`) against the gateway's native local health /
+   pairing surface with a fixed timeout budget so gateway-only failures are distinguishable from
+   proxy/UI failures.
+2. If the direct gateway probe is healthy, evaluate `paired` status only (boolean, no token
+   exposure).
+3. Run a separate proxied/UI reachability probe against `http://corvus.localhost/api/health` to
+   determine whether Caddy + dashboard entrypoint are reachable.
+4. Determine dashboard UI availability from execution environment capability:
+   - If CLI can launch/open browser in current runtime, mark available.
+   - If unsupported/fails, classify as `DashboardUiUnavailable` for guidance only, not a hard
+     onboarding error.
+5. Combine direct gateway probe + proxied/UI probe results to classify `GatewayNotRunning`,
+   `GatewayRunningPairingRequired`, `GatewayRunningAlreadyPaired`, or `DashboardUiUnavailable`
+   deterministically.
 
 Timeout defaults (design baseline):
 
@@ -108,22 +116,25 @@ State-to-fallback mapping:
 
 - `GatewayNotRunning`
   - `corvus gateway`
-  - In another shell: `make dashboard-dev`
-  - Open `http://localhost:4324`
+  - `make dev-up`
+  - `./dev/cli.sh up-dashboard`
+  - Open `http://corvus.localhost`
 - `GatewayRunningPairingRequired`
-  - Open `http://localhost:4324`
-  - Complete pairing using gateway-provided code at `/pair`
+  - Open `http://corvus.localhost`
+  - Complete pairing using gateway-provided code at `/api/pair`
 - `GatewayRunningAlreadyPaired`
-  - Open `http://localhost:4324`
+  - Open `http://corvus.localhost`
   - Continue to dashboard configuration view
 - `DashboardUiUnavailable`
-  - Start UI: `make dashboard-dev`
-  - Then open `http://localhost:4324`
+  - Start UI: `make dev-up`
+  - Then run `./dev/cli.sh up-dashboard`
+  - Open `http://corvus.localhost`
 - `UnknownLocalFailure`
   - `corvus status`
   - `corvus doctor`
   - `corvus gateway`
-  - `make dashboard-dev`
+  - `make dev-up`
+  - `./dev/cli.sh up-dashboard`
 
 ### 4) Resume-Later Path (Scenario D)
 
@@ -131,8 +142,9 @@ Always render a compact resume block when user declines or accept path does not 
 
 1. `corvus status`
 2. `corvus gateway`
-3. `make dashboard-dev`
-4. Open `http://localhost:4324` and pair via `/pair`
+3. `make dev-up`
+4. `./dev/cli.sh up-dashboard`
+5. Open `http://corvus.localhost` and pair via `/api/pair`
 
 This uses existing commands only, preserving backward compatibility and reducing scope risk.
 
@@ -148,7 +160,8 @@ This uses existing commands only, preserving backward compatibility and reducing
 - `clients/agent-runtime/src/gateway/mod.rs`
   - Reuse canonical local URL and pairing messaging conventions for consistency.
 - `clients/agent-runtime/src/config/schema.rs`
-  - Source of truth for secure defaults (`127.0.0.1:3000`, `require_pairing=true`).
+  - Source of truth for secure defaults (`require_pairing=true`; local entrypoint now proxied via
+    `corvus.localhost`).
 - `clients/agent-runtime/src/security/pairing.rs`
   - Security invariant reference only; no protocol/storage changes.
 - `clients/agent-runtime/src/gateway/utils.rs`
@@ -195,7 +208,8 @@ Each diagnosis output block:
 - Do not print bearer tokens, token hashes, auth headers, or persisted secret paths.
 - Pairing code display remains only within existing controlled gateway flow.
 - Do not recommend bypass paths that violate origin/referer protections.
-- Keep all probes local (`127.0.0.1`/`localhost`) and read-only (`/health`).
+- Keep direct gateway probes local/private and read-only, and keep proxied entrypoint probes
+  limited to `http://corvus.localhost/api/health` for UI/proxy reachability.
 - Ensure diagnostic logs are sanitized and avoid embedding user-provided strings without escaping.
 
 ## Test Strategy and Requirement Mapping
@@ -235,8 +249,8 @@ Potential file touchpoint:
 
 - Backward compatible by default: decline path mirrors current CLI flow.
 - No migration required for config or tokens.
-- Keep command examples aligned with project tooling (`make dashboard-dev`, `corvus gateway`,
-  `corvus status`, `corvus doctor`).
+- Keep command examples aligned with project tooling (`make dev-up`, `./dev/cli.sh up-dashboard`,
+  `corvus gateway`, `corvus status`, `corvus doctor`).
 
 ### Observability/logging guidance
 
@@ -262,7 +276,7 @@ Potential file touchpoint:
 Resolved in this design:
 
 1. Resume guidance uses existing commands only (no new alias in this change).
-2. Optional browser-open targets dashboard UI URL (`http://localhost:4324`) only.
+2. Optional browser-open targets the proxied local entrypoint (`http://corvus.localhost`) only.
 3. Deterministic bounded checks use 500 ms timeout, 1 retry, <= 1.5 s budget.
 4. Diagnosis is implemented for onboarding output first, with extraction-ready interfaces for later
    reuse.

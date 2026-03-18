@@ -1,0 +1,19 @@
+{
+  auto_https off
+  admin off
+}
+
+:8080 {
+  handle_path /api/* {
+    reverse_proxy corvus-dev:3000
+  }
+
+  handle /api {
+    redir /api/ 308
+  }
+
+  handle {
+    root * /srv/landing
+    file_server
+  }
+}

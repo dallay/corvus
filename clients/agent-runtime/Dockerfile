@@ -42,8 +42,6 @@ RUN mkdir -p /corvus-data/.corvus /corvus-data/workspace
 # Create minimal config for PRODUCTION (allows binding to public interfaces)
 # NOTE: Provider configuration must be done via environment variables at runtime
 RUN cat > /corvus-data/.corvus/config.toml << 'EOF'
-workspace_dir = "/corvus-data/workspace"
-config_path = "/corvus-data/.corvus/config.toml"
 api_key = ""
 default_provider = "openrouter"
 default_model = "anthropic/claude-sonnet-4-20250514"

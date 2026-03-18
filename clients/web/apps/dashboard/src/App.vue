@@ -42,7 +42,7 @@ const config = useConfig(t);
       <div class="grid">
         <label>
           <span>{{ t("auth.baseUrl") }}</span>
-          <Input v-model="config.baseUrl.value" placeholder="http://127.0.0.1:3000" />
+          <Input v-model="config.baseUrl.value" :placeholder="t('form.baseUrlPlaceholder')" />
         </label>
         <label>
           <span>{{ t("auth.pairingCode") }}</span>

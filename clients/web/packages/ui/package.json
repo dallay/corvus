@@ -12,6 +12,7 @@
     "vue": "catalog:"
   },
   "devDependencies": {
+    "@vue/tsconfig": "catalog:",
     "vue": "catalog:"
   }
 }

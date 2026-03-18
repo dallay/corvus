@@ -5,12 +5,16 @@ import { createI18n } from "vue-i18n";
 import App from "@/App.vue";
 import { i18nConfig } from "@/i18n";
 
-function mountApp() {
-  const i18n = createI18n(i18nConfig);
+const testI18n = createI18n(i18nConfig);
 
+function translatedPlaceholder(key: string): string {
+  return testI18n.global.t(key);
+}
+
+function mountApp() {
   return mount(App, {
     global: {
-      plugins: [i18n],
+      plugins: [testI18n],
     },
   });
 }
@@ -35,7 +39,9 @@ describe("App", () => {
 
     // In the new design, the empty state (hero) is shown when there's only the welcome message.
     // The input is still visible at the bottom.
-    const input = wrapper.get('input[placeholder="Escribe un mensaje..."]');
+    const input = wrapper.get(
+      `input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`
+    );
     await input.setValue('Hola <script>alert("x")</script>');
     await wrapper.get("form").trigger("submit.prevent");
     await flushPromises();
@@ -63,18 +69,42 @@ describe("App", () => {
   it("alterna entre configuracion y chat", async () => {
     const wrapper = mountApp();
 
-    expect(wrapper.find('input[placeholder="Escribe un mensaje..."]').exists()).toBe(true);
+    expect(
+      wrapper
+        .find(`input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`)
+        .exists()
+    ).toBe(true);
 
     // Find the first toggle-config button (could be sidebar or mobile header)
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
 
-    expect(wrapper.find('input[placeholder="http://127.0.0.1:3000"]').exists()).toBe(true);
-    expect(wrapper.find('input[placeholder="Código de emparejamiento"]').exists()).toBe(true);
-    expect(wrapper.find('input[placeholder="Token bearer"]').exists()).toBe(true);
-    expect(wrapper.find('input[placeholder="Secreto del webhook"]').exists()).toBe(true);
+    expect(
+      wrapper
+        .find(`input[placeholder="${translatedPlaceholder("form.baseUrlPlaceholder")}"]`)
+        .exists()
+    ).toBe(true);
+    expect(
+      wrapper
+        .find(`input[placeholder="${translatedPlaceholder("form.pairingCodePlaceholder")}"]`)
+        .exists()
+    ).toBe(true);
+    expect(
+      wrapper
+        .find(`input[placeholder="${translatedPlaceholder("form.bearerTokenPlaceholder")}"]`)
+        .exists()
+    ).toBe(true);
+    expect(
+      wrapper
+        .find(`input[placeholder="${translatedPlaceholder("form.webhookSecretPlaceholder")}"]`)
+        .exists()
+    ).toBe(true);
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    expect(wrapper.find('input[placeholder="Escribe un mensaje..."]').exists()).toBe(true);
+    expect(
+      wrapper
+        .find(`input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`)
+        .exists()
+    ).toBe(true);
   });
 
   it("hace pairing y luego usa bearer token en webhook", async () => {
@@ -95,12 +125,16 @@ describe("App", () => {
     const wrapper = mountApp();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    await wrapper.get('input[placeholder="Código de emparejamiento"]').setValue("123456");
+    await wrapper
+      .get(`input[placeholder="${translatedPlaceholder("form.pairingCodePlaceholder")}"]`)
+      .setValue("123456");
     await wrapper.get("form").trigger("submit.prevent");
     await flushPromises();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    const input = wrapper.get('input[placeholder="Escribe un mensaje..."]');
+    const input = wrapper.get(
+      `input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`
+    );
     await input.setValue("hola");
     await wrapper.get("form").trigger("submit.prevent");
     await flushPromises();

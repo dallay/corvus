@@ -69,9 +69,10 @@ Al final del wizard (despues del resumen y cualquier prompt de canales), Corvus 
 Si aceptas, Corvus imprime una guia de activacion en una sola pantalla con defaults locales
 canonicos:
 
-- URL de chequeo del gateway: `http://127.0.0.1:3000`
-- URL del dashboard: `http://localhost:4324`
-- Ruta de pairing: `/pair`
+- Entrada local: `http://corvus.localhost`
+- URL de chequeo del gateway: `http://corvus.localhost/api/health`
+- Base URL de la API: `/api`
+- Ruta de emparejamiento: enrutada por proxy mediante `/api/pair`
 
 Si rechazas, Corvus mantiene el flujo CLI-only e imprime un bloque para retomar luego con
 comandos exactos.
@@ -93,8 +94,9 @@ Usa este flujo seguro y copy-paste para retomar cuando quieras:
 corvus status
 corvus gateway
 # desde la raiz del repositorio Corvus (source checkout):
-make dashboard-dev
-# luego abre http://localhost:4324 y completa pairing en /pair
+make dev-up
+./dev/cli.sh up-dashboard
+# luego abre http://corvus.localhost y completa pairing por /api/pair
 ```
 
 Si necesitas ayuda de comandos:

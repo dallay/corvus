@@ -10,6 +10,22 @@
 #   or from root: ./dev/cli.sh up
 name: corvus-dev
 services:
+  # ── Local Reverse Proxy (Prod-like entrypoint) ──
+  # Exposes corvus.localhost and routes browser traffic to internal services.
+  caddy-dev:
+    image: caddy:2.10.2-alpine
+    container_name: corvus-proxy-dev
+    restart: unless-stopped
+    depends_on:
+      - corvus-dev
+    ports:
+      - "127.0.0.1:80:8080"
+    volumes:
+      - ./Caddyfile.active:/etc/caddy/Caddyfile:ro
+      - ./landing:/srv/landing:ro
+    networks:
+      - dev-net
+
   # ── The Agent (Development Image) ──
   # Builds from source using the 'dev' stage of the clients/agent-runtime/Dockerfile
   corvus-dev:
@@ -19,6 +35,7 @@ services:
       target: dev
     container_name: corvus-dev
     restart: unless-stopped
+    command: ["gateway", "--port", "3000", "--host", "0.0.0.0"]
     environment:
       - API_KEY
       - PROVIDER
@@ -30,8 +47,6 @@ services:
       - ../clients/agent-runtime/target/.corvus:/corvus-data/.corvus
       # Mount shared workspace
       - ../clients/agent-runtime/target/playground:/corvus-data/workspace
-    ports:
-      - "127.0.0.1:3000:3000"
     networks:
       - dev-net
 
@@ -65,8 +80,6 @@ services:
     profiles: ["dashboard"]
     depends_on:
       - corvus-dev
-    ports:
-      - "127.0.0.1:4324:8080"
     networks:
       - dev-net
 

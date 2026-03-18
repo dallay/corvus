@@ -167,7 +167,8 @@ We use a `Makefile` to standardize common operations:
 To test agents in a controlled environment, you can spin up the local dev stack:
 
 ```bash
-make dev-up      # Start Agent + Sandbox containers
+make dev-up      # Start proxy + Agent + Sandbox at http://corvus.localhost
+./dev/cli.sh up-dashboard  # Swap the landing page for the dashboard UI on the same origin
 make dev-shell   # Enter the Sandbox (Ubuntu)
 make dev-down    # Stop the environment
 ```

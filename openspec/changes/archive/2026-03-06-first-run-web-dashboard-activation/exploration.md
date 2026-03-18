@@ -29,13 +29,13 @@
     pairing is enabled.
   - Direct curl calls to `/web/admin/*` without Origin/Referer are intentionally rejected.
 - `clients/web/apps/dashboard/src/composables/useConfig.ts`
-  - Dashboard defaults to `http://127.0.0.1:3000` as gateway base URL.
+  - Dashboard defaults to `/api` as proxied gateway base URL under `http://corvus.localhost`.
   - Pair flow: `POST /pair` with `X-Pairing-Code`, then bearer-based `GET /web/admin/options` +
     `GET /web/admin/config`.
   - Failure messaging is coarse (`auth.loadError`), not deterministic diagnosis.
 - `clients/web/apps/dashboard/package.json`, `clients/web/README.md`, `Makefile`
-  - Dashboard dev URL is `http://localhost:4324`.
-  - Launch commands exist (`pnpm dev:dashboard` / `make dashboard-dev`).
+  - Proxied dev entrypoint is `http://corvus.localhost`.
+  - Launch commands exist (`make dev-up` / `./dev/cli.sh up-dashboard`).
 
 ### Operational command surface currently relevant
 
@@ -43,7 +43,8 @@
 - `corvus gateway`
 - `corvus status`
 - `corvus doctor`
-- `make dashboard-dev` (or `cd clients/web && pnpm dev:dashboard`)
+- `make dev-up`
+- `./dev/cli.sh up-dashboard`
 
 ## Gap Analysis (RF1-RF5 + Scenarios A-D)
 
@@ -55,8 +56,7 @@
 
 - **Partially available elsewhere, not wired into onboarding:**
   - URL and pairing guidance exist only in gateway startup logs (`corvus gateway`).
-  - Dashboard base URL conventions exist in web app (`127.0.0.1:3000` gateway, `localhost:4324`
-    dashboard UI).
+  - Dashboard base URL conventions exist in web app (`/api` behind `http://corvus.localhost`).
 - **Gap in onboarding:**
   - No accept branch in onboarding.
   - No pairing status summary at onboarding end.
@@ -82,8 +82,8 @@
 ### RF5: Quick resume path later
 
 - **Gap:** No dedicated resume command or dashboard-specific status guidance from onboarding.
-- **Current fallback path:** generic commands (`corvus status`, `corvus gateway`,
-  `make dashboard-dev`) exist but are not packaged as a "resume dashboard setup" flow.
+- **Current fallback path:** generic commands (`corvus status`, `corvus gateway`, `make dev-up`,
+  `./dev/cli.sh up-dashboard`) exist but are not packaged as a "resume dashboard setup" flow.
 
 ### Scenario mapping
 

@@ -112,4 +112,70 @@ describe("useConfig", () => {
     expect(config.errorMessage.value).toBe("auth.emptyWebhookSecret");
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
+
+  it("uses same-origin proxied api endpoints by default", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: "token-123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ config: { channels: { webhook: {} } } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+    const config = useConfig((key) => key);
+    config.pairingCode.value = "857258";
+
+    await config.pairGateway();
+    await config.connectGateway();
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://localhost:3000/api/pair");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("http://localhost:3000/api/web/admin/options");
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("http://localhost:3000/api/web/admin/config");
+  });
+
+  it("preserves absolute base paths when building gateway urls", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: "token-123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ config: { channels: { webhook: {} } } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+    const config = useConfig((key) => key);
+    config.baseUrl.value = "http://corvus.localhost/api";
+    config.pairingCode.value = "857258";
+
+    await config.pairGateway();
+    await config.connectGateway();
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://corvus.localhost/api/pair");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("http://corvus.localhost/api/web/admin/options");
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("http://corvus.localhost/api/web/admin/config");
+  });
+
+  it("blocks sending secrets to non-local origins", async () => {
+    const config = useConfig((key) => key);
+    config.baseUrl.value = "https://example.com/api";
+    config.pairingCode.value = "857258";
+
+    await config.pairGateway();
+
+    expect(config.errorMessage.value).toBe("errors.insecureUrlError");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
