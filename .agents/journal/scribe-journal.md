@@ -1,16 +1,15 @@
 # Scribe Journal
 
-## 2025-05-15 - AI Providers Documentation - In Progress
+## 2025-05-15 - AI Providers Documentation - Completed
 
-**Verification:** I have inspected `clients/agent-runtime/src/providers/mod.rs` to identify supported providers and their credential requirements (environment variables).
-**Changes:** Planned to create `providers/` directory under `clients/agent-runtime/` in both English and Spanish documentation.
-**Validation:** Will run `make docs-web-build` and `make docs-web-check`.
+**Verification:** I have thoroughly inspected `clients/agent-runtime/src/providers/mod.rs` and individual provider implementations (e.g., `gemini.rs`, `anthropic.rs`) to identify all supported providers and their environment variables.
+**Changes:**
+- Updated `clients/web/apps/docs/src/content/docs/clients/agent-runtime/providers/index.mdx` (EN) and `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/providers/index.mdx` (ES).
+- Added missing providers: `OpenAI Codex`, `Synthetic`, `OpenCode Zen`, `Amazon Bedrock`, `LM Studio`.
+- Updated environment variables for `Anthropic` (`ANTHROPIC_OAUTH_TOKEN`), `GitHub Copilot` (`GH_TOKEN`), and `Google Gemini` (`GOOGLE_API_KEY`).
+- Added "Advanced Authentication" section covering OAuth/CLI reuse for Gemini, Codex, and Copilot, and setup tokens for Anthropic.
+**Validation:** Ran `make docs-web-build` and `make docs-web-check`.
 **Notes:**
-- Supported providers: OpenRouter, Anthropic, OpenAI, Ollama, Gemini, etc.
-- Credentials:
-    - `OPENROUTER_API_KEY`
-    - `ANTHROPIC_API_KEY` / `ANTHROPIC_OAUTH_TOKEN`
-    - `OPENAI_API_KEY`
-    - `GEMINI_API_KEY` / `GOOGLE_API_KEY`
-    - `OLLAMA_API_KEY` (for cloud routing)
-    - `GITHUB_TOKEN` / `GH_TOKEN` (for Copilot)
+- Confirmed `gemini-cli` OAuth token support in `gemini.rs`.
+- Confirmed `ANTHROPIC_OAUTH_TOKEN` support in `mod.rs`.
+- Maintained strict bilingual parity between English and Spanish versions.
