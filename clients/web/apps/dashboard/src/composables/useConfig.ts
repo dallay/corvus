@@ -9,9 +9,13 @@ import type {
   ConfigSection,
 } from "@/types/admin-config";
 
+const DEFAULT_GATEWAY_BASE_URL = "/api";
 const ALLOWED_LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 function isUrlSafeForSecrets(rawUrl: string): boolean {
+  if (!rawUrl || rawUrl.startsWith("/")) {
+    return true;
+  }
   let parsed: URL;
   try {
     parsed = new URL(rawUrl);
@@ -128,7 +132,7 @@ function mapFormToSnapshot(form: AdminConfigForm): AdminConfigSnapshot {
 }
 
 export function useConfig(t: (key: string, params?: Record<string, unknown>) => string) {
-  const baseUrl = ref("http://127.0.0.1:3000");
+  const baseUrl = ref(DEFAULT_GATEWAY_BASE_URL);
   const pairingCode = ref("");
   const bearerToken = ref("");
   const loading = ref(false);
@@ -166,7 +170,16 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   );
 
   function normalizeBaseUrl(): string {
-    return baseUrl.value.trim().replace(/\/$/, "");
+    const normalized = baseUrl.value.trim().replace(/\/$/, "");
+    return normalized || DEFAULT_GATEWAY_BASE_URL;
+  }
+
+  function gatewayUrl(path: string): string {
+    const normalizedBaseUrl = normalizeBaseUrl();
+    if (normalizedBaseUrl.startsWith("/")) {
+      return new URL(`${normalizedBaseUrl}${path}`, window.location.origin).toString();
+    }
+    return new URL(path, normalizedBaseUrl).toString();
   }
 
   function authHeaders(): Record<string, string> {
@@ -198,8 +211,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     }
     loading.value = true;
     try {
-      const endpoint = new URL("/pair", gatewayBaseUrl);
-      const response = await fetch(endpoint.toString(), {
+      const response = await fetch(gatewayUrl("/pair"), {
         method: "POST",
         headers: {
           "X-Pairing-Code": code,
@@ -235,13 +247,10 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       }
       const headers = safeForSecrets ? authHeaders() : { "Content-Type": "application/json" };
 
-      const optionsResponse = await fetch(
-        new URL("/web/admin/options", gatewayBaseUrl).toString(),
-        {
-          method: "GET",
-          headers,
-        }
-      );
+      const optionsResponse = await fetch(gatewayUrl("/web/admin/options"), {
+        method: "GET",
+        headers,
+      });
       if (!optionsResponse.ok) {
         throw new Error("options");
       }
@@ -262,7 +271,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         autonomyLevelOptions.value = options.autonomy_levels;
       }
 
-      const configResponse = await fetch(new URL("/web/admin/config", gatewayBaseUrl).toString(), {
+      const configResponse = await fetch(gatewayUrl("/web/admin/config"), {
         method: "GET",
         headers,
       });
@@ -321,7 +330,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
 
     sectionSaving[section] = true;
     try {
-      const response = await fetch(new URL("/web/admin/config", gatewayBaseUrl).toString(), {
+      const response = await fetch(gatewayUrl("/web/admin/config"), {
         method: "PUT",
         headers: authHeaders(),
         body: JSON.stringify(payload),

@@ -83,8 +83,8 @@ Show full system status details.
 Includes a `Web dashboard (resume anytime)` section with safe resume commands:
 
 - `corvus gateway`
-- `make dashboard-dev` (from Corvus repository root)
-- `http://localhost:4324` + secure `/pair` flow
+- `make dev-up` then `./dev/cli.sh up-dashboard` (from Corvus repository root)
+- `http://corvus.localhost` + secure proxied `/api/pair` flow
 - `corvus --help` for command help
 
 **Example:**
@@ -111,7 +111,8 @@ corvus status
 corvus doctor
 corvus gateway
 # from Corvus repository root (source checkout):
-make dashboard-dev
+make dev-up
+./dev/cli.sh up-dashboard
 ```
 
 ### `doctor`

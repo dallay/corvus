@@ -82,10 +82,12 @@ docker compose -f docker-compose.local.yml --profile dashboard up -d
 
 Open:
 
-- Gateway: `http://localhost:3000`
-- Dashboard: `http://localhost:4324`
+- Proxy entrypoint: `http://corvus.localhost`
+- Gateway API via proxy: `http://corvus.localhost/api`
+- Dashboard via proxy: `http://corvus.localhost` (after `./dev/cli.sh up-dashboard`)
 
-Then pair in dashboard via `/pair` and use the returned bearer token for admin config actions.
+Then pair in the dashboard through the proxied same-origin flow and use the returned bearer token
+for admin config actions.
 
 Build from source (Rust toolchain):
 

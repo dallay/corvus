@@ -23,9 +23,11 @@ Usa `PORTLESS=0 pnpm dev:dashboard` para correr en <http://localhost:4324>.
 ## Docker (local-first)
 
 ```bash
-# Desde clients/agent-runtime
-docker compose --profile dashboard up -d
+# Desde la raíz del repo
+make dev-up
+./dev/cli.sh up-dashboard
 ```
 
-Luego abre <http://localhost:4324>, conecta al gateway en <http://127.0.0.1:3000> y completa el
-pairing en `/pair` para obtener bearer token.
+Luego abre <http://corvus.localhost>, deja `Base URL` en `/api` y completa el pairing para obtener
+bearer token. El dashboard y el gateway se comunican a través de Caddy con mismo origen, igual que
+en un despliegue productivo detrás de reverse proxy.

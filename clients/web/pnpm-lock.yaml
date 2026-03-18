@@ -318,6 +318,9 @@ importers:
 
   packages/ui:
     devDependencies:
+      '@vue/tsconfig':
+        specifier: 'catalog:'
+        version: 0.9.0(typescript@5.9.3)(vue@3.5.30(typescript@5.9.3))
       vue:
         specifier: 'catalog:'
         version: 3.5.30(typescript@5.9.3)

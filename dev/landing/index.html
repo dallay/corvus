@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Corvus Dev Gateway</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f5f1e8;
+        --panel: rgba(255, 252, 246, 0.84);
+        --ink: #18222f;
+        --muted: #566375;
+        --line: rgba(24, 34, 47, 0.12);
+        --accent: #0b7285;
+        --accent-2: #d97706;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, rgba(11, 114, 133, 0.18), transparent 32%),
+          radial-gradient(circle at bottom right, rgba(217, 119, 6, 0.16), transparent 28%),
+          linear-gradient(180deg, #f8f4ea 0%, var(--bg) 100%);
+        display: grid;
+        place-items: center;
+        padding: 24px;
+      }
+
+      main {
+        width: min(760px, 100%);
+        border: 1px solid var(--line);
+        background: var(--panel);
+        backdrop-filter: blur(10px);
+        border-radius: 24px;
+        padding: 32px;
+        box-shadow: 0 24px 60px rgba(24, 34, 47, 0.12);
+      }
+
+      h1 {
+        margin: 0 0 12px;
+        font-size: clamp(2rem, 5vw, 3.6rem);
+        line-height: 0.95;
+      }
+
+      p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 1.05rem;
+        line-height: 1.6;
+      }
+
+      .eyebrow {
+        display: inline-block;
+        margin-bottom: 14px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        background: rgba(11, 114, 133, 0.1);
+        color: var(--accent);
+        font: 600 0.78rem/1.2 "JetBrains Mono", "SFMono-Regular", monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .grid {
+        display: grid;
+        gap: 16px;
+        margin-top: 28px;
+      }
+
+      .card {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 18px;
+        background: rgba(255, 255, 255, 0.56);
+      }
+
+      .card strong {
+        display: block;
+        margin-bottom: 8px;
+        font-size: 1rem;
+      }
+
+      code {
+        font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+        font-size: 0.92rem;
+        color: var(--ink);
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+
+      a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <span class="eyebrow">Corvus Dev</span>
+      <h1>Gateway listo, dashboard opcional.</h1>
+      <p>
+        Este entrypoint local imita produccion: todo entra por <code>corvus.localhost</code>,
+        y el agent vive detras del proxy.
+      </p>
+
+      <section class="grid">
+        <div class="card">
+          <strong>API del gateway</strong>
+          <p>
+            Salud:
+            <a href="http://corvus.localhost/api/health"><code>http://corvus.localhost/api/health</code></a>
+          </p>
+        </div>
+        <div class="card">
+          <strong>Levantar dashboard</strong>
+          <p>Corre <code>./dev/cli.sh up-dashboard</code> para publicar la UI en esta misma URL.</p>
+        </div>
+        <div class="card">
+          <strong>Por que asi</strong>
+          <p>Mismo origen, sin CORS raro, y el browser nunca habla directo con el agent.</p>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

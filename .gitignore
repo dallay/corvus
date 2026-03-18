@@ -148,6 +148,7 @@ docs/website/package-lock.json
 **/.astro/
 clients/web/apps/**/dist/
 clients/web/apps/**/node_modules/
+dev/Caddyfile.active
 
 # Symlinks auto-generados por Gradle
 /docs

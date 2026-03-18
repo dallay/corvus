@@ -14,6 +14,7 @@ else
 fi
 
 COMPOSE_FILE="$BASE_DIR/docker-compose.yml"
+ACTIVE_CADDYFILE="$BASE_DIR/Caddyfile.active"
 
 # Colors
 GREEN='\033[0;32m'
@@ -65,13 +66,24 @@ function ensure_config {
     return 0
 }
 
+function activate_caddyfile {
+    local source_file="$1"
+
+    if [[ ! -f "$source_file" ]]; then
+        echo -e "${RED}❌ Missing Caddy config: $source_file${NC}" >&2
+        exit 1
+    fi
+
+    cp "$source_file" "$ACTIVE_CADDYFILE"
+}
+
 function print_help {
     echo -e "${YELLOW}Corvus Development Environment Manager${NC}"
     echo "Usage: ./dev/cli.sh [command]"
     echo ""
     echo "Commands:"
-    echo -e "  ${GREEN}up${NC}                Start dev environment (Agent + Sandbox)"
-    echo -e "  ${GREEN}up-dashboard${NC}      Start dev environment + Dashboard"
+    echo -e "  ${GREEN}up${NC}                Start dev environment (Proxy + Agent + Sandbox)"
+    echo -e "  ${GREEN}up-dashboard${NC}      Start dev environment + Dashboard behind proxy"
     echo -e "  ${GREEN}down${NC}    Stop containers"
     echo -e "  ${GREEN}shell${NC}   Enter Sandbox (Ubuntu)"
     echo -e "  ${GREEN}agent${NC}   Enter Agent (Corvus CLI)"
@@ -92,22 +104,25 @@ fi
 case "$1" in
     up)
         ensure_config
+        activate_caddyfile "$BASE_DIR/Caddyfile.landing"
         echo -e "${GREEN}🚀 Starting Dev Environment...${NC}"
         # Build context MUST be set correctly for docker compose
-        docker compose -f "$COMPOSE_FILE" up -d
+        docker compose -f "$COMPOSE_FILE" up -d --force-recreate caddy-dev corvus-dev sandbox
         echo -e "${GREEN}✅ Environment is running!${NC}"
-        echo -e "   - Agent: http://127.0.0.1:3000"
+        echo -e "   - Proxy: http://corvus.localhost"
+        echo -e "   - Agent API: http://corvus.localhost/api"
         echo -e "   - Sandbox: running (background)"
         echo -e "   - Config: $HOST_TARGET_DIR/.corvus/config.toml (Edit locally to apply changes)"
         ;;
 
     up-dashboard)
         ensure_config
+        activate_caddyfile "$BASE_DIR/Caddyfile.dashboard"
         echo -e "${GREEN}🚀 Starting Dev Environment (with Dashboard)...${NC}"
-        docker compose -f "$COMPOSE_FILE" --profile dashboard up -d
+        docker compose -f "$COMPOSE_FILE" --profile dashboard up -d --force-recreate caddy-dev corvus-dev dashboard-dev sandbox
         echo -e "${GREEN}✅ Environment is running!${NC}"
-        echo -e "   - Agent: http://127.0.0.1:3000"
-        echo -e "   - Dashboard: http://127.0.0.1:4324"
+        echo -e "   - Dashboard: http://corvus.localhost"
+        echo -e "   - Agent API: http://corvus.localhost/api"
         echo -e "   - Sandbox: running (background)"
         echo -e "   - Config: $HOST_TARGET_DIR/.corvus/config.toml (Edit locally to apply changes)"
         ;;
@@ -149,20 +164,20 @@ case "$1" in
     smoke)
         echo -e "${YELLOW}🧪 Running smoke checks...${NC}"
 
-        if wait_http_ok "http://127.0.0.1:3000/health" 30; then
-            echo -e "${GREEN}✅ Gateway healthy:${NC} http://127.0.0.1:3000/health"
+        if wait_http_ok "http://corvus.localhost/api/health" 30; then
+            echo -e "${GREEN}✅ Gateway healthy via proxy:${NC} http://corvus.localhost/api/health"
         else
-            echo -e "${RED}❌ Gateway check failed:${NC} http://127.0.0.1:3000/health"
+            echo -e "${RED}❌ Gateway check failed:${NC} http://corvus.localhost/api/health"
             echo -e "   Hint: start with './dev/cli.sh up' or './dev/cli.sh up-dashboard'"
             exit 1
         fi
 
         RUNNING_SERVICES="$(docker compose -f "$COMPOSE_FILE" ps --services --status running || true)"
         if echo "$RUNNING_SERVICES" | grep -q "^dashboard-dev$"; then
-            if wait_http_ok "http://127.0.0.1:4324" 30; then
-                echo -e "${GREEN}✅ Dashboard reachable:${NC} http://127.0.0.1:4324"
+            if wait_http_ok "http://corvus.localhost" 30; then
+                echo -e "${GREEN}✅ Dashboard reachable:${NC} http://corvus.localhost"
             else
-                echo -e "${RED}❌ Dashboard check failed:${NC} http://127.0.0.1:4324"
+                echo -e "${RED}❌ Dashboard check failed:${NC} http://corvus.localhost"
                 echo -e "   Hint: check logs with './dev/cli.sh logs'"
                 exit 1
             fi

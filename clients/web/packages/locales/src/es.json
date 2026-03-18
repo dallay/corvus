@@ -32,7 +32,7 @@
   },
   "form": {
     "baseUrl": "Base URL",
-    "baseUrlPlaceholder": "http://127.0.0.1:3000",
+    "baseUrlPlaceholder": "/api",
     "pairingCode": "Código de emparejamiento",
     "pairingCodePlaceholder": "Código de emparejamiento",
     "bearerToken": "Token bearer",
