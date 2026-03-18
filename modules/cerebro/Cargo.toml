@@ -3,22 +3,45 @@ name = "cerebro"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
+autobins = false
 
 description = "Cerebro MCP memory service"
+
+[[bin]]
+name = "cerebro"
+path = "src/bin/cerebro.rs"
+
+[[bin]]
+name = "cerebro-serve"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0"
 async-trait = "0.1"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde", "std"] }
+clap = { version = "4.5", features = ["derive"] }
+crossterm = { version = "0.28", default-features = false, optional = true }
+hex = "0.4"
+ratatui = { version = "0.28", default-features = false, features = ["crossterm"], optional = true }
+sha2 = "0.10"
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = { version = "1.0", default-features = false, features = ["std"] }
 secrecy = { version = "0.10", features = ["serde"] }
+surrealdb = { version = "1.5", default-features = false, features = ["kv-rocksdb"] }
 thiserror = "2.0"
-tokio = { version = "1.42", default-features = false, features = ["macros", "rt-multi-thread", "net", "time"] }
+tokio = { version = "1.42", default-features = false, features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
+url = "2.5"
 uuid = { version = "1.21.0", default-features = false, features = ["v4", "std"] }
 
+[features]
+default = []
+tui = ["dep:ratatui", "dep:crossterm"]
+
 [dev-dependencies]
+assert_cmd = "2.0"
+predicates = "3.1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+tempfile = "3.12"

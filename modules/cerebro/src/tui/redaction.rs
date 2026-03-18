@@ -1,0 +1,103 @@
+use crate::config::TuiConfig;
+use serde_json::Value;
+use std::collections::HashSet;
+
+const REDACTED: &str = "<redacted>";
+const REDACTED_LARGE: &str = "<redacted:payload-too-large>";
+
+#[derive(Debug, Clone)]
+pub struct RedactionPolicy {
+    sensitive_fields: HashSet<String>,
+    max_payload_bytes: usize,
+}
+
+impl RedactionPolicy {
+    pub fn from_config(config: &TuiConfig) -> Self {
+        let sensitive_fields = config
+            .redact_fields
+            .iter()
+            .map(|field| field.trim().to_ascii_lowercase())
+            .filter(|field| !field.is_empty())
+            .collect();
+        Self {
+            sensitive_fields,
+            max_payload_bytes: config.max_payload_bytes.max(1),
+        }
+    }
+
+    pub fn redact_with_allowlist(&self, value: &Value, allowlist: &[&str]) -> Option<Value> {
+        let allowlist = allowlist
+            .iter()
+            .map(|field| field.trim().to_ascii_lowercase())
+            .filter(|field| !field.is_empty())
+            .collect::<HashSet<_>>();
+        let redacted = self.redact_value(value, Some(&allowlist));
+        Some(self.truncate_payload(redacted))
+    }
+
+    pub fn redact_observation(&self, value: &Value) -> Value {
+        let allowlist = [
+            "content",
+            "what",
+            "why",
+            "where",
+            "learned",
+            "source",
+            "tags",
+        ];
+        let allowlist = allowlist
+            .iter()
+            .map(|field| field.to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        self.truncate_payload(self.redact_value(value, Some(&allowlist)))
+    }
+
+    pub fn redact_text(&self, text: &str) -> String {
+        let lower = text.to_ascii_lowercase();
+        if self
+            .sensitive_fields
+            .iter()
+            .any(|field| lower.contains(field))
+        {
+            return REDACTED.to_string();
+        }
+        text.to_string()
+    }
+
+    fn redact_value(&self, value: &Value, allowlist: Option<&HashSet<String>>) -> Value {
+        match value {
+            Value::Object(map) => {
+                let mut output = serde_json::Map::new();
+                for (key, value) in map {
+                    let normalized = key.trim().to_ascii_lowercase();
+                    let allowed = allowlist
+                        .map(|allow| allow.contains(&normalized))
+                        .unwrap_or(false);
+                    if self.sensitive_fields.contains(&normalized) || !allowed {
+                        output.insert(key.clone(), Value::String(REDACTED.to_string()));
+                        continue;
+                    }
+                    output.insert(key.clone(), self.redact_value(value, None));
+                }
+                Value::Object(output)
+            }
+            Value::Array(values) => Value::Array(
+                values
+                    .iter()
+                    .map(|value| self.redact_value(value, None))
+                    .collect(),
+            ),
+            Value::String(value) => Value::String(self.redact_text(value)),
+            Value::Number(value) => Value::Number(value.clone()),
+            Value::Bool(value) => Value::Bool(*value),
+            Value::Null => Value::Null,
+        }
+    }
+
+    fn truncate_payload(&self, value: Value) -> Value {
+        match serde_json::to_vec(&value) {
+            Ok(bytes) if bytes.len() <= self.max_payload_bytes => value,
+            Ok(_) | Err(_) => Value::String(REDACTED_LARGE.to_string()),
+        }
+    }
+}

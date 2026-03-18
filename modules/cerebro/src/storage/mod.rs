@@ -1,14 +1,17 @@
-use crate::config::{CerebroConfig, StorageMode};
+use crate::config::{CerebroConfig, StorageFallback, StorageMode};
 use crate::errors::CerebroError;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::any::Any;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
+
+pub mod surreal;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MemoryRecord {
@@ -55,6 +58,7 @@ fn truncate_summary(content: &str) -> String {
 
 #[async_trait]
 pub trait Storage: Send + Sync {
+    fn as_any(&self) -> &dyn Any;
     async fn save(&self, record: MemoryRecord) -> Result<(), CerebroError>;
     async fn get(&self, memory_id: &str) -> Result<Option<MemoryRecord>, CerebroError>;
     async fn delete(&self, memory_id: &str, hard_delete: bool) -> Result<bool, CerebroError>;
@@ -157,6 +161,10 @@ fn persist_records_to_path(
 
 #[async_trait]
 impl Storage for InMemoryStorage {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     async fn save(&self, record: MemoryRecord) -> Result<(), CerebroError> {
         let mut map = self.records.write().await;
         map.insert(record.memory_id.clone(), record);
@@ -228,6 +236,10 @@ impl Storage for InMemoryStorage {
 
 #[async_trait]
 impl Storage for DiskBackedStorage {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
     async fn save(&self, record: MemoryRecord) -> Result<(), CerebroError> {
         let memory_id = record.memory_id.clone();
         let mut map = self.records.write().await;
@@ -338,8 +350,34 @@ impl Storage for DiskBackedStorage {
     }
 }
 
-pub fn storage_from_config(config: &CerebroConfig) -> Result<Arc<dyn Storage>, CerebroError> {
-    match config.storage_mode {
+pub async fn storage_from_config(
+    config: &CerebroConfig,
+) -> Result<Arc<dyn Storage>, CerebroError> {
+    config.validate_storage()?;
+    match storage_from_mode(config, config.storage_mode.clone()).await {
+        Ok(storage) => Ok(storage),
+        Err(error) => match config.storage_fallback {
+            StorageFallback::None => Err(error),
+            StorageFallback::InMemory => Ok(InMemoryStorage::new()),
+            StorageFallback::Disk => storage_from_mode(config, StorageMode::Disk).await,
+            StorageFallback::RemoteSurreal => {
+                storage_from_mode(config, StorageMode::RemoteSurreal)
+                    .await
+                    .map_err(|fallback_error| {
+                        CerebroError::Storage(format!(
+                            "primary storage failed ({error}); fallback failed ({fallback_error})"
+                        ))
+                    })
+            }
+        },
+    }
+}
+
+async fn storage_from_mode(
+    config: &CerebroConfig,
+    mode: StorageMode,
+) -> Result<Arc<dyn Storage>, CerebroError> {
+    match mode {
         StorageMode::InMemory => Ok(InMemoryStorage::new()),
         StorageMode::Disk => {
             let path = config
@@ -349,6 +387,11 @@ pub fn storage_from_config(config: &CerebroConfig) -> Result<Arc<dyn Storage>, C
                 .unwrap_or_else(|| PathBuf::from("./cerebro-data.json"));
             DiskBackedStorage::new(path).map(|storage| storage as Arc<dyn Storage>)
         }
+        StorageMode::EmbeddedSurreal => surreal::SurrealStorage::new_embedded(config)
+            .await
+            .map(|storage| Arc::new(storage) as Arc<dyn Storage>),
+        StorageMode::RemoteSurreal => surreal::SurrealStorage::new_remote(config)
+            .map(|storage| Arc::new(storage) as Arc<dyn Storage>),
     }
 }
 

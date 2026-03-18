@@ -13,14 +13,86 @@ SurrealDB backend from the runtime.
 - The agent runtime MUST NOT connect directly to SurrealDB for memory persistence.
 - Local agent memory MUST remain short-term and private to the runtime unless explicitly saved to
   Cerebro by tool calls.
-- The optional TUI and embedded SurrealDB deployment modes are out of scope for this change.
+- Embedded SurrealDB is a deployment mode for the Cerebro service only and MUST NOT be exposed as a
+  runtime-local backend.
+- The TUI is optional and MUST NOT block MCP availability when disabled.
+- The Cerebro distribution MUST include migration tooling for legacy SurrealDB exports (import and
+  validate) to support embedded storage rollout.
+
+## Architecture
+
+Cerebro uses a synchronous MCP request path for tool calls with an optional asynchronous enrichment
+worker for long-running LLM tasks (embeddings, relation extraction). The system MUST function
+without any LLM configuration; enrichment is optional and off by default.
+
+```
+Agent Runtime ── MCP tools/call ──→ Cerebro MCP Server ──→ SurrealDB (embedded or remote)
+  │                               │
+  │                               └── Enrichment Queue ──→ Async Worker ──→ LLM/Embeddings
+  │
+  └── Response (success/error)
+```
+
+## Data Model
+
+Cerebro models memory as nodes and edges to support drill-in exploration and timeline traversal.
+
+- Node types: `session`, `memory`, `prompt`.
+- Edge types: `CREATED_IN`, `RELATES_TO`, `FOLLOWS`.
+- Soft-deleted records are filtered from default retrieval results.
+
+## Drill-In Retrieval
+
+To avoid context bloat, clients SHOULD perform a two-step retrieval flow:
+
+1. `mem_search` returns compact summaries only.
+2. `mem_get_observation` and `mem_timeline` are called selectively for full payloads.
+
+`mem_search` responses MUST include only summary fields (e.g., id, summary, score, topic_key).
+`mem_get_observation` MUST return the full What/Why/Where/Learned payload for a single memory.
+
+Reference `openspec/specs/cerebro/prompt_template.md` for copy-paste agent guidance that enforces
+summary-first retrieval and the What/Why/Where/Learned structure.
 
 ## Requirements
 
+### Requirement: MCP Tool Inventory
+
+The Cerebro MCP service MUST expose the following 13 tools as the canonical tool surface, and tool
+introspection MUST return this list without omissions or extra entries:
+
+- `mem_session_start`
+- `mem_session_end`
+- `mem_session_summary`
+- `mem_context`
+- `mem_save`
+- `mem_update`
+- `mem_delete`
+- `mem_suggest_topic_key`
+- `mem_search`
+- `mem_get_observation`
+- `mem_timeline`
+- `mem_save_prompt`
+- `mem_stats`
+
+#### Scenario: Tool inventory returned (happy path)
+
+- GIVEN a running Cerebro MCP service with tool introspection enabled
+- WHEN a client requests the available tools
+- THEN the response includes exactly the 13 tools listed above
+- AND the response contains no additional tool names
+
+#### Scenario: Missing tool name (edge case)
+
+- GIVEN a running Cerebro MCP service
+- WHEN tool introspection is called
+- THEN the service returns a structured error if any of the 13 tools is not available
+
 ### Requirement: Cerebro MCP Tool Surface
 
-The Cerebro module MUST expose the MCP tool set defined in
-`openspec/changes/cerebro/cerebro.md` and return structured, typed errors for invalid requests.
+The Cerebro module MUST expose the MCP tool set defined in the 13-tool inventory and return
+structured, typed errors for invalid requests. Tool contracts MUST align with the Cerebro product
+specification and remain agent-agnostic.
 
 #### Scenario: Save and recall through Cerebro (happy path)
 
@@ -65,8 +137,9 @@ operations only to Cerebro via MCP.
 
 ### Requirement: Remove SurrealDB Backend from Runtime
 
-The agent runtime MUST NOT include the SurrealDB memory backend or the `memory-surreal` feature
-flag after this change.
+The agent runtime MUST NOT include a SurrealDB memory backend or the `memory-surreal` feature flag.
+Embedded SurrealDB is an in-scope deployment mode for the Cerebro service only and MUST NOT be
+accessible to the runtime as a local backend.
 
 See the migration guide for operational steps:
 clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md
@@ -77,6 +150,13 @@ clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md
 - WHEN the runtime loads memory configuration
 - THEN SurrealDB is not an available backend option
 - AND only local short-term and MCP-backed Cerebro options remain
+
+#### Scenario: Embedded SurrealDB scoped to Cerebro (edge case)
+
+- GIVEN a Cerebro deployment configured for embedded SurrealDB
+- WHEN the agent runtime loads memory configuration
+- THEN the runtime cannot select embedded SurrealDB as a local backend
+- AND all long-term memory requests still route through MCP
 
 #### Scenario: Legacy Surreal config present (edge case)
 
@@ -157,14 +237,177 @@ All MCP requests MUST be authenticated with a Bearer token.
 
 ### Requirement: Data Hygiene Defaults
 
-Cerebro MUST exclude soft-deleted records from retrieval APIs by default and return a `deleted`
-status for direct fetches of soft-deleted IDs.
+Cerebro MUST exclude soft-deleted records from retrieval APIs by default, MUST return a `deleted`
+status for direct fetches of soft-deleted IDs, and MUST support deduplication and topic-key upserts
+when explicitly requested by the caller.
 
 #### Scenario: Deleted memory is hidden (happy path)
 
 - GIVEN a memory entry that has been soft-deleted via `mem_delete`
 - WHEN an agent calls `mem_search`
 - THEN the deleted entry is not included in the results
+
+#### Scenario: Deduplication requested (edge case)
+
+- GIVEN a memory entry saved with a deduplication policy enabled
+- WHEN a second `mem_save` is called with identical deduplication inputs
+- THEN the service returns a response indicating the entry was deduplicated
+- AND no duplicate memory record is created
+
+#### Scenario: Topic-key upsert requested (edge case)
+
+- GIVEN a memory entry exists with `topic_key` set to "alpha"
+- WHEN `mem_save` is called with `topic_key` set to "alpha" and upsert requested
+- THEN the existing memory entry is updated
+- AND the response returns the existing memory ID
+
+### Requirement: In-Process TUI Toggle
+
+The Cerebro service MUST provide an in-process TUI that can be enabled or disabled via a feature
+flag and via configuration or CLI toggle.
+
+#### Scenario: TUI enabled by flag (happy path)
+
+- GIVEN a Cerebro service configured with the TUI feature flag enabled
+- WHEN the service starts with the TUI toggle set to enabled
+- THEN the TUI starts in-process
+- AND MCP requests remain available
+
+#### Scenario: TUI disabled by configuration (edge case)
+
+- GIVEN a Cerebro service with the TUI feature flag enabled
+- WHEN the service starts with the TUI toggle set to disabled
+- THEN the TUI does not start
+- AND MCP requests remain available
+
+### Requirement: MCP Remains Non-Blocking
+
+When the TUI is enabled, MCP request handling MUST remain non-blocking and MUST NOT depend on the
+TUI event loop.
+
+#### Scenario: MCP remains responsive with TUI running (happy path)
+
+- GIVEN the TUI is enabled and running
+- WHEN a client sends MCP tool calls
+- THEN the MCP responses are processed and returned without waiting on the TUI
+
+#### Scenario: TUI stalls (edge case)
+
+- GIVEN the TUI event loop becomes unresponsive
+- WHEN a client sends MCP tool calls
+- THEN the MCP responses are still processed
+- AND the service does not block on the TUI
+
+### Requirement: TUI View Availability
+
+When the TUI is enabled, it MUST provide the following views: dashboard, memory explorer, session
+timeline, and live tool-call stream.
+
+#### Scenario: Views available (happy path)
+
+- GIVEN the TUI is enabled
+- WHEN an operator navigates the TUI
+- THEN the dashboard, memory explorer, session timeline, and live tool-call stream views are
+  available
+
+#### Scenario: View missing (edge case)
+
+- GIVEN the TUI is enabled
+- WHEN the operator attempts to open a required view
+- THEN the TUI returns a visible error indicating the view is unavailable
+
+### Requirement: TUI Data Redaction
+
+The TUI MUST redact sensitive data from all views using the same classification guidance applied
+to MCP operations. Redaction MUST apply to secrets, credentials, and PII before rendering.
+
+#### Scenario: Sensitive fields are redacted (happy path)
+
+- GIVEN a memory record contains secret or PII content
+- WHEN the record is displayed in any TUI view
+- THEN the sensitive fields are redacted
+- AND the redaction is visible in the rendered output
+
+#### Scenario: Unknown data classification (edge case)
+
+- GIVEN a memory record contains fields with unknown sensitivity
+- WHEN the record is displayed in the TUI
+- THEN the TUI defaults to redacting fields that are not explicitly safe
+
+### Requirement: Graceful TUI Shutdown
+
+The TUI MUST shut down gracefully without interrupting MCP availability and MUST release terminal
+control on exit.
+
+#### Scenario: Operator exits TUI (happy path)
+
+- GIVEN the TUI is running
+- WHEN the operator requests exit
+- THEN the TUI closes cleanly
+- AND MCP continues to serve requests
+
+#### Scenario: TUI crashes (edge case)
+
+- GIVEN the TUI process encounters a fatal error
+- WHEN the error occurs
+- THEN the TUI exits without corrupting terminal state
+- AND MCP continues to serve requests
+
+### Requirement: No New Network Endpoints
+
+The optional TUI MUST NOT introduce new network endpoints or listeners beyond the existing MCP
+surface.
+
+#### Scenario: TUI enabled without new listeners (happy path)
+
+- GIVEN the TUI is enabled
+- WHEN the service starts
+- THEN only the existing MCP endpoint is bound
+
+#### Scenario: Unexpected listener detected (edge case)
+
+- GIVEN the TUI is enabled
+- WHEN a non-MCP listener is detected at startup
+- THEN the service fails startup with a structured error
+
+### Requirement: Optional TUI Surface
+
+The Cerebro distribution MAY include an in-process TUI; when enabled, it MUST provide the
+following views: dashboard, memory explorer, session timeline, and live tool-call stream, and it
+MUST remain optional and non-blocking for MCP availability.
+
+#### Scenario: TUI enabled (happy path)
+
+- GIVEN a Cerebro deployment with the TUI enabled
+- WHEN the operator opens the TUI
+- THEN the dashboard, memory explorer, session timeline, and live tool-call stream views are
+  available
+- AND MCP requests remain available
+
+#### Scenario: TUI disabled (edge case)
+
+- GIVEN a Cerebro deployment with the TUI disabled
+- WHEN the operator attempts to open the TUI
+- THEN the service starts without a UI and continues to serve MCP requests
+
+### Requirement: Agent Prompt Template Guidance
+
+The Cerebro documentation MUST provide a copy-paste `prompt_template.md` that instructs agents to
+use drill-in search patterns and to save structured observations using the
+What/Why/Where/Learned format.
+
+#### Scenario: Prompt template available (happy path)
+
+- GIVEN the Cerebro documentation bundle
+- WHEN a user searches for agent integration guidance
+- THEN `prompt_template.md` is present and contains drill-in usage instructions
+- AND the template includes the What/Why/Where/Learned structure
+
+#### Scenario: Missing prompt template (edge case)
+
+- GIVEN the Cerebro documentation bundle
+- WHEN `prompt_template.md` is absent or empty
+- THEN the documentation build fails with a structured error
 
 #### Scenario: Direct fetch of deleted memory (edge case)
 
@@ -175,11 +418,14 @@ status for direct fetches of soft-deleted IDs.
 
 ## Acceptance Criteria
 
-- The Cerebro MCP tool set is available and matches the contract in
-  `openspec/changes/cerebro/cerebro.md`.
+- The Cerebro MCP tool set is available and matches the 13-tool inventory.
 - The agent runtime no longer ships a SurrealDB memory backend or `memory-surreal` feature flag.
+- Embedded SurrealDB is available only as a Cerebro service deployment mode, not a runtime backend.
 - Long-term memory operations route through MCP to Cerebro, while local memory remains private and
   short-term.
 - Legacy memory tool names continue to work as aliases to Cerebro tool names.
 - Insecure transport endpoints are rejected unless explicitly enabled for loopback development.
 - Soft-deleted memories are excluded from default retrieval results.
+- The documentation bundle includes `openspec/specs/cerebro/prompt_template.md` and references it.
+- If the TUI is enabled, the dashboard, memory explorer, session timeline, and live tool-call
+  stream views are available.

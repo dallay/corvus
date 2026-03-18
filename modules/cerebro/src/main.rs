@@ -1,7 +1,9 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
+use cerebro::tui::{start_tui_task, TuiLaunch, TuiError};
 use cerebro::{CerebroConfig, CerebroService};
 use std::sync::Arc;
 use tokio::net::TcpListener;
+use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
 
 #[tokio::main]
@@ -12,18 +14,50 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| EnvFilter::new("info"));
     tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
-    let config = CerebroConfig::default();
+    let mut config = CerebroConfig::default();
+    config.tui.enabled = config.tui.enabled || env_flag("CEREBRO_TUI_ENABLED");
     let addr = config.bind_addr();
-    let service = Arc::new(CerebroService::from_config(config)?);
+    let service = Arc::new(CerebroService::from_config(config.clone()).await?);
     let listener = TcpListener::bind(&addr).await?;
     tracing::info!(%addr, "Cerebro MCP listening");
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    tokio::spawn(shutdown_signal(shutdown_tx));
+
+    if config.tui.enabled {
+        if let Err(err) = cerebro::tui::validate_no_network_listeners() {
+            return Err(anyhow!("tui validation failed: {err}"));
+        }
+        match start_tui_task(
+            config.tui.clone(),
+            service.storage(),
+            service.event_bus(),
+            shutdown_rx.clone(),
+        )
+        .await
+        {
+            Ok(TuiLaunch::Started(_handle)) => {
+                tracing::info!("tui started");
+            }
+            Ok(TuiLaunch::Disabled) => {
+                tracing::info!("tui disabled");
+            }
+            Err(TuiError::FeatureDisabled) => {
+                tracing::warn!("tui requested but binary built without tui feature");
+            }
+            Err(err) => {
+                tracing::warn!("tui failed to start: {err}");
+            }
+        }
+    }
+
     axum::serve(listener, service.router())
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(wait_for_shutdown(shutdown_rx))
         .await?;
     Ok(())
 }
 
-async fn shutdown_signal() {
+async fn shutdown_signal(shutdown_tx: watch::Sender<bool>) {
     let ctrl_c = async {
         if let Err(err) = tokio::signal::ctrl_c().await {
             tracing::warn!("failed to install ctrl-c handler: {err}");
@@ -51,5 +85,21 @@ async fn shutdown_signal() {
         _ = terminate => {},
     }
 
+    let _ = shutdown_tx.send(true);
     tracing::info!("shutdown signal received");
+}
+
+async fn wait_for_shutdown(mut shutdown_rx: watch::Receiver<bool>) {
+    while shutdown_rx.changed().await.is_ok() {
+        if *shutdown_rx.borrow() {
+            break;
+        }
+    }
+}
+
+fn env_flag(key: &str) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_ascii_lowercase())
+        .is_some_and(|value| matches!(value.as_str(), "1" | "true" | "yes" | "on"))
 }

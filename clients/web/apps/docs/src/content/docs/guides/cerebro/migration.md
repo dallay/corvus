@@ -5,13 +5,14 @@ description: Move long-term memory to the MCP-backed Cerebro service.
 
 This guide covers the migration from runtime-local SurrealDB memory to the MCP-backed Cerebro
 service. For narrative context and design intent, see the Cerebro specification at
-https://github.com/dallay/corvus/blob/main/openspec/changes/cerebro/cerebro.md.
+https://github.com/dallay/corvus/blob/main/openspec/specs/cerebro/spec.md.
 
 ## Overview
 
 - Long-term memory is now centralized in Cerebro and accessed via MCP (JSON-RPC).
 - Local runtime memory remains short-term and private unless saved via Cerebro tools.
 - Legacy tools (`memory_store`, `memory_recall`, `memory_forget`) are aliases to MCP tools.
+- Cerebro defaults to embedded SurrealDB storage unless explicitly configured otherwise.
 
 ## Parity notice (EN/ES)
 
@@ -88,3 +89,76 @@ Use these schemas to validate tool calls and responses in agents and integration
 7. Validate integrations against MCP schemas before rollout.
 8. Prepare a rollback plan (restore old config + disable Cerebro) and keep an export snapshot for recovery.
 9. Run a canary test (`mem_save` -> `mem_search` -> `mem_get_observation`) before full cutover.
+
+## Cerebro storage defaults (embedded)
+
+New Cerebro deployments default to embedded SurrealDB storage. To override the default, set the
+storage mode explicitly in Cerebro configuration (not runtime config).
+
+Supported storage modes:
+
+- `embedded_surreal` (default)
+- `remote_surreal`
+- `disk`
+- `in_memory`
+
+Use `storage_fallback` only when you explicitly accept fallback semantics for startup failures.
+
+## Optional TUI (operator-only)
+
+Cerebro ships with an optional terminal UI for live operational insight. It is disabled by default
+and does not expose any network listeners.
+
+Enable via CLI (serve command):
+
+```bash
+cerebro serve --tui
+```
+
+Enable via environment for the `cerebro-serve` binary:
+
+```bash
+export CEREBRO_TUI_ENABLED=1
+```
+
+Configuration keys:
+
+- `tui.enabled` (bool, default false)
+- `tui.event_buffer` (bounded event buffer size)
+- `tui.refresh_ms` (UI refresh interval)
+- `tui.redact_fields` (denylist for sensitive keys)
+- `tui.max_payload_bytes` (payload cap for redacted data)
+
+Safety notes:
+
+- Tool-call events are redacted before reaching the TUI.
+- Backpressure drops events instead of blocking MCP throughput.
+- The UI is in-process and does not create additional network ports.
+
+## Migration CLI
+
+Use the bundled CLI to import legacy exports and validate results:
+
+```bash
+cerebro migrate import \
+  --source legacy_export.json \
+  --target ./cerebro.db
+
+cerebro migrate validate \
+  --source legacy_export.json \
+  --target ./cerebro.db
+```
+
+Optional flags:
+
+- `--namespace` / `--database` to target a specific embedded namespace.
+- `--dry-run` to compute counts/checksums without writes.
+
+## Operational notes
+
+- If embedded initialization fails and no `storage_fallback` is configured, Cerebro exits with an
+  error to prevent silent data loss.
+- Migration validation exit codes:
+  - `0` = ok
+  - `2` = mismatch (counts/checksums diverged)
+  - `1` = error

@@ -1,16 +1,67 @@
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::net::IpAddr;
 use std::str::FromStr;
 
 /// Storage mode for Cerebro's internal persistence. This is independent from the runtime memory
 /// backend and only affects the Cerebro service itself.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum StorageMode {
-    #[default]
+    EmbeddedSurreal,
+    RemoteSurreal,
     InMemory,
     Disk,
+}
+
+impl Default for StorageMode {
+    fn default() -> Self {
+        Self::EmbeddedSurreal
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum StorageFallback {
+    None,
+    InMemory,
+    Disk,
+    RemoteSurreal,
+}
+
+impl Default for StorageFallback {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SurrealConfig {
+    #[serde(default = "default_surreal_namespace")]
+    pub namespace: String,
+    #[serde(default = "default_surreal_database")]
+    pub database: String,
+    #[serde(default)]
+    pub storage_path: Option<String>,
+    #[serde(default)]
+    pub remote_url: Option<String>,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default, with = "secret_string_opt")]
+    pub password: Option<SecretString>,
+}
+
+impl Default for SurrealConfig {
+    fn default() -> Self {
+        Self {
+            namespace: default_surreal_namespace(),
+            database: default_surreal_database(),
+            storage_path: None,
+            remote_url: None,
+            username: None,
+            password: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -19,6 +70,32 @@ pub struct WorkerConfig {
     pub embeddings_enabled: bool,
     #[serde(default)]
     pub enrichment_enabled: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TuiConfig {
+    #[serde(default)]
+    pub enabled: bool,
+    #[serde(default = "default_tui_event_buffer")]
+    pub event_buffer: usize,
+    #[serde(default = "default_tui_refresh_ms")]
+    pub refresh_ms: u64,
+    #[serde(default = "default_tui_redact_fields")]
+    pub redact_fields: Vec<String>,
+    #[serde(default = "default_tui_max_payload_bytes")]
+    pub max_payload_bytes: usize,
+}
+
+impl Default for TuiConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            event_buffer: default_tui_event_buffer(),
+            refresh_ms: default_tui_refresh_ms(),
+            redact_fields: default_tui_redact_fields(),
+            max_payload_bytes: default_tui_max_payload_bytes(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,11 +114,17 @@ pub struct CerebroConfig {
     pub scheme: Option<String>,
     #[serde(default)]
     pub storage_mode: StorageMode,
+    #[serde(default)]
+    pub storage_fallback: StorageFallback,
     /// Optional persistence path for disk-backed storage.
     #[serde(default)]
     pub storage_path: Option<String>,
     #[serde(default)]
+    pub surreal: SurrealConfig,
+    #[serde(default)]
     pub worker: WorkerConfig,
+    #[serde(default)]
+    pub tui: TuiConfig,
 }
 
 fn default_host() -> String {
@@ -50,6 +133,41 @@ fn default_host() -> String {
 
 fn default_port() -> u16 {
     4040
+}
+
+fn default_surreal_namespace() -> String {
+    "cerebro".to_string()
+}
+
+fn default_surreal_database() -> String {
+    "cerebro".to_string()
+}
+
+fn default_tui_event_buffer() -> usize {
+    256
+}
+
+fn default_tui_refresh_ms() -> u64 {
+    500
+}
+
+fn default_tui_max_payload_bytes() -> usize {
+    4096
+}
+
+fn default_tui_redact_fields() -> Vec<String> {
+    vec![
+        "password".to_string(),
+        "secret".to_string(),
+        "token".to_string(),
+        "auth".to_string(),
+        "authorization".to_string(),
+        "api_key".to_string(),
+        "apikey".to_string(),
+        "cookie".to_string(),
+        "session".to_string(),
+        "credential".to_string(),
+    ]
 }
 
 impl Default for CerebroConfig {
@@ -61,8 +179,11 @@ impl Default for CerebroConfig {
             audit_token: None,
             scheme: None,
             storage_mode: StorageMode::default(),
+            storage_fallback: StorageFallback::default(),
             storage_path: None,
+            surreal: SurrealConfig::default(),
             worker: WorkerConfig::default(),
+            tui: TuiConfig::default(),
         }
     }
 }
@@ -86,6 +207,66 @@ impl CerebroConfig {
                 }
             });
         format!("{scheme}://{}:{}/mcp", format_host(&self.host), self.port)
+    }
+
+    pub fn validate_storage(&self) -> Result<(), crate::errors::CerebroError> {
+        match self.storage_mode {
+            StorageMode::RemoteSurreal => self.validate_remote_surreal(),
+            _ => Ok(()),
+        }?;
+
+        if matches!(self.storage_fallback, StorageFallback::RemoteSurreal) {
+            self.validate_remote_surreal()?;
+        }
+
+        Ok(())
+    }
+
+    fn validate_remote_surreal(&self) -> Result<(), crate::errors::CerebroError> {
+        let remote_url = self
+            .surreal
+            .remote_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                crate::errors::CerebroError::Validation(
+                    "remote surrealdb requires remote_url".to_string(),
+                )
+            })?;
+
+        let url = url::Url::parse(remote_url).map_err(|err| {
+            crate::errors::CerebroError::Validation(format!(
+                "remote surrealdb url is invalid: {err}"
+            ))
+        })?;
+        let host = url.host_str().unwrap_or_default();
+        if !is_loopback_host(host) {
+            return Err(crate::errors::CerebroError::Validation(
+                "remote surrealdb must bind to loopback only".to_string(),
+            ));
+        }
+
+        let has_username = self
+            .surreal
+            .username
+            .as_deref()
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+        let has_password = self
+            .surreal
+            .password
+            .as_ref()
+            .map(ExposeSecret::expose_secret)
+            .map(str::trim)
+            .is_some_and(|value| !value.is_empty());
+        if !has_username || !has_password {
+            return Err(crate::errors::CerebroError::Validation(
+                "remote surrealdb credentials are required".to_string(),
+            ));
+        }
+
+        Ok(())
     }
 }
 

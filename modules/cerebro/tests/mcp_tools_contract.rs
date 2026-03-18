@@ -24,7 +24,7 @@ async fn call_tool(
 async fn rejects_invalid_mem_save_payload() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some(SecretString::new("secret".to_string())),
+        auth_token: Some(SecretString::new("secret".to_string().into())),
         ..CerebroConfig::default()
     };
     let service = CerebroService::new(config, storage);
@@ -51,7 +51,7 @@ async fn rejects_invalid_mem_save_payload() {
 async fn soft_deleted_memories_are_hidden_by_default() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some(SecretString::new("secret".to_string())),
+        auth_token: Some(SecretString::new("secret".to_string().into())),
         ..CerebroConfig::default()
     };
     let service = CerebroService::new(config, storage);
@@ -131,7 +131,7 @@ async fn soft_deleted_memories_are_hidden_by_default() {
 async fn drill_in_recall_returns_full_observation() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some(SecretString::new("secret".to_string())),
+        auth_token: Some(SecretString::new("secret".to_string().into())),
         ..CerebroConfig::default()
     };
     let service = CerebroService::new(config, storage);
@@ -202,7 +202,7 @@ async fn drill_in_recall_returns_full_observation() {
 async fn deleted_fetch_without_record_returns_not_found() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some(SecretString::new("secret".to_string())),
+        auth_token: Some(SecretString::new("secret".to_string().into())),
         ..CerebroConfig::default()
     };
     let service = CerebroService::new(config, storage);

@@ -6,7 +6,7 @@ use serde_json::json;
 async fn rejects_requests_without_auth_token() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some(SecretString::new("secret".to_string())),
+        auth_token: Some(SecretString::new("secret".to_string().into())),
         ..Default::default()
     };
     let service = CerebroService::new(config, storage);
@@ -30,7 +30,7 @@ async fn rejects_requests_without_auth_token() {
 async fn accepts_requests_with_valid_auth_token() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some(SecretString::new("secret".to_string())),
+        auth_token: Some(SecretString::new("secret".to_string().into())),
         ..Default::default()
     };
     let service = CerebroService::new(config, storage);
@@ -55,7 +55,7 @@ async fn accepts_requests_with_valid_auth_token() {
 async fn rejects_auth_without_bearer_prefix() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some(SecretString::new("secret".to_string())),
+        auth_token: Some(SecretString::new("secret".to_string().into())),
         ..Default::default()
     };
     let service = CerebroService::new(config, storage);
@@ -79,7 +79,7 @@ async fn rejects_auth_without_bearer_prefix() {
 async fn rejects_auth_with_empty_bearer_token() {
     let storage = InMemoryStorage::new();
     let config = CerebroConfig {
-        auth_token: Some(SecretString::new("secret".to_string())),
+        auth_token: Some(SecretString::new("secret".to_string().into())),
         ..Default::default()
     };
     let service = CerebroService::new(config, storage);
