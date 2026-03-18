@@ -106,15 +106,6 @@ impl Tool for McpToolAdapter {
             }
         };
 
-        // Check output limit bounds to prevent abuse
-        if self.output_limit_bytes > 10 * 1024 * 1024 {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some("output_limit_bytes exceeds maximum allowed (10MB)".to_string()),
-                structured: None,
-            });
-        }
 
         match self
             .client
@@ -238,26 +229,5 @@ mod tests {
         assert!(enforced.len() <= 50);
         assert!(enforced.is_char_boundary(enforced.len()));
         assert!(std::str::from_utf8(enforced.as_bytes()).is_ok());
-    }
-    
-    #[tokio::test]
-    async fn mcp_adapter_blocks_massive_limit_configuration() {
-        let adapter = McpToolAdapter {
-            name: "test".into(),
-            description: "test".into(),
-            parameters: serde_json::Value::Null,
-            original_name: "test".into(),
-            server_name: "test".into(),
-            call_timeout_ms: 1000,
-            output_limit_bytes: 20 * 1024 * 1024, // 20MB, exceeds the hardcoded 10MB limit in execute
-            client: McpClient::new(
-                "test",
-                crate::config::McpServerConfig::default(),
-            ),
-        };
-        
-        let result = adapter.execute(serde_json::json!({})).await.unwrap();
-        assert!(!result.success);
-        assert!(result.error.unwrap().contains("exceeds maximum allowed"));
     }
 }

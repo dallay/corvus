@@ -3050,6 +3050,11 @@ impl Config {
         Self::validate_non_zero(server.startup_timeout_ms, &base, "startup_timeout_ms")?;
         Self::validate_non_zero(server.call_timeout_ms, &base, "call_timeout_ms")?;
         Self::validate_non_zero(server.output_limit_bytes, &base, "output_limit_bytes")?;
+
+        if server.output_limit_bytes > 10 * 1024 * 1024 {
+            anyhow::bail!("{base}.output_limit_bytes exceeds maximum allowed (10MB)");
+        }
+
         Self::validate_mcp_env(&server.env, &base)
     }
 
