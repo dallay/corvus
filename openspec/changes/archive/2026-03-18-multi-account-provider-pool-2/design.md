@@ -195,7 +195,7 @@ Key behaviors:
 No migration required. If `reliability.account_pools` is empty, behavior remains unchanged.
 Existing `reliability.api_keys` rotation remains supported for non-pooled providers.
 
-## Open Questions
+## Decisions
 
 - Admin config pool read/patch is gated by `gateway.admin_expose_provider_pools` and is
   deferred by default.

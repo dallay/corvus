@@ -443,8 +443,16 @@ fn parse_retry_after_seconds(input: &str) -> Option<f64> {
 }
 
 fn secs_to_millis(secs: f64) -> Option<u64> {
-    let millis = Duration::from_secs_f64(secs).as_millis();
-    u64::try_from(millis).ok()
+    if !secs.is_finite() || secs < 0.0 {
+        return None;
+    }
+    let millis = (secs * 1000.0).min(MAX_COOLDOWN_MS as f64);
+    if !millis.is_finite() {
+        return None;
+    }
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let millis_u64 = millis.round() as u64;
+    Some(millis_u64)
 }
 
 #[cfg(test)]

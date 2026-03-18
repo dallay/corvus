@@ -48,7 +48,9 @@ Sources:
 |-------------|----------|------|--------|
 | Provider Account Pool Configuration | Configure a multi-account pool | `clients/agent-runtime/src/config/schema.rs > validate_for_runtime_accepts_valid_pool_config` | ✅ COMPLIANT |
 | Provider Account Pool Configuration | Reject malformed pool entries | `clients/agent-runtime/src/config/schema.rs > validate_for_runtime_rejects_pool_provider_name_empty`<br/>`clients/agent-runtime/src/config/schema.rs > validate_for_runtime_rejects_pool_account_missing_api_key` | ✅ COMPLIANT |
+| Provider Account Pool Configuration | Reject malformed pool entries | `clients/agent-runtime/src/config/schema.rs > validate_for_runtime_rejects_pool_account_duplicate_ids`<br/>`clients/agent-runtime/src/config/schema.rs > validate_for_runtime_rejects_pool_account_zero_weight` | ✅ COMPLIANT |
 | Pool Selection and Per-Request Credentials | Round-robin selection across accounts | `clients/agent-runtime/src/providers/pool.rs > round_robin_selects_alternating_accounts`<br/>`clients/agent-runtime/src/providers/mod.rs > resilient_provider_uses_account_pool_when_configured` | ✅ COMPLIANT |
+| Pool Selection and Per-Request Credentials | Weighted round-robin selection | `clients/agent-runtime/src/providers/pool.rs > weighted_round_robin_respects_weights` | ✅ COMPLIANT |
 | Pool Selection and Per-Request Credentials | Single account pool behaves deterministically | `clients/agent-runtime/src/providers/pool.rs > single_account_pool_selects_deterministically`<br/>`clients/agent-runtime/src/providers/mod.rs > resilient_provider_single_account_pool_uses_account_credentials` | ✅ COMPLIANT |
 | Account-Aware Provider Reuse | Provider instances stay bound to accounts | `clients/agent-runtime/src/providers/pool.rs > provider_cache_is_account_bound` | ✅ COMPLIANT |
 | Backward Compatibility Without Pool | Pool omitted from configuration | `clients/agent-runtime/src/providers/mod.rs > resilient_provider_without_pool_uses_base_provider` | ✅ COMPLIANT |
@@ -56,7 +58,7 @@ Sources:
 | Admin Config Exposure Controls | Admin exposure disabled | `clients/agent-runtime/tests/admin_config_api_integration.rs > admin_provider_pools_rejects_when_disabled` | ✅ COMPLIANT |
 | Admin Config Exposure Controls | Admin exposure enabled with validation | `clients/agent-runtime/tests/admin_config_api_integration.rs > admin_provider_pools_rejects_invalid_patch_when_enabled` | ✅ COMPLIANT |
 
-**Compliance summary**: 9/9 scenarios compliant
+**Compliance summary**: 11/11 scenarios compliant
 
 ---
 
@@ -87,7 +89,7 @@ Sources:
 **CRITICAL** (must fix before archive): None
 
 **WARNING** (should fix):
-- Coverage report is scoped to `modules/agent-core-kmp`; change touches `clients/agent-runtime` which has no coverage report.
+- Rust coverage is only available as an LCOV artifact (`coverage/agent-runtime-coverage.lcov`); no summarized Rust percentage or threshold is enforced yet.
 
 **SUGGESTION** (nice to have): None
 
@@ -96,4 +98,4 @@ Sources:
 ### Verdict
 PASS WITH WARNINGS
 
-All spec scenarios are covered by passing tests; coverage threshold met for the available report, but coverage is not reported for the Rust runtime module changed in this work.
+All spec scenarios are covered by passing tests; coverage threshold met for KMP, while Rust coverage is tracked as an LCOV artifact without a summarized percentage yet.
