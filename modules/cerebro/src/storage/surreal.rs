@@ -376,13 +376,13 @@ impl Storage for SurrealStorage {
         }
         statement.push_str(" ORDER BY timestamp DESC LIMIT $limit;");
 
-        let mut response = self
+        let response = self
             .db
             .query(statement)
             .bind(variables)
             .await
             .map_err(|err| CerebroError::Storage(format!("surrealdb search failed: {err}")))?;
-        response
+        let mut response = response
             .check()
             .map_err(|err| CerebroError::Storage(format!("surrealdb search failed: {err}")))?;
         let records: Vec<MemoryRecord> = response
@@ -392,23 +392,22 @@ impl Storage for SurrealStorage {
     }
 
     async fn count(&self) -> Result<usize, CerebroError> {
-        #[derive(serde::Deserialize)]
-        struct CountRow {
-            count: u64,
-        }
-
-        let mut response = self
+        let response = self
             .db
             .query("SELECT count() AS count FROM memory;")
             .await
             .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
-        response
+        let mut response = response
             .check()
             .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
-        let rows: Vec<CountRow> = response
+        let rows: Vec<Value> = response
             .take(0)
             .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
-        let count = rows.first().map(|row| row.count).unwrap_or(0);
+        let count = rows
+            .first()
+            .and_then(|row| row.get("count"))
+            .and_then(Value::as_u64)
+            .unwrap_or(0);
         Ok(count as usize)
     }
 }
