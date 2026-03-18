@@ -7,8 +7,8 @@ use serde_json::Value;
 use std::any::Any;
 use std::path::PathBuf;
 use surrealdb::engine::local::{Db, RocksDb};
-use surrealdb::sql::statements::{BeginStatement, CommitStatement};
 use surrealdb::Surreal;
+use surrealdb::types::Variables;
 
 #[derive(Clone)]
 pub struct SurrealStorage {
@@ -63,7 +63,9 @@ impl SurrealStorage {
     }
 
     pub async fn write_batches(&self, export: &NormalizedExport) -> Result<(), CerebroError> {
-        let mut query = self.db.query(BeginStatement::default());
+        let mut statements = Vec::new();
+        statements.push("BEGIN;".to_string());
+        let mut variables = Variables::new();
         let mut index = 0usize;
 
         for record in &export.memory {
@@ -74,9 +76,9 @@ impl SurrealStorage {
             let payload = serde_json::to_value(record).map_err(|err| {
                 CerebroError::Storage(format!("failed to encode memory record: {err}"))
             })?;
-            query = query.query(statement);
-            query = query.bind((id_key, record.memory_id.clone()));
-            query = query.bind((data_key, payload));
+            statements.push(statement);
+            variables.insert(id_key, record.memory_id.clone());
+            variables.insert(data_key, payload);
             index += 1;
         }
 
@@ -92,9 +94,9 @@ impl SurrealStorage {
             let data_key = format!("session_data_{index}");
             let statement =
                 format!("UPSERT type::thing('session', ${id_key}) CONTENT ${data_key};");
-            query = query.query(statement);
-            query = query.bind((id_key, record_id));
-            query = query.bind((data_key, payload));
+            statements.push(statement);
+            variables.insert(id_key, record_id);
+            variables.insert(data_key, payload);
             index += 1;
         }
 
@@ -110,14 +112,17 @@ impl SurrealStorage {
             let data_key = format!("prompt_data_{index}");
             let statement =
                 format!("UPSERT type::thing('prompt', ${id_key}) CONTENT ${data_key};");
-            query = query.query(statement);
-            query = query.bind((id_key, record_id));
-            query = query.bind((data_key, payload));
+            statements.push(statement);
+            variables.insert(id_key, record_id);
+            variables.insert(data_key, payload);
             index += 1;
         }
 
-        query = query.query(CommitStatement::default());
-        let response = query
+        statements.push("COMMIT;".to_string());
+        let response = self
+            .db
+            .query(statements.join(" "))
+            .bind(variables)
             .await
             .map_err(|err| CerebroError::Storage(format!("surrealdb batch transaction failed: {err}")))?;
         response
@@ -129,9 +134,11 @@ impl SurrealStorage {
     pub async fn export_collections(&self) -> Result<NormalizedExport, CerebroError> {
         let mut response = self
             .db
-            .query("SELECT *, type::string(id) AS id FROM memory")
-            .query("SELECT *, type::string(id) AS id FROM session")
-            .query("SELECT *, type::string(id) AS id FROM prompt")
+            .query(
+                "SELECT *, type::string(id) AS id FROM memory; \
+                 SELECT *, type::string(id) AS id FROM session; \
+                 SELECT *, type::string(id) AS id FROM prompt;",
+            )
             .await
             .map_err(|err| CerebroError::Storage(format!("surrealdb export failed: {err}")))?;
         let memory_json: Vec<Value> = response

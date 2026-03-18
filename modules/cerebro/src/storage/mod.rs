@@ -3,6 +3,7 @@ use crate::errors::CerebroError;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use surrealdb::types::SurrealValue;
 use serde_json::Value;
 use std::any::Any;
 use std::collections::HashMap;
@@ -13,7 +14,8 @@ use tokio::sync::RwLock;
 
 pub mod surreal;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, SurrealValue)]
+#[surreal(crate = "surrealdb::types")]
 pub struct MemoryRecord {
     pub memory_id: String,
     pub scope: String,
