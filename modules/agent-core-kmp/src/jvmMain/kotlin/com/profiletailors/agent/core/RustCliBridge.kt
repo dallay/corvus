@@ -50,6 +50,7 @@ class RustCliBridge(private val config: RustCliBridgeConfig = RustCliBridgeConfi
     if (!finished) {
       runCatching { process.inputStream.close() }
       runCatching { process.errorStream.close() }
+      runCatching { process.outputStream.close() }
       process.destroyForcibly()
       return CoreResult.Failure(
         message = "Rust bridge timed out after ${timeoutMs}ms.",
