@@ -74,11 +74,13 @@ class RustCliBridgeTest {
           )
       )
 
-    val result = bridge.invoke(CoreInvocation(prompt = "ignored"))
-    val failure = assertIs<CoreResult.Failure>(result)
+    for (i in 1..50) {
+      val result = bridge.invoke(CoreInvocation(prompt = "ignored"))
+      val failure = assertIs<CoreResult.Failure>(result)
 
-    assertTrue(failure.message.contains("timed out"))
-    assertTrue(failure.recoverable)
+      assertTrue(failure.message.contains("timed out"))
+      assertTrue(failure.recoverable)
+    }
   }
 
   @Test

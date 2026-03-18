@@ -48,8 +48,8 @@ class RustCliBridge(private val config: RustCliBridgeConfig = RustCliBridgeConfi
 
     val finished = process.waitFor(timeoutMs, TimeUnit.MILLISECONDS)
     if (!finished) {
-      process.inputStream.close()
-      process.errorStream.close()
+      runCatching { process.inputStream.close() }
+      runCatching { process.errorStream.close() }
       process.destroyForcibly()
       return CoreResult.Failure(
         message = "Rust bridge timed out after ${timeoutMs}ms.",

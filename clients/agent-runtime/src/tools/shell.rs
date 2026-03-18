@@ -6,8 +6,6 @@ use serde_json::json;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// Maximum shell command execution time before kill.
-const SHELL_TIMEOUT_SECS: u64 = 60;
 /// Maximum output size in bytes (1MB).
 const MAX_OUTPUT_BYTES: usize = 1_048_576;
 /// Environment variables safe to pass to shell commands.
@@ -20,11 +18,22 @@ const SAFE_ENV_VARS: &[&str] = &[
 pub struct ShellTool {
     security: Arc<SecurityPolicy>,
     runtime: Arc<dyn RuntimeAdapter>,
+    timeout: Duration,
 }
 
 impl ShellTool {
     pub fn new(security: Arc<SecurityPolicy>, runtime: Arc<dyn RuntimeAdapter>) -> Self {
-        Self { security, runtime }
+        Self {
+            security,
+            runtime,
+            timeout: Duration::from_secs(60),
+        }
+    }
+
+    #[cfg(test)]
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
     }
 }
 
@@ -121,8 +130,7 @@ impl Tool for ShellTool {
             }
         }
 
-        let result =
-            tokio::time::timeout(Duration::from_secs(SHELL_TIMEOUT_SECS), cmd.output()).await;
+        let result = tokio::time::timeout(self.timeout, cmd.output()).await;
 
         match result {
             Ok(Ok(output)) => {
@@ -162,7 +170,8 @@ impl Tool for ShellTool {
                     success: false,
                     output: String::new(),
                     error: Some(format!(
-                        "Command timed out after {SHELL_TIMEOUT_SECS}s and was killed."
+                        "Command timed out after {}s and was killed.",
+                        self.timeout.as_secs()
                     )),
                     structured: None,
                 })
@@ -379,11 +388,6 @@ mod tests {
     // ── §5.2 Shell timeout enforcement tests ─────────────────
 
     #[test]
-    fn shell_timeout_constant_is_reasonable() {
-        assert_eq!(SHELL_TIMEOUT_SECS, 60, "shell timeout must be 60 seconds");
-    }
-
-    #[test]
     fn shell_output_limit_is_1mb() {
         assert_eq!(
             MAX_OUTPUT_BYTES, 1_048_576,
@@ -436,11 +440,17 @@ mod tests {
 
     #[tokio::test]
     async fn shell_handles_timeout_gracefully() {
-        // We simulate a timeout by having the internal command sleep longer than tokio's test timeout limit.
-        // Rather than changing SHELL_TIMEOUT_SECS which is const, we'll verify the error message contains
-        // "timed out" if we run a long sleep. In real tests this might delay by 60s so we just
-        // check that the tool actually implements timeout logic via the timeout wrapper without crashing.
-        // For speed in CI, we will just rely on the implementation using tokio::time::timeout correctly.
-        assert_eq!(SHELL_TIMEOUT_SECS, 60, "Timeout is enforced at 60s");
+        let tool = ShellTool::new(test_security(AutonomyLevel::Supervised), test_runtime())
+            .with_timeout(Duration::from_secs(1));
+
+        // Sleep for 3 seconds to trigger the 1-second timeout
+        let result = tool
+            .execute(json!({"command": "sleep 3"}))
+            .await
+            .unwrap();
+
+        assert!(!result.success);
+        let err = result.error.expect("Expected an error from timeout");
+        assert!(err.contains("timed out after 1s"));
     }
 }

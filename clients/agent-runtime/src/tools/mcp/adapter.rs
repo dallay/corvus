@@ -172,10 +172,19 @@ mod tests {
         let large_output = "A".repeat(200);
         let enforced = adapter.enforce_output_limit(large_output.clone());
         
-        // Ensure it's truncated and contains the marker
-        assert!(enforced.len() <= 100 + 100); // 100 bytes limit + marker size
-        assert!(enforced.contains("[output_limit_enforced limit_bytes=100 original_bytes=200]"));
+        // Ensure it's truncated and exactly matches limit
+        assert_eq!(enforced.len(), 100);
+        assert!(enforced.ends_with("[output_limit_enforced limit_bytes=100 original_bytes=200]"));
         
+        let exact_output = "A".repeat(100);
+        let unenforced_exact = adapter.enforce_output_limit(exact_output.clone());
+        assert_eq!(exact_output, unenforced_exact);
+
+        let over_limit_output = "A".repeat(101);
+        let enforced_over = adapter.enforce_output_limit(over_limit_output.clone());
+        assert_eq!(enforced_over.len(), 100);
+        assert!(enforced_over.ends_with("[output_limit_enforced limit_bytes=100 original_bytes=101]"));
+
         let small_output = "A".repeat(50);
         let unenforced = adapter.enforce_output_limit(small_output.clone());
         assert_eq!(small_output, unenforced);
