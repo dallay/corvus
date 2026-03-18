@@ -4,9 +4,9 @@
 
 ### Requirement: Provider Account Pool Configuration
 
-The system MUST support configuring a provider account pool under reliability settings, where each
-pool entry includes the target provider identifier and its credentials, plus optional metadata
-such as api_url and weight.
+The system MUST support provider-keyed account pools under reliability settings
+(`reliability.account_pools.<provider>`), where each pool entry contains account credentials and
+optional metadata such as api_url and weight.
 
 
 #### Scenario: Configure a multi-account pool

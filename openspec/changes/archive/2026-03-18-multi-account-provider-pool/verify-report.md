@@ -35,8 +35,10 @@ test result: ok. 2392 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; f
 test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
 ```
 
-**Coverage**: 92.5% line / threshold: 60% → ✅ Above threshold
-Source: `modules/agent-core-kmp/build/reports/kover/html/index.html`
+**Coverage**: 92.5% line (KMP) / threshold: 60% → ✅ Above threshold
+Sources:
+- `modules/agent-core-kmp/build/reports/kover/html/index.html`
+- `coverage/agent-runtime-coverage.lcov` (Rust, no threshold enforced)
 
 ---
 

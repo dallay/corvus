@@ -277,8 +277,8 @@ rust-coverage: ## Run Rust coverage for agent-runtime
 		echo "cargo-llvm-cov is required. Install with: cargo install cargo-llvm-cov" >&2; \
 		exit 1; \
 	}
-	@rustup component list --installed | grep -q '^llvm-tools-preview' || { \
-		echo "llvm-tools-preview is required. Install with: rustup component add llvm-tools-preview" >&2; \
+	@rustup component list --installed | grep -Eq '^llvm-tools-preview|^llvm-tools' || { \
+		echo "llvm-tools-preview (or llvm-tools) is required. Install with: rustup component add llvm-tools-preview" >&2; \
 		exit 1; \
 	}
 	@mkdir -p coverage

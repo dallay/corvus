@@ -143,6 +143,10 @@ Request with account selection + rate-limit cooldown:
       pub account_pools: std::collections::HashMap<String, ProviderAccountPoolConfig>,
     }
 
+Admin pool responses NEVER return plaintext API keys. The admin view exposes
+`has_api_key` metadata per account and omits `api_key`. Admin update payloads
+accept `api_key` for persistence/encryption but responses remain redacted.
+
 TOML example:
 
     [reliability.account_pools.openrouter]
@@ -193,7 +197,6 @@ Existing `reliability.api_keys` rotation remains supported for non-pooled provid
 
 ## Open Questions
 
-- [ ] Should admin config API expose pool read/patch in this phase, or defer to reduce
-      secret-handling scope?
-- [ ] Should pooled accounts allow `api_key` omission (fall back to `config.api_key`), or
-      require explicit keys for clarity and safety?
+- Admin config pool read/patch is gated by `gateway.admin_expose_provider_pools` and is
+  deferred by default.
+- Pooled accounts require explicit `api_key` values; no fallback to `config.api_key`.

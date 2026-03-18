@@ -95,15 +95,16 @@ impl AccountPoolProvider {
     }
 
     fn select_round_robin(&self, eligible: &[usize]) -> Result<usize> {
-        let len = self.accounts.len();
-        let start = self.index.fetch_add(1, Ordering::Relaxed);
+        if eligible.is_empty() {
+            return Err(anyhow::anyhow!(
+                "no eligible provider accounts for {}",
+                self.provider_name
+            ));
+        }
 
-        (0..len)
-            .map(|offset| (start + offset) % len)
-            .find(|idx| eligible.contains(idx))
-            .ok_or_else(|| {
-                anyhow::anyhow!("no eligible provider accounts for {}", self.provider_name)
-            })
+        let start = self.index.fetch_add(1, Ordering::Relaxed);
+        let selected = eligible[start % eligible.len()];
+        Ok(selected)
     }
 
     fn select_weighted(&self, eligible: &[usize]) -> Result<usize> {
@@ -186,11 +187,7 @@ impl AccountPoolProvider {
     }
 
     fn provider_capabilities(&self) -> Option<super::traits::ProviderCapabilities> {
-        let account = self
-            .accounts
-            .iter()
-            .find(|account| account.enabled)
-            .or_else(|| self.accounts.first())?;
+        let account = self.accounts.iter().find(|account| account.enabled)?;
         let provider = self.provider_for_account(account).ok()?;
         Some(provider.capabilities())
     }
@@ -208,11 +205,7 @@ impl Provider for AccountPoolProvider {
     }
 
     fn convert_tools(&self, tools: &[crate::tools::ToolSpec]) -> ToolsPayload {
-        let account = self
-            .accounts
-            .iter()
-            .find(|account| account.enabled)
-            .or_else(|| self.accounts.first());
+        let account = self.accounts.iter().find(|account| account.enabled);
 
         if let Some(account) = account {
             if let Ok(provider) = self.provider_for_account(account) {
