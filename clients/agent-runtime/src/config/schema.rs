@@ -616,6 +616,8 @@ impl Default for PeripheralBoardConfig {
 // ── Gateway security ─────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+// Gateway config aggregates multiple security toggles; refactor is out of scope here.
+#[allow(clippy::struct_excessive_bools)]
 pub struct GatewayConfig {
     /// Gateway port (default: 3000)
     #[serde(default = "default_gateway_port")]
@@ -623,6 +625,9 @@ pub struct GatewayConfig {
     /// Gateway host (default: 127.0.0.1)
     #[serde(default = "default_gateway_host")]
     pub host: String,
+    /// Allow admin HTTP API to read/patch provider account pools (default: false).
+    #[serde(default)]
+    pub admin_expose_provider_pools: bool,
     /// Require pairing before accepting requests (default: true)
     #[serde(default = "default_true")]
     pub require_pairing: bool,
@@ -696,6 +701,7 @@ impl Default for GatewayConfig {
         Self {
             port: default_gateway_port(),
             host: default_gateway_host(),
+            admin_expose_provider_pools: false,
             require_pairing: true,
             allow_public_bind: false,
             paired_tokens: Vec::new(),
@@ -1377,6 +1383,45 @@ impl Default for RuntimeConfig {
 
 // ── Reliability / supervision ────────────────────────────────────
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountPoolStrategy {
+    #[default]
+    RoundRobin,
+    WeightedRoundRobin,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+pub struct ProviderAccountConfig {
+    pub id: String,
+    pub api_key: String,
+    #[serde(default)]
+    pub api_url: Option<String>,
+    #[serde(default = "default_account_weight")]
+    pub weight: u32,
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+}
+
+impl fmt::Debug for ProviderAccountConfig {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ProviderAccountConfig")
+            .field("id", &self.id)
+            .field("api_key", &"<redacted>")
+            .field("api_url", &self.api_url)
+            .field("weight", &self.weight)
+            .field("enabled", &self.enabled)
+            .finish()
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderAccountPoolConfig {
+    #[serde(default)]
+    pub strategy: AccountPoolStrategy,
+    pub accounts: Vec<ProviderAccountConfig>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReliabilityConfig {
     /// Retries per provider before failing over.
@@ -1396,6 +1441,9 @@ pub struct ReliabilityConfig {
     /// Example: `{ "claude-opus-4-20250514" = ["claude-sonnet-4-20250514", "gpt-4o"] }`
     #[serde(default)]
     pub model_fallbacks: std::collections::HashMap<String, Vec<String>>,
+    /// Provider-specific account pools keyed by provider name.
+    #[serde(default)]
+    pub account_pools: std::collections::HashMap<String, ProviderAccountPoolConfig>,
     /// Initial backoff for channel/daemon restarts.
     #[serde(default = "default_channel_backoff_secs")]
     pub channel_initial_backoff_secs: u64,
@@ -1416,6 +1464,10 @@ fn default_provider_retries() -> u32 {
 
 fn default_provider_backoff_ms() -> u64 {
     500
+}
+
+fn default_account_weight() -> u32 {
+    1
 }
 
 fn default_channel_backoff_secs() -> u64 {
@@ -1442,6 +1494,7 @@ impl Default for ReliabilityConfig {
             fallback_providers: Vec::new(),
             api_keys: Vec::new(),
             model_fallbacks: std::collections::HashMap::new(),
+            account_pools: std::collections::HashMap::new(),
             channel_initial_backoff_secs: default_channel_backoff_secs(),
             channel_max_backoff_secs: default_channel_backoff_max_secs(),
             scheduler_poll_secs: default_scheduler_poll_secs(),
@@ -2423,6 +2476,32 @@ fn encrypt_optional_secret(
     Ok(())
 }
 
+fn decrypt_required_secret(
+    store: &crate::security::SecretStore,
+    value: &mut String,
+    field_name: &str,
+) -> Result<()> {
+    if !value.is_empty() && crate::security::SecretStore::is_encrypted(value) {
+        *value = store
+            .decrypt(value)
+            .with_context(|| format!("Failed to decrypt {field_name}"))?;
+    }
+    Ok(())
+}
+
+fn encrypt_required_secret(
+    store: &crate::security::SecretStore,
+    value: &mut String,
+    field_name: &str,
+) -> Result<()> {
+    if !value.is_empty() && !crate::security::SecretStore::is_encrypted(value) {
+        *value = store
+            .encrypt(value)
+            .with_context(|| format!("Failed to encrypt {field_name}"))?;
+    }
+    Ok(())
+}
+
 fn env_override_optional(var_name: &str, target: &mut Option<String>) {
     if let Ok(raw) = std::env::var(var_name) {
         let trimmed = raw.trim();
@@ -2606,6 +2685,18 @@ impl Config {
 
             for agent in config.agents.values_mut() {
                 decrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
+            }
+
+            for (provider, pool) in &mut config.reliability.account_pools {
+                for (idx, account) in pool.accounts.iter_mut().enumerate() {
+                    decrypt_required_secret(
+                        &store,
+                        &mut account.api_key,
+                        &format!(
+                            "config.reliability.account_pools.{provider}.accounts[{idx}].api_key"
+                        ),
+                    )?;
+                }
             }
 
             config.apply_env_overrides();
@@ -2816,7 +2907,8 @@ impl Config {
         self.validate_mcp_servers()?;
         self.validate_memory_config()?;
         self.validate_delegate_overrides()?;
-        self.validate_code_session_config()
+        self.validate_code_session_config()?;
+        self.validate_account_pools()
     }
 
     fn validate_agent_profile(&self) -> Result<()> {
@@ -2877,6 +2969,37 @@ impl Config {
             if let Some(timeout_ms) = agent.timeout_ms {
                 if timeout_ms == 0 {
                     anyhow::bail!("{base}.timeout_ms must be greater than zero");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_account_pools(&self) -> Result<()> {
+        for (provider, pool) in &self.reliability.account_pools {
+            let provider = provider.trim();
+            if provider.is_empty() {
+                anyhow::bail!("reliability.account_pools provider name must be non-empty");
+            }
+            if pool.accounts.is_empty() {
+                anyhow::bail!("reliability.account_pools.{provider}.accounts must be non-empty");
+            }
+
+            let mut seen_ids = std::collections::HashSet::new();
+            for (idx, account) in pool.accounts.iter().enumerate() {
+                let base = format!("reliability.account_pools.{provider}.accounts[{idx}]");
+                if account.id.trim().is_empty() {
+                    anyhow::bail!("{base}.id must be non-empty");
+                }
+                if account.api_key.trim().is_empty() {
+                    anyhow::bail!("{base}.api_key must be non-empty");
+                }
+                if account.weight == 0 {
+                    anyhow::bail!("{base}.weight must be greater than zero");
+                }
+                if !seen_ids.insert(account.id.trim().to_string()) {
+                    anyhow::bail!("{base}.id must be unique within pool");
                 }
             }
         }
@@ -3023,8 +3146,7 @@ impl Config {
         }
 
         host.parse::<std::net::IpAddr>()
-            .map(|ip| ip.is_loopback())
-            .unwrap_or(false)
+            .is_ok_and(|ip| ip.is_loopback())
     }
 
     pub fn save(&self) -> Result<()> {
@@ -3062,6 +3184,16 @@ impl Config {
 
         for agent in config_to_save.agents.values_mut() {
             encrypt_optional_secret(&store, &mut agent.api_key, "config.agents.*.api_key")?;
+        }
+
+        for (provider, pool) in &mut config_to_save.reliability.account_pools {
+            for (idx, account) in pool.accounts.iter_mut().enumerate() {
+                encrypt_required_secret(
+                    &store,
+                    &mut account.api_key,
+                    &format!("config.reliability.account_pools.{provider}.accounts[{idx}].api_key"),
+                )?;
+            }
         }
 
         let toml_str =
@@ -3510,6 +3642,16 @@ tool_dispatcher = "xml"
         }
     }
 
+    fn sample_pool_account(id: &str, api_key: &str, weight: u32) -> ProviderAccountConfig {
+        ProviderAccountConfig {
+            id: id.to_string(),
+            api_key: api_key.to_string(),
+            api_url: None,
+            weight,
+            enabled: true,
+        }
+    }
+
     #[test]
     fn validate_for_runtime_rejects_unknown_agent_profile() {
         let mut config = Config::default();
@@ -3569,6 +3711,128 @@ tool_dispatcher = "xml"
         assert!(err
             .to_string()
             .contains("agent.code_session.validation_commands[0].command must be non-empty"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_pool_account_missing_id() {
+        let mut config = Config::default();
+        config.reliability.account_pools.insert(
+            "openrouter".into(),
+            ProviderAccountPoolConfig {
+                strategy: AccountPoolStrategy::RoundRobin,
+                accounts: vec![sample_pool_account("", "sk-test", 1)],
+            },
+        );
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("reliability.account_pools.openrouter.accounts[0].id must be non-empty"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_pool_provider_name_empty() {
+        let mut config = Config::default();
+        config.reliability.account_pools.insert(
+            "  ".into(),
+            ProviderAccountPoolConfig {
+                strategy: AccountPoolStrategy::RoundRobin,
+                accounts: vec![sample_pool_account("acct-1", "sk-test", 1)],
+            },
+        );
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("reliability.account_pools provider name must be non-empty"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_pool_account_missing_api_key() {
+        let mut config = Config::default();
+        config.reliability.account_pools.insert(
+            "openrouter".into(),
+            ProviderAccountPoolConfig {
+                strategy: AccountPoolStrategy::RoundRobin,
+                accounts: vec![sample_pool_account("acct-1", "  ", 1)],
+            },
+        );
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err.to_string().contains(
+            "reliability.account_pools.openrouter.accounts[0].api_key must be non-empty"
+        ));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_pool_with_no_accounts() {
+        let mut config = Config::default();
+        config.reliability.account_pools.insert(
+            "openrouter".into(),
+            ProviderAccountPoolConfig {
+                strategy: AccountPoolStrategy::RoundRobin,
+                accounts: Vec::new(),
+            },
+        );
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("reliability.account_pools.openrouter.accounts must be non-empty"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_pool_account_duplicate_ids() {
+        let mut config = Config::default();
+        config.reliability.account_pools.insert(
+            "openrouter".into(),
+            ProviderAccountPoolConfig {
+                strategy: AccountPoolStrategy::RoundRobin,
+                accounts: vec![
+                    sample_pool_account("acct-1", "sk-test-1", 1),
+                    sample_pool_account("acct-1", "sk-test-2", 1),
+                ],
+            },
+        );
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("reliability.account_pools.openrouter.accounts[1].id must be unique"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_pool_account_zero_weight() {
+        let mut config = Config::default();
+        config.reliability.account_pools.insert(
+            "openrouter".into(),
+            ProviderAccountPoolConfig {
+                strategy: AccountPoolStrategy::RoundRobin,
+                accounts: vec![sample_pool_account("acct-1", "sk-test-1", 0)],
+            },
+        );
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err.to_string().contains(
+            "reliability.account_pools.openrouter.accounts[0].weight must be greater than zero"
+        ));
+    }
+
+    #[test]
+    fn validate_for_runtime_accepts_valid_pool_config() {
+        let mut config = Config::default();
+        config.reliability.account_pools.insert(
+            "openrouter".into(),
+            ProviderAccountPoolConfig {
+                strategy: AccountPoolStrategy::WeightedRoundRobin,
+                accounts: vec![
+                    sample_pool_account("acct-1", "sk-test-1", 1),
+                    sample_pool_account("acct-2", "sk-test-2", 2),
+                ],
+            },
+        );
+
+        assert!(config.validate_for_runtime().is_ok());
     }
 
     #[test]
@@ -3723,6 +3987,54 @@ tool_dispatcher = "xml"
         let worker_encrypted = worker.api_key.as_deref().unwrap();
         assert!(crate::security::SecretStore::is_encrypted(worker_encrypted));
         assert_eq!(store.decrypt(worker_encrypted).unwrap(), "agent-credential");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn provider_account_debug_redacts_api_key() {
+        let account = ProviderAccountConfig {
+            id: "acct-1".into(),
+            api_key: "sk-secret".into(),
+            api_url: None,
+            weight: 1,
+            enabled: true,
+        };
+
+        let rendered = format!("{account:?}");
+        assert!(rendered.contains("<redacted>"));
+        assert!(!rendered.contains("sk-secret"));
+    }
+
+    #[test]
+    fn config_save_encrypts_pool_api_keys() {
+        let dir = std::env::temp_dir().join(format!(
+            "corvus_test_pool_credentials_{}",
+            uuid::Uuid::new_v4()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+
+        let mut config = Config::default();
+        config.workspace_dir = dir.join("workspace");
+        config.config_path = dir.join("config.toml");
+        config.reliability.account_pools.insert(
+            "openrouter".into(),
+            ProviderAccountPoolConfig {
+                strategy: AccountPoolStrategy::RoundRobin,
+                accounts: vec![sample_pool_account("acct-1", "pool-key", 1)],
+            },
+        );
+
+        config.save().unwrap();
+
+        let contents = fs::read_to_string(config.config_path.clone()).unwrap();
+        let stored: Config = toml::from_str(&contents).unwrap();
+        let store = crate::security::SecretStore::new(&dir, true);
+
+        let pool = stored.reliability.account_pools.get("openrouter").unwrap();
+        let encrypted = pool.accounts[0].api_key.as_str();
+        assert!(crate::security::SecretStore::is_encrypted(encrypted));
+        assert_eq!(store.decrypt(encrypted).unwrap(), "pool-key");
 
         let _ = fs::remove_dir_all(&dir);
     }
@@ -4180,6 +4492,7 @@ channel_id = "C123"
         let g = GatewayConfig {
             port: 3000,
             host: "127.0.0.1".into(),
+            admin_expose_provider_pools: false,
             require_pairing: true,
             allow_public_bind: false,
             paired_tokens: vec!["zc_test_token".into()],

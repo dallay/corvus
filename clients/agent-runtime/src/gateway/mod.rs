@@ -1101,6 +1101,10 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     println!("  GET  /web/admin/config   — redacted admin config");
     println!("  PUT  /web/admin/config   — update admin config");
     println!("  GET  /web/admin/options  — admin options catalog");
+    if config.gateway.admin_expose_provider_pools {
+        println!("  GET  /web/admin/provider-pools   — provider account pools");
+        println!("  PUT  /web/admin/provider-pools   — update provider account pools");
+    }
     if whatsapp_channel.is_some() {
         println!("  GET  /whatsapp  — Meta webhook verification");
         println!("  POST /whatsapp  — WhatsApp message webhook");
@@ -1149,6 +1153,10 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route(
             "/web/admin/config",
             get(handle_admin_get_config).put(handle_admin_update_config_wrapper),
+        )
+        .route(
+            "/web/admin/provider-pools",
+            get(handle_admin_get_provider_pools).put(handle_admin_update_provider_pools_wrapper),
         )
         .route("/web/admin/options", get(handle_admin_options))
         .route("/whatsapp", get(handle_whatsapp_verify))
@@ -1293,12 +1301,27 @@ async fn handle_admin_options(
     admin::handle_admin_options(State(state), headers).await
 }
 
+async fn handle_admin_get_provider_pools(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    admin::handle_admin_get_provider_pools(State(state), headers).await
+}
+
 async fn handle_admin_update_config_wrapper(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Result<Json<admin::AdminConfigUpdateRequest>, axum::extract::rejection::JsonRejection>,
 ) -> impl IntoResponse {
     admin::handle_admin_update_config(State(state), headers, body).await
+}
+
+async fn handle_admin_update_provider_pools_wrapper(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Result<Json<admin::AdminProviderPoolsPatch>, axum::extract::rejection::JsonRejection>,
+) -> impl IntoResponse {
+    admin::handle_admin_update_provider_pools(State(state), headers, body).await
 }
 
 /// Webhook request body

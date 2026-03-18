@@ -1,11 +1,12 @@
 ---
 title: Cerebro Migration Guide
 description: Move long-term memory to the MCP-backed Cerebro service.
+slug: guides/cerebro/migration-guide
 ---
 
 This guide covers the migration from runtime-local SurrealDB memory to the MCP-backed Cerebro
 service. For narrative context and design intent, see the Cerebro specification at
-https://github.com/dallay/corvus/blob/main/openspec/changes/cerebro/cerebro.md.
+https://github.com/dallay/corvus/blob/main/openspec/changes/archive/2026-03-16-cerebro/cerebro.md.
 
 ## Overview
 

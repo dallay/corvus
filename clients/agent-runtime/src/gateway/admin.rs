@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::config::{AccountPoolStrategy, Config, ProviderAccountPoolConfig};
 use crate::gateway::{self, AppState};
 use crate::security::AutonomyLevel;
 use crate::update;
@@ -28,6 +28,26 @@ pub struct AdminConfigView {
     pub memory: AdminMemoryView,
     pub browser: AdminBrowserView,
     pub updates: AdminUpdatesView,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminProviderPoolsView {
+    pub account_pools: std::collections::BTreeMap<String, AdminProviderPoolView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminProviderPoolView {
+    pub strategy: AccountPoolStrategy,
+    pub accounts: Vec<AdminProviderAccountView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminProviderAccountView {
+    pub id: String,
+    pub api_url: Option<String>,
+    pub weight: u32,
+    pub enabled: bool,
+    pub has_api_key: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -199,6 +219,12 @@ pub struct AdminConfigUpdateRequest {
     pub browser: Option<AdminBrowserPatch>,
     #[serde(default)]
     pub memory: Option<AdminMemoryPatch>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminProviderPoolsPatch {
+    pub account_pools: std::collections::HashMap<String, ProviderAccountPoolConfig>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -390,7 +416,7 @@ fn normalize_optional_string(raw: &str) -> Option<String> {
 }
 
 fn has_secret(value: Option<&str>) -> bool {
-    value.map(|v| !v.trim().is_empty()).unwrap_or(false)
+    value.is_some_and(|v| !v.trim().is_empty())
 }
 
 fn apply_secret_update(
@@ -571,6 +597,36 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
             }
         },
     }
+}
+
+pub fn admin_provider_pools_view(cfg: &Config) -> AdminProviderPoolsView {
+    let account_pools = cfg
+        .reliability
+        .account_pools
+        .iter()
+        .map(|(provider, pool)| {
+            let accounts = pool
+                .accounts
+                .iter()
+                .map(|account| AdminProviderAccountView {
+                    id: account.id.clone(),
+                    api_url: account.api_url.clone(),
+                    weight: account.weight,
+                    enabled: account.enabled,
+                    has_api_key: has_secret(Some(account.api_key.as_str())),
+                })
+                .collect();
+            (
+                provider.clone(),
+                AdminProviderPoolView {
+                    strategy: pool.strategy.clone(),
+                    accounts,
+                },
+            )
+        })
+        .collect();
+
+    AdminProviderPoolsView { account_pools }
 }
 
 pub fn restart_required_updates(
@@ -1461,10 +1517,9 @@ fn apply_webhook_patch(cfg: &mut Config, patch: &AdminWebhookPatch) -> Result<()
         return Ok(());
     }
 
-    let updates_secret = matches!(
-        patch.secret,
-        Some(AdminSecretUpdate::Clear | AdminSecretUpdate::Replace { .. })
-    );
+    let updates_secret = patch.secret.as_ref().is_some_and(|secret| {
+        matches!(secret, AdminSecretUpdate::Clear | AdminSecretUpdate::Replace { .. })
+    });
     let updates_settings = patch.port.is_some() || updates_secret;
     if !updates_settings {
         return Ok(());
@@ -1503,6 +1558,35 @@ pub async fn handle_admin_get_config(
     (
         StatusCode::OK,
         Json(serde_json::json!({"config": admin_config_view(&cfg)})),
+    )
+}
+
+#[allow(clippy::unused_async)]
+pub async fn handle_admin_get_provider_pools(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let cfg = state.config.lock().clone();
+    if !cfg.gateway.admin_expose_provider_pools {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Provider account pools are not exposed via admin API"
+            })),
+        );
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"pools": admin_provider_pools_view(&cfg)})),
     )
 }
 
@@ -1581,6 +1665,70 @@ pub async fn handle_admin_update_config(
         ),
         Err(error) => {
             tracing::error!("Admin config update failed to persist: {error:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "error": "Failed to persist configuration"
+                })),
+            )
+        }
+    }
+}
+
+#[allow(clippy::unused_async)]
+pub async fn handle_admin_update_provider_pools(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: Result<Json<AdminProviderPoolsPatch>, axum::extract::rejection::JsonRejection>,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let Json(patch) = match body {
+        Ok(value) => value,
+        Err(_) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": "Invalid JSON body for admin provider pools update"
+                })),
+            );
+        }
+    };
+
+    let current_cfg = state.config.lock().clone();
+    if !current_cfg.gateway.admin_expose_provider_pools {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({
+                "error": "Provider account pools are not exposed via admin API"
+            })),
+        );
+    }
+
+    let mut next_cfg = current_cfg;
+    next_cfg.reliability.account_pools = patch.account_pools;
+    if let Err(error) = next_cfg.validate_for_runtime() {
+        return bad_request(&error.to_string());
+    }
+
+    let updated_view = admin_provider_pools_view(&next_cfg);
+    match next_cfg.save() {
+        Ok(()) => (
+            {
+                let mut shared_cfg = state.config.lock();
+                *shared_cfg = next_cfg;
+                StatusCode::OK
+            },
+            Json(serde_json::json!({"updated": true, "pools": updated_view})),
+        ),
+        Err(error) => {
+            tracing::error!("Admin provider pools update failed to persist: {error:#}");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(serde_json::json!({

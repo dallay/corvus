@@ -5,6 +5,51 @@ export interface SecretUpdate {
   value?: string;
 }
 
+export type AccountPoolStrategy = "round_robin" | "weighted_round_robin";
+
+export interface ProviderAccountConfig {
+  id: string;
+  api_key: string;
+  api_url?: string | null;
+  weight?: number;
+  enabled?: boolean;
+}
+
+export interface ProviderAccountPoolConfig {
+  strategy?: AccountPoolStrategy;
+  accounts: ProviderAccountConfig[];
+}
+
+export interface AdminProviderAccountView {
+  id: string;
+  api_url?: string | null;
+  weight: number;
+  enabled: boolean;
+  has_api_key: boolean;
+}
+
+export interface AdminProviderPoolView {
+  strategy: AccountPoolStrategy;
+  accounts: AdminProviderAccountView[];
+}
+
+export interface AdminProviderPoolsView {
+  account_pools: Record<string, AdminProviderPoolView>;
+}
+
+export interface AdminProviderPoolsResponse {
+  pools: AdminProviderPoolsView;
+}
+
+export interface AdminProviderPoolsUpdateRequest {
+  account_pools: Record<string, ProviderAccountPoolConfig>;
+}
+
+export interface AdminProviderPoolsUpdateResponse {
+  updated: boolean;
+  pools: AdminProviderPoolsView;
+}
+
 export interface AdminOptionsResponse {
   memory_backends?: string[];
   observability_backends?: string[];
