@@ -166,6 +166,33 @@ describe("useConfig", () => {
     expect(fetchMock.mock.calls[2]?.[0]).toBe("http://corvus.localhost/api/web/admin/config");
   });
 
+  it("normalizes repeated slashes in configured gateway URLs", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: "token-123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ config: { channels: { webhook: {} } } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+    const config = useConfig((key: string) => key);
+    config.baseUrl.value = "http://corvus.localhost/api///";
+    config.pairingCode.value = "857258";
+
+    await config.pairGateway();
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe("http://corvus.localhost/api/pair");
+    expect(fetchMock.mock.calls[1]?.[0]).toBe("http://corvus.localhost/api/web/admin/options");
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("http://corvus.localhost/api/web/admin/config");
+  });
+
   it("blocks sending secrets to non-local origins", async () => {
     const config = useConfig((key: string) => key);
     config.baseUrl.value = "https://example.com/api";

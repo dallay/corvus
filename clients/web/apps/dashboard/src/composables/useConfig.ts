@@ -186,8 +186,24 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       !!bearerToken.value.trim()
   );
 
+  function trimTrailingSlashes(value: string): string {
+    let end = value.length;
+    while (end > 0 && value.charCodeAt(end - 1) === 47) {
+      end -= 1;
+    }
+    return end === value.length ? value : value.slice(0, end);
+  }
+
+  function trimLeadingSlashes(value: string): string {
+    let start = 0;
+    while (start < value.length && value.charCodeAt(start) === 47) {
+      start += 1;
+    }
+    return start === 0 ? value : value.slice(start);
+  }
+
   function normalizeBaseUrl(): string {
-    const normalized = baseUrl.value.trim().replace(/\/$/, "");
+    const normalized = trimTrailingSlashes(baseUrl.value.trim());
     return normalized || DEFAULT_GATEWAY_BASE_URL;
   }
 
@@ -197,8 +213,8 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       return new URL(`${normalizedBaseUrl}${path}`, window.location.origin).toString();
     }
 
-    const cleanPath = path.replace(/^\/+/, "");
-    const baseWithSlash = `${normalizedBaseUrl.replace(/\/+$/, "")}/`;
+    const cleanPath = trimLeadingSlashes(path);
+    const baseWithSlash = `${trimTrailingSlashes(normalizedBaseUrl)}/`;
     return new URL(cleanPath, baseWithSlash).toString();
   }
 
