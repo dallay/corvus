@@ -585,6 +585,10 @@ impl CerebroTools {
                 }
             } else if let Some(observation_obj) = record.observation.as_object_mut() {
                 observation_obj.insert("metadata".to_string(), metadata);
+            } else {
+                return Err(CerebroError::Validation(
+                    "cannot merge metadata: observation is not an object".to_string(),
+                ));
             }
         }
 

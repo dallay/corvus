@@ -27,12 +27,15 @@
           "type": "string",
           "description": "La clave de tema normalizada y sugerida."
         },
-        "candidates_count": {
-          "type": "integer",
-          "description": "Número de claves alternativas generadas."
+        "candidates": {
+          "type": "array",
+          "description": "Lista de claves alternativas generadas.",
+          "items": {
+            "type": "string"
+          }
         }
       },
-      "required": ["topic_key", "candidates_count"],
+      "required": ["topic_key", "candidates"],
       "additionalProperties": false
     }
   },
