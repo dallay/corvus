@@ -140,19 +140,18 @@ impl Tool for MemoryForgetTool {
             });
         }
 
-        let recall_adapter = match
-            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)
-        {
-            Ok(adapter) => adapter,
-            Err(error) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(error.to_string()),
-                    structured: None,
-                });
-            }
-        };
+        let recall_adapter =
+            match cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL) {
+                Ok(adapter) => adapter,
+                Err(error) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(error.to_string()),
+                        structured: None,
+                    });
+                }
+            };
         let recall_payload = json!({
             "input": {
                 "query": key,
@@ -205,19 +204,18 @@ impl Tool for MemoryForgetTool {
                 "topic_key": key
             }
         });
-        let adapter = match
-            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_FORGET)
-        {
-            Ok(adapter) => adapter,
-            Err(error) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(error.to_string()),
-                    structured: None,
-                });
-            }
-        };
+        let adapter =
+            match cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_FORGET) {
+                Ok(adapter) => adapter,
+                Err(error) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(error.to_string()),
+                        structured: None,
+                    });
+                }
+            };
         let response = match adapter.execute(payload).await {
             Ok(response) => response,
             Err(error) => {
@@ -276,9 +274,9 @@ fn resolve_memory_id(raw_output: &str) -> anyhow::Result<Option<String>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::{AutonomyLevel, SecurityPolicy};
     use axum::routing::post;
     use axum::{Json, Router};
-    use crate::security::{AutonomyLevel, SecurityPolicy};
     use tokio::net::TcpListener;
 
     struct MockMemory {

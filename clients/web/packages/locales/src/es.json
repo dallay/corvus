@@ -28,7 +28,10 @@
     "loadError": "No se pudo cargar la configuración admin.",
     "networkError": "No se pudo conectar con el gateway. Verifica red, URL y que el servicio esté activo.",
     "emptyWebhookSecret": "El webhook secret no puede estar vacío. Usa 'Limpiar' si deseas removerlo.",
-    "unauthorized": "No autorizado. Haz pairing y vuelve a intentar."
+    "unauthorized": "No autorizado. Haz pairing y vuelve a intentar.",
+    "quickPairValidating": "Enlace detectado, validando...",
+    "quickPairConnecting": "Conectando al gateway...",
+    "quickPairFailed": "Falló el emparejamiento rápido, revisa la URL o el código."
   },
   "form": {
     "baseUrl": "Base URL",

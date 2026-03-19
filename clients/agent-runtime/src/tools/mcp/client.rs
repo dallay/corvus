@@ -224,10 +224,7 @@ impl McpClient {
 
         if let Some(content_length) = response.content_length() {
             let content_length = usize::try_from(content_length).map_err(|_| {
-                anyhow::anyhow!(
-                    "MCP HTTP response exceeded output_limit_bytes ({})",
-                    limit
-                )
+                anyhow::anyhow!("MCP HTTP response exceeded output_limit_bytes ({})", limit)
             })?;
             if content_length > limit {
                 anyhow::bail!(
@@ -243,10 +240,7 @@ impl McpClient {
         while let Some(chunk) = stream.next().await {
             let chunk = chunk.context("MCP HTTP response stream failed")?;
             if body.len().saturating_add(chunk.len()) > limit {
-                anyhow::bail!(
-                    "MCP HTTP response exceeded output_limit_bytes ({})",
-                    limit
-                );
+                anyhow::bail!("MCP HTTP response exceeded output_limit_bytes ({})", limit);
             }
             body.extend_from_slice(&chunk);
         }
@@ -269,8 +263,8 @@ impl McpClient {
             );
         }
 
-        let payload: serde_json::Value = serde_json::from_slice(&body)
-            .context("MCP HTTP response was not valid JSON")?;
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).context("MCP HTTP response was not valid JSON")?;
 
         if let Some(error) = payload.get("error") {
             anyhow::bail!(

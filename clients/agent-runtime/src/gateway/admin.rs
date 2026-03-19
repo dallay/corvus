@@ -1518,7 +1518,10 @@ fn apply_webhook_patch(cfg: &mut Config, patch: &AdminWebhookPatch) -> Result<()
     }
 
     let updates_secret = patch.secret.as_ref().is_some_and(|secret| {
-        matches!(secret, AdminSecretUpdate::Clear | AdminSecretUpdate::Replace { .. })
+        matches!(
+            secret,
+            AdminSecretUpdate::Clear | AdminSecretUpdate::Replace { .. }
+        )
     });
     let updates_settings = patch.port.is_some() || updates_secret;
     if !updates_settings {
@@ -1957,10 +1960,7 @@ mod tests {
                     }),
                     ..empty_patch()
                 },
-                vec![
-                    "browser.computer_use.api_key",
-                    "memory.cerebro.auth_token",
-                ],
+                vec!["browser.computer_use.api_key", "memory.cerebro.auth_token"],
             ),
             (
                 "no-op when values unchanged",

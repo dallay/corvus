@@ -1109,15 +1109,38 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         println!("  GET  /whatsapp  — Meta webhook verification");
         println!("  POST /whatsapp  — WhatsApp message webhook");
     }
-    println!("  GET  /health    — health check");
-    println!("  GET  /metrics   — Prometheus metrics");
     if let Some(code) = pairing.pairing_code() {
-        println!();
-        println!("  🔐 PAIRING REQUIRED — use this one-time code:");
-        println!("     ┌──────────────┐");
-        println!("     │  {code}  │");
-        println!("     └──────────────┘");
-        println!("     Send: POST /pair with header X-Pairing-Code: {code}");
+        use std::io::IsTerminal;
+        if should_emit_pairing_secrets(std::io::stdout().is_terminal()) {
+            println!();
+            println!("  🔐 PAIRING REQUIRED — use this one-time code:");
+            println!("     ┌──────────────┐");
+            println!("     │  {code}  │");
+            println!("     └──────────────┘");
+            println!("     Send: POST /pair with header X-Pairing-Code: {code}");
+
+            let default_dash = "http://localhost:1355".to_string();
+            let dash_url = std::env::var("CORVUS_DASHBOARD_URL").unwrap_or(default_dash);
+            let gateway_url = tunnel_url
+                .clone()
+                .unwrap_or_else(|| format!("http://{display_addr}"));
+
+            if let Some(magic_link) = build_magic_link(&dash_url, &code, &gateway_url) {
+                println!();
+                println!("  ✨ QUICK PAIR (Temporary Magic Link):");
+                println!("     Click here to automatically connect your dashboard:");
+                println!("     {magic_link}");
+            } else {
+                tracing::warn!(
+                    "CORVUS_DASHBOARD_URL is not a trusted local origin. Suppressing magic link."
+                );
+            }
+        } else {
+            tracing::info!("🔐 Pairing is required but terminal is non-interactive. Pairing code will not be printed to stdout.");
+            tracing::info!(
+                "To pair, run the agent interactively or use an automated provisioning strategy."
+            );
+        }
     } else if pairing.require_pairing() {
         println!("  🔒 Pairing: ACTIVE (bearer token required)");
     } else {
@@ -1789,6 +1812,69 @@ async fn handle_whatsapp_message(
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
 }
 
+fn is_trusted_local_host(host: &str) -> bool {
+    host == "localhost"
+        || host == "127.0.0.1"
+        || host == "::1"
+        || host == "[::1]"
+        || host.ends_with(".localhost")
+}
+
+/// Checks if pairing secrets may be emitted to the terminal.
+pub(crate) fn should_emit_pairing_secrets(is_interactive_terminal: bool) -> bool {
+    is_interactive_terminal
+}
+
+/// Checks if a dashboard URL is a trusted local origin to securely print magic links
+pub fn is_trusted_dashboard_origin(url_str: &str) -> bool {
+    let Ok(parsed) = url::Url::parse(url_str) else {
+        return false;
+    };
+
+    // Only allow http(s)
+    if parsed.scheme() != "http" && parsed.scheme() != "https" {
+        return false;
+    }
+
+    // Reject embedded credentials
+    if !parsed.username().is_empty() || parsed.password().is_some() {
+        return false;
+    }
+
+    // Reject query parameters and fragments
+    if parsed.query().is_some() || parsed.fragment().is_some() {
+        return false;
+    }
+
+    let Some(host) = parsed.host_str() else {
+        return false;
+    };
+
+    is_trusted_local_host(host)
+}
+
+/// Builds a complete absolute magic link ensuring no secret leaks to backend APIs
+pub fn build_magic_link(
+    dashboard_url: &str,
+    pairing_code: &str,
+    gateway_url: &str,
+) -> Option<String> {
+    if !is_trusted_dashboard_origin(dashboard_url) {
+        return None;
+    }
+
+    if !is_trusted_dashboard_origin(gateway_url) {
+        return None;
+    }
+
+    let base = dashboard_url.trim_end_matches('/');
+    let encoded_gw = urlencoding::encode(gateway_url);
+
+    Some(format!(
+        "{base}/#/quick-pair?pairingCode={pairing_code}&gatewayUrl={encoded_gw}"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1802,6 +1888,65 @@ mod tests {
     use parking_lot::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::LazyLock;
+
+    #[test]
+    fn test_is_trusted_dashboard_origin() {
+        assert!(super::is_trusted_dashboard_origin("http://localhost:1355"));
+        assert!(super::is_trusted_dashboard_origin("http://127.0.0.1:3000"));
+        assert!(super::is_trusted_dashboard_origin(
+            "http://dashboard.localhost"
+        ));
+        assert!(super::is_trusted_dashboard_origin("https://[::1]/ui"));
+
+        // Negative cases
+        assert!(!super::is_trusted_dashboard_origin("https://example.com"));
+        assert!(!super::is_trusted_dashboard_origin("file:///dev/null"));
+        assert!(!super::is_trusted_dashboard_origin(
+            "http://admin:pass@localhost:1355"
+        ));
+        assert!(!super::is_trusted_dashboard_origin(
+            "http://localhost:1355/?debug=true"
+        ));
+        assert!(!super::is_trusted_dashboard_origin(
+            "http://localhost:1355/#/quick-pair"
+        ));
+    }
+
+    #[test]
+    fn test_build_magic_link() {
+        let link =
+            super::build_magic_link("http://localhost:1355", "123456", "http://127.0.0.1:3000")
+                .unwrap();
+        assert_eq!(link, "http://localhost:1355/#/quick-pair?pairingCode=123456&gatewayUrl=http%3A%2F%2F127.0.0.1%3A3000");
+
+        let suppressed =
+            super::build_magic_link("https://remote.server", "123456", "http://127.0.0.1:3000");
+        assert!(suppressed.is_none());
+
+        let suppressed_with_credentials = super::build_magic_link(
+            "http://admin:pass@localhost:1355",
+            "123456",
+            "http://127.0.0.1:3000",
+        );
+        assert!(suppressed_with_credentials.is_none());
+    }
+
+    #[test]
+    fn test_build_magic_link_suppresses_untrusted_gateway() {
+        let suppressed = super::build_magic_link(
+            "http://localhost:1355",
+            "123456",
+            "https://public-tunnel.ngrok.io",
+        );
+
+        assert!(suppressed.is_none());
+    }
+
+    #[test]
+    fn test_should_emit_pairing_secrets() {
+        assert!(super::should_emit_pairing_secrets(true));
+        assert!(!super::should_emit_pairing_secrets(false));
+    }
 
     static GATEWAY_ENV_MUTEX: LazyLock<tokio::sync::Mutex<()>> =
         LazyLock::new(|| tokio::sync::Mutex::new(()));

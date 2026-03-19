@@ -278,19 +278,18 @@ impl Tool for MemoryStoreTool {
             });
         }
 
-        let adapter = match
-            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_STORE)
-        {
-            Ok(adapter) => adapter,
-            Err(error) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(error.to_string()),
-                    structured: None,
-                });
-            }
-        };
+        let adapter =
+            match cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_STORE) {
+                Ok(adapter) => adapter,
+                Err(error) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(error.to_string()),
+                        structured: None,
+                    });
+                }
+            };
         let payload = json!({
             "input": {
                 "scope": "shared",
@@ -335,10 +334,10 @@ impl Tool for MemoryStoreTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::{AutonomyLevel, SecurityPolicy};
     use axum::extract::State;
     use axum::routing::post;
     use axum::{Json, Router};
-    use crate::security::{AutonomyLevel, SecurityPolicy};
     use std::sync::Mutex;
     use tokio::net::TcpListener;
 
@@ -436,10 +435,7 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success);
-        assert!(result
-            .error
-            .unwrap_or_default()
-            .contains("loopback"));
+        assert!(result.error.unwrap_or_default().contains("loopback"));
     }
 
     #[tokio::test]

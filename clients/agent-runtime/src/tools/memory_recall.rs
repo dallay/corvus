@@ -85,19 +85,17 @@ impl Tool for MemoryRecallTool {
         let limit = match args.get("limit") {
             None => 5,
             Some(value) => match value.as_i64() {
-                Some(parsed) if (1..=100).contains(&parsed) => {
-                    match usize::try_from(parsed) {
-                        Ok(value) => value,
-                        Err(_) => {
-                            return Ok(ToolResult {
-                                success: false,
-                                output: String::new(),
-                                error: Some("'limit' must be a positive integer".into()),
-                                structured: None,
-                            });
-                        }
+                Some(parsed) if (1..=100).contains(&parsed) => match usize::try_from(parsed) {
+                    Ok(value) => value,
+                    Err(_) => {
+                        return Ok(ToolResult {
+                            success: false,
+                            output: String::new(),
+                            error: Some("'limit' must be a positive integer".into()),
+                            structured: None,
+                        });
                     }
-                }
+                },
                 Some(_) => {
                     return Ok(ToolResult {
                         success: false,
@@ -168,19 +166,18 @@ impl Tool for MemoryRecallTool {
             });
         }
 
-        let adapter = match
-            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)
-        {
-            Ok(adapter) => adapter,
-            Err(error) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(error.to_string()),
-                    structured: None,
-                });
-            }
-        };
+        let adapter =
+            match cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL) {
+                Ok(adapter) => adapter,
+                Err(error) => {
+                    return Ok(ToolResult {
+                        success: false,
+                        output: String::new(),
+                        error: Some(error.to_string()),
+                        structured: None,
+                    });
+                }
+            };
         let payload = json!({
             "input": {
                 "query": query,

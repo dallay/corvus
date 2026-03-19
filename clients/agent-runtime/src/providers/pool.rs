@@ -87,9 +87,7 @@ impl AccountPoolProvider {
         self.accounts
             .iter()
             .enumerate()
-            .filter(|(_, account)| {
-                account.enabled && !cooldowns.contains_key(&account.id)
-            })
+            .filter(|(_, account)| account.enabled && !cooldowns.contains_key(&account.id))
             .map(|(idx, _)| idx)
             .collect()
     }
@@ -240,7 +238,9 @@ impl Provider for AccountPoolProvider {
         temperature: f64,
     ) -> Result<String> {
         self.with_account(|provider, _account| async move {
-            provider.chat_with_history(messages, model, temperature).await
+            provider
+                .chat_with_history(messages, model, temperature)
+                .await
         })
         .await
     }
@@ -295,20 +295,15 @@ impl Provider for AccountPoolProvider {
         let cooldowns = Arc::clone(&self.cooldown_until);
         let account_id = account.id.clone();
 
-        provider.stream_chat_with_system(
-            system_prompt,
-            message,
-            model,
-            temperature,
-            options,
-        )
-        .map(move |item| {
-            if let Err(err) = &item {
-                mark_stream_cooldown(&cooldowns, &account_id, err);
-            }
-            item
-        })
-        .boxed()
+        provider
+            .stream_chat_with_system(system_prompt, message, model, temperature, options)
+            .map(move |item| {
+                if let Err(err) = &item {
+                    mark_stream_cooldown(&cooldowns, &account_id, err);
+                }
+                item
+            })
+            .boxed()
     }
 
     fn stream_chat_with_history(
@@ -505,7 +500,11 @@ mod tests {
         );
 
         let sequence: Vec<String> = (0..5)
-            .map(|_| provider.accounts[provider.select_account_index().unwrap()].id.clone())
+            .map(|_| {
+                provider.accounts[provider.select_account_index().unwrap()]
+                    .id
+                    .clone()
+            })
             .collect();
 
         assert_eq!(sequence, vec!["a", "b", "a", "a", "b"]);
@@ -514,10 +513,10 @@ mod tests {
     #[test]
     fn cooldown_skips_rate_limited_account() {
         let provider = round_robin_provider();
-        provider.cooldown_until.lock().insert(
-            "a".to_string(),
-            Instant::now() + Duration::from_secs(60),
-        );
+        provider
+            .cooldown_until
+            .lock()
+            .insert("a".to_string(), Instant::now() + Duration::from_secs(60));
 
         let selected = provider.select_account_index().unwrap();
         assert_eq!(provider.accounts[selected].id, "b");
