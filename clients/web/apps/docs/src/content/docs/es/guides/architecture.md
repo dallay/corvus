@@ -40,10 +40,11 @@ Corvus está diseñado como una plataforma de agentes reactivos con los siguient
 - **Ubicación**: Runtime del agente en `clients/agent-runtime/`
 
 ### 2. **Cerebro (Memoria a Largo Plazo)**
-
-- **Tecnología**: Rust + SurrealDB (Embebido)
-- **Propósito**: Servicio de memoria centralizado e independiente del agente con soporte para grafos
-- **Integración**: Vía MCP (JSON-RPC) desde el runtime
+- **Sistema de Memoria (Cerebro)**: Un servicio de Rust de alto rendimiento que proporciona una interfaz de memoria unificada.
+  - **Interfaz**: Vía MCP (JSON-RPC) desde el runtime.
+  - **Herramientas Implementadas**: `mem_save`, `mem_search`, `mem_delete`, `mem_get_observation`, `mem_update`, `mem_suggest_topic_key`, `mem_stats`, `mem_timeline`.
+  - **Herramientas Planificadas (NotImplemented)**: `mem_save_prompt`, `mem_session_start`, `mem_session_end`, `mem_session_summary`, `mem_context`.
+  - **Almacenamiento**: Soporte multi-modelo que incluye SurrealDB embebido, JSON en disco y memoria.
 
 ### 3. **Herramientas en Sandbox**
 

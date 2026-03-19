@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "mem_session_start",
-  "description": "Register a new session start.",
+  "title": "mem_session_start (draft/unimplemented)",
+  "description": "Iniciar una nueva sesión en Cerebro (NotImplemented returning CerebroError::NotImplemented).",
   "type": "object",
   "properties": {
     "input": {
@@ -11,22 +11,22 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "description": "Client-generated session identifier."
+          "description": "Identificador de sesión generado por el cliente."
         },
         "agent_id": {
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "description": "Agent identifier for attribution."
+          "description": "Identificador del agente para atribución."
         },
         "started_at": {
           "type": "string",
           "format": "date-time",
-          "description": "RFC 3339 timestamp for session start."
+          "description": "Marca de tiempo RFC 3339 para el inicio de la sesión."
         },
         "metadata": {
           "type": "object",
-          "description": "Optional session metadata.",
+          "description": "Metadatos opcionales de la sesión.",
           "maxProperties": 50,
           "propertyNames": { "type": "string", "maxLength": 64 },
           "additionalProperties": true

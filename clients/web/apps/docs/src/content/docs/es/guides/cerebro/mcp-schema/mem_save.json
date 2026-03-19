@@ -9,10 +9,12 @@
       "properties": {
         "scope": {
           "type": "string",
+          "minLength": 1,
           "description": "Memory scope (for example: private, shared)."
         },
         "topic_key": {
           "type": "string",
+          "minLength": 1,
           "description": "Stable topic key for deduplication and upserts."
         },
         "observation": {
@@ -21,6 +23,7 @@
           "properties": {
             "content": {
               "type": "string",
+              "minLength": 1,
               "description": "Primary observation content."
             },
             "what": { "type": "string" },

@@ -390,6 +390,84 @@ impl Storage for SurrealStorage {
         Ok(records)
     }
 
+    async fn timeline(
+        &self,
+        memory_id: &str,
+        before: usize,
+        after: usize,
+        include_deleted: bool,
+    ) -> Result<Vec<MemoryRecord>, CerebroError> {
+        // First, get the anchor row's timestamp
+        let mut anchor_response = self
+            .db
+            .query("SELECT timestamp FROM memory WHERE memory_id = $id")
+            .bind(("id", memory_id))
+            .await
+            .map_err(|err| CerebroError::Storage(format!("surrealdb timeline failed: {err}")))?;
+        let anchor_records: Vec<MemoryRecord> = anchor_response
+            .take(0)
+            .map_err(|err| CerebroError::Storage(format!("surrealdb timeline failed: {err}")))?;
+
+        let Some(anchor_record) = anchor_records.first() else {
+            return Ok(Vec::new());
+        };
+
+        let anchor_ts = anchor_record.timestamp;
+
+        // Build the query with timestamp range and deleted filter
+        let mut variables = Variables::new();
+        variables.insert("anchor_ts", anchor_ts);
+        variables.insert("before_limit", before as i64);
+        variables.insert("after_limit", after as i64);
+
+        let deleted_clause = if include_deleted {
+            ""
+        } else {
+            " AND deleted = false"
+        };
+
+        // Query for records before the anchor (reverse order, then reverse the results)
+        let before_query = format!(
+            "SELECT * FROM memory WHERE timestamp < $anchor_ts{} ORDER BY timestamp DESC LIMIT $before_limit",
+            deleted_clause
+        );
+
+        // Query for the anchor and records after it
+        let after_query = format!(
+            "SELECT * FROM memory WHERE timestamp >= $anchor_ts{} ORDER BY timestamp ASC LIMIT $after_limit + 1",
+            deleted_clause
+        );
+
+        let mut before_response = self
+            .db
+            .query(&before_query)
+            .bind(variables.clone())
+            .await
+            .map_err(|err| CerebroError::Storage(format!("surrealdb timeline failed: {err}")))?;
+        let mut before_records: Vec<MemoryRecord> = before_response
+            .take(0)
+            .map_err(|err| CerebroError::Storage(format!("surrealdb timeline failed: {err}")))?;
+
+        let mut after_response = self
+            .db
+            .query(&after_query)
+            .bind(variables)
+            .await
+            .map_err(|err| CerebroError::Storage(format!("surrealdb timeline failed: {err}")))?;
+        let after_records: Vec<MemoryRecord> = after_response
+            .take(0)
+            .map_err(|err| CerebroError::Storage(format!("surrealdb timeline failed: {err}")))?;
+
+        // Reverse before_records since they were fetched in DESC order
+        before_records.reverse();
+
+        // Combine the results
+        let mut result = before_records;
+        result.extend(after_records);
+
+        Ok(result)
+    }
+
     async fn count(&self) -> Result<usize, CerebroError> {
         let response = self
             .db

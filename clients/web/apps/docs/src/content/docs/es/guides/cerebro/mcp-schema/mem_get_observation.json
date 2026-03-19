@@ -9,11 +9,12 @@
       "properties": {
         "memory_id": {
           "type": "string",
-          "description": "Memory identifier to fetch."
+          "minLength": 1,
+          "description": "ID de la memoria a recuperar."
         },
         "include_deleted": {
           "type": "boolean",
-          "description": "Allow returning deleted records (default false)."
+          "description": "¿Si se debe devolver la observación incluso si fue eliminada?"
         }
       },
       "required": ["memory_id"],
@@ -28,8 +29,7 @@
           "enum": ["active", "deleted"]
         },
         "observation": {
-          "type": "object",
-          "additionalProperties": true
+          "description": "Contenido de la observación recuperada (como valor JSON crudo)."
         },
         "metadata": {
           "type": "object",

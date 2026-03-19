@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "mem_save_prompt",
-  "description": "Save a user prompt for future context.",
+  "title": "mem_save_prompt (draft/unimplemented)",
+  "description": "Guardar un prompt en Cerebro (NotImplemented returning CerebroError::NotImplemented).",
   "type": "object",
   "properties": {
     "input": {
@@ -9,11 +9,11 @@
       "properties": {
         "prompt": {
           "type": "string",
-          "description": "Prompt text to save."
+          "description": "Texto del prompt a guardar."
         },
         "session_id": {
           "type": "string",
-          "description": "Optional session identifier."
+          "description": "Identificador de sesión opcional."
         },
         "tags": {
           "type": "array",
@@ -31,9 +31,8 @@
       "type": "object",
       "properties": {
         "prompt_id": { "type": "string" },
-        "status": { "type": "string", "enum": ["saved"] }
+        "status": { "type": "string", "enum": ["saved", "unimplemented"] }
       },
-      "required": ["prompt_id", "status"],
       "additionalProperties": false
     }
   },

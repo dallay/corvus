@@ -9,49 +9,40 @@
       "properties": {
         "memory_id": {
           "type": "string",
-          "description": "Memory identifier to update."
+          "description": "Identificador de memoria a actualizar."
         },
         "observation": {
-          "type": "object",
-          "description": "Updated observation payload.",
-          "properties": {
-            "content": { "type": "string" },
-            "what": { "type": "string" },
-            "why": { "type": "string" },
-            "where": { "type": "string" },
-            "learned": { "type": "string" },
-            "source": { "type": "string" },
-            "tags": {
-              "type": "array",
-              "items": { "type": "string" }
-            },
-            "metadata": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "additionalProperties": false
+          "anyOf": [
+              { "type": "object" },
+              { "type": "array" },
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "type": "null" }
+          ],
+          "description": "Nueva carga útil de la observación (reemplaza el contenido existente)."
         },
         "topic_key": {
-          "type": "string"
+          "type": "string",
+          "description": "Nueva clave de tema (opcional)."
         },
         "scope": {
-          "type": "string"
+          "type": "string",
+          "description": "Nuevo ámbito de memoria (opcional)."
         },
         "metadata": {
           "type": "object",
+          "description": "Nuevos metadatos a fusionar (opcional).",
           "additionalProperties": true
         }
       },
       "required": ["memory_id"],
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "output": {
       "type": "object",
       "properties": {
-        "memory_id": {
-          "type": "string"
-        },
+        "memory_id": { "type": "string" },
         "status": {
           "type": "string",
           "enum": ["updated"]

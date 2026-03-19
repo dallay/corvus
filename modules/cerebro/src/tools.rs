@@ -570,6 +570,28 @@ impl CerebroTools {
             record.scope = scope;
         }
 
+        if let Some(metadata) = input.input.metadata {
+            if let Some(current_metadata) = record.observation.get_mut("metadata") {
+                if let Some(current_obj) = current_metadata.as_object_mut() {
+                    if let Some(new_obj) = metadata.as_object() {
+                        for (key, value) in new_obj {
+                            current_obj.insert(key.clone(), value.clone());
+                        }
+                    } else {
+                        *current_metadata = metadata;
+                    }
+                } else {
+                    *current_metadata = metadata;
+                }
+            } else if let Some(observation_obj) = record.observation.as_object_mut() {
+                observation_obj.insert("metadata".to_string(), metadata);
+            } else {
+                return Err(CerebroError::Validation(
+                    "cannot merge metadata: observation is not an object".to_string(),
+                ));
+            }
+        }
+
         self.storage.save(record).await?;
 
         Ok(json!({
@@ -619,7 +641,17 @@ impl CerebroTools {
             ));
         }
 
-        Err(CerebroError::NotImplemented("mem_timeline".to_string()))
+        let items = self
+            .storage
+            .timeline(
+                &input.input.memory_id,
+                before,
+                after,
+                input.input.include_deleted.unwrap_or(false),
+            )
+            .await?;
+
+        Ok(json!({ "items": items }))
     }
 
     async fn mem_stats(&self, _payload: Value) -> Result<Value, CerebroError> {

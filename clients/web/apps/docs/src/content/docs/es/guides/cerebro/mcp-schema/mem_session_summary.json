@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "mem_session_summary",
-  "description": "Save end-of-session summary (goal, discoveries, accomplished).",
+  "title": "mem_session_summary (draft/unimplemented)",
+  "description": "Enviar un resumen para una sesión (NotImplemented returning CerebroError::NotImplemented).",
   "type": "object",
   "properties": {
     "input": {
@@ -11,11 +11,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "description": "Session identifier to summarize."
+          "description": "Identificador de la sesión a resumir."
         },
         "summary": {
           "type": "object",
-          "description": "Structured session summary payload.",
+          "description": "Carga útil del resumen estructurado de la sesión.",
           "properties": {
             "goal": {
               "type": "string",
@@ -48,7 +48,7 @@
         },
         "metadata": {
           "type": "object",
-          "description": "Optional summary metadata.",
+          "description": "Metadatos opcionales del resumen.",
           "maxProperties": 50,
           "propertyNames": { "type": "string", "maxLength": 64 },
           "additionalProperties": true
