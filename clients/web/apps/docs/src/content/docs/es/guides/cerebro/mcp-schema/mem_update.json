@@ -9,23 +9,30 @@
       "properties": {
         "memory_id": {
           "type": "string",
-          "description": "Memory identifier to update."
+          "description": "Identificador de memoria a actualizar."
         },
         "observation": {
-          "type": "object",
-          "description": "New observation payload (raw JSON). Replaces the existing one if provided."
+          "anyOf": [
+              { "type": "object" },
+              { "type": "array" },
+              { "type": "string" },
+              { "type": "number" },
+              { "type": "boolean" },
+              { "type": "null" }
+          ],
+          "description": "Nueva carga útil de la observación (reemplaza el contenido existente)."
         },
         "topic_key": {
           "type": "string",
-          "description": "New topic key (optional)."
+          "description": "Nueva clave de tema (opcional)."
         },
         "scope": {
           "type": "string",
-          "description": "New memory scope (optional)."
+          "description": "Nuevo ámbito de memoria (opcional)."
         },
         "metadata": {
           "type": "object",
-          "description": "New metadata to merge (optional).",
+          "description": "Nuevos metadatos a fusionar (opcional).",
           "additionalProperties": true
         }
       },

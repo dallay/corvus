@@ -14,7 +14,7 @@
         },
         "scope": {
           "type": "string",
-          "description": "Ámbito opcional para verificar colisiones."
+          "description": "Ámbito opcional (actualmente reservado/ignorado)."
         }
       },
       "required": ["seed"],

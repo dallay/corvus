@@ -10,11 +10,11 @@
         "memory_id": {
           "type": "string",
           "minLength": 1,
-          "description": "Memory ID to retrieve."
+          "description": "ID de la memoria a recuperar."
         },
         "include_deleted": {
           "type": "boolean",
-          "description": "Whether to return the observation if it was deleted."
+          "description": "¿Si se debe devolver la observación incluso si fue eliminada?"
         }
       },
       "required": ["memory_id"],
@@ -29,7 +29,7 @@
           "enum": ["active", "deleted"]
         },
         "observation": {
-          "description": "The retrieved observation payload (as a raw JSON value)."
+          "description": "Contenido de la observación recuperada (como valor JSON crudo)."
         },
         "metadata": {
           "type": "object",

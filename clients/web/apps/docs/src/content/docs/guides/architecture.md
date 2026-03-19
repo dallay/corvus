@@ -44,8 +44,8 @@ Corvus is designed as a reactive agent platform with the following pillars:
 - **Technology**: Rust + SurrealDB (Embedded)
 - **Memory System (Cerebro)**: A high-performance Rust service that provides a unified memory interface.
   - **Interface**: Via MCP (JSON-RPC) from the runtime.
-  - **Implemented Tools**: `mem_save`, `mem_search`, `mem_delete`, `mem_get_observation`, `mem_update`, `mem_suggest_topic_key`, `mem_stats`.
-  - **Planned Tools (NotImplemented)**: `mem_save_prompt`, `mem_session_start`, `mem_session_end`, `mem_session_summary`, `mem_context`, `mem_timeline`.
+  - **Implemented Tools**: `mem_save`, `mem_search`, `mem_delete`, `mem_get_observation`, `mem_update`, `mem_suggest_topic_key`, `mem_stats`, `mem_timeline`.
+  - **Planned Tools (NotImplemented)**: `mem_save_prompt`, `mem_session_start`, `mem_session_end`, `mem_session_summary`, `mem_context`.
   - **Storage**: Multi-model support including embedded SurrealDB, disk-backed JSON, and in-memory.
 
 ### 3. **Sandboxed Tools**

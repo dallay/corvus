@@ -11,11 +11,11 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 128,
-          "description": "Session identifier to summarize."
+          "description": "Identificador de la sesión a resumir."
         },
         "summary": {
           "type": "object",
-          "description": "Structured session summary payload.",
+          "description": "Carga útil del resumen estructurado de la sesión.",
           "properties": {
             "goal": {
               "type": "string",
@@ -48,7 +48,7 @@
         },
         "metadata": {
           "type": "object",
-          "description": "Optional summary metadata.",
+          "description": "Metadatos opcionales del resumen.",
           "maxProperties": 50,
           "propertyNames": { "type": "string", "maxLength": 64 },
           "additionalProperties": true

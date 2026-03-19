@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Inicio de sesión de memoria",
-  "description": "Registrar el inicio de una nueva sesión.",
+  "title": "mem_session_start (draft/unimplemented)",
+  "description": "Iniciar una nueva sesión en Cerebro (NotImplemented returning CerebroError::NotImplemented).",
   "type": "object",
   "properties": {
     "input": {

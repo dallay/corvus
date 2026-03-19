@@ -390,6 +390,36 @@ impl Storage for SurrealStorage {
         Ok(records)
     }
 
+    async fn timeline(
+        &self,
+        memory_id: &str,
+        before: usize,
+        after: usize,
+        include_deleted: bool,
+    ) -> Result<Vec<MemoryRecord>, CerebroError> {
+        // Simple implementation: sort all memories by timestamp and slice around memory_id
+        let mut response = self
+            .db
+            .query("SELECT * FROM memory ORDER BY timestamp ASC")
+            .await
+            .map_err(|err| CerebroError::Storage(format!("surrealdb timeline failed: {err}")))?;
+        let mut records: Vec<MemoryRecord> = response
+            .take(0)
+            .map_err(|err| CerebroError::Storage(format!("surrealdb timeline failed: {err}")))?;
+
+        if !include_deleted {
+            records.retain(|r| !r.deleted);
+        }
+
+        let Some(index) = records.iter().position(|r| r.memory_id == memory_id) else {
+            return Ok(Vec::new());
+        };
+
+        let start = index.saturating_sub(before);
+        let end = (index + after + 1).min(records.len());
+        Ok(records[start..end].to_vec())
+    }
+
     async fn count(&self) -> Result<usize, CerebroError> {
         let response = self
             .db

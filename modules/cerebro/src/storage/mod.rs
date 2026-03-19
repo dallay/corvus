@@ -72,6 +72,13 @@ pub trait Storage: Send + Sync {
         scope: Option<&str>,
         topic_key: Option<&str>,
     ) -> Result<Vec<MemoryRecord>, CerebroError>;
+    async fn timeline(
+        &self,
+        memory_id: &str,
+        before: usize,
+        after: usize,
+        include_deleted: bool,
+    ) -> Result<Vec<MemoryRecord>, CerebroError>;
     async fn count(&self) -> Result<usize, CerebroError>;
 }
 
@@ -233,6 +240,30 @@ impl Storage for InMemoryStorage {
         Ok(results)
     }
 
+    async fn timeline(
+        &self,
+        memory_id: &str,
+        before: usize,
+        after: usize,
+        include_deleted: bool,
+    ) -> Result<Vec<MemoryRecord>, CerebroError> {
+        let map = self.records.read().await;
+        let mut records: Vec<MemoryRecord> = map
+            .values()
+            .filter(|r| include_deleted || !r.deleted)
+            .cloned()
+            .collect();
+        records.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        let Some(index) = records.iter().position(|r| r.memory_id == memory_id) else {
+            return Ok(Vec::new());
+        };
+
+        let start = index.saturating_sub(before);
+        let end = (index + after + 1).min(records.len());
+        Ok(records[start..end].to_vec())
+    }
+
     async fn count(&self) -> Result<usize, CerebroError> {
         let map = self.records.read().await;
         Ok(map.len())
@@ -350,6 +381,30 @@ impl Storage for DiskBackedStorage {
         results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         results.truncate(limit);
         Ok(results)
+    }
+
+    async fn timeline(
+        &self,
+        memory_id: &str,
+        before: usize,
+        after: usize,
+        include_deleted: bool,
+    ) -> Result<Vec<MemoryRecord>, CerebroError> {
+        let map = self.records.read().await;
+        let mut records: Vec<MemoryRecord> = map
+            .values()
+            .filter(|r| include_deleted || !r.deleted)
+            .cloned()
+            .collect();
+        records.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+        let Some(index) = records.iter().position(|r| r.memory_id == memory_id) else {
+            return Ok(Vec::new());
+        };
+
+        let start = index.saturating_sub(before);
+        let end = (index + after + 1).min(records.len());
+        Ok(records[start..end].to_vec())
     }
 
     async fn count(&self) -> Result<usize, CerebroError> {
