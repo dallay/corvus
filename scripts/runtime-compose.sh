@@ -15,7 +15,7 @@ case "$command_name" in
     exec docker compose -f "$COMPOSE_FILE" --profile dashboard up -d "$@"
     ;;
   down)
-    exec docker compose -f "$COMPOSE_FILE" --profile dashboard down --remove-orphans "$@"
+    exec docker compose -f "$COMPOSE_FILE" --profile dashboard down "$@"
     ;;
   logs)
     exec docker compose -f "$COMPOSE_FILE" --profile dashboard logs -f "$@"

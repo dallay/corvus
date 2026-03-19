@@ -1,5 +1,7 @@
 use crate::config::MemoryCerebroConfig;
 use crate::memory::{Memory, MemoryEntry};
+use crate::security::egress::enforce_cerebro_egress;
+use crate::security::policy::ToolOperation;
 use crate::tools::mcp::{cerebro, normalize};
 use crate::tools::traits::Tool;
 use async_trait::async_trait;
@@ -94,6 +96,16 @@ impl MemoryLoader for CerebroMemoryLoader {
                 return Ok(context);
             }
             anyhow::bail!("Cerebro MCP endpoint is not configured");
+        }
+
+        if let Some(endpoint) = endpoint {
+            if enforce_cerebro_egress(endpoint, &self.config, ToolOperation::Read).is_err() {
+                if added {
+                    context.push('\n');
+                    return Ok(context);
+                }
+                return Ok(String::new());
+            }
         }
 
         let adapter = cerebro::cerebro_tool_adapter(&self.config, normalize::CEREBRO_TOOL_RECALL)?;
@@ -251,6 +263,24 @@ mod tests {
     #[tokio::test]
     async fn cerebro_loader_returns_local_context_when_endpoint_missing() {
         let loader = CerebroMemoryLoader::new(MemoryCerebroConfig::default(), 5, 0.4);
+        let context = loader.load_context(&MockMemory, "hello").await.unwrap();
+        assert!(context.contains("[Memory context]"));
+        assert!(context.contains("- k: v"));
+    }
+
+    #[tokio::test]
+    async fn cerebro_loader_returns_local_context_when_egress_is_blocked() {
+        let loader = CerebroMemoryLoader::new(
+            MemoryCerebroConfig {
+                endpoint: Some("http://public.example.com/mcp".to_string()),
+                auth_token: None,
+                request_timeout_ms: 30_000,
+                allow_insecure_loopback: false,
+            },
+            5,
+            0.4,
+        );
+
         let context = loader.load_context(&MockMemory, "hello").await.unwrap();
         assert!(context.contains("[Memory context]"));
         assert!(context.contains("- k: v"));

@@ -117,7 +117,6 @@ impl Tool for McpToolAdapter {
             });
         }
 
-
         match self
             .client
             .call_tool(&self.original_name, validated_args)
@@ -155,6 +154,15 @@ impl Tool for McpToolAdapter {
 mod tests {
     use super::*;
 
+    fn test_client() -> McpClient {
+        let server = crate::config::McpServerConfig {
+            name: "test".into(),
+            command: "__mcp_mock__".into(),
+            ..crate::config::McpServerConfig::default()
+        };
+        McpClient::new(server)
+    }
+
     #[test]
     fn mcp_adapter_enforces_output_limit() {
         let adapter = McpToolAdapter {
@@ -165,19 +173,16 @@ mod tests {
             server_name: "test".into(),
             call_timeout_ms: 1000,
             output_limit_bytes: 100, // Very small limit for testing
-            client: McpClient::new(
-                "test", // Name
-                crate::config::McpServerConfig::default(),
-            ),
+            client: test_client(),
         };
 
         let large_output = "A".repeat(200);
         let enforced = adapter.enforce_output_limit(large_output.clone());
-        
+
         // Ensure it's truncated and exactly matches limit
         assert_eq!(enforced.len(), 100);
         assert!(enforced.ends_with("[output_limit_enforced limit_bytes=100 original_bytes=200]"));
-        
+
         let exact_output = "A".repeat(100);
         let unenforced_exact = adapter.enforce_output_limit(exact_output.clone());
         assert_eq!(exact_output, unenforced_exact);
@@ -185,7 +190,9 @@ mod tests {
         let over_limit_output = "A".repeat(101);
         let enforced_over = adapter.enforce_output_limit(over_limit_output.clone());
         assert_eq!(enforced_over.len(), 100);
-        assert!(enforced_over.ends_with("[output_limit_enforced limit_bytes=100 original_bytes=101]"));
+        assert!(
+            enforced_over.ends_with("[output_limit_enforced limit_bytes=100 original_bytes=101]")
+        );
 
         let small_output = "A".repeat(50);
         let unenforced = adapter.enforce_output_limit(small_output.clone());
@@ -202,15 +209,12 @@ mod tests {
             server_name: "test".into(),
             call_timeout_ms: 1000,
             output_limit_bytes: 10,
-            client: McpClient::new(
-                "test", // Name
-                crate::config::McpServerConfig::default(),
-            ),
+            client: test_client(),
         };
 
         let large_output = "A".repeat(200);
         let enforced = adapter.enforce_output_limit(large_output);
-        
+
         // Assert length is EXACTLY 10 and that it actually truncated the marker itself
         assert_eq!(enforced.len(), 10);
         assert!(enforced.starts_with("\n[output_l"));
@@ -226,16 +230,13 @@ mod tests {
             server_name: "test".into(),
             call_timeout_ms: 1000,
             output_limit_bytes: 50,
-            client: McpClient::new(
-                "test", // Name
-                crate::config::McpServerConfig::default(),
-            ),
+            client: test_client(),
         };
 
         // 'é' is 2 bytes in UTF-8. 100 characters = 200 bytes.
         let multibyte_output = "é".repeat(100);
         let enforced = adapter.enforce_output_limit(multibyte_output);
-        
+
         // Ensure strictly bounded and ends cleanly on a valid char boundary without panicking
         assert!(enforced.len() <= 50);
         assert!(enforced.is_char_boundary(enforced.len()));
@@ -252,12 +253,9 @@ mod tests {
             server_name: "test".into(),
             call_timeout_ms: 1000,
             output_limit_bytes: 20 * 1024 * 1024, // 20MB, exceeds the hardcoded 10MB limit in execute
-            client: super::super::client::McpClient::new(
-                "test",
-                crate::config::McpServerConfig::default(),
-            ),
+            client: test_client(),
         };
-        
+
         let result = adapter.execute(serde_json::json!({})).await.unwrap();
         assert!(!result.success);
         assert!(result.error.unwrap().contains("exceeds maximum allowed"));

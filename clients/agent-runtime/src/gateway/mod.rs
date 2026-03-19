@@ -1932,6 +1932,17 @@ mod tests {
     }
 
     #[test]
+    fn test_build_magic_link_suppresses_untrusted_gateway() {
+        let suppressed = super::build_magic_link(
+            "http://localhost:1355",
+            "123456",
+            "https://public-tunnel.ngrok.io",
+        );
+
+        assert!(suppressed.is_none());
+    }
+
+    #[test]
     fn test_should_emit_pairing_secrets() {
         assert!(super::should_emit_pairing_secrets(true));
         assert!(!super::should_emit_pairing_secrets(false));

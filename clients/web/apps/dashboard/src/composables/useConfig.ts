@@ -217,17 +217,20 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     initialConfig.value = mapFormToSnapshot(nextForm);
   }
 
-  async function pairGateway(options?: PairGatewayOptions): Promise<void> {
+  async function pairGateway(options?: PairGatewayOptions): Promise<boolean> {
+    if (quickPairState.value === "failed") {
+      quickPairState.value = "idle";
+    }
     errorMessage.value = "";
     statusMessage.value = "";
     const code = pairingCode.value.trim();
     if (!code) {
-      return;
+      return false;
     }
     const gatewayBaseUrl = normalizeBaseUrl();
     if (!isUrlSafeForSecrets(gatewayBaseUrl)) {
       errorMessage.value = t("errors.insecureUrlError");
-      return;
+      return false;
     }
     loading.value = true;
     try {
@@ -250,16 +253,22 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
 
       if (options?.autoConnect ?? true) {
         options?.onBeforeConnect?.();
-        await connectGateway();
+        return await connectGateway();
       }
+
+      return true;
     } catch {
       errorMessage.value = t("auth.loadError");
+      return false;
     } finally {
       loading.value = false;
     }
   }
 
-  async function connectGateway(): Promise<void> {
+  async function connectGateway(): Promise<boolean> {
+    if (quickPairState.value === "failed") {
+      quickPairState.value = "idle";
+    }
     loading.value = true;
     errorMessage.value = "";
     statusMessage.value = "";
@@ -268,7 +277,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       const safeForSecrets = isUrlSafeForSecrets(gatewayBaseUrl);
       if (!safeForSecrets && bearerToken.value.trim()) {
         errorMessage.value = t("errors.insecureUrlError");
-        return;
+        return false;
       }
       const headers = safeForSecrets ? authHeaders() : { "Content-Type": "application/json" };
 
@@ -309,8 +318,10 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       }
       setFormValues(mapViewToForm(configData.config));
       statusMessage.value = t("auth.connected");
+      return true;
     } catch {
       errorMessage.value = t("auth.loadError");
+      return false;
     } finally {
       loading.value = false;
     }
@@ -342,12 +353,12 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       quickPairState.value = "pairing";
 
       void (async () => {
-        await pairGateway({
+        const paired = await pairGateway({
           onBeforeConnect: () => {
             quickPairState.value = "connecting";
           },
         });
-        if (errorMessage.value) {
+        if (!paired) {
           quickPairState.value = "failed";
           pairingCode.value = "";
           return;
@@ -415,7 +426,10 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       }
       form.webhook_secret_mode = "unchanged";
       form.webhook_secret_value = "";
-      await connectGateway();
+      const connected = await connectGateway();
+      if (!connected) {
+        return;
+      }
       statusMessage.value = t("form.saveSuccess");
     } catch {
       errorMessage.value = t("form.saveError");
