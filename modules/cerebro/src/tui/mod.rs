@@ -5,9 +5,9 @@ pub mod redaction;
 pub mod views;
 
 use crate::config::TuiConfig;
-use crate::storage::Storage;
 #[cfg(feature = "tui")]
 use crate::storage::MemoryRecord;
+use crate::storage::Storage;
 use event_bus::EventBus;
 #[cfg(feature = "tui")]
 use event_bus::{EventStream, ToolCallEvent, ToolCallEventKind};
@@ -54,11 +54,7 @@ pub enum TuiError {
 }
 
 pub fn validate_no_network_listeners() -> Result<(), TuiError> {
-    let blocked = [
-        "CEREBRO_TUI_LISTEN",
-        "CEREBRO_TUI_PORT",
-        "CEREBRO_TUI_HTTP",
-    ];
+    let blocked = ["CEREBRO_TUI_LISTEN", "CEREBRO_TUI_PORT", "CEREBRO_TUI_HTTP"];
     for key in blocked {
         if std::env::var(key)
             .ok()
@@ -205,8 +201,8 @@ fn run_tui(
         if crossterm::event::poll(Duration::from_millis(50))
             .map_err(|err| TuiError::EventFailed(err.to_string()))?
         {
-            if let crossterm::event::Event::Key(key) = crossterm::event::read()
-                .map_err(|err| TuiError::EventFailed(err.to_string()))?
+            if let crossterm::event::Event::Key(key) =
+                crossterm::event::read().map_err(|err| TuiError::EventFailed(err.to_string()))?
             {
                 if app.on_key(key) {
                     break;
@@ -404,7 +400,13 @@ impl TuiApp {
             ])
             .split(area);
 
-        views::render_tabs(frame, chunks[0], self.active_view, self.refresh_ms, self.drop_count);
+        views::render_tabs(
+            frame,
+            chunks[0],
+            self.active_view,
+            self.refresh_ms,
+            self.drop_count,
+        );
         if !self.is_view_available(self.active_view) {
             render_missing_view(frame, chunks[1], self.active_view);
             return;
@@ -469,18 +471,14 @@ fn disabled_views_from_env() -> HashSet<ViewKind> {
 }
 
 #[cfg(feature = "tui")]
-fn render_missing_view(
-    frame: &mut ratatui::Frame,
-    area: ratatui::layout::Rect,
-    view: ViewKind,
-) {
+fn render_missing_view(frame: &mut ratatui::Frame, area: ratatui::layout::Rect, view: ViewKind) {
     use ratatui::style::Style;
     use ratatui::text::{Line, Span};
     use ratatui::widgets::{Block, Borders, Paragraph};
     let message = format!("View unavailable: {}", view.label());
     let line = Line::from(vec![Span::styled(message, Style::default())]);
-    let paragraph = Paragraph::new(line)
-        .block(Block::default().borders(Borders::ALL).title("Cerebro TUI"));
+    let paragraph =
+        Paragraph::new(line).block(Block::default().borders(Borders::ALL).title("Cerebro TUI"));
     frame.render_widget(paragraph, area);
 }
 

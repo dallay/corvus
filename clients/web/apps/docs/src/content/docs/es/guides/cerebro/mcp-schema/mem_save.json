@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_save",
+  "description": "Save a structured observation with scope and topic_key.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string",
+          "description": "Memory scope (for example: private, shared)."
+        },
+        "topic_key": {
+          "type": "string",
+          "description": "Stable topic key for deduplication and upserts."
+        },
+        "observation": {
+          "type": "object",
+          "description": "Structured observation payload.",
+          "properties": {
+            "content": {
+              "type": "string",
+              "description": "Primary observation content."
+            },
+            "what": { "type": "string" },
+            "why": { "type": "string" },
+            "where": { "type": "string" },
+            "learned": { "type": "string" },
+            "source": { "type": "string" },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "metadata": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          },
+          "required": ["content"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["scope", "topic_key", "observation"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "memory_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string",
+          "enum": ["saved"]
+        }
+      },
+      "required": ["memory_id", "status"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

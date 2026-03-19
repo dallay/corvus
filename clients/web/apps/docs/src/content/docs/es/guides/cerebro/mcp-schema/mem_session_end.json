@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_session_end",
+  "description": "Mark an active session as completed.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Session identifier to end."
+        },
+        "ended_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "RFC 3339 timestamp for session end."
+        },
+        "metadata": {
+          "type": "object",
+          "description": "Optional session metadata.",
+          "maxProperties": 50,
+          "propertyNames": { "type": "string", "maxLength": 64 },
+          "additionalProperties": true
+        }
+      },
+      "required": ["session_id"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "session_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "status": {
+          "type": "string",
+          "enum": ["ended"]
+        }
+      },
+      "required": ["session_id", "status"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

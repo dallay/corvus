@@ -136,9 +136,10 @@ struct BufferGuard(Arc<Mutex<Vec<u8>>>);
 
 impl std::io::Write for BufferGuard {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let mut guard = self.0.lock().map_err(|_| {
-            std::io::Error::new(std::io::ErrorKind::Other, "buffer lock poisoned")
-        })?;
+        let mut guard = self
+            .0
+            .lock()
+            .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "buffer lock poisoned"))?;
         guard.extend_from_slice(buf);
         Ok(buf.len())
     }

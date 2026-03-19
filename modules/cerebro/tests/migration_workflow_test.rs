@@ -1,9 +1,9 @@
-use cerebro::migration::{import_legacy_export, validate_legacy_export, MigrationOptions};
 use cerebro::migration::report::MigrationStatus;
+use cerebro::migration::{import_legacy_export, validate_legacy_export, MigrationOptions};
+use serde_json::Value;
+use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use std::fs;
-use serde_json::Value;
 
 #[tokio::test]
 async fn import_and_validate_reports_match() {

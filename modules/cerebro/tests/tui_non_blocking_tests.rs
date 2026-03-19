@@ -64,7 +64,12 @@ async fn mcp_path_remains_responsive_with_tui_running() {
     let service = helpers::test_service(config);
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
 
-    let launch = start_tui_task(tui_config, service.storage(), service.event_bus(), shutdown_rx)
+    let launch = start_tui_task(
+        tui_config,
+        service.storage(),
+        service.event_bus(),
+        shutdown_rx,
+    )
     .await
     .expect("tui start");
     let handle = match launch {
@@ -80,7 +85,9 @@ async fn mcp_path_remains_responsive_with_tui_running() {
     .await;
     assert!(result.is_ok());
 
-    shutdown_tx.send(true).expect("shutdown send should succeed");
+    shutdown_tx
+        .send(true)
+        .expect("shutdown send should succeed");
     timeout(Duration::from_secs(1), handle.join())
         .await
         .expect("tui join timeout")

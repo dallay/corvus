@@ -1,5 +1,5 @@
-use cerebro::{storage_from_config, CerebroConfig, MemoryRecord, Storage, StorageMode};
 use cerebro::storage::surreal::SurrealStorage;
+use cerebro::{storage_from_config, CerebroConfig, MemoryRecord, Storage, StorageMode};
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -16,9 +16,7 @@ async fn embedded_storage_supports_crud() {
         "secret".to_string().into_boxed_str(),
     ));
 
-    let storage = storage_from_config(&config)
-        .await
-        .expect("storage init");
+    let storage = storage_from_config(&config).await.expect("storage init");
     let record = MemoryRecord::new(
         "memory-1".to_string(),
         "shared".to_string(),

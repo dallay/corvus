@@ -177,32 +177,12 @@ make dev-down    # Stop the environment
 
 ## 📚 Documentation
 
-Detailed documentation is available in the `clients/web/apps/docs/` directory. You can build and view it locally:
+Detailed documentation is available in English and Spanish:
 
-```bash
-make docs-build
-make docs-dev
-```
+- **English**: [Documentation Index](docs/index.mdx) | [Guides](docs/guides/)
+- **Español**: [Índice de Documentación](docs/es/index.mdx) | [Guías](docs/es/guides/)
 
-The runtime SurrealDB memory backend has been removed; long-term memory now routes through the
-MCP-backed Cerebro service.
-
-Memory migration and schemas:
-
-- Migration guide: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md)
-- MCP schemas: [clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/](clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/)
-
-### Cerebro embedded storage & operations
-
-SurrealDB is removed as a runtime memory backend and retained only for embedded Cerebro storage and
-migration workflows.
-
-ES: Traduccion pendiente.
-
-- Embedded Cerebro storage defaults + fallback guidance: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#cerebro-storage-defaults-embedded](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#cerebro-storage-defaults-embedded)
-- Cerebro migration CLI import/validate: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#migration-cli](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#migration-cli)
-- Optional operator TUI for Cerebro: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#optional-tui-operator-only](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#optional-tui-operator-only)
-- Embedded fallback behavior + exit codes: [clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#operational-notes](clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md#operational-notes)
+You can also build and view the full documentation site locally:
 
 ## 🔎 DeepWiki
 
@@ -210,7 +190,7 @@ ES: Traduccion pendiente.
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please read our `CONTRIBUTING.md` (if available) and ensure you run `make check` before submitting a Pull Request.
+Contributions are welcome! Please read our [CONTRIBUTING.md](CONTRIBUTING.md) and ensure you run `make check` before submitting a Pull Request.
 
 ---
 

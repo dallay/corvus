@@ -447,14 +447,10 @@ mod tests {
             ..SecurityPolicy::default()
         });
 
-        let tool = ShellTool::new(security, test_runtime())
-            .with_timeout(Duration::from_secs(1));
+        let tool = ShellTool::new(security, test_runtime()).with_timeout(Duration::from_secs(1));
 
         // Sleep for 3 seconds to trigger the 1-second timeout
-        let result = tool
-            .execute(json!({"command": "sleep 3"}))
-            .await
-            .unwrap();
+        let result = tool.execute(json!({"command": "sleep 3"})).await.unwrap();
 
         assert!(!result.success);
         let err = result.error.expect("Expected an error from timeout");

@@ -5,8 +5,8 @@ use crate::validation::require_non_empty;
 use serde::de::DeserializeOwned;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use uuid::Uuid;
 use std::sync::Arc;
+use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ToolRedaction {
@@ -373,21 +373,15 @@ impl CerebroTools {
             "mem_update" => self.mem_update(payload).await,
             "mem_suggest_topic_key" => self.mem_suggest_topic_key(payload).await,
             "mem_timeline" => self.mem_timeline(payload, auth).await,
-            "mem_save_prompt" => Err(CerebroError::NotImplemented(
-                "mem_save_prompt".to_string(),
-            )),
+            "mem_save_prompt" => Err(CerebroError::NotImplemented("mem_save_prompt".to_string())),
             "mem_session_start" => Err(CerebroError::NotImplemented(
                 "mem_session_start".to_string(),
             )),
-            "mem_session_end" => Err(CerebroError::NotImplemented(
-                "mem_session_end".to_string(),
-            )),
+            "mem_session_end" => Err(CerebroError::NotImplemented("mem_session_end".to_string())),
             "mem_session_summary" => Err(CerebroError::NotImplemented(
                 "mem_session_summary".to_string(),
             )),
-            "mem_context" => Err(CerebroError::NotImplemented(
-                "mem_context".to_string(),
-            )),
+            "mem_context" => Err(CerebroError::NotImplemented("mem_context".to_string())),
             "mem_stats" => self.mem_stats(payload).await,
             _ => Err(CerebroError::Validation(format!(
                 "unsupported tool '{tool}'",

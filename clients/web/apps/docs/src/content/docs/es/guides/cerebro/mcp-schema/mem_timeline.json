@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_timeline",
+  "description": "Return chronological neighbors around a memory ID.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "memory_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Center memory identifier."
+        },
+        "before": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Number of items before the center."
+        },
+        "after": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Number of items after the center."
+        },
+        "include_deleted": {
+          "type": "boolean",
+          "description": "Include deleted records (default false)."
+        }
+      },
+      "required": ["memory_id"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "center_id": { "type": "string", "minLength": 1 },
+        "before": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "memory_id": { "type": "string", "minLength": 1 },
+              "summary": { "type": "string", "minLength": 1 },
+              "timestamp": { "type": "string", "format": "date-time" }
+            },
+            "required": ["memory_id", "summary", "timestamp"],
+            "additionalProperties": false
+          }
+        },
+        "after": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "memory_id": { "type": "string", "minLength": 1 },
+              "summary": { "type": "string", "minLength": 1 },
+              "timestamp": { "type": "string", "format": "date-time" }
+            },
+            "required": ["memory_id", "summary", "timestamp"],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": ["center_id", "before", "after"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

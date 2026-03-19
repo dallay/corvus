@@ -29,9 +29,8 @@ pub async fn import_legacy_export(
     options: &MigrationOptions,
 ) -> Result<MigrationReport, CerebroError> {
     let export = read_legacy_export(source)?;
-    let export = normalize_export(export).map_err(|e| {
-        CerebroError::Validation(format!("migration normalization failed: {}", e))
-    })?;
+    let export = normalize_export(export)
+        .map_err(|e| CerebroError::Validation(format!("migration normalization failed: {}", e)))?;
     if !options.dry_run {
         let storage = embedded_storage(target, options).await?;
         storage.write_batches(&export).await?;
@@ -50,9 +49,8 @@ pub async fn validate_legacy_export(
     target: &Path,
     options: &MigrationOptions,
 ) -> Result<MigrationReport, CerebroError> {
-    let export = normalize_export(read_legacy_export(source)?).map_err(|e| {
-        CerebroError::Validation(format!("migration normalization failed: {}", e))
-    })?;
+    let export = normalize_export(read_legacy_export(source)?)
+        .map_err(|e| CerebroError::Validation(format!("migration normalization failed: {}", e)))?;
     let expected = collection_reports(&export)?;
 
     let storage = embedded_storage(target, options).await?;
@@ -115,27 +113,19 @@ async fn embedded_storage(
     Ok(storage)
 }
 
-fn collection_reports(export: &NormalizedExport) -> Result<BTreeMap<String, CollectionReport>, CerebroError> {
+fn collection_reports(
+    export: &NormalizedExport,
+) -> Result<BTreeMap<String, CollectionReport>, CerebroError> {
     let mut collections = BTreeMap::new();
-    collections.insert(
-        "memory".to_string(),
-        collection_report(&export.memory)?,
-    );
-    collections.insert(
-        "session".to_string(),
-        collection_report(&export.session)?,
-    );
-    collections.insert(
-        "prompt".to_string(),
-        collection_report(&export.prompt)?,
-    );
+    collections.insert("memory".to_string(), collection_report(&export.memory)?);
+    collections.insert("session".to_string(), collection_report(&export.session)?);
+    collections.insert("prompt".to_string(), collection_report(&export.prompt)?);
     Ok(collections)
 }
 
 fn collection_report<T: Serialize>(records: &[T]) -> Result<CollectionReport, CerebroError> {
-    let value = serde_json::to_value(records).map_err(|err| {
-        CerebroError::Internal(format!("failed to encode collection: {err}"))
-    })?;
+    let value = serde_json::to_value(records)
+        .map_err(|err| CerebroError::Internal(format!("failed to encode collection: {err}")))?;
     Ok(CollectionReport {
         count: records.len(),
         checksum: canonical_json_checksum(&value),
