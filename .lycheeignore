@@ -1,19 +1,8 @@
-^https?://localhost
-^https?://127\.0\.0\.1
-^https?://0\.0\.0\.0
-^mailto:.*@example\.com
-
-# Maven central snapshots not yet deployed
-^https://central\.sonatype\.com/repository/maven-snapshots/.*
-
-# Mend.io returns 403 Forbidden to bots
-^https://www\.mend\.io/.*
+# Keep this file focused on temporary or flaky suppressions.
+# Stable repo-wide behavior should live in `lychee.toml`.
 
 # GNU Make website is intermittently timing out from CI/hook network
 ^https://www\.gnu\.org/software/make/?$
-
-# Checkstyle header file contains regex patterns that look like URLs
-gradle/configs/checkstyle/checkstyle-header-file\.txt
 
 # =============================================================================
 # Astro/Starlight Internal Documentation Links

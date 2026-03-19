@@ -4,6 +4,16 @@
 # Root directory for link checking (repo root for full scans)
 root_dir = "."
 
+# Enable caching for repeated CI and local runs
+cache = true
+max_cache_age = "1d"
+
+# Skip private and loopback-only hosts to avoid noisy local-network failures
+exclude_all_private = true
+
+# Do not fail when a generated file is not present locally
+skip_missing = true
+
 # Exclude these URLs from link checking
 exclude = [
     # Maven central snapshots not yet deployed
@@ -44,11 +54,16 @@ exclude_path = [
 user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 # Max retries and wait time
-max_retries = 3
-retry_wait_time = 5
+max_retries = 2
+retry_wait_time = 2
+
+# Keep remote checks polite to avoid flaky rate-limit responses
+timeout = 20
+host_concurrency = 2
+host_request_interval = "250ms"
 
 # Maximum number of concurrent requests
-max_concurrency = 10
+max_concurrency = 8
 
 # Show inclusive summary
 verbose = "info"

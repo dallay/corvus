@@ -217,6 +217,20 @@ lint-rust: ## Run Rust clippy
 lint-android: ## Run Android lint
 	@$(GRADLEW) $(ANDROID_APP):lint
 
+link-check: ## Check repository links with Lychee (local + remote)
+	@command -v lychee >/dev/null 2>&1 || { \
+		echo "lychee is required. Install from https://github.com/lycheeverse/lychee" >&2; \
+		exit 1; \
+	}
+	@lychee --config lychee.toml --no-progress .
+
+link-check-local: ## Check repository local links with Lychee (offline)
+	@command -v lychee >/dev/null 2>&1 || { \
+		echo "lychee is required. Install from https://github.com/lycheeverse/lychee" >&2; \
+		exit 1; \
+	}
+	@lychee --config lychee.toml --offline --no-progress .
+
 lint-all: lint-kotlin lint-rust lint-android ## Run all linters
 
 # --- TESTING ---

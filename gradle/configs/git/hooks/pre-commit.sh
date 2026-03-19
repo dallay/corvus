@@ -35,15 +35,25 @@ if [ "$HAS_FORBIDDEN" -ne 0 ]; then
   exit 1
 fi
 
-if ! command -v lychee >/dev/null 2>&1; then
-  echo "❌ ERROR: 'lychee' is required for link validation but was not found." >&2
-  echo "Install: https://github.com/lycheeverse/lychee" >&2
-  exit 1
+LINK_FILE_REGEX='\.(md|mdx|html?|ya?ml|toml)$'
+STAGED_LINK_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E "$LINK_FILE_REGEX" || true)
+
+if [ -z "$STAGED_LINK_FILES" ]; then
+  echo "✅ pre-commit check passed."
+  exit 0
 fi
 
-echo "🔗 Running lychee link check..."
-if ! lychee --no-progress --max-retries 2 --retry-wait-time 2 --exclude-all-private .; then
-  echo "🚫 Commit blocked: broken links detected by lychee." >&2
+if ! command -v lychee >/dev/null 2>&1; then
+  echo "⚠️  WARN: 'lychee' was not found. Skipping staged link validation." >&2
+  echo "Install: https://github.com/lycheeverse/lychee" >&2
+  echo "✅ pre-commit check passed."
+  exit 0
+fi
+
+echo "🔗 Running lychee offline check on staged docs/config files..."
+if ! lychee --config "lychee.toml" --offline --no-progress $STAGED_LINK_FILES; then
+  echo "🚫 Commit blocked: broken local links detected by lychee." >&2
+  echo "   External links stay in the scheduled/manual GitHub Actions audit." >&2
   exit 1
 fi
 
