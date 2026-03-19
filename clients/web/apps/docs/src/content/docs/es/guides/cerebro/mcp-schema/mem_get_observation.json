@@ -9,11 +9,12 @@
       "properties": {
         "memory_id": {
           "type": "string",
-          "description": "Memory identifier to fetch."
+          "minLength": 1,
+          "description": "Memory ID to retrieve."
         },
         "include_deleted": {
           "type": "boolean",
-          "description": "Allow returning deleted records (default false)."
+          "description": "Whether to return the observation if it was deleted."
         }
       },
       "required": ["memory_id"],
@@ -28,8 +29,7 @@
           "enum": ["active", "deleted"]
         },
         "observation": {
-          "type": "object",
-          "additionalProperties": true
+          "description": "The retrieved observation payload (as a raw JSON value)."
         },
         "metadata": {
           "type": "object",

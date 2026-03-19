@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "mem_search",
-  "description": "Full-text or semantic search with compact result payload.",
+  "description": "Buscar memorias mediante consulta semántica o de texto.",
   "type": "object",
   "properties": {
     "input": {
@@ -10,28 +10,28 @@
         "query": {
           "type": "string",
           "minLength": 1,
-          "description": "Search query string."
+          "description": "Consulta para búsqueda semántica/fuzzy (no vacía)."
         },
         "limit": {
           "type": "integer",
           "minimum": 1,
           "maximum": 100,
-          "description": "Maximum number of results to return."
+          "description": "Número máximo de resultados a devolver (por defecto 5)."
         },
         "scope": {
           "type": "string",
           "minLength": 1,
-          "description": "Optional scope filter."
+          "description": "Filtrar por ámbito (privado, compartido, etc.)."
         },
         "topic_key": {
           "type": "string",
           "minLength": 1,
-          "description": "Optional topic key filter."
+          "description": "Filtrar por una clave de tema específica."
         },
         "include_deleted": {
           "type": "boolean",
           "default": false,
-          "description": "Include soft-deleted records (default false)."
+          "description": "Si se deben incluir registros marcados como eliminados."
         }
       },
       "required": ["query"],

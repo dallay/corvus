@@ -10,14 +10,11 @@
         "seed": {
           "type": "string",
           "minLength": 1,
-          "maxLength": 128,
-          "description": "Seed text or phrase describing the topic."
+          "description": "Texto inicial o título para derivar una clave."
         },
         "scope": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 128,
-          "description": "Optional scope for topic suggestions."
+          "description": "Ámbito opcional para verificar colisiones."
         }
       },
       "required": ["seed"],
@@ -28,16 +25,14 @@
       "properties": {
         "topic_key": {
           "type": "string",
-          "minLength": 1,
-          "maxLength": 128
+          "description": "La clave de tema normalizada y sugerida."
         },
-        "candidates": {
-          "type": "array",
-          "maxItems": 10,
-          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        "candidates_count": {
+          "type": "integer",
+          "description": "Número de claves alternativas generadas."
         }
       },
-      "required": ["topic_key"],
+      "required": ["topic_key", "candidates_count"],
       "additionalProperties": false
     }
   },

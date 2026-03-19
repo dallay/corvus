@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "mem_timeline",
-  "description": "Return chronological neighbors around a memory ID.",
+  "description": "Recuperar una línea de tiempo cronológica alrededor de un registro de memoria.",
   "type": "object",
   "properties": {
     "input": {
@@ -10,23 +10,23 @@
         "memory_id": {
           "type": "string",
           "minLength": 1,
-          "description": "Center memory identifier."
+          "description": "ID de memoria central para la línea de tiempo."
         },
         "before": {
           "type": "integer",
           "minimum": 0,
           "maximum": 100,
-          "description": "Number of items before the center."
+          "description": "Número de registros previos a recuperar."
         },
         "after": {
           "type": "integer",
           "minimum": 0,
           "maximum": 100,
-          "description": "Number of items after the center."
+          "description": "Número de registros posteriores a recuperar."
         },
         "include_deleted": {
           "type": "boolean",
-          "description": "Include deleted records (default false)."
+          "description": "Si se deben incluir registros eliminados (requiere permisos de auditoría)."
         }
       },
       "required": ["memory_id"],

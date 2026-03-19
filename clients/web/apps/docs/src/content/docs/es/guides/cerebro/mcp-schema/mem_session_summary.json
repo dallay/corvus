@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "mem_session_summary",
-  "description": "Save end-of-session summary (goal, discoveries, accomplished).",
+  "title": "mem_session_summary (draft/unimplemented)",
+  "description": "Enviar un resumen para una sesión (NotImplemented returning CerebroError::NotImplemented).",
   "type": "object",
   "properties": {
     "input": {

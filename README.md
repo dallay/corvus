@@ -177,12 +177,17 @@ make dev-down    # Stop the environment
 
 ## 📚 Documentation
 
-Detailed documentation is available in English and Spanish:
+Detailed documentation is available at:
 
-- **English**: [Documentation Index](docs/index.mdx) | [Guides](docs/guides/)
-- **Español**: [Índice de Documentación](docs/es/index.mdx) | [Guías](docs/es/guides/)
+- [English Documentation](clients/web/apps/docs/src/content/docs/index.mdx)
+- [Spanish Documentation](clients/web/apps/docs/src/content/docs/es/index.mdx)
+
+### Local Documentation
 
 You can also build and view the full documentation site locally:
+
+- `make docs-dev`: Run the local development server with hot-reload.
+- `make docs-build`: Build the production documentation site.
 
 ## 🔎 DeepWiki
 

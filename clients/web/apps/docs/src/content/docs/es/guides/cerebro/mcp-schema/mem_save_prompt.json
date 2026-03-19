@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "mem_save_prompt",
-  "description": "Save a user prompt for future context.",
+  "title": "mem_save_prompt (draft/unimplemented)",
+  "description": "Save a prompt to Cerebro (NotImplemented returning CerebroError::NotImplemented).",
   "type": "object",
   "properties": {
     "input": {

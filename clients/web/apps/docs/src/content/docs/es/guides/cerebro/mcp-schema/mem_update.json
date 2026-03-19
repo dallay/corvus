@@ -13,45 +13,29 @@
         },
         "observation": {
           "type": "object",
-          "description": "Updated observation payload.",
-          "properties": {
-            "content": { "type": "string" },
-            "what": { "type": "string" },
-            "why": { "type": "string" },
-            "where": { "type": "string" },
-            "learned": { "type": "string" },
-            "source": { "type": "string" },
-            "tags": {
-              "type": "array",
-              "items": { "type": "string" }
-            },
-            "metadata": {
-              "type": "object",
-              "additionalProperties": true
-            }
-          },
-          "additionalProperties": false
+          "description": "New observation payload (raw JSON). Replaces the existing one if provided."
         },
         "topic_key": {
-          "type": "string"
+          "type": "string",
+          "description": "New topic key (optional)."
         },
         "scope": {
-          "type": "string"
+          "type": "string",
+          "description": "New memory scope (optional)."
         },
         "metadata": {
           "type": "object",
+          "description": "New metadata to merge (optional).",
           "additionalProperties": true
         }
       },
       "required": ["memory_id"],
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "output": {
       "type": "object",
       "properties": {
-        "memory_id": {
-          "type": "string"
-        },
+        "memory_id": { "type": "string" },
         "status": {
           "type": "string",
           "enum": ["updated"]
