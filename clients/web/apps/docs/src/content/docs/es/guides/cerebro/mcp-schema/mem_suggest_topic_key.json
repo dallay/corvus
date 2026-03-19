@@ -1,0 +1,46 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_suggest_topic_key",
+  "description": "Suggest a stable topic_key for evolving topics.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {
+        "seed": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Seed text or phrase describing the topic."
+        },
+        "scope": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "Optional scope for topic suggestions."
+        }
+      },
+      "required": ["seed"],
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "topic_key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "candidates": {
+          "type": "array",
+          "maxItems": 10,
+          "items": { "type": "string", "minLength": 1, "maxLength": 128 }
+        }
+      },
+      "required": ["topic_key"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

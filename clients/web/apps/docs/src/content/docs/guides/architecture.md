@@ -33,28 +33,28 @@ clear separation between clients and shared modules.
 
 Corvus is designed as a reactive agent platform with the following pillars:
 
-### 1. **Reactive Orchestrator**
+### 1. **Reactive Runtime**
 
-- **Technology**: Kotlin + Spring Boot + Coroutines/WebFlux
-- **Purpose**: Handle non-blocking, always-on workflows
+- **Technology**: Rust (Tokio/Async)
+- **Purpose**: High-performance, concurrent agent execution & lifecycle
 - **Location**: Agent runtime in `clients/agent-runtime/`
 
-### 2. **Graph Memory**
+### 2. **Cerebro (Long-Term Memory)**
 
-- **Technology**: Neo4j (planned)
-- **Purpose**: Knowledge model with connected context and durable memory
-- **Integration**: Through `agent-core-kmp`
+- **Technology**: Rust + SurrealDB (Embedded)
+- **Purpose**: Centralized, agent-agnostic memory service with graph support
+- **Integration**: Via MCP (JSON-RPC) from the runtime
 
-### 3. **High-Performance Sidecars**
+### 3. **Sandboxed Tools**
 
-- **Technology**: Rust (planned)
-- **Purpose**: Scraping and sandboxed execution at high performance
-- **Communication**: FFI or gRPC with Kotlin runtime
+- **Technology**: Rust + Docker (optional)
+- **Purpose**: Secure execution of untrusted code and system operations
+- **Communication**: Managed by the reactive runtime
 
-### 4. **Control Dashboard**
+### 4. **Operator Dashboard**
 
-- **Technology**: Astro + Vue (planned)
-- **Purpose**: Real-time observability and transparent operation
+- **Technology**: Astro + Vue 3
+- **Purpose**: Real-time observability and manual intervention
 - **Location**: `clients/web/`
 
 ## Build Logic (Convention Plugins)

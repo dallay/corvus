@@ -1,8 +1,8 @@
 use anyhow::{anyhow, Result};
-use cerebro::tui::{start_tui_task, TuiLaunch, TuiError};
+use cerebro::tui::{start_tui_task, TuiError, TuiLaunch};
 use cerebro::{CerebroConfig, CerebroService};
-use std::sync::Arc;
 use std::path::PathBuf;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio::sync::watch;
 use tracing_subscriber::EnvFilter;
@@ -34,14 +34,7 @@ async fn main() -> Result<()> {
         let event_bus = service.event_bus();
         let shutdown_rx = shutdown_rx.clone();
         tokio::spawn(async move {
-            match start_tui_task(
-                tui_config,
-                storage,
-                event_bus,
-                shutdown_rx,
-            )
-            .await
-            {
+            match start_tui_task(tui_config, storage, event_bus, shutdown_rx).await {
                 Ok(TuiLaunch::Started(_handle)) => {
                     tracing::info!("tui started");
                 }

@@ -33,28 +33,28 @@ centralizada y separación clara entre clientes y módulos compartidos.
 
 Corvus está diseñado como una plataforma de agentes reactivos con los siguientes pilares:
 
-### 1. **Orquestador Reactivo**
+### 1. **Runtime Reactivo**
 
-- **Tecnología**: Kotlin + Spring Boot + Coroutines/WebFlux
-- **Propósito**: Manejar flujos de trabajo no bloqueantes y always-on
+- **Tecnología**: Rust (Tokio/Async)
+- **Propósito**: Ejecución concurrente y de alto rendimiento de agentes
 - **Ubicación**: Runtime del agente en `clients/agent-runtime/`
 
-### 2. **Memoria de Grafo**
+### 2. **Cerebro (Memoria a Largo Plazo)**
 
-- **Tecnología**: Neo4j (planificado)
-- **Propósito**: Modelo de conocimiento con contexto conectado y memoria durable
-- **Integración**: A través de `agent-core-kmp`
+- **Tecnología**: Rust + SurrealDB (Embebido)
+- **Propósito**: Servicio de memoria centralizado e independiente del agente con soporte para grafos
+- **Integración**: Vía MCP (JSON-RPC) desde el runtime
 
-### 3. **Sidecars de Alto Rendimiento**
+### 3. **Herramientas en Sandbox**
 
-- **Tecnología**: Rust (planificado)
-- **Propósito**: Operaciones de scraping y ejecución sandboxed de alta performance
-- **Comunicación**: FFI o gRPC con el runtime Kotlin
+- **Tecnología**: Rust + Docker (opcional)
+- **Propósito**: Ejecución segura de código no confiable y operaciones del sistema
+- **Comunicación**: Gestionada por el runtime reactivo
 
-### 4. **Panel de Control**
+### 4. **Panel del Operador**
 
-- **Tecnología**: Astro + Vue (planificado)
-- **Propósito**: Observabilidad en tiempo real y operación transparente
+- **Tecnología**: Astro + Vue 3
+- **Propósito**: Observabilidad en tiempo real e intervención manual
 - **Ubicación**: `clients/web/`
 
 ## Lógica de Construcción (Plugins de Convención)

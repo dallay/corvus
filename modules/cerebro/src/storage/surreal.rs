@@ -7,8 +7,8 @@ use serde_json::Value;
 use std::any::Any;
 use std::path::PathBuf;
 use surrealdb::engine::local::{Db, RocksDb};
-use surrealdb::Surreal;
 use surrealdb::types::Variables;
+use surrealdb::Surreal;
 
 #[derive(Clone)]
 pub struct SurrealStorage {
@@ -71,8 +71,7 @@ impl SurrealStorage {
         for record in &export.memory {
             let id_key = format!("mem_id_{index}");
             let data_key = format!("mem_data_{index}");
-            let statement =
-                format!("UPSERT type::thing('memory', ${id_key}) CONTENT ${data_key};");
+            let statement = format!("UPSERT type::thing('memory', ${id_key}) CONTENT ${data_key};");
             let payload = serde_json::to_value(record).map_err(|err| {
                 CerebroError::Storage(format!("failed to encode memory record: {err}"))
             })?;
@@ -110,8 +109,7 @@ impl SurrealStorage {
             }
             let id_key = format!("prompt_id_{index}");
             let data_key = format!("prompt_data_{index}");
-            let statement =
-                format!("UPSERT type::thing('prompt', ${id_key}) CONTENT ${data_key};");
+            let statement = format!("UPSERT type::thing('prompt', ${id_key}) CONTENT ${data_key};");
             statements.push(statement);
             variables.insert(id_key, record_id);
             variables.insert(data_key, payload);
@@ -124,10 +122,12 @@ impl SurrealStorage {
             .query(statements.join(" "))
             .bind(variables)
             .await
-            .map_err(|err| CerebroError::Storage(format!("surrealdb batch transaction failed: {err}")))?;
-        response
-            .check()
-            .map_err(|err| CerebroError::Storage(format!("surrealdb batch transaction failed: {err}")))?;
+            .map_err(|err| {
+                CerebroError::Storage(format!("surrealdb batch transaction failed: {err}"))
+            })?;
+        response.check().map_err(|err| {
+            CerebroError::Storage(format!("surrealdb batch transaction failed: {err}"))
+        })?;
         Ok(())
     }
 
@@ -163,7 +163,6 @@ impl SurrealStorage {
             prompt,
         })
     }
-
 }
 
 fn parse_legacy_records<T>(records: Vec<Value>, table: &str) -> Result<Vec<T>, CerebroError>

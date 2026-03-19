@@ -3,13 +3,13 @@ use crate::errors::CerebroError;
 use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use surrealdb::types::SurrealValue;
 use serde_json::Value;
 use std::any::Any;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use surrealdb::types::SurrealValue;
 use tokio::sync::RwLock;
 
 pub mod surreal;
@@ -135,7 +135,10 @@ fn persist_records_to_path(
     })?;
     records.sort_by(|a, b| a.memory_id.cmp(&b.memory_id));
     let encoded = serde_json::to_vec_pretty(&records).map_err(|err| {
-        CerebroError::Storage(format!("failed to encode storage {}: {err}", path.display()))
+        CerebroError::Storage(format!(
+            "failed to encode storage {}: {err}",
+            path.display()
+        ))
     })?;
     let tmp_path = path.with_extension("tmp");
     fs::write(&tmp_path, encoded).map_err(|err| {
@@ -251,7 +254,10 @@ impl Storage for DiskBackedStorage {
 
         if let Err(error) = self.persist_records(snapshot).await {
             let mut map = self.records.write().await;
-            if map.get(&memory_id).is_some_and(|current| current == &record) {
+            if map
+                .get(&memory_id)
+                .is_some_and(|current| current == &record)
+            {
                 match previous {
                     Some(prev) => {
                         map.insert(memory_id, prev);
@@ -352,9 +358,7 @@ impl Storage for DiskBackedStorage {
     }
 }
 
-pub async fn storage_from_config(
-    config: &CerebroConfig,
-) -> Result<Arc<dyn Storage>, CerebroError> {
+pub async fn storage_from_config(config: &CerebroConfig) -> Result<Arc<dyn Storage>, CerebroError> {
     config.validate_storage()?;
     match storage_from_mode(config, config.storage_mode.clone()).await {
         Ok(storage) => Ok(storage),

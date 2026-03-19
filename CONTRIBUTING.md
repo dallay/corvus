@@ -60,8 +60,8 @@ When PR traffic is high (especially with AI-assisted contributions), these rules
 - **Explicit rollback**: every PR must include a fast rollback path.
 - **Security-first review**: changes in `src/security/`, runtime, and CI need stricter validation.
 
-Full maintainer workflow: see [`../web/apps/docs/src/content/docs/clients/agent-runtime/pr-workflow.md`](../web/apps/docs/src/content/docs/clients/agent-runtime/pr-workflow.md).
-CI workflow ownership and triage map: see [`../web/apps/docs/src/content/docs/clients/agent-runtime/ci-map.md`](../web/apps/docs/src/content/docs/clients/agent-runtime/ci-map.md).
+Full maintainer workflow: see [`clients/web/apps/docs/src/content/docs/clients/agent-runtime/pr-workflow.md`](clients/web/apps/docs/src/content/docs/clients/agent-runtime/pr-workflow.md).
+CI workflow ownership and triage map: see [`clients/web/apps/docs/src/content/docs/clients/agent-runtime/ci-map.md`](clients/web/apps/docs/src/content/docs/clients/agent-runtime/ci-map.md).
 
 ## Agent Collaboration Guidance
 
@@ -264,7 +264,7 @@ Recommended scope keys in commit titles:
 
 - **Bugs**: Include OS, Rust version, steps to reproduce, expected vs actual
 - **Features**: Describe the use case, propose which trait to extend
-- **Security**: See [SECURITY.md](SECURITY.md) for responsible disclosure
+- **Security**: See [.github/SECURITY.md](.github/SECURITY.md) for responsible disclosure
 
 ## Maintainer Merge Policy
 

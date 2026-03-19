@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "mem_stats",
+  "description": "Return DB stats, node counts, and worker status.",
+  "type": "object",
+  "properties": {
+    "input": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "output": {
+      "type": "object",
+      "properties": {
+        "memory_count": { "type": "integer", "minimum": 0 },
+        "session_count": { "type": "integer", "minimum": 0 },
+        "prompt_count": { "type": "integer", "minimum": 0 },
+        "worker": {
+          "type": "object",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "queue_depth": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["enabled"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["memory_count", "session_count", "prompt_count"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["input", "output"],
+  "additionalProperties": false
+}

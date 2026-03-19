@@ -32,10 +32,7 @@ fn redacts_unknown_fields_by_default() {
     let redacted = policy
         .redact_with_allowlist(&value, &["allowed"])
         .expect("redacted value");
-    assert_eq!(
-        redacted.get("allowed").and_then(|v| v.as_str()),
-        Some("ok")
-    );
+    assert_eq!(redacted.get("allowed").and_then(|v| v.as_str()), Some("ok"));
     assert_eq!(
         redacted.get("unknown").and_then(|v| v.as_str()),
         Some("<redacted>")
