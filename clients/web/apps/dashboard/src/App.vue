@@ -39,14 +39,14 @@ const config = useConfig(t);
 
     <section class="card">
       <h2>{{ t("sections.auth") }}</h2>
-      <div v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state">
+      <div v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state" role="status" aria-live="polite" aria-atomic="true">
         <p>{{ t("auth.quickPairValidating") }}</p>
       </div>
-      <div v-else-if="config.quickPairState.value === 'connecting'" class="quick-pair-state">
+      <div v-else-if="config.quickPairState.value === 'connecting'" class="quick-pair-state" role="status" aria-live="polite" aria-atomic="true">
         <p>{{ t("auth.quickPairConnecting") }}</p>
       </div>
       <div v-else>
-        <p v-if="config.quickPairState.value === 'failed'" class="error">{{ t("auth.quickPairFailed") }}</p>
+        <p v-if="config.quickPairState.value === 'failed'" class="error" role="alert" aria-live="assertive" aria-atomic="true">{{ t("auth.quickPairFailed") }}</p>
         <div class="grid">
           <label>
             <span>{{ t("auth.baseUrl") }}</span>

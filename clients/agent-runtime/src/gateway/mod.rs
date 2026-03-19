@@ -1863,6 +1863,10 @@ pub fn build_magic_link(
         return None;
     }
 
+    if !is_trusted_dashboard_origin(gateway_url) {
+        return None;
+    }
+
     let base = dashboard_url.trim_end_matches('/');
     let encoded_gw = urlencoding::encode(gateway_url);
 

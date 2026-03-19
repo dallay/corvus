@@ -18,7 +18,7 @@ ifeq ($(OS),Windows_NT)
     SHELL := bash
 else
     DETECTED_OS := $(shell uname -s 2>/dev/null || echo Unknown)
-    SHELL := /usr/bin/env bash
+    SHELL := /bin/bash
 endif
 
 # Common Constants
@@ -355,7 +355,7 @@ sync-version: ## Sync VERSION with git tag
         marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all web-check-all \
         format check-format check lint-kotlin lint-rust lint-android lint-all \
         test test-app test-core test-verbose test-coverage rust-coverage test-all check-all docs-code \
-         deps deps-app deps-analysis deps-update \
-          dev-up dev-up-dashboard dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean clean-web clean-pnpm \
-          runtime-up runtime-up-dashboard runtime-down runtime-logs runtime-status \
-          ci-build ci-test ci-check all quick tasks info version sync-version
+        deps deps-app deps-analysis deps-update \
+        dev-up dev-up-dashboard dev-down dev-shell dev-agent dev-logs dev-status dev-build dev-clean clean-web clean-pnpm \
+        runtime-up runtime-up-dashboard runtime-down runtime-logs runtime-status \
+        ci-build ci-test ci-check all quick tasks info version sync-version

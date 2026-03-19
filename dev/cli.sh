@@ -130,7 +130,7 @@ case "$1" in
 
     down)
         echo -e "${YELLOW}🛑 Stopping services...${NC}"
-        docker compose -f "$COMPOSE_FILE" --profile dashboard down --remove-orphans
+        docker compose -f "$COMPOSE_FILE" --profile dashboard down
         echo -e "${GREEN}✅ Stopped.${NC}"
         ;;
 
@@ -199,7 +199,7 @@ case "$1" in
         read -r -n 1 -p "Are you sure? (y/N) " REPLY
         echo
         if [[ $REPLY =~ ^[Yy]$ ]]; then
-            docker compose -f "$COMPOSE_FILE" --profile dashboard down -v --remove-orphans
+            docker compose -f "$COMPOSE_FILE" --profile dashboard down -v
             rm -rf "$HOST_TARGET_DIR/.corvus"
             echo -e "${GREEN}🧹 Cleaned up (playground/ remains intact).${NC}"
         else
