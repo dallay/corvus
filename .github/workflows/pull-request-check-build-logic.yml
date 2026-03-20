@@ -65,19 +65,19 @@ jobs:
       #      - name: 🦆 Run Actionlint
       #        run: ./gradlew runActionlint
 
-      - name: 🔧 Check build-logic if exist
+      - name: 🔧 Check build-logic workspace
         id: check_build_logic
         continue-on-error: true
-        run: ./gradlew :build-logic:help
+        run: ./gradlew -p "gradle/build-logic" help
 
-      #      - name: 🔒 Check locks
-      #        if: >
-      #          steps.check_build_logic.outcome == 'success' &&
-      #          github.event.pull_request.user.login != 'github-actions[bot]' &&
-      #          github.event.pull_request.user.login != 'dependabot[bot]' &&
-      #          github.event.pull_request.user.login != 'renovate[bot]'
-      #        run: ./gradlew :build-logic:checkLocks
+      - name: 🔒 Check build-logic locks
+        if: >
+          steps.check_build_logic.outcome == 'success' &&
+          github.event.pull_request.user.login != 'github-actions[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'renovate[bot]'
+        run: ./gradlew -p "gradle/build-logic" checkLocks
 
       - name: ✅ Run build checks
         if: steps.check_build_logic.outcome == 'success'
-        run: ./gradlew :build-logic:check
+        run: ./gradlew -p "gradle/build-logic" check

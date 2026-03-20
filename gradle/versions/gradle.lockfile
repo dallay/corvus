@@ -1,0 +1,5 @@
+# This is a Gradle generated file for dependency locking.
+# Manual edits can break the build and are not advised.
+# This file is expected to be part of source control.
+org.slf4j:slf4j-bom:2.1.0-alpha1=classpath,latestReleasesPath,mainRuntimeClasspath
+empty=

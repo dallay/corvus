@@ -16,6 +16,8 @@ plugins {
 }
 
 gradle.lifecycle.beforeProject {
+  apply(plugin = "com.profiletailors.check.locking")
+
   // only root project
   if (this.path == ":") {
     // lifecycle tasks

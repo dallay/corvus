@@ -43,17 +43,8 @@ jobs:
       - name: 🔧 Show Gradle version
         run: ./gradlew --version
 
-      - name: 🔧 Check build-logic lock task
-        id: check_build_logic
-        continue-on-error: true
-        run: ./gradlew :build-logic:tasks --all --no-configuration-cache | grep -qE '^writeLocks\b'
-
-      - name: 🔏 Write build-logic locks (conditional)
-        if: steps.check_build_logic.outcome == 'success'
-        run: ./gradlew :build-logic:writeLocks --no-parallel --no-configuration-cache
-
-      - name: 🔒 Write global locks
-        run: ./gradlew writeLocks --no-parallel --no-configuration-cache
+      - name: 🔒 Write all Gradle locks
+        run: ./gradlew writeLocksAll --no-parallel
 
       - name: 💾 Commit file changes (auto)
         id: auto-pr-lockfile

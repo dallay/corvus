@@ -12,6 +12,8 @@ plugins {
   alias(libs.plugins.com.vanniktech.maven.publish)
 }
 
+apply(from = "src/main/kotlin/com.profiletailors.check.locking.gradle.kts")
+
 java { toolchain { languageVersion.set(JavaLanguageVersion.of(libs.versions.jdk.get())) } }
 
 tasks.withType<JavaCompile> { options.release.set(libs.versions.jdk.get().toInt()) }

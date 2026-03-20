@@ -74,12 +74,12 @@ jobs:
       #      - name: 🦆 Run Actionlint
       #        run: ./gradlew runActionlint
 
-      #      - name: 🔒 Check locks
-      #        if: >
-      #          github.event.pull_request.user.login != 'github-actions[bot]' &&
-      #          github.event.pull_request.user.login != 'dependabot[bot]' &&
-      #          github.event.pull_request.user.login != 'renovate[bot]'
-      #        run: ./gradlew checkLocks --no-parallel
+      - name: 🔒 Check locks
+        if: >
+          github.event.pull_request.user.login != 'github-actions[bot]' &&
+          github.event.pull_request.user.login != 'dependabot[bot]' &&
+          github.event.pull_request.user.login != 'renovate[bot]'
+        run: ./gradlew checkLocksAll --no-parallel
 
       - name: 🏗 Run main checks
         run: ./gradlew check
