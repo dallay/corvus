@@ -2,6 +2,9 @@ use crate::config::{Config, McpServerConfig};
 use std::collections::BTreeMap;
 use tempfile::TempDir;
 
+#[cfg(test)]
+const GATEWAY_WEBHOOK_DISPATCHER_ENV_VAR: &str = "CORVUS_GATEWAY_WEBHOOK_DISPATCHER";
+
 pub(crate) fn test_config(tmp: &TempDir) -> Config {
     Config {
         workspace_dir: tmp.path().join("workspace"),
@@ -22,5 +25,68 @@ pub(crate) fn mock_mcp_server(name: &str, tool_name: &str) -> McpServerConfig {
         startup_timeout_ms: 100,
         call_timeout_ms: 500,
         output_limit_bytes: 1024,
+    }
+}
+
+#[cfg(test)]
+fn gateway_webhook_dispatcher_env_mutex() -> &'static std::sync::Mutex<()> {
+    static GATEWAY_WEBHOOK_DISPATCHER_ENV_MUTEX: std::sync::LazyLock<std::sync::Mutex<()>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
+
+    &GATEWAY_WEBHOOK_DISPATCHER_ENV_MUTEX
+}
+
+#[cfg(test)]
+pub(crate) fn acquire_gateway_webhook_dispatcher_lock() -> std::sync::MutexGuard<'static, ()> {
+    gateway_webhook_dispatcher_env_mutex()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+pub(crate) fn acquire_gateway_webhook_dispatcher_lock_blocking(
+) -> std::sync::MutexGuard<'static, ()> {
+    gateway_webhook_dispatcher_env_mutex()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+#[cfg(test)]
+pub(crate) struct GatewayWebhookDispatcherEnvGuard {
+    _lock: std::sync::MutexGuard<'static, ()>,
+    previous: Option<String>,
+}
+
+#[cfg(test)]
+impl GatewayWebhookDispatcherEnvGuard {
+    #[allow(clippy::unused_async)]
+    pub(crate) async fn set(value: &'static str) -> Self {
+        let lock = acquire_gateway_webhook_dispatcher_lock();
+        Self::set_with_lock(lock, value)
+    }
+
+    pub(crate) fn set_blocking(value: &'static str) -> Self {
+        let lock = acquire_gateway_webhook_dispatcher_lock_blocking();
+        Self::set_with_lock(lock, value)
+    }
+
+    fn set_with_lock(lock: std::sync::MutexGuard<'static, ()>, value: &'static str) -> Self {
+        let previous = std::env::var(GATEWAY_WEBHOOK_DISPATCHER_ENV_VAR).ok();
+        std::env::set_var(GATEWAY_WEBHOOK_DISPATCHER_ENV_VAR, value);
+        Self {
+            _lock: lock,
+            previous,
+        }
+    }
+}
+
+#[cfg(test)]
+impl Drop for GatewayWebhookDispatcherEnvGuard {
+    fn drop(&mut self) {
+        if let Some(previous) = self.previous.as_deref() {
+            std::env::set_var(GATEWAY_WEBHOOK_DISPATCHER_ENV_VAR, previous);
+        } else {
+            std::env::remove_var(GATEWAY_WEBHOOK_DISPATCHER_ENV_VAR);
+        }
     }
 }

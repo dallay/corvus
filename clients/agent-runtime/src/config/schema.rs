@@ -662,6 +662,15 @@ pub struct GatewayConfig {
     /// Maximum distinct idempotency keys retained in memory.
     #[serde(default = "default_gateway_idempotency_max_keys")]
     pub idempotency_max_keys: usize,
+
+    /// Route `/webhook` through the canonical dispatcher-backed runtime.
+    ///
+    /// Keep this disabled during rollout to preserve the legacy `simple_chat()` path. When enabled,
+    /// operators should compare dispatcher versus legacy telemetry, and can roll back immediately by
+    /// disabling the flag again. This switch does not affect `/whatsapp`, which remains on its
+    /// separate deferred path for this change.
+    #[serde(default)]
+    pub webhook_dispatcher_enabled: bool,
 }
 
 fn default_gateway_port() -> u16 {
@@ -711,6 +720,7 @@ impl Default for GatewayConfig {
             rate_limit_max_keys: default_gateway_rate_limit_max_keys(),
             idempotency_ttl_secs: default_idempotency_ttl_secs(),
             idempotency_max_keys: default_gateway_idempotency_max_keys(),
+            webhook_dispatcher_enabled: false,
         }
     }
 }
@@ -2794,6 +2804,11 @@ impl Config {
             None,
             &mut self.gateway.allow_public_bind,
         );
+        env_override_bool(
+            "CORVUS_GATEWAY_WEBHOOK_DISPATCHER",
+            None,
+            &mut self.gateway.webhook_dispatcher_enabled,
+        );
         env_override_f64_clamped(
             "CORVUS_TEMPERATURE",
             0.0,
@@ -3322,6 +3337,9 @@ fn sync_directory(_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::{
+        acquire_gateway_webhook_dispatcher_lock_blocking, GatewayWebhookDispatcherEnvGuard,
+    };
     use std::path::PathBuf;
 
     // ── Defaults ─────────────────────────────────────────────
@@ -4507,6 +4525,7 @@ channel_id = "C123"
             rate_limit_max_keys: 2048,
             idempotency_ttl_secs: 600,
             idempotency_max_keys: 4096,
+            webhook_dispatcher_enabled: true,
         };
         let toml_str = toml::to_string(&g).unwrap();
         let parsed: GatewayConfig = toml::from_str(&toml_str).unwrap();
@@ -4519,6 +4538,7 @@ channel_id = "C123"
         assert_eq!(parsed.rate_limit_max_keys, 2048);
         assert_eq!(parsed.idempotency_ttl_secs, 600);
         assert_eq!(parsed.idempotency_max_keys, 4096);
+        assert!(parsed.webhook_dispatcher_enabled);
     }
 
     #[test]
@@ -5140,6 +5160,34 @@ default_model = "legacy-model"
     }
 
     #[test]
+    fn env_override_gateway_webhook_dispatcher() {
+        let _env_guard = env_override_test_guard();
+        {
+            let _dispatcher_lock = acquire_gateway_webhook_dispatcher_lock_blocking();
+            std::env::set_var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER", "0");
+        }
+
+        let mut config = Config::default();
+        assert!(!config.gateway.webhook_dispatcher_enabled);
+
+        {
+            let _dispatcher_env = GatewayWebhookDispatcherEnvGuard::set_blocking("1");
+            config.apply_env_overrides();
+            assert!(config.gateway.webhook_dispatcher_enabled);
+        }
+
+        assert_eq!(
+            std::env::var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER").as_deref(),
+            Ok("0")
+        );
+
+        {
+            let _dispatcher_lock = acquire_gateway_webhook_dispatcher_lock_blocking();
+            std::env::remove_var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER");
+        }
+    }
+
+    #[test]
     fn env_override_host_fallback() {
         let _env_guard = env_override_test_guard();
         let mut config = Config::default();
@@ -5348,6 +5396,7 @@ default_model = "legacy-model"
         assert!(!g.trust_forwarded_headers);
         assert_eq!(g.rate_limit_max_keys, 10_000);
         assert_eq!(g.idempotency_max_keys, 10_000);
+        assert!(!g.webhook_dispatcher_enabled);
     }
 
     // ── Peripherals config ───────────────────────────────────────

@@ -26,7 +26,9 @@ use axum::{
 };
 use parking_lot::Mutex;
 use regex::Regex;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
@@ -36,6 +38,7 @@ use uuid::Uuid;
 
 pub mod admin;
 pub mod utils;
+pub mod webhook_dispatch;
 
 static SENSITIVE_GATEWAY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
@@ -86,11 +89,13 @@ struct AdminSchedulerView {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+#[allow(clippy::struct_excessive_bools)]
 struct AdminGatewayView {
     port: u16,
     host: String,
     require_pairing: bool,
     allow_public_bind: bool,
+    webhook_dispatcher_enabled: bool,
     pair_rate_limit_per_minute: u32,
     webhook_rate_limit_per_minute: u32,
     trust_forwarded_headers: bool,
@@ -255,6 +260,7 @@ fn admin_config_view(cfg: &Config) -> AdminConfigView {
             host: cfg.gateway.host.clone(),
             require_pairing: cfg.gateway.require_pairing,
             allow_public_bind: cfg.gateway.allow_public_bind,
+            webhook_dispatcher_enabled: cfg.gateway.webhook_dispatcher_enabled,
             pair_rate_limit_per_minute: cfg.gateway.pair_rate_limit_per_minute,
             webhook_rate_limit_per_minute: cfg.gateway.webhook_rate_limit_per_minute,
             trust_forwarded_headers: cfg.gateway.trust_forwarded_headers,
@@ -705,67 +711,84 @@ fn map_loop_event_to_sse_frame(
     format!("id: {session_id}\nevent: {event_name}\n{data_lines}\n")
 }
 
+fn resolve_session_id(
+    headers: &HeaderMap,
+) -> Result<(String, webhook_dispatch::WebhookSessionSource), WebhookResponse> {
+    if let Some(raw_value) = headers.get("X-Session-Id") {
+        let Ok(raw_value) = raw_value.to_str() else {
+            let err = serde_json::json!({
+                "error": "Invalid X-Session-Id header. Expected ASCII text.",
+            });
+            return Err((StatusCode::BAD_REQUEST, Json(err)));
+        };
+        let session_id = raw_value.trim();
+        let is_valid = !session_id.is_empty()
+            && session_id.len() <= 64
+            && session_id
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_');
+        if !is_valid {
+            let err = serde_json::json!({
+                "error": "Invalid X-Session-Id header. Use 1-64 ASCII letters, digits, '-' or '_' only.",
+            });
+            return Err((StatusCode::BAD_REQUEST, Json(err)));
+        }
+        return Ok((
+            session_id.to_owned(),
+            webhook_dispatch::WebhookSessionSource::Explicit,
+        ));
+    }
+
+    Ok((
+        format!("webhook-{}", Uuid::new_v4()),
+        webhook_dispatch::WebhookSessionSource::Generated,
+    ))
+}
+
 fn normalized_session_id(headers: &HeaderMap) -> String {
-    headers
-        .get("X-Session-Id")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|value| {
-            !value.is_empty()
-                && value.len() <= 64
-                && value
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
-        })
-        .map(ToOwned::to_owned)
-        .unwrap_or_else(|| format!("webhook-{}", Uuid::new_v4()))
+    resolve_session_id(headers)
+        .expect("session id should normalize")
+        .0
 }
 
-fn env_u64_or(name: &str, default: u64) -> u64 {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse::<u64>().ok())
-        .unwrap_or(default)
+fn webhook_dispatcher_enabled(config: &Config) -> bool {
+    config.gateway.webhook_dispatcher_enabled
 }
 
-fn env_usize_or(name: &str, default: usize) -> usize {
-    std::env::var(name)
-        .ok()
-        .and_then(|value| value.parse::<usize>().ok())
-        .unwrap_or(default)
+fn webhook_runtime_path_label(dispatcher_enabled: bool) -> &'static str {
+    if dispatcher_enabled {
+        "dispatcher_agent"
+    } else {
+        "legacy_simple_chat"
+    }
 }
 
-async fn collect_unified_loop_sse_preview(
-    prompt: &str,
-    tool_calls: usize,
-    session_id: &str,
-    step_duration: Duration,
-    timeout: Duration,
-) -> Vec<String> {
-    let config = crate::agent::unified_loop::LoopConfig {
-        timeout,
-        ..crate::agent::unified_loop::LoopConfig::default()
-    };
+fn log_webhook_runtime_path(session_id: &str, dispatcher_enabled: bool, reason: &str) {
+    tracing::info!(
+        runtime_path = webhook_runtime_path_label(dispatcher_enabled),
+        session_id = %session_id,
+        reason,
+        "gateway webhook runtime selected"
+    );
+}
 
-    let result = crate::agent::unified_entrypoint::execute_with_retry_backoff(
-        session_id.to_string(),
-        prompt,
-        &config,
-        crate::agent::unified_entrypoint::UnifiedExecutionConfig {
-            tool_calls,
-            step_duration,
-            max_retries: 1,
-            backoff_millis: 25,
-            enable_test_triggers: cfg!(test),
-        },
-    )
-    .await;
+fn log_webhook_terminal_outcome(session_id: &str, runtime_path: &str, outcome: &str) {
+    tracing::info!(
+        runtime_path,
+        session_id = %session_id,
+        outcome,
+        "gateway webhook outcome"
+    );
+}
 
-    result
-        .events
-        .iter()
-        .map(|event| map_loop_event_to_sse_frame(session_id, event))
-        .collect::<Vec<_>>()
+fn webhook_outcome_label(outcome: &webhook_dispatch::WebhookTerminalOutcome) -> &'static str {
+    match outcome {
+        webhook_dispatch::WebhookTerminalOutcome::Completed => "completed",
+        webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { .. } => "approval_required",
+        webhook_dispatch::WebhookTerminalOutcome::Timeout => "timeout",
+        webhook_dispatch::WebhookTerminalOutcome::Fallback => "fallback",
+        webhook_dispatch::WebhookTerminalOutcome::Error => "error",
+    }
 }
 
 /// How often the rate limiter sweeps stale IP entries from its map.
@@ -904,6 +927,17 @@ impl IdempotencyStore {
 
         keys.insert(key.to_owned(), now);
         true
+    }
+
+    fn contains(&self, key: &str) -> bool {
+        let now = Instant::now();
+        let mut keys = self.keys.lock();
+        keys.retain(|_, seen_at| now.duration_since(*seen_at) < self.ttl);
+        keys.contains_key(key)
+    }
+
+    fn record(&self, key: &str) {
+        let _ = self.record_if_new(key);
     }
 
     /// Remove a key from the store (e.g., on failure to allow retries).
@@ -1356,6 +1390,33 @@ pub struct WebhookBody {
 type WebhookResponse = (StatusCode, Json<serde_json::Value>);
 type WebhookJsonBody = Result<Json<WebhookBody>, axum::extract::rejection::JsonRejection>;
 
+fn webhook_idempotency_key(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get("X-Idempotency-Key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+fn webhook_duplicate_response(idempotency_key: &str) -> WebhookResponse {
+    tracing::info!(
+        idempotency_key_fingerprint = %fingerprint_idempotency_key(idempotency_key),
+        "Webhook duplicate ignored"
+    );
+    let body = serde_json::json!({
+        "status": "duplicate",
+        "idempotent": true,
+        "message": "Request already processed for this idempotency key"
+    });
+    (StatusCode::OK, Json(body))
+}
+
+fn fingerprint_idempotency_key(idempotency_key: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    idempotency_key.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())[..8].to_string()
+}
+
 fn webhook_auth_rejection(
     state: &AppState,
     peer_addr: SocketAddr,
@@ -1416,26 +1477,6 @@ fn parse_webhook_body(body: WebhookJsonBody) -> Result<WebhookBody, WebhookRespo
     }
 }
 
-fn webhook_idempotency_rejection(state: &AppState, headers: &HeaderMap) -> Option<WebhookResponse> {
-    let idempotency_key = headers
-        .get("X-Idempotency-Key")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?;
-
-    if !state.idempotency_store.record_if_new(idempotency_key) {
-        tracing::info!("Webhook duplicate ignored (idempotency key: {idempotency_key})");
-        let body = serde_json::json!({
-            "status": "duplicate",
-            "idempotent": true,
-            "message": "Request already processed for this idempotency key"
-        });
-        return Some((StatusCode::OK, Json(body)));
-    }
-
-    None
-}
-
 async fn canonical_outcome_early_response(
     state: &AppState,
     session_id: &str,
@@ -1488,6 +1529,68 @@ async fn canonical_outcome_early_response(
     None
 }
 
+fn webhook_response_from_dispatch_result(
+    result: webhook_dispatch::WebhookTurnResult,
+) -> (WebhookResponse, bool) {
+    match result.outcome {
+        webhook_dispatch::WebhookTerminalOutcome::Completed => {
+            let response_text = result
+                .response_text
+                .map(|text| scrub_sensitive_boundary_text(&text))
+                .unwrap_or_default();
+            let mut body = serde_json::json!({
+                "response": response_text,
+                "model": result.model,
+                "session_id": result.session_id,
+            });
+            if !result.event_frames.is_empty() {
+                body["events_sse"] = serde_json::json!(result.event_frames);
+            }
+            ((StatusCode::OK, Json(body)), true)
+        }
+        webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { tool, reason } => {
+            let body = serde_json::json!({
+                "error": {
+                    "code": "approval_required",
+                    "tool": tool,
+                    "reason": reason,
+                },
+                "session_id": result.session_id,
+            });
+            ((StatusCode::FORBIDDEN, Json(body)), false)
+        }
+        webhook_dispatch::WebhookTerminalOutcome::Timeout => {
+            let body = serde_json::json!({
+                "response": "request aborted due to timeout semantics",
+                "model": result.model,
+                "session_id": result.session_id,
+                "aborted": true,
+            });
+            ((StatusCode::REQUEST_TIMEOUT, Json(body)), false)
+        }
+        webhook_dispatch::WebhookTerminalOutcome::Fallback => {
+            let response_text = result
+                .response_text
+                .map(|text| scrub_sensitive_boundary_text(&text))
+                .unwrap_or_default();
+            let body = serde_json::json!({
+                "response": response_text,
+                "model": result.model,
+                "session_id": result.session_id,
+                "fallback": true,
+            });
+            ((StatusCode::OK, Json(body)), true)
+        }
+        webhook_dispatch::WebhookTerminalOutcome::Error => {
+            let err = serde_json::json!({
+                "error": "LLM request failed",
+                "session_id": result.session_id,
+            });
+            ((StatusCode::INTERNAL_SERVER_ERROR, Json(err)), false)
+        }
+    }
+}
+
 /// POST /webhook — main webhook endpoint
 async fn handle_webhook(
     State(state): State<AppState>,
@@ -1506,23 +1609,66 @@ async fn handle_webhook(
 
     let message = &webhook_body.message;
     let scrubbed_message = scrub_sensitive_boundary_text(message);
-    let session_id = normalized_session_id(&headers);
+    let (session_id, session_source) = match resolve_session_id(&headers) {
+        Ok(resolved) => resolved,
+        Err(response) => return response,
+    };
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
+    let config = state.config.lock().clone();
+    let dispatcher_enabled = webhook_dispatcher_enabled(&config);
+    let reserved_idempotency_key = if let Some(idempotency_key) = webhook_idempotency_key(&headers)
+    {
+        if !state.idempotency_store.record_if_new(idempotency_key) {
+            return webhook_duplicate_response(idempotency_key);
+        }
+        Some(idempotency_key)
+    } else {
+        None
+    };
+    if dispatcher_enabled {
+        log_webhook_runtime_path(&session_id, true, "dispatcher_flag_enabled");
+        let dispatch_result = webhook_dispatch::execute(
+            &config,
+            Arc::clone(&state.provider),
+            Arc::clone(&state.mem),
+            Arc::clone(&state.observer),
+            &state.model,
+            webhook_dispatch::WebhookTurnRequest {
+                session_id: session_id.clone(),
+                session_source,
+                message: message.clone(),
+                include_sse_frames: is_preview,
+            },
+        )
+        .await;
+        log_webhook_terminal_outcome(
+            &session_id,
+            "dispatcher_agent",
+            webhook_outcome_label(&dispatch_result.outcome),
+        );
+        let (response, persist_idempotency) =
+            webhook_response_from_dispatch_result(dispatch_result);
+        if !persist_idempotency {
+            if let Some(idempotency_key) = reserved_idempotency_key {
+                state.idempotency_store.remove(idempotency_key);
+            }
+        }
+        return response;
+    }
+
+    log_webhook_runtime_path(&session_id, false, "dispatcher_flag_disabled");
+
     if !is_preview {
         if let Some((response, persist_idempotency)) =
             canonical_outcome_early_response(&state, &session_id, &scrubbed_message).await
         {
-            if persist_idempotency {
-                if let Some(rejection) = webhook_idempotency_rejection(&state, &headers) {
-                    return rejection;
+            if !persist_idempotency {
+                if let Some(idempotency_key) = reserved_idempotency_key {
+                    state.idempotency_store.remove(idempotency_key);
                 }
             }
             return response;
         }
-    }
-
-    if let Some(rejection) = webhook_idempotency_rejection(&state, &headers) {
-        return rejection;
     }
 
     if state.auto_save {
@@ -1556,7 +1702,7 @@ async fn handle_webhook(
             messages_count: 1,
         });
 
-    match state
+    let (response, persist_idempotency) = match state
         .provider
         .simple_chat(message, &state.model, state.temperature)
         .await
@@ -1586,28 +1732,13 @@ async fn handle_webhook(
                 });
 
             let sanitized_response = scrub_sensitive_boundary_text(&response);
-            let mut body = serde_json::json!({
+            log_webhook_terminal_outcome(&session_id, "legacy_simple_chat", "completed");
+            let body = serde_json::json!({
                 "response": sanitized_response,
                 "model": state.model,
                 "session_id": session_id,
             });
-            if is_preview {
-                let preview_tool_calls = env_usize_or("CORVUS_GATEWAY_PREVIEW_TOOL_CALLS", 1);
-                let step_duration =
-                    Duration::from_millis(env_u64_or("CORVUS_GATEWAY_PREVIEW_STEP_MS", 1));
-                let timeout =
-                    Duration::from_millis(env_u64_or("CORVUS_GATEWAY_PREVIEW_TIMEOUT_MS", 30_000));
-                let frames = collect_unified_loop_sse_preview(
-                    &scrubbed_message,
-                    preview_tool_calls,
-                    &session_id,
-                    step_duration,
-                    timeout,
-                )
-                .await;
-                body["events_sse"] = serde_json::json!(frames);
-            }
-            (StatusCode::OK, Json(body))
+            ((StatusCode::OK, Json(body)), true)
         }
         Err(e) => {
             let duration = started_at.elapsed();
@@ -1642,10 +1773,19 @@ async fn handle_webhook(
                 });
 
             tracing::error!("Webhook provider error: {}", sanitized);
+            log_webhook_terminal_outcome(&session_id, "legacy_simple_chat", "error");
             let err = serde_json::json!({"error": "LLM request failed"});
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err))
+            ((StatusCode::INTERNAL_SERVER_ERROR, Json(err)), false)
+        }
+    };
+
+    if !persist_idempotency {
+        if let Some(idempotency_key) = reserved_idempotency_key {
+            state.idempotency_store.remove(idempotency_key);
         }
     }
+
+    response
 }
 
 /// `WhatsApp` verification query params
@@ -1879,15 +2019,22 @@ pub fn build_magic_link(
 mod tests {
     use super::*;
     use crate::channels::traits::ChannelMessage;
+    use crate::channels::whatsapp::WhatsAppChannel;
     use crate::memory::{Memory, MemoryCategory, MemoryEntry};
-    use crate::providers::Provider;
+    use crate::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
+    use crate::test_support::GatewayWebhookDispatcherEnvGuard;
     use async_trait::async_trait;
     use axum::http::HeaderValue;
     use axum::response::IntoResponse;
+    use bytes::Bytes;
     use http_body_util::BodyExt;
     use parking_lot::Mutex;
+    use std::collections::BTreeMap;
+    use std::future::Future;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::LazyLock;
+    use tracing::field::{Field, Visit};
+    use tracing::{Event, Subscriber};
+    use tracing_subscriber::{layer::Context, prelude::*, Layer};
 
     #[test]
     fn test_is_trusted_dashboard_origin() {
@@ -1948,8 +2095,55 @@ mod tests {
         assert!(!super::should_emit_pairing_secrets(false));
     }
 
-    static GATEWAY_ENV_MUTEX: LazyLock<tokio::sync::Mutex<()>> =
-        LazyLock::new(|| tokio::sync::Mutex::new(()));
+    #[test]
+    fn webhook_response_mapping_seam_preserves_mcp_labeled_completed_outcome() {
+        // Seam-level proof only: live /webhook MCP execution still stops at dispatcher denial before
+        // a completed outcome can be reached end to end.
+        let ((status, Json(body)), persist_idempotency) =
+            webhook_response_from_dispatch_result(webhook_dispatch::WebhookTurnResult {
+                session_id: "session-mcp-completed".into(),
+                model: "test-model".into(),
+                outcome: webhook_dispatch::WebhookTerminalOutcome::Completed,
+                response_text: Some("mcp seam completed".into()),
+                event_frames: vec!["id: seam\nevent: complete\ndata: {}\n\n".into()],
+            });
+
+        assert_eq!(status, StatusCode::OK);
+        assert!(persist_idempotency);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "response": "mcp seam completed",
+                "model": "test-model",
+                "session_id": "session-mcp-completed",
+                "events_sse": ["id: seam\nevent: complete\ndata: {}\n\n"],
+            })
+        );
+    }
+
+    #[test]
+    fn webhook_response_mapping_seam_preserves_mcp_labeled_error_outcome() {
+        // Seam-level proof only: live /webhook MCP execution still stops at dispatcher denial before
+        // an error outcome can be reached end to end.
+        let ((status, Json(body)), persist_idempotency) =
+            webhook_response_from_dispatch_result(webhook_dispatch::WebhookTurnResult {
+                session_id: "session-mcp-error".into(),
+                model: "test-model".into(),
+                outcome: webhook_dispatch::WebhookTerminalOutcome::Error,
+                response_text: Some("ignored".into()),
+                event_frames: Vec::new(),
+            });
+
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(!persist_idempotency);
+        assert_eq!(
+            body,
+            serde_json::json!({
+                "error": "LLM request failed",
+                "session_id": "session-mcp-error",
+            })
+        );
+    }
 
     struct EnvVarGuard {
         key: &'static str,
@@ -1972,6 +2166,87 @@ mod tests {
                 std::env::remove_var(self.key);
             }
         }
+    }
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    struct CapturedTracingEvent {
+        fields: BTreeMap<String, String>,
+    }
+
+    impl CapturedTracingEvent {
+        fn field(&self, name: &str) -> Option<&str> {
+            self.fields.get(name).map(String::as_str)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct CaptureLayer {
+        events: Arc<Mutex<Vec<CapturedTracingEvent>>>,
+    }
+
+    impl CaptureLayer {
+        fn snapshot(&self) -> Vec<CapturedTracingEvent> {
+            self.events.lock().clone()
+        }
+    }
+
+    impl<S> Layer<S> for CaptureLayer
+    where
+        S: Subscriber,
+    {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut visitor = TracingFieldRecorder::default();
+            event.record(&mut visitor);
+            self.events.lock().push(CapturedTracingEvent {
+                fields: visitor.fields,
+            });
+        }
+    }
+
+    #[derive(Default)]
+    struct TracingFieldRecorder {
+        fields: BTreeMap<String, String>,
+    }
+
+    impl TracingFieldRecorder {
+        fn insert(&mut self, field: &Field, value: impl ToString) {
+            self.fields
+                .insert(field.name().to_string(), value.to_string());
+        }
+    }
+
+    impl Visit for TracingFieldRecorder {
+        fn record_bool(&mut self, field: &Field, value: bool) {
+            self.insert(field, value);
+        }
+
+        fn record_i64(&mut self, field: &Field, value: i64) {
+            self.insert(field, value);
+        }
+
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            self.insert(field, value);
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.insert(field, value);
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.insert(field, format!("{value:?}"));
+        }
+    }
+
+    async fn capture_tracing_events<F, Fut, T>(run: F) -> (T, Vec<CapturedTracingEvent>)
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = T>,
+    {
+        let layer = CaptureLayer::default();
+        let subscriber = tracing_subscriber::registry().with(layer.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let output = run().await;
+        (output, layer.snapshot())
     }
 
     #[test]
@@ -2315,59 +2590,25 @@ mod tests {
         assert!(!frame.contains("sk-secret-token-123"));
     }
 
-    #[tokio::test]
-    async fn unified_loop_sse_preview_contains_start_and_completion() {
-        let frames = collect_unified_loop_sse_preview(
-            "hello",
-            1,
-            "session-abc",
-            Duration::from_millis(1),
-            Duration::from_secs(30),
-        )
-        .await;
-        assert!(frames
-            .iter()
-            .any(|frame| frame.starts_with("id: session-abc\nevent: start\n")));
-        assert!(frames
-            .iter()
-            .any(|frame| frame.starts_with("id: session-abc\nevent: complete\n")));
-    }
-
-    #[tokio::test]
-    async fn unified_loop_sse_preview_keeps_event_order_and_timeout_abort() {
-        let frames = collect_unified_loop_sse_preview(
-            "timeout case",
-            2,
-            "session-timeout",
-            Duration::from_millis(2),
-            Duration::from_millis(1),
-        )
-        .await;
-
-        let order = frames
-            .iter()
-            .map(|frame| {
-                frame
-                    .lines()
-                    .find(|line| line.starts_with("event: "))
-                    .unwrap_or("")
-                    .to_string()
-            })
-            .collect::<Vec<_>>();
-
-        assert!(order.first().is_some_and(|line| line == "event: start"));
-        assert!(order.iter().any(|line| line == "event: error"));
-        assert!(frames
-            .iter()
-            .all(|frame| frame.starts_with("id: session-timeout\n")));
-    }
-
     #[test]
     fn normalized_session_id_uses_safe_header_value() {
         let mut headers = HeaderMap::new();
         headers.insert("X-Session-Id", HeaderValue::from_static("safe_session-1"));
         let session_id = normalized_session_id(&headers);
         assert_eq!(session_id, "safe_session-1");
+    }
+
+    #[test]
+    fn resolve_session_id_rejects_invalid_header_value() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("bad value"));
+
+        let err = resolve_session_id(&headers).expect_err("invalid header should fail");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!((err.1).0["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Invalid X-Session-Id header"));
     }
 
     #[test]
@@ -2468,8 +2709,185 @@ mod tests {
     }
 
     #[derive(Default)]
+    struct DispatchAwareProvider {
+        simple_calls: AtomicUsize,
+        chat_calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Provider for DispatchAwareProvider {
+        async fn simple_chat(
+            &self,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            self.simple_calls.fetch_add(1, Ordering::SeqCst);
+            Ok("legacy".into())
+        }
+
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("unused".into())
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            self.chat_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ChatResponse {
+                text: Some("dispatcher".into()),
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    struct SequencedChatProvider {
+        responses: Mutex<Vec<ChatResponse>>,
+        chat_calls: AtomicUsize,
+        simple_calls: AtomicUsize,
+    }
+
+    #[derive(Default)]
+    struct FailingWebhookProvider {
+        chat_calls: AtomicUsize,
+        simple_calls: AtomicUsize,
+    }
+
+    impl SequencedChatProvider {
+        fn new(responses: Vec<ChatResponse>) -> Self {
+            let mut responses = responses;
+            responses.reverse();
+            Self {
+                responses: Mutex::new(responses),
+                chat_calls: AtomicUsize::new(0),
+                simple_calls: AtomicUsize::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl Provider for SequencedChatProvider {
+        fn supports_native_tools(&self) -> bool {
+            true
+        }
+
+        async fn simple_chat(
+            &self,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            self.simple_calls.fetch_add(1, Ordering::SeqCst);
+            Ok("legacy".into())
+        }
+
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("unused".into())
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            self.chat_calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.responses.lock().pop().unwrap_or(ChatResponse {
+                text: Some("script exhausted".into()),
+                tool_calls: Vec::new(),
+            }))
+        }
+    }
+
+    #[async_trait]
+    impl Provider for FailingWebhookProvider {
+        fn supports_native_tools(&self) -> bool {
+            true
+        }
+
+        async fn simple_chat(
+            &self,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            self.simple_calls.fetch_add(1, Ordering::SeqCst);
+            anyhow::bail!("legacy failure")
+        }
+
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            anyhow::bail!("unused")
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            self.chat_calls.fetch_add(1, Ordering::SeqCst);
+            anyhow::bail!("dispatcher failure")
+        }
+    }
+
+    #[derive(Default)]
+    struct ErrorChatProvider {
+        chat_calls: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Provider for ErrorChatProvider {
+        fn supports_native_tools(&self) -> bool {
+            true
+        }
+
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("unused".into())
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            self.chat_calls.fetch_add(1, Ordering::SeqCst);
+            Err(anyhow::anyhow!("dispatcher chat failed"))
+        }
+    }
+
+    #[derive(Default)]
     struct TrackingMemory {
         keys: Mutex<Vec<String>>,
+        recall_sessions: Mutex<Vec<Option<String>>>,
+        store_sessions: Mutex<Vec<Option<String>>>,
     }
 
     #[async_trait]
@@ -2483,9 +2901,12 @@ mod tests {
             key: &str,
             _content: &str,
             _category: MemoryCategory,
-            _session_id: Option<&str>,
+            session_id: Option<&str>,
         ) -> anyhow::Result<()> {
             self.keys.lock().push(key.to_string());
+            self.store_sessions
+                .lock()
+                .push(session_id.map(ToOwned::to_owned));
             Ok(())
         }
 
@@ -2493,8 +2914,11 @@ mod tests {
             &self,
             _query: &str,
             _limit: usize,
-            _session_id: Option<&str>,
+            session_id: Option<&str>,
         ) -> anyhow::Result<Vec<MemoryEntry>> {
+            self.recall_sessions
+                .lock()
+                .push(session_id.map(ToOwned::to_owned));
             Ok(Vec::new())
         }
 
@@ -2534,7 +2958,6 @@ mod tests {
         let config_path = root.join("config.toml");
         let workspace_path = root.join("workspace");
         std::fs::create_dir_all(&workspace_path).unwrap();
-
         let mut config = Config::default();
         config.config_path = config_path;
         config.workspace_dir = workspace_path;
@@ -2668,8 +3091,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn webhook_preview_includes_sse_order_timeout_and_session_scope() {
-        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+    async fn legacy_webhook_preview_does_not_emit_synthetic_events_sse() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             provider: Arc::new(MockProvider::default()),
@@ -2691,9 +3114,6 @@ mod tests {
         headers.insert("X-Session-Id", HeaderValue::from_static("session-e2e"));
 
         let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "1");
-        let _timeout = EnvVarGuard::set("CORVUS_GATEWAY_PREVIEW_TIMEOUT_MS", "1");
-        let _tool_calls = EnvVarGuard::set("CORVUS_GATEWAY_PREVIEW_TOOL_CALLS", "2");
-        let _step = EnvVarGuard::set("CORVUS_GATEWAY_PREVIEW_STEP_MS", "2");
         let response = handle_webhook(
             State(state),
             test_connect_info(),
@@ -2711,23 +3131,12 @@ mod tests {
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(payload["session_id"], "session-e2e");
-
-        let frames = payload["events_sse"].as_array().expect("events_sse array");
-        assert!(!frames.is_empty());
-        let first = frames[0].as_str().unwrap_or_default();
-        assert!(first.starts_with("id: session-e2e\nevent: start\n"));
-        assert!(frames
-            .iter()
-            .any(|f| f.as_str().unwrap_or_default().contains("event: error\n")));
-        assert!(frames.iter().any(|f| f
-            .as_str()
-            .unwrap_or_default()
-            .contains("retrying after recoverable error")));
+        assert!(payload.get("events_sse").is_none());
     }
 
     #[tokio::test]
     async fn webhook_non_preview_blocks_approval_and_keeps_session_id() {
-        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "0");
         let _approve_reset = EnvVarGuard::set("CORVUS_UNIFIED_APPROVE", "0");
         let state = AppState {
@@ -2777,7 +3186,7 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_non_preview_unblocks_with_approval_override() {
-        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
             provider: Arc::new(MockProvider::default()),
@@ -2814,7 +3223,7 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_non_preview_timeout_aborts_with_session_scope() {
-        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "0");
         let state = AppState {
             config: Arc::new(Mutex::new(Config::default())),
@@ -2855,7 +3264,7 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_timeout_does_not_consume_idempotency_key() {
-        let _env_lock = GATEWAY_ENV_MUTEX.lock().await;
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "0");
         let provider_impl = Arc::new(MockProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
@@ -3297,6 +3706,7 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_idempotency_skips_duplicate_provider_calls() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let provider_impl = Arc::new(MockProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
         let memory: Arc<dyn Memory> = Arc::new(MockMemory);
@@ -3350,7 +3760,792 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn webhook_dispatcher_flag_routes_through_canonical_chat_path() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "hello canonical".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn webhook_dispatcher_config_flag_routes_through_canonical_chat_path() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "hello canonical".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn webhook_dispatcher_preview_returns_canonical_event_frames() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+        let _preview = EnvVarGuard::set("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW", "1");
+
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Session-Id",
+            HeaderValue::from_static("dispatcher-preview"),
+        );
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "hello canonical".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let frames = payload["events_sse"].as_array().expect("events_sse array");
+        assert!(!frames.is_empty());
+        assert!(frames[0]
+            .as_str()
+            .unwrap_or_default()
+            .starts_with("id: dispatcher-preview\nevent: start\n"));
+        assert!(frames.iter().any(|frame| frame
+            .as_str()
+            .unwrap_or_default()
+            .contains("event: complete\n")));
+    }
+
+    #[tokio::test]
+    async fn webhook_dispatcher_executes_allowed_tool_and_returns_completed_response() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![
+            ChatResponse {
+                text: None,
+                tool_calls: vec![ToolCall {
+                    id: "tc-echo".into(),
+                    name: "echo".into(),
+                    arguments: r#"{"message":"hello from webhook tool"}"#.into(),
+                }],
+            },
+            ChatResponse {
+                text: Some("echo completed through canonical dispatcher".into()),
+                tool_calls: Vec::new(),
+            },
+        ]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("session-echo"));
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "run the safe echo tool".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(
+            payload["response"],
+            "echo completed through canonical dispatcher"
+        );
+        assert_eq!(payload["model"], "test-model");
+        assert_eq!(payload["session_id"], "session-echo");
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 2);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn webhook_dispatcher_blocks_native_tool_and_keeps_idempotency_retryable() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![
+            ChatResponse {
+                text: None,
+                tool_calls: vec![ToolCall {
+                    id: "tc-shell".into(),
+                    name: "shell".into(),
+                    arguments: r#"{"command":"pwd"}"#.into(),
+                }],
+            },
+            ChatResponse {
+                text: Some("shell blocked".into()),
+                tool_calls: Vec::new(),
+            },
+            ChatResponse {
+                text: None,
+                tool_calls: vec![ToolCall {
+                    id: "tc-shell-2".into(),
+                    name: "shell".into(),
+                    arguments: r#"{"command":"pwd"}"#.into(),
+                }],
+            },
+            ChatResponse {
+                text: Some("shell blocked again".into()),
+                tool_calls: Vec::new(),
+            },
+        ]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("session-shell"));
+        headers.insert(
+            "X-Idempotency-Key",
+            HeaderValue::from_static("shell-approval"),
+        );
+
+        let first = handle_webhook(
+            State(state.clone()),
+            test_connect_info(),
+            headers.clone(),
+            Ok(Json(WebhookBody {
+                message: "run shell".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(first.status(), StatusCode::FORBIDDEN);
+        let first_body = first.into_body().collect().await.unwrap().to_bytes();
+        let first_payload: serde_json::Value = serde_json::from_slice(&first_body).unwrap();
+        assert_eq!(first_payload["session_id"], "session-shell");
+        assert_eq!(first_payload["error"]["code"], "approval_required");
+        assert_eq!(first_payload["error"]["tool"], "shell");
+
+        let second = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "run shell".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(second.status(), StatusCode::FORBIDDEN);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 4);
+    }
+
+    #[tokio::test]
+    async fn webhook_provider_failures_keep_idempotency_retryable_in_legacy_and_dispatcher() {
+        for dispatcher_enabled in [false, true] {
+            let guard_value = if dispatcher_enabled { "1" } else { "0" };
+            let _dispatcher = GatewayWebhookDispatcherEnvGuard::set(guard_value).await;
+            let provider_impl = Arc::new(FailingWebhookProvider::default());
+            let provider: Arc<dyn Provider> = provider_impl.clone();
+            let mut config = temp_config();
+            config.gateway.webhook_dispatcher_enabled = dispatcher_enabled;
+
+            let state = AppState {
+                config: Arc::new(Mutex::new(config)),
+                provider,
+                model: "test-model".into(),
+                temperature: 0.0,
+                mem: Arc::new(MockMemory),
+                auto_save: false,
+                webhook_secret_hash: None,
+                pairing: Arc::new(PairingGuard::new(false, &[])),
+                trust_forwarded_headers: false,
+                rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+                idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+                whatsapp: None,
+                whatsapp_app_secret: None,
+                observer: Arc::new(crate::observability::NoopObserver),
+            };
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                "X-Idempotency-Key",
+                HeaderValue::from_static("retry-on-500"),
+            );
+
+            let first = handle_webhook(
+                State(state.clone()),
+                test_connect_info(),
+                headers.clone(),
+                Ok(Json(WebhookBody {
+                    message: "trigger failure".into(),
+                })),
+            )
+            .await
+            .into_response();
+            assert_eq!(first.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+            let second = handle_webhook(
+                State(state),
+                test_connect_info(),
+                headers,
+                Ok(Json(WebhookBody {
+                    message: "trigger failure".into(),
+                })),
+            )
+            .await
+            .into_response();
+            assert_eq!(second.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+            if dispatcher_enabled {
+                assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 2);
+                assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+            } else {
+                assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+                assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 2);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn webhook_dispatcher_blocks_mcp_tool_with_structured_denial() {
+        // End-to-end proof for the runtime-reachable MCP /webhook path: dispatcher policy denies
+        // the tool before any live MCP execution can occur.
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(SequencedChatProvider::new(vec![
+            ChatResponse {
+                text: None,
+                tool_calls: vec![ToolCall {
+                    id: "tc-mcp".into(),
+                    name: "mcp.docs.search".into(),
+                    arguments: r#"{"query":"rust"}"#.into(),
+                }],
+            },
+            ChatResponse {
+                text: Some("mcp blocked".into()),
+                tool_calls: Vec::new(),
+            },
+        ]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+        config.mcp.enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "use docs".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["error"]["code"], "approval_required");
+        assert_eq!(payload["error"]["tool"], "mcp.docs.search");
+        assert!(payload["error"]["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("approval"));
+    }
+
+    #[tokio::test]
+    async fn webhook_dispatcher_returns_500_with_session_id_on_runtime_error() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(ErrorChatProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("session-error"));
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            headers,
+            Ok(Json(WebhookBody {
+                message: "boom".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["session_id"], "session-error");
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn webhook_without_dispatcher_flag_stays_on_legacy_simple_chat_path() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "hello legacy".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn webhook_rollout_observability_distinguishes_dispatcher_and_legacy_requests() {
+        let dispatcher_provider_impl = Arc::new(DispatchAwareProvider::default());
+        let dispatcher_provider: Arc<dyn Provider> = dispatcher_provider_impl.clone();
+        let mut dispatcher_config = temp_config();
+        dispatcher_config.gateway.webhook_dispatcher_enabled = true;
+        let dispatcher_state = AppState {
+            config: Arc::new(Mutex::new(dispatcher_config)),
+            provider: dispatcher_provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let (dispatcher_response, dispatcher_events) = {
+            let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+            capture_tracing_events(|| async {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    "X-Session-Id",
+                    HeaderValue::from_static("dispatch-observability"),
+                );
+                handle_webhook(
+                    State(dispatcher_state),
+                    test_connect_info(),
+                    headers,
+                    Ok(Json(WebhookBody {
+                        message: "hello dispatcher".into(),
+                    })),
+                )
+                .await
+                .into_response()
+            })
+            .await
+        };
+        assert_eq!(dispatcher_response.status(), StatusCode::OK);
+        assert!(dispatcher_events.iter().any(|event| {
+            event.field("runtime_path") == Some("dispatcher_agent")
+                && event.field("reason") == Some("dispatcher_flag_enabled")
+                && event.field("session_id") == Some("dispatch-observability")
+        }));
+        assert!(dispatcher_events.iter().any(|event| {
+            event.field("runtime_path") == Some("dispatcher_agent")
+                && event.field("outcome") == Some("completed")
+                && event.field("session_id") == Some("dispatch-observability")
+        }));
+        let legacy_provider_impl = Arc::new(MockProvider::default());
+        let legacy_provider: Arc<dyn Provider> = legacy_provider_impl.clone();
+        let legacy_state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider: legacy_provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let (legacy_response, legacy_events) = {
+            let _legacy = GatewayWebhookDispatcherEnvGuard::set("0").await;
+            capture_tracing_events(|| async {
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    "X-Session-Id",
+                    HeaderValue::from_static("legacy-observability"),
+                );
+                handle_webhook(
+                    State(legacy_state),
+                    test_connect_info(),
+                    headers,
+                    Ok(Json(WebhookBody {
+                        message: "hello legacy".into(),
+                    })),
+                )
+                .await
+                .into_response()
+            })
+            .await
+        };
+        assert_eq!(legacy_response.status(), StatusCode::OK);
+        assert!(legacy_events.iter().any(|event| {
+            event.field("runtime_path") == Some("legacy_simple_chat")
+                && event.field("reason") == Some("dispatcher_flag_disabled")
+                && event.field("session_id") == Some("legacy-observability")
+        }));
+        assert!(legacy_events.iter().any(|event| {
+            event.field("runtime_path") == Some("legacy_simple_chat")
+                && event.field("outcome") == Some("completed")
+                && event.field("session_id") == Some("legacy-observability")
+        }));
+    }
+
+    #[tokio::test]
+    async fn legacy_webhook_with_mcp_enabled_marks_parity_inactive() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+
+        let provider_impl = Arc::new(MockProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.mcp.enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let (response, events) = capture_tracing_events(|| async {
+            let mut headers = HeaderMap::new();
+            headers.insert("X-Session-Id", HeaderValue::from_static("legacy-mcp"));
+            handle_webhook(
+                State(state),
+                test_connect_info(),
+                headers,
+                Ok(Json(WebhookBody {
+                    message: "use docs search".into(),
+                })),
+            )
+            .await
+            .into_response()
+        })
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
+        assert!(events.iter().any(|event| {
+            event.field("runtime_path") == Some("legacy_simple_chat")
+                && event.field("reason") == Some("dispatcher_flag_disabled")
+                && event.field("session_id") == Some("legacy-mcp")
+        }));
+        assert!(events
+            .iter()
+            .all(|event| event.field("runtime_path") != Some("dispatcher_agent")));
+    }
+
+    #[tokio::test]
+    async fn webhook_dispatcher_rollout_flag_does_not_change_whatsapp_behavior() {
+        let payload = serde_json::json!({
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "statuses": [{
+                            "id": "wamid-1",
+                        }],
+                    },
+                }],
+            }],
+        });
+        let body = serde_json::to_vec(&payload).unwrap();
+        let signature = compute_whatsapp_signature_header("wa-secret", &body);
+
+        let provider_off_impl = Arc::new(DispatchAwareProvider::default());
+        let provider_off: Arc<dyn Provider> = provider_off_impl.clone();
+        let state_off = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider: provider_off,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: Some(Arc::new(WhatsAppChannel::new(
+                "token".into(),
+                "phone-id".into(),
+                "verify".into(),
+                vec!["*".into()],
+            ))),
+            whatsapp_app_secret: Some(Arc::from("wa-secret")),
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response_off = {
+            let _flag_off = GatewayWebhookDispatcherEnvGuard::set("0").await;
+            let mut headers_off = HeaderMap::new();
+            headers_off.insert(
+                "X-Hub-Signature-256",
+                HeaderValue::from_str(&signature).unwrap(),
+            );
+            handle_whatsapp_message(State(state_off), headers_off, Bytes::from(body.clone()))
+                .await
+                .into_response()
+        };
+        assert_eq!(response_off.status(), StatusCode::OK);
+        let body_off = response_off.into_body().collect().await.unwrap().to_bytes();
+        let payload_off: serde_json::Value = serde_json::from_slice(&body_off).unwrap();
+        assert_eq!(payload_off["status"], "ok");
+        assert_eq!(provider_off_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_off_impl.simple_calls.load(Ordering::SeqCst), 0);
+
+        let provider_on_impl = Arc::new(DispatchAwareProvider::default());
+        let provider_on: Arc<dyn Provider> = provider_on_impl.clone();
+        let state_on = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider: provider_on,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: Some(Arc::new(WhatsAppChannel::new(
+                "token".into(),
+                "phone-id".into(),
+                "verify".into(),
+                vec!["*".into()],
+            ))),
+            whatsapp_app_secret: Some(Arc::from("wa-secret")),
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response_on = {
+            let _flag_on = GatewayWebhookDispatcherEnvGuard::set("1").await;
+            let mut headers_on = HeaderMap::new();
+            headers_on.insert(
+                "X-Hub-Signature-256",
+                HeaderValue::from_str(&signature).unwrap(),
+            );
+            handle_whatsapp_message(State(state_on), headers_on, Bytes::from(body))
+                .await
+                .into_response()
+        };
+        assert_eq!(response_on.status(), StatusCode::OK);
+        let body_on = response_on.into_body().collect().await.unwrap().to_bytes();
+        let payload_on: serde_json::Value = serde_json::from_slice(&body_on).unwrap();
+        assert_eq!(payload_on, payload_off);
+        assert_eq!(provider_on_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_on_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
     async fn webhook_autosave_stores_distinct_keys_per_request() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let provider_impl = Arc::new(MockProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
 
@@ -3405,6 +4600,71 @@ mod tests {
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 2);
     }
 
+    #[tokio::test]
+    async fn webhook_dispatcher_generates_isolated_session_when_header_missing() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let tracking_impl = Arc::new(TrackingMemory::default());
+        let memory: Arc<dyn Memory> = tracking_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: memory,
+            auto_save: true,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "hello isolated dispatcher".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let generated_session = payload["session_id"]
+            .as_str()
+            .expect("webhook response includes session_id")
+            .to_string();
+
+        assert!(generated_session.starts_with("webhook-"));
+        assert_ne!(generated_session, "session-echo");
+        assert_ne!(generated_session, "session-shell");
+        assert_eq!(
+            tracking_impl.recall_sessions.lock().clone(),
+            vec![Some(generated_session.clone())]
+        );
+        assert_eq!(
+            tracking_impl.store_sessions.lock().clone(),
+            vec![
+                Some(generated_session.clone()),
+                Some(generated_session.clone()),
+            ]
+        );
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
     #[test]
     fn webhook_secret_hash_is_deterministic_and_nonempty() {
         let one = hash_webhook_secret("secret-value");
@@ -3418,6 +4678,7 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_secret_hash_rejects_missing_header() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let provider_impl = Arc::new(MockProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
         let memory: Arc<dyn Memory> = Arc::new(MockMemory);
@@ -3456,6 +4717,7 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_secret_hash_rejects_invalid_header() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let provider_impl = Arc::new(MockProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
         let memory: Arc<dyn Memory> = Arc::new(MockMemory);
@@ -3497,6 +4759,7 @@ mod tests {
 
     #[tokio::test]
     async fn webhook_secret_hash_accepts_valid_header() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
         let provider_impl = Arc::new(MockProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
         let memory: Arc<dyn Memory> = Arc::new(MockMemory);
@@ -3534,6 +4797,47 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn webhook_dispatcher_keeps_secret_auth_before_runtime_execution() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: Some(Arc::from(hash_webhook_secret("super-secret"))),
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "hello dispatcher".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }
 
     // ══════════════════════════════════════════════════════════

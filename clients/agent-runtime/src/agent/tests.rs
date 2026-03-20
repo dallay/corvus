@@ -24,12 +24,12 @@
 //!  19. Builder validation (missing required fields)
 //!  20. Idempotent system prompt insertion
 
-use crate::agent::agent::Agent;
+use crate::agent::agent::{Agent, TurnContext};
 use crate::agent::dispatcher::{
     NativeToolDispatcher, ToolDispatcher, ToolExecutionResult, XmlToolDispatcher,
 };
 use crate::config::{AgentConfig, MemoryConfig};
-use crate::memory::{self, Memory};
+use crate::memory::{self, Memory, MemoryCategory, MemoryEntry};
 use crate::observability::{NoopObserver, Observer};
 use crate::providers::{
     ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider, ToolCall,
@@ -38,6 +38,7 @@ use crate::providers::{
 use crate::tools::{Tool, ToolResult};
 use anyhow::Result;
 use async_trait::async_trait;
+use parking_lot::Mutex as ParkingLotMutex;
 use std::sync::{Arc, Mutex};
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -213,6 +214,68 @@ impl Tool for PanickingTool {
 /// A tool that tracks how many times it was called.
 struct CountingTool {
     count: Arc<Mutex<usize>>,
+}
+
+#[derive(Default)]
+struct TrackingMemory {
+    recall_sessions: ParkingLotMutex<Vec<Option<String>>>,
+    store_sessions: ParkingLotMutex<Vec<Option<String>>>,
+}
+
+#[async_trait]
+impl Memory for TrackingMemory {
+    fn name(&self) -> &str {
+        "tracking"
+    }
+
+    async fn store(
+        &self,
+        _key: &str,
+        _content: &str,
+        _category: MemoryCategory,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<()> {
+        self.store_sessions
+            .lock()
+            .push(session_id.map(str::to_string));
+        Ok(())
+    }
+
+    async fn recall(
+        &self,
+        _query: &str,
+        _limit: usize,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        self.recall_sessions
+            .lock()
+            .push(session_id.map(str::to_string));
+        Ok(Vec::new())
+    }
+
+    async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+        Ok(None)
+    }
+
+    async fn list(
+        &self,
+        _category: Option<&MemoryCategory>,
+        _session_id: Option<&str>,
+    ) -> anyhow::Result<Vec<MemoryEntry>> {
+        Ok(Vec::new())
+    }
+
+    async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+        Ok(false)
+    }
+
+    async fn count(&self) -> anyhow::Result<usize> {
+        Ok(0)
+    }
+
+    async fn health_check(&self) -> bool {
+        true
+    }
 }
 
 impl CountingTool {
@@ -561,6 +624,35 @@ async fn turn_blocks_mcp_tool_by_default_with_structured_denial_payload() {
     );
 }
 
+#[tokio::test]
+async fn turn_with_context_reports_approval_required_payload_for_blocked_tool() {
+    let provider = Box::new(ScriptedProvider::new(vec![
+        tool_response(vec![ToolCall {
+            id: "tc-shell-1".into(),
+            name: "shell".into(),
+            arguments: r#"{"command":"pwd"}"#.into(),
+        }]),
+        text_response("shell blocked"),
+    ]));
+
+    let mut agent = build_agent_with(
+        provider,
+        vec![Box::new(EchoTool)],
+        Box::new(NativeToolDispatcher),
+    );
+
+    let result = agent
+        .turn_with_context("run shell", TurnContext::with_session("session-shell"))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        result.approval_required.as_ref().unwrap()["code"],
+        "approval_required"
+    );
+    assert_eq!(result.approval_required.as_ref().unwrap()["tool"], "shell");
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 6. Tool execution failure recovery
 // ═══════════════════════════════════════════════════════════════════════════
@@ -711,6 +803,61 @@ async fn auto_save_disabled_does_not_store() {
 
     let count = mem.count().await.unwrap();
     assert_eq!(count, 0, "Expected 0 memory entries with auto_save off");
+}
+
+#[tokio::test]
+async fn turn_with_context_scopes_memory_recall_and_auto_save_to_session() {
+    let tracking = Arc::new(TrackingMemory::default());
+    let mut agent = build_agent_with_memory(
+        Box::new(ScriptedProvider::new(vec![text_response("session scoped")])),
+        vec![],
+        tracking.clone(),
+        true,
+    );
+
+    let result = agent
+        .turn_with_context(
+            "Remember this",
+            TurnContext::with_session("webhook-session-1"),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(result.session_id.as_deref(), Some("webhook-session-1"));
+    assert_eq!(result.final_text.as_deref(), Some("session scoped"));
+    assert_eq!(
+        tracking.recall_sessions.lock().clone(),
+        vec![Some("webhook-session-1".into())]
+    );
+    assert_eq!(
+        tracking.store_sessions.lock().clone(),
+        vec![
+            Some("webhook-session-1".into()),
+            Some("webhook-session-1".into()),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn turn_with_context_keeps_missing_session_isolated() {
+    let tracking = Arc::new(TrackingMemory::default());
+    let mut agent = build_agent_with_memory(
+        Box::new(ScriptedProvider::new(vec![text_response(
+            "standalone turn",
+        )])),
+        vec![],
+        tracking.clone(),
+        true,
+    );
+
+    let result = agent
+        .turn_with_context("One-off request", TurnContext::default())
+        .await
+        .unwrap();
+
+    assert_eq!(result.session_id, None);
+    assert_eq!(tracking.recall_sessions.lock().clone(), vec![None]);
+    assert_eq!(tracking.store_sessions.lock().clone(), vec![None, None]);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
