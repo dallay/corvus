@@ -36,26 +36,18 @@ val composeAppOsSpecificExcludedLockingConfigurations =
   )
 
 fun Configuration.shouldUseDependencyLocking(): Boolean {
-  if (!isCanBeResolved) {
-    return false
-  }
-
-  if (name in excludedLockingConfigurations) {
-    return false
-  }
-
-  if (
+  val isBuildLogicOnlyExcluded =
     project.rootProject.name == "corvus-build-logic" &&
       name in buildLogicOnlyExcludedLockingConfigurations
-  ) {
-    return false
-  }
+  val isComposeAppOsSpecificExcluded =
+    project.path == ":composeApp" && name in composeAppOsSpecificExcludedLockingConfigurations
+  val hasExcludedPrefix = excludedLockingConfigurationPrefixes.any { prefix -> name.startsWith(prefix) }
 
-  if (project.path == ":composeApp" && name in composeAppOsSpecificExcludedLockingConfigurations) {
-    return false
-  }
-
-  return excludedLockingConfigurationPrefixes.none { prefix -> name.startsWith(prefix) }
+  return isCanBeResolved &&
+    name !in excludedLockingConfigurations &&
+    !isBuildLogicOnlyExcluded &&
+    !isComposeAppOsSpecificExcluded &&
+    !hasExcludedPrefix
 }
 
 fun findGradleWrapper(startDir: File): File? {

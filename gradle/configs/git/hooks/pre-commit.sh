@@ -15,7 +15,7 @@ PART1="TO"
 PART2="DO"
 KEYWORDS="${PART1}${PART2}"
 
-FORMAT_FILE_REGEX='\.(kt|kts|java|groovy|gradle)$'
+FORMAT_FILE_REGEX='\.(kt|kts|java|gradle\.kts)$'
 STAGED_FORMAT_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E "$FORMAT_FILE_REGEX" || true)
 
 if [ -n "$STAGED_FORMAT_FILES" ]; then
