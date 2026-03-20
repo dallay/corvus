@@ -7,7 +7,8 @@ import java.util.concurrent.TimeUnit
 val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
 
 fun findGradleWrapper(startDir: File): File? {
-  val wrapperName = if (org.gradle.internal.os.OperatingSystem.current().isWindows) "gradlew.bat" else "gradlew"
+  val wrapperName =
+    if (org.gradle.internal.os.OperatingSystem.current().isWindows) "gradlew.bat" else "gradlew"
 
   return generateSequence(startDir) { it.parentFile }
     .map { it.resolve(wrapperName) }
@@ -39,13 +40,12 @@ configurations.configureEach {
   }
 }
 
-val lockFilesProvider =
-  provider {
-    listOf(
-      layout.projectDirectory.file("buildscript-gradle.lockfile").asFile,
-      layout.projectDirectory.file("gradle.lockfile").asFile,
-    )
-  }
+val lockFilesProvider = provider {
+  listOf(
+    layout.projectDirectory.file("buildscript-gradle.lockfile").asFile,
+    layout.projectDirectory.file("gradle.lockfile").asFile,
+  )
+}
 
 val gradleWrapperProvider = provider { findGradleWrapper(rootDir) }
 val dependenciesTaskPath = provider { if (path == ":") "dependencies" else "$path:dependencies" }
@@ -101,7 +101,7 @@ tasks.register("checkLocks") {
         val currentContent = file.readText()
         if (backupContent != currentContent) {
           throw GradleException(
-            "${file.absolutePath} changed, please run './gradlew writeLocksAll' and commit the updates",
+            "${file.absolutePath} changed, please run './gradlew writeLocksAll' and commit the updates"
           )
         }
       }
