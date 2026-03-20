@@ -204,6 +204,107 @@ describe("useConfig", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("allows read-only public config fetches when no bearer token is present", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ observability_backends: ["none", "otel"] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ config: { channels: { webhook: {} } } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+    const config = useConfig((key: string) => key);
+    config.baseUrl.value = "https://example.com/api";
+
+    await config.connectGateway();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toEqual({
+      "Content-Type": "application/json",
+    });
+    expect(config.observabilityBackendOptions.value).toEqual(["none", "otel"]);
+    expect(config.statusMessage.value).toBe("auth.connected");
+  });
+
+  it("supports pairing without auto-connect when requested", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ token: "token-123" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const config = useConfig((key: string) => key);
+    config.pairingCode.value = "857258";
+
+    const paired = await config.pairGateway({ autoConnect: false });
+
+    expect(paired).toBe(true);
+    expect(config.bearerToken.value).toBe("token-123");
+    expect(config.statusMessage.value).toBe("auth.pairSuccess");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports restart-required conflicts when saving config sections", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ config: { default_model: "a", channels: { webhook: {} } } }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ fields: ["runtime.kind"] }), {
+          status: 409,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+    const config = useConfig((key: string, params?: Record<string, unknown>) =>
+      params?.fields ? `${key}:${String(params.fields)}` : key
+    );
+    config.bearerToken.value = "token";
+    await config.connectGateway();
+    config.form.default_model = "b";
+
+    await config.saveSection("general");
+
+    expect(config.errorMessage.value).toBe("form.restartRequired:runtime.kind");
+  });
+
+  it("skips save requests when the selected section has no changes", async () => {
+    fetchMock
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({ config: { default_model: "a", channels: { webhook: {} } } }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
+      );
+
+    const config = useConfig((key: string) => key);
+    config.bearerToken.value = "token";
+    await config.connectGateway();
+
+    await config.saveSection("general");
+
+    expect(config.statusMessage.value).toBe("form.noChanges");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   describe("Quick Pair (Magic Link)", () => {
     let originalLocation: Location;
     let originalHistory: History;

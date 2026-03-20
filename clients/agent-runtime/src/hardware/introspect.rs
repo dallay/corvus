@@ -122,3 +122,33 @@ fn probe_memory_map(chip: &str) -> anyhow::Result<String> {
     }
     Ok(out)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(feature = "hardware")]
+    #[test]
+    fn memory_map_for_board_uses_static_probe_guidance_without_probe_feature() {
+        let note = memory_map_for_board(Some("nucleo-f401re"));
+        assert!(note.contains("Build with --features probe"));
+
+        let unknown = memory_map_for_board(Some("custom-board"));
+        assert!(unknown.contains("Build with --features probe"));
+    }
+
+    #[test]
+    fn introspect_result_keeps_supplied_path() {
+        let result = IntrospectResult {
+            path: "/dev/ttyACM0".to_string(),
+            vid: Some(0x0483),
+            pid: Some(0x5740),
+            board_name: Some("nucleo-f401re".to_string()),
+            architecture: Some("arm".to_string()),
+            memory_map_note: "note".to_string(),
+        };
+
+        assert_eq!(result.path, "/dev/ttyACM0");
+        assert_eq!(result.board_name.as_deref(), Some("nucleo-f401re"));
+    }
+}
