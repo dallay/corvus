@@ -4,8 +4,6 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
-val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
-
 val excludedLockingConfigurationPrefixes = listOf("spotless", "detachedConfiguration")
 
 val excludedLockingConfigurations =
@@ -24,22 +22,14 @@ val buildLogicOnlyExcludedLockingConfigurations =
   )
 
 fun Configuration.shouldUseDependencyLocking(): Boolean {
-  if (!isCanBeResolved) {
-    return false
-  }
-
-  if (name in excludedLockingConfigurations) {
-    return false
-  }
-
-  if (
+  val isBuildLogicExcluded =
     project.rootProject.name == "corvus-build-logic" &&
       name in buildLogicOnlyExcludedLockingConfigurations
-  ) {
-    return false
-  }
 
-  return excludedLockingConfigurationPrefixes.none { prefix -> name.startsWith(prefix) }
+  return isCanBeResolved &&
+    name !in excludedLockingConfigurations &&
+    !isBuildLogicExcluded &&
+    excludedLockingConfigurationPrefixes.none { prefix -> name.startsWith(prefix) }
 }
 
 fun findGradleWrapper(startDir: File): File? {

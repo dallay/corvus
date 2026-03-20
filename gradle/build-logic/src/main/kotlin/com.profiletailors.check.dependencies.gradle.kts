@@ -3,7 +3,6 @@
 import com.autonomousapps.DependencyAnalysisExtension
 import com.autonomousapps.DependencyAnalysisSubExtension
 import com.profiletailors.plugin.GradleExtTool
-import com.profiletailors.plugin.environment.EnvAccess
 import com.profiletailors.plugin.injected
 import com.profiletailors.plugin.resetTaskGroup
 import java.io.ByteArrayOutputStream
@@ -60,8 +59,6 @@ tasks.named("qualityGate") { dependsOn(tasks.withType<ModuleDirectivesScopeCheck
 listOf("artifactsReportMain" to "help", "fixDependencies" to "toolbox").forEach {
   resetTaskGroup(it.first, it.second)
 }
-
-val isCI = EnvAccess.isCi(providers)
 
 // https://docs.gradle.org/nightly/userguide/dependency_locking.html
 dependencyLocking { ignoredDependencies.add("com.example:*") }
