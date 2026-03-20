@@ -3,7 +3,7 @@ set -e
 
 echo "🚀 Pre-push check start"
 
-RUST_RUNTIME_DIR="apps/agent-runtime"
+RUST_RUNTIME_DIR="clients/agent-runtime"
 
 if [ -d "$RUST_RUNTIME_DIR" ]; then
     echo "🦀 Running Rust runtime checks..."
@@ -21,11 +21,11 @@ if command -v pnpm >/dev/null 2>&1; then
     ./gradlew check
 else
     echo "⚠️  WARNING: pnpm not found in PATH"
-    echo "   Skipping documentation checks, running core validations only..."
+    echo "   Skipping web checks that require pnpm, running core validations only..."
     echo "   To enable full checks, ensure pnpm is available: corepack enable && corepack prepare pnpm@latest --activate"
     echo ""
-    # Run check excluding docs tasks that require pnpm
-    ./gradlew check -x :docs:pnpmInstall -x :docs:websiteCheck -x :docs:fileContentCheck
+    # Skip the Gradle web module checks when pnpm is unavailable.
+    ./gradlew check -x :web:check
 fi
 
 echo "✅ Pre-push check passed"
