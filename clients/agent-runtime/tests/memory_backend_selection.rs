@@ -12,8 +12,14 @@ use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 
+#[derive(Default)]
+struct MockMcpCalls {
+    tool_names: Vec<String>,
+    payloads: Vec<serde_json::Value>,
+}
+
 async fn mock_handler(
-    State(calls): State<Arc<Mutex<Vec<String>>>>,
+    State(calls): State<Arc<Mutex<MockMcpCalls>>>,
     Json(payload): Json<serde_json::Value>,
 ) -> Json<serde_json::Value> {
     let tool = payload
@@ -22,7 +28,9 @@ async fn mock_handler(
         .and_then(|name| name.as_str())
         .unwrap_or("unknown")
         .to_string();
-    calls.lock().unwrap().push(tool.clone());
+    let mut calls = calls.lock().unwrap();
+    calls.tool_names.push(tool.clone());
+    calls.payloads.push(payload.clone());
 
     let output = json!({
         "results": [
@@ -45,8 +53,8 @@ async fn mock_handler(
     }))
 }
 
-async fn start_mock_server() -> (String, Arc<Mutex<Vec<String>>>) {
-    let calls = Arc::new(Mutex::new(Vec::new()));
+async fn start_mock_server() -> (String, Arc<Mutex<MockMcpCalls>>) {
+    let calls = Arc::new(Mutex::new(MockMcpCalls::default()));
     let app = Router::new()
         .route("/mcp", post(mock_handler))
         .with_state(calls.clone());
@@ -75,7 +83,42 @@ async fn cerebro_memory_loader_prefers_mcp_results() {
     let context = loader.load_context(&memory, "hello", None).await.unwrap();
     assert!(context.contains("[Memory context]"));
     assert!(context.contains("Remote memory"));
-    assert_eq!(calls.lock().unwrap().as_slice(), ["mem_search"]);
+    assert_eq!(calls.lock().unwrap().tool_names.as_slice(), ["mem_search"]);
+}
+
+#[tokio::test]
+async fn cerebro_memory_loader_remote_recall_does_not_send_session_scope() {
+    let (endpoint, calls) = start_mock_server().await;
+    let cerebro = MemoryCerebroConfig {
+        endpoint: Some(endpoint),
+        auth_token: Some("token".into()),
+        request_timeout_ms: 5_000,
+        allow_insecure_loopback: true,
+    };
+    let loader = CerebroMemoryLoader::new(cerebro, 5, 0.1);
+    let memory = NoneMemory::new();
+
+    let context = loader
+        .load_context(&memory, "hello", Some("webhook-session-1"))
+        .await
+        .unwrap();
+
+    assert!(context.contains("Remote memory"));
+    let payload = calls
+        .lock()
+        .unwrap()
+        .payloads
+        .last()
+        .cloned()
+        .expect("expected mem_search payload");
+    assert_eq!(
+        payload
+            .get("params")
+            .and_then(|params| params.get("arguments"))
+            .and_then(|arguments| arguments.get("input"))
+            .and_then(|input| input.get("session_id")),
+        None
+    );
 }
 
 #[tokio::test]
@@ -117,7 +160,7 @@ async fn default_memory_loader_does_not_emit_mcp_calls() {
     let loader = DefaultMemoryLoader::new(5, 0.0);
     let context = loader.load_context(&memory, "Rust", None).await.unwrap();
     assert!(context.contains("Prefers Rust"));
-    assert!(calls.lock().unwrap().is_empty());
+    assert!(calls.lock().unwrap().tool_names.is_empty());
 }
 
 #[test]

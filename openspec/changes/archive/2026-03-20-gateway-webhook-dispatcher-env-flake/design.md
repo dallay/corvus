@@ -78,10 +78,10 @@ No production interfaces change.
 
 Expected test-only seam shape:
 
-```rust
+~~~rust
 #[cfg(test)]
 pub fn gateway_webhook_dispatcher_env_guard(...) -> ...
-```
+~~~
 
 The exact helper signature should follow existing test patterns, but it must provide:
 - shared serialization for `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` mutations

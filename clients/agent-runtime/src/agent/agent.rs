@@ -782,17 +782,19 @@ impl Agent {
     }
 
     fn approval_denial_from_history(history: &[ConversationMessage]) -> Option<serde_json::Value> {
-        history.iter().find_map(|message| {
+        history.iter().rev().find_map(|message| {
             let ConversationMessage::ToolResults(results) = message else {
                 return None;
             };
 
-            results.iter().find_map(|result| {
+            let approval = results.iter().find_map(|result| {
                 let parsed = serde_json::from_str::<serde_json::Value>(&result.content).ok()?;
                 (parsed.get("code").and_then(serde_json::Value::as_str)
                     == Some("approval_required"))
                 .then_some(parsed)
-            })
+            });
+
+            approval
         })
     }
 
@@ -812,10 +814,12 @@ impl Agent {
         } else {
             None
         };
+        let turn_context = session_id
+            .as_ref()
+            .map(|session_id| TurnContext::with_session(session_id.clone()))
+            .unwrap_or_default();
 
-        let result = self
-            .turn_with_context(user_message, TurnContext::default())
-            .await;
+        let result = self.turn_with_context(user_message, turn_context).await;
 
         if let Some(session_id) = session_id.as_deref() {
             let code_result = match &result {

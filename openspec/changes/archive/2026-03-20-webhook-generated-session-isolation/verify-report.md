@@ -14,7 +14,7 @@
 | Tasks complete | 4 |
 | Tasks incomplete | 0 |
 
-Assessment: complete. The contingent tasks are now explicitly resolved as not applicable in `openspec/changes/webhook-generated-session-isolation/tasks.md`.
+Assessment: complete. The contingent tasks are now explicitly resolved as not applicable in `openspec/changes/archive/2026-03-20-webhook-generated-session-isolation/tasks.md`.
 
 ---
 

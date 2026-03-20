@@ -216,7 +216,7 @@ pub struct WebhookTurnRequest {
 pub enum WebhookTerminalOutcome {
     Completed,
     ApprovalRequired { tool: String, reason: String },
-    TimeoutAborted,
+    Timeout,
     Fallback,
     Error,
 }

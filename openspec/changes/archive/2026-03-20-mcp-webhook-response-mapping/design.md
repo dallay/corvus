@@ -34,7 +34,7 @@ variant.
 **Alternatives considered**:
 - Add new dispatcher-backed `/webhook` success and error tests by bypassing MCP approval in tests
 - Prove everything only in `clients/agent-runtime/src/gateway/webhook_dispatch.rs`
-- Broaden the change into dispatcher or policy work so MCP can execute end to end
+- Broaden the change into dispatcher or policy work so MCP can execute end-to-end
 
 **Rationale**: `clients/agent-runtime/src/agent/dispatcher.rs:66` hard-denies `mcp.*` tools before
 execution, so real `/webhook` requests cannot currently reach MCP success, timeout, or transport
@@ -149,7 +149,7 @@ Proof assertions should stay at the transport contract:
 |-------|--------------|----------|
 | Unit / seam | MCP-labeled completed HTTP mapping | In `clients/agent-runtime/src/gateway/mod.rs`, add a direct test that passes a synthetic `WebhookTurnResult { outcome: Completed, ... }` into `webhook_response_from_dispatch_result(...)` and asserts the exact `200` JSON transport shape. |
 | Unit / seam | MCP-labeled one non-success HTTP mapping | Add one direct test for `WebhookTerminalOutcome::Error` preferred, or `Timeout` if implementation reality makes that the more relevant branch; assert exact status and payload fields. |
-| Integration | Reachable MCP policy behavior remains end to end | Keep `webhook_dispatcher_blocks_mcp_tool_with_structured_denial` as the live `/webhook` proof that deny-by-default MCP policy still governs the dispatcher-backed gateway path. |
+| Integration | Reachable MCP policy behavior remains end-to-end | Keep `webhook_dispatcher_blocks_mcp_tool_with_structured_denial` as the live `/webhook` proof that deny-by-default MCP policy still governs the dispatcher-backed gateway path. |
 | Regression guard | No proof-driven policy bypass | Do not add tests that relax `mcp.*` approval gates, mutate dispatcher policy, or create a test-only execution loophole. |
 
 Test placement notes:

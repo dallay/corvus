@@ -37,6 +37,18 @@ fn gateway_webhook_dispatcher_env_mutex() -> &'static tokio::sync::Mutex<()> {
 }
 
 #[cfg(test)]
+pub(crate) async fn acquire_gateway_webhook_dispatcher_lock(
+) -> tokio::sync::MutexGuard<'static, ()> {
+    gateway_webhook_dispatcher_env_mutex().lock().await
+}
+
+#[cfg(test)]
+pub(crate) fn acquire_gateway_webhook_dispatcher_lock_blocking(
+) -> tokio::sync::MutexGuard<'static, ()> {
+    gateway_webhook_dispatcher_env_mutex().blocking_lock()
+}
+
+#[cfg(test)]
 pub(crate) struct GatewayWebhookDispatcherEnvGuard {
     _lock: tokio::sync::MutexGuard<'static, ()>,
     previous: Option<String>,
@@ -45,12 +57,12 @@ pub(crate) struct GatewayWebhookDispatcherEnvGuard {
 #[cfg(test)]
 impl GatewayWebhookDispatcherEnvGuard {
     pub(crate) async fn set(value: &'static str) -> Self {
-        let lock = gateway_webhook_dispatcher_env_mutex().lock().await;
+        let lock = acquire_gateway_webhook_dispatcher_lock().await;
         Self::set_with_lock(lock, value)
     }
 
     pub(crate) fn set_blocking(value: &'static str) -> Self {
-        let lock = gateway_webhook_dispatcher_env_mutex().blocking_lock();
+        let lock = acquire_gateway_webhook_dispatcher_lock_blocking();
         Self::set_with_lock(lock, value)
     }
 

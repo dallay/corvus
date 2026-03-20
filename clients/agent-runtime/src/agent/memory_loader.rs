@@ -115,6 +115,8 @@ impl MemoryLoader for CerebroMemoryLoader {
         }
 
         let adapter = cerebro::cerebro_tool_adapter(&self.config, normalize::CEREBRO_TOOL_RECALL)?;
+        // Cerebro's current mem_search contract does not accept a session filter, so remote recall
+        // remains global even when the local memory fallback is session-scoped.
         let payload = json!({
             "input": {
                 "query": user_message,
@@ -363,6 +365,31 @@ mod tests {
     #[tokio::test]
     async fn default_loader_uses_explicit_session_scope() {
         let loader = DefaultMemoryLoader::default();
+        let memory = SessionTrackingMemory::default();
+
+        let _ = loader
+            .load_context(&memory, "hello", Some("webhook-session-1"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            memory.recall_sessions.lock().unwrap().clone(),
+            vec![Some("webhook-session-1".to_string())]
+        );
+    }
+
+    #[tokio::test]
+    async fn cerebro_loader_uses_explicit_session_scope_for_local_fallback() {
+        let loader = CerebroMemoryLoader::new(
+            MemoryCerebroConfig {
+                endpoint: Some("http://127.0.0.1:7777/mcp".to_string()),
+                auth_token: None,
+                request_timeout_ms: 1_000,
+                allow_insecure_loopback: false,
+            },
+            5,
+            0.4,
+        );
         let memory = SessionTrackingMemory::default();
 
         let _ = loader

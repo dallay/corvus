@@ -3,12 +3,12 @@
 ## Phase 1: Bound The Flake
 
 - [x] 1.1 Record the smallest focused repro loop for `config::schema::tests::env_override_gateway_webhook_dispatcher` plus one representative gateway dispatcher env test in `clients/agent-runtime`, and stop if evidence points only to shared env interference.
-- [x] 1.2 Inspect existing test-only env guards in `clients/agent-runtime/src/config/schema.rs`, `clients/agent-runtime/src/gateway/mod.rs`, and `clients/agent-runtime/src/test_support/mod.rs` to choose the smallest shared seam for `CORVUS_GATEWAY_WEBHOOK_DISPATCHER`.
+- [x] 1.2 Inspect existing test-only env guards in `clients/agent-runtime/src/config/schema.rs`, `clients/agent-runtime/src/gateway/mod.rs`, and `clients/agent-runtime/src/test_support.rs` to choose the smallest shared seam for `CORVUS_GATEWAY_WEBHOOK_DISPATCHER`.
 
 ## Phase 2: Stabilize The Test Harness
 
 - [x] 2.1 RED: add or update the focused env-sensitive tests in `clients/agent-runtime/src/config/schema.rs` and/or `clients/agent-runtime/src/gateway/mod.rs` so they fail without shared lock plus restore behavior and express the intended isolation.
-- [x] 2.2 GREEN: implement the smallest shared test-only lock/guard in `clients/agent-runtime/src/test_support/mod.rs` or the nearest existing helper, then switch the affected config/gateway tests to use it and restore/remove `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` on drop.
+- [x] 2.2 GREEN: implement the smallest shared test-only lock/guard in `clients/agent-runtime/src/test_support.rs` or the nearest existing helper, then switch the affected config/gateway tests to use it and restore/remove `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` on drop.
 - [x] 2.3 REFACTOR: remove any remaining module-local handling for this variable in the touched tests while keeping `apply_gateway_env_overrides()` and runtime dispatcher behavior unchanged unless deterministic evidence proves a real bug.
 
 ## Phase 3: Validate Repeatedly

@@ -319,7 +319,13 @@ pub(crate) async fn execute(
         crate::pre_execution::evaluate(request.session_id.clone(), &request.message).await;
     if let Some(blocking) = crate::pre_execution::classify_blocking(&canonical) {
         match blocking {
-            BlockingOutcome::ApprovalRequired { .. } => {}
+            BlockingOutcome::ApprovalRequired { tool } => {
+                return map_canonical_result(
+                    &request,
+                    model,
+                    CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired { tool }),
+                );
+            }
             other => {
                 return map_canonical_result(
                     &request,

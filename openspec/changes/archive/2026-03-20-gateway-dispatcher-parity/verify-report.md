@@ -143,7 +143,7 @@ None.
 
 1. Missing-session isolation is still proven only at the canonical agent layer. There is no dispatcher-backed `/webhook` test that omits `X-Session-Id`, lets gateway generate `webhook-{uuid}`, and proves the resulting turn stays isolated end to end.
 2. MCP HTTP response mapping is behaviorally proven for denial outcomes, but the spec language also names success, timeout, and failure variants, and those MCP-specific response variants are not directly covered.
-3. One focused Rust verification command failed once with an intermittent `config::schema::tests::env_override_gateway_webhook_dispatcher` failure in the `src/main.rs` test binary before passing on exact rerun, which points to possible env-var test interference or flakiness in the changed area.
+3. One focused Rust verification command failed once with an intermittent `config::schema::tests::env_override_gateway_webhook_dispatcher` failure in the `src/main.rs` test binary before passing on exact rerun, which pointed to env-var test interference in the changed area. This was later stabilized by the archived `gateway-webhook-dispatcher-env-flake` follow-up, which added a shared guard and recorded 60/60 repeated targeted passes.
 4. The configured repo verify command `make test` does not execute the Rust agent-runtime test suite directly, so spec verification for this change depends on additional `cargo test` execution outside the configured `openspec` verify command.
 
 ### SUGGESTION

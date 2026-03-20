@@ -109,9 +109,12 @@ Expected new test assertions:
 
 ```rust
 assert!(generated_session.starts_with("webhook-"));
-assert_eq!(tracking.recall_sessions.lock().clone(), vec![Some(generated_session.clone())]);
 assert_eq!(
-    tracking.store_sessions.lock().clone(),
+    tracking.recall_sessions.lock().unwrap().clone(),
+    vec![Some(generated_session.clone())]
+);
+assert_eq!(
+    tracking.store_sessions.lock().unwrap().clone(),
     vec![
         Some(generated_session.clone()),
         Some(generated_session.clone()),

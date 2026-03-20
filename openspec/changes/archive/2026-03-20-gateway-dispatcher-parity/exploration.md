@@ -1,7 +1,21 @@
-## Exploration: gateway-dispatcher-parity
+# Exploration: gateway-dispatcher-parity
+
+## Pre-change snapshot
+
+This exploration captures the state before the dispatcher-backed `/webhook` migration landed. The
+pre-migration gateway paths referenced here correlate to `pre_execution::evaluate(...)`,
+`Provider::simple_chat()`, and the `/webhook` and `/whatsapp` call paths in
+`clients/agent-runtime/src/gateway/mod.rs`; dispatcher-backed webhook specs and implementation have
+since been merged, while `/whatsapp` remains deferred.
 
 ### Current State
-The canonical runtime path today is the `Agent` stack used by CLI and dispatcher-backed sessions: bootstrap builds the full tool registry (including MCP when enabled), selects a dispatcher, loads memory context, calls `Provider::chat(...)`, parses tool calls, applies risk/approval gates, executes approved tools, and appends results back into conversation history (`clients/agent-runtime/src/agent/agent.rs:320`, `clients/agent-runtime/src/agent/agent.rs:588`, `clients/agent-runtime/src/agent/agent.rs:704`, `clients/agent-runtime/src/bootstrap/mod.rs:163`).
+
+The canonical runtime path today is the `Agent` stack used by CLI and dispatcher-backed sessions:
+bootstrap builds the full tool registry (including MCP when enabled), selects a dispatcher, loads
+memory context, calls `Provider::chat(...)`, parses tool calls, applies risk/approval gates,
+executes approved tools, and appends results back into conversation history
+(`clients/agent-runtime/src/agent/agent.rs:320`, `clients/agent-runtime/src/agent/agent.rs:588`,
+`clients/agent-runtime/src/agent/agent.rs:704`, `clients/agent-runtime/src/bootstrap/mod.rs:163`).
 
 Channels implement a parallel but still dispatcher-backed runtime: they run canonical pre-checks first, then execute a provider chat + tool loop with dispatcher gating, conversation history, and channel-native draft streaming (`clients/agent-runtime/src/channels/mod.rs:383`, `clients/agent-runtime/src/channels/mod.rs:472`, `clients/agent-runtime/src/channels/mod.rs:633`, `clients/agent-runtime/src/channels/mod.rs:664`).
 

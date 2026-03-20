@@ -3337,7 +3337,9 @@ fn sync_directory(_path: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_support::GatewayWebhookDispatcherEnvGuard;
+    use crate::test_support::{
+        acquire_gateway_webhook_dispatcher_lock_blocking, GatewayWebhookDispatcherEnvGuard,
+    };
     use std::path::PathBuf;
 
     // ── Defaults ─────────────────────────────────────────────
@@ -5160,7 +5162,10 @@ default_model = "legacy-model"
     #[test]
     fn env_override_gateway_webhook_dispatcher() {
         let _env_guard = env_override_test_guard();
-        std::env::set_var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER", "0");
+        {
+            let _dispatcher_lock = acquire_gateway_webhook_dispatcher_lock_blocking();
+            std::env::set_var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER", "0");
+        }
 
         let mut config = Config::default();
         assert!(!config.gateway.webhook_dispatcher_enabled);
@@ -5176,7 +5181,10 @@ default_model = "legacy-model"
             Ok("0")
         );
 
-        std::env::remove_var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER");
+        {
+            let _dispatcher_lock = acquire_gateway_webhook_dispatcher_lock_blocking();
+            std::env::remove_var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER");
+        }
     }
 
     #[test]

@@ -3,7 +3,7 @@
 ## Phase 1: Test Harness
 
 - [x] 1.1 Extend `clients/agent-runtime/src/gateway/mod.rs` test-only `TrackingMemory` to record recall and store session ids alongside the existing key tracking needed by dispatcher-backed `/webhook` tests.
-- [x] 1.2 In `clients/agent-runtime/src/gateway/mod.rs`, add one RED dispatcher-backed `/webhook` test that omits `X-Session-Id`, enables auto-save, captures the JSON `session_id`, and asserts the generated `webhook-...` id matches all recorded recall/store session ids without reusing any prior explicit session.
+- [x] 1.2 In `clients/agent-runtime/src/gateway/mod.rs`, add one dispatcher-backed regression test for `/webhook` that omits `X-Session-Id`, enables auto-save, captures the JSON `session_id`, and asserts the generated `webhook-...` id matches all recorded recall/store session ids without reusing any prior explicit session.
 
 ## Phase 2: Contingent Runtime Fix
 

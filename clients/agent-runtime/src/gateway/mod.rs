@@ -26,7 +26,9 @@ use axum::{
 };
 use parking_lot::Mutex;
 use regex::Regex;
+use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
+use std::hash::{Hash, Hasher};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, LazyLock};
 use std::time::{Duration, Instant};
@@ -738,7 +740,6 @@ fn normalized_session_id(headers: &HeaderMap) -> String {
 
 fn webhook_dispatcher_enabled(config: &Config) -> bool {
     config.gateway.webhook_dispatcher_enabled
-        || std::env::var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER").as_deref() == Ok("1")
 }
 
 fn webhook_runtime_path_label(dispatcher_enabled: bool) -> &'static str {
@@ -1385,13 +1386,22 @@ fn webhook_idempotency_key(headers: &HeaderMap) -> Option<&str> {
 }
 
 fn webhook_duplicate_response(idempotency_key: &str) -> WebhookResponse {
-    tracing::info!("Webhook duplicate ignored (idempotency key: {idempotency_key})");
+    tracing::info!(
+        idempotency_key_fingerprint = %fingerprint_idempotency_key(idempotency_key),
+        "Webhook duplicate ignored"
+    );
     let body = serde_json::json!({
         "status": "duplicate",
         "idempotent": true,
         "message": "Request already processed for this idempotency key"
     });
     (StatusCode::OK, Json(body))
+}
+
+fn fingerprint_idempotency_key(idempotency_key: &str) -> String {
+    let mut hasher = DefaultHasher::new();
+    idempotency_key.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())[..8].to_string()
 }
 
 fn webhook_auth_rejection(
@@ -2883,6 +2893,11 @@ mod tests {
         let mut config = Config::default();
         config.config_path = config_path;
         config.workspace_dir = workspace_path;
+        config.gateway.webhook_dispatcher_enabled = std::env::var(
+            "CORVUS_GATEWAY_WEBHOOK_DISPATCHER",
+        )
+        .as_deref()
+            == Ok("1");
         config
     }
 
@@ -4127,8 +4142,10 @@ mod tests {
     async fn webhook_rollout_observability_distinguishes_dispatcher_and_legacy_requests() {
         let dispatcher_provider_impl = Arc::new(DispatchAwareProvider::default());
         let dispatcher_provider: Arc<dyn Provider> = dispatcher_provider_impl.clone();
+        let mut dispatcher_config = temp_config();
+        dispatcher_config.gateway.webhook_dispatcher_enabled = true;
         let dispatcher_state = AppState {
-            config: Arc::new(Mutex::new(temp_config())),
+            config: Arc::new(Mutex::new(dispatcher_config)),
             provider: dispatcher_provider,
             model: "test-model".into(),
             temperature: 0.0,
