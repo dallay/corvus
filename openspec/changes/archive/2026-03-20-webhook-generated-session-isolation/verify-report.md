@@ -54,11 +54,11 @@ Scoped to the follow-up proof gap described in proposal/design.
 
 | Requirement | Scenario | Test | Result |
 |-------------|----------|------|--------|
-| `Gateway Webhook Session Scoping` | `Missing session id is isolated` | `clients/agent-runtime/src/gateway/mod.rs:4411` `webhook_dispatcher_generates_isolated_session_when_header_missing` | ✅ COMPLIANT |
+| `Gateway Webhook Session Scoping` | `Missing session id is isolated` | `gateway::tests::webhook_dispatcher_generates_isolated_session_when_header_missing` in `clients/agent-runtime/src/gateway/mod.rs` | ✅ COMPLIANT |
 
 Compliance summary: `1/1` scoped scenarios compliant.
 
-Runtime evidence from `clients/agent-runtime/src/gateway/mod.rs:4411`:
+Runtime evidence from `gateway::tests::webhook_dispatcher_generates_isolated_session_when_header_missing` in `clients/agent-runtime/src/gateway/mod.rs`:
 
 - HTTP `/webhook` request omits `X-Session-Id`.
 - Response asserts generated `session_id` starts with `webhook-`.
@@ -72,13 +72,13 @@ Runtime evidence from `clients/agent-runtime/src/gateway/mod.rs:4411`:
 
 | Requirement | Status | Notes |
 |------------|--------|-------|
-| `Gateway Webhook Session Scoping` | ✅ Implemented | `clients/agent-runtime/src/gateway/mod.rs:2760` extends `TrackingMemory` with recall/store session tracking; `clients/agent-runtime/src/gateway/mod.rs:4411` adds the dispatcher-backed missing-header proof at the HTTP boundary required by the design and proposal. |
+| `Gateway Webhook Session Scoping` | ✅ Implemented | `TrackingMemory` in `clients/agent-runtime/src/gateway/mod.rs` records recall/store session tracking, and `gateway::tests::webhook_dispatcher_generates_isolated_session_when_header_missing` adds the dispatcher-backed missing-header proof at the HTTP boundary required by the design and proposal. |
 
 Supporting lower-layer consistency evidence:
 
-- `clients/agent-runtime/src/agent/tests.rs:809` already proves explicit session propagation for recall and auto-save.
-- `clients/agent-runtime/src/agent/tests.rs:842` already proves `TurnContext::default()` keeps a missing session isolated at the agent layer.
-- `clients/agent-runtime/src/gateway/webhook_dispatch.rs:145` propagates generated webhook sessions into canonical turn context via `Some(request.session_id.clone())`, matching the expected design with no production fix needed.
+- `turn_with_context_scopes_memory_recall_and_auto_save_to_session` in `clients/agent-runtime/src/agent/tests.rs` already proves explicit session propagation for recall and auto-save.
+- `turn_with_context_omits_session_scope_when_context_missing` in `clients/agent-runtime/src/agent/tests.rs` already proves `TurnContext::default()` keeps a missing session isolated at the agent layer.
+- `turn_context_for_request(...)` in `clients/agent-runtime/src/gateway/webhook_dispatch.rs` propagates generated webhook sessions into canonical turn context via `Some(request.session_id.clone())`, matching the expected design with no production fix needed.
 
 ---
 
@@ -86,10 +86,10 @@ Supporting lower-layer consistency evidence:
 
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
-| Prove isolation at the gateway HTTP boundary | ✅ Yes | Evidence is in `clients/agent-runtime/src/gateway/mod.rs:4411`, using `handle_webhook(...)` rather than a lower-layer-only test. |
-| Extend local gateway test double instead of production seams | ✅ Yes | `TrackingMemory` was expanded locally in `clients/agent-runtime/src/gateway/mod.rs:2760`. |
+| Prove isolation at the gateway HTTP boundary | ✅ Yes | Evidence is in `gateway::tests::webhook_dispatcher_generates_isolated_session_when_header_missing`, using `handle_webhook(...)` rather than a lower-layer-only test. |
+| Extend local gateway test double instead of production seams | ✅ Yes | `TrackingMemory` in `clients/agent-runtime/src/gateway/mod.rs` was expanded locally for this proof. |
 | Assert shape and propagation, not exact generated ids | ✅ Yes | Test checks `webhook-` prefix and equality across response, recall, and both stores. |
-| Production changes remain conditional | ✅ Yes | No runtime fix was required; existing session plumbing in `clients/agent-runtime/src/gateway/webhook_dispatch.rs:145` remains sufficient. |
+| Production changes remain conditional | ✅ Yes | No runtime fix was required; existing session plumbing in `turn_context_for_request(...)` in `clients/agent-runtime/src/gateway/webhook_dispatch.rs` remains sufficient. |
 
 File-change coherence:
 

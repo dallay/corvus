@@ -32,17 +32,24 @@ All checklist items in `openspec/changes/gateway-dispatcher-parity/tasks.md` are
 2. `make build` -> exit `0`
 3. `make test-coverage` -> exit `0`
 4. Targeted Rust verification:
-   - `cargo test webhook_dispatcher && cargo test turn_with_context_ && cargo test --test mcp_policy_approval_parity && cargo test --test whatsapp_webhook_security` -> exit `101` once due an intermittent failure in `config::schema::tests::env_override_gateway_webhook_dispatcher` under the `src/main.rs` test binary
-   - Follow-up reruns all passed:
-     - `cargo test turn_with_context_` -> exit `0`
-     - `cargo test --test mcp_policy_approval_parity` -> exit `0`
-     - `cargo test --test whatsapp_webhook_security` -> exit `0`
-     - `cargo test config::schema::tests::env_override_gateway_webhook_dispatcher -- --exact` -> exit `0`
+    - `cargo test webhook_dispatcher && cargo test turn_with_context_ && cargo test --test mcp_policy_approval_parity && cargo test --test whatsapp_webhook_security` -> exit `101` once due an intermittent failure in `config::schema::tests::env_override_gateway_webhook_dispatcher` under the `src/main.rs` test binary
+    - Follow-up reruns all passed:
+      - `cargo test turn_with_context_` -> exit `0`
+      - `cargo test --test mcp_policy_approval_parity` -> exit `0`
+      - `cargo test --test whatsapp_webhook_security` -> exit `0`
+      - `cargo test config::schema::tests::env_override_gateway_webhook_dispatcher -- --exact` -> exit `0`
+5. Explicit Rust hygiene checks for `clients/agent-runtime/**/*.rs`:
+   - `cargo fmt --manifest-path "clients/agent-runtime/Cargo.toml" --all -- --check` -> exit `1` during later review because the workspace references a pre-existing missing file (`modules/cerebro/src/bin/cerebro.rs`); this was not caused by the `clients/agent-runtime/**/*.rs` edits.
+   - `cargo clippy --manifest-path "clients/agent-runtime/Cargo.toml" --all-targets -- -D warnings` -> exit `0`
+   - `cargo test --manifest-path "clients/agent-runtime/Cargo.toml"` -> exit `0`
 
 ### Build / Test Evidence
 
 - `make test`: passed (`BUILD SUCCESSFUL`), but this repo command only exercised Gradle/JVM test tasks and did not run the Rust webhook parity suites directly.
 - `make build`: passed (`BUILD SUCCESSFUL`). Gradle reported `:agent-runtime:cargoTest SKIPPED`, so Rust runtime proof still depended on direct `cargo test` execution.
+- `cargo fmt --manifest-path "clients/agent-runtime/Cargo.toml" --all -- --check`: failed with exit `1` because of a workspace-level missing file reference outside `clients/agent-runtime/**/*.rs`; formatting of the changed Rust files was still verified separately before merge.
+- `cargo clippy --manifest-path "clients/agent-runtime/Cargo.toml" --all-targets -- -D warnings`: passed with exit `0`.
+- `cargo test --manifest-path "clients/agent-runtime/Cargo.toml"`: passed with exit `0`.
 - `make test-coverage`: passed and produced `coverage/agent-runtime-coverage.lcov`.
 - Coverage run reported zero Rust test failures, including:
   - `src/lib.rs`: `2415 passed, 0 failed`

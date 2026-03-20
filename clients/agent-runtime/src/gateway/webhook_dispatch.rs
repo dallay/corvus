@@ -1,3 +1,5 @@
+use crate::agent::dispatcher::evaluate_tool_risk;
+use crate::agent::dispatcher::DispatchAction;
 use crate::agent::{Agent, AgentTurnEvent, AgentTurnOutcome, AgentTurnResult, TurnContext};
 use crate::bootstrap;
 use crate::config::Config;
@@ -187,18 +189,19 @@ pub(crate) fn map_canonical_result(
             ),
         },
         CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired { tool }) => {
+            let reason = approval_reason_for_tool(&tool);
             WebhookTurnResult {
                 session_id: request.session_id.clone(),
                 model: model.to_string(),
                 outcome: WebhookTerminalOutcome::ApprovalRequired {
                     tool,
-                    reason: "approval_required".to_string(),
+                    reason: reason.clone(),
                 },
                 response_text: None,
                 event_frames: event_frames_for_blocking_result(
                     request,
                     "approval_required",
-                    Some("approval_required"),
+                    Some(reason.as_str()),
                 ),
             }
         }
@@ -229,6 +232,15 @@ pub(crate) fn map_canonical_result(
             response_text: None,
             event_frames: event_frames_for_blocking_result(request, "error", Some("runtime_error")),
         },
+    }
+}
+
+fn approval_reason_for_tool(tool: &str) -> String {
+    match evaluate_tool_risk(tool) {
+        DispatchAction::ApprovalRequired(reason) if !reason.trim().is_empty() => reason,
+        DispatchAction::ApprovalRequired(_) | DispatchAction::Execute => {
+            format!("approval required before executing `{tool}`")
+        }
     }
 }
 
@@ -454,7 +466,7 @@ mod tests {
             result.outcome,
             WebhookTerminalOutcome::ApprovalRequired {
                 tool: "shell".into(),
-                reason: "approval_required".into(),
+                reason: "shell".into(),
             }
         );
         assert_eq!(result.response_text, None);

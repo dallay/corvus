@@ -100,7 +100,7 @@ Detailed split:
 
 | File | Action | Description |
 |------|--------|-------------|
-| `openspec/changes/mcp-webhook-response-mapping/design.md` | Create | Record the proof-oriented design and testing boundaries for this follow-up. |
+| `openspec/changes/archive/2026-03-20-mcp-webhook-response-mapping/design.md` | Create | Record the proof-oriented design and testing boundaries for this follow-up. |
 | `clients/agent-runtime/src/gateway/mod.rs` | Modify | Add focused tests for `webhook_response_from_dispatch_result(...)`, and retain or reference existing `/webhook` MCP denial evidence. |
 | `clients/agent-runtime/src/gateway/webhook_dispatch.rs` | No change expected | Existing canonical-to-webhook mapping tests remain supporting evidence; modify only if a new RED test exposes a real defect. |
 | `clients/agent-runtime/src/agent/dispatcher.rs` | No change expected | Deny-by-default MCP policy is an explicit constraint, not a target of this proof. |

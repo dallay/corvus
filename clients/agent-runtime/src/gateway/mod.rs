@@ -711,31 +711,44 @@ fn map_loop_event_to_sse_frame(
     format!("id: {session_id}\nevent: {event_name}\n{data_lines}\n")
 }
 
-fn resolve_session_id(headers: &HeaderMap) -> (String, webhook_dispatch::WebhookSessionSource) {
-    if let Some(session_id) = headers
-        .get("X-Session-Id")
-        .and_then(|v| v.to_str().ok())
-        .map(str::trim)
-        .filter(|value| {
-            !value.is_empty()
-                && value.len() <= 64
-                && value
-                    .chars()
-                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_')
-        })
-        .map(ToOwned::to_owned)
-    {
-        return (session_id, webhook_dispatch::WebhookSessionSource::Explicit);
+fn resolve_session_id(
+    headers: &HeaderMap,
+) -> Result<(String, webhook_dispatch::WebhookSessionSource), WebhookResponse> {
+    if let Some(raw_value) = headers.get("X-Session-Id") {
+        let Ok(raw_value) = raw_value.to_str() else {
+            let err = serde_json::json!({
+                "error": "Invalid X-Session-Id header. Expected ASCII text.",
+            });
+            return Err((StatusCode::BAD_REQUEST, Json(err)));
+        };
+        let session_id = raw_value.trim();
+        let is_valid = !session_id.is_empty()
+            && session_id.len() <= 64
+            && session_id
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_');
+        if !is_valid {
+            let err = serde_json::json!({
+                "error": "Invalid X-Session-Id header. Use 1-64 ASCII letters, digits, '-' or '_' only.",
+            });
+            return Err((StatusCode::BAD_REQUEST, Json(err)));
+        }
+        return Ok((
+            session_id.to_owned(),
+            webhook_dispatch::WebhookSessionSource::Explicit,
+        ));
     }
 
-    (
+    Ok((
         format!("webhook-{}", Uuid::new_v4()),
         webhook_dispatch::WebhookSessionSource::Generated,
-    )
+    ))
 }
 
 fn normalized_session_id(headers: &HeaderMap) -> String {
-    resolve_session_id(headers).0
+    resolve_session_id(headers)
+        .expect("session id should normalize")
+        .0
 }
 
 fn webhook_dispatcher_enabled(config: &Config) -> bool {
@@ -1606,17 +1619,24 @@ async fn handle_webhook(
 
     let message = &webhook_body.message;
     let scrubbed_message = scrub_sensitive_boundary_text(message);
-    let (session_id, session_source) = resolve_session_id(&headers);
+    let (session_id, session_source) = match resolve_session_id(&headers) {
+        Ok(resolved) => resolved,
+        Err(response) => return response,
+    };
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
     let config = state.config.lock().clone();
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
     if dispatcher_enabled {
         log_webhook_runtime_path(&session_id, true, "dispatcher_flag_enabled");
-        if let Some(idempotency_key) = webhook_idempotency_key(&headers) {
-            if state.idempotency_store.contains(idempotency_key) {
-                return webhook_duplicate_response(idempotency_key);
-            }
-        }
+        let reserved_idempotency_key =
+            if let Some(idempotency_key) = webhook_idempotency_key(&headers) {
+                if !state.idempotency_store.record_if_new(idempotency_key) {
+                    return webhook_duplicate_response(idempotency_key);
+                }
+                Some(idempotency_key)
+            } else {
+                None
+            };
 
         let dispatch_result = webhook_dispatch::execute(
             &config,
@@ -1639,9 +1659,9 @@ async fn handle_webhook(
         );
         let (response, persist_idempotency) =
             webhook_response_from_dispatch_result(dispatch_result);
-        if persist_idempotency {
-            if let Some(idempotency_key) = webhook_idempotency_key(&headers) {
-                state.idempotency_store.record(idempotency_key);
+        if !persist_idempotency {
+            if let Some(idempotency_key) = reserved_idempotency_key {
+                state.idempotency_store.remove(idempotency_key);
             }
         }
         return response;
@@ -2586,6 +2606,19 @@ mod tests {
     }
 
     #[test]
+    fn resolve_session_id_rejects_invalid_header_value() {
+        let mut headers = HeaderMap::new();
+        headers.insert("X-Session-Id", HeaderValue::from_static("bad value"));
+
+        let err = resolve_session_id(&headers).expect_err("invalid header should fail");
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        assert!((err.1).0["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Invalid X-Session-Id header"));
+    }
+
+    #[test]
     fn scrub_sensitive_boundary_text_redacts_bearer_and_api_keys() {
         let input = "Authorization: Bearer sk-abc123xyz987 api_key=secretValue123";
         let scrubbed = scrub_sensitive_boundary_text(input);
@@ -2893,11 +2926,8 @@ mod tests {
         let mut config = Config::default();
         config.config_path = config_path;
         config.workspace_dir = workspace_path;
-        config.gateway.webhook_dispatcher_enabled = std::env::var(
-            "CORVUS_GATEWAY_WEBHOOK_DISPATCHER",
-        )
-        .as_deref()
-            == Ok("1");
+        config.gateway.webhook_dispatcher_enabled =
+            std::env::var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER").as_deref() == Ok("1");
         config
     }
 

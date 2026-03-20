@@ -840,6 +840,7 @@ impl Agent {
         user_message: &str,
         turn_context: TurnContext,
     ) -> Result<AgentTurnResult> {
+        let history_start = self.history.len();
         let effective_model = self
             .prepare_turn_with_context(user_message, &turn_context)
             .await?;
@@ -855,7 +856,9 @@ impl Agent {
                     session_id: turn_context.session_id,
                     final_text: Some(final_text),
                     terminal_outcome: AgentTurnOutcome::Completed,
-                    approval_required: Self::approval_denial_from_history(&self.history),
+                    approval_required: Self::approval_denial_from_history(
+                        &self.history[history_start..],
+                    ),
                     event_log,
                 });
             }

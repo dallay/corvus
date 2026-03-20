@@ -114,9 +114,13 @@ impl MemoryLoader for CerebroMemoryLoader {
             }
         }
 
+        if session_id.is_some() {
+            anyhow::bail!(
+                "Cerebro remote recall is disabled for session-scoped turns until mem_search supports session filtering"
+            );
+        }
+
         let adapter = cerebro::cerebro_tool_adapter(&self.config, normalize::CEREBRO_TOOL_RECALL)?;
-        // Cerebro's current mem_search contract does not accept a session filter, so remote recall
-        // remains global even when the local memory fallback is session-scoped.
         let payload = json!({
             "input": {
                 "query": user_message,
@@ -280,14 +284,25 @@ mod tests {
         async fn recall(
             &self,
             _query: &str,
-            _limit: usize,
+            limit: usize,
             session_id: Option<&str>,
         ) -> anyhow::Result<Vec<MemoryEntry>> {
             self.recall_sessions
                 .lock()
                 .unwrap()
                 .push(session_id.map(str::to_string));
-            Ok(vec![])
+            if limit == 0 {
+                return Ok(vec![]);
+            }
+            Ok(vec![MemoryEntry {
+                id: "session-entry".into(),
+                key: "session-key".into(),
+                content: "session scoped memory".into(),
+                category: MemoryCategory::Conversation,
+                timestamp: "now".into(),
+                session_id: session_id.map(str::to_string),
+                score: Some(1.0),
+            }])
         }
 
         async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
@@ -380,17 +395,17 @@ mod tests {
 
     #[tokio::test]
     async fn cerebro_loader_uses_explicit_session_scope_for_local_fallback() {
-        let loader = CerebroMemoryLoader::new(
-            MemoryCerebroConfig {
-                endpoint: Some("http://127.0.0.1:7777/mcp".to_string()),
-                auth_token: None,
-                request_timeout_ms: 1_000,
-                allow_insecure_loopback: false,
-            },
-            5,
-            0.4,
-        );
+        let loader = CerebroMemoryLoader::new(MemoryCerebroConfig::default(), 5, 0.4);
         let memory = SessionTrackingMemory::default();
+        memory
+            .store(
+                "local",
+                "hello from local memory",
+                MemoryCategory::Conversation,
+                Some("webhook-session-1"),
+            )
+            .await
+            .unwrap();
 
         let _ = loader
             .load_context(&memory, "hello", Some("webhook-session-1"))

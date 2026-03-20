@@ -27,8 +27,9 @@ This design intentionally preserves a narrow transport shim:
 
 ### Decision: Reuse the canonical `Agent` turn loop instead of expanding the preview loop helpers
 
-**Choice**: Execute `/webhook` through a gateway adapter around `Agent::turn()` and related turn
-primitives, not through `agent::unified_loop` / `unified_entrypoint` preview helpers.
+**Choice**: Execute `/webhook` through a gateway adapter around the shipped
+`Agent::turn_with_context(...)` contract and its `AgentTurnOutcome` / `AgentTurnEvent` result
+types, not through `agent::unified_loop` / `unified_entrypoint` preview helpers.
 
 **Alternatives considered**:
 - Expand `agent::unified_loop` into the production dispatcher runtime
@@ -230,7 +231,7 @@ pub struct WebhookTurnResult {
 }
 ```
 
-Proposed canonical turn context extension:
+Shipped canonical turn context and result shape:
 
 ```rust
 pub struct TurnContext {
@@ -241,12 +242,16 @@ pub struct TurnContext {
 pub struct AgentTurnResult {
     pub session_id: Option<String>,
     pub final_text: Option<String>,
+    pub terminal_outcome: AgentTurnOutcome,
     pub approval_required: Option<serde_json::Value>,
-    pub timeout_aborted: bool,
-    pub used_fallback: bool,
-    pub event_log: Vec<CanonicalTurnEvent>,
+    pub event_log: Vec<AgentTurnEvent>,
 }
 ```
+
+Earlier bool-based outcome sketches were pre-implementation pseudocode. The landed runtime uses
+`turn_with_context(...)`, `AgentTurnOutcome`, `AgentTurnEvent`, and the canonical
+`unified_loop` / `unified_entrypoint` integration points instead of separate `timeout_aborted` or
+`used_fallback` booleans.
 
 Response mapping contract for `/webhook`:
 - `200 OK` + `response` for completed turns

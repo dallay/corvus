@@ -37,8 +37,8 @@ fn gateway_webhook_dispatcher_env_mutex() -> &'static tokio::sync::Mutex<()> {
 }
 
 #[cfg(test)]
-pub(crate) async fn acquire_gateway_webhook_dispatcher_lock(
-) -> tokio::sync::MutexGuard<'static, ()> {
+pub(crate) async fn acquire_gateway_webhook_dispatcher_lock() -> tokio::sync::MutexGuard<'static, ()>
+{
     gateway_webhook_dispatcher_env_mutex().lock().await
 }
 
