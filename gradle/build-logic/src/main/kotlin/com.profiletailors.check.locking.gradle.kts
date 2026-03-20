@@ -25,6 +25,16 @@ val buildLogicOnlyExcludedLockingConfigurations =
     "testRuntimeClasspath",
   )
 
+val composeAppOsSpecificExcludedLockingConfigurations =
+  setOf(
+    "jvmCompileClasspath",
+    "jvmRuntimeClasspath",
+    "jvmMainCompileClasspath",
+    "jvmMainRuntimeClasspath",
+    "jvmTestCompileClasspath",
+    "jvmTestRuntimeClasspath",
+  )
+
 fun Configuration.shouldUseDependencyLocking(): Boolean {
   if (!isCanBeResolved) {
     return false
@@ -38,6 +48,10 @@ fun Configuration.shouldUseDependencyLocking(): Boolean {
     project.rootProject.name == "corvus-build-logic" &&
       name in buildLogicOnlyExcludedLockingConfigurations
   ) {
+    return false
+  }
+
+  if (project.path == ":composeApp" && name in composeAppOsSpecificExcludedLockingConfigurations) {
     return false
   }
 
