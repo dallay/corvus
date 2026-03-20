@@ -54,6 +54,7 @@ async fn explicit_storage_override_bypasses_embedded_default() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn fallback_policy_is_used_on_primary_init_failure() {
     let _env_guard = ENV_LOCK.lock().expect("env lock");
     let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
@@ -69,6 +70,7 @@ async fn fallback_policy_is_used_on_primary_init_failure() {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn no_fallback_configured_fails_fast() {
     let _guard = ENV_LOCK.lock().expect("env lock");
     let _env = EnvVarGuard::set("CEREBRO_TEST_FAIL_STORAGE", "1");
@@ -139,7 +141,7 @@ impl std::io::Write for BufferGuard {
         let mut guard = self
             .0
             .lock()
-            .map_err(|_| std::io::Error::new(std::io::ErrorKind::Other, "buffer lock poisoned"))?;
+            .map_err(|_| std::io::Error::other("buffer lock poisoned"))?;
         guard.extend_from_slice(buf);
         Ok(buf.len())
     }
@@ -150,6 +152,7 @@ impl std::io::Write for BufferGuard {
 }
 
 #[tokio::test]
+#[allow(clippy::await_holding_lock)]
 async fn fallback_reports_active_mode() {
     let _guard = ENV_LOCK.lock().expect("env lock");
     let buffer = Arc::new(Mutex::new(Vec::new()));

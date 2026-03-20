@@ -8,9 +8,11 @@ async fn embedded_storage_supports_crud() {
     let temp_dir = TempDir::new().expect("temp dir");
     let path = temp_dir.path().join("cerebro.db");
 
-    let mut config = CerebroConfig::default();
-    config.storage_mode = StorageMode::EmbeddedSurreal;
-    config.storage_path = Some(path.display().to_string());
+    let mut config = CerebroConfig {
+        storage_mode: StorageMode::EmbeddedSurreal,
+        storage_path: Some(path.display().to_string()),
+        ..CerebroConfig::default()
+    };
     config.surreal.username = Some("root".to_string());
     config.surreal.password = Some(secrecy::SecretString::new(
         "secret".to_string().into_boxed_str(),
@@ -53,8 +55,10 @@ async fn embedded_storage_exports_collections() {
     let temp_dir = TempDir::new().expect("temp dir");
     let path = temp_dir.path().join("cerebro.db");
 
-    let mut config = CerebroConfig::default();
-    config.surreal.storage_path = Some(path.display().to_string());
+    let config = CerebroConfig {
+        storage_path: Some(path.display().to_string()),
+        ..CerebroConfig::default()
+    };
 
     let storage = SurrealStorage::new_embedded(&config)
         .await
