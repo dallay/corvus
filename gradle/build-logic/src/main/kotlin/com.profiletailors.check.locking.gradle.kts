@@ -6,6 +6,28 @@ import java.util.concurrent.TimeUnit
 
 val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
 
+val excludedLockingConfigurationPrefixes = listOf("spotless", "detachedConfiguration")
+
+val excludedLockingConfigurations =
+  setOf(
+    "combinedGraphClasspath",
+    "projectHealthClasspath",
+    "projectMetadataClasspath",
+    "resolvedDepsClasspath",
+  )
+
+fun Configuration.shouldUseDependencyLocking(): Boolean {
+  if (!isCanBeResolved) {
+    return false
+  }
+
+  if (name in excludedLockingConfigurations) {
+    return false
+  }
+
+  return excludedLockingConfigurationPrefixes.none { prefix -> name.startsWith(prefix) }
+}
+
 fun findGradleWrapper(startDir: File): File? {
   val wrapperName =
     if (org.gradle.internal.os.OperatingSystem.current().isWindows) "gradlew.bat" else "gradlew"
@@ -23,7 +45,7 @@ dependencyLocking {
 }
 
 buildscript.configurations.configureEach {
-  if (isCanBeResolved) {
+  if (shouldUseDependencyLocking()) {
     resolutionStrategy {
       cacheDynamicVersionsFor(7, TimeUnit.DAYS)
       activateDependencyLocking()
@@ -32,7 +54,7 @@ buildscript.configurations.configureEach {
 }
 
 configurations.configureEach {
-  if (isCanBeResolved) {
+  if (shouldUseDependencyLocking()) {
     resolutionStrategy {
       cacheDynamicVersionsFor(7, TimeUnit.DAYS)
       activateDependencyLocking()
