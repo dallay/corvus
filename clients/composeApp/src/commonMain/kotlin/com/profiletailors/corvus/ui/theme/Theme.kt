@@ -2,6 +2,7 @@ package com.profiletailors.corvus.ui.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -218,14 +219,6 @@ private val CorvusShapes =
     extraLarge = RoundedCornerShape(28.dp),
   )
 
-private data class Shapes(
-  val extraSmall: RoundedCornerShape,
-  val small: RoundedCornerShape,
-  val medium: RoundedCornerShape,
-  val large: RoundedCornerShape,
-  val extraLarge: RoundedCornerShape,
-)
-
 // ============================================================================
 // Corvus Design Tokens (for custom components)
 // ============================================================================
@@ -242,7 +235,7 @@ data class CorvusTokens(
   val glowCyan: Color = GlowCyan,
 
   // Glass Effect
-  val glassBackground: Color = SurfaceGlass,
+  val glassBackground: Color = DarkCorvusColors.glassSurface,
   val glassBorder: Color = Color(0x33FFFFFF),
 
   // Status Colors
@@ -282,9 +275,18 @@ fun CorvusTheme(
 ) {
   val colorScheme = if (useDarkTheme) DarkColorScheme else LightColorScheme
   val tokens = CorvusTokens()
+  val corvusColors = if (useDarkTheme) DarkCorvusColors else LightCorvusColors
 
-  CompositionLocalProvider(LocalCorvusTokens provides tokens) {
-    MaterialTheme(colorScheme = colorScheme, typography = CorvusTypography, content = content)
+  CompositionLocalProvider(
+    LocalCorvusTokens provides tokens,
+    LocalCorvusColors provides corvusColors,
+  ) {
+    MaterialTheme(
+      colorScheme = colorScheme,
+      typography = CorvusTypography,
+      shapes = CorvusShapes,
+      content = content,
+    )
   }
 }
 
@@ -299,6 +301,6 @@ object CorvusTheme {
   val gradient: CorvusTokens
     @Composable get() = LocalCorvusTokens.current
 
-  val colors: CorvusColors
-    @Composable get() = CorvusColors
+  val colors: CorvusColorPalette
+    @Composable get() = LocalCorvusColors.current
 }

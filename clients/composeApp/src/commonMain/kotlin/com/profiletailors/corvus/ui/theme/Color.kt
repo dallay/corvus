@@ -1,5 +1,7 @@
 package com.profiletailors.corvus.ui.theme
 
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
 // ============================================================================
@@ -21,11 +23,6 @@ val GradientPurpleCyan = listOf(Purple, Cyan)
 val GradientCyanPurple = listOf(Cyan, Purple)
 val GradientPurpleLight = listOf(PurpleLight, CyanLight)
 
-// --- Surface Colors (Glassmorphism) ---
-val SurfaceGlass = Color(0xFF1A1F2E)
-val SurfaceGlassLight = Color(0xFF252B3D)
-val SurfaceGlassOverlay = Color(0x33FFFFFF)
-
 // --- Accent Colors ---
 val GlowPurple = Color(0xFF8B5CF6)
 val GlowCyan = Color(0xFF06B6D4)
@@ -33,31 +30,55 @@ val SuccessGreen = Color(0xFF10B981)
 val WarningAmber = Color(0xFFF59E0B)
 val ErrorRed = Color(0xFFEF4444)
 
-// ============================================================================
-// Semantic Color Names (for specific use cases)
-// ============================================================================
+@Immutable
+data class CorvusColorPalette(
+  val gradientPrimary: List<Color>,
+  val gradientAccent: List<Color>,
+  val glowPurple: Color,
+  val glowCyan: Color,
+  val connected: Color,
+  val disconnected: Color,
+  val processing: Color,
+  val glassSurface: Color,
+  val glassOverlay: Color,
+  val userBubble: Color,
+  val userBubbleBackground: Color,
+  val aiBubble: Color,
+  val aiBubbleBackground: Color,
+)
 
-object CorvusColors {
-  // Gradient Brush Colors
-  val gradientPrimary = GradientPurpleCyan
-  val gradientAccent = GradientCyanPurple
+val DarkCorvusColors =
+  CorvusColorPalette(
+    gradientPrimary = GradientPurpleCyan,
+    gradientAccent = GradientCyanPurple,
+    glowPurple = GlowPurple,
+    glowCyan = GlowCyan,
+    connected = SuccessGreen,
+    disconnected = ErrorRed,
+    processing = WarningAmber,
+    glassSurface = Color(0xFF1A1F2E),
+    glassOverlay = Color(0x33FFFFFF),
+    userBubble = Purple,
+    userBubbleBackground = PurpleDark.copy(alpha = 0.3f),
+    aiBubble = Cyan,
+    aiBubbleBackground = CyanDark.copy(alpha = 0.3f),
+  )
 
-  // Glow Effects
-  val glowPurple = GlowPurple
-  val glowCyan = GlowCyan
+val LightCorvusColors =
+  CorvusColorPalette(
+    gradientPrimary = GradientPurpleLight,
+    gradientAccent = GradientCyanPurple,
+    glowPurple = PurpleDark,
+    glowCyan = CyanDark,
+    connected = SuccessGreen,
+    disconnected = ErrorRed,
+    processing = WarningAmber,
+    glassSurface = Color(0xFFF8FAFC),
+    glassOverlay = Color(0x1A0F172A),
+    userBubble = PurpleLight,
+    userBubbleBackground = Purple.copy(alpha = 0.12f),
+    aiBubble = CyanDark,
+    aiBubbleBackground = Cyan.copy(alpha = 0.12f),
+  )
 
-  // Status Colors
-  val connected = SuccessGreen
-  val disconnected = ErrorRed
-  val processing = WarningAmber
-
-  // Glass Effect
-  val glassSurface = SurfaceGlass
-  val glassOverlay = SurfaceGlassOverlay
-
-  // Chat Bubbles
-  val userBubble = Purple
-  val userBubbleBackground = PurpleDark.copy(alpha = 0.3f)
-  val aiBubble = Cyan
-  val aiBubbleBackground = CyanDark.copy(alpha = 0.3f)
-}
+val LocalCorvusColors = staticCompositionLocalOf { DarkCorvusColors }

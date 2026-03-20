@@ -5,6 +5,7 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,8 +22,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -33,9 +32,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -45,23 +42,19 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.profiletailors.corvus.ui.theme.CorvusColors
-import com.profiletailors.corvus.ui.theme.GradientPurpleCyan
+import com.profiletailors.corvus.ui.theme.CorvusColorPalette
+import com.profiletailors.corvus.ui.theme.CorvusTheme
 
 // ============================================================================
 // Corvus Chat - Futuristic Tech UI Components
 // ============================================================================
 
-// --- Shapes (Futuristic Rounded) ---
 internal val ChatPanelShape = RoundedCornerShape(20.dp)
 internal val ConfigPanelShape = RoundedCornerShape(20.dp)
 internal val EndpointCardShape = RoundedCornerShape(16.dp)
 internal val ChatBubbleShape = RoundedCornerShape(18.dp)
 
-// --- Chat Message Types ---
 @Immutable data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
 
 enum class ChatRole {
@@ -69,35 +62,26 @@ enum class ChatRole {
   Assistant,
 }
 
-// ============================================================================
-// Glassmorphism Surface
-// ============================================================================
-
 @Composable
 fun GlassSurface(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+  val corvusColors = CorvusTheme.colors
+
   Surface(
     modifier = modifier,
     shape = RoundedCornerShape(20.dp),
-    color = CorvusColors.glassSurface,
+    color = corvusColors.glassSurface,
     tonalElevation = 0.dp,
   ) {
     Box(
       modifier =
         Modifier.background(
-          brush =
-            Brush.verticalGradient(
-              colors = listOf(Color.White.copy(alpha = 0.1f), Color.Transparent)
-            )
+          brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.1f), Color.Transparent))
         )
     ) {
       content()
     }
   }
 }
-
-// ============================================================================
-// Gradient Button
-// ============================================================================
 
 @Composable
 fun GradientButton(
@@ -106,7 +90,11 @@ fun GradientButton(
   modifier: Modifier = Modifier,
   enabled: Boolean = true,
 ) {
-  val gradient = remember { Brush.horizontalGradient(GradientPurpleCyan) }
+  val corvusColors = CorvusTheme.colors
+  val gradient =
+    remember(corvusColors.gradientPrimary) {
+      Brush.horizontalGradient(corvusColors.gradientPrimary)
+    }
   val alpha by
     animateFloatAsState(
       targetValue = if (enabled) 1f else 0.5f,
@@ -120,9 +108,10 @@ fun GradientButton(
         .shadow(
           elevation = 8.dp,
           shape = RoundedCornerShape(14.dp),
-          spotColor = CorvusColors.glowPurple.copy(alpha = 0.3f),
+          spotColor = corvusColors.glowPurple.copy(alpha = 0.3f),
         )
         .clip(RoundedCornerShape(14.dp))
+        .clickable(enabled = enabled, onClick = onClick)
         .background(gradient)
         .padding(horizontal = 24.dp, vertical = 12.dp),
     contentAlignment = Alignment.Center,
@@ -136,105 +125,112 @@ fun GradientButton(
   }
 }
 
-// ============================================================================
-// Chat Bubble - Futuristic Style
-// ============================================================================
-
 @Composable
 fun ChatBubble(message: ChatMessage, modelName: String) {
   val isUser = message.role == ChatRole.User
-  val colors = MaterialTheme.colorScheme
-
-  // Gradient colors based on role
-  val gradientColors =
-    if (isUser) {
-      listOf(CorvusColors.userBubble, CorvusColors.userBubbleBackground)
-    } else {
-      listOf(CorvusColors.aiBubble, CorvusColors.aiBubbleBackground)
-    }
+  val corvusColors = CorvusTheme.colors
 
   Row(
     modifier = Modifier.fillMaxWidth(),
     horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
   ) {
     if (!isUser) {
-      // AI Avatar with glow
-      Box(
-        modifier =
-          Modifier.size(32.dp)
-            .shadow(
-              elevation = 4.dp,
-              shape = CircleShape,
-              spotColor = CorvusColors.glowCyan.copy(alpha = 0.5f),
-            )
-            .background(brush = Brush.linearGradient(GradientPurpleCyan), shape = CircleShape),
-        contentAlignment = Alignment.Center,
-      ) {
-        Text(
-          text = "C",
-          style = MaterialTheme.typography.labelMedium,
-          fontWeight = FontWeight.Bold,
-          color = Color.White,
-        )
-      }
+      AvatarWithGlow(corvusColors = corvusColors)
       Spacer(modifier = Modifier.width(8.dp))
     }
 
-    Box(
-      modifier =
-        Modifier.widthIn(max = 280.dp)
-          .shadow(
-            elevation = if (isUser) 6.dp else 4.dp,
-            shape = ChatBubbleShape,
-            spotColor =
-              if (isUser) CorvusColors.glowPurple.copy(alpha = 0.2f)
-              else CorvusColors.glowCyan.copy(alpha = 0.2f),
-          )
+    ChatBubbleBody(
+      isUser = isUser,
+      modelName = modelName,
+      message = message,
+      contentColor = MaterialTheme.colorScheme.onSurface,
+      corvusColors = corvusColors,
+    )
+  }
+}
+
+@Composable
+private fun AvatarWithGlow(corvusColors: CorvusColorPalette) {
+  Box(
+    modifier =
+      Modifier.size(32.dp)
+        .shadow(
+          elevation = 4.dp,
+          shape = CircleShape,
+          spotColor = corvusColors.glowCyan.copy(alpha = 0.5f),
+        )
+        .background(
+          brush = Brush.linearGradient(corvusColors.gradientPrimary),
+          shape = CircleShape,
+        ),
+    contentAlignment = Alignment.Center,
+  ) {
+    Text(
+      text = "C",
+      style = MaterialTheme.typography.labelMedium,
+      fontWeight = FontWeight.Bold,
+      color = Color.White,
+    )
+  }
+}
+
+@Composable
+private fun ChatBubbleHeader(isUser: Boolean, modelName: String, corvusColors: CorvusColorPalette) {
+  Text(
+    text = if (isUser) "You" else modelName,
+    style = MaterialTheme.typography.labelSmall,
+    fontWeight = FontWeight.Medium,
+    color = if (isUser) corvusColors.glowPurple else corvusColors.glowCyan,
+  )
+}
+
+@Composable
+private fun ChatBubbleBody(
+  isUser: Boolean,
+  modelName: String,
+  message: ChatMessage,
+  contentColor: Color,
+  corvusColors: CorvusColorPalette,
+) {
+  Box(
+    modifier =
+      Modifier.widthIn(max = 280.dp)
+        .shadow(
+          elevation = if (isUser) 6.dp else 4.dp,
+          shape = ChatBubbleShape,
+          spotColor =
+            if (isUser) corvusColors.glowPurple.copy(alpha = 0.2f)
+            else corvusColors.glowCyan.copy(alpha = 0.2f),
+        )
+  ) {
+    Surface(
+      shape = ChatBubbleShape,
+      color = if (isUser) corvusColors.userBubbleBackground else corvusColors.glassSurface,
+      border =
+        BorderStroke(
+          width = 1.dp,
+          brush =
+            Brush.horizontalGradient(
+              listOf(
+                if (isUser) corvusColors.glowPurple.copy(alpha = 0.3f)
+                else corvusColors.glowCyan.copy(alpha = 0.3f),
+                Color.Transparent,
+              )
+            ),
+        ),
     ) {
-      Surface(
-        shape = ChatBubbleShape,
-        color =
-          if (isUser) {
-            CorvusColors.glowPurple.copy(alpha = 0.15f)
-          } else {
-            CorvusColors.glassSurface
-          },
-        border =
-          BorderStroke(
-            width = 1.dp,
-            brush =
-              Brush.horizontalGradient(
-                colors =
-                  listOf(
-                    if (isUser) CorvusColors.glowPurple.copy(alpha = 0.3f)
-                    else CorvusColors.glowCyan.copy(alpha = 0.3f),
-                    Color.Transparent,
-                  )
-              ),
-          ),
-      ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-          Text(
-            text = if (isUser) "You" else modelName,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium,
-            color = if (isUser) CorvusColors.glowPurple else CorvusColors.glowCyan,
-          )
-          Spacer(modifier = Modifier.height(4.dp))
-          Text(
-            text = message.content,
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurface,
-          )
-        }
+      Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+        ChatBubbleHeader(isUser = isUser, modelName = modelName, corvusColors = corvusColors)
+        Spacer(modifier = Modifier.height(4.dp))
+        Text(
+          text = message.content,
+          style = MaterialTheme.typography.bodyMedium,
+          color = contentColor,
+        )
       }
     }
   }
 }
-
-// ============================================================================
-// Chat Input Field - Futuristic Style
-// ============================================================================
 
 @Composable
 fun ChatInputField(
@@ -245,16 +241,19 @@ fun ChatInputField(
   modifier: Modifier = Modifier,
 ) {
   val colors = MaterialTheme.colorScheme
-  val gradient = remember { Brush.horizontalGradient(GradientPurpleCyan) }
+  val corvusColors = CorvusTheme.colors
+  val gradient =
+    remember(corvusColors.gradientPrimary) {
+      Brush.horizontalGradient(corvusColors.gradientPrimary)
+    }
   val isEnabled = value.trim().isNotBlank()
 
   Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-    // Glassmorphism Input
     Surface(
       modifier = Modifier.weight(1f),
       shape = RoundedCornerShape(16.dp),
-      color = CorvusColors.glassSurface,
-      border = BorderStroke(1.dp, CorvusColors.glassOverlay),
+      color = corvusColors.glassSurface,
+      border = BorderStroke(1.dp, corvusColors.glassOverlay),
     ) {
       OutlinedTextField(
         value = value,
@@ -277,20 +276,18 @@ fun ChatInputField(
 
     Spacer(modifier = Modifier.width(12.dp))
 
-    // Gradient Send Button
     Box(
       modifier =
         Modifier.size(48.dp)
           .shadow(
             elevation = 6.dp,
             shape = CircleShape,
-            spotColor = if (isEnabled) CorvusColors.glowPurple else Color.Gray,
+            spotColor = if (isEnabled) corvusColors.glowPurple else Color.Gray,
           )
           .clip(CircleShape)
           .background(
             if (isEnabled) gradient else Brush.linearGradient(listOf(Color.Gray, Color.Gray))
-          )
-          .padding(0.dp),
+          ),
       contentAlignment = Alignment.Center,
     ) {
       IconButton(onClick = onSend, enabled = isEnabled) {
@@ -305,22 +302,18 @@ fun ChatInputField(
   }
 }
 
-// ============================================================================
-// Status Indicator - Futuristic Glow Dot
-// ============================================================================
-
 @Composable
-fun StatusIndicator(connected: Boolean, modifier: Modifier = Modifier) {
+fun StatusIndicator(configured: Boolean, modifier: Modifier = Modifier) {
+  val corvusColors = CorvusTheme.colors
   val color by
     animateColorAsState(
-      targetValue = if (connected) CorvusColors.connected else CorvusColors.disconnected,
+      targetValue = if (configured) corvusColors.connected else corvusColors.disconnected,
       animationSpec = tween(300),
       label = "statusColor",
     )
-
   val glowAlpha by
     animateFloatAsState(
-      targetValue = if (connected) 0.6f else 0.2f,
+      targetValue = if (configured) 0.6f else 0.2f,
       animationSpec = tween(300),
       label = "glowAlpha",
     )
@@ -334,7 +327,7 @@ fun StatusIndicator(connected: Boolean, modifier: Modifier = Modifier) {
     )
     Spacer(modifier = Modifier.width(8.dp))
     Text(
-      text = if (connected) "Connected" else "Disconnected",
+      text = if (configured) "Configured" else "Not configured",
       style = MaterialTheme.typography.labelSmall,
       color = color,
       fontWeight = FontWeight.Medium,
@@ -342,19 +335,16 @@ fun StatusIndicator(connected: Boolean, modifier: Modifier = Modifier) {
   }
 }
 
-// ============================================================================
-// Header - Futuristic Style
-// ============================================================================
-
 @Composable
 fun ChatHeader(modelName: String, showConfig: Boolean, onToggleConfig: () -> Unit) {
+  val corvusColors = CorvusTheme.colors
+
   Row(
     modifier = Modifier.fillMaxWidth(),
     horizontalArrangement = Arrangement.SpaceBetween,
     verticalAlignment = Alignment.CenterVertically,
   ) {
     Column {
-      // Gradient Title
       Text(
         text = modelName,
         style = MaterialTheme.typography.headlineSmall,
@@ -373,7 +363,10 @@ fun ChatHeader(modelName: String, showConfig: Boolean, onToggleConfig: () -> Uni
       modifier =
         Modifier.size(44.dp)
           .shadow(4.dp, CircleShape)
-          .background(brush = Brush.linearGradient(GradientPurpleCyan), shape = CircleShape),
+          .background(
+            brush = Brush.linearGradient(corvusColors.gradientPrimary),
+            shape = CircleShape,
+          ),
     ) {
       Icon(
         imageVector = Icons.Default.Settings,
@@ -385,57 +378,10 @@ fun ChatHeader(modelName: String, showConfig: Boolean, onToggleConfig: () -> Uni
   }
 }
 
-// ============================================================================
-// Password Text Field - Futuristic Style
-// ============================================================================
-
-@Composable
-fun passwordTextField(
-  value: String,
-  onValueChange: (String) -> Unit,
-  label: String,
-  placeholder: String,
-  modifier: Modifier = Modifier,
-) {
-  var isVisible by remember { mutableStateOf(false) }
-  val colors = MaterialTheme.colorScheme
-
-  OutlinedTextField(
-    value = value,
-    onValueChange = onValueChange,
-    label = { Text(label, color = colors.onSurfaceVariant) },
-    placeholder = { Text(placeholder, color = colors.onSurfaceVariant.copy(alpha = 0.5f)) },
-    singleLine = true,
-    modifier = modifier.fillMaxWidth(),
-    visualTransformation =
-      if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
-    colors =
-      OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = CorvusColors.glowPurple,
-        unfocusedBorderColor = colors.outline.copy(alpha = 0.3f),
-        focusedTextColor = colors.onSurface,
-        unfocusedTextColor = colors.onSurface,
-      ),
-    trailingIcon = {
-      IconButton(onClick = { isVisible = !isVisible }) {
-        Icon(
-          imageVector = if (isVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-          contentDescription = if (isVisible) "Hide" else "Show",
-          tint = colors.onSurfaceVariant,
-        )
-      }
-    },
-    shape = RoundedCornerShape(12.dp),
-  )
-}
-
-// ============================================================================
-// Endpoint Card - Futuristic Style
-// ============================================================================
-
 @Composable
 fun endpointCard(title: String, subtitle: String, details: List<String>) {
   val colors = MaterialTheme.colorScheme
+  val corvusColors = CorvusTheme.colors
 
   Box(
     modifier =
@@ -443,25 +389,24 @@ fun endpointCard(title: String, subtitle: String, details: List<String>) {
         .shadow(
           elevation = 4.dp,
           shape = EndpointCardShape,
-          spotColor = CorvusColors.glowPurple.copy(alpha = 0.1f),
+          spotColor = corvusColors.glowPurple.copy(alpha = 0.1f),
         )
   ) {
     Surface(
       shape = EndpointCardShape,
-      color = CorvusColors.glassSurface,
-      border = BorderStroke(1.dp, CorvusColors.glassOverlay),
+      color = corvusColors.glassSurface,
+      border = BorderStroke(1.dp, corvusColors.glassOverlay),
     ) {
       Column(
         modifier = Modifier.fillMaxWidth().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
       ) {
-        // Gradient accent line
         Box(
           modifier =
             Modifier.width(40.dp)
               .height(3.dp)
               .background(
-                brush = Brush.horizontalGradient(GradientPurpleCyan),
+                brush = Brush.horizontalGradient(corvusColors.gradientPrimary),
                 shape = RoundedCornerShape(2.dp),
               )
         )
@@ -470,7 +415,7 @@ fun endpointCard(title: String, subtitle: String, details: List<String>) {
           text = title,
           style = MaterialTheme.typography.titleSmall,
           fontWeight = FontWeight.SemiBold,
-          color = CorvusColors.glowCyan,
+          color = corvusColors.glowCyan,
         )
         Text(
           text = subtitle,
@@ -480,7 +425,7 @@ fun endpointCard(title: String, subtitle: String, details: List<String>) {
         )
         details.forEach { line ->
           Text(
-            text = "• $line",
+            text = "- $line",
             style = MaterialTheme.typography.bodySmall,
             color = colors.onSurface.copy(alpha = 0.7f),
           )
@@ -489,10 +434,6 @@ fun endpointCard(title: String, subtitle: String, details: List<String>) {
     }
   }
 }
-
-// ============================================================================
-// Helper Functions
-// ============================================================================
 
 internal fun endpointUrl(baseUrl: String, path: String): String {
   val normalizedBase = baseUrl.trim().removeSuffix("/")

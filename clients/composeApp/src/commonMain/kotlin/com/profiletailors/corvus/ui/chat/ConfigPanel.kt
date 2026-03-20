@@ -36,11 +36,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import com.profiletailors.corvus.ui.theme.CorvusColors
-
-// ============================================================================
-// Corvus Config Panel - Futuristic Style
-// ============================================================================
+import com.profiletailors.corvus.ui.theme.CorvusTheme
 
 private val HEALTH_DETAILS =
   listOf("Auth: none", "Response: {\"status\": \"ok\", \"paired\": bool}")
@@ -59,43 +55,42 @@ private val WEBHOOK_DETAILS =
     "Response: {\"response\": \"...\"}",
   )
 
-// ============================================================================
-// Config Panel Main
-// ============================================================================
-
 @Composable
 internal fun ConfigPanel(
   gatewayConfig: AgentGatewayConfig,
+  isGatewayConfigured: Boolean,
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
-  val colors = MaterialTheme.colorScheme
+  val corvusColors = CorvusTheme.colors
 
   Surface(
     modifier = modifier.fillMaxWidth(),
     shape = RoundedCornerShape(20.dp),
-    color = CorvusColors.glassSurface,
+    color = corvusColors.glassSurface,
   ) {
     Box(
       modifier =
         Modifier.background(
-          brush =
-            Brush.verticalGradient(
-              colors = listOf(Color.White.copy(alpha = 0.05f), Color.Transparent)
-            )
+          brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
         )
     ) {
-      ConfigSettingsList(gatewayConfig = gatewayConfig, actions = actions)
+      ConfigSettingsList(
+        gatewayConfig = gatewayConfig,
+        isGatewayConfigured = isGatewayConfigured,
+        actions = actions,
+      )
     }
   }
 }
 
-// ============================================================================
-// Config Settings List
-// ============================================================================
-
 @Composable
-internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: ChatWorkspaceActions) {
+internal fun ConfigSettingsList(
+  gatewayConfig: AgentGatewayConfig,
+  isGatewayConfigured: Boolean,
+  actions: ChatWorkspaceActions,
+) {
+  val corvusColors = CorvusTheme.colors
   val healthUrl = remember(gatewayConfig.baseUrl) { endpointUrl(gatewayConfig.baseUrl, "/health") }
   val pairUrl = remember(gatewayConfig.baseUrl) { endpointUrl(gatewayConfig.baseUrl, "/pair") }
   val webhookUrl =
@@ -105,7 +100,6 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
     modifier = Modifier.fillMaxSize().padding(20.dp),
     verticalArrangement = Arrangement.spacedBy(20.dp),
   ) {
-    // Header
     item {
       Column {
         Text(
@@ -123,15 +117,8 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
       }
     }
 
-    // Connection Status
-    item {
-      StatusIndicator(
-        connected = gatewayConfig.baseUrl.isNotBlank(),
-        modifier = Modifier.fillMaxWidth(),
-      )
-    }
+    item { StatusIndicator(configured = isGatewayConfigured, modifier = Modifier.fillMaxWidth()) }
 
-    // Gateway URL Field
     item {
       Column {
         Text(
@@ -149,7 +136,7 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
           modifier = Modifier.fillMaxWidth(),
           colors =
             OutlinedTextFieldDefaults.colors(
-              focusedBorderColor = CorvusColors.glowPurple,
+              focusedBorderColor = corvusColors.glowPurple,
               unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
               focusedTextColor = MaterialTheme.colorScheme.onSurface,
               unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -159,7 +146,6 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
       }
     }
 
-    // Pairing Code Field
     item {
       Column {
         Text(
@@ -177,7 +163,7 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
           modifier = Modifier.fillMaxWidth(),
           colors =
             OutlinedTextFieldDefaults.colors(
-              focusedBorderColor = CorvusColors.glowCyan,
+              focusedBorderColor = corvusColors.glowCyan,
               unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
               focusedTextColor = MaterialTheme.colorScheme.onSurface,
               unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
@@ -187,7 +173,6 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
       }
     }
 
-    // Bearer Token Field
     item {
       PasswordTextField(
         value = gatewayConfig.bearerToken,
@@ -197,7 +182,6 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
       )
     }
 
-    // Webhook Secret Field
     item {
       PasswordTextField(
         value = gatewayConfig.webhookSecret,
@@ -207,29 +191,25 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
       )
     }
 
-    // Action Buttons
     item {
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        // Test Connection Button (Outline)
         OutlinedButton(
-          onClick = { /* Test connection */ },
+          onClick = { actions.onTestConnection(gatewayConfig) },
           modifier = Modifier.weight(1f),
           shape = RoundedCornerShape(12.dp),
-          colors = ButtonDefaults.outlinedButtonColors(contentColor = CorvusColors.glowCyan),
+          colors = ButtonDefaults.outlinedButtonColors(contentColor = corvusColors.glowCyan),
         ) {
           Text(text = "Test Connection", fontWeight = FontWeight.Medium)
         }
 
-        // Save Button (Gradient)
         GradientButton(
           text = "Save",
-          onClick = { /* Save config */ },
+          onClick = { actions.onSaveGatewayConfig(gatewayConfig) },
           modifier = Modifier.weight(1f),
         )
       }
     }
 
-    // Divider
     item {
       Box(
         modifier =
@@ -238,13 +218,12 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
             .background(
               brush =
                 Brush.horizontalGradient(
-                  colors = listOf(Color.Transparent, CorvusColors.glassOverlay, Color.Transparent)
+                  listOf(Color.Transparent, corvusColors.glassOverlay, Color.Transparent)
                 )
             )
       )
     }
 
-    // API Documentation Section
     item {
       Column {
         Text(
@@ -262,14 +241,9 @@ internal fun ConfigSettingsList(gatewayConfig: AgentGatewayConfig, actions: Chat
       }
     }
 
-    // Bottom padding
     item { Spacer(modifier = Modifier.height(32.dp)) }
   }
 }
-
-// ============================================================================
-// Password Text Field - Futuristic Style
-// ============================================================================
 
 @Composable
 private fun PasswordTextField(
@@ -280,6 +254,7 @@ private fun PasswordTextField(
 ) {
   var isVisible by remember { mutableStateOf(false) }
   val colors = MaterialTheme.colorScheme
+  val corvusColors = CorvusTheme.colors
 
   Column {
     Text(
@@ -300,7 +275,7 @@ private fun PasswordTextField(
         if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
       colors =
         OutlinedTextFieldDefaults.colors(
-          focusedBorderColor = CorvusColors.glowPurple,
+          focusedBorderColor = corvusColors.glowPurple,
           unfocusedBorderColor = colors.outline.copy(alpha = 0.3f),
           focusedTextColor = colors.onSurface,
           unfocusedTextColor = colors.onSurface,

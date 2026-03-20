@@ -31,11 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.profiletailors.corvus.ui.theme.CorvusColors
-
-// ============================================================================
-// Corvus Chat Workspace - Futuristic Tech UI
-// ============================================================================
+import com.profiletailors.corvus.ui.theme.CorvusTheme
 
 @Immutable
 data class ChatWorkspaceState(
@@ -50,6 +46,7 @@ data class ChatUiState(
   val messages: List<ChatMessage>,
   val query: String,
   val showConfig: Boolean,
+  val isGatewayConfigured: Boolean,
 )
 
 @Immutable
@@ -69,6 +66,8 @@ data class ChatWorkspaceActions(
   val onPairingCodeChange: (String) -> Unit,
   val onBearerTokenChange: (String) -> Unit,
   val onWebhookSecretChange: (String) -> Unit,
+  val onTestConnection: (AgentGatewayConfig) -> Unit,
+  val onSaveGatewayConfig: (AgentGatewayConfig) -> Unit,
 )
 
 object ChatWorkspaceDefaults {
@@ -83,10 +82,6 @@ object ChatWorkspaceDefaults {
     )
 }
 
-// ============================================================================
-// Main Chat Workspace Screen
-// ============================================================================
-
 @Composable
 fun ChatWorkspace(
   modifier: Modifier = Modifier,
@@ -95,10 +90,23 @@ fun ChatWorkspace(
   var query by remember { mutableStateOf("") }
   var nextId by rememberSaveable { mutableIntStateOf(1) }
   var showConfig by rememberSaveable { mutableStateOf(false) }
-  var baseUrl by rememberSaveable { mutableStateOf(ChatWorkspaceDefaults.DefaultGatewayBaseUrl) }
-  var pairingCode by remember { mutableStateOf("") }
-  var bearerToken by remember { mutableStateOf("") }
-  var webhookSecret by remember { mutableStateOf("") }
+
+  var draftBaseUrl by rememberSaveable {
+    mutableStateOf(ChatWorkspaceDefaults.DefaultGatewayBaseUrl)
+  }
+  var draftPairingCode by rememberSaveable { mutableStateOf("") }
+  var draftBearerToken by rememberSaveable { mutableStateOf("") }
+  var draftWebhookSecret by rememberSaveable { mutableStateOf("") }
+
+  var savedBaseUrl by rememberSaveable {
+    mutableStateOf(ChatWorkspaceDefaults.DefaultGatewayBaseUrl)
+  }
+  var savedPairingCode by rememberSaveable { mutableStateOf("") }
+  var savedBearerToken by rememberSaveable { mutableStateOf("") }
+  var savedWebhookSecret by rememberSaveable { mutableStateOf("") }
+  var isGatewayConfigured by rememberSaveable {
+    mutableStateOf(isGatewayConfigConfigured(ChatWorkspaceDefaults.DefaultGatewayBaseUrl))
+  }
 
   val messages =
     remember(state.welcomeMessage) {
@@ -108,26 +116,28 @@ fun ChatWorkspace(
     }
 
   val gatewayConfig =
-    remember(baseUrl, pairingCode, bearerToken, webhookSecret) {
+    remember(draftBaseUrl, draftPairingCode, draftBearerToken, draftWebhookSecret) {
       AgentGatewayConfig(
-        baseUrl = baseUrl,
-        pairingCode = pairingCode,
-        bearerToken = bearerToken,
-        webhookSecret = webhookSecret,
+        baseUrl = draftBaseUrl,
+        pairingCode = draftPairingCode,
+        bearerToken = draftBearerToken,
+        webhookSecret = draftWebhookSecret,
+      )
+    }
+
+  val savedGatewayConfig =
+    remember(savedBaseUrl, savedPairingCode, savedBearerToken, savedWebhookSecret) {
+      AgentGatewayConfig(
+        baseUrl = savedBaseUrl,
+        pairingCode = savedPairingCode,
+        bearerToken = savedBearerToken,
+        webhookSecret = savedWebhookSecret,
       )
     }
 
   fun sendMessage() {
     val prompt = query.trim()
     if (prompt.isBlank()) return
-
-    val currentGatewayConfig =
-      AgentGatewayConfig(
-        baseUrl = baseUrl,
-        pairingCode = pairingCode,
-        bearerToken = bearerToken,
-        webhookSecret = webhookSecret,
-      )
 
     messages.add(ChatMessage(id = nextId, role = ChatRole.User, content = prompt))
     nextId += 1
@@ -136,33 +146,43 @@ fun ChatWorkspace(
       ChatMessage(
         id = nextId,
         role = ChatRole.Assistant,
-        content = buildLocalAssistantReply(prompt, state.modelName, currentGatewayConfig),
+        content = buildLocalAssistantReply(prompt, state.modelName, savedGatewayConfig),
       )
     )
     nextId += 1
     query = ""
   }
 
-  val actions =
-    remember(state) {
-      ChatWorkspaceActions(
-        onQueryChange = { query = it },
-        onSend = ::sendMessage,
-        onToggleConfig = { showConfig = !showConfig },
-        onBaseUrlChange = { baseUrl = it },
-        onPairingCodeChange = { pairingCode = it },
-        onBearerTokenChange = { bearerToken = it },
-        onWebhookSecretChange = { webhookSecret = it },
-      )
-    }
+  val actions = remember {
+    ChatWorkspaceActions(
+      onQueryChange = { query = it },
+      onSend = ::sendMessage,
+      onToggleConfig = { showConfig = !showConfig },
+      onBaseUrlChange = { draftBaseUrl = it },
+      onPairingCodeChange = { draftPairingCode = it },
+      onBearerTokenChange = { draftBearerToken = it },
+      onWebhookSecretChange = { draftWebhookSecret = it },
+      onTestConnection = { config ->
+        isGatewayConfigured = isGatewayConfigConfigured(config.baseUrl)
+      },
+      onSaveGatewayConfig = { config ->
+        savedBaseUrl = config.baseUrl
+        savedPairingCode = config.pairingCode
+        savedBearerToken = config.bearerToken
+        savedWebhookSecret = config.webhookSecret
+        isGatewayConfigured = isGatewayConfigConfigured(config.baseUrl)
+      },
+    )
+  }
 
   val uiState =
-    remember(state, query, showConfig) {
+    remember(state, query, showConfig, isGatewayConfigured) {
       ChatUiState(
         workspaceState = state,
         messages = messages,
         query = query,
         showConfig = showConfig,
+        isGatewayConfigured = isGatewayConfigured,
       )
     }
 
@@ -174,10 +194,6 @@ fun ChatWorkspace(
   )
 }
 
-// ============================================================================
-// Chat Workspace Screen - Futuristic Layout
-// ============================================================================
-
 @Composable
 private fun ChatWorkspaceScreen(
   uiState: ChatUiState,
@@ -186,6 +202,7 @@ private fun ChatWorkspaceScreen(
   modifier: Modifier = Modifier,
 ) {
   val colors = MaterialTheme.colorScheme
+  val corvusColors = CorvusTheme.colors
 
   Column(
     modifier =
@@ -195,7 +212,6 @@ private fun ChatWorkspaceScreen(
         .safeContentPadding()
         .padding(horizontal = 20.dp, vertical = 16.dp)
   ) {
-    // Header with gradient accent
     ChatHeader(
       modelName = uiState.workspaceState.modelName,
       showConfig = uiState.showConfig,
@@ -204,7 +220,6 @@ private fun ChatWorkspaceScreen(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Gradient divider
     Box(
       modifier =
         Modifier.fillMaxWidth()
@@ -212,22 +227,25 @@ private fun ChatWorkspaceScreen(
           .background(
             brush =
               Brush.horizontalGradient(
-                colors =
-                  listOf(
-                    Color.Transparent,
-                    CorvusColors.glowPurple.copy(alpha = 0.5f),
-                    CorvusColors.glowCyan.copy(alpha = 0.5f),
-                    Color.Transparent,
-                  )
+                listOf(
+                  Color.Transparent,
+                  corvusColors.glowPurple.copy(alpha = 0.5f),
+                  corvusColors.glowCyan.copy(alpha = 0.5f),
+                  Color.Transparent,
+                )
               )
           )
     )
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Content Area (Chat or Config)
     if (uiState.showConfig) {
-      ConfigPanel(gatewayConfig = gatewayConfig, actions = actions, modifier = Modifier.weight(1f))
+      ConfigPanel(
+        gatewayConfig = gatewayConfig,
+        isGatewayConfigured = uiState.isGatewayConfigured,
+        actions = actions,
+        modifier = Modifier.weight(1f),
+      )
     } else {
       ChatPanel(
         state = uiState.workspaceState,
@@ -240,10 +258,6 @@ private fun ChatWorkspaceScreen(
   }
 }
 
-// ============================================================================
-// Chat Panel - Futuristic Style
-// ============================================================================
-
 @Composable
 private fun ChatPanel(
   state: ChatWorkspaceState,
@@ -252,22 +266,19 @@ private fun ChatPanel(
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
-  val colors = MaterialTheme.colorScheme
+  val corvusColors = CorvusTheme.colors
 
   Column(modifier = modifier) {
-    // Messages List with Glassmorphism Background
     Surface(
       modifier = Modifier.fillMaxWidth().weight(1f),
       shape = RoundedCornerShape(20.dp),
-      color = CorvusColors.glassSurface,
+      color = corvusColors.glassSurface,
     ) {
       Box(
         modifier =
           Modifier.background(
             brush =
-              Brush.verticalGradient(
-                colors = listOf(Color.White.copy(alpha = 0.05f), Color.Transparent)
-              )
+              Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
           )
       ) {
         LazyColumn(
@@ -283,7 +294,6 @@ private fun ChatPanel(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    // Input Field
     ChatInputField(
       value = query,
       onValueChange = actions.onQueryChange,
@@ -291,4 +301,9 @@ private fun ChatPanel(
       placeholder = state.inputPlaceholder,
     )
   }
+}
+
+private fun isGatewayConfigConfigured(baseUrl: String): Boolean {
+  val trimmed = baseUrl.trim()
+  return trimmed.startsWith("http://") || trimmed.startsWith("https://")
 }

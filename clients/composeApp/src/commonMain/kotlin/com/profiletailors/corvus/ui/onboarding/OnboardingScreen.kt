@@ -3,6 +3,7 @@ package com.profiletailors.corvus.ui.onboarding
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -44,8 +46,7 @@ import com.profiletailors.composeapp.generated.resources.onboarding_title_connec
 import com.profiletailors.composeapp.generated.resources.onboarding_title_talk_agent
 import com.profiletailors.composeapp.generated.resources.onboarding_title_welcome
 import com.profiletailors.corvus.ui.chat.GradientButton
-import com.profiletailors.corvus.ui.theme.CorvusColors
-import com.profiletailors.corvus.ui.theme.GradientPurpleCyan
+import com.profiletailors.corvus.ui.theme.CorvusTheme
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
 
@@ -102,6 +103,7 @@ fun OnboardingScreen(
   modifier: Modifier = Modifier,
 ) {
   val colors = MaterialTheme.colorScheme
+  val corvusColors = CorvusTheme.colors
 
   Column(
     modifier =
@@ -110,7 +112,7 @@ fun OnboardingScreen(
         .background(
           brush =
             Brush.verticalGradient(
-              colors = listOf(colors.background, CorvusColors.glassSurface, colors.background)
+              colors = listOf(colors.background, corvusColors.glassSurface, colors.background)
             )
         )
         .safeContentPadding()
@@ -125,7 +127,10 @@ fun OnboardingScreen(
         style = MaterialTheme.typography.labelLarge,
         color = colors.onSurfaceVariant.copy(alpha = 0.7f),
         modifier =
-          Modifier.clip(RoundedCornerShape(8.dp)).background(Color.Transparent).padding(8.dp),
+          Modifier.clip(RoundedCornerShape(8.dp))
+            .clickable(role = Role.Button, onClick = onSkip)
+            .background(Color.Transparent)
+            .padding(8.dp),
       )
     }
 
@@ -148,7 +153,7 @@ fun OnboardingScreen(
           Modifier.shadow(
             elevation = 8.dp,
             shape = RoundedCornerShape(16.dp),
-            spotColor = CorvusColors.glowPurple.copy(alpha = 0.3f),
+            spotColor = corvusColors.glowPurple.copy(alpha = 0.3f),
           )
       ) {
         Text(
@@ -196,7 +201,8 @@ fun OnboardingScreen(
 
 @Composable
 private fun OnboardingIconDisplay(icon: OnboardingIcon) {
-  val gradient = Brush.linearGradient(GradientPurpleCyan)
+  val corvusColors = CorvusTheme.colors
+  val gradient = Brush.linearGradient(corvusColors.gradientPrimary)
 
   Box(
     modifier =
@@ -204,7 +210,7 @@ private fun OnboardingIconDisplay(icon: OnboardingIcon) {
         .shadow(
           elevation = 24.dp,
           shape = CircleShape,
-          spotColor = CorvusColors.glowPurple.copy(alpha = 0.4f),
+          spotColor = corvusColors.glowPurple.copy(alpha = 0.4f),
         )
         .background(brush = gradient, shape = CircleShape),
     contentAlignment = Alignment.Center,
@@ -243,6 +249,8 @@ private fun OnboardingIconDisplay(icon: OnboardingIcon) {
 
 @Composable
 private fun FuturisticProgressIndicator(currentStep: Int, totalSteps: Int) {
+  val corvusColors = CorvusTheme.colors
+
   Row(
     horizontalArrangement = Arrangement.spacedBy(12.dp),
     verticalAlignment = Alignment.CenterVertically,
@@ -277,13 +285,13 @@ private fun FuturisticProgressIndicator(currentStep: Int, totalSteps: Int) {
             .shadow(
               elevation = if (isActive) 4.dp else 0.dp,
               shape = RoundedCornerShape(3.dp),
-              spotColor = CorvusColors.glowPurple.copy(alpha = alpha * 0.5f),
+              spotColor = corvusColors.glowPurple.copy(alpha = alpha * 0.5f),
             )
             .clip(RoundedCornerShape(3.dp))
             .background(
               brush =
                 if (isActive || isCompleted) {
-                  Brush.horizontalGradient(GradientPurpleCyan)
+                  Brush.horizontalGradient(corvusColors.gradientPrimary)
                 } else {
                   Brush.horizontalGradient(
                     listOf(
@@ -296,13 +304,4 @@ private fun FuturisticProgressIndicator(currentStep: Int, totalSteps: Int) {
       )
     }
   }
-}
-
-// ============================================================================
-// Step Indicator (Legacy - kept for compatibility)
-// ============================================================================
-
-@Composable
-private fun StepIndicator(currentStepIndex: Int, totalSteps: Int) {
-  FuturisticProgressIndicator(currentStep = currentStepIndex, totalSteps = totalSteps)
 }
