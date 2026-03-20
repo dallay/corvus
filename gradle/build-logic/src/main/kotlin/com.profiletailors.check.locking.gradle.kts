@@ -6,11 +6,13 @@ import java.util.concurrent.TimeUnit
 
 val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
 
-val excludedLockingConfigurationPrefixes = listOf("spotless", "detachedConfiguration")
+val excludedLockingConfigurationPrefixes =
+  listOf("allDevSourceSets", "composeHotReloadDev", "detachedConfiguration", "jvmDev", "spotless")
 
 val excludedLockingConfigurations =
   setOf(
     "combinedGraphClasspath",
+    "commonTestResolvableDependenciesMetadata",
     "projectHealthClasspath",
     "projectMetadataClasspath",
     "resolvedDepsClasspath",
