@@ -237,6 +237,7 @@ tasks.withType<PublishToMavenRepository>().configureEach {
 
 dependencies {
   testImplementation("org.jetbrains.kotlin:kotlin-test")
+  testImplementation(platform("org.junit:junit-bom:${libs.versions.junit.jupiter.get()}"))
   testImplementation(catalogLibs.findLibrary("junit-jupiter-api").get())
   testImplementation(catalogLibs.findLibrary("junit-jupiter-params").get())
   testRuntimeOnly(catalogLibs.findLibrary("junit-jupiter-engine").get())

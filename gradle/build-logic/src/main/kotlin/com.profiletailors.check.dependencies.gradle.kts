@@ -62,11 +62,12 @@ listOf("artifactsReportMain" to "help", "fixDependencies" to "toolbox").forEach 
 }
 
 val isCI = EnvAccess.isCi(providers)
+val isBuildLogicProject = rootProject.name == "corvus-build-logic"
 
 // https://docs.gradle.org/nightly/userguide/dependency_locking.html
 dependencyLocking {
   ignoredDependencies.add("com.example:*")
-  if (isCI) {
+  if (isCI && !isBuildLogicProject) {
     lockMode = LockMode.STRICT
   }
 }
