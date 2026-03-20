@@ -5,6 +5,11 @@
 # 2) Check project links with lychee
 # ============================================
 
+if [ "${SKIP_GIT_HOOKS:-0}" = "1" ]; then
+  echo "⏭️  Skipping pre-commit hook (SKIP_GIT_HOOKS=1)"
+  exit 0
+fi
+
 PART1="TO"
 PART2="DO"
 KEYWORDS="${PART1}${PART2}"
