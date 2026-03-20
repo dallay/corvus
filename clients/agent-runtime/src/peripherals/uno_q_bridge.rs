@@ -66,10 +66,7 @@ impl Tool for UnoQGpioReadTool {
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
-        let pin = args
-            .get("pin")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'pin' parameter"))?;
+        let pin = parse_u64_arg(&args, "pin")?;
         match bridge_request("gpio_read", &[pin.to_string()]).await {
             Ok(resp) => {
                 if resp.starts_with("error:") {
@@ -179,6 +176,15 @@ mod tests {
         let error = tool.execute(json!({})).await.unwrap_err();
 
         assert_eq!(error.to_string(), "Missing 'pin' parameter");
+    }
+
+    #[tokio::test]
+    async fn read_tool_rejects_invalid_pin_type() {
+        let tool = UnoQGpioReadTool;
+
+        let error = tool.execute(json!({ "pin": "13" })).await.unwrap_err();
+
+        assert_eq!(error.to_string(), "Invalid 'pin' type");
     }
 
     #[test]
