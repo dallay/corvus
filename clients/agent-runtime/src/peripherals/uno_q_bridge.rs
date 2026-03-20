@@ -13,6 +13,15 @@ use tokio::net::TcpStream;
 const BRIDGE_HOST: &str = "127.0.0.1";
 const BRIDGE_PORT: u16 = 9999;
 
+fn parse_u64_arg(args: &Value, name: &'static str) -> anyhow::Result<u64> {
+    match args.get(name) {
+        Some(value) => value
+            .as_u64()
+            .ok_or_else(|| anyhow::anyhow!("Invalid '{name}' type")),
+        None => Err(anyhow::anyhow!("Missing '{name}' parameter")),
+    }
+}
+
 async fn bridge_request(cmd: &str, args: &[String]) -> anyhow::Result<String> {
     let addr = format!("{}:{}", BRIDGE_HOST, BRIDGE_PORT);
     let mut stream = tokio::time::timeout(Duration::from_secs(5), TcpStream::connect(&addr))
@@ -120,14 +129,8 @@ impl Tool for UnoQGpioWriteTool {
     }
 
     async fn execute(&self, args: Value) -> anyhow::Result<ToolResult> {
-        let pin = args
-            .get("pin")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'pin' parameter"))?;
-        let value = args
-            .get("value")
-            .and_then(|v| v.as_u64())
-            .ok_or_else(|| anyhow::anyhow!("Missing 'value' parameter"))?;
+        let pin = parse_u64_arg(&args, "pin")?;
+        let value = parse_u64_arg(&args, "value")?;
         match bridge_request("gpio_write", &[pin.to_string(), value.to_string()]).await {
             Ok(resp) => {
                 if resp.starts_with("error:") {
@@ -199,5 +202,17 @@ mod tests {
 
         let missing_value = tool.execute(json!({ "pin": 13 })).await.unwrap_err();
         assert_eq!(missing_value.to_string(), "Missing 'value' parameter");
+    }
+
+    #[tokio::test]
+    async fn write_tool_rejects_invalid_pin_type() {
+        let tool = UnoQGpioWriteTool;
+
+        let error = tool
+            .execute(json!({ "pin": "13", "value": 1 }))
+            .await
+            .unwrap_err();
+
+        assert_eq!(error.to_string(), "Invalid 'pin' type");
     }
 }

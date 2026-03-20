@@ -375,6 +375,10 @@ mod tests {
             "serial transport requires a path"
         );
         assert_eq!(
+            validate_board_config(&board("uno", "serial", None)).unwrap_err(),
+            "serial transport requires a path"
+        );
+        assert_eq!(
             validate_board_config(&board("uno", "bluetooth", None)).unwrap_err(),
             "unsupported transport 'bluetooth' (use: serial, native, bridge)"
         );

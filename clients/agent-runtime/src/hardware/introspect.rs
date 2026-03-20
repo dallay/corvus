@@ -127,7 +127,7 @@ fn probe_memory_map(chip: &str) -> anyhow::Result<String> {
 mod tests {
     use super::*;
 
-    #[cfg(feature = "hardware")]
+    #[cfg(all(feature = "hardware", not(feature = "probe")))]
     #[test]
     fn memory_map_for_board_uses_static_probe_guidance_without_probe_feature() {
         let note = memory_map_for_board(Some("nucleo-f401re"));
