@@ -51,12 +51,7 @@ fun findGradleWrapper(startDir: File): File? {
     .firstOrNull { it.isFile }
 }
 
-dependencyLocking {
-  ignoredDependencies.add("com.example:*")
-  if (isCi) {
-    lockMode = LockMode.STRICT
-  }
-}
+dependencyLocking { ignoredDependencies.add("com.example:*") }
 
 buildscript.configurations.configureEach {
   if (shouldUseDependencyLocking()) {
