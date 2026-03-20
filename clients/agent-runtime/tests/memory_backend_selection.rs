@@ -72,7 +72,7 @@ async fn cerebro_memory_loader_prefers_mcp_results() {
     let loader = CerebroMemoryLoader::new(cerebro, 5, 0.1);
     let memory = NoneMemory::new();
 
-    let context = loader.load_context(&memory, "hello").await.unwrap();
+    let context = loader.load_context(&memory, "hello", None).await.unwrap();
     assert!(context.contains("[Memory context]"));
     assert!(context.contains("Remote memory"));
     assert_eq!(calls.lock().unwrap().as_slice(), ["mem_search"]);
@@ -88,7 +88,7 @@ async fn default_memory_loader_uses_local_memory() {
         .unwrap();
 
     let loader = DefaultMemoryLoader::new(5, 0.0);
-    let context = loader.load_context(&memory, "Rust").await.unwrap();
+    let context = loader.load_context(&memory, "Rust", None).await.unwrap();
     assert!(context.contains("Prefers Rust"));
 }
 
@@ -97,7 +97,10 @@ async fn cerebro_memory_loader_skips_mcp_without_endpoint() {
     let loader = CerebroMemoryLoader::new(MemoryCerebroConfig::default(), 5, 0.1);
     let memory = NoneMemory::new();
 
-    let err = loader.load_context(&memory, "hello").await.unwrap_err();
+    let err = loader
+        .load_context(&memory, "hello", None)
+        .await
+        .unwrap_err();
     assert!(err.to_string().contains("Cerebro MCP endpoint"));
 }
 
@@ -112,7 +115,7 @@ async fn default_memory_loader_does_not_emit_mcp_calls() {
         .unwrap();
 
     let loader = DefaultMemoryLoader::new(5, 0.0);
-    let context = loader.load_context(&memory, "Rust").await.unwrap();
+    let context = loader.load_context(&memory, "Rust", None).await.unwrap();
     assert!(context.contains("Prefers Rust"));
     assert!(calls.lock().unwrap().is_empty());
 }

@@ -10,8 +10,12 @@ use std::fmt::Write;
 
 #[async_trait]
 pub trait MemoryLoader: Send + Sync {
-    async fn load_context(&self, memory: &dyn Memory, user_message: &str)
-        -> anyhow::Result<String>;
+    async fn load_context(
+        &self,
+        memory: &dyn Memory,
+        user_message: &str,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<String>;
 }
 
 pub struct DefaultMemoryLoader {
@@ -59,8 +63,9 @@ impl MemoryLoader for DefaultMemoryLoader {
         &self,
         memory: &dyn Memory,
         user_message: &str,
+        session_id: Option<&str>,
     ) -> anyhow::Result<String> {
-        let entries = memory.recall(user_message, self.limit, None).await?;
+        let entries = memory.recall(user_message, self.limit, session_id).await?;
         let mut context = String::new();
         let added = append_local_entries(&mut context, &entries, self.min_relevance_score);
         if !added {
@@ -78,8 +83,9 @@ impl MemoryLoader for CerebroMemoryLoader {
         &self,
         memory: &dyn Memory,
         user_message: &str,
+        session_id: Option<&str>,
     ) -> anyhow::Result<String> {
-        let entries = memory.recall(user_message, self.limit, None).await?;
+        let entries = memory.recall(user_message, self.limit, session_id).await?;
         let mut context = String::new();
         let mut added = append_local_entries(&mut context, &entries, self.min_relevance_score);
 
@@ -191,6 +197,11 @@ mod tests {
 
     struct MockMemory;
 
+    #[derive(Default)]
+    struct SessionTrackingMemory {
+        recall_sessions: std::sync::Mutex<Vec<Option<String>>>,
+    }
+
     #[async_trait]
     impl Memory for MockMemory {
         async fn store(
@@ -252,10 +263,67 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl Memory for SessionTrackingMemory {
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            self.recall_sessions
+                .lock()
+                .unwrap()
+                .push(session_id.map(str::to_string));
+            Ok(vec![])
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&MemoryCategory>,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<MemoryEntry>> {
+            Ok(vec![])
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(true)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+
+        fn name(&self) -> &str {
+            "session-tracking"
+        }
+    }
+
     #[tokio::test]
     async fn default_loader_formats_context() {
         let loader = DefaultMemoryLoader::default();
-        let context = loader.load_context(&MockMemory, "hello").await.unwrap();
+        let context = loader
+            .load_context(&MockMemory, "hello", None)
+            .await
+            .unwrap();
         assert!(context.contains("[Memory context]"));
         assert!(context.contains("- k: v"));
     }
@@ -263,7 +331,10 @@ mod tests {
     #[tokio::test]
     async fn cerebro_loader_returns_local_context_when_endpoint_missing() {
         let loader = CerebroMemoryLoader::new(MemoryCerebroConfig::default(), 5, 0.4);
-        let context = loader.load_context(&MockMemory, "hello").await.unwrap();
+        let context = loader
+            .load_context(&MockMemory, "hello", None)
+            .await
+            .unwrap();
         assert!(context.contains("[Memory context]"));
         assert!(context.contains("- k: v"));
     }
@@ -281,8 +352,27 @@ mod tests {
             0.4,
         );
 
-        let context = loader.load_context(&MockMemory, "hello").await.unwrap();
+        let context = loader
+            .load_context(&MockMemory, "hello", None)
+            .await
+            .unwrap();
         assert!(context.contains("[Memory context]"));
         assert!(context.contains("- k: v"));
+    }
+
+    #[tokio::test]
+    async fn default_loader_uses_explicit_session_scope() {
+        let loader = DefaultMemoryLoader::default();
+        let memory = SessionTrackingMemory::default();
+
+        let _ = loader
+            .load_context(&memory, "hello", Some("webhook-session-1"))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            memory.recall_sessions.lock().unwrap().clone(),
+            vec![Some("webhook-session-1".to_string())]
+        );
     }
 }

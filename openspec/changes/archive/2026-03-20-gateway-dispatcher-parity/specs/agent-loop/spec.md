@@ -1,10 +1,6 @@
-# Agent Loop Specification
+# Delta for Agent Loop
 
-## Purpose
-
-This specification defines the canonical Agent Loop behavior for the Corvus project, consolidating the dual-loop paths (`loop_.rs` and `agent.rs` + `dispatcher.rs`) into a single explicit contract. It covers the loop lifecycle, tool-dispatch semantics, session scoping, approval invariants, and security requirements across all entry points (CLI, channels, and gateway).
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Entry Points Alignment
 
@@ -15,7 +11,13 @@ result semantics as other canonical entry points unless an explicitly documented
 compatibility shim applies. Transport shims MUST narrow only how canonical events or results are
 projected onto HTTP responses; they MUST NOT weaken runtime policy or bypass dispatcher decisions.
 
+(Previously: The system MUST provide a unified loop contract across entry points that execute the
+canonical dispatcher (CLI and channels). The gateway webhook path is currently a scoped exception
+that applies canonical pre-checks and then responds via `Provider::simple_chat()`. Any semantic
+differences MUST be explicitly justified and narrow in scope.)
+
 #### Scenario: Gateway webhook uses canonical dispatcher semantics
+
 - GIVEN a user prompt arrives through gateway `/webhook`
 - WHEN the request is admitted past gateway transport checks
 - THEN the system MUST execute the turn through the same canonical dispatcher-backed loop used by
@@ -24,6 +26,7 @@ projected onto HTTP responses; they MUST NOT weaken runtime policy or bypass dis
   channels for an equivalent turn.
 
 #### Scenario: Transport shim does not change runtime semantics
+
 - GIVEN gateway `/webhook` returns an HTTP-specific projection of canonical loop output
 - WHEN the gateway shapes that response for transport compatibility
 - THEN the system MUST preserve the canonical dispatcher decision and final turn outcome
@@ -31,11 +34,14 @@ projected onto HTTP responses; they MUST NOT weaken runtime policy or bypass dis
   completed runtime outcome.
 
 #### Scenario: WhatsApp remains outside this parity contract
+
 - GIVEN a request arrives through gateway `/whatsapp`
 - WHEN this change's parity contract is evaluated
 - THEN the system MUST NOT treat `/whatsapp` as covered by the `/webhook` dispatcher parity
   requirements
 - AND any `/whatsapp` behavior changes MUST be defined in a separate follow-up change.
+
+## ADDED Requirements
 
 ### Requirement: Gateway Transport Boundary Preservation
 
@@ -45,6 +51,7 @@ controls MUST complement dispatcher protections and MUST NOT replace or dilute c
 approval, or tool-dispatch enforcement.
 
 #### Scenario: Transport checks gate runtime entry
+
 - GIVEN a gateway `/webhook` request fails authentication, webhook validation, rate limiting, or
   idempotency checks
 - WHEN the gateway evaluates the inbound request
@@ -60,6 +67,7 @@ turn result that identifies the action as blocked or needing approval, and MUST 
 gated action.
 
 #### Scenario: Approved action proceeds normally
+
 - GIVEN a gateway `/webhook` turn produces a tool action allowed by canonical policy and approval
   rules
 - WHEN the dispatcher evaluates the action
@@ -68,6 +76,7 @@ gated action.
 - AND the final webhook result MUST reflect canonical turn completion semantics.
 
 #### Scenario: Approval-required action is returned as blocked
+
 - GIVEN a gateway `/webhook` turn produces a tool action that canonical policy classifies as
   approval-required
 - WHEN the gateway cannot complete that approval within the request lifecycle
@@ -83,6 +92,7 @@ history. When `X-Session-Id` is absent, the system MUST process the request as a
 with no implicit reuse of prior session state.
 
 #### Scenario: Explicit session id reuses canonical state
+
 - GIVEN a gateway `/webhook` request includes `X-Session-Id`
 - WHEN the system executes the turn
 - THEN the system MUST attach the turn to that canonical session scope
@@ -90,6 +100,7 @@ with no implicit reuse of prior session state.
   identity.
 
 #### Scenario: Missing session id is isolated
+
 - GIVEN a gateway `/webhook` request omits `X-Session-Id`
 - WHEN the system executes the turn
 - THEN the system MUST treat the request as a standalone turn
@@ -104,6 +115,7 @@ compatibility shim rather than a distinct runtime behavior. The gateway MUST NOT
 streaming protocol to preserve parity for this change.
 
 #### Scenario: Synchronous final result mirrors canonical outcome
+
 - GIVEN a gateway `/webhook` request completes through the canonical dispatcher-backed loop
 - WHEN the gateway returns the HTTP response
 - THEN the response MUST include the final turn outcome corresponding to the canonical loop result
@@ -111,6 +123,7 @@ streaming protocol to preserve parity for this change.
   outcomes.
 
 #### Scenario: Event projection remains informational
+
 - GIVEN the gateway includes projected loop events or preview frames in a webhook response
 - WHEN those events are presented to the caller
 - THEN they MUST reflect the canonical dispatcher turn that already executed or was blocked
@@ -125,6 +138,7 @@ compatibility behavior in observability signals, and MUST NOT claim dispatcher p
 request.
 
 #### Scenario: Fallback disables parity claims for a request
+
 - GIVEN the gateway compatibility fallback is enabled for `/webhook`
 - WHEN a webhook request is processed through the legacy path
 - THEN the system MUST mark the request as legacy compatibility behavior in telemetry or audit
@@ -132,101 +146,10 @@ request.
 - AND the request MUST NOT be reported as dispatcher-parity execution.
 
 #### Scenario: Comparative observability supports rollout
+
 - GIVEN `/webhook` dispatcher parity is being rolled out behind a compatibility control
 - WHEN requests are processed across dispatcher-backed and fallback paths
 - THEN the system MUST emit enough structured observability data to distinguish which runtime path
   handled each request
 - AND operators MUST be able to compare parity-path and fallback-path outcomes without exposing
   sensitive values.
-
-### Requirement: Stream Events Lifecycle
-
-The canonical loop MUST emit predictable stream events during its lifecycle, ensuring callers can accurately track prompt assembly, tool execution, and final response generation.
-
-#### Scenario: Standard Iteration Events
-- GIVEN an active agent loop
-- WHEN a tool call is dispatched and completed
-- THEN the system MUST emit start, progress, and completion events for the tool execution
-- AND the system MUST append the results to the loop's context before the next iteration.
-
-### Requirement: Context Compaction
-
-The system MUST enforce context compaction to protect memory limits and runtime stability when the loop iteration history grows beyond the configured threshold.
-
-#### Scenario: Triggering Compaction
-- GIVEN an agent loop iterating over multiple tool calls
-- WHEN the cumulative context size exceeds the predefined safety threshold
-- THEN the system MUST trigger a compaction routine to summarize or truncate older history
-- AND the system MUST preserve the current `session_id` and essential context required for the ongoing task without interruption.
-
-### Requirement: Timeout Aborts
-
-The loop MUST respect per-turn latency and total iteration budgets to prevent runaway execution or unresponsive loops.
-
-#### Scenario: Runaway Loop Abortion
-- GIVEN an active agent loop with a configured iteration budget or timeout limit
-- WHEN the loop exceeds the maximum allowed iterations or processing time
-- THEN the system MUST forcefully abort the loop
-- AND the system MUST emit a timeout error event to the caller
-- AND the system MUST safely release associated session resources.
-
-### Requirement: Error Handling and Fallbacks
-
-The system MUST gracefully handle tool execution failures, network timeouts, and model errors without crashing the agent loop, utilizing retry and backoff discipline.
-
-#### Scenario: Recoverable Tool Failure
-- GIVEN a tool call dispatched during an active loop iteration
-- WHEN the tool execution fails due to a transient error (e.g., network timeout)
-- THEN the system SHOULD attempt to retry the tool call based on configured backoff policies
-- AND if the failure persists, the system MUST return a structured error to the model to allow for an alternative strategy or graceful degradation.
-
-#### Scenario: Unrecoverable Error
-- GIVEN an active agent loop
-- WHEN an unrecoverable error occurs (e.g., severe parsing failure or auth rejection)
-- THEN the system MUST terminate the loop immediately
-- AND the system MUST scrub sensitive values before logging or returning the error to the user.
-
-### Requirement: Security Profiling and Invariants
-
-The loop MUST enforce strict approval, risk classification, and authorization boundaries at every iteration and tool dispatch phase.
-
-#### Scenario: Tool Dispatch with High-Risk Classification
-- GIVEN a tool dispatched by the model that requires elevated privileges
-- WHEN the dispatcher intercepts the tool call request
-- THEN the system MUST evaluate the action against the current session's risk classification and approval policy
-- AND the system MUST block the execution and request explicit user approval if the action exceeds the permitted risk threshold
-- AND the system MUST NOT proceed until explicit authorization is granted or the request is aborted.
-
-### Requirement: Specialized Session Reuse
-
-The canonical agent loop MUST support specialized runtime sessions that reuse the same bootstrap,
-dispatcher, approval, and security boundaries as generic sessions. A specialized session MUST add
-mode-specific behavior without creating a parallel loop contract.
-
-#### Scenario: Code-specialist session uses canonical loop
-- GIVEN a caller starts a code-specialist session from a canonical runtime entry point
-- WHEN the session enters execution
-- THEN the system MUST run that session through the same canonical loop lifecycle used by other
-  dispatcher-backed sessions
-- AND any specialized prompt or output behavior MUST remain inside the canonical loop contract.
-
-### Requirement: Delegated Specialized Sessions
-
-The canonical agent loop MUST permit a parent session to launch a bounded delegated specialized
-session when configuration allows it. Delegated specialized sessions MUST inherit the same policy
-and approval semantics as direct canonical sessions and MUST terminate within their configured
-bounds.
-
-#### Scenario: Delegated code session inherits canonical protections
-- GIVEN a parent canonical session delegates work to a code-specialist session
-- WHEN the delegated session executes tool calls
-- THEN the system MUST apply the same dispatcher policy, approval checks, and security invariants
-  used for direct canonical sessions
-- AND the delegated session MUST return a structured completion result to the parent session.
-
-#### Scenario: Delegated specialized session hits configured limit
-- GIVEN a delegated specialized session with explicit iteration or timeout limits
-- WHEN execution reaches a configured limit before task completion
-- THEN the system MUST stop the delegated session within the same safety model used by the
-  canonical loop
-- AND the session MUST return a structured non-success result that identifies the enforced limit.
