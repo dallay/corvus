@@ -43,10 +43,10 @@ jobs:
       - name: 🔧 Show Gradle version
         run: ./gradlew --version
 
-      - name: 🔧 Check build-logic if exist
+      - name: 🔧 Check build-logic lock task
         id: check_build_logic
         continue-on-error: true
-        run: ./gradlew :build-logic:help
+        run: ./gradlew :build-logic:tasks --all --no-configuration-cache | grep -qE '^writeLocks\b'
 
       - name: 🔏 Write build-logic locks (conditional)
         if: steps.check_build_logic.outcome == 'success'

@@ -146,6 +146,11 @@ jobs:
               )
             }
 
+      - name: 🔧 Check build-logic lock task
+        id: check_build_logic
+        continue-on-error: true
+        run: ./gradlew :build-logic:tasks --all --no-configuration-cache | grep -qE '^writeLocks\b'
+
       - name: 🔏 Write build-logic locks (conditional)
         if: steps.check_build_logic.outcome == 'success'
         run: ./gradlew :build-logic:writeLocks --no-parallel --no-configuration-cache
