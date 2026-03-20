@@ -3,6 +3,7 @@ package com.profiletailors.fixtures
 import java.io.File
 import java.lang.management.ManagementFactory
 import java.nio.file.Files
+import java.util.TreeMap
 import org.gradle.testkit.runner.BuildResult
 import org.gradle.testkit.runner.GradleRunner
 
@@ -51,6 +52,7 @@ class GradleProject {
       .withGradleVersion("9.2.0")
       .withPluginClasspath()
       .withProjectDir(projectDir)
+      .withEnvironment(TreeMap(System.getenv()).apply { remove("CI") })
       .withArguments(args + listOf("-s", "--warning-mode=all"))
       .withDebug(
         ManagementFactory.getRuntimeMXBean().inputArguments.toString().contains("-agentlib:jdwp")
