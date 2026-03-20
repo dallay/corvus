@@ -128,6 +128,7 @@ org.jspecify:jspecify:1.0.0=compileClasspath,testCompileClasspath
 org.junit.jupiter:junit-jupiter-api:5.10.1=testCompileClasspath
 org.junit.jupiter:junit-jupiter-params:5.10.1=testCompileClasspath
 org.junit.platform:junit-platform-commons:1.10.1=testCompileClasspath
+org.junit:junit-bom:5.10.1=testCompileClasspath
 org.openapi.generator:org.openapi.generator.gradle.plugin:7.19.0=compileClasspath,testCompileClasspath
 org.openapitools:openapi-generator-gradle-plugin:7.19.0=compileClasspath,testCompileClasspath
 org.openrewrite.rewrite:org.openrewrite.rewrite.gradle.plugin:7.28.0=compileClasspath,testCompileClasspath

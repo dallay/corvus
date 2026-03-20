@@ -3,6 +3,7 @@
 import com.autonomousapps.DependencyAnalysisExtension
 import com.autonomousapps.DependencyAnalysisSubExtension
 import com.profiletailors.plugin.GradleExtTool
+import com.profiletailors.plugin.environment.EnvAccess
 import com.profiletailors.plugin.injected
 import com.profiletailors.plugin.resetTaskGroup
 import java.io.ByteArrayOutputStream
@@ -60,10 +61,14 @@ listOf("artifactsReportMain" to "help", "fixDependencies" to "toolbox").forEach 
   resetTaskGroup(it.first, it.second)
 }
 
+val isCI = EnvAccess.isCi(providers)
+
 // https://docs.gradle.org/nightly/userguide/dependency_locking.html
 dependencyLocking {
-  lockMode.set(LockMode.STRICT)
   ignoredDependencies.add("com.example:*")
+  if (isCI) {
+    lockMode = LockMode.STRICT
+  }
 }
 
 configurations {
