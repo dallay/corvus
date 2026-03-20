@@ -19,7 +19,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -295,7 +295,7 @@ fun ChatInputField(
     ) {
       IconButton(onClick = onSend, enabled = isEnabled) {
         Icon(
-          imageVector = Icons.Default.Send,
+          imageVector = Icons.AutoMirrored.Filled.Send,
           contentDescription = "Send",
           tint = Color.White,
           modifier = Modifier.size(22.dp),
