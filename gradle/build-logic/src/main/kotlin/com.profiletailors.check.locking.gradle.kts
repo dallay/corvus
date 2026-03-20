@@ -16,12 +16,26 @@ val excludedLockingConfigurations =
     "resolvedDepsClasspath",
   )
 
+val buildLogicOnlyExcludedLockingConfigurations =
+  setOf(
+    "precompiledScriptPluginAccessorsGenerationClasspath",
+    "runtimeClasspath",
+    "testRuntimeClasspath",
+  )
+
 fun Configuration.shouldUseDependencyLocking(): Boolean {
   if (!isCanBeResolved) {
     return false
   }
 
   if (name in excludedLockingConfigurations) {
+    return false
+  }
+
+  if (
+    project.rootProject.name == "corvus-build-logic" &&
+      name in buildLogicOnlyExcludedLockingConfigurations
+  ) {
     return false
   }
 
