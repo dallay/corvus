@@ -61,7 +61,10 @@ listOf("artifactsReportMain" to "help", "fixDependencies" to "toolbox").forEach 
 }
 
 // https://docs.gradle.org/nightly/userguide/dependency_locking.html
-dependencyLocking { ignoredDependencies.add("com.example:*") }
+dependencyLocking {
+  lockMode.set(LockMode.STRICT)
+  ignoredDependencies.add("com.example:*")
+}
 
 configurations {
   configureEach {

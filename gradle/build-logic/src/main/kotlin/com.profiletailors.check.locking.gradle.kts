@@ -4,11 +4,15 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
-val excludedLockingConfigurationPrefixes = listOf("spotless", "detachedConfiguration")
+val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
+
+val excludedLockingConfigurationPrefixes =
+  listOf("allDevSourceSets", "composeHotReloadDev", "detachedConfiguration", "jvmDev", "spotless")
 
 val excludedLockingConfigurations =
   setOf(
     "combinedGraphClasspath",
+    "commonTestResolvableDependenciesMetadata",
     "projectHealthClasspath",
     "projectMetadataClasspath",
     "resolvedDepsClasspath",
@@ -22,14 +26,22 @@ val buildLogicOnlyExcludedLockingConfigurations =
   )
 
 fun Configuration.shouldUseDependencyLocking(): Boolean {
-  val isBuildLogicExcluded =
+  if (!isCanBeResolved) {
+    return false
+  }
+
+  if (name in excludedLockingConfigurations) {
+    return false
+  }
+
+  if (
     project.rootProject.name == "corvus-build-logic" &&
       name in buildLogicOnlyExcludedLockingConfigurations
+  ) {
+    return false
+  }
 
-  return isCanBeResolved &&
-    name !in excludedLockingConfigurations &&
-    !isBuildLogicExcluded &&
-    excludedLockingConfigurationPrefixes.none { prefix -> name.startsWith(prefix) }
+  return excludedLockingConfigurationPrefixes.none { prefix -> name.startsWith(prefix) }
 }
 
 fun findGradleWrapper(startDir: File): File? {
@@ -41,7 +53,12 @@ fun findGradleWrapper(startDir: File): File? {
     .firstOrNull { it.isFile }
 }
 
-dependencyLocking { ignoredDependencies.add("com.example:*") }
+dependencyLocking {
+  ignoredDependencies.add("com.example:*")
+  if (isCi) {
+    lockMode = LockMode.STRICT
+  }
+}
 
 buildscript.configurations.configureEach {
   if (shouldUseDependencyLocking()) {
