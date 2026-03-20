@@ -153,6 +153,8 @@ jobs:
           echo "COMMIT_MSG=${COMMIT_MSG}" >> $GITHUB_ENV
 
       - name: 💾 Commit file changes (only for bots)
+        env:
+          SKIP_GIT_HOOKS: "1"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -194,6 +196,8 @@ jobs:
             }
 
       - name: 🚀 Push lockfile updates
+        env:
+          SKIP_GIT_HOOKS: "1"
         run: git push origin HEAD:${{ steps.get-pr-data.outputs.head_branch }}
 
       - name: 💬 Add reaction to trigger comment

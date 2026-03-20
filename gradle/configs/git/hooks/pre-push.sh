@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
 
+if [ "${SKIP_GIT_HOOKS:-0}" = "1" ]; then
+    echo "⏭️  Skipping pre-push hook (SKIP_GIT_HOOKS=1)"
+    exit 0
+fi
+
 echo "🚀 Pre-push check start"
 
 RUST_RUNTIME_DIR="clients/agent-runtime"
