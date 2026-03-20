@@ -141,3 +141,46 @@ fn copy_dir(src: &std::path::Path, dst: &std::path::Path) -> Result<()> {
     }
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn write_embedded_bridge_creates_expected_layout() {
+        let temp_dir = tempfile::tempdir().unwrap();
+
+        write_embedded_bridge(temp_dir.path()).unwrap();
+
+        assert!(temp_dir.path().join("app.yaml").exists());
+        assert!(temp_dir.path().join("sketch").join("sketch.ino").exists());
+        assert!(temp_dir.path().join("sketch").join("sketch.yaml").exists());
+        assert!(temp_dir.path().join("python").join("main.py").exists());
+        assert!(temp_dir
+            .path()
+            .join("python")
+            .join("requirements.txt")
+            .exists());
+    }
+
+    #[test]
+    fn copy_dir_recursively_copies_files() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        std::fs::create_dir_all(src.path().join("nested")).unwrap();
+        std::fs::write(src.path().join("app.yaml"), "name: bridge\n").unwrap();
+        std::fs::write(src.path().join("nested").join("main.py"), "print('ok')\n").unwrap();
+
+        copy_dir(src.path(), dst.path()).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dst.path().join("app.yaml")).unwrap(),
+            "name: bridge\n"
+        );
+        assert_eq!(
+            std::fs::read_to_string(dst.path().join("nested").join("main.py")).unwrap(),
+            "print('ok')\n"
+        );
+    }
+}

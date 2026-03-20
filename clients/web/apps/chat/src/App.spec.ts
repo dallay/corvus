@@ -151,4 +151,76 @@ describe("App", () => {
       "Bearer zc_test_token"
     );
   });
+
+  it("bloquea guardar secretos cuando el gateway no es seguro", async () => {
+    const wrapper = mountApp();
+
+    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
+    await wrapper
+      .get(`input[placeholder="${translatedPlaceholder("form.baseUrlPlaceholder")}"]`)
+      .setValue("http://example.com");
+    await wrapper
+      .get(`input[placeholder="${translatedPlaceholder("form.pairingCodePlaceholder")}"]`)
+      .setValue("123456");
+    await wrapper.get("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain(translatedPlaceholder("errors.insecureUrlError"));
+  });
+
+  it("incluye webhook secret al enviar mensajes despues de guardar configuracion local", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ response: "ok" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const wrapper = mountApp();
+
+    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
+    await wrapper
+      .get(`input[placeholder="${translatedPlaceholder("form.baseUrlPlaceholder")}"]`)
+      .setValue("https://example.com");
+    await wrapper
+      .get(`input[placeholder="${translatedPlaceholder("form.webhookSecretPlaceholder")}"]`)
+      .setValue("shared-secret");
+    await wrapper.get("form").trigger("submit.prevent");
+    await flushPromises();
+
+    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
+    const input = wrapper.get(
+      `input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`
+    );
+    await input.setValue("hola webhook");
+    await wrapper.get("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [webhookUrl, webhookInit] = fetchMock.mock.calls[0] ?? [];
+    expect(String(webhookUrl)).toBe("https://example.com/webhook");
+    expect((webhookInit?.headers as Record<string, string>)["X-Webhook-Secret"]).toBe(
+      "shared-secret"
+    );
+  });
+
+  it("muestra error de timeout cuando el webhook expira", async () => {
+    const abortError = new Error("timeout");
+    abortError.name = "AbortError";
+    fetchMock.mockRejectedValueOnce(abortError);
+
+    const wrapper = mountApp();
+    const input = wrapper.get(
+      `input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`
+    );
+    await input.setValue("hola timeout");
+    await wrapper.get("form").trigger("submit.prevent");
+    await flushPromises();
+
+    const chatMessages = wrapper.findAll('[data-testid="chat-message"]');
+    expect(chatMessages[chatMessages.length - 1]?.text()).toContain(
+      translatedPlaceholder("chat.timeoutError")
+    );
+  });
 });

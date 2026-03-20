@@ -322,3 +322,89 @@ async fn connect_serial_board(
 pub async fn create_peripheral_tools(_config: &PeripheralsConfig) -> Result<Vec<Box<dyn Tool>>> {
     Ok(Vec::new())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn board(board: &str, transport: &str, path: Option<&str>) -> PeripheralBoardConfig {
+        PeripheralBoardConfig {
+            board: board.to_string(),
+            transport: transport.to_string(),
+            path: path.map(str::to_string),
+            baud: 115_200,
+        }
+    }
+
+    #[test]
+    fn list_configured_boards_returns_empty_when_disabled() {
+        let config = PeripheralsConfig {
+            enabled: false,
+            boards: vec![board("nucleo-f401re", "serial", Some("/dev/ttyACM0"))],
+            datasheet_dir: None,
+        };
+
+        assert!(list_configured_boards(&config).is_empty());
+    }
+
+    #[test]
+    fn list_configured_boards_returns_all_boards_when_enabled() {
+        let config = PeripheralsConfig {
+            enabled: true,
+            boards: vec![
+                board("nucleo-f401re", "serial", Some("/dev/ttyACM0")),
+                board("arduino-uno-q", "bridge", None),
+            ],
+            datasheet_dir: None,
+        };
+
+        let boards = list_configured_boards(&config);
+        assert_eq!(boards.len(), 2);
+        assert_eq!(boards[0].board, "nucleo-f401re");
+        assert_eq!(boards[1].transport, "bridge");
+    }
+
+    #[test]
+    fn validate_board_config_rejects_invalid_entries() {
+        assert_eq!(
+            validate_board_config(&board("", "serial", Some("/dev/ttyACM0"))).unwrap_err(),
+            "board name is empty"
+        );
+        assert_eq!(
+            validate_board_config(&board("uno", "serial", Some("   "))).unwrap_err(),
+            "serial transport requires a path"
+        );
+        assert_eq!(
+            validate_board_config(&board("uno", "bluetooth", None)).unwrap_err(),
+            "unsupported transport 'bluetooth' (use: serial, native, bridge)"
+        );
+    }
+
+    #[test]
+    fn validate_board_config_accepts_supported_transports() {
+        assert!(validate_board_config(&board("uno", "native", None)).is_ok());
+        assert!(validate_board_config(&board("uno", "bridge", None)).is_ok());
+        assert!(validate_board_config(&board("uno", "serial", Some("/dev/ttyUSB0"))).is_ok());
+    }
+
+    #[cfg(feature = "hardware")]
+    #[test]
+    fn try_add_uno_q_bridge_tools_only_for_bridge_transport() {
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+
+        assert!(try_add_uno_q_bridge_tools(
+            &board("arduino-uno-q", "bridge", None),
+            &mut tools,
+        ));
+        assert_eq!(tools.len(), 2);
+        assert_eq!(tools[0].name(), "gpio_read");
+        assert_eq!(tools[1].name(), "gpio_write");
+
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+        assert!(!try_add_uno_q_bridge_tools(
+            &board("arduino-uno-q", "serial", Some("/dev/ttyACM0")),
+            &mut tools,
+        ));
+        assert!(tools.is_empty());
+    }
+}

@@ -155,3 +155,49 @@ impl Tool for UnoQGpioWriteTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tools::traits::Tool;
+
+    #[test]
+    fn read_tool_exposes_expected_schema() {
+        let tool = UnoQGpioReadTool;
+
+        assert_eq!(tool.name(), "gpio_read");
+        assert!(tool.description().contains("Arduino Uno Q"));
+        assert_eq!(tool.parameters_schema()["required"], json!(["pin"]));
+    }
+
+    #[tokio::test]
+    async fn read_tool_requires_pin_parameter() {
+        let tool = UnoQGpioReadTool;
+        let error = tool.execute(json!({})).await.unwrap_err();
+
+        assert_eq!(error.to_string(), "Missing 'pin' parameter");
+    }
+
+    #[test]
+    fn write_tool_exposes_expected_schema() {
+        let tool = UnoQGpioWriteTool;
+
+        assert_eq!(tool.name(), "gpio_write");
+        assert!(tool.description().contains("Set GPIO pin"));
+        assert_eq!(
+            tool.parameters_schema()["required"],
+            json!(["pin", "value"])
+        );
+    }
+
+    #[tokio::test]
+    async fn write_tool_requires_both_parameters() {
+        let tool = UnoQGpioWriteTool;
+
+        let missing_pin = tool.execute(json!({ "value": 1 })).await.unwrap_err();
+        assert_eq!(missing_pin.to_string(), "Missing 'pin' parameter");
+
+        let missing_value = tool.execute(json!({ "pin": 13 })).await.unwrap_err();
+        assert_eq!(missing_value.to_string(), "Missing 'value' parameter");
+    }
+}
