@@ -1477,16 +1477,6 @@ fn parse_webhook_body(body: WebhookJsonBody) -> Result<WebhookBody, WebhookRespo
     }
 }
 
-fn webhook_idempotency_rejection(state: &AppState, headers: &HeaderMap) -> Option<WebhookResponse> {
-    let idempotency_key = webhook_idempotency_key(headers)?;
-
-    if !state.idempotency_store.record_if_new(idempotency_key) {
-        return Some(webhook_duplicate_response(idempotency_key));
-    }
-
-    None
-}
-
 async fn canonical_outcome_early_response(
     state: &AppState,
     session_id: &str,
@@ -1626,18 +1616,17 @@ async fn handle_webhook(
     let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
     let config = state.config.lock().clone();
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
+    let reserved_idempotency_key = if let Some(idempotency_key) = webhook_idempotency_key(&headers)
+    {
+        if !state.idempotency_store.record_if_new(idempotency_key) {
+            return webhook_duplicate_response(idempotency_key);
+        }
+        Some(idempotency_key)
+    } else {
+        None
+    };
     if dispatcher_enabled {
         log_webhook_runtime_path(&session_id, true, "dispatcher_flag_enabled");
-        let reserved_idempotency_key =
-            if let Some(idempotency_key) = webhook_idempotency_key(&headers) {
-                if !state.idempotency_store.record_if_new(idempotency_key) {
-                    return webhook_duplicate_response(idempotency_key);
-                }
-                Some(idempotency_key)
-            } else {
-                None
-            };
-
         let dispatch_result = webhook_dispatch::execute(
             &config,
             Arc::clone(&state.provider),
@@ -1673,17 +1662,13 @@ async fn handle_webhook(
         if let Some((response, persist_idempotency)) =
             canonical_outcome_early_response(&state, &session_id, &scrubbed_message).await
         {
-            if persist_idempotency {
-                if let Some(rejection) = webhook_idempotency_rejection(&state, &headers) {
-                    return rejection;
+            if !persist_idempotency {
+                if let Some(idempotency_key) = reserved_idempotency_key {
+                    state.idempotency_store.remove(idempotency_key);
                 }
             }
             return response;
         }
-    }
-
-    if let Some(rejection) = webhook_idempotency_rejection(&state, &headers) {
-        return rejection;
     }
 
     if state.auto_save {
@@ -1717,7 +1702,7 @@ async fn handle_webhook(
             messages_count: 1,
         });
 
-    match state
+    let (response, persist_idempotency) = match state
         .provider
         .simple_chat(message, &state.model, state.temperature)
         .await
@@ -1753,7 +1738,7 @@ async fn handle_webhook(
                 "model": state.model,
                 "session_id": session_id,
             });
-            (StatusCode::OK, Json(body))
+            ((StatusCode::OK, Json(body)), true)
         }
         Err(e) => {
             let duration = started_at.elapsed();
@@ -1790,9 +1775,17 @@ async fn handle_webhook(
             tracing::error!("Webhook provider error: {}", sanitized);
             log_webhook_terminal_outcome(&session_id, "legacy_simple_chat", "error");
             let err = serde_json::json!({"error": "LLM request failed"});
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(err))
+            ((StatusCode::INTERNAL_SERVER_ERROR, Json(err)), false)
+        }
+    };
+
+    if !persist_idempotency {
+        if let Some(idempotency_key) = reserved_idempotency_key {
+            state.idempotency_store.remove(idempotency_key);
         }
     }
+
+    response
 }
 
 /// `WhatsApp` verification query params
@@ -2763,6 +2756,12 @@ mod tests {
         simple_calls: AtomicUsize,
     }
 
+    #[derive(Default)]
+    struct FailingWebhookProvider {
+        chat_calls: AtomicUsize,
+        simple_calls: AtomicUsize,
+    }
+
     impl SequencedChatProvider {
         fn new(responses: Vec<ChatResponse>) -> Self {
             let mut responses = responses;
@@ -2812,6 +2811,43 @@ mod tests {
                 text: Some("script exhausted".into()),
                 tool_calls: Vec::new(),
             }))
+        }
+    }
+
+    #[async_trait]
+    impl Provider for FailingWebhookProvider {
+        fn supports_native_tools(&self) -> bool {
+            true
+        }
+
+        async fn simple_chat(
+            &self,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            self.simple_calls.fetch_add(1, Ordering::SeqCst);
+            anyhow::bail!("legacy failure")
+        }
+
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            anyhow::bail!("unused")
+        }
+
+        async fn chat(
+            &self,
+            _request: ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            self.chat_calls.fetch_add(1, Ordering::SeqCst);
+            anyhow::bail!("dispatcher failure")
         }
     }
 
@@ -2922,12 +2958,9 @@ mod tests {
         let config_path = root.join("config.toml");
         let workspace_path = root.join("workspace");
         std::fs::create_dir_all(&workspace_path).unwrap();
-
         let mut config = Config::default();
         config.config_path = config_path;
         config.workspace_dir = workspace_path;
-        config.gateway.webhook_dispatcher_enabled =
-            std::env::var("CORVUS_GATEWAY_WEBHOOK_DISPATCHER").as_deref() == Ok("1");
         config
     }
 
@@ -3732,9 +3765,11 @@ mod tests {
 
         let provider_impl = Arc::new(DispatchAwareProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
 
         let state = AppState {
-            config: Arc::new(Mutex::new(temp_config())),
+            config: Arc::new(Mutex::new(config)),
             provider,
             model: "test-model".into(),
             temperature: 0.0,
@@ -3815,9 +3850,11 @@ mod tests {
 
         let provider_impl = Arc::new(DispatchAwareProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
 
         let state = AppState {
-            config: Arc::new(Mutex::new(temp_config())),
+            config: Arc::new(Mutex::new(config)),
             provider,
             model: "test-model".into(),
             temperature: 0.0,
@@ -3884,9 +3921,11 @@ mod tests {
             },
         ]));
         let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
 
         let state = AppState {
-            config: Arc::new(Mutex::new(temp_config())),
+            config: Arc::new(Mutex::new(config)),
             provider,
             model: "test-model".into(),
             temperature: 0.0,
@@ -3960,9 +3999,11 @@ mod tests {
             },
         ]));
         let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
 
         let state = AppState {
-            config: Arc::new(Mutex::new(temp_config())),
+            config: Arc::new(Mutex::new(config)),
             provider,
             model: "test-model".into(),
             temperature: 0.0,
@@ -4020,6 +4061,73 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn webhook_provider_failures_keep_idempotency_retryable_in_legacy_and_dispatcher() {
+        for dispatcher_enabled in [false, true] {
+            let guard_value = if dispatcher_enabled { "1" } else { "0" };
+            let _dispatcher = GatewayWebhookDispatcherEnvGuard::set(guard_value).await;
+            let provider_impl = Arc::new(FailingWebhookProvider::default());
+            let provider: Arc<dyn Provider> = provider_impl.clone();
+            let mut config = temp_config();
+            config.gateway.webhook_dispatcher_enabled = dispatcher_enabled;
+
+            let state = AppState {
+                config: Arc::new(Mutex::new(config)),
+                provider,
+                model: "test-model".into(),
+                temperature: 0.0,
+                mem: Arc::new(MockMemory),
+                auto_save: false,
+                webhook_secret_hash: None,
+                pairing: Arc::new(PairingGuard::new(false, &[])),
+                trust_forwarded_headers: false,
+                rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+                idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+                whatsapp: None,
+                whatsapp_app_secret: None,
+                observer: Arc::new(crate::observability::NoopObserver),
+            };
+
+            let mut headers = HeaderMap::new();
+            headers.insert(
+                "X-Idempotency-Key",
+                HeaderValue::from_static("retry-on-500"),
+            );
+
+            let first = handle_webhook(
+                State(state.clone()),
+                test_connect_info(),
+                headers.clone(),
+                Ok(Json(WebhookBody {
+                    message: "trigger failure".into(),
+                })),
+            )
+            .await
+            .into_response();
+            assert_eq!(first.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+            let second = handle_webhook(
+                State(state),
+                test_connect_info(),
+                headers,
+                Ok(Json(WebhookBody {
+                    message: "trigger failure".into(),
+                })),
+            )
+            .await
+            .into_response();
+            assert_eq!(second.status(), StatusCode::INTERNAL_SERVER_ERROR);
+
+            if dispatcher_enabled {
+                assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 2);
+                assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+            } else {
+                assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+                assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 2);
+            }
+        }
+    }
+
+    #[tokio::test]
     async fn webhook_dispatcher_blocks_mcp_tool_with_structured_denial() {
         // End-to-end proof for the runtime-reachable MCP /webhook path: dispatcher policy denies
         // the tool before any live MCP execution can occur.
@@ -4042,6 +4150,7 @@ mod tests {
         let provider: Arc<dyn Provider> = provider_impl.clone();
 
         let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
         config.mcp.enabled = true;
 
         let state = AppState {
@@ -4089,9 +4198,11 @@ mod tests {
 
         let provider_impl = Arc::new(ErrorChatProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
 
         let state = AppState {
-            config: Arc::new(Mutex::new(temp_config())),
+            config: Arc::new(Mutex::new(config)),
             provider,
             model: "test-model".into(),
             temperature: 0.0,
@@ -4497,9 +4608,11 @@ mod tests {
         let provider: Arc<dyn Provider> = provider_impl.clone();
         let tracking_impl = Arc::new(TrackingMemory::default());
         let memory: Arc<dyn Memory> = tracking_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
 
         let state = AppState {
-            config: Arc::new(Mutex::new(temp_config())),
+            config: Arc::new(Mutex::new(config)),
             provider,
             model: "test-model".into(),
             temperature: 0.0,
@@ -4691,9 +4804,11 @@ mod tests {
         let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("1").await;
         let provider_impl = Arc::new(DispatchAwareProvider::default());
         let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.gateway.webhook_dispatcher_enabled = true;
 
         let state = AppState {
-            config: Arc::new(Mutex::new(temp_config())),
+            config: Arc::new(Mutex::new(config)),
             provider,
             model: "test-model".into(),
             temperature: 0.0,

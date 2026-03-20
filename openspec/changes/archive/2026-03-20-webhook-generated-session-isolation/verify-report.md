@@ -33,6 +33,12 @@ Assessment: complete. The contingent tasks are now explicitly resolved as not ap
 
 **Scoped behavioral tests executed**
 
+- ⚠️ `cargo fmt --manifest-path "clients/agent-runtime/Cargo.toml" --all -- --check`
+  - Exit `1`: workspace-level failure due a pre-existing missing file reference outside the scoped
+    Rust surface (`modules/cerebro/src/bin/cerebro.rs`); touched `clients/agent-runtime/**/*.rs`
+    files were formatted directly before merge.
+- ✅ `cargo clippy --manifest-path "clients/agent-runtime/Cargo.toml" --all-targets -- -D warnings`
+  - Exit `0`
 - ✅ `cargo test webhook_dispatcher_generates_isolated_session_when_header_missing -- --nocapture`
   - Passed: `gateway::tests::webhook_dispatcher_generates_isolated_session_when_header_missing`
 - ✅ `cargo test turn_with_context_keeps_missing_session_isolated -- --nocapture`
@@ -77,7 +83,7 @@ Runtime evidence from `gateway::tests::webhook_dispatcher_generates_isolated_ses
 Supporting lower-layer consistency evidence:
 
 - `turn_with_context_scopes_memory_recall_and_auto_save_to_session` in `clients/agent-runtime/src/agent/tests.rs` already proves explicit session propagation for recall and auto-save.
-- `turn_with_context_omits_session_scope_when_context_missing` in `clients/agent-runtime/src/agent/tests.rs` already proves `TurnContext::default()` keeps a missing session isolated at the agent layer.
+- `turn_with_context_keeps_missing_session_isolated` in `clients/agent-runtime/src/agent/tests.rs` proves `TurnContext::default()` keeps a missing session isolated at the agent layer.
 - `turn_context_for_request(...)` in `clients/agent-runtime/src/gateway/webhook_dispatch.rs` propagates generated webhook sessions into canonical turn context via `Some(request.session_id.clone())`, matching the expected design with no production fix needed.
 
 ---

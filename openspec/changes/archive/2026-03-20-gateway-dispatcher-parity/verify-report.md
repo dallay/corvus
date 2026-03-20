@@ -14,7 +14,7 @@
 | Tasks complete | 18 |
 | Tasks incomplete | 0 |
 
-All checklist items in `openspec/changes/gateway-dispatcher-parity/tasks.md` are marked complete.
+All checklist items in `openspec/changes/archive/2026-03-20-gateway-dispatcher-parity/tasks.md` are marked complete.
 
 ---
 

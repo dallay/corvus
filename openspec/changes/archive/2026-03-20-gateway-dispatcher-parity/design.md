@@ -255,11 +255,12 @@ Earlier bool-based outcome sketches were pre-implementation pseudocode. The land
 
 Response mapping contract for `/webhook`:
 - `200 OK` + `response` for completed turns
+- `200 OK` + `response` and `fallback: true` for `WebhookTerminalOutcome::Fallback`
 - `403 Forbidden` + structured `error` payload for approval-required tool actions
 - `408 Request Timeout` + `aborted: true` for canonical timeout aborts
-- `500 Internal Server Error` only for transport/runtime failures that do not produce a canonical
-  terminal outcome
-- `session_id` MUST always be echoed in terminal responses
+- `500 Internal Server Error` + structured `error` payload for `WebhookTerminalOutcome::Error`,
+  distinct from transport-only failures that never produce a canonical terminal outcome
+- `session_id` MUST always be echoed in all terminal responses
 - `events_sse` MAY be included when preview/stream-compatible mode is enabled, but the frames MUST
   be derived from the real canonical execution path, not synthetic preview helpers
 

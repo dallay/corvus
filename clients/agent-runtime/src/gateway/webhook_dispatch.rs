@@ -10,7 +10,6 @@ use crate::providers::traits::{
     ProviderCapabilities, StreamChunk, StreamOptions, StreamResult, ToolsPayload,
 };
 use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider};
-use crate::security::ExecutionOrigin;
 use futures_util::stream;
 use std::sync::Arc;
 
@@ -148,10 +147,7 @@ pub(crate) fn turn_context_for_request(request: &WebhookTurnRequest) -> TurnCont
     // Generated webhook session ids are still propagated into the canonical turn so memory,
     // observer correlation, and audit continuity stay isolated per request instead of falling back
     // to a shared unscoped webhook bucket.
-    TurnContext {
-        session_id: Some(request.session_id.clone()),
-        origin: ExecutionOrigin::Standard,
-    }
+    TurnContext::with_session(request.session_id.clone())
 }
 
 pub(crate) fn map_canonical_result(
@@ -292,11 +288,23 @@ fn render_sse_frame(session_id: &str, event_name: &str, payload: Option<&str>) -
         }
         _ => "data:\n".to_string(),
     };
-    format!("id: {session_id}\nevent: {event_name}\n{data_lines}\n")
+    format!(
+        "id: {}\nevent: {event_name}\n{data_lines}\n",
+        sanitize_sse_id(session_id)
+    )
+}
+
+fn sanitize_sse_id(session_id: &str) -> String {
+    session_id
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .trim()
+        .replace(['\r', '\n'], "")
 }
 
 fn approval_denial_from_history(history: &[ConversationMessage]) -> Option<(String, String)> {
-    history.iter().find_map(|message| {
+    history.iter().rev().find_map(|message| {
         let ConversationMessage::ToolResults(results) = message else {
             return None;
         };
@@ -364,16 +372,15 @@ pub(crate) async fn execute(
         .await
     {
         Ok(result) => {
-            if let Some((tool, reason)) = result
-                .approval_required
-                .as_ref()
-                .and_then(approval_denial_from_value)
-            {
-                map_canonical_result(
-                    &request,
-                    model,
-                    CanonicalWebhookResult::ApprovalRequired { tool, reason },
-                )
+            if let Some(approval_required) = result.approval_required.as_ref() {
+                match approval_denial_from_value(approval_required) {
+                    Some((tool, reason)) => map_canonical_result(
+                        &request,
+                        model,
+                        CanonicalWebhookResult::ApprovalRequired { tool, reason },
+                    ),
+                    None => map_canonical_result(&request, model, CanonicalWebhookResult::Error),
+                }
             } else {
                 map_canonical_result(&request, model, CanonicalWebhookResult::Agent(result))
             }
@@ -383,13 +390,17 @@ pub(crate) async fn execute(
 }
 
 fn approval_denial_from_value(value: &serde_json::Value) -> Option<(String, String)> {
+    if value.get("code")?.as_str()? != "approval_required" {
+        return None;
+    }
+    let tool = value.get("tool")?.as_str()?.to_string();
     Some((
-        value.get("tool")?.as_str()?.to_string(),
+        tool.clone(),
         value
             .get("reason")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or("approval_required")
-            .to_string(),
+            .map(str::to_string)
+            .unwrap_or_else(|| approval_reason_for_tool(&tool)),
     ))
 }
 
@@ -421,7 +432,6 @@ mod tests {
         let context = turn_context_for_request(&sample_request(WebhookSessionSource::Explicit));
 
         assert_eq!(context.session_id.as_deref(), Some("webhook-123"));
-        assert_eq!(context.origin, ExecutionOrigin::Standard);
     }
 
     #[test]
@@ -429,7 +439,16 @@ mod tests {
         let context = turn_context_for_request(&sample_request(WebhookSessionSource::Generated));
 
         assert_eq!(context.session_id.as_deref(), Some("webhook-123"));
-        assert_eq!(context.origin, ExecutionOrigin::Standard);
+    }
+
+    #[test]
+    fn render_sse_frame_sanitizes_session_id_to_single_line() {
+        let frame = render_sse_frame(" session\nmalicious\r\nid ", "complete", Some("ok"));
+
+        assert!(frame.starts_with("id: session\n"));
+        assert!(!frame.contains("malicious"));
+        assert!(!frame.contains("id "));
+        assert_eq!(frame.matches("id:").count(), 1);
     }
 
     #[test]
@@ -522,6 +541,60 @@ mod tests {
             approval_denial_from_history(&history),
             Some(("shell".into(), "approval required".into()))
         );
+    }
+
+    #[test]
+    fn approval_denial_from_value_derives_reason_when_missing() {
+        let value = serde_json::json!({
+            "code": "approval_required",
+            "tool": "shell",
+        });
+
+        assert_eq!(
+            approval_denial_from_value(&value),
+            Some(("shell".into(), "shell".into()))
+        );
+    }
+
+    #[test]
+    fn malformed_approval_payload_maps_to_error_instead_of_completed() {
+        let request = sample_request(WebhookSessionSource::Explicit);
+        let result = execute_result_to_webhook_result(
+            &request,
+            "test-model",
+            AgentTurnResult {
+                session_id: Some("webhook-123".into()),
+                final_text: Some("done".into()),
+                terminal_outcome: AgentTurnOutcome::Completed,
+                approval_required: Some(serde_json::json!({
+                    "code": "approval_required",
+                    "reason": "missing tool",
+                })),
+                event_log: vec![AgentTurnEvent::Prepared, AgentTurnEvent::Completed],
+            },
+        );
+
+        assert_eq!(result.outcome, WebhookTerminalOutcome::Error);
+        assert_eq!(result.response_text, None);
+    }
+
+    fn execute_result_to_webhook_result(
+        request: &WebhookTurnRequest,
+        model: &str,
+        result: AgentTurnResult,
+    ) -> WebhookTurnResult {
+        if let Some(approval_required) = result.approval_required.as_ref() {
+            match approval_denial_from_value(approval_required) {
+                Some((tool, reason)) => map_canonical_result(
+                    request,
+                    model,
+                    CanonicalWebhookResult::ApprovalRequired { tool, reason },
+                ),
+                None => map_canonical_result(request, model, CanonicalWebhookResult::Error),
+            }
+        } else {
+            map_canonical_result(request, model, CanonicalWebhookResult::Agent(result))
+        }
     }
 
     #[test]

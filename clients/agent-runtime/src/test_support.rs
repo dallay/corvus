@@ -29,35 +29,39 @@ pub(crate) fn mock_mcp_server(name: &str, tool_name: &str) -> McpServerConfig {
 }
 
 #[cfg(test)]
-fn gateway_webhook_dispatcher_env_mutex() -> &'static tokio::sync::Mutex<()> {
-    static GATEWAY_WEBHOOK_DISPATCHER_ENV_MUTEX: std::sync::LazyLock<tokio::sync::Mutex<()>> =
-        std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+fn gateway_webhook_dispatcher_env_mutex() -> &'static std::sync::Mutex<()> {
+    static GATEWAY_WEBHOOK_DISPATCHER_ENV_MUTEX: std::sync::LazyLock<std::sync::Mutex<()>> =
+        std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
 
     &GATEWAY_WEBHOOK_DISPATCHER_ENV_MUTEX
 }
 
 #[cfg(test)]
-pub(crate) async fn acquire_gateway_webhook_dispatcher_lock() -> tokio::sync::MutexGuard<'static, ()>
-{
-    gateway_webhook_dispatcher_env_mutex().lock().await
+pub(crate) fn acquire_gateway_webhook_dispatcher_lock() -> std::sync::MutexGuard<'static, ()> {
+    gateway_webhook_dispatcher_env_mutex()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]
 pub(crate) fn acquire_gateway_webhook_dispatcher_lock_blocking(
-) -> tokio::sync::MutexGuard<'static, ()> {
-    gateway_webhook_dispatcher_env_mutex().blocking_lock()
+) -> std::sync::MutexGuard<'static, ()> {
+    gateway_webhook_dispatcher_env_mutex()
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 #[cfg(test)]
 pub(crate) struct GatewayWebhookDispatcherEnvGuard {
-    _lock: tokio::sync::MutexGuard<'static, ()>,
+    _lock: std::sync::MutexGuard<'static, ()>,
     previous: Option<String>,
 }
 
 #[cfg(test)]
 impl GatewayWebhookDispatcherEnvGuard {
+    #[allow(clippy::unused_async)]
     pub(crate) async fn set(value: &'static str) -> Self {
-        let lock = acquire_gateway_webhook_dispatcher_lock().await;
+        let lock = acquire_gateway_webhook_dispatcher_lock();
         Self::set_with_lock(lock, value)
     }
 
@@ -66,7 +70,7 @@ impl GatewayWebhookDispatcherEnvGuard {
         Self::set_with_lock(lock, value)
     }
 
-    fn set_with_lock(lock: tokio::sync::MutexGuard<'static, ()>, value: &'static str) -> Self {
+    fn set_with_lock(lock: std::sync::MutexGuard<'static, ()>, value: &'static str) -> Self {
         let previous = std::env::var(GATEWAY_WEBHOOK_DISPATCHER_ENV_VAR).ok();
         std::env::set_var(GATEWAY_WEBHOOK_DISPATCHER_ENV_VAR, value);
         Self {

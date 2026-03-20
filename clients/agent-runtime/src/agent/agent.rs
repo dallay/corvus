@@ -38,28 +38,23 @@ pub enum AgentTurnEvent {
     Completed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TurnContext {
     pub session_id: Option<String>,
-    pub origin: ExecutionOrigin,
 }
 
 impl TurnContext {
     pub fn with_session(session_id: impl Into<String>) -> Self {
         Self {
             session_id: Some(session_id.into()),
-            ..Self::default()
         }
     }
 }
 
-impl Default for TurnContext {
-    fn default() -> Self {
-        Self {
-            session_id: None,
-            origin: ExecutionOrigin::Standard,
-        }
-    }
+#[derive(Debug)]
+struct StepOutcome {
+    final_text: Option<String>,
+    approval_required: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -654,6 +649,7 @@ impl Agent {
     ) -> Result<Option<String>> {
         self.step_with_context(effective_model, user_message, &TurnContext::default())
             .await
+            .map(|outcome| outcome.final_text)
     }
 
     async fn finalize_text_response(
@@ -781,21 +777,21 @@ impl Agent {
             .unwrap_or_else(|| format!("{}#{index}", call.name))
     }
 
-    fn approval_denial_from_history(history: &[ConversationMessage]) -> Option<serde_json::Value> {
-        history.iter().rev().find_map(|message| {
-            let ConversationMessage::ToolResults(results) = message else {
-                return None;
-            };
-
-            let approval = results.iter().find_map(|result| {
-                let parsed = serde_json::from_str::<serde_json::Value>(&result.content).ok()?;
-                (parsed.get("code").and_then(serde_json::Value::as_str)
-                    == Some("approval_required"))
-                .then_some(parsed)
-            });
-
-            approval
-        })
+    fn approval_denial_from_results(
+        calls: &[ParsedToolCall],
+        results: &[ToolExecutionResult],
+    ) -> Option<serde_json::Value> {
+        calls
+            .iter()
+            .zip(results)
+            .find_map(|(call, result)| match &result.action {
+                DispatchAction::ApprovalRequired(reason) => Some(serde_json::json!({
+                    "code": "approval_required",
+                    "tool": call.name,
+                    "reason": reason,
+                })),
+                DispatchAction::Execute => None,
+            })
     }
 
     fn approval_required_result(call: &ParsedToolCall, reason: String) -> ToolExecutionResult {
@@ -840,25 +836,26 @@ impl Agent {
         user_message: &str,
         turn_context: TurnContext,
     ) -> Result<AgentTurnResult> {
-        let history_start = self.history.len();
         let effective_model = self
             .prepare_turn_with_context(user_message, &turn_context)
             .await?;
+        let mut approval_required = None;
         let mut event_log = vec![AgentTurnEvent::Prepared];
 
         for _ in 0..self.config.max_tool_iterations {
-            if let Some(final_text) = self
+            let outcome = self
                 .step_with_context(&effective_model, user_message, &turn_context)
-                .await?
-            {
+                .await?;
+            if approval_required.is_none() {
+                approval_required = outcome.approval_required.clone();
+            }
+            if let Some(final_text) = outcome.final_text {
                 event_log.push(AgentTurnEvent::Completed);
                 return Ok(AgentTurnResult {
                     session_id: turn_context.session_id,
                     final_text: Some(final_text),
                     terminal_outcome: AgentTurnOutcome::Completed,
-                    approval_required: Self::approval_denial_from_history(
-                        &self.history[history_start..],
-                    ),
+                    approval_required,
                     event_log,
                 });
             }
@@ -1398,7 +1395,7 @@ impl Agent {
         effective_model: &str,
         user_message: &str,
         turn_context: &TurnContext,
-    ) -> Result<Option<String>> {
+    ) -> Result<StepOutcome> {
         let response = self
             .provider
             .chat(
@@ -1417,9 +1414,13 @@ impl Agent {
 
         let (text, calls) = self.tool_dispatcher.parse_response(&response);
         if calls.is_empty() {
-            return self
+            let final_text = self
                 .finalize_text_response(user_message, text, response.text, turn_context)
-                .await;
+                .await?;
+            return Ok(StepOutcome {
+                final_text,
+                approval_required: None,
+            });
         }
 
         if self.mission_execution_context
@@ -1439,12 +1440,16 @@ impl Agent {
 
         self.record_tool_response(text, response.text, &calls);
         let gated_results = self.execute_gated_tool_calls(&calls).await;
+        let approval_required = Self::approval_denial_from_results(&calls, &gated_results);
 
         let formatted = self.tool_dispatcher.format_results(&gated_results);
         self.history.push(formatted);
         self.trim_history();
 
-        Ok(None)
+        Ok(StepOutcome {
+            final_text: None,
+            approval_required,
+        })
     }
 
     pub async fn run_single(&mut self, message: &str) -> Result<String> {

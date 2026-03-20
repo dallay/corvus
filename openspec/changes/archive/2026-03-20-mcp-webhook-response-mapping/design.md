@@ -42,20 +42,21 @@ error. A seam test proves the exact missing HTTP mapping behavior without weaken
 boundary. Existing end-to-end denial proof remains necessary so the change still has live gateway
 coverage for the currently reachable MCP path.
 
-### Decision: Prefer one non-success seam proof, favoring `Error`
+### Decision: Keep `Error` as the only additional seam proof
 
-**Choice**: Pair the success seam test with an `Error` seam test unless the first RED pass shows the
-timeout path is the more direct uncovered branch.
+**Choice**: Pair the success seam test with an `Error` seam test only. Keep `Timeout` out of scope
+for this follow-up.
 
 **Alternatives considered**:
 - Use `Timeout` as the only non-success variant
 - Add both `Timeout` and `Error` in this follow-up
 
-**Rationale**: The proposal targets a tiny proof slice. `Error` best matches the archived warning's
-"failure" wording and complements the existing non-MCP 500 integration proof already present in
-`clients/agent-runtime/src/gateway/mod.rs`. If the existing mapper defect surface turns out to be in
-timeout handling instead, the implementation may swap to timeout, but the scope must remain exactly
-one additional non-success variant.
+**Rationale**: The proposal targets a tiny proof slice. `webhook_response_from_dispatch_result(...)`
+has distinct `Timeout` and `Error` branches, but the archived warning specifically called out
+success plus one non-success/failure proof. `Error` best matches that gap and complements the
+existing generic timeout transport proof already present in `clients/agent-runtime/src/gateway/mod.rs`.
+If timeout semantics need MCP-labeled proof later, that should be a separate follow-up instead of
+expanding this archived change retroactively.
 
 ### Decision: Keep production code frozen unless tests expose a defect
 

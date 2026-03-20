@@ -87,7 +87,7 @@ async fn cerebro_memory_loader_prefers_mcp_results() {
 }
 
 #[tokio::test]
-async fn cerebro_memory_loader_rejects_remote_recall_for_session_scoped_turns() {
+async fn cerebro_memory_loader_skips_remote_recall_for_session_scoped_turns() {
     let (endpoint, calls) = start_mock_server().await;
     let cerebro = MemoryCerebroConfig {
         endpoint: Some(endpoint),
@@ -98,14 +98,12 @@ async fn cerebro_memory_loader_rejects_remote_recall_for_session_scoped_turns() 
     let loader = CerebroMemoryLoader::new(cerebro, 5, 0.1);
     let memory = NoneMemory::new();
 
-    let err = loader
+    let context = loader
         .load_context(&memory, "hello", Some("webhook-session-1"))
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert!(err
-        .to_string()
-        .contains("remote recall is disabled for session-scoped turns"));
+    assert!(context.is_empty());
     assert!(calls.lock().unwrap().payloads.is_empty());
 }
 

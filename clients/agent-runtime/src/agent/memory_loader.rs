@@ -115,9 +115,13 @@ impl MemoryLoader for CerebroMemoryLoader {
         }
 
         if session_id.is_some() {
-            anyhow::bail!(
-                "Cerebro remote recall is disabled for session-scoped turns until mem_search supports session filtering"
+            tracing::warn!(
+                "Skipping Cerebro remote recall for session-scoped turn until mem_search supports session filtering"
             );
+            if added {
+                context.push('\n');
+            }
+            return Ok(context);
         }
 
         let adapter = cerebro::cerebro_tool_adapter(&self.config, normalize::CEREBRO_TOOL_RECALL)?;

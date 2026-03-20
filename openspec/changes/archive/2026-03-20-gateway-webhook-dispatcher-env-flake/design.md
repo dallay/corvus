@@ -69,7 +69,7 @@ This keeps concurrent test binaries from observing each other's transient dispat
 | File | Action | Description |
 |------|--------|-------------|
 | `clients/agent-runtime/src/config/schema.rs` | Modify | Point env-override tests at the shared dispatcher env test lock/helper from `clients/agent-runtime/src/test_support.rs` and restore `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` deterministically in the flaky test. |
-| `clients/agent-runtime/src/gateway/mod.rs` | Modify | Reuse the shared `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` test lock/helper from `clients/agent-runtime/src/test_support.rs` instead of a module-local seam. |
+| `clients/agent-runtime/src/gateway/mod.rs` | Modify | Reuse the shared `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` test lock/helper from `clients/agent-runtime/src/test_support.rs`, including `temp_config()` reads, instead of a module-local seam. |
 | `clients/agent-runtime/src/test_support.rs` | Modify | Host the tiny shared test-only mutex/guard seam used by both config and gateway tests. |
 
 ## Interfaces / Contracts

@@ -2,6 +2,11 @@
 
 ## Current State
 
+Historical note: the paragraphs below describe the pre-fix evidence gap that motivated this
+follow-up. That gap has since been closed by
+`gateway::tests::webhook_dispatcher_generates_isolated_session_when_header_missing` in
+`clients/agent-runtime/src/gateway/mod.rs`.
+
 The archived `gateway-dispatcher-parity` change already moved `/webhook` onto the
 dispatcher-backed runtime behind `CORVUS_GATEWAY_WEBHOOK_DISPATCHER`, and the gateway now resolves
 `X-Session-Id` at the HTTP edge in `resolve_session_id(...)` and the `/webhook` handler in
@@ -13,17 +18,16 @@ marks the request as `WebhookSessionSource::Generated` in
 `TurnContext` via `turn_context_for_request(...)`, so canonical auto-save and memory recall run
 with a scoped session instead of `None` in `clients/agent-runtime/src/agent/agent.rs`.
 
-The remaining gap is not implementation but runtime proof at the HTTP boundary. Current
-dispatcher-backed webhook tests cover preview frames, allowed-tool completion, native-tool denial,
-MCP denial, runtime error, rollout fallback, and transport checks, but they do not include a
-dispatcher-backed `/webhook` request that omits `X-Session-Id` and proves the generated session
-stays isolated end-to-end in the gateway tests in `clients/agent-runtime/src/gateway/mod.rs`.
+At exploration time, the remaining gap was not implementation but runtime proof at the HTTP
+boundary. That proof now exists in
+`gateway::tests::webhook_dispatcher_generates_isolated_session_when_header_missing` in
+`clients/agent-runtime/src/gateway/mod.rs`, which covers the dispatcher-backed `/webhook` request
+that omits `X-Session-Id` and proves the generated session stays isolated end-to-end.
 
-Isolation is currently proven only one layer lower in canonical agent tests, where
-`TurnContext::default()` keeps recall/store session scope as `None` in
-`clients/agent-runtime/src/agent/tests.rs`. That proves the agent contract, but not the
-gateway-specific generated-session behavior required by the `/webhook` session-scoping scenario in
-`openspec/specs/agent-loop/spec.md`.
+The lower-layer agent proof remains useful context: `turn_with_context_keeps_missing_session_isolated`
+in `clients/agent-runtime/src/agent/tests.rs` proves `TurnContext::default()` keeps recall/store
+session scope as `None`, while the gateway test above closes the HTTP-boundary proof required by
+the `/webhook` session-scoping scenario in `openspec/specs/agent-loop/spec.md`.
 
 ## Affected Areas
 
@@ -61,9 +65,9 @@ gateway-specific generated-session behavior required by the `/webhook` session-s
 
 ## Recommendation
 
-Use approach 1. The narrowest useful scope is a proof-only follow-up that adds exactly one
-dispatcher-backed `/webhook` runtime test for the missing-header path and, if necessary, the
-smallest supporting test helper changes to observe session-scoped memory usage.
+Use approach 1. That proof-only follow-up has now landed as
+`gateway::tests::webhook_dispatcher_generates_isolated_session_when_header_missing`, plus the
+smallest supporting test-helper changes needed to observe session-scoped memory usage.
 
 ## What this change should include
 
