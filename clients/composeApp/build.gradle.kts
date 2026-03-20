@@ -59,7 +59,7 @@ kotlin {
 
     val jvmMain by getting {
       dependencies {
-        implementation(compose.desktop.currentOs)
+        implementation(compose.desktop.common)
         implementation(libs.kotlinx.coroutines.swing)
       }
     }
