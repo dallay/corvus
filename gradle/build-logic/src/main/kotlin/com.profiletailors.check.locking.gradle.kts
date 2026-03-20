@@ -7,13 +7,7 @@ import java.util.concurrent.TimeUnit
 val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
 
 val excludedLockingConfigurationPrefixes =
-  listOf(
-    "allDevSourceSets",
-    "composeHotReloadDev",
-    "detachedConfiguration",
-    "jvmDev",
-    "spotless",
-  )
+  listOf("allDevSourceSets", "composeHotReloadDev", "detachedConfiguration", "jvmDev", "spotless")
 
 val excludedLockingConfigurations =
   setOf(
