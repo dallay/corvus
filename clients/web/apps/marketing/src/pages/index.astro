@@ -61,7 +61,7 @@ const installMethods = [
       "Paste one command, install Corvus, and get to a working binary in the fastest possible path.",
     command: "curl -fsSL https://profiletailors.com/install | bash",
     ctaLabel: "Open install guide",
-    ctaHref: `${docsBaseUrl}/en/guides/getting-started/`,
+    ctaHref: `${docsBaseUrl}/guides/getting-started/`,
   },
   {
     title: "Node package managers",
@@ -74,7 +74,7 @@ const installMethods = [
       "bun add -g @dallay/corvus",
     ],
     ctaLabel: "Read CLI docs",
-    ctaHref: `${docsBaseUrl}/en/guides/cli-reference/`,
+    ctaHref: `${docsBaseUrl}/guides/cli-reference/`,
   },
   {
     title: "Build locally",
@@ -83,7 +83,7 @@ const installMethods = [
     command:
       "git clone https://github.com/dallay/corvus.git\ncd corvus\ncargo build --release\ncargo install --path . --force",
     ctaLabel: "Read architecture docs",
-    ctaHref: `${docsBaseUrl}/en/guides/architecture/`,
+    ctaHref: `${docsBaseUrl}/guides/architecture/`,
   },
 ];
 
@@ -97,17 +97,17 @@ const quickLinks = [
   {
     title: "Getting started",
     body: "Pick an install path, run the first command, and get Corvus responding without digging through repo internals.",
-    href: `${docsBaseUrl}/en/guides/getting-started/`,
+    href: `${docsBaseUrl}/guides/getting-started/`,
   },
   {
     title: "CLI reference",
     body: "Jump straight to real commands for agent, daemon, gateway, doctor, channels, and services.",
-    href: `${docsBaseUrl}/en/guides/cli-reference/`,
+    href: `${docsBaseUrl}/guides/cli-reference/`,
   },
   {
     title: "Architecture",
     body: "See how providers, memory, tools, channels, and security fit together before you roll it out wider.",
-    href: `${docsBaseUrl}/en/guides/architecture/`,
+    href: `${docsBaseUrl}/guides/architecture/`,
   },
 ];
 
@@ -138,7 +138,7 @@ const faqGroups = [
           "It is designed to behave like infrastructure, not a fragile demo stack.",
         ],
         ctaLabel: "Read the architecture",
-        ctaHref: `${docsBaseUrl}/en/guides/architecture/`,
+        ctaHref: `${docsBaseUrl}/guides/architecture/`,
       },
       {
         question: "Who is it for?",
@@ -148,7 +148,7 @@ const faqGroups = [
           "It helps teams avoid heavyweight stacks and unnecessary lock-in.",
         ],
         ctaLabel: "See the quick start",
-        ctaHref: `${docsBaseUrl}/en/guides/getting-started/`,
+        ctaHref: `${docsBaseUrl}/guides/getting-started/`,
       },
     ],
   },
@@ -163,7 +163,7 @@ const faqGroups = [
           "Secrets can be encrypted locally and public access is never assumed.",
         ],
         ctaLabel: "Review security controls",
-        ctaHref: `${docsBaseUrl}/en/guides/architecture/`,
+        ctaHref: `${docsBaseUrl}/guides/architecture/`,
       },
       {
         question: "Where can it run?",
@@ -173,7 +173,7 @@ const faqGroups = [
           "Its small binary size and fast startup make it viable beyond heavyweight cloud-only setups.",
         ],
         ctaLabel: "Explore runtime options",
-        ctaHref: `${docsBaseUrl}/en/guides/getting-started/`,
+        ctaHref: `${docsBaseUrl}/guides/getting-started/`,
       },
     ],
   },
@@ -244,7 +244,7 @@ const hero = {
             <pre class="command-block"><code>curl -fsSL https://profiletailors.com/install | bash</code></pre>
             <div class="terminal-actions">
               <a href={installScriptUrl} data-track="cta_click" data-track-location="hero-panel" data-track-label="install-script">Open `/install`</a>
-              <a href={`${docsBaseUrl}/en/guides/getting-started/`} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero-panel" data-track-label="getting-started">Getting started</a>
+              <a href={`${docsBaseUrl}/guides/getting-started/`} rel="noopener noreferrer" data-track="cta_click" data-track-location="hero-panel" data-track-label="getting-started">Getting started</a>
             </div>
             <ul class="pill-row" aria-label="Supported launcher paths">
               <li>npm</li>
