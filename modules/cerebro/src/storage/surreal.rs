@@ -71,7 +71,8 @@ impl SurrealStorage {
         for record in &export.memory {
             let id_key = format!("mem_id_{index}");
             let data_key = format!("mem_data_{index}");
-            let statement = format!("UPSERT type::thing('memory', ${id_key}) CONTENT ${data_key};");
+            let statement =
+                format!("UPSERT type::record('memory', ${id_key}) CONTENT ${data_key};");
             let payload = serde_json::to_value(record).map_err(|err| {
                 CerebroError::Storage(format!("failed to encode memory record: {err}"))
             })?;
@@ -92,7 +93,7 @@ impl SurrealStorage {
             let id_key = format!("session_id_{index}");
             let data_key = format!("session_data_{index}");
             let statement =
-                format!("UPSERT type::thing('session', ${id_key}) CONTENT ${data_key};");
+                format!("UPSERT type::record('session', ${id_key}) CONTENT ${data_key};");
             statements.push(statement);
             variables.insert(id_key, record_id);
             variables.insert(data_key, payload);
@@ -109,7 +110,8 @@ impl SurrealStorage {
             }
             let id_key = format!("prompt_id_{index}");
             let data_key = format!("prompt_data_{index}");
-            let statement = format!("UPSERT type::thing('prompt', ${id_key}) CONTENT ${data_key};");
+            let statement =
+                format!("UPSERT type::record('prompt', ${id_key}) CONTENT ${data_key};");
             statements.push(statement);
             variables.insert(id_key, record_id);
             variables.insert(data_key, payload);
@@ -132,28 +134,13 @@ impl SurrealStorage {
     }
 
     pub async fn export_collections(&self) -> Result<NormalizedExport, CerebroError> {
-        let mut response = self
-            .db
-            .query(
-                "SELECT *, type::string(id) AS id FROM memory; \
-                 SELECT *, type::string(id) AS id FROM session; \
-                 SELECT *, type::string(id) AS id FROM prompt;",
-            )
-            .await
-            .map_err(|err| CerebroError::Storage(format!("surrealdb export failed: {err}")))?;
-        let memory_json: Vec<Value> = response
-            .take(0)
-            .map_err(|err| CerebroError::Storage(format!("surrealdb export failed: {err}")))?;
+        let memory_json = self.select_table("memory").await?;
         let mut memory: Vec<MemoryRecord> = parse_legacy_records(memory_json, "memory")?;
         memory.sort_by(|a, b| a.memory_id.cmp(&b.memory_id));
-        let session_json: Vec<Value> = response
-            .take(1)
-            .map_err(|err| CerebroError::Storage(format!("surrealdb export failed: {err}")))?;
+        let session_json = self.select_table("session").await?;
         let mut session: Vec<LegacySessionRecord> = parse_legacy_records(session_json, "session")?;
         session.sort_by(|a, b| a.id.cmp(&b.id));
-        let prompt_json: Vec<Value> = response
-            .take(2)
-            .map_err(|err| CerebroError::Storage(format!("surrealdb export failed: {err}")))?;
+        let prompt_json = self.select_table("prompt").await?;
         let mut prompt: Vec<LegacyPromptRecord> = parse_legacy_records(prompt_json, "prompt")?;
         prompt.sort_by(|a, b| a.id.cmp(&b.id));
 
@@ -162,6 +149,16 @@ impl SurrealStorage {
             session,
             prompt,
         })
+    }
+
+    async fn select_table(&self, table: &str) -> Result<Vec<Value>, CerebroError> {
+        match self.db.select(table).await {
+            Ok(records) => Ok(records),
+            Err(err) if err.to_string().contains("does not exist") => Ok(Vec::new()),
+            Err(err) => Err(CerebroError::Storage(format!(
+                "surrealdb export failed: {err}"
+            ))),
+        }
     }
 }
 
@@ -298,7 +295,7 @@ impl Storage for SurrealStorage {
         let record_id = record.memory_id.clone();
         let response = self
             .db
-            .query("UPSERT type::thing('memory', $id) CONTENT $data")
+            .query("UPSERT type::record('memory', $id) CONTENT $data")
             .bind(("id", record_id))
             .bind(("data", record))
             .await
@@ -398,6 +395,7 @@ impl Storage for SurrealStorage {
         include_deleted: bool,
     ) -> Result<Vec<MemoryRecord>, CerebroError> {
         // First, get the anchor row's timestamp
+        let memory_id = memory_id.to_owned();
         let mut anchor_response = self
             .db
             .query("SELECT timestamp FROM memory WHERE memory_id = $id")
@@ -412,7 +410,7 @@ impl Storage for SurrealStorage {
             return Ok(Vec::new());
         };
 
-        let anchor_ts = anchor_record.timestamp;
+        let anchor_ts = anchor_record.timestamp.clone();
 
         // Build the query with timestamp range and deleted filter
         let mut variables = Variables::new();
@@ -469,22 +467,10 @@ impl Storage for SurrealStorage {
     }
 
     async fn count(&self) -> Result<usize, CerebroError> {
-        let response = self
-            .db
-            .query("SELECT count FROM memory GROUP ALL;")
+        let records = self
+            .select_table("memory")
             .await
             .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
-        let mut response = response
-            .check()
-            .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
-        let rows: Vec<Value> = response
-            .take(0)
-            .map_err(|err| CerebroError::Storage(format!("surrealdb count failed: {err}")))?;
-        let count = rows
-            .first()
-            .and_then(|row| row.get("count"))
-            .and_then(Value::as_u64)
-            .unwrap_or(0);
-        Ok(count as usize)
+        Ok(records.len())
     }
 }

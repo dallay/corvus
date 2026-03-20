@@ -67,7 +67,7 @@ impl EventStream {
             match self.receiver.recv().await {
                 Ok(event) => return Some(event),
                 Err(broadcast::error::RecvError::Lagged(count)) => {
-                    self.dropped.fetch_add(count as u64, Ordering::Relaxed);
+                    self.dropped.fetch_add(count, Ordering::Relaxed);
                 }
                 Err(broadcast::error::RecvError::Closed) => return None,
             }
@@ -78,7 +78,7 @@ impl EventStream {
         match self.receiver.try_recv() {
             Ok(event) => Some(event),
             Err(broadcast::error::TryRecvError::Lagged(count)) => {
-                self.dropped.fetch_add(count as u64, Ordering::Relaxed);
+                self.dropped.fetch_add(count, Ordering::Relaxed);
                 None
             }
             Err(broadcast::error::TryRecvError::Empty) => None,

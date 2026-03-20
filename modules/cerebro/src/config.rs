@@ -7,34 +7,24 @@ use std::str::FromStr;
 
 /// Storage mode for Cerebro's internal persistence. This is independent from the runtime memory
 /// backend and only affects the Cerebro service itself.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StorageMode {
+    #[default]
     EmbeddedSurreal,
     RemoteSurreal,
     InMemory,
     Disk,
 }
 
-impl Default for StorageMode {
-    fn default() -> Self {
-        Self::EmbeddedSurreal
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum StorageFallback {
+    #[default]
     None,
     InMemory,
     Disk,
     RemoteSurreal,
-}
-
-impl Default for StorageFallback {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
