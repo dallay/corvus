@@ -14,4 +14,7 @@ pub(crate) mod validation;
 mod tests;
 
 #[allow(unused_imports)]
-pub use agent::{run, Agent, AgentBuilder, AgentExecutionError};
+pub use agent::{
+    run, Agent, AgentBuilder, AgentExecutionError, AgentTurnEvent, AgentTurnOutcome,
+    AgentTurnResult, TurnContext,
+};

@@ -148,14 +148,27 @@ fn init_memory_and_observer(
     config: &Config,
     profile: AgentProfile,
 ) -> anyhow::Result<(Arc<dyn Memory>, Arc<dyn Observer>)> {
-    let observer: Arc<dyn Observer> =
-        Arc::from(observability::create_observer(&config.observability));
-    let memory_config = profile.compose_memory_config(&config.memory);
-    let memory: Arc<dyn Memory> = Arc::from(memory::create_memory(
-        &memory_config,
-        &config.workspace_dir,
-        config.api_key.as_deref(),
-    )?);
+    init_memory_and_observer_with_overrides(config, profile, None, None)
+}
+
+fn init_memory_and_observer_with_overrides(
+    config: &Config,
+    profile: AgentProfile,
+    memory_override: Option<Arc<dyn Memory>>,
+    observer_override: Option<Arc<dyn Observer>>,
+) -> anyhow::Result<(Arc<dyn Memory>, Arc<dyn Observer>)> {
+    let observer: Arc<dyn Observer> = observer_override
+        .unwrap_or_else(|| Arc::from(observability::create_observer(&config.observability)));
+    let memory: Arc<dyn Memory> = if let Some(memory) = memory_override {
+        memory
+    } else {
+        let memory_config = profile.compose_memory_config(&config.memory);
+        Arc::from(memory::create_memory(
+            &memory_config,
+            &config.workspace_dir,
+            config.api_key.as_deref(),
+        )?)
+    };
 
     Ok((memory, observer))
 }
@@ -172,9 +185,30 @@ impl BootstrapContext {
         Self::from_effective_config(&effective_config)
     }
 
+    pub(crate) fn for_gateway(
+        config: &Config,
+        memory: Arc<dyn Memory>,
+        observer: Arc<dyn Observer>,
+    ) -> anyhow::Result<Self> {
+        Self::from_effective_config_with_overrides(config, Some(memory), Some(observer))
+    }
+
     fn from_effective_config(config: &Config) -> anyhow::Result<Self> {
+        Self::from_effective_config_with_overrides(config, None, None)
+    }
+
+    fn from_effective_config_with_overrides(
+        config: &Config,
+        memory_override: Option<Arc<dyn Memory>>,
+        observer_override: Option<Arc<dyn Observer>>,
+    ) -> anyhow::Result<Self> {
         let profile = AgentProfile::from_config(config)?;
-        let (memory, observer) = init_memory_and_observer(config, profile)?;
+        let (memory, observer) = init_memory_and_observer_with_overrides(
+            config,
+            profile,
+            memory_override,
+            observer_override,
+        )?;
         let runtime: Arc<dyn RuntimeAdapter> = Arc::from(runtime::create_runtime(&config.runtime)?);
         let security = Arc::new(SecurityPolicy::from_config(
             &config.autonomy,
@@ -532,6 +566,24 @@ mod tests {
                     case.name
                 ),
             }
+        }
+    }
+
+    #[test]
+    fn gateway_bootstrap_reuses_canonical_mcp_tool_registry() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.mcp.enabled = true;
+        config.mcp.servers = vec![mock_mcp_server("docs", "search")];
+
+        let (memory, observer) = create_memory_and_observer(&config).unwrap();
+        let ctx = BootstrapContext::for_gateway(&config, memory, observer).unwrap();
+        let names: HashSet<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
+
+        if cfg!(feature = "mcp-runtime") {
+            assert!(names.contains("mcp.docs.search"));
+        } else {
+            assert!(!names.iter().any(|name| name.starts_with("mcp.")));
         }
     }
 }

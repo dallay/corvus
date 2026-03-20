@@ -27,6 +27,45 @@ use std::sync::Arc;
 use std::time::Instant;
 use uuid::Uuid;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentTurnOutcome {
+    Completed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AgentTurnEvent {
+    Prepared,
+    Completed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct TurnContext {
+    pub session_id: Option<String>,
+}
+
+impl TurnContext {
+    pub fn with_session(session_id: impl Into<String>) -> Self {
+        Self {
+            session_id: Some(session_id.into()),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct StepOutcome {
+    final_text: Option<String>,
+    approval_required: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentTurnResult {
+    pub session_id: Option<String>,
+    pub final_text: Option<String>,
+    pub terminal_outcome: AgentTurnOutcome,
+    pub approval_required: Option<serde_json::Value>,
+    pub event_log: Vec<AgentTurnEvent>,
+}
+
 #[allow(clippy::struct_excessive_bools)]
 pub struct Agent {
     provider: Box<dyn Provider>,
@@ -335,7 +374,7 @@ impl Agent {
         Self::from_bootstrap_with_provider(config, bootstrap, provider)
     }
 
-    fn from_bootstrap_with_provider(
+    pub(crate) fn from_bootstrap_with_provider(
         config: &Config,
         bootstrap: bootstrap::BootstrapContext,
         provider: Box<dyn Provider>,
@@ -549,6 +588,15 @@ impl Agent {
     }
 
     pub async fn prepare_turn(&mut self, user_message: &str) -> Result<String> {
+        self.prepare_turn_with_context(user_message, &TurnContext::default())
+            .await
+    }
+
+    async fn prepare_turn_with_context(
+        &mut self,
+        user_message: &str,
+        turn_context: &TurnContext,
+    ) -> Result<String> {
         if self.history.is_empty() {
             let system_prompt = self.build_system_prompt()?;
             self.history
@@ -560,13 +608,22 @@ impl Agent {
         if self.auto_save {
             let _ = self
                 .memory
-                .store("user_msg", user_message, MemoryCategory::Conversation, None)
+                .store(
+                    "user_msg",
+                    user_message,
+                    MemoryCategory::Conversation,
+                    turn_context.session_id.as_deref(),
+                )
                 .await;
         }
 
         let context = self
             .memory_loader
-            .load_context(self.memory.as_ref(), user_message)
+            .load_context(
+                self.memory.as_ref(),
+                user_message,
+                turn_context.session_id.as_deref(),
+            )
             .await
             .unwrap_or_else(|error| {
                 tracing::warn!(error = %error, "Memory context load failed");
@@ -590,52 +647,9 @@ impl Agent {
         effective_model: &str,
         user_message: &str,
     ) -> Result<Option<String>> {
-        let response = self
-            .provider
-            .chat(
-                ChatRequest {
-                    messages: &self.tool_dispatcher.to_provider_messages(&self.history),
-                    tools: if self.tool_dispatcher.should_send_tool_specs() {
-                        Some(&self.tool_specs)
-                    } else {
-                        None
-                    },
-                },
-                effective_model,
-                self.temperature,
-            )
-            .await?;
-
-        let (text, calls) = self.tool_dispatcher.parse_response(&response);
-        if calls.is_empty() {
-            return self
-                .finalize_text_response(user_message, text, response.text)
-                .await;
-        }
-
-        if self.mission_execution_context
-            && calls.iter().any(|call| {
-                matches!(
-                    self.tool_dispatcher.check_tool_risk_for_origin(
-                        &call.name,
-                        &call.arguments,
-                        ExecutionOrigin::Mission,
-                    ),
-                    DispatchAction::ApprovalRequired(_)
-                )
-            })
-        {
-            anyhow::bail!("mission_policy_denied: delegated tool action denied")
-        }
-
-        self.record_tool_response(text, response.text, &calls);
-        let gated_results = self.execute_gated_tool_calls(&calls).await;
-
-        let formatted = self.tool_dispatcher.format_results(&gated_results);
-        self.history.push(formatted);
-        self.trim_history();
-
-        Ok(None)
+        self.step_with_context(effective_model, user_message, &TurnContext::default())
+            .await
+            .map(|outcome| outcome.final_text)
     }
 
     async fn finalize_text_response(
@@ -643,6 +657,7 @@ impl Agent {
         user_message: &str,
         text: String,
         response_text: Option<String>,
+        turn_context: &TurnContext,
     ) -> Result<Option<String>> {
         let final_text = if text.is_empty() {
             response_text.unwrap_or_default()
@@ -663,7 +678,12 @@ impl Agent {
             let summary = truncate_with_ellipsis(&final_text, 100);
             let _ = self
                 .memory
-                .store("assistant_resp", &summary, MemoryCategory::Daily, None)
+                .store(
+                    "assistant_resp",
+                    &summary,
+                    MemoryCategory::Daily,
+                    turn_context.session_id.as_deref(),
+                )
                 .await;
         }
 
@@ -757,6 +777,23 @@ impl Agent {
             .unwrap_or_else(|| format!("{}#{index}", call.name))
     }
 
+    fn approval_denial_from_results(
+        calls: &[ParsedToolCall],
+        results: &[ToolExecutionResult],
+    ) -> Option<serde_json::Value> {
+        calls
+            .iter()
+            .zip(results)
+            .find_map(|(call, result)| match &result.action {
+                DispatchAction::ApprovalRequired(reason) => Some(serde_json::json!({
+                    "code": "approval_required",
+                    "tool": call.name,
+                    "reason": reason,
+                })),
+                DispatchAction::Execute => None,
+            })
+    }
+
     fn approval_required_result(call: &ParsedToolCall, reason: String) -> ToolExecutionResult {
         ToolExecutionResult {
             name: call.name.clone(),
@@ -773,26 +810,54 @@ impl Agent {
         } else {
             None
         };
+        let turn_context = session_id
+            .as_ref()
+            .map(|session_id| TurnContext::with_session(session_id.clone()))
+            .unwrap_or_default();
 
-        let result = self.turn_inner(user_message).await;
+        let result = self.turn_with_context(user_message, turn_context).await;
 
         if let Some(session_id) = session_id.as_deref() {
             let code_result = match &result {
-                Ok(text) => CodeSessionResult::parse_from_output(text, session_id),
+                Ok(turn_result) => CodeSessionResult::parse_from_output(
+                    turn_result.final_text.as_deref().unwrap_or_default(),
+                    session_id,
+                ),
                 Err(error) => Self::code_session_result_from_error(session_id, error),
             };
             self.record_code_session_result(&code_result)?;
         }
 
-        result
+        result.map(|turn_result| turn_result.final_text.unwrap_or_default())
     }
 
-    async fn turn_inner(&mut self, user_message: &str) -> Result<String> {
-        let effective_model = self.prepare_turn(user_message).await?;
+    pub async fn turn_with_context(
+        &mut self,
+        user_message: &str,
+        turn_context: TurnContext,
+    ) -> Result<AgentTurnResult> {
+        let effective_model = self
+            .prepare_turn_with_context(user_message, &turn_context)
+            .await?;
+        let mut approval_required = None;
+        let mut event_log = vec![AgentTurnEvent::Prepared];
 
         for _ in 0..self.config.max_tool_iterations {
-            if let Some(final_text) = self.step(&effective_model, user_message).await? {
-                return Ok(final_text);
+            let outcome = self
+                .step_with_context(&effective_model, user_message, &turn_context)
+                .await?;
+            if approval_required.is_none() {
+                approval_required = outcome.approval_required.clone();
+            }
+            if let Some(final_text) = outcome.final_text {
+                event_log.push(AgentTurnEvent::Completed);
+                return Ok(AgentTurnResult {
+                    session_id: turn_context.session_id,
+                    final_text: Some(final_text),
+                    terminal_outcome: AgentTurnOutcome::Completed,
+                    approval_required,
+                    event_log,
+                });
             }
         }
 
@@ -1323,6 +1388,68 @@ impl Agent {
         let plan = self.build_mission_plan(objective, resume_from);
         self.run_mission_plan(&coordinator, &mission_id, Instant::now(), plan)
             .await
+    }
+
+    async fn step_with_context(
+        &mut self,
+        effective_model: &str,
+        user_message: &str,
+        turn_context: &TurnContext,
+    ) -> Result<StepOutcome> {
+        let response = self
+            .provider
+            .chat(
+                ChatRequest {
+                    messages: &self.tool_dispatcher.to_provider_messages(&self.history),
+                    tools: if self.tool_dispatcher.should_send_tool_specs() {
+                        Some(&self.tool_specs)
+                    } else {
+                        None
+                    },
+                },
+                effective_model,
+                self.temperature,
+            )
+            .await?;
+
+        let (text, calls) = self.tool_dispatcher.parse_response(&response);
+        if calls.is_empty() {
+            let final_text = self
+                .finalize_text_response(user_message, text, response.text, turn_context)
+                .await?;
+            return Ok(StepOutcome {
+                final_text,
+                approval_required: None,
+            });
+        }
+
+        if self.mission_execution_context
+            && calls.iter().any(|call| {
+                matches!(
+                    self.tool_dispatcher.check_tool_risk_for_origin(
+                        &call.name,
+                        &call.arguments,
+                        ExecutionOrigin::Mission,
+                    ),
+                    DispatchAction::ApprovalRequired(_)
+                )
+            })
+        {
+            anyhow::bail!("mission_policy_denied: delegated tool action denied")
+        }
+
+        self.record_tool_response(text, response.text, &calls);
+        let gated_results = self.execute_gated_tool_calls(&calls).await;
+        let approval_required = Self::approval_denial_from_results(&calls, &gated_results);
+
+        let formatted = self.tool_dispatcher.format_results(&gated_results);
+        self.history.push(formatted);
+        self.trim_history();
+
+        Ok(StepOutcome {
+            final_text: None,
+            approval_required,
+        })
     }
 
     pub async fn run_single(&mut self, message: &str) -> Result<String> {
