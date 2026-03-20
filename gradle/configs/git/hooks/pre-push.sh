@@ -20,17 +20,20 @@ if [ -d "$RUST_RUNTIME_DIR" ]; then
     )
 fi
 
+echo "🔒 Running dependency lock checks..."
+./gradlew checkLocksAll --no-parallel
+
 # Check if pnpm is available in the current PATH
 if command -v pnpm >/dev/null 2>&1; then
-    echo "✅ pnpm found, running full check..."
-    ./gradlew check
+    echo "✅ pnpm found, running CI-aligned Gradle checks..."
+    ./gradlew check :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport --no-daemon
 else
     echo "⚠️  WARNING: pnpm not found in PATH"
     echo "   Skipping web checks that require pnpm, running core validations only..."
     echo "   To enable full checks, ensure pnpm is available: corepack enable && corepack prepare pnpm@latest --activate"
     echo ""
     # Skip the Gradle web module checks when pnpm is unavailable.
-    ./gradlew check -x :web:check
+    ./gradlew check -x :web:check :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport --no-daemon
 fi
 
 echo "✅ Pre-push check passed"

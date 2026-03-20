@@ -1,8 +1,9 @@
 #!/bin/sh
 # ============================================
 # Git pre-commit hook
-# 1) Check whether newly added staged lines contain sensitive keywords
-# 2) Check project links with lychee
+# 1) Auto-format staged Kotlin/Gradle sources with Spotless
+# 2) Check whether newly added staged lines contain sensitive keywords
+# 3) Check project links with lychee
 # ============================================
 
 if [ "${SKIP_GIT_HOOKS:-0}" = "1" ]; then
@@ -13,6 +14,20 @@ fi
 PART1="TO"
 PART2="DO"
 KEYWORDS="${PART1}${PART2}"
+
+FORMAT_FILE_REGEX='\.(kt|kts|java|groovy|gradle)$'
+STAGED_FORMAT_FILES=$(git diff --cached --name-only --diff-filter=ACMR | grep -E "$FORMAT_FILE_REGEX" || true)
+
+if [ -n "$STAGED_FORMAT_FILES" ]; then
+  echo "🎨 Running spotlessApply on repository..."
+  ./gradlew spotlessApply
+
+  echo "$STAGED_FORMAT_FILES" | while IFS= read -r FILE; do
+    if [ -n "$FILE" ] && [ -e "$FILE" ]; then
+      git add -- "$FILE"
+    fi
+  done
+fi
 
 # Only scan staged source files (skip docs like .md)
 SOURCE_FILE_REGEX='\.(kt|kts|java|groovy|gradle|xml|properties|toml|ya?ml|json|rs|swift|[cm]|cc|cpp|h|hpp|js|jsx|ts|tsx|py|rb|go|sh)$'
