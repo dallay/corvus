@@ -167,3 +167,81 @@ fn parse_delay(input: &str) -> Result<chrono::Duration> {
     };
     Ok(duration)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_delay ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_delay_seconds() {
+        let d = parse_delay("30s").unwrap();
+        assert_eq!(d, chrono::Duration::seconds(30));
+    }
+
+    #[test]
+    fn parse_delay_minutes() {
+        let d = parse_delay("5m").unwrap();
+        assert_eq!(d, chrono::Duration::minutes(5));
+    }
+
+    #[test]
+    fn parse_delay_hours() {
+        let d = parse_delay("2h").unwrap();
+        assert_eq!(d, chrono::Duration::hours(2));
+    }
+
+    #[test]
+    fn parse_delay_days() {
+        let d = parse_delay("1d").unwrap();
+        assert_eq!(d, chrono::Duration::days(1));
+    }
+
+    #[test]
+    fn parse_delay_defaults_to_minutes_when_no_unit() {
+        let d = parse_delay("15").unwrap();
+        assert_eq!(d, chrono::Duration::minutes(15));
+    }
+
+    #[test]
+    fn parse_delay_trims_whitespace() {
+        let d = parse_delay("  10m  ").unwrap();
+        assert_eq!(d, chrono::Duration::minutes(10));
+    }
+
+    #[test]
+    fn parse_delay_rejects_empty() {
+        let err = parse_delay("").unwrap_err();
+        assert!(err.to_string().contains("delay must not be empty"));
+    }
+
+    #[test]
+    fn parse_delay_rejects_whitespace_only() {
+        let err = parse_delay("   ").unwrap_err();
+        assert!(err.to_string().contains("delay must not be empty"));
+    }
+
+    #[test]
+    fn parse_delay_rejects_invalid_unit() {
+        let err = parse_delay("5w").unwrap_err();
+        assert!(err.to_string().contains("unsupported delay unit"));
+        assert!(err.to_string().contains('w'));
+    }
+
+    #[test]
+    fn parse_delay_rejects_non_numeric() {
+        let err = parse_delay("hello").unwrap_err();
+        // Parse fails for "hello" since it's not a number
+        let msg = err.to_string();
+        assert!(msg.contains("parse") || msg.contains("unsupported delay unit"));
+    }
+
+    #[test]
+    fn parse_delay_rejects_leading_unit() {
+        let err = parse_delay("m5").unwrap_err();
+        // Either "unsupported delay unit" or parse error
+        let msg = err.to_string();
+        assert!(msg.contains("unsupported delay unit") || msg.contains("parse"));
+    }
+}

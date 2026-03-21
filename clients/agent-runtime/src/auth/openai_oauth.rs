@@ -246,7 +246,9 @@ pub async fn receive_loopback_code(
 ) -> Result<String> {
     let listener = TcpListener::bind(format!("127.0.0.1:{port}"))
         .await
-        .context(format!("Failed to bind callback listener at 127.0.0.1:{port}"))?;
+        .context(format!(
+            "Failed to bind callback listener at 127.0.0.1:{port}"
+        ))?;
 
     let accepted = tokio::time::timeout(timeout, listener.accept())
         .await
@@ -533,8 +535,8 @@ mod tests {
 
     #[test]
     fn parse_redirect_rejects_missing_state_for_callback_payload() {
-        let err = parse_code_from_redirect("/auth/callback?code=abc123", Some("expected"))
-            .unwrap_err();
+        let err =
+            parse_code_from_redirect("/auth/callback?code=abc123", Some("expected")).unwrap_err();
         assert!(err.to_string().contains("Missing OAuth state"));
     }
 
@@ -668,7 +670,9 @@ mod tests {
         let response = issue_test_response(StatusCode::OK, "application/json", "not-json").await;
 
         let err = parse_token_response(response).await.unwrap_err();
-        assert!(err.to_string().contains("Failed to parse OpenAI token response"));
+        assert!(err
+            .to_string()
+            .contains("Failed to parse OpenAI token response"));
     }
 
     #[tokio::test]

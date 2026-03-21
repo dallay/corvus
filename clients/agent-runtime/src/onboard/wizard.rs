@@ -5933,7 +5933,10 @@ mod tests {
             .expect("expected cached options");
 
         assert_eq!(fresh.len(), LIVE_MODEL_MAX_OPTIONS);
-        assert_eq!(fresh[0], ("model-000".to_string(), "model-000 (cached)".to_string()));
+        assert_eq!(
+            fresh[0],
+            ("model-000".to_string(), "model-000 (cached)".to_string())
+        );
         assert_eq!(
             fresh.last(),
             Some(&(
@@ -5976,7 +5979,10 @@ mod tests {
     #[test]
     fn handle_live_fetch_result_preserves_existing_options_on_error() {
         let tmp = TempDir::new().unwrap();
-        let mut live_options = Some(vec![("existing".to_string(), "existing (live)".to_string())]);
+        let mut live_options = Some(vec![(
+            "existing".to_string(),
+            "existing (live)".to_string(),
+        )]);
 
         handle_live_fetch_result(
             tmp.path(),
@@ -5988,7 +5994,10 @@ mod tests {
 
         assert_eq!(
             live_options,
-            Some(vec![("existing".to_string(), "existing (live)".to_string())])
+            Some(vec![(
+                "existing".to_string(),
+                "existing (live)".to_string()
+            )])
         );
     }
 
@@ -6004,7 +6013,10 @@ mod tests {
 
         let options = live_options.expect("expected live options");
         assert_eq!(options.len(), LIVE_MODEL_MAX_OPTIONS);
-        assert_eq!(options[0], ("model-000".to_string(), "model-000 (live)".to_string()));
+        assert_eq!(
+            options[0],
+            ("model-000".to_string(), "model-000 (live)".to_string())
+        );
 
         let cached = load_any_cached_models_for_provider(tmp.path(), "openai")
             .unwrap()

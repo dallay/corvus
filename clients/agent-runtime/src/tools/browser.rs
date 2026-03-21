@@ -2570,7 +2570,8 @@ mod tests {
 
     #[test]
     fn parse_snapshot_and_scroll_actions_apply_defaults_and_bounds() {
-        let snapshot = parse_snapshot_action(&json!({"interactive_only":false,"compact":false,"depth":9}));
+        let snapshot =
+            parse_snapshot_action(&json!({"interactive_only":false,"compact":false,"depth":9}));
         assert!(matches!(
             snapshot,
             BrowserAction::Snapshot {
@@ -2661,7 +2662,10 @@ mod tests {
             "key_press",
             "screen_capture",
         ] {
-            assert!(is_supported_browser_action(action), "{action} should be supported");
+            assert!(
+                is_supported_browser_action(action),
+                "{action} should be supported"
+            );
         }
     }
 }

@@ -471,7 +471,10 @@ mod tests {
             ..Config::default()
         };
         let state_dir = state_dir_from_config(&config);
-        assert_eq!(state_dir, std::path::PathBuf::from("/home/user/.config/corvus"));
+        assert_eq!(
+            state_dir,
+            std::path::PathBuf::from("/home/user/.config/corvus")
+        );
     }
 
     #[test]
@@ -485,7 +488,6 @@ mod tests {
         let state_dir = state_dir_from_config(&config);
         // parent() returns None for "config.toml", so fallback is used
         // The fallback may be "." or empty depending on platform representation
-        assert!(state_dir.to_string_lossy() == "."
-            || state_dir.to_string_lossy().is_empty());
+        assert!(state_dir.to_string_lossy() == "." || state_dir.to_string_lossy().is_empty());
     }
 }
