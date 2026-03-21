@@ -1230,7 +1230,14 @@ fn save_pending_openai_login(config: &Config, pending: &PendingOpenAiLogin) -> R
     let json = serde_json::to_vec_pretty(&persisted)?;
     std::fs::write(&tmp, json)?;
     set_owner_only_permissions(&tmp)?;
-    std::fs::rename(tmp, &path)?;
+    std::fs::rename(tmp, &path).or_else(|err| {
+        if err.kind() == std::io::ErrorKind::AlreadyExists {
+            std::fs::remove_file(&path).ok();
+            std::fs::rename(tmp, &path)
+        } else {
+            Err(err)
+        }
+    })?;
     set_owner_only_permissions(&path)?;
     Ok(())
 }
@@ -1428,15 +1435,20 @@ async fn handle_browser_flow_login(
     };
     save_pending_openai_login(config, &pending)?;
 
-    let authorize_url = auth::openai_oauth::build_authorize_url(&pkce);
+    let authorize_url =
+        auth::openai_oauth::build_authorize_url(&pkce, auth::openai_oauth::OPENAI_LOOPBACK_PORT);
     println!("Open this URL in your browser and authorize access:");
     println!("{authorize_url}");
     println!();
-    println!("Waiting for callback at http://localhost:1455/auth/callback ...");
+    println!(
+        "Waiting for callback at {} ...",
+        auth::openai_oauth::openai_oauth_redirect_uri(auth::openai_oauth::OPENAI_LOOPBACK_PORT)
+    );
 
     let code = match auth::openai_oauth::receive_loopback_code(
         &pkce.state,
         std::time::Duration::from_secs(180),
+        auth::openai_oauth::OPENAI_LOOPBACK_PORT,
     )
     .await
     {
@@ -1446,7 +1458,13 @@ async fn handle_browser_flow_login(
         }
     };
 
-    let token_set = auth::openai_oauth::exchange_code_for_tokens(client, &code, &pkce).await?;
+    let token_set = auth::openai_oauth::exchange_code_for_tokens(
+        client,
+        &code,
+        &pkce,
+        auth::openai_oauth::OPENAI_LOOPBACK_PORT,
+    )
+    .await?;
     let account_id = extract_openai_account_id_for_profile(&token_set.access_token);
 
     let saved = auth_service.store_openai_tokens(profile, token_set, account_id, true)?;
@@ -1497,7 +1515,13 @@ async fn handle_paste_redirect(
     };
 
     let client = reqwest::Client::new();
-    let token_set = auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
+    let token_set = auth::openai_oauth::exchange_code_for_tokens(
+        &client,
+        &code,
+        &pkce,
+        auth::openai_oauth::OPENAI_LOOPBACK_PORT,
+    )
+    .await?;
     let account_id = extract_openai_account_id_for_profile(&token_set.access_token);
 
     let saved = auth_service.store_openai_tokens(profile, token_set, account_id, true)?;
@@ -1798,6 +1822,133 @@ mod tests {
             Some("encrypted-data".to_string())
         );
         assert!(parsed.code_verifier.is_none());
+    }
+
+    #[test]
+    fn save_and_load_pending_openai_login_roundtrips() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let pending = PendingOpenAiLogin {
+            profile: "default".to_string(),
+            code_verifier: "verifier-secret".to_string(),
+            state: "csrf-state".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+
+        save_pending_openai_login(&config, &pending).unwrap();
+
+        let path = pending_openai_login_path(&config);
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted["profile"], "default");
+        assert_eq!(persisted["state"], "csrf-state");
+        assert!(persisted.get("encrypted_code_verifier").is_some());
+        assert!(persisted.get("code_verifier").is_none());
+
+        let loaded = load_pending_openai_login(&config).unwrap().unwrap();
+        assert_eq!(loaded.profile, pending.profile);
+        assert_eq!(loaded.code_verifier, pending.code_verifier);
+        assert_eq!(loaded.state, pending.state);
+        assert_eq!(loaded.created_at, pending.created_at);
+    }
+
+    #[test]
+    fn save_pending_openai_login_overwrites_existing_file() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let path = pending_openai_login_path(&config);
+
+        let pending1 = PendingOpenAiLogin {
+            profile: "default".to_string(),
+            code_verifier: "verifier-1".to_string(),
+            state: "state-1".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        save_pending_openai_login(&config, &pending1).unwrap();
+        assert!(path.exists());
+
+        // Second save should overwrite without error (cross-platform)
+        let pending2 = PendingOpenAiLogin {
+            profile: "default".to_string(),
+            code_verifier: "verifier-2".to_string(),
+            state: "state-2".to_string(),
+            created_at: "2024-01-02T00:00:00Z".to_string(),
+        };
+        save_pending_openai_login(&config, &pending2).unwrap();
+        assert!(path.exists());
+
+        // Loaded value matches the latest saved data
+        let loaded = load_pending_openai_login(&config).unwrap().unwrap();
+        assert_eq!(loaded.code_verifier, "verifier-2");
+        assert_eq!(loaded.state, "state-2");
+        assert_eq!(loaded.created_at, "2024-01-02T00:00:00Z");
+    }
+
+    #[test]
+    fn load_pending_openai_login_supports_legacy_plaintext_files() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let path = pending_openai_login_path(&config);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let persisted = PendingOpenAiLoginFile {
+            profile: "legacy".to_string(),
+            code_verifier: Some("plain-verifier".to_string()),
+            encrypted_code_verifier: None,
+            state: "legacy-state".to_string(),
+            created_at: "2024-01-02T00:00:00Z".to_string(),
+        };
+        std::fs::write(&path, serde_json::to_vec(&persisted).unwrap()).unwrap();
+
+        let loaded = load_pending_openai_login(&config).unwrap().unwrap();
+
+        assert_eq!(loaded.profile, "legacy");
+        assert_eq!(loaded.code_verifier, "plain-verifier");
+        assert_eq!(loaded.state, "legacy-state");
+        assert_eq!(loaded.created_at, "2024-01-02T00:00:00Z");
+    }
+
+    #[test]
+    fn load_pending_openai_login_rejects_missing_verifier_fields() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let path = pending_openai_login_path(&config);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let persisted = PendingOpenAiLoginFile {
+            profile: "broken".to_string(),
+            code_verifier: None,
+            encrypted_code_verifier: None,
+            state: "broken-state".to_string(),
+            created_at: "2024-01-03T00:00:00Z".to_string(),
+        };
+        std::fs::write(&path, serde_json::to_vec(&persisted).unwrap()).unwrap();
+
+        let error = load_pending_openai_login(&config).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "Pending OpenAI login is missing code verifier"
+        );
+    }
+
+    #[test]
+    fn clear_pending_openai_login_removes_persisted_file() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let pending = PendingOpenAiLogin {
+            profile: "default".to_string(),
+            code_verifier: "verifier-secret".to_string(),
+            state: "csrf-state".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        save_pending_openai_login(&config, &pending).unwrap();
+
+        let path = pending_openai_login_path(&config);
+        assert!(path.exists());
+
+        clear_pending_openai_login(&config);
+
+        assert!(!path.exists());
+        assert!(load_pending_openai_login(&config).unwrap().is_none());
     }
 
     #[tokio::test]

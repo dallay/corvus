@@ -49,11 +49,24 @@ jobs:
           java-version: "25"
           distribution: "corretto"
 
+      - name: 📦 Setup pnpm
+        if: env.SONAR_TOKEN != ''
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: 10
+
       - name: 📦 Setup Node
         if: env.SONAR_TOKEN != ''
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: clients/web/pnpm-lock.yaml
+
+      - name: 📦 Install web dependencies
+        if: env.SONAR_TOKEN != ''
+        working-directory: clients/web
+        run: pnpm install --frozen-lockfile
 
       - name: 🐘 Setup Gradle
         if: env.SONAR_TOKEN != ''
@@ -68,6 +81,15 @@ jobs:
       - name: 🧪 Build and generate coverage
         if: env.SONAR_TOKEN != ''
         run: ./gradlew test jvmTest :agent-core-kmp:koverXmlReport :composeApp:koverXmlReport
+
+      - name: 🧪 Generate web app coverage
+        if: env.SONAR_TOKEN != ''
+        working-directory: clients/web
+        run: |
+          cd apps/dashboard
+          pnpm exec vitest --run --environment happy-dom --exclude "e2e/**" --coverage --coverage.reporter=lcov --coverage.reporter=text
+          cd ../chat
+          pnpm exec vitest --config vite.config.ts --run --coverage --coverage.reporter=lcov --coverage.reporter=text
 
       - name: 🦀 Setup Rust
         if: env.SONAR_TOKEN != ''
@@ -114,6 +136,7 @@ jobs:
             -Dsonar.issue.ignore.multicriteria.e1.resourceKey=**/*Test.kt
             -Dsonar.coverage.jacoco.xmlReportPaths=${{ github.workspace }}/modules/agent-core-kmp/build/reports/kover/report.xml,${{ github.workspace }}/clients/composeApp/build/reports/kover/report.xml
             -Dsonar.rust.lcov.reportPaths=${{ github.workspace }}/coverage/agent-runtime-coverage.lcov
+            -Dsonar.javascript.lcov.reportPaths=${{ github.workspace }}/clients/web/apps/dashboard/coverage/lcov.info,${{ github.workspace }}/clients/web/apps/chat/coverage/lcov.info
             -Dsonar.python.version=3.12
             -Dsonar.typescript.node=${{ github.workspace }}/clients/web/node_modules
 

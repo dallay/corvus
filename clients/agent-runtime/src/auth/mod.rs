@@ -339,6 +339,21 @@ mod tests {
         assert_eq!(normalize_provider("codex").unwrap(), "openai-codex");
         assert_eq!(normalize_provider("claude").unwrap(), "anthropic");
         assert_eq!(normalize_provider("openai").unwrap(), "openai");
+        assert_eq!(normalize_provider("openai_codex").unwrap(), "openai-codex");
+        assert_eq!(normalize_provider("claude-code").unwrap(), "anthropic");
+        assert_eq!(normalize_provider("gemini").unwrap(), "gemini");
+    }
+
+    #[test]
+    fn normalize_provider_rejects_empty() {
+        let err = normalize_provider("").unwrap_err();
+        assert!(err.to_string().contains("empty"));
+    }
+
+    #[test]
+    fn normalize_provider_rejects_whitespace_only() {
+        let err = normalize_provider("   ").unwrap_err();
+        assert!(err.to_string().contains("empty"));
     }
 
     #[test]
@@ -391,5 +406,88 @@ mod tests {
             select_profile_id(&data, "openai-codex", None),
             Some(id_active)
         );
+    }
+
+    #[test]
+    fn select_profile_returns_none_when_override_not_found() {
+        let data = AuthProfilesData::default();
+        let result = select_profile_id(&data, "openai-codex", Some("nonexistent"));
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn select_profile_falls_back_to_first_matching_when_no_override_or_active() {
+        let mut data = AuthProfilesData::default();
+        let id_fallback = profile_id("openai-codex", "fallback-only");
+
+        data.profiles.insert(
+            id_fallback.clone(),
+            AuthProfile {
+                id: id_fallback.clone(),
+                provider: "openai-codex".into(),
+                profile_name: "fallback-only".into(),
+                kind: AuthProfileKind::Token,
+                account_id: None,
+                workspace_id: None,
+                token_set: None,
+                token: Some("x".into()),
+                metadata: std::collections::BTreeMap::default(),
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            },
+        );
+
+        // No override, no active set → falls back to first matching
+        let result = select_profile_id(&data, "openai-codex", None);
+        assert_eq!(result, Some(id_fallback));
+    }
+
+    #[test]
+    fn select_profile_returns_none_when_provider_has_no_profiles() {
+        let data = AuthProfilesData::default();
+        let result = select_profile_id(&data, "openai-codex", None);
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn resolve_requested_profile_id_with_colon() {
+        // When requested contains ':', it should be returned as-is
+        let id = resolve_requested_profile_id("openai-codex", "work:profile");
+        assert_eq!(id, "work:profile");
+    }
+
+    #[test]
+    fn resolve_requested_profile_id_without_colon() {
+        // When requested does not contain ':', it should be prefixed with provider
+        let id = resolve_requested_profile_id("openai-codex", "work");
+        assert_eq!(id, "openai-codex:work");
+    }
+
+    #[test]
+    fn state_dir_from_config_uses_parent_of_config_path() {
+        let config_path = std::path::PathBuf::from("/home/user/.config/corvus/config.toml");
+        let config = Config {
+            config_path,
+            ..Config::default()
+        };
+        let state_dir = state_dir_from_config(&config);
+        assert_eq!(
+            state_dir,
+            std::path::PathBuf::from("/home/user/.config/corvus")
+        );
+    }
+
+    #[test]
+    fn state_dir_from_config_falls_back_for_paths_with_no_parent() {
+        // When config_path has no parent (e.g., just a filename), returns "."
+        let config_path = std::path::PathBuf::from("config.toml");
+        let config = Config {
+            config_path,
+            ..Config::default()
+        };
+        let state_dir = state_dir_from_config(&config);
+        // parent() returns None for "config.toml", so fallback is used
+        // The fallback may be "." or empty depending on platform representation
+        assert!(state_dir.to_string_lossy() == "." || state_dir.to_string_lossy().is_empty());
     }
 }

@@ -14,7 +14,7 @@ pub const OPENAI_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub const OPENAI_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 pub const OPENAI_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 pub const OPENAI_OAUTH_DEVICE_CODE_URL: &str = "https://auth.openai.com/oauth/device/code";
-pub const OPENAI_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+pub const OPENAI_LOOPBACK_PORT: u16 = 1455;
 
 #[derive(Debug, Clone)]
 pub struct PkceState {
@@ -82,11 +82,16 @@ pub fn generate_pkce_state() -> PkceState {
     }
 }
 
-pub fn build_authorize_url(pkce: &PkceState) -> String {
+pub fn openai_oauth_redirect_uri(port: u16) -> String {
+    format!("http://127.0.0.1:{port}/auth/callback")
+}
+
+pub fn build_authorize_url(pkce: &PkceState, port: u16) -> String {
+    let redirect_uri = openai_oauth_redirect_uri(port);
     let mut params = BTreeMap::new();
     params.insert("response_type", "code");
     params.insert("client_id", OPENAI_OAUTH_CLIENT_ID);
-    params.insert("redirect_uri", OPENAI_OAUTH_REDIRECT_URI);
+    params.insert("redirect_uri", redirect_uri.as_str());
     params.insert("scope", "openid profile email offline_access");
     params.insert("code_challenge", pkce.code_challenge.as_str());
     params.insert("code_challenge_method", "S256");
@@ -106,12 +111,14 @@ pub async fn exchange_code_for_tokens(
     client: &Client,
     code: &str,
     pkce: &PkceState,
+    port: u16,
 ) -> Result<TokenSet> {
+    let redirect_uri = openai_oauth_redirect_uri(port);
     let form = [
         ("grant_type", "authorization_code"),
         ("code", code),
         ("client_id", OPENAI_OAUTH_CLIENT_ID),
-        ("redirect_uri", OPENAI_OAUTH_REDIRECT_URI),
+        ("redirect_uri", redirect_uri.as_str()),
         ("code_verifier", pkce.code_verifier.as_str()),
     ];
 
@@ -239,10 +246,16 @@ pub async fn poll_device_code_tokens(
     }
 }
 
-pub async fn receive_loopback_code(expected_state: &str, timeout: Duration) -> Result<String> {
-    let listener = TcpListener::bind("127.0.0.1:1455")
+pub async fn receive_loopback_code(
+    expected_state: &str,
+    timeout: Duration,
+    port: u16,
+) -> Result<String> {
+    let listener = TcpListener::bind(format!("127.0.0.1:{port}"))
         .await
-        .context("Failed to bind callback listener at 127.0.0.1:1455")?;
+        .context(format!(
+            "Failed to bind callback listener at 127.0.0.1:{port}"
+        ))?;
 
     let accepted = tokio::time::timeout(timeout, listener.accept())
         .await
@@ -454,6 +467,8 @@ fn url_decode(input: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use reqwest::StatusCode;
+    use tokio::net::TcpStream;
 
     #[test]
     fn pkce_generation_is_valid() {
@@ -506,5 +521,217 @@ mod tests {
 
         let account = extract_account_id_from_jwt(&token);
         assert_eq!(account.as_deref(), Some("acct_123"));
+    }
+
+    #[test]
+    fn build_authorize_url_contains_expected_parameters() {
+        let pkce = PkceState {
+            code_verifier: "verifier".into(),
+            code_challenge: "challenge".into(),
+            state: "state-123".into(),
+        };
+
+        let url = build_authorize_url(&pkce, OPENAI_LOOPBACK_PORT);
+        assert!(url.starts_with(OPENAI_OAUTH_AUTHORIZE_URL));
+        assert!(url.contains("client_id=app_EMoamEEZ73f0CkXaXp7hrann"));
+        assert!(url.contains("code_challenge=challenge"));
+        assert!(url.contains("state=state-123"));
+        assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback"));
+        assert!(url.contains("scope=openid%20profile%20email%20offline_access"));
+    }
+
+    #[test]
+    fn parse_redirect_rejects_missing_state_for_callback_payload() {
+        let err =
+            parse_code_from_redirect("/auth/callback?code=abc123", Some("expected")).unwrap_err();
+        assert!(err.to_string().contains("Missing OAuth state"));
+    }
+
+    #[test]
+    fn parse_redirect_rejects_missing_code_for_callback_payload() {
+        let err = parse_code_from_redirect("/auth/callback?state=expected", Some("expected"))
+            .unwrap_err();
+        assert!(err.to_string().contains("Missing OAuth code"));
+    }
+
+    #[test]
+    fn parse_query_params_decodes_plus_and_percent_encoded_values() {
+        let params =
+            parse_query_params("code=abc%20123&state=ready%2Bok&error_description=user+cancelled");
+
+        assert_eq!(params.get("code").map(String::as_str), Some("abc 123"));
+        assert_eq!(params.get("state").map(String::as_str), Some("ready+ok"));
+        assert_eq!(
+            params.get("error_description").map(String::as_str),
+            Some("user cancelled")
+        );
+    }
+
+    #[test]
+    fn extract_account_id_from_jwt_falls_back_to_sub_claim() {
+        let header = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("{}");
+        let payload =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode("{\"sub\":\"acct_sub_123\"}");
+        let token = format!("{header}.{payload}.sig");
+
+        assert_eq!(
+            extract_account_id_from_jwt(&token).as_deref(),
+            Some("acct_sub_123")
+        );
+    }
+
+    #[test]
+    fn extract_account_id_from_invalid_jwt_returns_none() {
+        assert!(extract_account_id_from_jwt("not-a-jwt").is_none());
+    }
+
+    async fn issue_test_response(
+        status: StatusCode,
+        content_type: &str,
+        body: &str,
+    ) -> reqwest::Response {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let reason = status.canonical_reason().unwrap_or("TEST");
+        let body = body.to_string();
+        let content_type = content_type.to_string();
+
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = [0_u8; 1024];
+            let _ = stream.read(&mut buffer).await;
+            let response = format!(
+                "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                status.as_u16(),
+                reason,
+                content_type,
+                body.len(),
+                body
+            );
+            stream.write_all(response.as_bytes()).await.unwrap();
+        });
+
+        reqwest::Client::new()
+            .get(format!("http://{addr}/"))
+            .send()
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn parse_token_response_maps_success_payload() {
+        let response = issue_test_response(
+            StatusCode::OK,
+            "application/json",
+            r#"{
+              "access_token":"access-123",
+              "refresh_token":"refresh-456",
+              "id_token":"id-789",
+              "expires_in":3600,
+              "token_type":"Bearer",
+              "scope":"openid profile"
+            }"#,
+        )
+        .await;
+
+        let token_set = parse_token_response(response).await.unwrap();
+        assert_eq!(token_set.access_token, "access-123");
+        assert_eq!(token_set.refresh_token.as_deref(), Some("refresh-456"));
+        assert_eq!(token_set.id_token.as_deref(), Some("id-789"));
+        assert_eq!(token_set.token_type.as_deref(), Some("Bearer"));
+        assert_eq!(token_set.scope.as_deref(), Some("openid profile"));
+        assert!(token_set.expires_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn parse_token_response_ignores_non_positive_expiry() {
+        let response = issue_test_response(
+            StatusCode::OK,
+            "application/json",
+            r#"{"access_token":"access-123","expires_in":0}"#,
+        )
+        .await;
+
+        let token_set = parse_token_response(response).await.unwrap();
+        assert!(token_set.expires_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn parse_token_response_surfaces_http_error_body() {
+        let response = issue_test_response(
+            StatusCode::BAD_REQUEST,
+            "application/json",
+            r#"{"error":"invalid_grant"}"#,
+        )
+        .await;
+
+        let err = parse_token_response(response).await.unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("token request failed"));
+        assert!(message.contains("400"));
+        assert!(message.contains("invalid_grant"));
+    }
+
+    #[tokio::test]
+    async fn parse_token_response_rejects_invalid_json() {
+        let response = issue_test_response(StatusCode::OK, "application/json", "not-json").await;
+
+        let err = parse_token_response(response).await.unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("Failed to parse OpenAI token response"));
+    }
+
+    #[tokio::test]
+    async fn receive_loopback_code_reads_callback_and_returns_code() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let task = tokio::spawn(async move {
+            receive_loopback_code("expected-state", Duration::from_secs(2), port)
+                .await
+                .unwrap()
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut client = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        client
+            .write_all(
+                b"GET /auth/callback?code=oauth-code&state=expected-state HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .unwrap();
+
+        let code = task.await.unwrap();
+        assert_eq!(code, "oauth-code");
+    }
+
+    #[tokio::test]
+    async fn receive_loopback_code_rejects_wrong_state() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
+        let task = tokio::spawn(async move {
+            receive_loopback_code("expected-state", Duration::from_secs(2), port)
+                .await
+                .unwrap_err()
+                .to_string()
+        });
+
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let mut client = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+        client
+            .write_all(
+                b"GET /auth/callback?code=oauth-code&state=wrong HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .unwrap();
+
+        let err = task.await.unwrap();
+        assert!(err.contains("OAuth state mismatch"));
     }
 }

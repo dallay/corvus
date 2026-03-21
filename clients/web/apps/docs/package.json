@@ -15,7 +15,7 @@
   "dependencies": {
     "@astrojs/starlight": "catalog:",
     "@corvus/shared": "workspace:*",
-    "astro": "5.18.0",
+    "astro": "catalog:",
     "sharp": "catalog:"
   },
   "devDependencies": {
@@ -23,6 +23,6 @@
     "astro-vtbot": "catalog:",
     "portless": "catalog:",
     "typescript": "catalog:",
-    "vite": "catalog:"
+    "vite": "7.3.1"
   }
 }

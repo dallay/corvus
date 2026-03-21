@@ -7,7 +7,7 @@ import { i18nConfig } from "@/i18n";
 import { createAdminConfigForm } from "@/test/adminConfigFormFactory";
 
 describe("SecuritySettings", () => {
-  it("renders identity-focused controls", () => {
+  it("emits autonomy, identity, and save updates", async () => {
     const wrapper = mount(SecuritySettings, {
       props: {
         modelValue: createAdminConfigForm({
@@ -29,5 +29,27 @@ describe("SecuritySettings", () => {
 
     expect(wrapper.text()).toContain("Identity format");
     expect(wrapper.text()).toContain("Identity AIEOS path");
+
+    await wrapper.get("select").setValue("full");
+
+    const inputs = wrapper.findAll('input:not([type="checkbox"])');
+    await inputs[0]?.setValue("30");
+    await inputs[1]?.setValue("900");
+    await inputs[2]?.setValue("aieos");
+    await inputs[3]?.setValue("/tmp/identity.json");
+
+    const checkbox = wrapper.get('input[type="checkbox"]');
+    await checkbox.setValue(false);
+    await wrapper.get("button").trigger("click");
+
+    expect(wrapper.emitted("update:modelValue")).toEqual([
+      [expect.objectContaining({ autonomy_level: "full" })],
+      [expect.objectContaining({ autonomy_max_actions_per_hour: "30" })],
+      [expect.objectContaining({ autonomy_max_cost_per_day_cents: "900" })],
+      [expect.objectContaining({ identity_format: "aieos" })],
+      [expect.objectContaining({ identity_aieos_path: "/tmp/identity.json" })],
+      [expect.objectContaining({ autonomy_workspace_only: false })],
+    ]);
+    expect(wrapper.emitted("save")).toHaveLength(1);
   });
 });

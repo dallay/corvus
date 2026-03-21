@@ -9,7 +9,12 @@ plugins {
 
 javaPlatform.allowDependencies()
 
-dependencies { api(platform(libs.slf4jBom)) }
+dependencies {
+  api(platform(libs.jacksonToolsBom))
+  api(platform(libs.nettyBom))
+  api(platform(libs.protobufBom))
+  api(platform(libs.slf4jBom))
+}
 
 // Reject versions that should not be upgraded beyond a certain point.
 // This makes Dependabot PR builds fail that attempt to update these.

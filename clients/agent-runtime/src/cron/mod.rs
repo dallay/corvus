@@ -152,6 +152,9 @@ fn parse_delay(input: &str) -> Result<chrono::Duration> {
     if input.is_empty() {
         anyhow::bail!("delay must not be empty");
     }
+    if input.starts_with('-') {
+        anyhow::bail!("delay must not be negative");
+    }
     let split = input
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(input.len());
@@ -159,11 +162,147 @@ fn parse_delay(input: &str) -> Result<chrono::Duration> {
     let amount: i64 = num.parse()?;
     let unit = if unit.is_empty() { "m" } else { unit };
     let duration = match unit {
-        "s" => chrono::Duration::seconds(amount),
-        "m" => chrono::Duration::minutes(amount),
-        "h" => chrono::Duration::hours(amount),
-        "d" => chrono::Duration::days(amount),
+        "s" => chrono::TimeDelta::try_seconds(amount)
+            .ok_or_else(|| anyhow::anyhow!("invalid {amount}s: overflow"))?,
+        "m" => chrono::TimeDelta::try_minutes(amount)
+            .ok_or_else(|| anyhow::anyhow!("invalid {amount}m: overflow"))?,
+        "h" => chrono::TimeDelta::try_hours(amount)
+            .ok_or_else(|| anyhow::anyhow!("invalid {amount}h: overflow"))?,
+        "d" => chrono::TimeDelta::try_days(amount)
+            .ok_or_else(|| anyhow::anyhow!("invalid {amount}d: overflow"))?,
         _ => anyhow::bail!("unsupported delay unit '{unit}', use s/m/h/d"),
     };
     Ok(duration)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── parse_delay ─────────────────────────────────────────────
+
+    #[test]
+    fn parse_delay_seconds() {
+        let d = parse_delay("30s").unwrap();
+        assert_eq!(d, chrono::Duration::seconds(30));
+    }
+
+    #[test]
+    fn parse_delay_minutes() {
+        let d = parse_delay("5m").unwrap();
+        assert_eq!(d, chrono::Duration::minutes(5));
+    }
+
+    #[test]
+    fn parse_delay_hours() {
+        let d = parse_delay("2h").unwrap();
+        assert_eq!(d, chrono::Duration::hours(2));
+    }
+
+    #[test]
+    fn parse_delay_days() {
+        let d = parse_delay("1d").unwrap();
+        assert_eq!(d, chrono::Duration::days(1));
+    }
+
+    #[test]
+    fn parse_delay_defaults_to_minutes_when_no_unit() {
+        let d = parse_delay("15").unwrap();
+        assert_eq!(d, chrono::Duration::minutes(15));
+    }
+
+    #[test]
+    fn parse_delay_accepts_zero() {
+        let d = parse_delay("0m").unwrap();
+        assert_eq!(d, chrono::Duration::zero());
+    }
+
+    #[test]
+    fn parse_delay_trims_whitespace() {
+        let d = parse_delay("  10m  ").unwrap();
+        assert_eq!(d, chrono::Duration::minutes(10));
+    }
+
+    #[test]
+    fn parse_delay_rejects_empty() {
+        let err = parse_delay("").unwrap_err();
+        assert!(err.to_string().contains("delay must not be empty"));
+    }
+
+    #[test]
+    fn parse_delay_rejects_whitespace_only() {
+        let err = parse_delay("   ").unwrap_err();
+        assert!(err.to_string().contains("delay must not be empty"));
+    }
+
+    #[test]
+    fn parse_delay_rejects_invalid_unit() {
+        let err = parse_delay("5w").unwrap_err();
+        assert!(err.to_string().contains("unsupported delay unit"));
+        assert!(err.to_string().contains('w'));
+    }
+
+    #[test]
+    fn parse_delay_rejects_non_numeric() {
+        let err = parse_delay("hello").unwrap_err();
+        // Parse fails for "hello" since it's not a number
+        let msg = err.to_string();
+        assert!(msg.contains("parse") || msg.contains("unsupported delay unit"));
+    }
+
+    #[test]
+    fn parse_delay_rejects_leading_unit() {
+        let err = parse_delay("m5").unwrap_err();
+        // Either "unsupported delay unit" or parse error
+        let msg = err.to_string();
+        assert!(msg.contains("unsupported delay unit") || msg.contains("parse"));
+    }
+
+    #[test]
+    fn parse_delay_rejects_negative_values() {
+        let err = parse_delay("-5m").unwrap_err();
+        assert!(err.to_string().contains("must not be negative"));
+    }
+
+    #[test]
+    fn parse_delay_surfaces_huge_number_parse_errors() {
+        let err = parse_delay("99999999999999999999m").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("parse") || msg.contains("overflow") || msg.contains("too large"));
+    }
+
+    // ── Overflow regression tests ─────────────────────────────────
+
+    #[test]
+    fn parse_delay_seconds_overflow_returns_error() {
+        // i64::MAX / 1_000_000_000 = 9_223_372_036 is the max safe seconds
+        // Try to overflow by using max + 1
+        let err = parse_delay("9223372036854775807s").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("invalid") && msg.contains("s") && msg.contains("overflow"));
+    }
+
+    #[test]
+    fn parse_delay_minutes_overflow_returns_error() {
+        // i64::MAX / (60 * 1_000_000_000) = 153_722_867_280 is the max safe minutes
+        let err = parse_delay("153722867280912950m").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("invalid") && msg.contains("m") && msg.contains("overflow"));
+    }
+
+    #[test]
+    fn parse_delay_hours_overflow_returns_error() {
+        // i64::MAX / (3600 * 1_000_000_000) = 2_562_047_788 is the max safe hours
+        let err = parse_delay("2562047788015216h").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("invalid") && msg.contains("h") && msg.contains("overflow"));
+    }
+
+    #[test]
+    fn parse_delay_days_overflow_returns_error() {
+        // i64::MAX / (86400 * 1_000_000_000) = 106_751_991 is the max safe days
+        let err = parse_delay("106751991167301d").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("invalid") && msg.contains("d") && msg.contains("overflow"));
+    }
 }
