@@ -25,23 +25,34 @@ val buildLogicOnlyExcludedLockingConfigurations =
     "testRuntimeClasspath",
   )
 
+val composeAppOsSpecificExcludedLockingConfigurations =
+  setOf(
+    "allSourceSetsCompileDependenciesMetadata",
+    "allTestSourceSetsCompileDependenciesMetadata",
+    "jvmCompileClasspath",
+    "jvmRuntimeClasspath",
+    "jvmMainCompileClasspath",
+    "jvmMainResolvableDependenciesMetadata",
+    "jvmMainRuntimeClasspath",
+    "jvmTestCompileClasspath",
+    "jvmTestResolvableDependenciesMetadata",
+    "jvmTestRuntimeClasspath",
+  )
+
 fun Configuration.shouldUseDependencyLocking(): Boolean {
-  if (!isCanBeResolved) {
-    return false
-  }
-
-  if (name in excludedLockingConfigurations) {
-    return false
-  }
-
-  if (
+  val isBuildLogicOnlyExcluded =
     project.rootProject.name == "corvus-build-logic" &&
       name in buildLogicOnlyExcludedLockingConfigurations
-  ) {
-    return false
-  }
+  val isComposeAppOsSpecificExcluded =
+    project.path == ":composeApp" && name in composeAppOsSpecificExcludedLockingConfigurations
+  val hasExcludedPrefix =
+    excludedLockingConfigurationPrefixes.any { prefix -> name.startsWith(prefix) }
 
-  return excludedLockingConfigurationPrefixes.none { prefix -> name.startsWith(prefix) }
+  return isCanBeResolved &&
+    name !in excludedLockingConfigurations &&
+    !isBuildLogicOnlyExcluded &&
+    !isComposeAppOsSpecificExcluded &&
+    !hasExcludedPrefix
 }
 
 fun findGradleWrapper(startDir: File): File? {

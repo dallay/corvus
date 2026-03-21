@@ -9,7 +9,7 @@ Thanks for your interest in contributing to Corvus! This guide will help you get
 git clone https://github.com/dallay/corvus.git
 cd corvus
 
-# Enable the pre-push hook (runs fmt, clippy, tests before every push)
+# Enable repo-managed git hooks
 git config core.hooksPath .githooks
 
 # Build
@@ -38,9 +38,18 @@ rustup component add llvm-tools-preview
 These are required for `make rust-coverage` and `make test-coverage` to generate
 `coverage/agent-runtime-coverage.lcov`.
 
-### Pre-push hook
+### Git hooks
 
-The repo includes a pre-push hook in `.githooks/` that enforces `cargo fmt --check`, `cargo clippy -- -D warnings`, and `cargo test` before every push. Enable it with `git config core.hooksPath .githooks`.
+The repo includes managed Git hooks in `.githooks/`.
+
+- `pre-commit` runs `./gradlew spotlessApply` for staged Kotlin/Gradle sources, re-stages those files, checks forbidden staged additions, and validates staged local links with `lychee` when available.
+- `pre-push` runs Rust validations, `./gradlew checkLocksAll --no-parallel`, and CI-aligned Gradle checks including `:agent-core-kmp:koverXmlReport` and `:composeApp:koverXmlReport`.
+
+Enable them with:
+
+```bash
+git config core.hooksPath .githooks
+```
 
 To skip it during rapid iteration:
 
