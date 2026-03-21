@@ -14,7 +14,7 @@ pub const OPENAI_OAUTH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
 pub const OPENAI_OAUTH_AUTHORIZE_URL: &str = "https://auth.openai.com/oauth/authorize";
 pub const OPENAI_OAUTH_TOKEN_URL: &str = "https://auth.openai.com/oauth/token";
 pub const OPENAI_OAUTH_DEVICE_CODE_URL: &str = "https://auth.openai.com/oauth/device/code";
-pub const OPENAI_OAUTH_REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
+pub const OPENAI_LOOPBACK_PORT: u16 = 1455;
 
 #[derive(Debug, Clone)]
 pub struct PkceState {
@@ -82,11 +82,16 @@ pub fn generate_pkce_state() -> PkceState {
     }
 }
 
-pub fn build_authorize_url(pkce: &PkceState) -> String {
+pub fn openai_oauth_redirect_uri(port: u16) -> String {
+    format!("http://localhost:{port}/auth/callback")
+}
+
+pub fn build_authorize_url(pkce: &PkceState, port: u16) -> String {
+    let redirect_uri = openai_oauth_redirect_uri(port);
     let mut params = BTreeMap::new();
     params.insert("response_type", "code");
     params.insert("client_id", OPENAI_OAUTH_CLIENT_ID);
-    params.insert("redirect_uri", OPENAI_OAUTH_REDIRECT_URI);
+    params.insert("redirect_uri", redirect_uri.as_str());
     params.insert("scope", "openid profile email offline_access");
     params.insert("code_challenge", pkce.code_challenge.as_str());
     params.insert("code_challenge_method", "S256");
@@ -106,12 +111,14 @@ pub async fn exchange_code_for_tokens(
     client: &Client,
     code: &str,
     pkce: &PkceState,
+    port: u16,
 ) -> Result<TokenSet> {
+    let redirect_uri = openai_oauth_redirect_uri(port);
     let form = [
         ("grant_type", "authorization_code"),
         ("code", code),
         ("client_id", OPENAI_OAUTH_CLIENT_ID),
-        ("redirect_uri", OPENAI_OAUTH_REDIRECT_URI),
+        ("redirect_uri", redirect_uri.as_str()),
         ("code_verifier", pkce.code_verifier.as_str()),
     ];
 
@@ -524,7 +531,7 @@ mod tests {
             state: "state-123".into(),
         };
 
-        let url = build_authorize_url(&pkce);
+        let url = build_authorize_url(&pkce, OPENAI_LOOPBACK_PORT);
         assert!(url.starts_with(OPENAI_OAUTH_AUTHORIZE_URL));
         assert!(url.contains("client_id=app_EMoamEEZ73f0CkXaXp7hrann"));
         assert!(url.contains("code_challenge=challenge"));
@@ -677,15 +684,19 @@ mod tests {
 
     #[tokio::test]
     async fn receive_loopback_code_reads_callback_and_returns_code() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
         let task = tokio::spawn(async {
-            receive_loopback_code("expected-state", Duration::from_secs(2), 1455)
+            receive_loopback_code("expected-state", Duration::from_secs(2), port)
                 .await
                 .unwrap()
         });
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        let mut client = TcpStream::connect("127.0.0.1:1455").await.unwrap();
+        let mut client = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
         client
             .write_all(
                 b"GET /auth/callback?code=oauth-code&state=expected-state HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
@@ -699,8 +710,12 @@ mod tests {
 
     #[tokio::test]
     async fn receive_loopback_code_rejects_wrong_state() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        drop(listener);
+
         let task = tokio::spawn(async {
-            receive_loopback_code("expected-state", Duration::from_secs(2), 1456)
+            receive_loopback_code("expected-state", Duration::from_secs(2), port)
                 .await
                 .unwrap_err()
                 .to_string()
@@ -708,7 +723,7 @@ mod tests {
 
         tokio::time::sleep(Duration::from_millis(50)).await;
 
-        let mut client = TcpStream::connect("127.0.0.1:1456").await.unwrap();
+        let mut client = TcpStream::connect(("127.0.0.1", port)).await.unwrap();
         client
             .write_all(
                 b"GET /auth/callback?code=oauth-code&state=wrong HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",

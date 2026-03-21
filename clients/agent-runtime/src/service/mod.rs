@@ -721,6 +721,6 @@ mod tests {
     #[test]
     fn macos_service_file_compiles_on_non_macos() {
         // Just verify the function compiles and is callable on other platforms
-        let _: fn() -> std::path::Result<std::path::PathBuf> = macos_service_file;
+        let _: fn() -> Result<std::path::PathBuf> = macos_service_file;
     }
 }

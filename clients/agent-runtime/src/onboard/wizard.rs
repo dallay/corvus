@@ -1747,7 +1747,7 @@ fn prepare_model_options(
 fn load_fresh_cached_model_options(
     workspace_dir: &Path,
     provider_name: &str,
-) -> Result<Option<Vec<(String, String)>>> {
+) -> Result<Option<PreparedModelOptions>> {
     let Some(cached) =
         load_cached_models_for_provider(workspace_dir, provider_name, MODEL_CACHE_TTL_SECS)?
     else {
@@ -1761,13 +1761,13 @@ fn load_fresh_cached_model_options(
         humanize_age(cached.age_secs)
     ));
 
-    Ok(Some(prepared.options))
+    Ok(Some(prepared))
 }
 
 fn load_stale_cached_model_options(
     workspace_dir: &Path,
     provider_name: &str,
-) -> Result<Option<Vec<(String, String)>>> {
+) -> Result<Option<PreparedModelOptions>> {
     let Some(stale) = load_any_cached_models_for_provider(workspace_dir, provider_name)? else {
         return Ok(None);
     };
@@ -1777,16 +1777,18 @@ fn load_stale_cached_model_options(
         humanize_age(stale.age_secs)
     ));
 
-    Ok(Some(
-        prepare_model_options(stale.models, "stale-cache", LIVE_MODEL_MAX_OPTIONS).options,
-    ))
+    Ok(Some(prepare_model_options(
+        stale.models,
+        "stale-cache",
+        LIVE_MODEL_MAX_OPTIONS,
+    )))
 }
 
 fn handle_live_fetch_result(
     workspace_dir: &Path,
     provider_name: &str,
     fetch_result: Result<Vec<String>>,
-    live_options: &mut Option<Vec<(String, String)>>,
+    live_options: &mut Option<PreparedModelOptions>,
 ) -> Result<()> {
     match fetch_result {
         Ok(live_model_ids) if !live_model_ids.is_empty() => {
@@ -1804,7 +1806,7 @@ fn handle_live_fetch_result(
                 print_bullet(&format!("Fetched {shown_count} live models."));
             }
 
-            *live_options = Some(prepared.options);
+            *live_options = Some(prepared);
         }
         Ok(_) => {
             print_bullet("Provider returned no models; using curated list.");
@@ -1826,7 +1828,7 @@ fn fetch_live_model_options(
     workspace_dir: &Path,
     provider_name: &str,
     api_key: &str,
-) -> Result<Option<Vec<(String, String)>>> {
+) -> Result<Option<PreparedModelOptions>> {
     if !supports_live_model_fetch(provider_name) {
         return Ok(None);
     }
@@ -2433,7 +2435,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
 
     if let Some(live_model_options) = live_options {
         let source_options = vec![
-            format!("Provider model list ({})", live_model_options.len()),
+            format!("Provider model list ({})", live_model_options.total_count),
             format!("Curated starter list ({})", model_options.len()),
         ];
 
@@ -2444,7 +2446,7 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
             .interact()?;
 
         if source_idx == 0 {
-            model_options = live_model_options;
+            model_options = live_model_options.options;
         }
     }
 
@@ -5932,13 +5934,14 @@ mod tests {
             .unwrap()
             .expect("expected cached options");
 
-        assert_eq!(fresh.len(), LIVE_MODEL_MAX_OPTIONS);
+        assert_eq!(fresh.total_count, LIVE_MODEL_MAX_OPTIONS + 5);
+        assert_eq!(fresh.options.len(), LIVE_MODEL_MAX_OPTIONS);
         assert_eq!(
-            fresh[0],
+            fresh.options[0],
             ("model-000".to_string(), "model-000 (cached)".to_string())
         );
         assert_eq!(
-            fresh.last(),
+            fresh.options.last(),
             Some(&(
                 format!("model-{:03}", LIVE_MODEL_MAX_OPTIONS - 1),
                 format!("model-{:03} (cached)", LIVE_MODEL_MAX_OPTIONS - 1),
@@ -5969,20 +5972,23 @@ mod tests {
 
         assert_eq!(
             live_options,
-            Some(vec![(
-                "cached-model".to_string(),
-                "cached-model (stale-cache)".to_string(),
-            )])
+            Some(PreparedModelOptions {
+                total_count: 1,
+                options: vec![(
+                    "cached-model".to_string(),
+                    "cached-model (stale-cache)".to_string(),
+                )],
+            })
         );
     }
 
     #[test]
     fn handle_live_fetch_result_preserves_existing_options_on_error() {
         let tmp = TempDir::new().unwrap();
-        let mut live_options = Some(vec![(
-            "existing".to_string(),
-            "existing (live)".to_string(),
-        )]);
+        let mut live_options = Some(PreparedModelOptions {
+            total_count: 1,
+            options: vec![("existing".to_string(), "existing (live)".to_string())],
+        });
 
         handle_live_fetch_result(
             tmp.path(),
@@ -5994,10 +6000,10 @@ mod tests {
 
         assert_eq!(
             live_options,
-            Some(vec![(
-                "existing".to_string(),
-                "existing (live)".to_string()
-            )])
+            Some(PreparedModelOptions {
+                total_count: 1,
+                options: vec![("existing".to_string(), "existing (live)".to_string())],
+            })
         );
     }
 
@@ -6012,9 +6018,10 @@ mod tests {
         handle_live_fetch_result(tmp.path(), "openai", Ok(live_models), &mut live_options).unwrap();
 
         let options = live_options.expect("expected live options");
-        assert_eq!(options.len(), LIVE_MODEL_MAX_OPTIONS);
+        assert_eq!(options.total_count, LIVE_MODEL_MAX_OPTIONS + 3);
+        assert_eq!(options.options.len(), LIVE_MODEL_MAX_OPTIONS);
         assert_eq!(
-            options[0],
+            options.options[0],
             ("model-000".to_string(), "model-000 (live)".to_string())
         );
 

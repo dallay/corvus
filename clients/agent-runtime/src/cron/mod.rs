@@ -152,6 +152,9 @@ fn parse_delay(input: &str) -> Result<chrono::Duration> {
     if input.is_empty() {
         anyhow::bail!("delay must not be empty");
     }
+    if input.starts_with('-') {
+        anyhow::bail!("delay must not be negative");
+    }
     let split = input
         .find(|c: char| !c.is_ascii_digit())
         .unwrap_or(input.len());
@@ -205,6 +208,12 @@ mod tests {
     }
 
     #[test]
+    fn parse_delay_accepts_zero() {
+        let d = parse_delay("0m").unwrap();
+        assert_eq!(d, chrono::Duration::zero());
+    }
+
+    #[test]
     fn parse_delay_trims_whitespace() {
         let d = parse_delay("  10m  ").unwrap();
         assert_eq!(d, chrono::Duration::minutes(10));
@@ -243,5 +252,18 @@ mod tests {
         // Either "unsupported delay unit" or parse error
         let msg = err.to_string();
         assert!(msg.contains("unsupported delay unit") || msg.contains("parse"));
+    }
+
+    #[test]
+    fn parse_delay_rejects_negative_values() {
+        let err = parse_delay("-5m").unwrap_err();
+        assert!(err.to_string().contains("must not be negative"));
+    }
+
+    #[test]
+    fn parse_delay_surfaces_huge_number_parse_errors() {
+        let err = parse_delay("99999999999999999999m").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("parse") || msg.contains("overflow"));
     }
 }

@@ -1428,16 +1428,20 @@ async fn handle_browser_flow_login(
     };
     save_pending_openai_login(config, &pending)?;
 
-    let authorize_url = auth::openai_oauth::build_authorize_url(&pkce);
+    let authorize_url =
+        auth::openai_oauth::build_authorize_url(&pkce, auth::openai_oauth::OPENAI_LOOPBACK_PORT);
     println!("Open this URL in your browser and authorize access:");
     println!("{authorize_url}");
     println!();
-    println!("Waiting for callback at http://localhost:1455/auth/callback ...");
+    println!(
+        "Waiting for callback at {} ...",
+        auth::openai_oauth::openai_oauth_redirect_uri(auth::openai_oauth::OPENAI_LOOPBACK_PORT)
+    );
 
     let code = match auth::openai_oauth::receive_loopback_code(
         &pkce.state,
         std::time::Duration::from_secs(180),
-        1455,
+        auth::openai_oauth::OPENAI_LOOPBACK_PORT,
     )
     .await
     {
@@ -1447,7 +1451,13 @@ async fn handle_browser_flow_login(
         }
     };
 
-    let token_set = auth::openai_oauth::exchange_code_for_tokens(client, &code, &pkce).await?;
+    let token_set = auth::openai_oauth::exchange_code_for_tokens(
+        client,
+        &code,
+        &pkce,
+        auth::openai_oauth::OPENAI_LOOPBACK_PORT,
+    )
+    .await?;
     let account_id = extract_openai_account_id_for_profile(&token_set.access_token);
 
     let saved = auth_service.store_openai_tokens(profile, token_set, account_id, true)?;
@@ -1498,7 +1508,13 @@ async fn handle_paste_redirect(
     };
 
     let client = reqwest::Client::new();
-    let token_set = auth::openai_oauth::exchange_code_for_tokens(&client, &code, &pkce).await?;
+    let token_set = auth::openai_oauth::exchange_code_for_tokens(
+        &client,
+        &code,
+        &pkce,
+        auth::openai_oauth::OPENAI_LOOPBACK_PORT,
+    )
+    .await?;
     let account_id = extract_openai_account_id_for_profile(&token_set.access_token);
 
     let saved = auth_service.store_openai_tokens(profile, token_set, account_id, true)?;
