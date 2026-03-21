@@ -49,6 +49,12 @@ jobs:
           java-version: "25"
           distribution: "corretto"
 
+      - name: 📦 Setup pnpm
+        if: env.SONAR_TOKEN != ''
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: 10
+
       - name: 📦 Setup Node
         if: env.SONAR_TOKEN != ''
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -56,12 +62,6 @@ jobs:
           node-version: "24"
           cache: "pnpm"
           cache-dependency-path: clients/web/pnpm-lock.yaml
-
-      - name: 📦 Setup pnpm
-        if: env.SONAR_TOKEN != ''
-        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
-        with:
-          version: 10
 
       - name: 📦 Install web dependencies
         if: env.SONAR_TOKEN != ''
