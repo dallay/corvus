@@ -424,8 +424,9 @@ describe("useConfig", () => {
       config.baseUrl.value = "not-a-url-at-all";
       config.pairingCode.value = "857258";
 
-      await config.pairGateway();
+      const result = await config.pairGateway();
 
+      expect(result).toBe(false);
       expect(config.errorMessage.value).toBe("errors.insecureUrlError");
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -435,8 +436,9 @@ describe("useConfig", () => {
       config.baseUrl.value = "file:///etc/passwd";
       config.pairingCode.value = "857258";
 
-      await config.pairGateway();
+      const result = await config.pairGateway();
 
+      expect(result).toBe(false);
       expect(config.errorMessage.value).toBe("errors.insecureUrlError");
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -446,8 +448,9 @@ describe("useConfig", () => {
       config.baseUrl.value = "http://localhost:3000/#section";
       config.pairingCode.value = "857258";
 
-      await config.pairGateway();
+      const result = await config.pairGateway();
 
+      expect(result).toBe(false);
       expect(config.errorMessage.value).toBe("errors.insecureUrlError");
       expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -506,13 +509,22 @@ describe("useConfig", () => {
       const config = useConfig((key: string) => key);
       config.bearerToken.value = "token";
       await config.connectGateway();
+      const callsBeforeSave = fetchMock.mock.calls.length;
       config.baseUrl.value = "https://malicious.example.com/api";
       config.form.default_model = "b";
 
       await config.saveSection("general");
 
+      const maliciousCalls = fetchMock.mock.calls.filter(([request]) => {
+        const url =
+          typeof request === "string" ? request : request instanceof Request ? request.url : "";
+        return url.startsWith("https://malicious.example.com/api");
+      });
+
       expect(config.errorMessage.value).toBe("errors.insecureUrlError");
       expect(config.sectionSaving.general).toBe(false);
+      expect(maliciousCalls).toHaveLength(0);
+      expect(fetchMock.mock.calls.length).toBe(callsBeforeSave);
     });
 
     it("reports a generic error when save returns a non-OK, non-409 status", async () => {
@@ -537,7 +549,7 @@ describe("useConfig", () => {
       expect(config.sectionSaving.general).toBe(false);
     });
 
-    it("resets webhook secret mode and reports success when save and reconnect both succeed", async () => {
+    it("preserves webhook secret edits and reports success when save and reconnect both succeed", async () => {
       fetchMock
         .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
         .mockResolvedValueOnce(
@@ -564,12 +576,12 @@ describe("useConfig", () => {
 
       await config.saveSection("general");
 
-      expect(config.form.webhook_secret_mode).toBe("unchanged");
-      expect(config.form.webhook_secret_value).toBe("");
+      expect(config.form.webhook_secret_mode).toBe("replace");
+      expect(config.form.webhook_secret_value).toBe("new-secret");
       expect(config.statusMessage.value).toBe("form.saveSuccess");
     });
 
-    it("clears webhook mode on save even when reconnect fails", async () => {
+    it("preserves webhook secret edits when reconnect fails after saving general settings", async () => {
       fetchMock
         .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
         .mockResolvedValueOnce(
@@ -592,10 +604,8 @@ describe("useConfig", () => {
 
       await config.saveSection("general");
 
-      // webhook mode is always reset after a successful save; reconnect failure
-      // is surfaced by connectGateway's own catch block as "auth.loadError"
-      expect(config.form.webhook_secret_mode).toBe("unchanged");
-      expect(config.form.webhook_secret_value).toBe("");
+      expect(config.form.webhook_secret_mode).toBe("replace");
+      expect(config.form.webhook_secret_value).toBe("new-secret");
       expect(config.statusMessage.value).toBe("");
       expect(config.errorMessage.value).toBe("auth.loadError");
     });

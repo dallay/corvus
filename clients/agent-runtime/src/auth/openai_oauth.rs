@@ -688,7 +688,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
 
-        let task = tokio::spawn(async {
+        let task = tokio::spawn(async move {
             receive_loopback_code("expected-state", Duration::from_secs(2), port)
                 .await
                 .unwrap()
@@ -714,7 +714,7 @@ mod tests {
         let port = listener.local_addr().unwrap().port();
         drop(listener);
 
-        let task = tokio::spawn(async {
+        let task = tokio::spawn(async move {
             receive_loopback_code("expected-state", Duration::from_secs(2), port)
                 .await
                 .unwrap_err()

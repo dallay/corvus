@@ -17,7 +17,7 @@ describe("GeneralSettings", () => {
           default_temperature: "0.7",
           memory_backend: "sqlite",
         }),
-        memoryBackendOptions: ["sqlite", "surreal"],
+        memoryBackendOptions: ["sqlite", "lucid"],
         disabled: false,
         saving: false,
       },
@@ -34,7 +34,7 @@ describe("GeneralSettings", () => {
     await inputs[1]?.setValue("gpt-5");
     await inputs[2]?.setValue("http://localhost:8787/api");
     await inputs[3]?.setValue("0.9");
-    await wrapper.get("select").setValue("surreal");
+    await wrapper.get("select").setValue("lucid");
     await wrapper.get("button").trigger("click");
 
     const updates = wrapper.emitted("update:modelValue");
@@ -45,7 +45,7 @@ describe("GeneralSettings", () => {
       expect.objectContaining({ api_url: "http://localhost:8787/api" })
     );
     expect(updates?.[3]?.[0]).toEqual(expect.objectContaining({ default_temperature: "0.9" }));
-    expect(updates?.[4]?.[0]).toEqual(expect.objectContaining({ memory_backend: "surreal" }));
+    expect(updates?.[4]?.[0]).toEqual(expect.objectContaining({ memory_backend: "lucid" }));
     expect(wrapper.emitted("save")).toHaveLength(1);
   });
 });

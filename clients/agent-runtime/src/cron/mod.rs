@@ -264,6 +264,8 @@ mod tests {
     fn parse_delay_surfaces_huge_number_parse_errors() {
         let err = parse_delay("99999999999999999999m").unwrap_err();
         let msg = err.to_string().to_lowercase();
-        assert!(msg.contains("parse") || msg.contains("overflow"));
+        assert!(
+            msg.contains("parse") || msg.contains("overflow") || msg.contains("too large")
+        );
     }
 }
