@@ -41,7 +41,8 @@ fun Configuration.shouldUseDependencyLocking(): Boolean {
       name in buildLogicOnlyExcludedLockingConfigurations
   val isComposeAppOsSpecificExcluded =
     project.path == ":composeApp" && name in composeAppOsSpecificExcludedLockingConfigurations
-  val hasExcludedPrefix = excludedLockingConfigurationPrefixes.any { prefix -> name.startsWith(prefix) }
+  val hasExcludedPrefix =
+    excludedLockingConfigurationPrefixes.any { prefix -> name.startsWith(prefix) }
 
   return isCanBeResolved &&
     name !in excludedLockingConfigurations &&
