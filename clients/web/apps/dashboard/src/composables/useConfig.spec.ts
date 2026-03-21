@@ -417,4 +417,187 @@ describe("useConfig", () => {
       expect(config.bearerToken.value).toBe("");
     });
   });
+
+  describe("URL safety checks", () => {
+    it("rejects malformed URLs that cannot be parsed", async () => {
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "not-a-url-at-all";
+      config.pairingCode.value = "857258";
+
+      await config.pairGateway();
+
+      expect(config.errorMessage.value).toBe("errors.insecureUrlError");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects file:// protocol as unsafe", async () => {
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "file:///etc/passwd";
+      config.pairingCode.value = "857258";
+
+      await config.pairGateway();
+
+      expect(config.errorMessage.value).toBe("errors.insecureUrlError");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("rejects URLs with fragment anchors as unsafe", async () => {
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/#section";
+      config.pairingCode.value = "857258";
+
+      await config.pairGateway();
+
+      expect(config.errorMessage.value).toBe("errors.insecureUrlError");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("accepts IPv6 loopback address", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: "ipv6-token" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://[::1]:3000";
+      config.pairingCode.value = "857258";
+
+      const result = await config.pairGateway({ autoConnect: false });
+
+      expect(result).toBe(true);
+      expect(config.bearerToken.value).toBe("ipv6-token");
+    });
+
+    it("accepts subdomains of .localhost as trusted", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: "subdomain-token" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://corvus.localhost:4000/api";
+      config.pairingCode.value = "857258";
+
+      const result = await config.pairGateway({ autoConnect: false });
+
+      expect(result).toBe(true);
+      expect(config.bearerToken.value).toBe("subdomain-token");
+    });
+  });
+
+  describe("saveSection URL safety and error paths", () => {
+    it("returns insecureUrlError when baseUrl points to an untrusted origin", async () => {
+      // ensure initialConfig is set so we pass the early-return guard
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              config: { default_model: "a", channels: { webhook: {} } },
+            }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        );
+
+      const config = useConfig((key: string) => key);
+      config.bearerToken.value = "token";
+      await config.connectGateway();
+      config.baseUrl.value = "https://malicious.example.com/api";
+      config.form.default_model = "b";
+
+      await config.saveSection("general");
+
+      expect(config.errorMessage.value).toBe("errors.insecureUrlError");
+      expect(config.sectionSaving.general).toBe(false);
+    });
+
+    it("reports a generic error when save returns a non-OK, non-409 status", async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ config: { default_model: "a", channels: { webhook: {} } } }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 500 }));
+
+      const config = useConfig((key: string) => key);
+      config.bearerToken.value = "token";
+      await config.connectGateway();
+      config.form.default_model = "b";
+
+      await config.saveSection("general");
+
+      expect(config.errorMessage.value).toBe("form.saveError");
+      expect(config.sectionSaving.general).toBe(false);
+    });
+
+    it("resets webhook secret mode and reports success when save and reconnect both succeed", async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ config: { default_model: "a", channels: { webhook: {} } } }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ updated: true }), { status: 200 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ config: { default_model: "b", channels: { webhook: {} } } }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        );
+
+      const config = useConfig((key: string) => key);
+      config.bearerToken.value = "token";
+      await config.connectGateway();
+      config.form.webhook_secret_mode = "replace";
+      config.form.webhook_secret_value = "new-secret";
+      config.form.default_model = "b";
+
+      await config.saveSection("general");
+
+      expect(config.form.webhook_secret_mode).toBe("unchanged");
+      expect(config.form.webhook_secret_value).toBe("");
+      expect(config.statusMessage.value).toBe("form.saveSuccess");
+    });
+
+    it("clears webhook mode on save even when reconnect fails", async () => {
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({ config: { default_model: "a", channels: { webhook: {} } } }),
+            { status: 200, headers: { "Content-Type": "application/json" } }
+          )
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ updated: true }), { status: 200 }))
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "unauthorized" }), { status: 401 })
+        );
+
+      const config = useConfig((key: string) => key);
+      config.bearerToken.value = "token";
+      await config.connectGateway();
+      config.form.webhook_secret_mode = "replace";
+      config.form.webhook_secret_value = "new-secret";
+      config.form.default_model = "b";
+
+      await config.saveSection("general");
+
+      // webhook mode is always reset after a successful save; reconnect failure
+      // is surfaced by connectGateway's own catch block as "auth.loadError"
+      expect(config.form.webhook_secret_mode).toBe("unchanged");
+      expect(config.form.webhook_secret_value).toBe("");
+      expect(config.statusMessage.value).toBe("");
+      expect(config.errorMessage.value).toBe("auth.loadError");
+    });
+  });
 });

@@ -657,4 +657,70 @@ mod tests {
             RestartDecision::RestartManagedService
         );
     }
+
+    #[test]
+    fn restart_decision_returns_none_for_idle_install_state() {
+        assert_eq!(
+            restart_decision_for_install_state(
+                &InstallState::Idle,
+                RestartPolicy::AutoManagedService
+            ),
+            RestartDecision::None
+        );
+    }
+
+    #[test]
+    fn restart_decision_returns_none_for_installing_state() {
+        assert_eq!(
+            restart_decision_for_install_state(
+                &InstallState::Installing {
+                    tx_id: "tx-123".to_string(),
+                    started_at_unix: 1000,
+                },
+                RestartPolicy::AutoManagedService
+            ),
+            RestartDecision::None
+        );
+    }
+
+    #[test]
+    fn restart_decision_returns_none_for_failed_install_state() {
+        assert_eq!(
+            restart_decision_for_install_state(
+                &InstallState::Failed {
+                    tx_id: "tx-456".to_string(),
+                    failed_at_unix: 2000,
+                    reason_code: "network".to_string(),
+                },
+                RestartPolicy::AutoManagedService
+            ),
+            RestartDecision::None
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_service_file_builds_launchd_path() {
+        let path = macos_service_file().expect("macos_service_file should succeed");
+        let path_str = path.to_string_lossy();
+        assert!(
+            path_str.contains("Library"),
+            "expected path to contain Library: {path_str}"
+        );
+        assert!(
+            path_str.contains("LaunchAgents"),
+            "expected path to contain LaunchAgents: {path_str}"
+        );
+        assert!(
+            path_str.ends_with(".plist"),
+            "expected path to end with .plist: {path_str}"
+        );
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn macos_service_file_compiles_on_non_macos() {
+        // Just verify the function compiles and is callable on other platforms
+        let _: fn() -> std::path::Result<std::path::PathBuf> = macos_service_file;
+    }
 }

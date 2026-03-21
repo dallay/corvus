@@ -1800,6 +1800,101 @@ mod tests {
         assert!(parsed.code_verifier.is_none());
     }
 
+    #[test]
+    fn save_and_load_pending_openai_login_roundtrips() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let pending = PendingOpenAiLogin {
+            profile: "default".to_string(),
+            code_verifier: "verifier-secret".to_string(),
+            state: "csrf-state".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+
+        save_pending_openai_login(&config, &pending).unwrap();
+
+        let path = pending_openai_login_path(&config);
+        let persisted: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(persisted["profile"], "default");
+        assert_eq!(persisted["state"], "csrf-state");
+        assert!(persisted.get("encrypted_code_verifier").is_some());
+        assert!(persisted.get("code_verifier").is_none());
+
+        let loaded = load_pending_openai_login(&config).unwrap().unwrap();
+        assert_eq!(loaded.profile, pending.profile);
+        assert_eq!(loaded.code_verifier, pending.code_verifier);
+        assert_eq!(loaded.state, pending.state);
+        assert_eq!(loaded.created_at, pending.created_at);
+    }
+
+    #[test]
+    fn load_pending_openai_login_supports_legacy_plaintext_files() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let path = pending_openai_login_path(&config);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let persisted = PendingOpenAiLoginFile {
+            profile: "legacy".to_string(),
+            code_verifier: Some("plain-verifier".to_string()),
+            encrypted_code_verifier: None,
+            state: "legacy-state".to_string(),
+            created_at: "2024-01-02T00:00:00Z".to_string(),
+        };
+        std::fs::write(&path, serde_json::to_vec(&persisted).unwrap()).unwrap();
+
+        let loaded = load_pending_openai_login(&config).unwrap().unwrap();
+
+        assert_eq!(loaded.profile, "legacy");
+        assert_eq!(loaded.code_verifier, "plain-verifier");
+        assert_eq!(loaded.state, "legacy-state");
+        assert_eq!(loaded.created_at, "2024-01-02T00:00:00Z");
+    }
+
+    #[test]
+    fn load_pending_openai_login_rejects_missing_verifier_fields() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let path = pending_openai_login_path(&config);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let persisted = PendingOpenAiLoginFile {
+            profile: "broken".to_string(),
+            code_verifier: None,
+            encrypted_code_verifier: None,
+            state: "broken-state".to_string(),
+            created_at: "2024-01-03T00:00:00Z".to_string(),
+        };
+        std::fs::write(&path, serde_json::to_vec(&persisted).unwrap()).unwrap();
+
+        let error = load_pending_openai_login(&config).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "Pending OpenAI login is missing code verifier"
+        );
+    }
+
+    #[test]
+    fn clear_pending_openai_login_removes_persisted_file() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let pending = PendingOpenAiLogin {
+            profile: "default".to_string(),
+            code_verifier: "verifier-secret".to_string(),
+            state: "csrf-state".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        save_pending_openai_login(&config, &pending).unwrap();
+
+        let path = pending_openai_login_path(&config);
+        assert!(path.exists());
+
+        clear_pending_openai_login(&config);
+
+        assert!(!path.exists());
+        assert!(load_pending_openai_login(&config).unwrap().is_none());
+    }
+
     #[tokio::test]
     async fn unified_loop_collection_returns_lifecycle_events() {
         let events = collect_unified_loop_events("hello").await;

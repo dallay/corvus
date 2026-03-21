@@ -2516,4 +2516,152 @@ mod tests {
             "Action 'mouse_move' is unavailable for backend 'rust_native'"
         );
     }
+
+    #[test]
+    fn parse_browser_action_covers_supported_shapes() {
+        let open = parse_browser_action("open", &json!({"url":"https://example.com"})).unwrap();
+        assert!(matches!(open, BrowserAction::Open { .. }));
+
+        let snapshot = parse_browser_action("snapshot", &json!({})).unwrap();
+        assert!(matches!(
+            snapshot,
+            BrowserAction::Snapshot {
+                interactive_only: true,
+                compact: true,
+                depth: None,
+            }
+        ));
+
+        let fill = parse_browser_action(
+            "fill",
+            &json!({"selector":"#email","value":"alice@example.com"}),
+        )
+        .unwrap();
+        assert!(matches!(fill, BrowserAction::Fill { .. }));
+
+        let wait = parse_browser_action("wait", &json!({"ms":250})).unwrap();
+        assert!(matches!(wait, BrowserAction::Wait { ms: Some(250), .. }));
+
+        let find = parse_browser_action(
+            "find",
+            &json!({"by":"role","value":"button","find_action":"click"}),
+        )
+        .unwrap();
+        assert!(matches!(find, BrowserAction::Find { .. }));
+    }
+
+    #[test]
+    fn parse_browser_action_rejects_missing_required_fields() {
+        let open_err = parse_browser_action("open", &json!({})).unwrap_err();
+        assert!(open_err.to_string().contains("Missing 'url'"));
+
+        let fill_err = parse_browser_action("fill", &json!({"selector":"#email"})).unwrap_err();
+        assert!(fill_err.to_string().contains("Missing 'value'"));
+
+        let find_err = parse_browser_action("find", &json!({"by":"role"})).unwrap_err();
+        assert!(find_err.to_string().contains("Missing 'value'"));
+    }
+
+    #[test]
+    fn parse_browser_action_rejects_unknown_actions() {
+        let err = parse_browser_action("drag_and_drop", &json!({})).unwrap_err();
+        assert!(err.to_string().contains("Unsupported browser action"));
+    }
+
+    #[test]
+    fn parse_snapshot_and_scroll_actions_apply_defaults_and_bounds() {
+        let snapshot = parse_snapshot_action(&json!({"interactive_only":false,"compact":false,"depth":9}));
+        assert!(matches!(
+            snapshot,
+            BrowserAction::Snapshot {
+                interactive_only: false,
+                compact: false,
+                depth: Some(9),
+            }
+        ));
+
+        let scroll = parse_scroll_action(&json!({"direction":"down","pixels":u64::MAX})).unwrap();
+        assert!(matches!(
+            scroll,
+            BrowserAction::Scroll {
+                direction,
+                pixels: Some(u32::MAX),
+            } if direction == "down"
+        ));
+    }
+
+    #[test]
+    fn command_for_agent_browser_action_builds_expected_args() {
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new(security, vec!["example.com".into()], None);
+
+        let open = tool
+            .command_for_agent_browser_action(BrowserAction::Open {
+                url: "https://example.com/docs".into(),
+            })
+            .unwrap();
+        assert_eq!(open, vec!["open", "https://example.com/docs"]);
+
+        let screenshot = tool
+            .command_for_agent_browser_action(BrowserAction::Screenshot {
+                path: Some("shot.png".into()),
+                full_page: true,
+            })
+            .unwrap();
+        assert_eq!(screenshot, vec!["screenshot", "shot.png", "--full"]);
+
+        let find = tool
+            .command_for_agent_browser_action(BrowserAction::Find {
+                by: "role".into(),
+                value: "button".into(),
+                action: "click".into(),
+                fill_value: None,
+            })
+            .unwrap();
+        assert_eq!(find, vec!["find", "role", "button", "click"]);
+    }
+
+    #[test]
+    fn command_for_agent_browser_action_blocks_disallowed_urls() {
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new(security, vec!["example.com".into()], None);
+
+        let err = tool
+            .command_for_agent_browser_action(BrowserAction::Open {
+                url: "https://localhost/admin".into(),
+            })
+            .unwrap_err();
+
+        assert!(err.to_string().contains("Blocked local/private host"));
+    }
+
+    #[test]
+    fn supported_action_list_includes_browser_and_computer_use_actions() {
+        for action in [
+            "open",
+            "snapshot",
+            "click",
+            "fill",
+            "type",
+            "get_text",
+            "get_title",
+            "get_url",
+            "screenshot",
+            "wait",
+            "press",
+            "hover",
+            "scroll",
+            "is_visible",
+            "close",
+            "find",
+            "mouse_move",
+            "mouse_click",
+            "mouse_drag",
+            "key_type",
+            "key_press",
+            "screen_capture",
+        ] {
+            assert!(is_supported_browser_action(action), "{action} should be supported");
+        }
+    }
 }
