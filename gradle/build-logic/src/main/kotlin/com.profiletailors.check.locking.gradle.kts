@@ -27,11 +27,15 @@ val buildLogicOnlyExcludedLockingConfigurations =
 
 val composeAppOsSpecificExcludedLockingConfigurations =
   setOf(
+    "allSourceSetsCompileDependenciesMetadata",
+    "allTestSourceSetsCompileDependenciesMetadata",
     "jvmCompileClasspath",
     "jvmRuntimeClasspath",
     "jvmMainCompileClasspath",
+    "jvmMainResolvableDependenciesMetadata",
     "jvmMainRuntimeClasspath",
     "jvmTestCompileClasspath",
+    "jvmTestResolvableDependenciesMetadata",
     "jvmTestRuntimeClasspath",
   )
 
