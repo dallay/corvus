@@ -34,6 +34,7 @@ def handle_client(conn):
         try:
             conn.sendall(f"error: {e}\n".encode())
         except Exception:
+            # Intentionally ignore failures while sending the error response
             pass
     finally:
         conn.close()
