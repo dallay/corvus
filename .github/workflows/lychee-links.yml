@@ -25,7 +25,7 @@ jobs:
           fetch-depth: 0
 
       - name: 🔗 Restore lychee cache
-        uses: actions/cache@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         with:
           path: .lycheecache
           key: cache-lychee-${{ github.sha }}
@@ -62,7 +62,7 @@ jobs:
             Automated lychee report for broken links.
 
       - name: 💾 Save lychee cache
-        uses: actions/cache/save@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1
+        uses: actions/cache/save@668228422ae6a00e4ad889ee87cd7109ec5666a7 # v5.0.4
         if: always()
         with:
           path: .lycheecache
