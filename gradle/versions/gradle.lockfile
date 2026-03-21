@@ -1,5 +1,7 @@
 # This is a Gradle generated file for dependency locking.
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
+io.netty:netty-bom:4.1.118.Final=classpath,mainRuntimeClasspath
+io.netty:netty-bom:4.2.10.Final=latestReleasesPath
 org.slf4j:slf4j-bom:2.1.0-alpha1=classpath,latestReleasesPath,mainRuntimeClasspath
 empty=
