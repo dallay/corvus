@@ -1,12 +1,12 @@
 import { mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
-import { defineComponent, nextTick, reactive, ref } from "vue";
+import { nextTick, reactive, ref } from "vue";
 import { createI18n } from "vue-i18n";
 
 import App from "@/App.vue";
+import type { QuickPairState } from "@/composables/useConfig";
 import { i18nConfig } from "@/i18n";
 import { createAdminConfigForm } from "@/test/adminConfigFormFactory";
-import type { QuickPairState } from "@/composables/useConfig";
 
 const mockedConfigState = vi.hoisted(() => ({
   current: null as ReturnType<typeof createMockConfig> | null,
@@ -109,14 +109,16 @@ vi.mock("@/components/config/SchedulerSettings.vue", createSectionModule("schedu
 vi.mock("@/components/config/GatewaySettings.vue", createSectionModule("gateway"));
 vi.mock("@/components/config/WebhookSettings.vue", createSectionModule("webhook"));
 
-function createMockConfig(overrides: {
-  quickPairState?: QuickPairState;
-  canSave?: boolean;
-  statusMessage?: string;
-  errorMessage?: string;
-  webhookSecretExists?: boolean;
-  sectionSaving?: Partial<Record<string, boolean>>;
-} = {}) {
+function createMockConfig(
+  overrides: {
+    quickPairState?: QuickPairState;
+    canSave?: boolean;
+    statusMessage?: string;
+    errorMessage?: string;
+    webhookSecretExists?: boolean;
+    sectionSaving?: Partial<Record<string, boolean>>;
+  } = {}
+) {
   return {
     baseUrl: ref("/api"),
     pairingCode: ref(""),

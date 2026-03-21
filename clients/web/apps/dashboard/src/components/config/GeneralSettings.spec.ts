@@ -44,9 +44,7 @@ describe("GeneralSettings", () => {
     expect(updates?.[2]?.[0]).toEqual(
       expect.objectContaining({ api_url: "http://localhost:8787/api" })
     );
-    expect(updates?.[3]?.[0]).toEqual(
-      expect.objectContaining({ default_temperature: "0.9" })
-    );
+    expect(updates?.[3]?.[0]).toEqual(expect.objectContaining({ default_temperature: "0.9" }));
     expect(updates?.[4]?.[0]).toEqual(expect.objectContaining({ memory_backend: "surreal" }));
     expect(wrapper.emitted("save")).toHaveLength(1);
   });

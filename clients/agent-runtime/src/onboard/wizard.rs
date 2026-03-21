@@ -1585,6 +1585,12 @@ struct CachedModels {
     age_secs: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PreparedModelOptions {
+    total_count: usize,
+    options: Vec<(String, String)>,
+}
+
 fn model_cache_path(workspace_dir: &Path) -> PathBuf {
     workspace_dir.join("state").join(MODEL_CACHE_FILE)
 }
@@ -1725,6 +1731,19 @@ fn build_model_options(model_ids: Vec<String>, source: &str) -> Vec<(String, Str
         .collect()
 }
 
+fn prepare_model_options(
+    model_ids: Vec<String>,
+    source: &str,
+    max_options: usize,
+) -> PreparedModelOptions {
+    let total_count = model_ids.len();
+    let options = build_model_options(model_ids.into_iter().take(max_options).collect(), source);
+    PreparedModelOptions {
+        total_count,
+        options,
+    }
+}
+
 fn load_fresh_cached_model_options(
     workspace_dir: &Path,
     provider_name: &str,
@@ -1735,20 +1754,14 @@ fn load_fresh_cached_model_options(
         return Ok(None);
     };
 
-    let shown_count = cached.models.len().min(LIVE_MODEL_MAX_OPTIONS);
+    let prepared = prepare_model_options(cached.models, "cached", LIVE_MODEL_MAX_OPTIONS);
+    let shown_count = prepared.options.len();
     print_bullet(&format!(
         "Found cached models ({shown_count}) updated {} ago.",
         humanize_age(cached.age_secs)
     ));
 
-    Ok(Some(build_model_options(
-        cached
-            .models
-            .into_iter()
-            .take(LIVE_MODEL_MAX_OPTIONS)
-            .collect(),
-        "cached",
-    )))
+    Ok(Some(prepared.options))
 }
 
 fn load_stale_cached_model_options(
@@ -1764,14 +1777,9 @@ fn load_stale_cached_model_options(
         humanize_age(stale.age_secs)
     ));
 
-    Ok(Some(build_model_options(
-        stale
-            .models
-            .into_iter()
-            .take(LIVE_MODEL_MAX_OPTIONS)
-            .collect(),
-        "stale-cache",
-    )))
+    Ok(Some(
+        prepare_model_options(stale.models, "stale-cache", LIVE_MODEL_MAX_OPTIONS).options,
+    ))
 }
 
 fn handle_live_fetch_result(
@@ -1784,12 +1792,9 @@ fn handle_live_fetch_result(
         Ok(live_model_ids) if !live_model_ids.is_empty() => {
             cache_live_models_for_provider(workspace_dir, provider_name, &live_model_ids)?;
 
-            let fetched_count = live_model_ids.len();
-            let shown_count = fetched_count.min(LIVE_MODEL_MAX_OPTIONS);
-            let shown_models: Vec<String> = live_model_ids
-                .into_iter()
-                .take(LIVE_MODEL_MAX_OPTIONS)
-                .collect();
+            let prepared = prepare_model_options(live_model_ids, "live", LIVE_MODEL_MAX_OPTIONS);
+            let fetched_count = prepared.total_count;
+            let shown_count = prepared.options.len();
 
             if shown_count < fetched_count {
                 print_bullet(&format!(
@@ -1799,7 +1804,7 @@ fn handle_live_fetch_result(
                 print_bullet(&format!("Fetched {shown_count} live models."));
             }
 
-            *live_options = Some(build_model_options(shown_models, "live"));
+            *live_options = Some(prepared.options);
         }
         Ok(_) => {
             print_bullet("Provider returned no models; using curated list.");
@@ -5831,6 +5836,41 @@ mod tests {
     }
 
     #[test]
+    fn normalize_model_ids_trims_filters_and_sorts_unique_values() {
+        let ids = normalize_model_ids(vec![
+            "  gpt-5-mini  ".to_string(),
+            String::new(),
+            "gpt-5.1".to_string(),
+            "gpt-5-mini".to_string(),
+            "   ".to_string(),
+        ]);
+
+        assert_eq!(ids, vec!["gpt-5-mini".to_string(), "gpt-5.1".to_string()]);
+    }
+
+    #[test]
+    fn prepare_model_options_truncates_and_preserves_total_count() {
+        let prepared = prepare_model_options(
+            vec![
+                "gpt-5.1".to_string(),
+                "gpt-5-mini".to_string(),
+                "gpt-5-nano".to_string(),
+            ],
+            "live",
+            2,
+        );
+
+        assert_eq!(prepared.total_count, 3);
+        assert_eq!(
+            prepared.options,
+            vec![
+                ("gpt-5.1".to_string(), "gpt-5.1 (live)".to_string()),
+                ("gpt-5-mini".to_string(), "gpt-5-mini (live)".to_string()),
+            ]
+        );
+    }
+
+    #[test]
     fn model_cache_round_trip_returns_fresh_entry() {
         let tmp = TempDir::new().unwrap();
         let models = vec!["gpt-5.1".to_string(), "gpt-5-mini".to_string()];
@@ -5865,6 +5905,111 @@ mod tests {
 
         let stale_any = load_any_cached_models_for_provider(tmp.path(), "openai").unwrap();
         assert!(stale_any.is_some());
+    }
+
+    #[test]
+    fn load_model_cache_state_tolerates_invalid_json() {
+        let tmp = TempDir::new().unwrap();
+        let cache_path = model_cache_path(tmp.path());
+        fs::create_dir_all(cache_path.parent().unwrap()).unwrap();
+        fs::write(&cache_path, b"{ definitely-not-json").unwrap();
+
+        let state = load_model_cache_state(tmp.path()).unwrap();
+
+        assert!(state.entries.is_empty());
+    }
+
+    #[test]
+    fn load_cached_model_options_limit_results_and_mark_source() {
+        let tmp = TempDir::new().unwrap();
+        let models = (0..(LIVE_MODEL_MAX_OPTIONS + 5))
+            .map(|idx| format!("model-{idx:03}"))
+            .collect::<Vec<_>>();
+
+        cache_live_models_for_provider(tmp.path(), "openai", &models).unwrap();
+
+        let fresh = load_fresh_cached_model_options(tmp.path(), "openai")
+            .unwrap()
+            .expect("expected cached options");
+
+        assert_eq!(fresh.len(), LIVE_MODEL_MAX_OPTIONS);
+        assert_eq!(fresh[0], ("model-000".to_string(), "model-000 (cached)".to_string()));
+        assert_eq!(
+            fresh.last(),
+            Some(&(
+                format!("model-{:03}", LIVE_MODEL_MAX_OPTIONS - 1),
+                format!("model-{:03} (cached)", LIVE_MODEL_MAX_OPTIONS - 1),
+            ))
+        );
+    }
+
+    #[test]
+    fn handle_live_fetch_result_uses_stale_cache_on_error_when_needed() {
+        let tmp = TempDir::new().unwrap();
+        let stale = ModelCacheState {
+            entries: vec![ModelCacheEntry {
+                provider: "openai".to_string(),
+                fetched_at_unix: now_unix_secs().saturating_sub(MODEL_CACHE_TTL_SECS + 120),
+                models: vec!["cached-model".to_string()],
+            }],
+        };
+        save_model_cache_state(tmp.path(), &stale).unwrap();
+
+        let mut live_options = None;
+        handle_live_fetch_result(
+            tmp.path(),
+            "openai",
+            Err(anyhow::anyhow!("network down")),
+            &mut live_options,
+        )
+        .unwrap();
+
+        assert_eq!(
+            live_options,
+            Some(vec![(
+                "cached-model".to_string(),
+                "cached-model (stale-cache)".to_string(),
+            )])
+        );
+    }
+
+    #[test]
+    fn handle_live_fetch_result_preserves_existing_options_on_error() {
+        let tmp = TempDir::new().unwrap();
+        let mut live_options = Some(vec![("existing".to_string(), "existing (live)".to_string())]);
+
+        handle_live_fetch_result(
+            tmp.path(),
+            "openai",
+            Err(anyhow::anyhow!("network down")),
+            &mut live_options,
+        )
+        .unwrap();
+
+        assert_eq!(
+            live_options,
+            Some(vec![("existing".to_string(), "existing (live)".to_string())])
+        );
+    }
+
+    #[test]
+    fn handle_live_fetch_result_caches_and_limits_successful_results() {
+        let tmp = TempDir::new().unwrap();
+        let live_models = (0..(LIVE_MODEL_MAX_OPTIONS + 3))
+            .map(|idx| format!("model-{idx:03}"))
+            .collect::<Vec<_>>();
+        let mut live_options = None;
+
+        handle_live_fetch_result(tmp.path(), "openai", Ok(live_models), &mut live_options).unwrap();
+
+        let options = live_options.expect("expected live options");
+        assert_eq!(options.len(), LIVE_MODEL_MAX_OPTIONS);
+        assert_eq!(options[0], ("model-000".to_string(), "model-000 (live)".to_string()));
+
+        let cached = load_any_cached_models_for_provider(tmp.path(), "openai")
+            .unwrap()
+            .expect("expected cached models");
+        assert_eq!(cached.models.len(), LIVE_MODEL_MAX_OPTIONS + 3);
     }
 
     #[test]

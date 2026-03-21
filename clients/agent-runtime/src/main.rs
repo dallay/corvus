@@ -1437,6 +1437,7 @@ async fn handle_browser_flow_login(
     let code = match auth::openai_oauth::receive_loopback_code(
         &pkce.state,
         std::time::Duration::from_secs(180),
+        1455,
     )
     .await
     {
