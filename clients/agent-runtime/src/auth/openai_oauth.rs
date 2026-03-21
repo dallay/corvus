@@ -83,7 +83,7 @@ pub fn generate_pkce_state() -> PkceState {
 }
 
 pub fn openai_oauth_redirect_uri(port: u16) -> String {
-    format!("http://localhost:{port}/auth/callback")
+    format!("http://127.0.0.1:{port}/auth/callback")
 }
 
 pub fn build_authorize_url(pkce: &PkceState, port: u16) -> String {
@@ -536,7 +536,7 @@ mod tests {
         assert!(url.contains("client_id=app_EMoamEEZ73f0CkXaXp7hrann"));
         assert!(url.contains("code_challenge=challenge"));
         assert!(url.contains("state=state-123"));
-        assert!(url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A1455%2Fauth%2Fcallback"));
+        assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A1455%2Fauth%2Fcallback"));
         assert!(url.contains("scope=openid%20profile%20email%20offline_access"));
     }
 

@@ -8,15 +8,17 @@ import { createAdminConfigForm } from "@/test/adminConfigFormFactory";
 
 describe("GeneralSettings", () => {
   it("emits provider and save updates", async () => {
+    const initialForm = createAdminConfigForm({
+      default_provider: "openrouter",
+      default_model: "anthropic/model",
+      api_url: "",
+      default_temperature: "0.7",
+      memory_backend: "sqlite",
+    });
+
     const wrapper = mount(GeneralSettings, {
       props: {
-        modelValue: createAdminConfigForm({
-          default_provider: "openrouter",
-          default_model: "anthropic/model",
-          api_url: "",
-          default_temperature: "0.7",
-          memory_backend: "sqlite",
-        }),
+        modelValue: initialForm,
         memoryBackendOptions: ["sqlite", "lucid"],
         disabled: false,
         saving: false,
@@ -29,23 +31,66 @@ describe("GeneralSettings", () => {
     expect(wrapper.text()).toContain("Default provider");
     expect(wrapper.text()).toContain("Default model");
 
-    const inputs = wrapper.findAll("input");
-    await inputs[0]?.setValue("openai");
-    await inputs[1]?.setValue("gpt-5");
-    await inputs[2]?.setValue("http://localhost:8787/api");
-    await inputs[3]?.setValue("0.9");
-    await wrapper.get("select").setValue("lucid");
-    await wrapper.get("button").trigger("click");
+    // Use stable data-testid selectors instead of positional indexing
+    await wrapper.get('[data-testid="default_provider"]').setValue("openai");
+    await wrapper.get('[data-testid="default_model"]').setValue("gpt-5");
+    await wrapper.get('[data-testid="api_url"]').setValue("http://localhost:8787/api");
+    await wrapper.get('[data-testid="default_temperature"]').setValue("0.9");
+    await wrapper.get('select[data-testid="memory_backend"]').setValue("lucid");
+    await wrapper.get('button[data-testid="save"]').trigger("click");
 
     const updates = wrapper.emitted("update:modelValue");
     expect(updates).toHaveLength(5);
-    expect(updates?.[0]?.[0]).toEqual(expect.objectContaining({ default_provider: "openai" }));
-    expect(updates?.[1]?.[0]).toEqual(expect.objectContaining({ default_model: "gpt-5" }));
-    expect(updates?.[2]?.[0]).toEqual(
-      expect.objectContaining({ api_url: "http://localhost:8787/api" })
+
+    // Each emit must include the changed field AND companion fields from the form.
+    // objectContaining is used (not toEqual) for partial matching — this is stricter
+    // than the original single-field checks while remaining compatible with the
+    // component's reactive model (parent doesn't update modelValue between emits).
+    expect(updates?.[0]?.[0]).toEqual(
+      expect.objectContaining({
+        default_provider: "openai",
+        default_model: "anthropic/model",
+        api_url: "",
+        default_temperature: "0.7",
+        memory_backend: "sqlite",
+      })
     );
-    expect(updates?.[3]?.[0]).toEqual(expect.objectContaining({ default_temperature: "0.9" }));
-    expect(updates?.[4]?.[0]).toEqual(expect.objectContaining({ memory_backend: "lucid" }));
+    expect(updates?.[1]?.[0]).toEqual(
+      expect.objectContaining({
+        default_provider: "openrouter",
+        default_model: "gpt-5",
+        api_url: "",
+        default_temperature: "0.7",
+        memory_backend: "sqlite",
+      })
+    );
+    expect(updates?.[2]?.[0]).toEqual(
+      expect.objectContaining({
+        default_provider: "openrouter",
+        default_model: "anthropic/model",
+        api_url: "http://localhost:8787/api",
+        default_temperature: "0.7",
+        memory_backend: "sqlite",
+      })
+    );
+    expect(updates?.[3]?.[0]).toEqual(
+      expect.objectContaining({
+        default_provider: "openrouter",
+        default_model: "anthropic/model",
+        api_url: "",
+        default_temperature: "0.9",
+        memory_backend: "sqlite",
+      })
+    );
+    expect(updates?.[4]?.[0]).toEqual(
+      expect.objectContaining({
+        default_provider: "openrouter",
+        default_model: "anthropic/model",
+        api_url: "",
+        default_temperature: "0.7",
+        memory_backend: "lucid",
+      })
+    );
     expect(wrapper.emitted("save")).toHaveLength(1);
   });
 });

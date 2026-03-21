@@ -162,10 +162,14 @@ fn parse_delay(input: &str) -> Result<chrono::Duration> {
     let amount: i64 = num.parse()?;
     let unit = if unit.is_empty() { "m" } else { unit };
     let duration = match unit {
-        "s" => chrono::Duration::seconds(amount),
-        "m" => chrono::Duration::minutes(amount),
-        "h" => chrono::Duration::hours(amount),
-        "d" => chrono::Duration::days(amount),
+        "s" => chrono::TimeDelta::try_seconds(amount)
+            .ok_or_else(|| anyhow::anyhow!("invalid {amount}s: overflow"))?,
+        "m" => chrono::TimeDelta::try_minutes(amount)
+            .ok_or_else(|| anyhow::anyhow!("invalid {amount}m: overflow"))?,
+        "h" => chrono::TimeDelta::try_hours(amount)
+            .ok_or_else(|| anyhow::anyhow!("invalid {amount}h: overflow"))?,
+        "d" => chrono::TimeDelta::try_days(amount)
+            .ok_or_else(|| anyhow::anyhow!("invalid {amount}d: overflow"))?,
         _ => anyhow::bail!("unsupported delay unit '{unit}', use s/m/h/d"),
     };
     Ok(duration)
@@ -264,8 +268,41 @@ mod tests {
     fn parse_delay_surfaces_huge_number_parse_errors() {
         let err = parse_delay("99999999999999999999m").unwrap_err();
         let msg = err.to_string().to_lowercase();
-        assert!(
-            msg.contains("parse") || msg.contains("overflow") || msg.contains("too large")
-        );
+        assert!(msg.contains("parse") || msg.contains("overflow") || msg.contains("too large"));
+    }
+
+    // ── Overflow regression tests ─────────────────────────────────
+
+    #[test]
+    fn parse_delay_seconds_overflow_returns_error() {
+        // i64::MAX / 1_000_000_000 = 9_223_372_036 is the max safe seconds
+        // Try to overflow by using max + 1
+        let err = parse_delay("9223372036854775807s").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("invalid") && msg.contains("s") && msg.contains("overflow"));
+    }
+
+    #[test]
+    fn parse_delay_minutes_overflow_returns_error() {
+        // i64::MAX / (60 * 1_000_000_000) = 153_722_867_280 is the max safe minutes
+        let err = parse_delay("153722867280912950m").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("invalid") && msg.contains("m") && msg.contains("overflow"));
+    }
+
+    #[test]
+    fn parse_delay_hours_overflow_returns_error() {
+        // i64::MAX / (3600 * 1_000_000_000) = 2_562_047_788 is the max safe hours
+        let err = parse_delay("2562047788015216h").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("invalid") && msg.contains("h") && msg.contains("overflow"));
+    }
+
+    #[test]
+    fn parse_delay_days_overflow_returns_error() {
+        // i64::MAX / (86400 * 1_000_000_000) = 106_751_991 is the max safe days
+        let err = parse_delay("106751991167301d").unwrap_err();
+        let msg = err.to_string().to_lowercase();
+        assert!(msg.contains("invalid") && msg.contains("d") && msg.contains("overflow"));
     }
 }

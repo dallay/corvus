@@ -720,7 +720,7 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn macos_service_file_compiles_on_non_macos() {
-        // Just verify the function compiles and is callable on other platforms
-        let _: fn() -> Result<std::path::PathBuf> = macos_service_file;
+        // Actually invoke the function (not just type-check) and quietly discard the result
+        let _ = macos_service_file();
     }
 }

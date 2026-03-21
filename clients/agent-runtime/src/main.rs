@@ -1230,7 +1230,14 @@ fn save_pending_openai_login(config: &Config, pending: &PendingOpenAiLogin) -> R
     let json = serde_json::to_vec_pretty(&persisted)?;
     std::fs::write(&tmp, json)?;
     set_owner_only_permissions(&tmp)?;
-    std::fs::rename(tmp, &path)?;
+    std::fs::rename(tmp, &path).or_else(|err| {
+        if err.kind() == std::io::ErrorKind::AlreadyExists {
+            std::fs::remove_file(&path).ok();
+            std::fs::rename(tmp, &path)
+        } else {
+            Err(err)
+        }
+    })?;
     set_owner_only_permissions(&path)?;
     Ok(())
 }
@@ -1843,6 +1850,38 @@ mod tests {
         assert_eq!(loaded.code_verifier, pending.code_verifier);
         assert_eq!(loaded.state, pending.state);
         assert_eq!(loaded.created_at, pending.created_at);
+    }
+
+    #[test]
+    fn save_pending_openai_login_overwrites_existing_file() {
+        let tmp = TempDir::new().unwrap();
+        let config = crate::test_support::test_config(&tmp);
+        let path = pending_openai_login_path(&config);
+
+        let pending1 = PendingOpenAiLogin {
+            profile: "default".to_string(),
+            code_verifier: "verifier-1".to_string(),
+            state: "state-1".to_string(),
+            created_at: "2024-01-01T00:00:00Z".to_string(),
+        };
+        save_pending_openai_login(&config, &pending1).unwrap();
+        assert!(path.exists());
+
+        // Second save should overwrite without error (cross-platform)
+        let pending2 = PendingOpenAiLogin {
+            profile: "default".to_string(),
+            code_verifier: "verifier-2".to_string(),
+            state: "state-2".to_string(),
+            created_at: "2024-01-02T00:00:00Z".to_string(),
+        };
+        save_pending_openai_login(&config, &pending2).unwrap();
+        assert!(path.exists());
+
+        // Loaded value matches the latest saved data
+        let loaded = load_pending_openai_login(&config).unwrap().unwrap();
+        assert_eq!(loaded.code_verifier, "verifier-2");
+        assert_eq!(loaded.state, "state-2");
+        assert_eq!(loaded.created_at, "2024-01-02T00:00:00Z");
     }
 
     #[test]
