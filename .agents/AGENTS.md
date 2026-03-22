@@ -10,15 +10,23 @@ plugins, and version catalogs.
 > Every decision, every line of code, every architecture choice MUST prioritize:
 >
 > 1. **Security First** - Always think about attacks, vulnerabilities, and safe defaults
->    - Never trust user input
->    - Use parameterized queries, never string concatenation for SQL
->    - Validate and sanitize all data
+     >
+
+- Never trust user input
+
+> - Use parameterized queries, never string concatenation for SQL
+    >
+- Validate and sanitize all data
 >    - Follow principle of least privilege
 >    - Keep dependencies updated to patch security vulnerabilities
 > 2. **Extreme Performance Second** - Optimize for efficiency after security
->    - Think about algorithmic complexity (O(n) vs O(n²))
->    - Avoid unnecessary allocations
->    - Use lazy initialization when appropriate
+     >
+
+- Think about algorithmic complexity (O(n) vs O(n²))
+
+> - Avoid unnecessary allocations
+    >
+- Use lazy initialization when appropriate
 >    - Profile before optimizing - measure don't guess
 >    - Consider memory footprint and startup time
 >
@@ -74,9 +82,9 @@ make info               # Project info
 ```kotlin
 // Data classes with value classes
 data class User(
-  val id: UserId,
-  val name: String,
-  val createdAt: Instant = Instant.now(),
+    val id: UserId,
+    val name: String,
+    val createdAt: Instant = Instant.now(),
 )
 
 @JvmInline
@@ -84,8 +92,8 @@ value class UserId(val value: UUID)
 
 // Sealed types for results
 sealed interface Result<out T> {
-  data class Success<T>(val data: T) : Result<T>
-  data class Failure(val error: Throwable) : Result<Nothing>
+    data class Success<T>(val data: T) : Result<T>
+    data class Failure(val error: Throwable) : Result<Nothing>
 }
 
 // Null safety - NO !! operator
@@ -109,7 +117,7 @@ fun double(x: Int): Int = x * 2
 ```kotlin
 // Result for recoverable
 fun find(id: UUID): Result<User> = runCatching {
-  repo.find(id) ?: throw NotFoundException(id)
+    repo.find(id) ?: throw NotFoundException(id)
 }
 
 // Sealed exceptions
@@ -135,79 +143,102 @@ implementation(libs.slf4j.api)
 testImplementation(libs.junit.jupiter)
 ```
 
+## Client Surfaces Architecture
+
+Corvus uses a 3-tier architecture:
+
+```
+Tier 1: Runtime Core      → clients/agent-runtime (Rust, full capabilities)
+Tier 2: Gateway Layer      → HTTP Gateway (web) + RustCliBridge (mobile)
+Tier 3: Client Surfaces    → web/chat, web/dashboard, composeApp (mobile), docs, marketing
+```
+
+**Transport rules** (mandatory):
+
+- Web clients (`chat`, `dashboard`) → **HTTP Gateway** only
+- Mobile clients (`composeApp`) → **RustCliBridge** (process bridge) only
+- CLI operators → **Direct runtime** access
+- Supporting surfaces → **No runtime** communication
+
+**See**: [openspec/specs/client-surfaces/spec.md](../../openspec/specs/client-surfaces/spec.md)
+
+For surface-specific guidance, see the surface contracts:
+
+- [web/chat contract](../../openspec/specs/client-surfaces/surface-contracts/web-chat.md)
+- [composeApp mobile contract](../../openspec/specs/client-surfaces/surface-contracts/composeapp-mobile.md)
+- [composeApp shared contract](../../openspec/specs/client-surfaces/surface-contracts/composeapp-shared.md)
+- [dashboard contract](../../openspec/specs/client-surfaces/surface-contracts/web-dashboard.md)
+
 ## Project Structure
 
-
-```
-├── apps/
-│   ├── composeApp/         # Shared Kotlin Multiplatform Compose UI module
-│   ├── androidApp/         # Native Android host app for Compose
-│   ├── iosApp/             # Native iOS host app for Compose
-│   └── docs/               # Documentation website
+```text
+├── clients/
+│   ├── agent-runtime/       # Rust CLI/daemon (Tier 1 core)
+│   ├── web/
+│   │   ├── apps/
+│   │   │   ├── chat/        # Web chat UI (Tier 3, HTTP Gateway)
+│   │   │   ├── dashboard/   # Admin panel (Tier 3, HTTP Gateway)
+│   │   │   ├── docs/        # Documentation (Tier 3, static)
+│   │   │   └── marketing/   # Landing pages (Tier 3, static)
+│   │   └── packages/shared/ # Web shared utilities
+│   ├── composeApp/          # KMP Compose UI (Tier 3, CLI Bridge)
+│   ├── androidApp/          # Android host for composeApp
+│   └── iosApp/              # iOS host for composeApp
 ├── modules/
-│   ├── agent-core-kmp/     # Shared Kotlin Multiplatform core
-│   └── agent-core-rust/    # Embedded Rust AI core
+│   ├── agent-core-kmp/      # KMP contracts library (Tier 2 bridge)
+│   └── agent-core-rust/     # Embedded Rust AI core
 ├── gradle/
-│   ├── build-logic/        # Custom plugins
-│   └── libs.versions.toml  # Version catalog
+│   ├── build-logic/         # Custom plugins
+│   └── libs.versions.toml   # Version catalog
 └── settings.gradle.kts
 ```
+
 ## Cerebro Memory Module
 
-Cerebro is an agent-agnostic, high-performance memory system designed for use with any AI agent or LLM that supports the Model Context Protocol (MCP). It is implemented as a single Rust binary and uses SurrealDB (embedded) for multi-model storage (document, graph, vector search).
+Cerebro is an agent-agnostic, high-performance memory system designed for use with any AI agent or
+LLM that supports the Model Context Protocol (MCP). It is implemented as a single Rust binary and
+uses SurrealDB (embedded) for multi-model storage (document, graph, vector search).
 
-- **Integration:** Agents interact with Cerebro via the MCP JSON-RPC protocol, using a set of 13 memory/session tools (see `openspec/changes/cerebro/cerebro.md` for full API and business logic).
-- **Architecture:** Cerebro uses a sync API for fast agent responses and an async worker for background tasks (e.g., vector embeddings, entity extraction, graph edges) if an LLM is configured.
-- **Data Model:** Structured around `session`, `memory` (engram), and `prompt` nodes, with graph edges for relations and chronology.
-- **Memory Hygiene:** Implements deduplication, topic upserts, and global filters for deleted records.
-- **TUI:** Provides a terminal UI (ratatui + crossterm) for real-time observability, memory browsing, and session timelines.
+- **Integration:** Agents interact with Cerebro via the MCP JSON-RPC protocol, using a set of 13
+  memory/session tools (see [cerebro spec](../openspec/changes/cerebro/cerebro.md) for full API and business logic).
+- **Architecture:** Cerebro uses a sync API for fast agent responses and an async worker for
+  background tasks (e.g., vector embeddings, entity extraction, graph edges) if an LLM is
+  configured.
+- **Data Model:** Structured around `session`, `memory` (engram), and `prompt` nodes, with graph
+  edges for relations and chronology.
+- **Memory Hygiene:** Implements deduplication, topic upserts, and global filters for deleted
+  records.
+- **TUI:** Provides a terminal UI (ratatui + crossterm) for real-time observability, memory
+  browsing, and session timelines.
 
-**Note:** Cerebro is a separate module. Agents should use the documented MCP tools API for all memory/session operations. See the spec for details on the drill-in retrieval strategy, memory hygiene, and supported operations.
+**Note:** Cerebro is a separate module. Agents should use the documented MCP tools API for all
+memory/session operations. See the spec for details on the drill-in retrieval strategy, memory
+hygiene, and supported operations.
 
 ## Available Skills
 
 Located in `.agents/skills/`. Reference for detailed patterns:
 
-| Skill                                                                 | Description                                                                                         | Trigger                                                                   |
-|-----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
-| [rust](.agents/skills/rust/SKILL.md)                                  | Rust basics, testing, Cargo.toml                                                                    | `Cargo.toml`, `**/*.rs` files                                             |
-| [rust-async-patterns](.agents/skills/rust-async-patterns/SKILL.md)    | Tokio, async traits, concurrent patterns                                                            | `tokio::`, `async fn`, channels                                           |
-| [gradle](.agents/skills/gradle/SKILL.md)                              | Gradle best practices, custom tasks                                                                 | `build.gradle.kts`, build config                                          |
-| [kotlin](.agents/skills/kotlin/SKILL.md)                              | Kotlin conventions, null safety                                                                     | `.kt` files                                                               |
-| [c4-diagrams](.agents/skills/c4-diagrams/SKILL.md)                    | C4 architecture diagrams                                                                            | `docs/architecture/diagrams`                                              |
-| [pr-creator](.agents/skills/pr-creator/SKILL.md)                      | PR creation workflow                                                                                | Creating PRs                                                              |
-| [pinned-tag](.agents/skills/pinned-tag/SKILL.md)                      | Pin GitHub Actions                                                                                  | CI security                                                               |
-| [release](.agents/skills/release/SKILL.md)                            | Release process, Maven Central publishing                                                           | Creating releases                                                         |
-| [android-expert](.agents/skills/android-expert/SKILL.md)              | Android-specific patterns, best practices                                                           | Android development                                                       |
-| [compose-expert](.agents/skills/compose-expert/SKILL.md)              | Jetpack Compose UI patterns                                                                         | Compose UI code                                                           |
-| [desktop-expert](.agents/skills/desktop-expert/SKILL.md)              | Compose Desktop, desktop patterns                                                                   | Desktop app development                                                   |
-| [docker-expert](.agents/skills/docker-expert/SKILL.md)                | Docker optimization, Compose, multi-stage                                                           | Dockerfile, docker-compose.yml                                            |
-| [gradle-expert](.agents/skills/gradle-expert/SKILL.md)                | Advanced Gradle, custom plugins                                                                     | Complex Gradle configs                                                    |
-| [kotlin-coroutines](.agents/skills/kotlin-coroutines/SKILL.md)        | Coroutines, async patterns                                                                          | Coroutines, Flow                                                          |
-| [kotlin-expert](.agents/skills/kotlin-expert/SKILL.md)                | Advanced Kotlin features                                                                            | Advanced Kotlin                                                           |
-| [kotlin-multiplatform](.agents/skills/kotlin-multiplatform/SKILL.md)  | KMP patterns, expect/actual                                                                         | KMP modules                                                               |
-| [tdd](.agents/skills/tdd/SKILL.md)                                    | Test-Driven Development workflow                                                                    | Red/Green/Refactor, new behavior                                          |
-| [frontend-design](.agents/skills/frontend-design/SKILL.md)            | Create production-grade frontend UI with strong visual direction while avoiding generic AI patterns | Building or refining web components, pages, dashboards, or application UI |
-| [conventional-commits](.agents/skills/conventional-commits/SKILL.md)  | Conventional Commits specification                                                                  | Creating commits, git messages                                            |
-
-## Testing
-
-```kotlin
-class ServiceTest {
-  @Test
-  fun `should return result`() {
-    val result = service.action()
-    assertEquals(expected, result)
-  }
-}
-```
-
-Run specific test:
-
-```bash
-./gradlew :composeApp:jvmTest --tests "*ComposeAppCommonTest*"
-```
-
-## License
-
-Apache 2.0 - See LICENSE file
+| Skill                                                                | Description                                                                                         | Trigger                                                                   |
+|----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| Skill                                                                | Description                                                                                         | Trigger                                                                   |
+|----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
+| [rust](./skills/rust/SKILL.md)                                 | Rust basics, testing, Cargo.toml                                                                    | `Cargo.toml`, `**/*.rs` files                                             |
+| [rust-async-patterns](./skills/rust-async-patterns/SKILL.md)   | Tokio, async traits, concurrent patterns                                                            | `tokio::`, `async fn`, channels                                           |
+| [gradle](./skills/gradle/SKILL.md)                             | Gradle best practices, custom tasks                                                                 | `build.gradle.kts`, build config                                          |
+| [kotlin](./skills/kotlin/SKILL.md)                             | Kotlin conventions, null safety                                                                     | `.kt` files                                                               |
+| [c4-diagrams](./skills/c4-diagrams/SKILL.md)                   | C4 architecture diagrams                                                                            | `docs/architecture/diagrams`                                              |
+| [pr-creator](./skills/pr-creator/SKILL.md)                     | PR creation workflow                                                                                | Creating PRs                                                              |
+| [pinned-tag](./skills/pinned-tag/SKILL.md)                     | Pin GitHub Actions                                                                                  | CI security                                                               |
+| [release](./skills/release/SKILL.md)                           | Release process, Maven Central publishing                                                           | Creating releases                                                         |
+| [android-expert](./skills/android-expert/SKILL.md)             | Android-specific patterns, best practices                                                           | Android development                                                       |
+| [compose-expert](./skills/compose-expert/SKILL.md)             | Jetpack Compose UI patterns                                                                         | Compose UI code                                                           |
+| [desktop-expert](./skills/desktop-expert/SKILL.md)             | Compose Desktop, desktop patterns                                                                   | Desktop app development                                                   |
+| [docker-expert](./skills/docker-expert/SKILL.md)               | Docker optimization, Compose, multi-stage                                                           | Dockerfile, docker-compose.yml                                            |
+| [gradle-expert](./skills/gradle-expert/SKILL.md)               | Advanced Gradle, custom plugins                                                                     | Complex Gradle configs                                                    |
+| [kotlin-coroutines](./skills/kotlin-coroutines/SKILL.md)       | Coroutines, async patterns                                                                          | Coroutines, Flow                                                          |
+| [kotlin-expert](./skills/kotlin-expert/SKILL.md)               | Advanced Kotlin features                                                                            | Advanced Kotlin                                                           |
+| [kotlin-multiplatform](./skills/kotlin-multiplatform/SKILL.md) | KMP patterns, expect/actual                                                                         | KMP modules                                                               |
+| [tdd](./skills/tdd/SKILL.md)                                   | Test-Driven Development workflow                                                                    | Red/Green/Refactor, new behavior                                          |
+| [frontend-design](./skills/frontend-design/SKILL.md)           | Create production-grade frontend UI with strong visual direction while avoiding generic AI patterns | Building or refining web components, pages, dashboards, or application UI |
+| [conventional-commits](./skills/conventional-commits/SKILL.md) | Conventional Commits specification                                                                  | Creating commits, git messages                                            |
