@@ -1230,10 +1230,10 @@ fn save_pending_openai_login(config: &Config, pending: &PendingOpenAiLogin) -> R
     let json = serde_json::to_vec_pretty(&persisted)?;
     std::fs::write(&tmp, json)?;
     set_owner_only_permissions(&tmp)?;
-    std::fs::rename(tmp, &path).or_else(|err| {
+    std::fs::rename(&tmp, &path).or_else(|err| {
         if err.kind() == std::io::ErrorKind::AlreadyExists {
             std::fs::remove_file(&path).ok();
-            std::fs::rename(tmp, &path)
+            std::fs::rename(&tmp, &path)
         } else {
             Err(err)
         }
