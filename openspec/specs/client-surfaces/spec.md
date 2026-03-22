@@ -221,19 +221,30 @@ Mobile surfaces MUST support background session handling via filesystem persiste
 
 ### Requirement: Contract Layer Scope
 
-The `modules/agent-core-kmp` module MUST contain only type definitions and bridge interfaces.
+The `modules/agent-core-kmp` module has a two-tier structure:
 
-#### Scenario: Contract module contains no execution logic
-- GIVEN `modules/agent-core-kmp`
+- `commonMain`: MUST contain only type definitions and bridge interfaces
+- `jvmMain`/`iosMain`/`androidMain`: MAY contain platform-specific bridge implementations
+
+#### Scenario: Common main contains no execution logic
+- GIVEN `modules/agent-core-kmp/src/commonMain/`
 - WHEN the module is examined
 - THEN it MUST contain only: data models (`CoreInvocation`, `CoreOutput`, `CoreResult`), bridge interfaces (`AgentCoreBridge`, `CliBridgeSession`), module metadata (`AgentKernel`)
 - AND it MUST NOT contain: UI components, state management, runtime execution logic.
+
+#### Scenario: Platform targets contain bridge implementations
+- GIVEN `modules/agent-core-kmp/src/jvmMain/`
+- WHEN platform-specific implementations are needed (e.g., `RustCliBridge`)
+- THEN the implementation MAY spawn processes and perform I/O as required by the bridge contract
+- AND the implementation MUST NOT leak platform-specific types to `commonMain`
 
 #### Scenario: ComposeApp UI types are separate
 - GIVEN `clients/composeApp/src/commonMain/`
 - WHEN UI types are defined (e.g., `ChatMessage`, `ChatUiState`)
 - THEN those types MUST be in the composeApp UI layer, not in agent-core-kmp
 - AND the agent-core-kmp contract layer remains platform-agnostic.
+
+**Migration**: Current `RustCliBridge` implementation in `jvmMain` is compliant with this spec. No changes required.
 
 ## Matrix Immutability Rules
 
@@ -244,7 +255,7 @@ The `modules/agent-core-kmp` module MUST contain only type definitions and bridg
 
 ## Cross-Reference
 
-- [Gateway API Specification](#) — HTTP Gateway endpoint definitions (see `clients/agent-runtime/src/gateway/mod.rs` for current implementation)
+- [Gateway API Specification](./gateway-api.md) (TBD) — HTTP Gateway endpoint definitions (see `clients/agent-runtime/src/gateway/mod.rs` for current implementation)
 - [MCP Runtime Specification](../mcp-runtime/spec.md) — Tool registry and MCP contract
 - [Agent Loop Specification](../agent-loop/spec.md) — Canonical loop behavior
 - [Dashboard Specification](../dashboard/spec.md) — Admin surface contract

@@ -94,7 +94,17 @@ See: [Migration M1 & M3](../migrations.md#m1-composeapp-gatewayconfig--rustclibr
 
 ## Transport Rule
 
-Mobile composeApp **MUST** use RustCliBridge only. HTTP Gateway is out-of-scope as primary transport.
+Mobile composeApp **MUST** use a `MobileBridgeContract` implementation. HTTP Gateway is out-of-scope as primary transport.
+
+The `MobileBridgeContract` defines the interface for mobile-to-runtime communication. Platform-specific implementations:
+
+| Platform | Implementation | Notes |
+|----------|---------------|-------|
+| Android | `RustCliBridge` | Process bridge via JVM subprocess |
+| Desktop (JVM) | `RustCliBridge` | Process bridge via JVM subprocess |
+| macOS/iOS | Companion daemon or Embedded Rust | IPC over local network (near-term), FFI/Swift-Rust bindings (long-term) |
+
+**Reference**: `AgentCoreBridge` interface in `modules/agent-core-kmp/commonMain`
 
 ## Security Notes
 

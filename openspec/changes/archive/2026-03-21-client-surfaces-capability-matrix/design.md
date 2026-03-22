@@ -490,8 +490,8 @@ CLI bridge session APIs.
 3. Remove `endpointUrl` and HTTP-specific helpers from `ChatComponents.kt`
 4. Update composeApp onboarding to guide users to install the `corvus` CLI binary
 
-**Backward compatibility**: Web chat continues using HTTP Gateway. composeApp can optionally
-support an "advanced" mode that uses gateway when available, but this is not the primary path.
+**Transport rule**: Mobile composeApp MUST use RustCliBridge only. HTTP Gateway is out-of-scope
+as primary transport. This enforces the one-transport-per-surface invariant.
 
 ### Migration 2: Web Chat Stub → Full Implementation
 
@@ -560,8 +560,8 @@ capabilities need verification against the capability matrix.
 
 ## Open Questions
 
-- [ ] **Session format**: Should CLI bridge sessions use UUID-based IDs (like gateway) or a
-  simpler integer counter? Current gateway uses UUID; CLI bridge could use either.
+- [x] **Session format**: CLI bridge sessions MUST use UUID v4 to match the canonical matrix
+  spec. This ensures cross-surface compatibility and matches the gateway's session ID format.
 - [ ] **Structured output**: Should `RustCliBridge` output JSON or maintain text compatibility
   with the current prompt-response model? JSON enables richer mobile UI; text is simpler.
 - [ ] **iOS bridge**: The proposal mentions RustCliBridge but iOS cannot spawn processes in the

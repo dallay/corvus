@@ -57,9 +57,8 @@ fun interface AgentCoreBridge {
 
 ```kotlin
 object AgentKernel {
-  const val MODULE_NAME = "agent-core-kmp"
-  const val CONTRACT_VERSION = "0.1"
-  const val KOTLIN_VERSION = "..."  // Current Kotlin version
+  const val name: String = "corvus-agent-core"
+  const val contractVersion: String = "0.1"
 }
 ```
 
@@ -103,9 +102,9 @@ interface CliBridgeSession {
 
 ## Contract Versioning Policy
 
-1. **Patch versions** (0.1.x): Additive changes (new optional fields, new interfaces)
-2. **Minor versions** (0.x.1): Breaking changes to existing contracts (new major version)
-3. **Major versions** (x.0.0): Reserved for fundamental contract redesigns
+1. **Patch versions** (x.y.z or 0.1.z): Non-breaking bug fixes and additive changes (new optional fields, new interfaces)
+2. **Minor versions** (x.y.0 or 0.y.0): Backwards-compatible feature additions (increment the minor version)
+3. **Major versions** (x.0.0): Breaking changes reserved for fundamental contract redesigns
 
 Breaking changes require:
 - Migration guide in spec

@@ -1,36 +1,39 @@
 # Agent Instructions
 
+<!-- Agent metadata block -->
+<!--
+name: Corvus Agent Instructions
+description: Gradle-based multi-module project in Kotlin with Rust agent runtime
+purpose: Provide comprehensive coding guidance for Corvus project contributors
+capabilities: Code analysis, implementation, testing, documentation, security review
+version: 1.0.0
+compatibility: Claude Code, GitHub Copilot, OpenAI Codex, Gemini, OpenCode
+-->
+
 Gradle-based multi-module project in Kotlin. Emphasizes centralized build configurations, custom
 plugins, and version catalogs.
 
 ## Core Principles
 
-> **⚠️ CRITICAL: Security First, Performance Second**
->
-> Every decision, every line of code, every architecture choice MUST prioritize:
->
-> 1. **Security First** - Always think about attacks, vulnerabilities, and safe defaults
-     >
+**⚠️ CRITICAL: Security First, Performance Second**
 
-- Never trust user input
+Every decision, every line of code, every architecture choice MUST prioritize:
 
-> - Use parameterized queries, never string concatenation for SQL
-    >
-- Validate and sanitize all data
->    - Follow principle of least privilege
->    - Keep dependencies updated to patch security vulnerabilities
-> 2. **Extreme Performance Second** - Optimize for efficiency after security
-     >
+1. **Security First** - Always think about attacks, vulnerabilities, and safe defaults
+   - Never trust user input
+   - Use parameterized queries, never string concatenation for SQL
+   - Validate and sanitize all data
+   - Follow principle of least privilege
+   - Keep dependencies updated to patch security vulnerabilities
 
-- Think about algorithmic complexity (O(n) vs O(n²))
+2. **Extreme Performance Second** - Optimize for efficiency after security
+   - Think about algorithmic complexity (O(n) vs O(n²))
+   - Avoid unnecessary allocations
+   - Use lazy initialization when appropriate
+   - Profile before optimizing - measure don't guess
+   - Consider memory footprint and startup time
 
-> - Avoid unnecessary allocations
-    >
-- Use lazy initialization when appropriate
->    - Profile before optimizing - measure don't guess
->    - Consider memory footprint and startup time
->
-> These principles override convenience, speed of development, and "getting it done quickly."
+These principles override convenience, speed of development, and "getting it done quickly."
 
 We develop using **TDD by default**: Red -> Green -> Refactor for new behavior, bug fixes, and
 risky refactors.
@@ -200,7 +203,7 @@ LLM that supports the Model Context Protocol (MCP). It is implemented as a singl
 uses SurrealDB (embedded) for multi-model storage (document, graph, vector search).
 
 - **Integration:** Agents interact with Cerebro via the MCP JSON-RPC protocol, using a set of 13
-  memory/session tools (see [cerebro spec](../openspec/changes/cerebro/cerebro.md) for full API and business logic).
+  memory/session tools (see [cerebro spec](../specs/cerebro/spec.md) for full API and business logic).
 - **Architecture:** Cerebro uses a sync API for fast agent responses and an async worker for
   background tasks (e.g., vector embeddings, entity extraction, graph edges) if an LLM is
   configured.
@@ -221,10 +224,6 @@ Located in `.agents/skills/`. Reference for detailed patterns:
 
 | Skill                                                                | Description                                                                                         | Trigger                                                                   |
 |----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
-| Skill                                                                | Description                                                                                         | Trigger                                                                   |
-|----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
-| [rust](./skills/rust/SKILL.md)                                 | Rust basics, testing, Cargo.toml                                                                    | `Cargo.toml`, `**/*.rs` files                                             |
-| [rust-async-patterns](./skills/rust-async-patterns/SKILL.md)   | Tokio, async traits, concurrent patterns                                                            | `tokio::`, `async fn`, channels                                           |
 | [gradle](./skills/gradle/SKILL.md)                             | Gradle best practices, custom tasks                                                                 | `build.gradle.kts`, build config                                          |
 | [kotlin](./skills/kotlin/SKILL.md)                             | Kotlin conventions, null safety                                                                     | `.kt` files                                                               |
 | [c4-diagrams](./skills/c4-diagrams/SKILL.md)                   | C4 architecture diagrams                                                                            | `docs/architecture/diagrams`                                              |
@@ -239,6 +238,5 @@ Located in `.agents/skills/`. Reference for detailed patterns:
 | [kotlin-coroutines](./skills/kotlin-coroutines/SKILL.md)       | Coroutines, async patterns                                                                          | Coroutines, Flow                                                          |
 | [kotlin-expert](./skills/kotlin-expert/SKILL.md)               | Advanced Kotlin features                                                                            | Advanced Kotlin                                                           |
 | [kotlin-multiplatform](./skills/kotlin-multiplatform/SKILL.md) | KMP patterns, expect/actual                                                                         | KMP modules                                                               |
-| [tdd](./skills/tdd/SKILL.md)                                   | Test-Driven Development workflow                                                                    | Red/Green/Refactor, new behavior                                          |
 | [frontend-design](./skills/frontend-design/SKILL.md)           | Create production-grade frontend UI with strong visual direction while avoiding generic AI patterns | Building or refining web components, pages, dashboards, or application UI |
 | [conventional-commits](./skills/conventional-commits/SKILL.md) | Conventional Commits specification                                                                  | Creating commits, git messages                                            |

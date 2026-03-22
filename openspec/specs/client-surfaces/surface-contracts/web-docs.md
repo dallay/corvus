@@ -16,6 +16,7 @@ guides, and API specifications. Zero runtime interaction by design.
 ## Mandatory Capabilities
 
 ### Documentation Content
+
 - [ ] Architecture overview
 - [ ] CLI reference
 - [ ] Configuration guide
@@ -25,12 +26,14 @@ guides, and API specifications. Zero runtime interaction by design.
 - [ ] Development guides
 
 ### Site Features
+
 - [ ] Search functionality (Starlight built-in)
 - [ ] Navigation sidebar
 - [ ] Version compatibility indicators
 - [ ] Multi-language support (English, Spanish)
 
 ### Static Asset Serving
+
 - [ ] Image assets
 - [ ] Font loading
 - [ ] CSS/JS optimization
@@ -51,7 +54,7 @@ guides, and API specifications. Zero runtime interaction by design.
 
 ## Content Structure
 
-```
+```text
 docs/
 ├── guides/
 │   ├── architecture/overview.md

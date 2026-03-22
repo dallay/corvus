@@ -6,7 +6,7 @@ This document defines implementation tasks for the Client Surfaces Capability Ma
 The primary deliverable is a permanent spec document at `openspec/specs/client-surfaces/spec.md`.
 Secondary deliverables include per-surface contracts and architectural guidance updates.
 
-**Status**: In implementation (Tasks 1-5 complete)  
+**Status**: Implementation complete, verification pending (Tasks 1-5 complete, 1.6-1.8 pending)  
 **Spec**: `openspec/specs/client-surfaces/spec.md` (created)  
 **Design**: `openspec/changes/2026-03-21-client-surfaces-capability-matrix/design.md` (existing)
 

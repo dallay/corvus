@@ -36,9 +36,22 @@ guidance, and lead capture. Zero runtime interaction by design.
 ## Optional Capabilities
 
 ### Lead Capture
+
 - [ ] Contact forms
 - [ ] Email signup
 - [ ] Demo request
+
+**Lead Capture Controls** (required for implementation):
+
+| Control | Requirement |
+|---------|-------------|
+| Input validation | Sanitize all form fields; reject malformed input |
+| Field boundaries | Max length: email (254 chars), name (100 chars), message (2000 chars) |
+| Storage/retention | Store in approved CRM only; retain max 2 years or per consent |
+| Consent/opt-in | Explicit opt-in checkbox required; pre-checked disallowed |
+| Opt-out handling | Unsubscribe link in all emails; honor removal within 48 hours |
+| Abuse protection | Rate limiting (max 5 submissions per IP/hour); CAPTCHA on forms |
+| Spam filtering | Implement SPF/DKIM/DMARC; block known spam domains |
 
 ### Analytics
 - [ ] Page view tracking
@@ -98,10 +111,11 @@ This surface intentionally has no runtime communication:
 
 ## Security Notes
 
-- No user input processing (static site)
+- Lead capture forms process minimal user data (see Lead Capture Controls above)
 - CSP headers for analytics scripts
 - HTTPS enforced in production
 - No sensitive data exposure
+- Privacy policy and terms of service required for lead capture compliance
 
 ## Accessibility
 

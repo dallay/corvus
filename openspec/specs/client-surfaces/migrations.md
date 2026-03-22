@@ -68,7 +68,7 @@ Mobile must use CLI bridge per transport rules.
 
 **Related Specs**:
 - [Web Chat Contract](./surface-contracts/web-chat.md)
-- [Gateway API](#)
+- [Gateway API](./gateway-api.md) (TBD)
 
 ---
 
@@ -108,7 +108,7 @@ Mobile must use CLI bridge per transport rules.
 
 **Related Specs**:
 - [composeApp Shared Contract](./surface-contracts/composeapp-shared.md)
-- [Agent Loop](../../agent-loop/spec.md)
+- [Agent Loop](../agent-loop/spec.md)
 
 ---
 
@@ -138,8 +138,8 @@ Mobile must use CLI bridge per transport rules.
 - `openspec/specs/gateway-api/spec.md` (TBD)
 
 **Related Specs**:
-- [Canonical Matrix](../spec.md)
-- [Dashboard Contract](../surface-contracts/web-dashboard.md)
+- [Canonical Matrix](./spec.md)
+- [Dashboard Contract](./surface-contracts/web-dashboard.md)
 
 ---
 

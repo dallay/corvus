@@ -23,24 +23,21 @@
 | Metric | Value |
 |--------|-------|
 | Tasks total | ~50 |
-| Tasks complete | ~42 |
-| Tasks incomplete | 8 |
+| Tasks complete | ~44 |
+| Tasks incomplete | 6 |
 
 ### Incomplete Tasks
 
-**Verification (non-blocking)**:
+**Verification (non-blocking, docs-check)**:
 - [ ] **1.6** Spec renders correctly in documentation build
 - [ ] **1.7** Table alignment and formatting validated
 - [ ] **1.8** Cross-references link to existing spec documents
+- **Note**: Per project guidelines, `**/*.{md,mdx}` files should have valid links; docs-check tooling applies
 
 **Surface CLAUDE.md files (should fix)**:
 - [ ] **3.4** Surface-specific `CLAUDE.md` files (chat, composeApp, dashboard)
 - [ ] **3.5** `modules/agent-core-kmp/README.md` or `CLAUDE.md`
 - [ ] **3.7** Surface `CLAUDE.md` files reference their contracts
-
-**Tracking (nice-to-have)**:
-- [ ] **4.3.3** iOS bridge tracking issue
-- [ ] **5.2** GitHub issues for migrations
 
 **Archiving (required for close)**:
 - [ ] **6.1** Move/rename change files to delta spec location
