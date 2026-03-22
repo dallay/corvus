@@ -42,6 +42,7 @@ export default defineConfig({
   },
   integrations: [
     starlight({
+      disable404Route: true,
       title: "Corvus",
       logo: {
         light: "./public/favicon.svg",

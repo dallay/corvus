@@ -5,6 +5,9 @@ import java.nio.charset.StandardCharsets
 import java.util.concurrent.TimeUnit
 
 val isCi = providers.environmentVariable("CI").orNull?.isNotBlank() == true
+val safeNettyVersion = "4.1.118.Final"
+val safeProtobufVersion = "3.25.5"
+val safeJacksonToolsVersion = "3.1.0"
 
 val excludedLockingConfigurationPrefixes =
   listOf("allDevSourceSets", "composeHotReloadDev", "detachedConfiguration", "jvmDev", "spotless")
@@ -55,6 +58,40 @@ fun Configuration.shouldUseDependencyLocking(): Boolean {
     !hasExcludedPrefix
 }
 
+fun ResolutionStrategy.enforceSafeNettyVersion() {
+  eachDependency {
+    if (requested.group == "io.netty" && requested.version != safeNettyVersion) {
+      useVersion(safeNettyVersion)
+      because("Netty $safeNettyVersion fixes the native SslHandler crash vulnerability")
+    }
+  }
+}
+
+fun ResolutionStrategy.enforceSafeProtobufVersion() {
+  eachDependency {
+    if (requested.group == "com.google.protobuf" && requested.version != safeProtobufVersion) {
+      useVersion(safeProtobufVersion)
+      because(
+        "Protobuf $safeProtobufVersion mitigates the parser recursion denial of service issue"
+      )
+    }
+  }
+}
+
+fun ResolutionStrategy.enforceSafeJacksonToolsVersion() {
+  eachDependency {
+    if (
+      requested.group?.startsWith("tools.jackson") == true &&
+        requested.version != safeJacksonToolsVersion
+    ) {
+      useVersion(safeJacksonToolsVersion)
+      because(
+        "Jackson Tools $safeJacksonToolsVersion fixes the nesting depth constraint bypass in jackson-core"
+      )
+    }
+  }
+}
+
 fun findGradleWrapper(startDir: File): File? {
   val wrapperName =
     if (org.gradle.internal.os.OperatingSystem.current().isWindows) "gradlew.bat" else "gradlew"
@@ -75,6 +112,9 @@ buildscript.configurations.configureEach {
   if (shouldUseDependencyLocking()) {
     resolutionStrategy {
       cacheDynamicVersionsFor(7, TimeUnit.DAYS)
+      enforceSafeNettyVersion()
+      enforceSafeProtobufVersion()
+      enforceSafeJacksonToolsVersion()
       activateDependencyLocking()
     }
   }
@@ -84,6 +124,9 @@ configurations.configureEach {
   if (shouldUseDependencyLocking()) {
     resolutionStrategy {
       cacheDynamicVersionsFor(7, TimeUnit.DAYS)
+      enforceSafeNettyVersion()
+      enforceSafeProtobufVersion()
+      enforceSafeJacksonToolsVersion()
       activateDependencyLocking()
     }
   }

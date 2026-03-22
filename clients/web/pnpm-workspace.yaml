@@ -4,7 +4,7 @@ packages:
 
 catalog:
   '@astrojs/check': 0.9.8
-  '@astrojs/starlight': 0.37.7
+  '@astrojs/starlight': 0.38.2
   '@biomejs/biome': 2.4.7
   '@playwright/test': 1.58.2
   '@tailwindcss/postcss': 4.2.1
@@ -14,8 +14,8 @@ catalog:
   '@vitest/coverage-v8': 4.0.18
   '@vue/test-utils': 2.4.6
   '@vue/tsconfig': 0.9.0
-  astro: 5.18.0
-  astro-vtbot: 2.1.11
+  astro: 6.0.8
+  astro-vtbot: 2.1.12
   happy-dom: 20.8.3
   postcss: 8.5.8
   portless: 0.6.0

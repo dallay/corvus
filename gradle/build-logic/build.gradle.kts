@@ -29,6 +29,12 @@ dependencies {
   implementation(embeddedKotlin("gradle-plugin"))
   implementation(embeddedKotlin("reflect"))
   implementation(libs.semver)
+  implementation(platform(libs.jacksonToolsBom))
+}
+
+dependencies.constraints {
+  implementation("tools.jackson.core:jackson-core:${libs.versions.jackson.tools.get()}")
+  implementation("tools.jackson.core:jackson-databind:${libs.versions.jackson.tools.get()}")
 }
 
 dependencies {

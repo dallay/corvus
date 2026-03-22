@@ -8,6 +8,18 @@ from arduino.app_utils import App, Bridge
 corvus_PORT = 9999
 
 def handle_client(conn):
+    """
+    Handle a single client connection, processing a simple GPIO text command and replying with the result.
+    
+    Reads a single whitespace-separated command from the connection and responds on the same socket. Supported commands:
+    - "gpio_write <pin> <value>": calls Bridge.call("digitalWrite", [pin, value]) and sends "ok\n".
+    - "gpio_read <pin>": calls Bridge.call("digitalRead", [pin]) and sends "<value>\n".
+    
+    If the command is malformed, sends "error: invalid command\n". If the command is unrecognized, sends "error: unknown command\n". If an exception occurs while processing, attempts to send "error: {e}\n". The connection is closed before returning.
+    
+    Parameters:
+        conn: A socket-like object representing the client connection; must support recv, sendall, and close.
+    """
     try:
         data = conn.recv(256).decode().strip()
         if not data:
@@ -34,6 +46,7 @@ def handle_client(conn):
         try:
             conn.sendall(f"error: {e}\n".encode())
         except Exception:
+            # Intentionally ignore failures while sending the error response
             pass
     finally:
         conn.close()

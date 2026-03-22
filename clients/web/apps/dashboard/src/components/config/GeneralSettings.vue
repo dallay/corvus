@@ -33,15 +33,15 @@ function updateField<Key extends keyof AdminConfigForm>(
     <div class="grid">
       <label>
         <span>{{ $t("form.provider") }}</span>
-        <Input :model-value="modelValue.default_provider" @update:model-value="updateField('default_provider', $event)" />
+        <Input :model-value="modelValue.default_provider" data-testid="default_provider" @update:model-value="updateField('default_provider', $event)" />
       </label>
       <label>
         <span>{{ $t("form.model") }}</span>
-        <Input :model-value="modelValue.default_model" @update:model-value="updateField('default_model', $event)" />
+        <Input :model-value="modelValue.default_model" data-testid="default_model" @update:model-value="updateField('default_model', $event)" />
       </label>
       <label>
         <span>{{ $t("general.apiUrl") }}</span>
-        <Input :model-value="modelValue.api_url" @update:model-value="updateField('api_url', $event)" />
+        <Input :model-value="modelValue.api_url" data-testid="api_url" @update:model-value="updateField('api_url', $event)" />
       </label>
       <label>
         <span>{{ $t("form.temperature") }}</span>
@@ -51,6 +51,7 @@ function updateField<Key extends keyof AdminConfigForm>(
           step="0.1"
           min="0"
           max="2"
+          data-testid="default_temperature"
           @update:model-value="updateField('default_temperature', $event)"
         />
       </label>
@@ -59,6 +60,7 @@ function updateField<Key extends keyof AdminConfigForm>(
         <select
           :value="modelValue.memory_backend"
           class="select-input"
+          data-testid="memory_backend"
           @change="updateField('memory_backend', ($event.target as HTMLSelectElement).value)"
         >
           <option v-for="backend in memoryBackendOptions" :key="backend" :value="backend">
@@ -68,7 +70,7 @@ function updateField<Key extends keyof AdminConfigForm>(
       </label>
     </div>
     <div class="actions">
-      <Button :disabled="disabled || saving" @click="emit('save')">{{ $t("form.save") }}</Button>
+      <Button :disabled="disabled || saving" data-testid="save" @click="emit('save')">{{ $t("form.save") }}</Button>
     </div>
   </section>
 </template>

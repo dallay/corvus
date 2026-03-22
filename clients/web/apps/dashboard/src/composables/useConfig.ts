@@ -425,6 +425,13 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     }
 
     sectionSaving[section] = true;
+    const pendingWebhookSecret =
+      section === "webhook"
+        ? null
+        : {
+            mode: form.webhook_secret_mode,
+            value: form.webhook_secret_value,
+          };
     try {
       const response = await fetch(gatewayUrl("/web/admin/config"), {
         method: "PUT",
@@ -440,9 +447,15 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       if (!response.ok) {
         throw new Error("save");
       }
-      form.webhook_secret_mode = "unchanged";
-      form.webhook_secret_value = "";
+      if (section === "webhook") {
+        form.webhook_secret_mode = "unchanged";
+        form.webhook_secret_value = "";
+      }
       const connected = await connectGateway();
+      if (pendingWebhookSecret) {
+        form.webhook_secret_mode = pendingWebhookSecret.mode;
+        form.webhook_secret_value = pendingWebhookSecret.value;
+      }
       if (!connected) {
         return;
       }
