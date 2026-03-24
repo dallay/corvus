@@ -1,3 +1,5 @@
+@file:Suppress("MatchingDeclarationName")
+
 package com.profiletailors.corvus
 
 import android.os.Build

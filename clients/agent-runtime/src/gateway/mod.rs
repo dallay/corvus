@@ -11,6 +11,7 @@ use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
 use crate::bootstrap;
 use crate::channels::{Channel, SendMessage, WhatsAppChannel};
 use crate::config::Config;
+#[cfg(test)]
 use crate::gateway::utils::{
     blocked_http_onboarding_state, http_onboarding_state, HttpOnboardingState,
     HttpOnboardingStateKind, HttpRecoveryKind,
@@ -642,6 +643,7 @@ pub const RATE_LIMIT_MAX_KEYS_DEFAULT: usize = 10_000;
 /// Fallback max distinct idempotency keys retained in gateway memory.
 pub const IDEMPOTENCY_MAX_KEYS_DEFAULT: usize = 10_000;
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HttpHealthProbe {
     HealthyUnpaired,
@@ -650,6 +652,7 @@ enum HttpHealthProbe {
     Error,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HttpPairOutcome {
     Paired,
@@ -657,6 +660,7 @@ enum HttpPairOutcome {
     ExpiredCode,
 }
 
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HttpAuthenticatedFollowUp {
     Authorized,
@@ -665,6 +669,7 @@ enum HttpAuthenticatedFollowUp {
     TransportUnavailable,
 }
 
+#[cfg(test)]
 fn map_health_to_http_onboarding_state(probe: HttpHealthProbe) -> HttpOnboardingState {
     match probe {
         HttpHealthProbe::HealthyUnpaired => {
@@ -682,6 +687,7 @@ fn map_health_to_http_onboarding_state(probe: HttpHealthProbe) -> HttpOnboarding
     }
 }
 
+#[cfg(test)]
 fn map_pair_to_http_onboarding_state(outcome: HttpPairOutcome) -> HttpOnboardingState {
     match outcome {
         HttpPairOutcome::Paired => {
@@ -696,6 +702,7 @@ fn map_pair_to_http_onboarding_state(outcome: HttpPairOutcome) -> HttpOnboarding
     }
 }
 
+#[cfg(test)]
 fn map_authenticated_follow_up_to_http_onboarding_state(
     outcome: HttpAuthenticatedFollowUp,
 ) -> HttpOnboardingState {

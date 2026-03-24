@@ -327,7 +327,8 @@ export function useGateway(t: (key: string, params?: Record<string, unknown>) =>
   function handleTransportFailure(): void {
     progress.transportConnected = false;
     progress.ready = false;
-    if (progress.trustEstablished || !!bearerToken.value.trim()) {
+    // Either prior trust or a non-empty bearer token indicates prior pairing
+    if (progress.trustEstablished || Boolean(bearerToken.value.trim())) {
       setBlockedOnboardingState("paired_but_not_connected", true, true);
     } else {
       setBlockedOnboardingState("runtime_unavailable", true, false);

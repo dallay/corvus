@@ -40,6 +40,13 @@ const canSend = computed(
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const showOnboardingGate = computed(() => !chat.isSessionReady.value);
 
+const combinedErrorMessage = computed(() => {
+  const gw = gateway.errorMessage.value;
+  const ch = chat.errorMessage.value;
+  if (gw && ch) return `${gw} — ${ch}`;
+  return ch || gw || "";
+});
+
 function createWelcomeMessage(): Message {
   return {
     id: 0,
@@ -248,7 +255,7 @@ onUnmounted(() => {
           :webhook-secret="gateway.webhookSecret.value"
           :loading="gateway.loading.value"
           :status-message="gateway.statusMessage.value"
-          :error-message="gateway.errorMessage.value || chat.errorMessage.value"
+          :error-message="combinedErrorMessage"
           :onboarding-state="gateway.onboardingState.value"
           :onboarding-steps="gateway.onboardingSteps.value"
           @update:base-url="gateway.baseUrl.value = $event"

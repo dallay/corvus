@@ -390,9 +390,13 @@ fun BridgeStatusCard(
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
+  val description = bridgeStateDescription(bridgeState)
+  val recovery = bridgeStateRecovery(bridgeState)
   val details = buildList {
-    add(bridgeStateDescription(bridgeState))
-    add(bridgeStateRecovery(bridgeState))
+    add(description)
+    if (description != recovery) {
+      add(recovery)
+    }
   }
 
   diagnosticsCard(

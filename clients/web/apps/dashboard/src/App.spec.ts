@@ -138,7 +138,7 @@ function createMockConfig(
       canResume: false,
       persistsPairingCode: false,
       persistsBearerToken: false,
-    } as DashboardOnboardingState);
+    } satisfies DashboardOnboardingState);
   const onboardingSteps =
     overrides.onboardingSteps ??
     ([

@@ -98,17 +98,19 @@ describe("App", () => {
     await wrapper
       .get(`input[placeholder="${translatedText("form.pairingCodePlaceholder")}"]`)
       .setValue("123456");
-    await wrapper
+    const pairButton = wrapper
       .findAll("button")
-      .find((button) => button.text() === translatedText("auth.pair"))
-      ?.trigger("click");
+      .find((button) => button.text() === translatedText("auth.pair"));
+    expect(pairButton?.exists()).toBe(true);
+    await pairButton!.trigger("click");
     await flushPromises();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    await wrapper
+    const startSessionButton = wrapper
       .findAll("button")
-      .find((button) => button.text() === translatedText("chat.startSession"))
-      ?.trigger("click");
+      .find((button) => button.text() === translatedText("chat.startSession"));
+    expect(startSessionButton?.exists()).toBe(true);
+    await startSessionButton!.trigger("click");
     await flushPromises();
 
     const input = wrapper.get(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`);

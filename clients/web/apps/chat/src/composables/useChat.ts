@@ -266,7 +266,7 @@ export function useChat(
       }
 
       const data = (await response.json()) as ChatResponse;
-      if (typeof data.session_id === "string" && data.session_id.trim()) {
+      if (typeof data.session_id === "string" && data.session_id.trim() && !isSessionReady.value) {
         setSessionReady(data.session_id.trim());
       }
 

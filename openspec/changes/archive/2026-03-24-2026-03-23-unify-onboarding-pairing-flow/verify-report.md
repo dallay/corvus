@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: `2026-03-23-unify-onboarding-pairing-flow`
 **Artifact store**: `openspec`
@@ -10,8 +10,8 @@
 
 | Metric | Value |
 |--------|-------|
-| Tasks total | 23 |
-| Tasks complete | 23 |
+| Tasks total | 25 |
+| Tasks complete | 25 |
 | Tasks incomplete | 0 |
 
 All tasks in `openspec/changes/2026-03-23-unify-onboarding-pairing-flow/tasks.md` are marked complete.

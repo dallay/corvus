@@ -148,7 +148,8 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
             }
           }
 
-          else -> Unit
+          MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED,
+          MobileOnboardingStatus.TRANSPORT_CONNECTING -> Unit
         }
       }
     }
