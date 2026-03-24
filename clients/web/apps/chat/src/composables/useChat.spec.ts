@@ -125,4 +125,148 @@ describe("useChat", () => {
       "22222222-2222-4222-8222-222222222222"
     );
   });
+
+  it("sendMessage throws connectBeforeChat when gateway is not ready", async () => {
+    const gateway = useGateway((key: string) => key);
+    const chat = useChat((key: string) => key, gateway);
+
+    await expect(chat.sendMessage("hello")).rejects.toThrow("chat.connectBeforeChat");
+  });
+
+  it("sendMessage throws emptyMessageError for empty or whitespace message", async () => {
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    await expect(chat.sendMessage("")).rejects.toThrow("chat.emptyMessageError");
+    await expect(chat.sendMessage("   ")).rejects.toThrow("chat.emptyMessageError");
+  });
+
+  it("sendMessage calls markCredentialInvalid and clearSession on 401", async () => {
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+
+    await expect(chat.sendMessage("hello")).rejects.toThrow("auth.credentialInvalid");
+    expect(chat.currentSessionId.value).toBe("");
+    expect(gateway.onboardingState.value.state).not.toBe("ready");
+  });
+
+  it("sendMessage calls markCredentialInvalid and clearSession on 403", async () => {
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 403 }));
+
+    await expect(chat.sendMessage("hello")).rejects.toThrow("auth.credentialInvalid");
+    expect(chat.currentSessionId.value).toBe("");
+  });
+
+  it("sendMessage calls markPairedButNotConnected on non-ok response", async () => {
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+    await expect(chat.sendMessage("hello")).rejects.toThrow("chat.requestError");
+  });
+
+  it("sendMessage throws timeoutError when fetch aborts", async () => {
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    fetchMock.mockRejectedValueOnce(abortError);
+
+    await expect(chat.sendMessage("hello")).rejects.toThrow("chat.timeoutError");
+  });
+
+  it("sendMessage re-throws generic errors", async () => {
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockRejectedValueOnce(new Error("network failure"));
+
+    await expect(chat.sendMessage("hello")).rejects.toThrow("network failure");
+  });
+
+  it("clearSession clears sessionId, removes from storage, and sets correct state", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("44444444-4444-4444-8444-444444444444");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    expect(chat.currentSessionId.value).toBe("44444444-4444-4444-8444-444444444444");
+
+    chat.clearSession();
+
+    expect(chat.currentSessionId.value).toBe("");
+    expect(window.sessionStorage.getItem("corvus.chat.session:%2Fapi")).toBeNull();
+    expect(chat.sessionState.value.state).toBe("session_pending");
+    expect(chat.statusMessage.value).toBe("chat.sessionCleared");
+  });
+
+  it("clearSession sets idle when gateway is not ready", () => {
+    const gateway = useGateway((key: string) => key);
+    const chat = useChat((key: string) => key, gateway);
+
+    chat.clearSession();
+
+    expect(chat.sessionState.value.state).toBe("idle");
+  });
+
+  it("startSession(false) always creates a new session even if stored session exists", async () => {
+    window.sessionStorage.setItem("corvus.chat.session:%2Fapi", "stored-session-id");
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("55555555-5555-4555-8555-555555555555");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+
+    const started = chat.startSession(false);
+
+    expect(started).toBe(true);
+    expect(chat.currentSessionId.value).toBe("55555555-5555-4555-8555-555555555555");
+    expect(chat.currentSessionId.value).not.toBe("stored-session-id");
+  });
+
+  it("resets session when gateway baseUrl changes", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("66666666-6666-4666-8666-666666666666");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    expect(chat.currentSessionId.value).toBe("66666666-6666-4666-8666-666666666666");
+
+    gateway.baseUrl.value = "https://other-host:9999";
+
+    await vi.dynamicImportSettled();
+
+    expect(chat.currentSessionId.value).toBe("");
+  });
+
+  it("sendMessage does not overwrite session_id when session is already ready", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("77777777-7777-4777-8777-777777777777");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    expect(chat.currentSessionId.value).toBe("77777777-7777-4777-8777-777777777777");
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ response: "hi", session_id: "server-overwrite-attempt" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const reply = await chat.sendMessage("hello");
+
+    expect(reply).toBe("hi");
+    expect(chat.currentSessionId.value).toBe("77777777-7777-4777-8777-777777777777");
+  });
 });

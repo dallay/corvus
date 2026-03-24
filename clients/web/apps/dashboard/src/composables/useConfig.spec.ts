@@ -745,4 +745,160 @@ describe("useConfig", () => {
       expect(config.bearerToken.value).toBe("");
     });
   });
+
+  describe("connectGateway additional paths", () => {
+    it("returns false with insecureUrlError when URL is insecure and bearer token is set", async () => {
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "https://example.com/api";
+      config.bearerToken.value = "secret-token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
+      expect(config.errorMessage.value).toBe("errors.insecureUrlError");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("calls handleTransportFailure when options response is not ok and not 401/403", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 500 }));
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
+      expect(config.errorMessage.value).toBe("auth.loadError");
+      expect(config.onboardingState.value.state).toBe("blocked");
+      expect(config.onboardingState.value.recoveryKind).toBe("paired_but_not_connected");
+    });
+
+    it("clears credentials when config response returns 401", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+        );
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "stale-token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
+      expect(config.bearerToken.value).toBe("");
+      expect(config.onboardingState.value.state).toBe("blocked");
+      expect(config.onboardingState.value.recoveryKind).toBe("credential_invalid");
+      expect(config.errorMessage.value).toBe("auth.credentialInvalid");
+    });
+
+    it("calls handleTransportFailure when config response is not ok and not 401/403", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 502 }));
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
+      expect(config.errorMessage.value).toBe("auth.loadError");
+      expect(config.onboardingState.value.state).toBe("blocked");
+      expect(config.onboardingState.value.recoveryKind).toBe("paired_but_not_connected");
+    });
+
+    it("calls handleTransportFailure when fetch throws a network error", async () => {
+      fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
+      expect(config.errorMessage.value).toBe("auth.loadError");
+      expect(config.onboardingState.value.state).toBe("blocked");
+      expect(config.onboardingState.value.recoveryKind).toBe("paired_but_not_connected");
+    });
+
+    it("resets quickPairState from failed to idle on entry", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 500 }));
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.quickPairState.value = "failed";
+
+      await config.connectGateway();
+
+      expect(config.quickPairState.value).toBe("idle");
+    });
+
+    it("does not send Authorization header when no bearer token is present", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ config: { channels: { webhook: {} } } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "https://example.com/api";
+
+      expect(config.bearerToken.value).toBe("");
+
+      await config.connectGateway();
+
+      const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+      expect(headers).toBeDefined();
+      expect(headers.Authorization).toBeUndefined();
+    });
+
+    it("sends Authorization header and marks trust before transport when bearer token is present", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ config: { channels: { webhook: {} } } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "token";
+
+      await config.connectGateway();
+
+      const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+      expect(headers.Authorization).toBe("Bearer token");
+      expect(config.onboardingState.value.state).toBe("ready");
+    });
+  });
 });
