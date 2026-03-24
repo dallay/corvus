@@ -123,3 +123,61 @@ This surface intentionally has no runtime communication:
 - Keyboard navigation
 - Screen reader support
 - Performance optimization (Core Web Vitals)
+
+## i18n Requirements
+
+**Locale Tier**: Tier 3 — English-only
+**Supported Locales**: en
+**Parity Requirement**: None
+**Glossary Compliance**: Recommended
+
+### String Externalization
+
+- The surface MAY remain English-only
+- Product terminology in marketing copy SHOULD use canonical glossary terms
+- The surface is exempt from parity testing, key naming, and CI enforcement
+- The surface MAY be promoted to Tier 2 in a future change if Spanish-language marketing is needed
+
+### Parity Testing
+
+- The surface is exempt from parity testing — single locale only
+
+### Design Tokens
+
+- The surface SHOULD use `--corvus-*` CSS custom properties from `@corvus/shared` tokens
+- The surface MAY use Tailwind utilities alongside canonical tokens
+- The surface is not required to support theme switching (MAY remain single-theme)
+
+### Scenarios
+
+#### Scenario: Marketing uses canonical product terms
+
+- GIVEN the marketing landing page describes Corvus features
+- WHEN the copy mentions the agent, runtime, or onboarding
+- THEN the copy SHOULD use the canonical terms from the glossary
+- AND the terminology audit SHOULD warn (but not fail) on non-canonical terms
+
+#### Scenario: Marketing remains English-only
+
+- GIVEN the marketing surface is classified as Tier 3
+- WHEN a locale support review occurs
+- THEN the surface MAY remain English-only without failing any governance check
+
+#### Scenario: Marketing uses shared tokens where available
+
+- GIVEN the marketing site imports `@corvus/shared`
+- WHEN the site's CSS is audited
+- THEN brand colors and typography SHOULD reference `--corvus-*` custom properties
+- AND the audit SHOULD warn on hardcoded brand colors that have canonical equivalents
+
+### References
+
+- [i18n Governance Specification](../../i18n-governance/spec.md)
+- [Design Token Governance](../../design-tokens/spec.md)
+- [Canonical Glossary](../../../glossary/README.md)
+
+## Change History
+
+| Version | Date       | Changes                                                       |
+|---------|------------|---------------------------------------------------------------|
+| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 3 — English-only, #278) |
