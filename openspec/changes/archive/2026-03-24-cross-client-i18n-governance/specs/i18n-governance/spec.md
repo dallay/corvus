@@ -178,37 +178,21 @@ usage contexts, and explicitly disallowed synonyms.
 
 **Files**:
 
-- `glossary.json` — Machine-readable glossary (for CI linting and tooling)
-- `glossary.md` — Human-readable glossary (for contributor reference)
+- `openspec/glossary/terms.json` — Machine-readable glossary (for CI linting and tooling)
+- `openspec/glossary/README.md` — Human-readable glossary (for contributor reference)
 
-**Glossary entry schema** (JSON):
+**Glossary entry schema** (JSON, per `terms.json`):
 
 ```json
 {
-  "term": "pair",
-  "definition": "The process of establishing a trust relationship between a client surface and the Corvus runtime.",
-  "translations": {
-    "en": "pair",
+  "canonical": "Pair",
+  "definition": "The one-time trust exchange where a surface receives credentials to communicate with the Corvus runtime.",
+  "context": "Web surfaces exchange a pairing code for a bearer token. Mobile surfaces perform local linking, but the user-facing term is always 'pair/pairing'.",
+  "aliases": ["pairing", "paired"],
+  "anti_terms": ["link", "linking", "connect", "bind", "associate"],
+  "locales": {
     "es": "emparejar"
-  },
-  "context": "Used during onboarding when a surface connects to the runtime for the first time.",
-  "disallowed_synonyms": [
-    "link",
-    "connect",
-    "bind",
-    "associate"
-  ],
-  "surfaces": [
-    "web/chat",
-    "web/dashboard",
-    "composeApp",
-    "agent-runtime"
-  ],
-  "see_also": [
-    "surface",
-    "onboarding",
-    "trust"
-  ]
+  }
 }
 ```
 
@@ -223,9 +207,9 @@ usage contexts, and explicitly disallowed synonyms.
 
 - GIVEN a new product concept requires a user-facing term
 - WHEN the term is proposed
-- THEN the term MUST be added to `glossary.json` and `glossary.md` via a change proposal
+- THEN the term MUST be added to `terms.json` and `README.md` via a change proposal
 - AND the entry MUST include: canonical term, definition, translations for all Tier 1 locales, usage
-  context, and disallowed synonyms
+  context, and disallowed synonyms (anti_terms)
 - AND all existing surfaces MUST adopt the term within one release cycle
 
 #### Scenario: Glossary term conflict detected

@@ -19,8 +19,8 @@ issue: 278
   following the format in design section "README.md Format" (term name, canonical form, definition,
   context, anti-terms for each of the 13 terms)
 - [x] 1.4 Create `openspec/glossary/GOVERNANCE.md` — term lifecycle process covering: proposing new
-  terms, review requirements (architecture + surface maintainer), deprecation process (2-version
-  grace period), anti-term CI enforcement, and dispute resolution
+  terms, review requirements (architecture + surface maintainer), deprecation process (at least one
+  release cycle), anti-term CI enforcement, and dispute resolution
 
 ## Phase 2: Specification Files (Merge Delta Specs to Main Spec Locations)
 

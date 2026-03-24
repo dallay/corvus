@@ -110,7 +110,7 @@ name stays the same; only the resolved value changes per theme.
 - GIVEN a developer adds a new color token `corvus.color.accent.secondary`
 - WHEN the token is registered
 - THEN the token MUST have values defined for both `light` and `dark` themes
-- AND omitting either theme value MUST cause a build warning
+- AND omitting either theme value MUST cause a build failure for Tier 1 surfaces
 
 #### Scenario: Tier 2 and Tier 3 surfaces theming
 

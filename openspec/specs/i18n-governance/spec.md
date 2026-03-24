@@ -234,7 +234,9 @@ All Tier 1 and Tier 2 surfaces MUST use canonical terms from the glossary in the
 documentation content, and user-facing messages. Tier 3 surfaces SHOULD use canonical terms but
 are not CI-enforced.
 
-The following canonical terms are established by this specification:
+The following canonical terms are established by this specification. The authoritative
+machine-readable source is `openspec/glossary/terms.json`; this table is a human-readable summary.
+Any discrepancy MUST be resolved in favor of `terms.json`.
 
 | Canonical Term | Definition                                          | Disallowed Synonyms                  | Applicable Surfaces    |
 |----------------|-----------------------------------------------------|--------------------------------------|------------------------|

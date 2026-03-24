@@ -52,6 +52,7 @@ The canonical glossary is owned by the **architecture team**. Changes require ap
 Terms referenced in active locale files MUST NOT be removed immediately. The deprecation process is:
 
 1. **Mark as deprecated** in `terms.json` by adding a `deprecated` field:
+
    ```json
    {
      "canonical": "Old Term",
@@ -62,6 +63,7 @@ Terms referenced in active locale files MUST NOT be removed immediately. The dep
      }
    }
    ```
+
 2. **Grace period**: The deprecated term MUST remain in the glossary for at least **2 minor version
    bumps** of the glossary (e.g., deprecated in 1.1.0, removable from 1.3.0 onward)
 3. **CI behavior during grace period**: The deprecated term's anti-terms are still enforced, and CI

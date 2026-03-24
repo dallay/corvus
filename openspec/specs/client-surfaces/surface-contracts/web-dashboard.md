@@ -136,8 +136,7 @@ Dashboard **MUST** use HTTP Gateway only. Direct runtime access is prohibited.
 
 - GIVEN the dashboard renders runtime configuration forms
 - WHEN field labels reference Corvus concepts
-- THEN labels MUST use "runtime" (not "server" or "backend"), "gateway" (not "API" or "proxy"), "
-  tool" (not "action" or "function")
+- THEN labels MUST use "runtime" (not "server" or "backend"), "gateway" (not "API" or "proxy"), and "tool" (not "action" or "function")
 
 #### Scenario: Dashboard uses canonical tokens
 

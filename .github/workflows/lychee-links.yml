@@ -16,9 +16,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+      issues: write
     steps:
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PRIVATE_KEY }}
+
       - name: ✈ Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -39,27 +46,68 @@ jobs:
           output: ./lychee/out.md
           fail: false
 
-      - name: 📝 Prepare report
+      - name: 📝 Prepare issue body
         if: steps.lychee.outputs.exit_code != 0
         run: |
-          mkdir -p .github/lychee
-          cp ./lychee/out.md .github/lychee/report.md
+          mkdir -p ./lychee
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          {
+            printf "## Summary\n\n"
+            printf "Lychee detected broken links on the default branch.\n\n"
+            printf -- "- Workflow: \`%s\`\n" "$GITHUB_WORKFLOW"
+            printf -- "- Run: %s\n" "$run_url"
+            printf -- "- Commit: \`%s\`\n\n" "$GITHUB_SHA"
+            printf "## Failures\n\n"
+            printf "<details>\n"
+            printf "<summary>Expand broken link report</summary>\n\n"
+            cat ./lychee/out.md
+            printf "\n</details>\n"
+          } > ./lychee/issue-body.md
 
-      - name: 💾 Create PR with report
+      - name: 🐞 Create or update broken links issue
         if: steps.lychee.outputs.exit_code != 0
-        uses: peter-evans/create-pull-request@98357b18bf14b5342f975ff684046ec3b2a07725 # v8.0.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: "auto-pr/lychee-broken-links"
-          commit-message: "chore: update lychee link report [skip ci]"
-          title: "chore: update lychee link report"
-          labels: |
-            pr|chore
-            broken-links
-          body: |
-            ## Summary
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_TITLE: "docs: broken links report"
+        run: |
+          issue_number="$(gh issue list \
+            --state open \
+            --search "\"${ISSUE_TITLE}\" in:title" \
+            --json number,title \
+            --jq '.[] | select(.title == "docs: broken links report") | .number' | head -n 1)"
 
-            Automated lychee report for broken links.
+          if [ -n "$issue_number" ]; then
+            gh issue edit "$issue_number" \
+              --title "$ISSUE_TITLE" \
+              --body-file ./lychee/issue-body.md \
+              --add-label "type|docs" \
+              --add-label "module|broken-links" \
+              --add-label "status|waiting-for-triage"
+          else
+            gh issue create \
+              --title "$ISSUE_TITLE" \
+              --body-file ./lychee/issue-body.md \
+              --label "type|docs" \
+              --label "module|broken-links" \
+              --label "status|waiting-for-triage"
+          fi
+
+      - name: ✅ Close broken links issue when report is clean
+        if: steps.lychee.outputs.exit_code == 0
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_TITLE: "docs: broken links report"
+        run: |
+          issue_number="$(gh issue list \
+            --state open \
+            --search "\"${ISSUE_TITLE}\" in:title" \
+            --json number,title \
+            --jq '.[] | select(.title == "docs: broken links report") | .number' | head -n 1)"
+
+          if [ -n "$issue_number" ]; then
+            gh issue comment "$issue_number" --body "Lychee no longer reports broken links in the latest run, so this issue is being closed automatically."
+            gh issue close "$issue_number"
+          fi
 
       - name: 💾 Save lychee cache
         uses: actions/cache/save@0c907a75c2c80ebcb7f088228285e798b750cf8f # v4.2.1

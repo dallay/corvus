@@ -152,9 +152,10 @@ The boundary:
 ### String Externalization
 
 - The shared module is a contracts-only library and is EXEMPT from locale tier classification
-- The shared module MUST NOT contain any user-facing strings
+- The shared module MUST NOT contain any localized or UI-visible strings
 - The shared module MUST NOT contain locale files or translation resources
 - Type definitions (e.g., `CoreResult.Failure.message`) MUST use English-only technical identifiers
+- Internal validation messages (e.g., `require()` assertions) are developer diagnostics and are exempt from localization
 
 ### Parity Testing
 

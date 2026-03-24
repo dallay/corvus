@@ -154,7 +154,7 @@ The composeApp mobile surface MUST implement full i18n compliance as a Tier 1 su
 
 - GIVEN the `composeApp` surface
 - WHEN the i18n compliance audit runs
-- THEN all `<string name="...">` entries MUST exist in both `strings.xml` and `strings-es.xml`
+- THEN all `<string name="...">` entries MUST exist in both `values/strings.xml` and `values-es/strings.xml`
 - AND no hardcoded user-facing strings MUST exist in Kotlin/Compose source files
 - AND `AGENT_NAME` MUST be sourced from string resources, not a constant
 - AND the Gradle parity test MUST pass
@@ -346,7 +346,7 @@ required to implement i18n infrastructure.
 | `composeApp` (mobile) | Tier 1    | MUST        | MUST       | MUST (fail)   | MUST (`CorvusTheme`) | MUST (light/dark) |
 | `composeApp` (shared) | Exempt    | N/A         | N/A        | N/A           | N/A                  | N/A               |
 | `agent-runtime` (CLI) | Tier 3    | N/A         | N/A        | SHOULD (warn) | N/A                  | N/A               |
-| `web/apps/docs`       | Tier 2    | SHOULD      | SHOULD     | SHOULD (warn) | SHOULD               | SHOULD            |
+| `web/apps/docs`       | Tier 2    | SHOULD      | MUST       | SHOULD (warn) | SHOULD               | SHOULD            |
 | `web/apps/marketing`  | Tier 3    | N/A         | N/A        | SHOULD (warn) | SHOULD               | MAY               |
 
 ## Cross-Reference

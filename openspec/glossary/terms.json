@@ -42,13 +42,13 @@
       }
     },
     "pairing": {
-      "canonical": "Pair / Pairing",
+      "canonical": "Pair",
       "definition": "The one-time trust exchange where a surface receives credentials to communicate with the Corvus runtime.",
-      "context": "Web surfaces exchange a pairing code for a bearer token. Mobile surfaces perform local linking, but the user-facing term is always 'pairing'. Resolves the mobile 'link' inconsistency.",
-      "aliases": ["pair"],
+      "context": "Web surfaces exchange a pairing code for a bearer token. Mobile surfaces perform local linking, but the user-facing term is always 'pair/pairing'. Resolves the mobile 'link' inconsistency.",
+      "aliases": ["pairing", "paired"],
       "anti_terms": ["link", "linking", "connect", "bind", "associate"],
       "locales": {
-        "es": "Emparejamiento"
+        "es": "emparejar"
       }
     },
     "trust": {

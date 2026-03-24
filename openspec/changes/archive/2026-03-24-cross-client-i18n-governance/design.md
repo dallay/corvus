@@ -109,7 +109,7 @@ spec and implementation. Per-surface tests match each surface's native i18n form
 
 **Examples from existing `@corvus/locales` (already conformant)**:
 
-```
+```text
 onboarding.steps.runtime.title        → "Runtime available"
 chat.welcome                          → "Hello, I am {modelName}..."
 chatOnboarding.recovery.credential_missing.title → "Bearer token missing"
@@ -188,7 +188,7 @@ source for tier definitions and rules; contracts reference it.
 
 ## Glossary Structure Design
 
-```
+```text
 openspec/glossary/
 ├── README.md          # Human-readable glossary with definitions, usage, anti-terms
 ├── terms.json         # Machine-readable canonical terms (CI-lintable)
@@ -327,7 +327,7 @@ sequenceDiagram
 
 The governance artifacts flow through the system as follows:
 
-```
+```text
 openspec/glossary/terms.json ──────────────────────────────────┐
     │                                                          │
     │  (canonical terms, anti-terms)                           │
