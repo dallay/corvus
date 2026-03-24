@@ -1,3 +1,8 @@
+pub mod catalog;
+pub mod frontmatter;
+pub mod lockfile;
+pub mod trust;
+
 use anyhow::Result;
 use directories::UserDirs;
 use serde::{Deserialize, Serialize};
@@ -28,6 +33,12 @@ pub struct Skill {
     pub prompts: Vec<String>,
     #[serde(skip)]
     pub location: Option<PathBuf>,
+    #[serde(skip)]
+    pub trust: trust::SkillTrust,
+    #[serde(skip)]
+    pub origin: trust::SkillOrigin,
+    #[serde(skip)]
+    pub allowed_tools: Vec<String>,
 }
 
 /// A tool defined by a skill (shell command, HTTP call, etc.)
@@ -71,13 +82,37 @@ fn default_version() -> String {
 
 /// Load all skills from the workspace skills directory
 pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
+    load_skills_with_config(workspace_dir, None)
+}
+
+/// Load all skills, optionally consulting skills config for open-skills.
+pub fn load_skills_with_config(
+    workspace_dir: &Path,
+    skills_config: Option<&crate::config::SkillsConfig>,
+) -> Vec<Skill> {
     let mut skills = Vec::new();
 
-    if let Some(open_skills_dir) = ensure_open_skills_repo() {
+    if let Some(open_skills_dir) = ensure_open_skills_repo(skills_config) {
         skills.extend(load_open_skills(&open_skills_dir));
     }
 
-    skills.extend(load_workspace_skills(workspace_dir));
+    // Read lockfile for trust/origin enrichment
+    let lockfile = lockfile::read_lockfile(workspace_dir);
+
+    let mut workspace_skills = load_workspace_skills(workspace_dir);
+    // Enrich workspace skills with lockfile data
+    for skill in &mut workspace_skills {
+        if let Some(entry) = lockfile.skills.get(&skill.name) {
+            skill.origin = lockfile::lock_entry_to_origin(entry);
+            skill.trust = trust::SkillTrust::from(&skill.origin.source);
+            if let Some(ref tools) = entry.allowed_tools {
+                skill.allowed_tools = tools.clone();
+            }
+        }
+        // Skills without lockfile entry keep default Local trust
+    }
+    skills.extend(workspace_skills);
+
     skills
 }
 
@@ -158,14 +193,35 @@ fn load_open_skills(repo_dir: &Path) -> Vec<Skill> {
     skills
 }
 
-fn open_skills_enabled() -> bool {
-    if let Ok(raw) = std::env::var("CORVUS_OPEN_SKILLS_ENABLED") {
-        let value = raw.trim().to_ascii_lowercase();
-        return !matches!(value.as_str(), "0" | "false" | "off" | "no");
+fn open_skills_enabled(config: Option<&crate::config::SkillsConfig>) -> bool {
+    // 1. Config file takes precedence
+    if let Some(cfg) = config {
+        if cfg.legacy_open_skills {
+            tracing::warn!(
+                "open-skills is deprecated and will be removed in a future release. \
+                 Install individual skills with 'corvus skills install <url>' instead."
+            );
+            return true;
+        }
     }
 
-    // Keep tests deterministic and network-free by default.
-    !cfg!(test)
+    // 2. Env vars (legacy compat)
+    for var_name in &["CORVUS_OPEN_SKILLS_ENABLED", "CORVUS_OPEN_SKILLS"] {
+        if let Ok(raw) = std::env::var(var_name) {
+            let value = raw.trim().to_ascii_lowercase();
+            let enabled = !matches!(value.as_str(), "0" | "false" | "off" | "no" | "");
+            if enabled {
+                tracing::warn!(
+                    "open-skills is deprecated and will be removed in a future release. \
+                     Install individual skills with 'corvus skills install <url>' instead."
+                );
+                return true;
+            }
+        }
+    }
+
+    // 3. Default: disabled (was !cfg!(test), now always false)
+    false
 }
 
 fn resolve_open_skills_dir() -> Option<PathBuf> {
@@ -179,8 +235,8 @@ fn resolve_open_skills_dir() -> Option<PathBuf> {
     UserDirs::new().map(|dirs| dirs.home_dir().join("open-skills"))
 }
 
-fn ensure_open_skills_repo() -> Option<PathBuf> {
-    if !open_skills_enabled() {
+fn ensure_open_skills_repo(config: Option<&crate::config::SkillsConfig>) -> Option<PathBuf> {
+    if !open_skills_enabled(config) {
         return None;
     }
 
@@ -289,6 +345,10 @@ fn mark_open_skills_synced(repo_dir: &Path) -> Result<()> {
 
 /// Load a skill from a SKILL.toml manifest
 fn load_skill_toml(path: &Path) -> Result<Skill> {
+    tracing::warn!(
+        "SKILL.toml is deprecated and will be removed in a future release. \
+         Migrate to SKILL.md with YAML frontmatter instead."
+    );
     let content = std::fs::read_to_string(path)?;
     let manifest: SkillManifest = toml::from_str(&content)?;
 
@@ -301,27 +361,36 @@ fn load_skill_toml(path: &Path) -> Result<Skill> {
         tools: manifest.tools,
         prompts: manifest.prompts,
         location: Some(path.to_path_buf()),
+        trust: trust::SkillTrust::Local,
+        origin: trust::SkillOrigin::default(),
+        allowed_tools: Vec::new(),
     })
 }
 
 /// Load a skill from a SKILL.md file (simpler format)
 fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
     let content = std::fs::read_to_string(path)?;
-    let name = dir
+    let dir_name = dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
         .to_string();
+    let fm = frontmatter::parse_frontmatter(&content);
 
     Ok(Skill {
-        name,
-        description: extract_description(&content),
-        version: "0.1.0".to_string(),
-        author: None,
-        tags: Vec::new(),
+        name: fm.name.unwrap_or(dir_name),
+        description: fm
+            .description
+            .unwrap_or_else(|| extract_description(&content)),
+        version: fm.version.unwrap_or_else(|| "0.1.0".to_string()),
+        author: fm.author,
+        tags: fm.tags,
         tools: Vec::new(),
         prompts: vec![content],
         location: Some(path.to_path_buf()),
+        trust: trust::SkillTrust::Local,
+        origin: trust::SkillOrigin::default(),
+        allowed_tools: fm.allowed_tools,
     })
 }
 
@@ -342,6 +411,16 @@ fn load_open_skill_md(path: &Path) -> Result<Skill> {
         tools: Vec::new(),
         prompts: vec![content],
         location: Some(path.to_path_buf()),
+        trust: trust::SkillTrust::ThirdParty,
+        origin: trust::SkillOrigin {
+            source: trust::SkillSource::GitRepo {
+                url: OPEN_SKILLS_REPO_URL.to_string(),
+            },
+            installed_at: None,
+            pinned_ref: None,
+            content_hash: None,
+        },
+        allowed_tools: Vec::new(),
     })
 }
 
@@ -352,6 +431,28 @@ fn extract_description(content: &str) -> String {
         .unwrap_or("No description")
         .trim()
         .to_string()
+}
+
+/// Filter skill tools based on trust tier and allowed-tools list.
+///
+/// Official and Local skills expose all tools unconditionally.
+/// ThirdParty skills only expose tools declared in `allowed_tools`;
+/// if `allowed_tools` is empty, no tools are exposed (instruction-only).
+fn filter_tools_by_trust(skill: &Skill) -> Vec<&SkillTool> {
+    match skill.trust {
+        trust::SkillTrust::Official | trust::SkillTrust::Local => skill.tools.iter().collect(),
+        trust::SkillTrust::ThirdParty => {
+            if skill.allowed_tools.is_empty() {
+                Vec::new()
+            } else {
+                skill
+                    .tools
+                    .iter()
+                    .filter(|tool| skill.allowed_tools.contains(&tool.name))
+                    .collect()
+            }
+        }
+    }
 }
 
 /// Build a system prompt addition from all loaded skills
@@ -368,9 +469,10 @@ pub fn skills_to_prompt(skills: &[Skill]) -> String {
         let _ = writeln!(prompt, "### {} (v{})", skill.name, skill.version);
         let _ = writeln!(prompt, "{}", skill.description);
 
-        if !skill.tools.is_empty() {
+        let visible_tools = filter_tools_by_trust(skill);
+        if !visible_tools.is_empty() {
             prompt.push_str("Tools:\n");
-            for tool in &skill.tools {
+            for tool in visible_tools {
                 let _ = writeln!(
                     prompt,
                     "- **{}**: {} ({})",
@@ -434,8 +536,7 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-/// Recursively copy a directory (used as fallback when symlinks aren't available)
-#[cfg(any(windows, not(unix)))]
+/// Recursively copy a directory tree.
 fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
     std::fs::create_dir_all(dest)?;
     for entry in std::fs::read_dir(src)? {
@@ -455,9 +556,27 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
 #[allow(clippy::too_many_lines)]
 pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Result<()> {
     match command {
-        crate::SkillCommands::List => handle_list_command(workspace_dir),
-        crate::SkillCommands::Install { source } => handle_install_command(workspace_dir, &source),
+        crate::SkillCommands::List { catalog } => {
+            if catalog {
+                handle_list_catalog(workspace_dir)
+            } else {
+                handle_list_command(workspace_dir)
+            }
+        }
+        crate::SkillCommands::Install { source, trust } => {
+            handle_install_command(workspace_dir, &source, trust)
+        }
         crate::SkillCommands::Remove { name } => handle_remove_command(workspace_dir, &name),
+        crate::SkillCommands::Search { query } => handle_search_command(workspace_dir, &query),
+        crate::SkillCommands::Update { name } => {
+            handle_update_command(workspace_dir, name.as_deref())
+        }
+        crate::SkillCommands::Discover { query } => {
+            handle_discover_command(workspace_dir, query.as_deref())
+        }
+        crate::SkillCommands::Lock { cmd } => match cmd {
+            crate::LockCommands::Repair => handle_lock_repair_command(workspace_dir),
+        },
     }
 }
 
@@ -470,6 +589,49 @@ fn handle_list_command(workspace_dir: &Path) -> Result<()> {
     }
 
     println!();
+    Ok(())
+}
+
+fn handle_list_catalog(workspace_dir: &Path) -> Result<()> {
+    let config = crate::config::SkillsConfig::default();
+    let index = catalog::resolve_index(workspace_dir, &config)?;
+
+    if index.skills.is_empty() {
+        println!("The official catalog has no skills yet.");
+        println!(
+            "Check back later or contribute at {}",
+            catalog::OFFICIAL_REPO
+        );
+        return Ok(());
+    }
+
+    // Cross-reference with installed skills
+    let lockfile = lockfile::read_lockfile(workspace_dir);
+    let installed: std::collections::HashSet<&str> =
+        lockfile.skills.keys().map(|s| s.as_str()).collect();
+
+    println!(
+        "  {} Official Skills Catalog ({} skills):\n",
+        console::style("\u{1f4e6}").bold(),
+        index.skills.len(),
+    );
+
+    for entry in index.skills.values() {
+        let status = if installed.contains(entry.name.as_str()) {
+            console::style("[installed]").green().to_string()
+        } else {
+            String::new()
+        };
+        println!(
+            "  {:<20} {:<8} {} {}",
+            console::style(&entry.name).cyan().bold(),
+            entry.version.as_deref().unwrap_or("-"),
+            entry.description,
+            status,
+        );
+    }
+
+    println!("\nInstall with: corvus skills install <name>");
     Ok(())
 }
 
@@ -513,7 +675,329 @@ fn format_tool_names(skill: &Skill) -> String {
         .join(", ")
 }
 
-fn handle_install_command(workspace_dir: &Path, source: &str) -> Result<()> {
+fn handle_lock_repair_command(workspace_dir: &Path) -> Result<()> {
+    println!(
+        "  {} Repairing skills lockfile...",
+        console::style("🔧").bold(),
+    );
+
+    let summary = lockfile::repair_lockfile(workspace_dir)?;
+
+    println!(
+        "  {} Lockfile repaired: {} added, {} removed, {} updated, {} unchanged.",
+        console::style("✓").green().bold(),
+        summary.added,
+        summary.removed,
+        summary.updated,
+        summary.unchanged,
+    );
+    Ok(())
+}
+
+fn handle_search_command(workspace_dir: &Path, query: &str) -> Result<()> {
+    let config = crate::config::SkillsConfig::default();
+    let index = catalog::resolve_index(workspace_dir, &config)?;
+    let results = catalog::search(&index, query);
+
+    if results.is_empty() {
+        println!("No skills found matching '{query}'.");
+        println!("Try a different search term or browse with 'corvus skills list --catalog'.");
+        return Ok(());
+    }
+
+    println!(
+        "  {} Found {} skill(s) matching '{}':\n",
+        console::style("🔍").bold(),
+        results.len(),
+        query,
+    );
+
+    for entry in &results {
+        println!(
+            "  {:<20} {:<8} {}",
+            console::style(&entry.name).green().bold(),
+            entry.version.as_deref().unwrap_or("-"),
+            entry.description,
+        );
+        if !entry.tags.is_empty() {
+            println!("  {:<20} tags: {}", "", entry.tags.join(", "));
+        }
+    }
+
+    println!("\nInstall with: corvus skills install <name>");
+    Ok(())
+}
+
+/// A discovered skill from an external source (display-only).
+struct DiscoveredSkill {
+    name: String,
+    description: String,
+    url: String,
+    stars: u64,
+}
+
+fn handle_discover_command(_workspace_dir: &Path, query: Option<&str>) -> Result<()> {
+    println!(
+        "  {} Discovering skills from external sources...\n",
+        console::style("🔍").bold(),
+    );
+
+    // Search GitHub for skill-related repositories using the blocking reqwest
+    // client (already a dependency). This avoids coupling to the skillforge
+    // module which lives in the binary crate.
+    let results = discover_from_github()?;
+
+    if results.is_empty() {
+        println!("  No skills discovered. Try different search terms.");
+        return Ok(());
+    }
+
+    // Filter by query if provided
+    let filtered: Vec<_> = if let Some(q) = query {
+        let q_lower = q.to_lowercase();
+        results
+            .iter()
+            .filter(|r| {
+                r.name.to_lowercase().contains(&q_lower)
+                    || r.description.to_lowercase().contains(&q_lower)
+            })
+            .collect()
+    } else {
+        results.iter().collect()
+    };
+
+    if filtered.is_empty() {
+        println!("  No skills found matching '{}'.", query.unwrap_or(""));
+        return Ok(());
+    }
+
+    println!(
+        "  Found {} skill(s) from external sources:\n",
+        filtered.len(),
+    );
+
+    for result in &filtered {
+        println!(
+            "  {:<25} {} ⭐ {}",
+            console::style(&result.name).yellow().bold(),
+            result.description.chars().take(50).collect::<String>(),
+            result.stars,
+        );
+        println!("  {:<25} {}", "", console::style(&result.url).dim(),);
+    }
+
+    println!(
+        "\n  {} These are third-party skills (not reviewed by Corvus).",
+        console::style("⚠").yellow().bold(),
+    );
+    println!("  Install with: corvus skills install <url> --trust");
+    Ok(())
+}
+
+/// Query GitHub's search API for skill-related repos using blocking reqwest.
+fn discover_from_github() -> Result<Vec<DiscoveredSkill>> {
+    let queries = ["corvus+skill", "ai+agent+skill"];
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .user_agent("Corvus-SkillForge/0.1")
+        .build()?;
+
+    let mut seen = std::collections::HashSet::new();
+    let mut results = Vec::new();
+
+    for query in &queries {
+        let url = format!(
+            "https://api.github.com/search/repositories\
+             ?q={query}&sort=stars&order=desc&per_page=30",
+        );
+
+        let resp = match client
+            .get(&url)
+            .header("Accept", "application/vnd.github+json")
+            .send()
+        {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %e, "GitHub API request failed, skipping");
+                continue;
+            }
+        };
+
+        if !resp.status().is_success() {
+            tracing::warn!(status = %resp.status(), "GitHub search returned non-200");
+            continue;
+        }
+
+        let body: serde_json::Value = match resp.json() {
+            Ok(v) => v,
+            Err(e) => {
+                tracing::warn!(error = %e, "Failed to parse GitHub response");
+                continue;
+            }
+        };
+
+        let items = body
+            .get("items")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default();
+
+        for item in &items {
+            let Some(name) = item.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let url = item
+                .get("html_url")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+
+            if !seen.insert(url.clone()) {
+                continue;
+            }
+
+            results.push(DiscoveredSkill {
+                name: name.to_string(),
+                description: item
+                    .get("description")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                url,
+                stars: item
+                    .get("stargazers_count")
+                    .and_then(|v| v.as_u64())
+                    .unwrap_or(0),
+            });
+        }
+    }
+
+    Ok(results)
+}
+
+/// Install an official skill resolved from the catalog index.
+/// Only this code path may produce `SkillSource::Official` — URL installs
+/// of the same repo MUST remain `ThirdParty` (AD5).
+fn handle_catalog_install(workspace_dir: &Path, name: &str) -> Result<()> {
+    // 1. Resolve catalog index
+    let config = crate::config::SkillsConfig::default();
+    let index = catalog::resolve_index(workspace_dir, &config)?;
+
+    // 2. Look up skill in catalog
+    let entry = match index.skills.get(name) {
+        Some(e) => e,
+        None => {
+            let suggestions = catalog::search(&index, name);
+            if suggestions.is_empty() {
+                anyhow::bail!(
+                    "Skill '{name}' not found in the official catalog. \
+                     Try 'corvus skills search {name}' or install by URL."
+                );
+            }
+            let names: Vec<&str> = suggestions.iter().map(|s| s.name.as_str()).collect();
+            anyhow::bail!(
+                "Skill '{name}' not found in the official catalog. \
+                 Did you mean: {}? \
+                 Or install by URL with 'corvus skills install <url>'.",
+                names.join(", ")
+            );
+        }
+    };
+
+    println!(
+        "  {} Installing official skill '{}' (v{})...",
+        console::style("→").cyan().bold(),
+        entry.name,
+        entry.version.as_deref().unwrap_or("latest"),
+    );
+
+    // 3. Clone from official repo (shallow) and copy skill subdirectory
+    let skills_path = skills_dir(workspace_dir);
+    std::fs::create_dir_all(&skills_path)?;
+    let skill_dir = skills_path.join(name);
+
+    if skill_dir.exists() {
+        anyhow::bail!(
+            "Skill '{name}' is already installed. \
+             Use 'corvus skills update {name}' to update."
+        );
+    }
+
+    let repo_url = catalog::OFFICIAL_REPO;
+    let temp_dir = std::env::temp_dir().join(format!("corvus-catalog-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    let clone_status = std::process::Command::new("git")
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            repo_url,
+            temp_dir.to_str().unwrap_or("corvus-catalog-tmp"),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    match clone_status {
+        Ok(s) if s.success() => {}
+        _ => {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+            anyhow::bail!("Failed to clone official skills repository");
+        }
+    }
+
+    // Copy just the skill subdirectory
+    let source_path = temp_dir.join(&entry.path);
+    if !source_path.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        anyhow::bail!(
+            "Skill path '{}' not found in the official repository",
+            entry.path
+        );
+    }
+
+    let copy_result = copy_dir_recursive(&source_path, &skill_dir);
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    copy_result?;
+
+    // 4. Validate SKILL.md exists
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.exists() {
+        let _ = std::fs::remove_dir_all(&skill_dir);
+        anyhow::bail!("No SKILL.md found in official skill '{name}'");
+    }
+
+    // 5. Compute hash and write lockfile — NO trust gate for Official
+    let content = std::fs::read_to_string(&skill_md)?;
+    let hash = lockfile::compute_content_hash(content.as_bytes());
+    let source_str = format!(
+        "official:{}",
+        repo_url.trim_start_matches("https://github.com/"),
+    );
+    let lock_entry = lockfile::build_lock_entry(
+        trust::SkillTrust::Official,
+        &source_str,
+        None,
+        Some(hash),
+        None,
+        Some(entry.path.clone()),
+    );
+    lockfile::write_lock_entry(workspace_dir, name, lock_entry)?;
+
+    println!(
+        "  {} Official skill '{}' installed successfully.",
+        console::style("✓").green().bold(),
+        name,
+    );
+    Ok(())
+}
+
+fn handle_install_command(workspace_dir: &Path, source: &str, trust_flag: bool) -> Result<()> {
+    // Bare catalog name detection — must come before URL/path checks (AD5)
+    if catalog::is_bare_name(source) {
+        return handle_catalog_install(workspace_dir, source);
+    }
+
     println!("Installing skill from: {source}");
 
     let skills_path = skills_dir(workspace_dir);
@@ -523,37 +1007,163 @@ fn handle_install_command(workspace_dir: &Path, source: &str) -> Result<()> {
         anyhow::bail!("Refusing insecure remote skill source: {source}");
     }
 
-    if is_remote_skill_source(source) {
-        install_remote_skill(&skills_path, source)
+    // 1. Resolve source and derive trust tier
+    let skill_source = resolve_skill_source(source);
+    let skill_trust = trust::SkillTrust::from(&skill_source);
+
+    // 2. Install (clone or symlink)
+    let skill_dir = if is_remote_skill_source(source) {
+        install_remote_skill(&skills_path, source)?
     } else {
-        install_local_skill(&skills_path, source)
+        install_local_skill(&skills_path, source)?
+    };
+
+    // 3. Validate structure and parse frontmatter
+    let skill_md_path = skill_dir.join("SKILL.md");
+    let (fm, content_hash) = if skill_md_path.exists() {
+        let content = std::fs::read_to_string(&skill_md_path)?;
+        let fm = frontmatter::parse_frontmatter(&content);
+
+        // Abort if frontmatter name doesn't match directory name
+        let dir_name = skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if let Some(ref fm_name) = fm.name {
+            if fm_name != dir_name {
+                let _ = std::fs::remove_dir_all(&skill_dir);
+                anyhow::bail!(
+                    "Skill name '{}' in SKILL.md does not match directory '{}'. \
+                     Rename the skill or directory to match.",
+                    fm_name,
+                    dir_name,
+                );
+            }
+        }
+
+        let hash = lockfile::compute_content_hash(content.as_bytes());
+        (fm, Some(hash))
+    } else {
+        let _ = std::fs::remove_dir_all(&skill_dir);
+        anyhow::bail!(
+            "No SKILL.md found in installed skill directory. \
+             Skills must contain a SKILL.md file."
+        );
+    };
+
+    // 4. Trust gate: ThirdParty skills with tools require explicit consent
+    if skill_trust == trust::SkillTrust::ThirdParty && !fm.allowed_tools.is_empty() && !trust_flag {
+        use std::io::IsTerminal;
+        if std::io::stdin().is_terminal() {
+            let skill_name = skill_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown");
+            if !confirm_trust_install(skill_name, &fm.allowed_tools) {
+                let _ = std::fs::remove_dir_all(&skill_dir);
+                anyhow::bail!("Installation declined by user.");
+            }
+        } else {
+            let _ = std::fs::remove_dir_all(&skill_dir);
+            anyhow::bail!(
+                "This third-party skill requests tools: {}. \
+                 Use --trust to allow installation in \
+                 non-interactive mode.",
+                fm.allowed_tools.join(", ")
+            );
+        }
     }
+
+    // 5. Build and write lock entry
+    let skill_name = skill_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+    let source_str = match &skill_source {
+        trust::SkillSource::Local | trust::SkillSource::LinkedLocal { .. } => "local".to_string(),
+        trust::SkillSource::GitRepo { url } => url.clone(),
+        trust::SkillSource::Official { repo, .. } | trust::SkillSource::Discovered { repo, .. } => {
+            repo.clone()
+        }
+    };
+    let allowed_tools = if fm.allowed_tools.is_empty() {
+        None
+    } else {
+        Some(fm.allowed_tools)
+    };
+    let entry = lockfile::build_lock_entry(
+        skill_trust,
+        &source_str,
+        None,
+        content_hash,
+        allowed_tools,
+        None,
+    );
+    if let Err(err) = lockfile::write_lock_entry(workspace_dir, &skill_name, entry) {
+        tracing::warn!("failed to write lockfile entry for '{skill_name}': {err}");
+    }
+
+    // 6. Print success with trust info
+    println!(
+        "  {} Skill installed successfully! (trust: {})",
+        console::style("✓").green().bold(),
+        skill_trust.as_str(),
+    );
+    println!("  Restart `corvus channel start` to activate.");
+    Ok(())
+}
+
+/// Resolve the skill source type from the install source string.
+fn resolve_skill_source(source: &str) -> trust::SkillSource {
+    if source.starts_with("https://") {
+        trust::SkillSource::GitRepo {
+            url: source.to_string(),
+        }
+    } else {
+        trust::SkillSource::Local
+    }
+}
+
+/// Interactive confirmation for installing a third-party skill with tools.
+fn confirm_trust_install(skill_name: &str, tools: &[String]) -> bool {
+    println!(
+        "  {} This third-party skill '{}' requests tools: {}",
+        console::style("⚠").yellow().bold(),
+        skill_name,
+        tools.join(", ")
+    );
+    print!("  Allow installation? (y/N) ");
+    std::io::Write::flush(&mut std::io::stdout()).ok();
+    let mut input = String::new();
+    if std::io::stdin().read_line(&mut input).is_ok() {
+        let answer = input.trim().to_ascii_lowercase();
+        return answer == "y" || answer == "yes";
+    }
+    false
 }
 
 fn is_remote_skill_source(source: &str) -> bool {
     source.starts_with("https://")
 }
 
-fn install_remote_skill(skills_path: &Path, source: &str) -> Result<()> {
+fn install_remote_skill(skills_path: &Path, source: &str) -> Result<PathBuf> {
     let output = std::process::Command::new("git")
         .args(["clone", "--depth", "1", source])
         .current_dir(skills_path)
         .output()?;
 
     if output.status.success() {
-        println!(
-            "  {} Skill installed successfully!",
-            console::style("✓").green().bold()
-        );
-        println!("  Restart `corvus channel start` to activate.");
-        return Ok(());
+        let name = source
+            .rsplit('/')
+            .next()
+            .unwrap_or("skill")
+            .trim_end_matches(".git");
+        return Ok(skills_path.join(name));
     }
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     anyhow::bail!("Git clone failed: {stderr}")
 }
 
-fn install_local_skill(skills_path: &Path, source: &str) -> Result<()> {
+fn install_local_skill(skills_path: &Path, source: &str) -> Result<PathBuf> {
     let src = PathBuf::from(source);
     if !src.exists() {
         anyhow::bail!("Source path does not exist: {source}");
@@ -567,7 +1177,8 @@ fn install_local_skill(skills_path: &Path, source: &str) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("Invalid skill source path: {source}"))?;
     let dest = skills_path.join(name);
 
-    link_or_copy_local_skill(&src, &dest)
+    link_or_copy_local_skill(&src, &dest)?;
+    Ok(dest)
 }
 
 #[cfg(unix)]
@@ -621,6 +1232,258 @@ fn print_skill_location(action: &str, dest: &Path) {
     );
 }
 
+fn handle_update_command(workspace_dir: &Path, name: Option<&str>) -> Result<()> {
+    let lockfile = lockfile::read_lockfile(workspace_dir);
+
+    if lockfile.skills.is_empty() {
+        println!("No installed skills to update.");
+        return Ok(());
+    }
+
+    // If a specific name given, update just that one
+    if let Some(skill_name) = name {
+        if !lockfile.skills.contains_key(skill_name) {
+            anyhow::bail!("Skill '{skill_name}' is not installed.");
+        }
+        return update_single_skill(workspace_dir, skill_name, &lockfile);
+    }
+
+    // Update all
+    let mut updated = 0u32;
+    let mut skipped = 0u32;
+    let mut failed = 0u32;
+    let skill_names: Vec<String> = lockfile.skills.keys().cloned().collect();
+
+    for skill_name in &skill_names {
+        match update_single_skill(workspace_dir, skill_name, &lockfile) {
+            Ok(()) => updated += 1,
+            Err(err) => {
+                let msg = err.to_string();
+                if msg.contains("skipping") {
+                    skipped += 1;
+                    println!("  {} {}", console::style("→").dim(), msg);
+                } else {
+                    failed += 1;
+                    println!(
+                        "  {} Failed to update '{}': {}",
+                        console::style("✗").red().bold(),
+                        skill_name,
+                        msg,
+                    );
+                }
+            }
+        }
+    }
+
+    println!(
+        "\n  Updated: {}, Skipped: {}, Failed: {}",
+        updated, skipped, failed,
+    );
+    Ok(())
+}
+
+fn update_single_skill(
+    workspace_dir: &Path,
+    name: &str,
+    lockfile: &lockfile::SkillsLockfile,
+) -> Result<()> {
+    let entry = lockfile
+        .skills
+        .get(name)
+        .ok_or_else(|| anyhow::anyhow!("Skill '{name}' not in lockfile"))?;
+
+    let origin = lockfile::lock_entry_to_origin(entry);
+    let trust_tier = trust::SkillTrust::from(&origin.source);
+
+    match trust_tier {
+        trust::SkillTrust::Local => {
+            anyhow::bail!("Local skill '{name}' — skipping (not managed by a remote source)");
+        }
+        trust::SkillTrust::Official => update_official_skill(workspace_dir, name, entry),
+        trust::SkillTrust::ThirdParty => update_thirdparty_skill(workspace_dir, name, entry),
+    }
+}
+
+fn update_official_skill(
+    workspace_dir: &Path,
+    name: &str,
+    entry: &lockfile::LockEntry,
+) -> Result<()> {
+    let config = crate::config::SkillsConfig::default();
+    let index = catalog::resolve_index(workspace_dir, &config)?;
+
+    let catalog_entry = index
+        .skills
+        .get(name)
+        .ok_or_else(|| anyhow::anyhow!("Skill '{name}' no longer in official catalog"))?;
+
+    // Compare content hashes
+    if let (Some(installed_hash), Some(catalog_hash)) =
+        (&entry.content_hash, &catalog_entry.content_hash)
+    {
+        if installed_hash == catalog_hash {
+            println!(
+                "  {} '{}' is up to date.",
+                console::style("✓").green().bold(),
+                name,
+            );
+            return Ok(());
+        }
+    }
+
+    println!(
+        "  {} Updating official skill '{}'...",
+        console::style("→").cyan().bold(),
+        name,
+    );
+
+    let skills_path = skills_dir(workspace_dir);
+    let skill_dir = skills_path.join(name);
+
+    if skill_dir.exists() {
+        std::fs::remove_dir_all(&skill_dir)?;
+    }
+
+    let repo_url = catalog::OFFICIAL_REPO;
+    let temp_base = std::env::temp_dir().join(format!("corvus-update-{name}"));
+    let _ = std::fs::remove_dir_all(&temp_base);
+
+    let clone_status = std::process::Command::new("git")
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            repo_url,
+            temp_base.to_str().unwrap_or("corvus-update-tmp"),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    match clone_status {
+        Ok(s) if s.success() => {}
+        _ => {
+            anyhow::bail!("Failed to clone official skills repository for update");
+        }
+    }
+
+    let source_path = temp_base.join(&catalog_entry.path);
+    if !source_path.exists() {
+        let _ = std::fs::remove_dir_all(&temp_base);
+        anyhow::bail!(
+            "Skill path '{}' not found in official repo",
+            catalog_entry.path
+        );
+    }
+
+    copy_dir_recursive(&source_path, &skill_dir)?;
+    let _ = std::fs::remove_dir_all(&temp_base);
+
+    // Update lockfile
+    let skill_md = skill_dir.join("SKILL.md");
+    let hash = if skill_md.exists() {
+        let content = std::fs::read_to_string(&skill_md)?;
+        Some(lockfile::compute_content_hash(content.as_bytes()))
+    } else {
+        None
+    };
+
+    let source_str = format!(
+        "official:{}",
+        repo_url.trim_start_matches("https://github.com/"),
+    );
+    let new_entry = lockfile::build_lock_entry(
+        trust::SkillTrust::Official,
+        &source_str,
+        None,
+        hash,
+        None,
+        Some(catalog_entry.path.clone()),
+    );
+    lockfile::write_lock_entry(workspace_dir, name, new_entry)?;
+
+    println!(
+        "  {} '{}' updated successfully.",
+        console::style("✓").green().bold(),
+        name,
+    );
+    Ok(())
+}
+
+fn update_thirdparty_skill(
+    workspace_dir: &Path,
+    name: &str,
+    entry: &lockfile::LockEntry,
+) -> Result<()> {
+    let source_url = &entry.source;
+    if source_url == "local" || !source_url.starts_with("http") {
+        anyhow::bail!("Cannot update '{name}' — no remote source URL in lockfile");
+    }
+
+    println!(
+        "  {} Updating third-party skill '{}' from {}...",
+        console::style("→").cyan().bold(),
+        name,
+        source_url,
+    );
+
+    let skills_path = skills_dir(workspace_dir);
+    let skill_dir = skills_path.join(name);
+
+    if skill_dir.exists() {
+        std::fs::remove_dir_all(&skill_dir)?;
+    }
+
+    let clone_status = std::process::Command::new("git")
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            source_url,
+            skill_dir.to_str().unwrap_or("corvus-skill-tmp"),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    match clone_status {
+        Ok(s) if s.success() => {}
+        _ => anyhow::bail!("Failed to clone '{source_url}' for update"),
+    }
+
+    // Remove .git directory
+    let git_dir = skill_dir.join(".git");
+    if git_dir.exists() {
+        let _ = std::fs::remove_dir_all(&git_dir);
+    }
+
+    // Update lockfile
+    let skill_md = skill_dir.join("SKILL.md");
+    let hash = if skill_md.exists() {
+        let content = std::fs::read_to_string(&skill_md)?;
+        Some(lockfile::compute_content_hash(content.as_bytes()))
+    } else {
+        None
+    };
+
+    let new_entry = lockfile::build_lock_entry(
+        trust::SkillTrust::ThirdParty,
+        source_url,
+        None,
+        hash,
+        entry.allowed_tools.clone(),
+        None,
+    );
+    lockfile::write_lock_entry(workspace_dir, name, new_entry)?;
+
+    println!(
+        "  {} '{}' updated successfully.",
+        console::style("✓").green().bold(),
+        name,
+    );
+    Ok(())
+}
+
 fn handle_remove_command(workspace_dir: &Path, name: &str) -> Result<()> {
     validate_skill_name(name)?;
 
@@ -633,6 +1496,12 @@ fn handle_remove_command(workspace_dir: &Path, name: &str) -> Result<()> {
     }
 
     std::fs::remove_dir_all(&skill_path)?;
+
+    // Clean lockfile entry (advisory — failure doesn't block removal)
+    if let Err(err) = lockfile::remove_lock_entry(workspace_dir, name) {
+        tracing::warn!("failed to remove lockfile entry for '{name}': {err}");
+    }
+
     println!(
         "  {} Skill '{}' removed.",
         console::style("✓").green().bold(),
@@ -742,6 +1611,9 @@ command = "echo hello"
             tools: vec![],
             prompts: vec!["Do the thing.".to_string()],
             location: None,
+            trust: trust::SkillTrust::Local,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: Vec::new(),
         }];
         let prompt = skills_to_prompt(&skills);
         assert!(prompt.contains("test"));
@@ -932,6 +1804,9 @@ description = "Bare minimum"
             }],
             prompts: vec![],
             location: None,
+            trust: trust::SkillTrust::Local,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: Vec::new(),
         }];
         let prompt = skills_to_prompt(&skills);
         assert!(prompt.contains("weather"));

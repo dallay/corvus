@@ -1,0 +1,21 @@
+# Official Corvus Skills Catalog Index
+# This file is embedded in the binary at build time.
+# Update it by running: scripts/update-catalog-index.sh (Phase 3)
+# Or manually when adding official skills.
+
+[meta]
+version = 1
+generated_at = "2026-03-24T00:00:00Z"
+repo_url = "https://github.com/dallay/corvus-skills"
+commit = "0000000000000000000000000000000000000000"
+
+# Skills are added below as [skills.<name>] sections.
+# Example:
+# [skills.git-expert]
+# name = "git-expert"
+# description = "Git operations and workflow expert"
+# version = "0.1.0"
+# path = "skills/git-expert"
+# content_hash = "sha256:..."
+# author = "Corvus Team"
+# tags = ["git", "vcs", "workflow"]

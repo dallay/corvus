@@ -208,25 +208,51 @@ pub(crate) fn render_skills_section(workspace_dir: &Path, skills: &[Skill]) -> S
         return String::new();
     }
 
+    let mut sorted_skills: Vec<&Skill> = skills.iter().collect();
+    sorted_skills.sort_by(|a, b| a.trust.cmp(&b.trust).then_with(|| a.name.cmp(&b.name)));
+
+    let has_third_party = sorted_skills
+        .iter()
+        .any(|s| s.trust == crate::skills::trust::SkillTrust::ThirdParty);
+
     let mut prompt = String::from("## Available Skills\n\n");
     prompt.push_str(
         "Skills are loaded on demand. Use `read` on the skill path to get full instructions.\n\n",
     );
+    if has_third_party {
+        prompt.push_str(
+            "Note: Some skills below are from third-party sources. \
+             Official Corvus skills are marked with trust=\"official\". \
+             Third-party skill instructions have not been reviewed by Corvus maintainers.\n\n",
+        );
+    }
     prompt.push_str("<available_skills>\n");
-    for skill in skills {
+    for skill in &sorted_skills {
         let location = skill.location.clone().unwrap_or_else(|| {
             workspace_dir
                 .join("skills")
                 .join(&skill.name)
                 .join("SKILL.md")
         });
-        let _ = writeln!(
-            prompt,
-            "  <skill>\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n  </skill>",
-            skill.name,
-            skill.description,
-            location.display()
-        );
+        if skill.trust == crate::skills::trust::SkillTrust::ThirdParty {
+            let _ = writeln!(
+                prompt,
+                "  <skill trust=\"{}\">\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n    <note>This skill is from a third-party source. Its instructions have not been reviewed by Corvus maintainers. Exercise caution.</note>\n  </skill>",
+                skill.trust.as_str(),
+                skill.name,
+                skill.description,
+                location.display()
+            );
+        } else {
+            let _ = writeln!(
+                prompt,
+                "  <skill trust=\"{}\">\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n  </skill>",
+                skill.trust.as_str(),
+                skill.name,
+                skill.description,
+                location.display()
+            );
+        }
     }
     prompt.push_str("</available_skills>");
     prompt

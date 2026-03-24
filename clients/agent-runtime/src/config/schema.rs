@@ -115,6 +115,9 @@ pub struct Config {
     /// Hardware configuration (wizard-driven physical world setup).
     #[serde(default)]
     pub hardware: HardwareConfig,
+
+    #[serde(default)]
+    pub skills: SkillsConfig,
 }
 
 // ── Delegate Agents ──────────────────────────────────────────────
@@ -227,6 +230,22 @@ impl Default for CodeSessionConfig {
             timeout_ms: default_code_session_timeout_ms(),
         }
     }
+}
+
+// ── Skills config ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SkillsConfig {
+    /// Enable deprecated open-skills auto-clone behavior.
+    /// Default: false. Will be removed in a future release.
+    #[serde(default)]
+    pub legacy_open_skills: bool,
+    /// Override the official skills catalog repository URL.
+    #[serde(default)]
+    pub catalog_repo_url: Option<String>,
+    /// Cache TTL in hours for the catalog index (default: 24).
+    #[serde(default)]
+    pub catalog_cache_ttl_hours: Option<u64>,
 }
 
 // ── Hardware Config (wizard-driven) ─────────────────────────────
@@ -2185,6 +2204,7 @@ impl Default for Config {
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
+            skills: SkillsConfig::default(),
         }
     }
 }
@@ -3587,6 +3607,7 @@ default_temperature = 0.7
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
+            skills: SkillsConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -3910,6 +3931,7 @@ tool_dispatcher = "xml"
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
+            skills: SkillsConfig::default(),
         };
 
         config.save().unwrap();

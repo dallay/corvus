@@ -41,7 +41,7 @@ pub struct SkillForgeConfig {
 }
 
 fn default_auto_integrate() -> bool {
-    true
+    false
 }
 fn default_sources() -> Vec<String> {
     vec!["github".into(), "clawhub".into()]
@@ -111,7 +111,15 @@ pub struct SkillForge {
 }
 
 impl SkillForge {
-    pub fn new(config: SkillForgeConfig) -> Self {
+    pub fn new(mut config: SkillForgeConfig) -> Self {
+        if config.auto_integrate {
+            warn!(
+                "skillforge.auto_integrate is deprecated and will be removed in a future release. \
+                 Use `corvus skills discover` + `corvus skills install <url>` instead. \
+                 The setting has been ignored."
+            );
+            config.auto_integrate = false;
+        }
         let evaluator = Evaluator::new(config.min_score);
         let integrator = Integrator::new(config.output_dir.clone());
         Self {
@@ -277,7 +285,7 @@ mod tests {
     fn default_config_values() {
         let cfg = SkillForgeConfig::default();
         assert!(!cfg.enabled);
-        assert!(cfg.auto_integrate);
+        assert!(!cfg.auto_integrate);
         assert_eq!(cfg.scan_interval_hours, 24);
         assert!((cfg.min_score - 0.7).abs() < f64::EPSILON);
         assert_eq!(cfg.sources, vec!["github", "clawhub"]);
@@ -309,9 +317,12 @@ mod tests {
         // because you can't create a subdirectory under a regular file.
         let tmp_file = tempfile::NamedTempFile::new().unwrap();
         let bad_path = tmp_file.path().join("child");
+        // NOTE: auto_integrate is deprecated and forced to false by SkillForge::new().
+        // This test verifies integrate_results routing, so we construct the struct
+        // directly to test the integration path.
         let cfg = SkillForgeConfig {
             enabled: true,
-            auto_integrate: true,
+            auto_integrate: false,
             output_dir: bad_path.to_string_lossy().into_owned(),
             ..Default::default()
         };
@@ -319,12 +330,14 @@ mod tests {
 
         let candidate = make_candidate("test-skill", 500, Some("Rust"));
         let eval_result = forge.evaluator.evaluate(candidate);
-        // Ensure it's Auto recommendation so integration is attempted
         assert_eq!(eval_result.recommendation, Recommendation::Auto);
 
-        let (auto_integrated, _manual, _skipped, failed) = forge.integrate_results(&[eval_result]);
+        // With auto_integrate=false, Auto recommendations route to manual_review
+        let (auto_integrated, manual_review, _skipped, failed) =
+            forge.integrate_results(&[eval_result]);
         assert_eq!(auto_integrated, 0);
-        assert_eq!(failed, 1);
+        assert_eq!(manual_review, 1);
+        assert_eq!(failed, 0);
     }
 
     #[test]
@@ -397,11 +410,12 @@ mod tests {
     }
 
     #[test]
-    fn evaluate_then_integrate_pipeline() {
+    fn evaluate_then_integrate_pipeline_routes_to_manual_review() {
+        // auto_integrate is deprecated — SkillForge::new() forces it to false.
+        // Auto-recommended candidates now route to manual_review.
         let tmp = tempfile::TempDir::new().unwrap();
         let cfg = SkillForgeConfig {
             enabled: true,
-            auto_integrate: true,
             output_dir: tmp.path().to_string_lossy().into_owned(),
             ..Default::default()
         };
@@ -417,13 +431,14 @@ mod tests {
             .map(|c| forge.evaluator.evaluate(c))
             .collect();
 
-        let (auto_integrated, _manual, _skipped, failed) = forge.integrate_results(&results);
-        assert_eq!(auto_integrated, 2);
+        let (auto_integrated, manual_review, _skipped, failed) = forge.integrate_results(&results);
+        assert_eq!(auto_integrated, 0);
+        assert_eq!(manual_review, 2);
         assert_eq!(failed, 0);
 
-        // Verify files were created
-        assert!(tmp.path().join("skill-a").join("SKILL.toml").exists());
-        assert!(tmp.path().join("skill-b").join("SKILL.md").exists());
+        // No files should be created since auto-integration is deprecated
+        assert!(!tmp.path().join("skill-a").join("SKILL.toml").exists());
+        assert!(!tmp.path().join("skill-b").join("SKILL.md").exists());
     }
 
     #[test]
@@ -455,6 +470,32 @@ mod tests {
         let report: ForgeReport = serde_json::from_str(json).unwrap();
         assert_eq!(report.failed, 0);
         assert_eq!(report.discovered, 3);
+    }
+
+    #[test]
+    fn auto_integrate_deprecated_and_forced_false() {
+        // R11.4 scenario 27: auto_integrate = true is deprecated and ignored.
+        let cfg = SkillForgeConfig {
+            enabled: true,
+            auto_integrate: true,
+            ..Default::default()
+        };
+        // SkillForge::new() must force auto_integrate to false
+        let forge = SkillForge::new(cfg);
+        assert!(
+            !forge.config.auto_integrate,
+            "auto_integrate must be forced to false by SkillForge::new()"
+        );
+
+        // Auto-recommended candidates should route to manual_review, not integrate
+        let candidate = make_candidate("test-skill", 500, Some("Rust"));
+        let eval_result = forge.evaluator.evaluate(candidate);
+        assert_eq!(eval_result.recommendation, Recommendation::Auto);
+
+        let (auto_integrated, manual_review, _skipped, _failed) =
+            forge.integrate_results(&[eval_result]);
+        assert_eq!(auto_integrated, 0);
+        assert_eq!(manual_review, 1);
     }
 
     #[test]

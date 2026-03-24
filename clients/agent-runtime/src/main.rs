@@ -470,17 +470,50 @@ enum ChannelCommands {
 #[derive(Subcommand, Debug)]
 enum SkillCommands {
     /// List installed skills
-    List,
-    /// Install a skill from a GitHub URL or local path
+    List {
+        /// Show all available official skills from the catalog
+        #[arg(long)]
+        catalog: bool,
+    },
+    /// Install a skill from a GitHub URL, local path, or catalog name
     Install {
         /// GitHub URL or local path
         source: String,
+        /// Acknowledge trust for third-party skills with tools
+        #[arg(long)]
+        trust: bool,
     },
     /// Remove an installed skill
     Remove {
         /// Skill name
         name: String,
     },
+    /// Search the official skills catalog
+    Search {
+        /// Search query
+        query: String,
+    },
+    /// Update installed skills
+    Update {
+        /// Skill name to update (updates all if omitted)
+        name: Option<String>,
+    },
+    /// Discover third-party skills from external sources
+    Discover {
+        /// Optional search query for discovery
+        query: Option<String>,
+    },
+    /// Lockfile maintenance commands
+    Lock {
+        #[command(subcommand)]
+        cmd: LockCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum LockCommands {
+    /// Repair the skills lockfile
+    Repair,
 }
 
 #[derive(Subcommand, Debug)]
