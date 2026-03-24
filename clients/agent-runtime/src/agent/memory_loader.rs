@@ -418,6 +418,55 @@ mod tests {
         );
     }
 
+    #[test]
+    fn append_cerebro_results_filters_empty_summaries() {
+        let results = vec![
+            serde_json::json!({"topic_key": "k1", "summary": "valid summary", "score": 0.9}),
+            serde_json::json!({"topic_key": "k2", "summary": "", "score": 0.9}),
+            serde_json::json!({"topic_key": "k3", "score": 0.9}),
+        ];
+        let mut context = String::new();
+        let added = append_cerebro_results(&mut context, &results, 0.0);
+        assert!(added);
+        assert!(context.contains("k1"));
+        assert!(context.contains("valid summary"));
+        assert!(!context.contains("k2"));
+        assert!(!context.contains("k3"));
+    }
+
+    #[test]
+    fn append_cerebro_results_filters_low_scores() {
+        let results = vec![
+            serde_json::json!({"topic_key": "k1", "summary": "high", "score": 0.9}),
+            serde_json::json!({"topic_key": "k2", "summary": "low", "score": 0.1}),
+        ];
+        let mut context = String::new();
+        let added = append_cerebro_results(&mut context, &results, 0.5);
+        assert!(added);
+        assert!(context.contains("high"));
+        assert!(!context.contains("low"));
+    }
+
+    #[test]
+    fn append_cerebro_results_empty_returns_false() {
+        let mut context = String::new();
+        let added = append_cerebro_results(&mut context, &[], 0.0);
+        assert!(!added);
+        assert!(context.is_empty());
+    }
+
+    #[test]
+    fn finalize_context_appends_newline_when_added() {
+        let result = finalize_context("some content".to_string(), true);
+        assert!(result.ends_with('\n'));
+    }
+
+    #[test]
+    fn finalize_context_returns_as_is_when_not_added() {
+        let result = finalize_context("leftover".to_string(), false);
+        assert_eq!(result, "leftover");
+    }
+
     #[tokio::test]
     async fn cerebro_loader_uses_explicit_session_scope_for_local_fallback() {
         let loader = CerebroMemoryLoader::new(MemoryCerebroConfig::default(), 5, 0.4);

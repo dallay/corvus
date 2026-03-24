@@ -292,4 +292,104 @@ mod tests {
         let tool = HardwareMemoryMapTool::new(vec!["arduino-uno".into()]);
         assert!(tool.static_map_for_board("arduino-uno").is_some());
     }
+
+    #[test]
+    fn parameters_schema_has_additional_properties_false() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let schema = tool.parameters_schema();
+        assert!(schema.is_object());
+        assert_eq!(schema["additionalProperties"], json!(false));
+        assert!(schema["properties"]["board"].is_object());
+    }
+
+    #[tokio::test]
+    async fn unconfigured_board_returns_structured_error() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let result = tool
+            .execute(json!({"board": "unknown-board"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["error_code"], "UNCONFIGURED_BOARD");
+        assert_eq!(structured["board"], "unknown-board");
+        assert!(structured["configured_boards"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("nucleo-f401re")));
+    }
+
+    #[tokio::test]
+    async fn no_peripherals_returns_no_peripherals_error() {
+        let tool = HardwareMemoryMapTool::new(vec![]);
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(!result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["code"], "no_peripherals");
+    }
+
+    #[tokio::test]
+    async fn configured_board_returns_memory_map() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let result = tool
+            .execute(json!({"board": "nucleo-f401re"}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("Flash"));
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["board"], "nucleo-f401re");
+        assert_eq!(structured["source"], "datasheet");
+        assert!(structured["map"].as_str().unwrap().contains("0x0800_0000"));
+    }
+
+    #[tokio::test]
+    async fn default_board_when_omitted() {
+        let tool = HardwareMemoryMapTool::new(vec!["arduino-uno".into(), "nucleo-f401re".into()]);
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["board"], "arduino-uno");
+    }
+
+    #[tokio::test]
+    async fn invalid_args_not_object() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let result = tool.execute(json!("not an object")).await.unwrap();
+        assert!(!result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["code"], "invalid_args");
+    }
+
+    #[tokio::test]
+    async fn board_arg_not_string() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let result = tool.execute(json!({"board": 42})).await.unwrap();
+        assert!(!result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["code"], "invalid_args");
+    }
+
+    #[test]
+    fn lookup_unknown_board_no_map() {
+        let tool = HardwareMemoryMapTool::new(vec!["custom-board".into()]);
+        let (output, map_text, _source) = tool.lookup_memory_map("custom-board");
+        assert!(map_text.is_none());
+        assert!(output.contains("No memory map"));
+    }
+
+    #[test]
+    fn static_map_esp32() {
+        let tool = HardwareMemoryMapTool::new(vec!["esp32".into()]);
+        let map = tool.static_map_for_board("esp32").unwrap();
+        assert!(map.contains("DRAM"));
+        assert!(map.contains("IRAM"));
+    }
+
+    #[test]
+    fn name_and_description() {
+        let tool = HardwareMemoryMapTool::new(vec![]);
+        assert_eq!(tool.name(), "hardware_memory_map");
+        assert!(!tool.description().is_empty());
+    }
 }

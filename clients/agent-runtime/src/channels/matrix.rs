@@ -471,4 +471,89 @@ mod tests {
         let resp: SyncResponse = serde_json::from_str(json).unwrap();
         assert!(resp.rooms.join.is_empty());
     }
+
+    // ── event_to_message ─────────────────────────────────────────
+
+    fn make_event(
+        event_type: &str,
+        sender: &str,
+        msgtype: Option<&str>,
+        body: Option<&str>,
+    ) -> TimelineEvent {
+        TimelineEvent {
+            event_type: event_type.to_string(),
+            sender: sender.to_string(),
+            content: EventContent {
+                msgtype: msgtype.map(String::from),
+                body: body.map(String::from),
+            },
+        }
+    }
+
+    #[test]
+    fn event_to_message_valid_text() {
+        let ch = make_channel();
+        let event = make_event(
+            "m.room.message",
+            "@user:matrix.org",
+            Some("m.text"),
+            Some("Hello!"),
+        );
+        let msg = ch.event_to_message(&event, "@bot:matrix.org");
+        assert!(msg.is_some());
+        let msg = msg.unwrap();
+        assert_eq!(msg.sender, "@user:matrix.org");
+        assert_eq!(msg.content, "Hello!");
+        assert_eq!(msg.channel, "matrix");
+    }
+
+    #[test]
+    fn event_to_message_skips_own_messages() {
+        let ch = make_channel();
+        let event = make_event(
+            "m.room.message",
+            "@bot:matrix.org",
+            Some("m.text"),
+            Some("echo"),
+        );
+        assert!(ch.event_to_message(&event, "@bot:matrix.org").is_none());
+    }
+
+    #[test]
+    fn event_to_message_skips_non_room_message() {
+        let ch = make_channel();
+        let event = make_event("m.room.member", "@user:matrix.org", None, None);
+        assert!(ch.event_to_message(&event, "@bot:matrix.org").is_none());
+    }
+
+    #[test]
+    fn event_to_message_skips_non_text_msgtype() {
+        let ch = make_channel();
+        let event = make_event(
+            "m.room.message",
+            "@user:matrix.org",
+            Some("m.image"),
+            Some("pic.jpg"),
+        );
+        assert!(ch.event_to_message(&event, "@bot:matrix.org").is_none());
+    }
+
+    #[test]
+    fn event_to_message_skips_unauthorized_sender() {
+        let ch = make_channel();
+        let event = make_event(
+            "m.room.message",
+            "@stranger:evil.org",
+            Some("m.text"),
+            Some("Hi"),
+        );
+        assert!(ch.event_to_message(&event, "@bot:matrix.org").is_none());
+    }
+
+    #[test]
+    fn event_to_message_skips_missing_body() {
+        let ch = make_channel();
+        let event = make_event("m.room.message", "@user:matrix.org", Some("m.text"), None);
+        assert!(ch.event_to_message(&event, "@bot:matrix.org").is_none());
+    }
 }

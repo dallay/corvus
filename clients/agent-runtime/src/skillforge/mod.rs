@@ -238,6 +238,21 @@ impl SkillForge {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skillforge::scout::{ScoutResult, ScoutSource};
+
+    fn make_candidate(name: &str, stars: u64, lang: Option<&str>) -> ScoutResult {
+        ScoutResult {
+            name: name.into(),
+            url: format!("https://github.com/test/{name}"),
+            description: format!("A {name} skill"),
+            stars,
+            language: lang.map(String::from),
+            updated_at: Some(chrono::Utc::now()),
+            source: ScoutSource::GitHub,
+            owner: "test".into(),
+            has_license: true,
+        }
+    }
 
     #[tokio::test]
     async fn disabled_forge_returns_empty_report() {
@@ -259,5 +274,172 @@ mod tests {
         assert_eq!(cfg.scan_interval_hours, 24);
         assert!((cfg.min_score - 0.7).abs() < f64::EPSILON);
         assert_eq!(cfg.sources, vec!["github", "clawhub"]);
+    }
+
+    #[test]
+    fn forge_report_serialization_with_failed() {
+        let report = ForgeReport {
+            discovered: 5,
+            evaluated: 5,
+            auto_integrated: 2,
+            manual_review: 1,
+            skipped: 1,
+            failed: 1,
+            results: vec![],
+        };
+        let json = serde_json::to_string(&report).unwrap();
+        let parsed: ForgeReport = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.failed, 1);
+        assert_eq!(parsed.discovered, 5);
+        assert_eq!(parsed.auto_integrated, 2);
+        assert_eq!(parsed.manual_review, 1);
+        assert_eq!(parsed.skipped, 1);
+    }
+
+    #[test]
+    fn integrate_results_increments_failed_on_bad_path() {
+        let cfg = SkillForgeConfig {
+            enabled: true,
+            auto_integrate: true,
+            // Use an invalid path that will fail integration
+            output_dir: "/dev/null/impossible/path".into(),
+            ..Default::default()
+        };
+        let forge = SkillForge::new(cfg);
+
+        let candidate = make_candidate("test-skill", 500, Some("Rust"));
+        let eval_result = forge.evaluator.evaluate(candidate);
+        // Ensure it's Auto recommendation so integration is attempted
+        assert_eq!(eval_result.recommendation, Recommendation::Auto);
+
+        let (auto_integrated, _manual, _skipped, failed) = forge.integrate_results(&[eval_result]);
+        assert_eq!(auto_integrated, 0);
+        assert_eq!(failed, 1);
+    }
+
+    #[test]
+    fn integrate_results_empty_candidates() {
+        let cfg = SkillForgeConfig {
+            enabled: true,
+            ..Default::default()
+        };
+        let forge = SkillForge::new(cfg);
+
+        let (auto_integrated, manual_review, skipped, failed) = forge.integrate_results(&[]);
+        assert_eq!(auto_integrated, 0);
+        assert_eq!(manual_review, 0);
+        assert_eq!(skipped, 0);
+        assert_eq!(failed, 0);
+    }
+
+    #[test]
+    fn integrate_results_all_skip() {
+        let cfg = SkillForgeConfig {
+            enabled: true,
+            min_score: 0.99, // Very high threshold so everything is below
+            ..Default::default()
+        };
+        let forge = SkillForge::new(cfg);
+
+        // Low-star, no-language, no-license → low score → Skip
+        let candidate = ScoutResult {
+            name: "bad-skill".into(),
+            url: "https://github.com/test/bad-skill".into(),
+            description: "A bad skill".into(),
+            stars: 0,
+            language: None,
+            updated_at: None,
+            source: ScoutSource::GitHub,
+            owner: "test".into(),
+            has_license: false,
+        };
+        let eval_result = forge.evaluator.evaluate(candidate);
+        assert_eq!(eval_result.recommendation, Recommendation::Skip);
+
+        let (auto_integrated, manual_review, skipped, failed) =
+            forge.integrate_results(&[eval_result]);
+        assert_eq!(auto_integrated, 0);
+        assert_eq!(manual_review, 0);
+        assert_eq!(skipped, 1);
+        assert_eq!(failed, 0);
+    }
+
+    #[test]
+    fn integrate_results_auto_integrate_disabled_routes_to_manual() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg = SkillForgeConfig {
+            enabled: true,
+            auto_integrate: false,
+            output_dir: tmp.path().to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let forge = SkillForge::new(cfg);
+
+        let candidate = make_candidate("good-skill", 500, Some("Rust"));
+        let eval_result = forge.evaluator.evaluate(candidate);
+        assert_eq!(eval_result.recommendation, Recommendation::Auto);
+
+        let (auto_integrated, manual_review, _skipped, failed) =
+            forge.integrate_results(&[eval_result]);
+        assert_eq!(auto_integrated, 0);
+        assert_eq!(manual_review, 1);
+        assert_eq!(failed, 0);
+    }
+
+    #[test]
+    fn evaluate_then_integrate_pipeline() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let cfg = SkillForgeConfig {
+            enabled: true,
+            auto_integrate: true,
+            output_dir: tmp.path().to_string_lossy().into_owned(),
+            ..Default::default()
+        };
+        let forge = SkillForge::new(cfg);
+
+        let candidates = vec![
+            make_candidate("skill-a", 500, Some("Rust")),
+            make_candidate("skill-b", 500, Some("Rust")),
+        ];
+
+        let results: Vec<EvalResult> = candidates
+            .into_iter()
+            .map(|c| forge.evaluator.evaluate(c))
+            .collect();
+
+        let (auto_integrated, _manual, _skipped, failed) = forge.integrate_results(&results);
+        assert_eq!(auto_integrated, 2);
+        assert_eq!(failed, 0);
+
+        // Verify files were created
+        assert!(tmp.path().join("skill-a").join("SKILL.toml").exists());
+        assert!(tmp.path().join("skill-b").join("SKILL.md").exists());
+    }
+
+    #[test]
+    fn forge_report_zero_values_serialize() {
+        let report = ForgeReport {
+            discovered: 0,
+            evaluated: 0,
+            auto_integrated: 0,
+            manual_review: 0,
+            skipped: 0,
+            failed: 0,
+            results: vec![],
+        };
+        let json = serde_json::to_value(&report).unwrap();
+        assert_eq!(json["failed"], 0);
+        assert_eq!(json["results"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn config_debug_redacts_token() {
+        let cfg = SkillForgeConfig {
+            github_token: Some("secret-token-123".into()),
+            ..Default::default()
+        };
+        let debug_str = format!("{:?}", cfg);
+        assert!(!debug_str.contains("secret-token-123"));
+        assert!(debug_str.contains("***"));
     }
 }

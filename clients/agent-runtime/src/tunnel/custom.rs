@@ -215,6 +215,41 @@ mod tests {
         tunnel.stop().await.unwrap();
     }
 
+    // ── try_extract_url_from_line ───────────────────────────
+
+    #[test]
+    fn extract_url_https_with_pattern() {
+        let url =
+            try_extract_url_from_line("Forwarding https://abc.ngrok.io -> localhost:8080", "ngrok");
+        assert_eq!(url.as_deref(), Some("https://abc.ngrok.io"));
+    }
+
+    #[test]
+    fn extract_url_http_with_pattern() {
+        let url = try_extract_url_from_line("URL: http://example.com/path", "example");
+        assert_eq!(url.as_deref(), Some("http://example.com/path"));
+    }
+
+    #[test]
+    fn extract_url_no_match() {
+        let url = try_extract_url_from_line("nothing interesting here", "ngrok");
+        assert!(url.is_none());
+    }
+
+    #[test]
+    fn extract_url_stops_at_whitespace() {
+        let url = try_extract_url_from_line("see https://a.com/path more text", "a.com");
+        assert_eq!(url.as_deref(), Some("https://a.com/path"));
+    }
+
+    #[test]
+    fn extract_url_prefers_https_over_http() {
+        let url = try_extract_url_from_line("http://a.com https://b.com", "whatever");
+        // Line contains both but finds https:// first via the http(s):// fallback scan
+        // Actually the function checks for the pattern first, then scans for https:// then http://
+        assert_eq!(url.as_deref(), Some("https://b.com"));
+    }
+
     #[tokio::test]
     async fn health_check_with_unreachable_health_url_returns_false() {
         let tunnel = CustomTunnel::new(

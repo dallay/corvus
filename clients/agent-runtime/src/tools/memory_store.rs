@@ -1,3 +1,4 @@
+use super::memory_helpers::{err_result, extract_trimmed_str, validated_endpoint};
 use super::traits::{Tool, ToolResult};
 use crate::config::MemoryCerebroConfig;
 use crate::memory::{Memory, MemoryCategory};
@@ -102,37 +103,6 @@ fn sensitive_regex_set() -> &'static RegexSet {
         ])
         .expect("invalid sensitive data regex set")
     })
-}
-
-/// Extract a trimmed, non-empty string from a JSON args object.
-fn extract_trimmed_str<'a>(args: &'a serde_json::Value, field: &str) -> Option<&'a str> {
-    args.get(field)
-        .and_then(|v| v.as_str())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-}
-
-/// Build a failure `ToolResult` with the given error message.
-fn err_result(msg: &str) -> ToolResult {
-    ToolResult {
-        success: false,
-        output: String::new(),
-        error: Some(msg.to_string()),
-        structured: None,
-    }
-}
-
-/// Validate and return the Cerebro endpoint, or a failure `ToolResult`.
-fn validated_endpoint<'a>(
-    cerebro: &'a MemoryCerebroConfig,
-    tool_name: &str,
-) -> Result<&'a str, ToolResult> {
-    cerebro
-        .endpoint
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| err_result(&format!("Cerebro MCP endpoint is required for {tool_name}")))
 }
 
 /// Parse a category string into `MemoryCategory`.

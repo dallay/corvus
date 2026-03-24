@@ -1113,6 +1113,71 @@ mod tests {
         assert_eq!(msgs[0].content, "Line 1\nLine 2\nLine 3");
     }
 
+    // ── mask_phone ────────────────────────────────────────────
+
+    #[test]
+    fn mask_phone_normal_number() {
+        assert_eq!(mask_phone("1234567890"), "******7890");
+    }
+
+    #[test]
+    fn mask_phone_short_number() {
+        assert_eq!(mask_phone("1234"), "****");
+    }
+
+    #[test]
+    fn mask_phone_with_country_code() {
+        // "+15551234567" is 12 chars, last 4 visible = "4567", 8 stars
+        assert_eq!(mask_phone("+15551234567"), "********4567");
+    }
+
+    #[test]
+    fn mask_phone_empty_string() {
+        assert_eq!(mask_phone(""), "****");
+    }
+
+    #[test]
+    fn mask_phone_exactly_four_chars() {
+        assert_eq!(mask_phone("abcd"), "****");
+    }
+
+    #[test]
+    fn mask_phone_five_chars() {
+        assert_eq!(mask_phone("12345"), "*2345");
+    }
+
+    // ── normalize_phone_number ───────────────────────────────
+
+    #[test]
+    fn normalize_phone_adds_plus() {
+        assert_eq!(normalize_phone_number("1234567890"), "+1234567890");
+    }
+
+    #[test]
+    fn normalize_phone_already_has_plus() {
+        assert_eq!(normalize_phone_number("+1234567890"), "+1234567890");
+    }
+
+    // ── extract_whatsapp_timestamp ───────────────────────────
+
+    #[test]
+    fn extract_timestamp_valid() {
+        let msg = serde_json::json!({"timestamp": "1699999999"});
+        assert_eq!(extract_whatsapp_timestamp(&msg), 1_699_999_999);
+    }
+
+    #[test]
+    fn extract_timestamp_missing_falls_back() {
+        let msg = serde_json::json!({});
+        assert!(extract_whatsapp_timestamp(&msg) > 0);
+    }
+
+    #[test]
+    fn extract_timestamp_invalid_falls_back() {
+        let msg = serde_json::json!({"timestamp": "not_a_number"});
+        assert!(extract_whatsapp_timestamp(&msg) > 0);
+    }
+
     #[test]
     fn whatsapp_parse_special_characters() {
         let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);

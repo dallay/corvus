@@ -210,34 +210,15 @@ impl Storage for InMemoryStorage {
         scope: Option<&str>,
         topic_key: Option<&str>,
     ) -> Result<Vec<MemoryRecord>, CerebroError> {
-        let map = self.records.read().await;
-        let query = query.to_ascii_lowercase();
-        let mut results: Vec<MemoryRecord> = map
-            .values()
-            .filter(|record| {
-                if !include_deleted && record.deleted {
-                    return false;
-                }
-                if let Some(scope) = scope {
-                    if record.scope != scope {
-                        return false;
-                    }
-                }
-                if let Some(topic_key) = topic_key {
-                    if record.topic_key != topic_key {
-                        return false;
-                    }
-                }
-                let haystack =
-                    format!("{} {}", record.summary, record.topic_key).to_ascii_lowercase();
-                haystack.contains(&query)
-            })
-            .cloned()
-            .collect();
-
-        results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        results.truncate(limit);
-        Ok(results)
+        search_in_map(
+            &self.records,
+            query,
+            limit,
+            include_deleted,
+            scope,
+            topic_key,
+        )
+        .await
     }
 
     async fn timeline(
@@ -247,26 +228,11 @@ impl Storage for InMemoryStorage {
         after: usize,
         include_deleted: bool,
     ) -> Result<Vec<MemoryRecord>, CerebroError> {
-        let map = self.records.read().await;
-        let mut records: Vec<MemoryRecord> = map
-            .values()
-            .filter(|r| include_deleted || !r.deleted)
-            .cloned()
-            .collect();
-        records.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
-
-        let Some(index) = records.iter().position(|r| r.memory_id == memory_id) else {
-            return Ok(Vec::new());
-        };
-
-        let start = index.saturating_sub(before);
-        let end = (index + after + 1).min(records.len());
-        Ok(records[start..end].to_vec())
+        timeline_in_map(&self.records, memory_id, before, after, include_deleted).await
     }
 
     async fn count(&self) -> Result<usize, CerebroError> {
-        let map = self.records.read().await;
-        Ok(map.len())
+        count_in_map(&self.records).await
     }
 }
 
@@ -340,34 +306,15 @@ impl Storage for DiskBackedStorage {
         scope: Option<&str>,
         topic_key: Option<&str>,
     ) -> Result<Vec<MemoryRecord>, CerebroError> {
-        let map = self.records.read().await;
-        let query = query.to_ascii_lowercase();
-        let mut results: Vec<MemoryRecord> = map
-            .values()
-            .filter(|record| {
-                if !include_deleted && record.deleted {
-                    return false;
-                }
-                if let Some(scope) = scope {
-                    if record.scope != scope {
-                        return false;
-                    }
-                }
-                if let Some(topic_key) = topic_key {
-                    if record.topic_key != topic_key {
-                        return false;
-                    }
-                }
-                let haystack =
-                    format!("{} {}", record.summary, record.topic_key).to_ascii_lowercase();
-                haystack.contains(&query)
-            })
-            .cloned()
-            .collect();
-
-        results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        results.truncate(limit);
-        Ok(results)
+        search_in_map(
+            &self.records,
+            query,
+            limit,
+            include_deleted,
+            scope,
+            topic_key,
+        )
+        .await
     }
 
     async fn timeline(
@@ -377,27 +324,80 @@ impl Storage for DiskBackedStorage {
         after: usize,
         include_deleted: bool,
     ) -> Result<Vec<MemoryRecord>, CerebroError> {
-        let map = self.records.read().await;
-        let mut records: Vec<MemoryRecord> = map
-            .values()
-            .filter(|r| include_deleted || !r.deleted)
-            .cloned()
-            .collect();
-        records.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
-
-        let Some(index) = records.iter().position(|r| r.memory_id == memory_id) else {
-            return Ok(Vec::new());
-        };
-
-        let start = index.saturating_sub(before);
-        let end = (index + after + 1).min(records.len());
-        Ok(records[start..end].to_vec())
+        timeline_in_map(&self.records, memory_id, before, after, include_deleted).await
     }
 
     async fn count(&self) -> Result<usize, CerebroError> {
-        let map = self.records.read().await;
-        Ok(map.len())
+        count_in_map(&self.records).await
     }
+}
+
+async fn search_in_map(
+    records: &RwLock<HashMap<String, MemoryRecord>>,
+    query: &str,
+    limit: usize,
+    include_deleted: bool,
+    scope: Option<&str>,
+    topic_key: Option<&str>,
+) -> Result<Vec<MemoryRecord>, CerebroError> {
+    let map = records.read().await;
+    let query = query.to_ascii_lowercase();
+    let mut results: Vec<MemoryRecord> = map
+        .values()
+        .filter(|record| {
+            if !include_deleted && record.deleted {
+                return false;
+            }
+            if let Some(scope) = scope {
+                if record.scope != scope {
+                    return false;
+                }
+            }
+            if let Some(topic_key) = topic_key {
+                if record.topic_key != topic_key {
+                    return false;
+                }
+            }
+            let haystack = format!("{} {}", record.summary, record.topic_key).to_ascii_lowercase();
+            haystack.contains(&query)
+        })
+        .cloned()
+        .collect();
+
+    results.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+    results.truncate(limit);
+    Ok(results)
+}
+
+async fn timeline_in_map(
+    records: &RwLock<HashMap<String, MemoryRecord>>,
+    memory_id: &str,
+    before: usize,
+    after: usize,
+    include_deleted: bool,
+) -> Result<Vec<MemoryRecord>, CerebroError> {
+    let map = records.read().await;
+    let mut records: Vec<MemoryRecord> = map
+        .values()
+        .filter(|r| include_deleted || !r.deleted)
+        .cloned()
+        .collect();
+    records.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+
+    let Some(index) = records.iter().position(|r| r.memory_id == memory_id) else {
+        return Ok(Vec::new());
+    };
+
+    let start = index.saturating_sub(before);
+    let end = (index + after + 1).min(records.len());
+    Ok(records[start..end].to_vec())
+}
+
+async fn count_in_map(
+    records: &RwLock<HashMap<String, MemoryRecord>>,
+) -> Result<usize, CerebroError> {
+    let map = records.read().await;
+    Ok(map.len())
 }
 
 fn rollback_delete(

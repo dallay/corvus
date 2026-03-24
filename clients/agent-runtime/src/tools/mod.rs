@@ -19,6 +19,7 @@ pub mod image_info;
 #[cfg(feature = "mcp-runtime")]
 pub mod mcp;
 pub mod memory_forget;
+pub(crate) mod memory_helpers;
 pub mod memory_recall;
 pub mod memory_store;
 pub mod pushover;

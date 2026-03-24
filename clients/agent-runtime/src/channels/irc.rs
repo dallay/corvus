@@ -1127,6 +1127,159 @@ nickname = "bot"
         assert_eq!(parsed.port, 6697);
     }
 
+    // ── collapse_to_single_line ─────────────────────────────
+
+    #[test]
+    fn collapse_multiline_to_single() {
+        assert_eq!(collapse_to_single_line("a\nb\nc"), "a b c");
+    }
+
+    #[test]
+    fn collapse_skips_empty_lines() {
+        assert_eq!(collapse_to_single_line("a\n\nb"), "a b");
+    }
+
+    #[test]
+    fn collapse_empty_input() {
+        assert_eq!(collapse_to_single_line(""), "");
+    }
+
+    #[test]
+    fn collapse_strips_cr() {
+        assert_eq!(collapse_to_single_line("a\r\nb\r\n"), "a b");
+    }
+
+    // ── find_utf8_split_point ────────────────────────────────
+
+    #[test]
+    fn split_point_ascii() {
+        assert_eq!(find_utf8_split_point("hello", 3), 3);
+    }
+
+    #[test]
+    fn split_point_advances_past_mid_char() {
+        // 'é' is 2 bytes; splitting at byte 1 backs up to 0, then advances forward to 2
+        assert_eq!(find_utf8_split_point("é", 1), 2);
+    }
+
+    #[test]
+    fn split_point_advances_when_backup_fails() {
+        // 4-byte emoji: splitting at 0 would fail backward, must advance
+        let text = "🌍";
+        let point = find_utf8_split_point(text, 0);
+        // Should advance to the first valid boundary (0 or 4)
+        assert!(text.is_char_boundary(point));
+    }
+
+    // ── sasl_cap_action ──────────────────────────────────────
+
+    #[test]
+    fn sasl_cap_action_ack_starts_auth() {
+        let msg = IrcMessage::parse(":server CAP * ACK :sasl").unwrap();
+        assert_eq!(
+            sasl_cap_action(&msg, true),
+            Some(SaslCapAction::StartAuthenticatePlain)
+        );
+    }
+
+    #[test]
+    fn sasl_cap_action_not_pending_returns_none() {
+        let msg = IrcMessage::parse(":server CAP * ACK :sasl").unwrap();
+        assert_eq!(sasl_cap_action(&msg, false), None);
+    }
+
+    #[test]
+    fn sasl_cap_action_non_cap_returns_none() {
+        let msg = IrcMessage::parse("PING :test").unwrap();
+        assert_eq!(sasl_cap_action(&msg, true), None);
+    }
+
+    #[test]
+    fn sasl_cap_action_no_sasl_param_returns_none() {
+        let msg = IrcMessage::parse(":server CAP * ACK :multi-prefix").unwrap();
+        assert_eq!(sasl_cap_action(&msg, true), None);
+    }
+
+    // ── parse_privmsg ────────────────────────────────────────
+
+    #[test]
+    fn parse_privmsg_channel_message_includes_style_prefix() {
+        let ch = IrcChannel::new(IrcChannelConfig {
+            server: "irc.test".into(),
+            port: 6697,
+            nickname: "bot".into(),
+            username: None,
+            channels: vec!["#test".into()],
+            allowed_users: vec!["*".into()],
+            server_password: None,
+            nickserv_password: None,
+            sasl_password: None,
+            verify_tls: true,
+        });
+        let msg = IrcMessage::parse(":alice!a@host PRIVMSG #test :hello").unwrap();
+        let result = ch.parse_privmsg(&msg, "alice");
+        assert!(result.is_some());
+        let cm = result.unwrap();
+        assert_eq!(cm.reply_target, "#test");
+        assert!(cm.content.contains("hello"));
+        assert!(cm.content.contains("[context:"));
+        assert_eq!(cm.channel, "irc");
+    }
+
+    #[test]
+    fn parse_privmsg_dm_uses_sender_as_reply_target() {
+        let ch = IrcChannel::new(IrcChannelConfig {
+            server: "irc.test".into(),
+            port: 6697,
+            nickname: "bot".into(),
+            username: None,
+            channels: vec![],
+            allowed_users: vec!["*".into()],
+            server_password: None,
+            nickserv_password: None,
+            sasl_password: None,
+            verify_tls: true,
+        });
+        let msg = IrcMessage::parse(":alice!a@host PRIVMSG bot :hi there").unwrap();
+        let result = ch.parse_privmsg(&msg, "alice");
+        assert!(result.is_some());
+        let cm = result.unwrap();
+        assert_eq!(cm.reply_target, "alice");
+    }
+
+    #[test]
+    fn parse_privmsg_filters_nickserv() {
+        let ch = make_channel();
+        let msg = IrcMessage::parse(":NickServ!s@host PRIVMSG bot :identify now").unwrap();
+        assert!(ch.parse_privmsg(&msg, "NickServ").is_none());
+    }
+
+    #[test]
+    fn parse_privmsg_filters_unauthorized_user() {
+        let ch = IrcChannel::new(IrcChannelConfig {
+            server: "irc.test".into(),
+            port: 6697,
+            nickname: "bot".into(),
+            username: None,
+            channels: vec![],
+            allowed_users: vec!["alice".into()],
+            server_password: None,
+            nickserv_password: None,
+            sasl_password: None,
+            verify_tls: true,
+        });
+        let msg = IrcMessage::parse(":eve!e@host PRIVMSG #test :spam").unwrap();
+        assert!(ch.parse_privmsg(&msg, "eve").is_none());
+    }
+
+    // ── split_message zero max_bytes ─────────────────────────
+
+    #[test]
+    fn split_message_zero_max_collapses() {
+        let chunks = split_message("a\nb\nc", 0);
+        assert_eq!(chunks, vec!["a b c"]);
+    }
+
     // ── Helpers ─────────────────────────────────────────────
 
     fn make_channel() -> IrcChannel {

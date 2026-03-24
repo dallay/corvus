@@ -514,6 +514,68 @@ pending_work: []
     }
 
     #[test]
+    fn parse_status_label_success_returns_success_not_completed() {
+        assert_eq!(parse_status_label("success"), CodeSessionStatus::Success);
+        assert_ne!(parse_status_label("success"), CodeSessionStatus::Completed);
+    }
+
+    #[test]
+    fn parse_status_label_all_variants() {
+        assert_eq!(
+            parse_status_label("completed"),
+            CodeSessionStatus::Completed
+        );
+        assert_eq!(
+            parse_status_label("completed_with_warnings"),
+            CodeSessionStatus::CompletedWithWarnings
+        );
+        assert_eq!(
+            parse_status_label("validation_failed"),
+            CodeSessionStatus::ValidationFailed
+        );
+        assert_eq!(parse_status_label("blocked"), CodeSessionStatus::Blocked);
+        assert_eq!(
+            parse_status_label("budget_exceeded"),
+            CodeSessionStatus::BudgetExceeded
+        );
+        assert_eq!(parse_status_label("error"), CodeSessionStatus::Error);
+        assert_eq!(
+            parse_status_label("unknown_thing"),
+            CodeSessionStatus::Failed
+        );
+    }
+
+    #[test]
+    fn parse_status_label_case_insensitive() {
+        assert_eq!(parse_status_label("SUCCESS"), CodeSessionStatus::Success);
+        assert_eq!(
+            parse_status_label("  Success  "),
+            CodeSessionStatus::Success
+        );
+    }
+
+    #[test]
+    fn parse_command_entry_success_prefix() {
+        let (cmd, success) = parse_command_entry("success: cargo test");
+        assert_eq!(cmd, "cargo test");
+        assert!(success);
+    }
+
+    #[test]
+    fn parse_command_entry_fail_prefix() {
+        let (cmd, success) = parse_command_entry("fail: cargo clippy");
+        assert_eq!(cmd, "cargo clippy");
+        assert!(!success);
+    }
+
+    #[test]
+    fn parse_command_entry_plain() {
+        let (cmd, success) = parse_command_entry("cargo fmt");
+        assert_eq!(cmd, "cargo fmt");
+        assert!(success);
+    }
+
+    #[test]
     fn parse_final_result_returns_failed_when_no_block_found() {
         let output = "I couldn't complete the task. Something went wrong.";
         let result = CodeSessionResult::parse_from_output(output, "sess-missing");

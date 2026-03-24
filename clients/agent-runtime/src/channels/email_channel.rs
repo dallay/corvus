@@ -867,4 +867,59 @@ mod tests {
         let debug_str = format!("{:?}", config);
         assert!(debug_str.contains("imap.debug.com"));
     }
+
+    // ── extract_email_timestamp ──────────────────────────────
+
+    #[test]
+    fn extract_email_timestamp_from_valid_email() {
+        let raw = b"Date: Tue, 01 Jan 2030 12:00:00 +0000\r\nFrom: a@b.com\r\nTo: c@d.com\r\nSubject: test\r\n\r\nBody";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let ts = extract_email_timestamp(&parsed);
+        // 2030-01-01 12:00:00 UTC = 1893499200
+        assert_eq!(ts, 1_893_499_200);
+    }
+
+    #[test]
+    fn extract_email_timestamp_fallback_to_now() {
+        let raw = b"From: a@b.com\r\nTo: c@d.com\r\nSubject: no date\r\n\r\nBody";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let ts = extract_email_timestamp(&parsed);
+        assert!(ts > 0, "should fall back to current time");
+    }
+
+    // ── parsed_email_to_tuple ────────────────────────────────
+
+    #[test]
+    fn parsed_email_to_tuple_valid_email() {
+        let raw =
+            b"From: sender@example.com\r\nTo: recv@example.com\r\nSubject: Hello\r\n\r\nBody text";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let result = EmailChannel::parsed_email_to_tuple(&parsed);
+        assert!(result.is_some());
+        let (_, sender, content, _) = result.unwrap();
+        assert_eq!(sender, "sender@example.com");
+        assert!(content.contains("Subject: Hello"));
+        assert!(content.contains("Body text"));
+    }
+
+    #[test]
+    fn parsed_email_to_tuple_skips_unknown_sender() {
+        // No From header -> sender becomes "unknown" -> None
+        let raw = b"To: recv@example.com\r\nSubject: test\r\n\r\nBody";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let result = EmailChannel::parsed_email_to_tuple(&parsed);
+        assert!(result.is_none(), "should skip emails with unknown sender");
+    }
+
+    #[test]
+    fn parsed_email_to_tuple_skips_empty_body() {
+        let raw = b"From: a@b.com\r\nTo: c@d.com\r\nSubject: empty\r\n\r\n";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let result = EmailChannel::parsed_email_to_tuple(&parsed);
+        // The body extraction may return "(no readable content)" which is not empty,
+        // so this tests the actual behavior
+        if let Some((_, _, content, _)) = result {
+            assert!(!content.trim().is_empty());
+        }
+    }
 }

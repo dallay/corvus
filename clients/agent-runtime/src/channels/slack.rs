@@ -276,6 +276,75 @@ mod tests {
         assert!(ch.is_user_allowed("anyone"));
     }
 
+    // ── parse_slack_message ──────────────────────────────────────
+
+    fn make_slack_channel() -> SlackChannel {
+        SlackChannel::new(
+            "xoxb-fake".into(),
+            Some("C12345".into()),
+            vec!["U111".into(), "U222".into()],
+        )
+    }
+
+    fn slack_msg_json(user: &str, text: &str, ts: &str) -> serde_json::Value {
+        serde_json::json!({ "user": user, "text": text, "ts": ts })
+    }
+
+    #[test]
+    fn parse_slack_message_valid() {
+        let ch = make_slack_channel();
+        let msg = slack_msg_json("U111", "hello", "100.0");
+        let result = ch.parse_slack_message(&msg, "BOT", "", "C12345");
+        assert!(result.is_some());
+        let (cm, new_ts) = result.unwrap();
+        assert_eq!(cm.sender, "U111");
+        assert_eq!(cm.content, "hello");
+        assert_eq!(cm.channel, "slack");
+        assert_eq!(cm.reply_target, "C12345");
+        assert!(cm.id.starts_with("slack_C12345_100.0"));
+        assert_eq!(new_ts, "100.0");
+    }
+
+    #[test]
+    fn parse_slack_message_skips_bot() {
+        let ch = make_slack_channel();
+        let msg = slack_msg_json("BOT", "echo", "100.0");
+        assert!(ch.parse_slack_message(&msg, "BOT", "", "C12345").is_none());
+    }
+
+    #[test]
+    fn parse_slack_message_skips_unauthorized_user() {
+        let ch = make_slack_channel();
+        let msg = slack_msg_json("U999", "spam", "100.0");
+        assert!(ch.parse_slack_message(&msg, "BOT", "", "C12345").is_none());
+    }
+
+    #[test]
+    fn parse_slack_message_skips_empty_text() {
+        let ch = make_slack_channel();
+        let msg = slack_msg_json("U111", "", "100.0");
+        assert!(ch.parse_slack_message(&msg, "BOT", "", "C12345").is_none());
+    }
+
+    #[test]
+    fn parse_slack_message_skips_old_timestamp() {
+        let ch = make_slack_channel();
+        // String comparison: "100.0" <= "200.0" is true, so message is skipped
+        let msg = slack_msg_json("U111", "old", "100.0");
+        assert!(ch
+            .parse_slack_message(&msg, "BOT", "200.0", "C12345")
+            .is_none());
+    }
+
+    #[test]
+    fn parse_slack_message_skips_equal_timestamp() {
+        let ch = make_slack_channel();
+        let msg = slack_msg_json("U111", "dup", "100.0");
+        assert!(ch
+            .parse_slack_message(&msg, "BOT", "100.0", "C12345")
+            .is_none());
+    }
+
     // ── Message ID edge cases ─────────────────────────────────────
 
     #[test]
