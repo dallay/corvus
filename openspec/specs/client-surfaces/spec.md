@@ -1,6 +1,6 @@
 ---
 doc_id: client-surfaces-capability-matrix
-version: 1.0.0
+version: 1.1.0
 created: 2026-03-21
 status: active
 owner: architecture
@@ -108,7 +108,8 @@ Every surface MUST be classified into exactly one role category.
 
 ### Requirement: Transport Invariant
 
-Each surface MUST use exactly one transport for all runtime communication.
+Each surface MUST use exactly one transport for all runtime communication, and its onboarding flow
+MUST validate readiness only through that approved transport.
 
 #### Scenario: Web surface uses HTTP Gateway
 - GIVEN a web client surface (`chat`, `dashboard`)
@@ -128,6 +129,49 @@ Each surface MUST use exactly one transport for all runtime communication.
 - THEN the surface MUST use a companion daemon with IPC (near-term)
 - OR MUST use embedded Rust via FFI (long-term)
 - AND MUST NOT require HTTP Gateway as the only path.
+
+#### Scenario: Onboarding validates readiness through the approved transport
+- GIVEN any onboarding-capable surface is preparing to enter ready state
+- WHEN it validates runtime connectivity
+- THEN it MUST perform that validation through the transport assigned in the canonical matrix
+- AND it MUST NOT instruct the user to complete onboarding through another surface's transport as a
+  substitute.
+
+### Requirement: Onboarding Contract Alignment
+
+The `client-surfaces` capability matrix MUST remain the transport and capability source of truth for
+all surfaces, while onboarding behavior MUST align to the shared product onboarding specification.
+Each onboarding-capable surface SHALL map its first-run flow to the canonical onboarding steps
+without changing its approved transport.
+
+#### Scenario: Web dashboard aligns onboarding without changing transport
+- GIVEN `clients/web/apps/dashboard` participates in first-run onboarding
+- WHEN its flow is evaluated against the canonical onboarding model
+- THEN it MUST implement the shared onboarding outcomes using HTTP Gateway transport only
+- AND it MUST NOT introduce process bridges or direct runtime access.
+
+#### Scenario: Mobile aligns onboarding without adopting HTTP pairing language
+- GIVEN `clients/composeApp` participates in first-run onboarding
+- WHEN its flow is evaluated against the canonical onboarding model
+- THEN it MUST implement the shared onboarding outcomes using the approved CLI bridge path
+- AND it MUST NOT redefine mobile linking as HTTP gateway pairing.
+
+### Requirement: Cross-Surface Recovery State Coverage
+
+All onboarding-capable surfaces MUST expose the shared recovery taxonomy defined by the onboarding
+specification and MUST map transport-specific failures into those normalized states.
+
+#### Scenario: Web and mobile expose comparable recovery states
+- GIVEN `clients/web/apps/chat` and `clients/composeApp` encounter different transport failures
+- WHEN each surface renders recovery guidance
+- THEN each surface MUST use the normalized product-level recovery state that matches the failure
+- AND a user comparing surfaces MUST be able to recognize equivalent failure categories.
+
+#### Scenario: Operator surfaces expose operator-relevant recovery states
+- GIVEN `clients/agent-runtime` or `clients/web/apps/dashboard` encounters an onboarding blockage
+- WHEN recovery guidance is rendered
+- THEN the surface MUST use the normalized recovery taxonomy for applicable states
+- AND it MAY omit chat-only states that cannot occur on that operator surface.
 
 ### Requirement: Capability Tier Enforcement
 
@@ -265,4 +309,5 @@ The `modules/agent-core-kmp` module has a two-tier structure:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.1.0 | 2026-03-24 | Added onboarding alignment and recovery coverage requirements; clarified transport validation during onboarding |
 | 1.0.0 | 2026-03-21 | Initial specification — canonical matrix, transport rules, parity requirements |

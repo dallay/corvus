@@ -74,4 +74,39 @@ class RustCliBridge(private val config: RustCliBridgeConfig = RustCliBridgeConfi
       output = CoreOutput(text = output, transport = "rust-cli", rawOutput = output)
     )
   }
+
+  companion object {
+    fun parseBridgeProbe(
+      rawOutput: String,
+      environmentSupported: Boolean = true,
+    ): BridgeLinkSnapshot {
+      val values =
+        rawOutput
+          .lineSequence()
+          .map { it.trim() }
+          .filter { it.contains('=') }
+          .associate { line ->
+            val separatorIndex = line.indexOf('=')
+            line.substring(0, separatorIndex).trim() to line.substring(separatorIndex + 1).trim()
+          }
+
+      return BridgeLinkSnapshot(
+        runtimeAvailable = values.booleanValue("runtime_available"),
+        linkEstablished =
+          values.booleanValue("link_established") || values.booleanValue("bridge_linked"),
+        sessionCapable = values.booleanValue("session_capable"),
+        sessionId = values["session_id"]?.takeIf { it.isNotBlank() },
+        environmentSupported = environmentSupported,
+      )
+    }
+
+    private fun Map<String, String>.booleanValue(key: String): Boolean =
+      when (this[key]?.lowercase()) {
+        "1",
+        "true",
+        "yes",
+        "ready" -> true
+        else -> false
+      }
+  }
 }

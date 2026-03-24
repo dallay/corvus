@@ -40,21 +40,44 @@ data class ChatWorkspaceState(
   val welcomeMessage: String,
 )
 
+@Immutable
+data class MobileBridgeUiState(val platformName: String, val snapshot: MobileBridgeSnapshot) {
+  val onboardingState: MobileOnboardingState = snapshot.toOnboardingState()
+  val isChatReady: Boolean = onboardingState.status == MobileOnboardingStatus.SESSION_READY
+  val onboardingStateLabel: String = mobileOnboardingStateLabel(onboardingState.status)
+  val onboardingRecoveryLabel: String? =
+    onboardingState.recoveryKind?.let(::mobileOnboardingRecoveryLabel)
+}
+
+fun mobileOnboardingStateLabel(status: MobileOnboardingStatus): String =
+  when (status) {
+    MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "runtime_path_confirmed"
+    MobileOnboardingStatus.TRUST_PENDING -> "trust_pending"
+    MobileOnboardingStatus.TRANSPORT_CONNECTING -> "transport_connecting"
+    MobileOnboardingStatus.SESSION_PENDING -> "session_pending"
+    MobileOnboardingStatus.SESSION_READY -> "session_ready"
+    MobileOnboardingStatus.BLOCKED -> "blocked"
+  }
+
+fun mobileOnboardingTransitionLabel(
+  from: MobileOnboardingStatus,
+  to: MobileOnboardingStatus,
+): String = "${mobileOnboardingStateLabel(from)}__to__${mobileOnboardingStateLabel(to)}"
+
+fun mobileOnboardingRecoveryLabel(recoveryKind: MobileRecoveryKind): String =
+  when (recoveryKind) {
+    MobileRecoveryKind.RUNTIME_UNAVAILABLE -> "runtime_unavailable"
+    MobileRecoveryKind.LINKED_BUT_NOT_SESSION_READY -> "linked_but_not_session_ready"
+    MobileRecoveryKind.ENVIRONMENT_UNSUPPORTED -> "environment_unsupported"
+  }
+
 @Stable
 data class ChatUiState(
   val workspaceState: ChatWorkspaceState,
+  val bridgeState: MobileBridgeUiState,
   val messages: List<ChatMessage>,
   val query: String,
   val showConfig: Boolean,
-  val isGatewayConfigured: Boolean,
-)
-
-@Immutable
-data class AgentGatewayConfig(
-  val baseUrl: String,
-  val pairingCode: String,
-  val bearerToken: String,
-  val webhookSecret: String,
 )
 
 @Stable
@@ -62,51 +85,38 @@ data class ChatWorkspaceActions(
   val onQueryChange: (String) -> Unit,
   val onSend: () -> Unit,
   val onToggleConfig: () -> Unit,
-  val onBaseUrlChange: (String) -> Unit,
-  val onPairingCodeChange: (String) -> Unit,
-  val onBearerTokenChange: (String) -> Unit,
-  val onWebhookSecretChange: (String) -> Unit,
-  val onTestConnection: (AgentGatewayConfig) -> Unit,
-  val onSaveGatewayConfig: (AgentGatewayConfig) -> Unit,
+  val onRetryBridge: () -> Unit,
+  val onLinkSurface: () -> Unit,
+  val onStartSession: () -> Unit,
+  val onClearSession: () -> Unit,
 )
 
 object ChatWorkspaceDefaults {
   const val DefaultAgentName = "Corvus"
-  const val DefaultGatewayBaseUrl = "http://127.0.0.1:3000"
 
   fun state(modelName: String = DefaultAgentName): ChatWorkspaceState =
     ChatWorkspaceState(
       modelName = modelName,
-      inputPlaceholder = "Ask your AI agent anything...",
-      welcomeMessage = "Hello! I'm Corvus, your always-on AI agent. How can I help you today?",
+      inputPlaceholder = "Message your linked Corvus session...",
+      welcomeMessage =
+        "Corvus is ready to chat once this mobile surface is linked and a session is active.",
     )
 }
 
 @Composable
 fun ChatWorkspace(
+  bridgeSnapshot: MobileBridgeSnapshot,
+  platformName: String,
+  onRetryBridge: () -> Unit,
+  onLinkSurface: () -> Unit,
+  onStartSession: () -> Unit,
+  onClearSession: () -> Unit,
   modifier: Modifier = Modifier,
   state: ChatWorkspaceState = ChatWorkspaceDefaults.state(),
 ) {
   var query by remember { mutableStateOf("") }
   var nextId by rememberSaveable { mutableIntStateOf(1) }
   var showConfig by rememberSaveable { mutableStateOf(false) }
-
-  var draftBaseUrl by rememberSaveable {
-    mutableStateOf(ChatWorkspaceDefaults.DefaultGatewayBaseUrl)
-  }
-  var draftPairingCode by rememberSaveable { mutableStateOf("") }
-  var draftBearerToken by rememberSaveable { mutableStateOf("") }
-  var draftWebhookSecret by rememberSaveable { mutableStateOf("") }
-
-  var savedBaseUrl by rememberSaveable {
-    mutableStateOf(ChatWorkspaceDefaults.DefaultGatewayBaseUrl)
-  }
-  var savedPairingCode by rememberSaveable { mutableStateOf("") }
-  var savedBearerToken by rememberSaveable { mutableStateOf("") }
-  var savedWebhookSecret by rememberSaveable { mutableStateOf("") }
-  var isGatewayConfigured by rememberSaveable {
-    mutableStateOf(isGatewayConfigConfigured(ChatWorkspaceDefaults.DefaultGatewayBaseUrl))
-  }
 
   val messages =
     remember(state.welcomeMessage) {
@@ -115,27 +125,14 @@ fun ChatWorkspace(
       )
     }
 
-  val gatewayConfig =
-    remember(draftBaseUrl, draftPairingCode, draftBearerToken, draftWebhookSecret) {
-      AgentGatewayConfig(
-        baseUrl = draftBaseUrl,
-        pairingCode = draftPairingCode,
-        bearerToken = draftBearerToken,
-        webhookSecret = draftWebhookSecret,
-      )
-    }
-
-  val savedGatewayConfig =
-    remember(savedBaseUrl, savedPairingCode, savedBearerToken, savedWebhookSecret) {
-      AgentGatewayConfig(
-        baseUrl = savedBaseUrl,
-        pairingCode = savedPairingCode,
-        bearerToken = savedBearerToken,
-        webhookSecret = savedWebhookSecret,
-      )
+  val bridgeState =
+    remember(platformName, bridgeSnapshot) {
+      MobileBridgeUiState(platformName = platformName, snapshot = bridgeSnapshot)
     }
 
   fun sendMessage() {
+    if (!bridgeState.isChatReady) return
+
     val prompt = query.trim()
     if (prompt.isBlank()) return
 
@@ -146,63 +143,49 @@ fun ChatWorkspace(
       ChatMessage(
         id = nextId,
         role = ChatRole.Assistant,
-        content = buildLocalAssistantReply(prompt, state.modelName, savedGatewayConfig),
+        content = buildLocalAssistantReply(prompt, state.modelName, bridgeState),
       )
     )
     nextId += 1
     query = ""
   }
 
-  val actions = remember {
-    ChatWorkspaceActions(
-      onQueryChange = { query = it },
-      onSend = ::sendMessage,
-      onToggleConfig = { showConfig = !showConfig },
-      onBaseUrlChange = { draftBaseUrl = it },
-      onPairingCodeChange = { draftPairingCode = it },
-      onBearerTokenChange = { draftBearerToken = it },
-      onWebhookSecretChange = { draftWebhookSecret = it },
-      onTestConnection = { config ->
-        isGatewayConfigured = isGatewayConfigConfigured(config.baseUrl)
-      },
-      onSaveGatewayConfig = { config ->
-        savedBaseUrl = config.baseUrl
-        savedPairingCode = config.pairingCode
-        savedBearerToken = config.bearerToken
-        savedWebhookSecret = config.webhookSecret
-        isGatewayConfigured = isGatewayConfigConfigured(config.baseUrl)
-      },
-    )
-  }
-
-  val uiState =
-    remember(state, query, showConfig, isGatewayConfigured) {
-      ChatUiState(
-        workspaceState = state,
-        messages = messages,
-        query = query,
-        showConfig = showConfig,
-        isGatewayConfigured = isGatewayConfigured,
+  val actions =
+    remember(onRetryBridge, onLinkSurface, onStartSession, onClearSession) {
+      ChatWorkspaceActions(
+        onQueryChange = { query = it },
+        onSend = ::sendMessage,
+        onToggleConfig = { showConfig = !showConfig },
+        onRetryBridge = onRetryBridge,
+        onLinkSurface = onLinkSurface,
+        onStartSession = onStartSession,
+        onClearSession = onClearSession,
       )
     }
 
-  ChatWorkspaceScreen(
-    uiState = uiState,
-    gatewayConfig = gatewayConfig,
-    actions = actions,
-    modifier = modifier,
-  )
+  val uiState =
+    remember(state, bridgeState, query, showConfig, messages) {
+      ChatUiState(
+        workspaceState = state,
+        bridgeState = bridgeState,
+        messages = messages,
+        query = query,
+        showConfig = showConfig,
+      )
+    }
+
+  ChatWorkspaceScreen(uiState = uiState, actions = actions, modifier = modifier)
 }
 
 @Composable
 private fun ChatWorkspaceScreen(
   uiState: ChatUiState,
-  gatewayConfig: AgentGatewayConfig,
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
+  val shouldShowConfig = uiState.showConfig || !uiState.bridgeState.isChatReady
 
   Column(
     modifier =
@@ -214,7 +197,8 @@ private fun ChatWorkspaceScreen(
   ) {
     ChatHeader(
       modelName = uiState.workspaceState.modelName,
-      showConfig = uiState.showConfig,
+      bridgeState = uiState.bridgeState,
+      showConfig = shouldShowConfig,
       onToggleConfig = actions.onToggleConfig,
     )
 
@@ -239,16 +223,16 @@ private fun ChatWorkspaceScreen(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    if (uiState.showConfig) {
+    if (shouldShowConfig) {
       ConfigPanel(
-        gatewayConfig = gatewayConfig,
-        isGatewayConfigured = uiState.isGatewayConfigured,
+        bridgeState = uiState.bridgeState,
         actions = actions,
         modifier = Modifier.weight(1f),
       )
     } else {
       ChatPanel(
         state = uiState.workspaceState,
+        bridgeState = uiState.bridgeState,
         messages = uiState.messages,
         query = uiState.query,
         actions = actions,
@@ -261,6 +245,7 @@ private fun ChatWorkspaceScreen(
 @Composable
 private fun ChatPanel(
   state: ChatWorkspaceState,
+  bridgeState: MobileBridgeUiState,
   messages: List<ChatMessage>,
   query: String,
   actions: ChatWorkspaceActions,
@@ -269,6 +254,10 @@ private fun ChatPanel(
   val corvusColors = CorvusTheme.colors
 
   Column(modifier = modifier) {
+    BridgeStatusCard(bridgeState = bridgeState, modifier = Modifier.fillMaxWidth())
+
+    Spacer(modifier = Modifier.height(16.dp))
+
     Surface(
       modifier = Modifier.fillMaxWidth().weight(1f),
       shape = RoundedCornerShape(20.dp),
@@ -299,11 +288,7 @@ private fun ChatPanel(
       onValueChange = actions.onQueryChange,
       onSend = actions.onSend,
       placeholder = state.inputPlaceholder,
+      enabled = bridgeState.isChatReady,
     )
   }
-}
-
-private fun isGatewayConfigConfigured(baseUrl: String): Boolean {
-  val trimmed = baseUrl.trim()
-  return trimmed.startsWith("http://") || trimmed.startsWith("https://")
 }

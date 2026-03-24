@@ -39,6 +39,45 @@ const config = useConfig(t);
 
     <section class="card">
       <h2>{{ t("sections.auth") }}</h2>
+      <p class="helper onboarding-intro">{{ t("onboarding.intro") }}</p>
+      <ol class="onboarding-steps" aria-label="Dashboard onboarding steps">
+        <li
+          v-for="step in config.onboardingSteps.value"
+          :key="step.key"
+          class="onboarding-step"
+          :data-step-status="step.status"
+        >
+          <div class="onboarding-step-header">
+            <div>
+              <h3>{{ t(step.titleKey) }}</h3>
+              <p>{{ t(step.descriptionKey) }}</p>
+            </div>
+            <span class="step-badge">{{ t(`onboarding.stepStatus.${step.status}`) }}</span>
+          </div>
+        </li>
+      </ol>
+      <div
+        v-if="config.isOperatorReady.value"
+        class="onboarding-banner onboarding-banner-ready"
+        role="status"
+        aria-live="polite"
+      >
+        <p class="banner-title">{{ t("onboarding.ready.title") }}</p>
+        <p>{{ t("onboarding.ready.description") }}</p>
+      </div>
+      <div
+        v-else-if="
+          config.onboardingState.value.state === 'blocked' && config.onboardingState.value.recoveryKind
+        "
+        class="onboarding-banner onboarding-banner-blocked"
+        role="alert"
+        aria-live="assertive"
+      >
+        <p class="banner-title">
+          {{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.title`) }}
+        </p>
+        <p>{{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.description`) }}</p>
+      </div>
       <div v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state" role="status" aria-live="polite" aria-atomic="true">
         <p>{{ t("auth.quickPairValidating") }}</p>
       </div>
@@ -188,6 +227,11 @@ h2 {
   font-size: 16px;
 }
 
+h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
@@ -234,6 +278,81 @@ label span {
 .error {
   margin: 10px 0 0;
   font-size: 13px;
+}
+
+.onboarding-intro {
+  margin-top: 0;
+}
+
+.onboarding-steps {
+  list-style: none;
+  padding: 0;
+  margin: 16px 0;
+  display: grid;
+  gap: 10px;
+}
+
+.onboarding-step {
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  padding: 12px;
+  background: color-mix(in srgb, var(--color-bg-secondary) 82%, transparent);
+}
+
+.onboarding-step-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.onboarding-step p,
+.onboarding-banner p {
+  margin: 6px 0 0;
+}
+
+.step-badge {
+  flex-shrink: 0;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--color-bg-input);
+  color: var(--color-text-secondary);
+}
+
+.onboarding-step[data-step-status="complete"] {
+  border-color: color-mix(in srgb, #22c55e 45%, var(--color-border));
+}
+
+.onboarding-step[data-step-status="current"] {
+  border-color: color-mix(in srgb, #3b82f6 45%, var(--color-border));
+}
+
+.onboarding-step[data-step-status="blocked"] {
+  border-color: color-mix(in srgb, #ef4444 45%, var(--color-border));
+}
+
+.onboarding-banner {
+  border-radius: 14px;
+  padding: 12px;
+  margin: 0 0 16px;
+}
+
+.onboarding-banner-ready {
+  border: 1px solid color-mix(in srgb, #22c55e 45%, var(--color-border));
+  background: color-mix(in srgb, #22c55e 10%, var(--color-bg-secondary));
+}
+
+.onboarding-banner-blocked {
+  border: 1px solid color-mix(in srgb, #ef4444 45%, var(--color-border));
+  background: color-mix(in srgb, #ef4444 8%, var(--color-bg-secondary));
+}
+
+.banner-title {
+  font-weight: 600;
 }
 
 .helper {

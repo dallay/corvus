@@ -8,7 +8,7 @@
     "subtitle": "Secure Gateway Configuration"
   },
   "sections": {
-    "auth": "Authentication",
+    "auth": "Dashboard onboarding",
     "core": "Base Configuration",
     "observability": "Observability",
     "runtime": "Runtime",
@@ -18,20 +18,147 @@
     "webhook": "Webhook"
   },
   "auth": {
-    "baseUrl": "Base URL",
+    "baseUrl": "Gateway base URL",
     "pairingCode": "Pairing Code",
     "bearerToken": "Bearer Token",
-    "connect": "Connect",
-    "pair": "Pair",
-    "pairSuccess": "Pairing successful. Token loaded.",
-    "connected": "Connected successfully.",
+    "connect": "Connect to gateway",
+    "pair": "Pair this dashboard",
+    "pairSuccess": "Pairing complete. Bearer token loaded.",
+    "connected": "Dashboard ready for operator tasks.",
     "loadError": "Could not load admin configuration.",
     "networkError": "Could not connect to gateway. Verify network, URL, and that the service is active.",
     "emptyWebhookSecret": "Webhook secret cannot be empty. Use 'Clear' if you want to remove it.",
     "unauthorized": "Unauthorized. Please pair and try again.",
+    "pairingInvalid": "The pairing code is invalid. Get a fresh pairing code and try again.",
+    "pairingExpired": "The pairing code expired. Generate a new pairing code and pair again.",
+    "credentialMissing": "A bearer token is required. Pair this dashboard to continue.",
+    "credentialInvalid": "The saved bearer token was rejected. Pair again to restore access.",
     "quickPairValidating": "Link detected, validating...",
     "quickPairConnecting": "Connecting to gateway...",
     "quickPairFailed": "Quick pair failed, please check the URL or code."
+  },
+  "onboarding": {
+    "intro": "Follow the shared onboarding flow: confirm the runtime, pair this dashboard, connect to the gateway, and finish in an operator-ready state.",
+    "stepStatus": {
+      "pending": "Pending",
+      "current": "Current",
+      "complete": "Complete",
+      "blocked": "Blocked"
+    },
+    "steps": {
+      "runtime": {
+        "title": "Runtime available",
+        "description": "Reach a usable local Corvus runtime or gateway for this dashboard."
+      },
+      "trust": {
+        "title": "Trust this surface",
+        "description": "Exchange a pairing code once to receive the bearer token for this dashboard."
+      },
+      "connect": {
+        "title": "Connect to gateway",
+        "description": "Validate the admin transport with the current bearer token and gateway URL."
+      },
+      "ready": {
+        "title": "Ready for operator tasks",
+        "description": "Load configuration and continue with dashboard management work."
+      }
+    },
+    "ready": {
+      "title": "Operator-ready",
+      "description": "The dashboard completed pairing and gateway connection. You can now manage Corvus safely from this surface."
+    },
+    "recovery": {
+      "runtime_unavailable": {
+        "title": "Runtime unavailable",
+        "description": "The dashboard could not reach the local Corvus runtime. Start the runtime and retry the connection step."
+      },
+      "transport_unavailable": {
+        "title": "Surface transport unavailable",
+        "description": "The dashboard reached an unexpected transport failure. Verify the gateway URL and retry safely."
+      },
+      "trust_input_invalid": {
+        "title": "Pairing code invalid",
+        "description": "The pairing code was rejected. Request a valid pairing code from the runtime and pair again."
+      },
+      "trust_input_expired": {
+        "title": "Pairing code expired",
+        "description": "The pairing code is no longer valid. Generate a new pairing code and repeat the trust step."
+      },
+      "credential_missing": {
+        "title": "Bearer token missing",
+        "description": "This dashboard is not authenticated yet. Pair this surface to receive a bearer token before connecting."
+      },
+      "credential_invalid": {
+        "title": "Bearer token invalid or revoked",
+        "description": "The stored bearer token no longer works. The dashboard cleared the stale token; pair again to continue."
+      },
+      "paired_but_not_connected": {
+        "title": "Paired but not connected",
+        "description": "Trust is established, but the dashboard could not complete the authenticated gateway check. Retry the connection step."
+      }
+    }
+  },
+  "chatOnboarding": {
+    "intro": "Confirm the local runtime, pair this chat surface, connect to the gateway, then create or resume a chat session.",
+    "gatewayReady": "Gateway ready. Start or resume a chat session to continue.",
+    "loadError": "Could not reach the local gateway.",
+    "transportDisconnected": "Pairing succeeded, but the chat surface could not keep its gateway connection.",
+    "steps": {
+      "runtime": {
+        "title": "Runtime available",
+        "description": "Reach a usable local Corvus runtime or gateway for this chat surface."
+      },
+      "trust": {
+        "title": "Trust this surface",
+        "description": "Exchange a pairing code once to receive the bearer token for this chat surface."
+      },
+      "connect": {
+        "title": "Connect to gateway",
+        "description": "Validate the chat transport with the current bearer token and local gateway URL."
+      },
+      "ready": {
+        "title": "Ready to start chat",
+        "description": "Finish the HTTP onboarding path so this surface can create or resume a chat session."
+      }
+    },
+    "ready": {
+      "title": "Ready to start chat",
+      "description": "This chat surface completed pairing and gateway connection. Create or resume a session to begin chatting."
+    },
+    "session": {
+      "title": "Session required",
+      "description": "Gateway trust is ready. Create a new session or resume an existing one before sending messages."
+    },
+    "recovery": {
+      "runtime_unavailable": {
+        "title": "Runtime unavailable",
+        "description": "The chat surface could not reach the local Corvus runtime. Start the runtime and retry the connection step."
+      },
+      "transport_unavailable": {
+        "title": "Surface transport unavailable",
+        "description": "The chat surface hit an unexpected transport failure. Verify the local gateway URL and retry safely."
+      },
+      "trust_input_invalid": {
+        "title": "Pairing code invalid",
+        "description": "The pairing code was rejected. Request a valid pairing code from the runtime and pair again."
+      },
+      "trust_input_expired": {
+        "title": "Pairing code expired",
+        "description": "The pairing code is no longer valid. Generate a new pairing code and repeat the trust step."
+      },
+      "credential_missing": {
+        "title": "Bearer token missing",
+        "description": "This chat surface is not authenticated yet. Pair this surface to receive a bearer token before connecting."
+      },
+      "credential_invalid": {
+        "title": "Bearer token invalid or revoked",
+        "description": "The stored bearer token no longer works. The chat surface cleared the stale token; pair again to continue."
+      },
+      "paired_but_not_connected": {
+        "title": "Paired but not connected",
+        "description": "Trust is established, but the chat surface could not complete its gateway check. Retry the connection step."
+      }
+    }
   },
   "form": {
     "baseUrl": "Base URL",
@@ -104,6 +231,16 @@
     "inputPlaceholder": "Type a message...",
     "send": "Send",
     "newChat": "New chat",
+    "newSession": "New session",
+    "startSession": "Start new session",
+    "resumeSession": "Resume session",
+    "sessionReady": "Session ready.",
+    "sessionResumed": "Session resumed.",
+    "sessionCleared": "Session cleared.",
+    "sessionUnavailable": "No resumable session is available yet. Start a new session.",
+    "sessionActive": "Session: {sessionId}",
+    "connectBeforeChat": "Complete gateway onboarding before starting chat.",
+    "emptyMessageError": "Enter a message before sending.",
     "disclaimer": "Corvus Agent can make mistakes. Check important information."
   },
   "webhook": {

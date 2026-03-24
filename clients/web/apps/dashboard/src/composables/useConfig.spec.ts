@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useConfig } from "@/composables/useConfig";
+import {
+  dashboardOnboardingRecoveryLabel,
+  dashboardOnboardingTransitionLabel,
+  useConfig,
+} from "@/composables/useConfig";
 
 const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promise<Response>>();
 
@@ -49,6 +53,135 @@ describe("useConfig", () => {
     expect(config.form.default_provider).toBe("openrouter");
     expect(config.form.webhook_secret_exists).toBe(true);
     expect(config.memoryBackendOptions.value).toEqual(["sqlite", "none"]);
+    expect(config.onboardingState.value.state).toBe("ready");
+  });
+
+  it("maps invalid pairing input to the normalized trust recovery state", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Invalid pairing code" }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const config = useConfig((key: string) => key);
+    config.pairingCode.value = "wrong";
+
+    const paired = await config.pairGateway({ autoConnect: false });
+
+    expect(paired).toBe(false);
+    expect(config.onboardingState.value.state).toBe("blocked");
+    expect(config.onboardingState.value.recoveryKind).toBe("trust_input_invalid");
+    expect(config.lastTransitionLabel.value).toBe("runtime_path_confirmed__to__blocked");
+    expect(config.currentRecoveryLabel.value).toBe("trust_input_invalid");
+    expect(config.errorMessage.value).toBe("auth.pairingInvalid");
+    expect(config.pairingCode.value).toBe("wrong");
+    expect(config.bearerToken.value).toBe("");
+  });
+
+  it("exposes canonical observability labels for onboarding transitions and recovery", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ token: "token-123" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const config = useConfig((key: string) => key);
+    config.pairingCode.value = "857258";
+
+    const paired = await config.pairGateway({ autoConnect: false });
+
+    expect(paired).toBe(true);
+    expect(config.lastTransitionLabel.value).toBe("trust_pending__to__trust_established");
+    expect(config.currentRecoveryLabel.value).toBe(null);
+    expect(dashboardOnboardingTransitionLabel("trust_pending", "trust_established")).toBe(
+      "trust_pending__to__trust_established"
+    );
+    expect(dashboardOnboardingRecoveryLabel("paired_but_not_connected")).toBe(
+      "paired_but_not_connected"
+    );
+  });
+
+  it("maps expired pairing input to the normalized trust recovery state", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Pairing code expired" }), {
+        status: 410,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const config = useConfig((key: string) => key);
+    config.pairingCode.value = "stale";
+
+    const paired = await config.pairGateway({ autoConnect: false });
+
+    expect(paired).toBe(false);
+    expect(config.onboardingState.value.state).toBe("blocked");
+    expect(config.onboardingState.value.recoveryKind).toBe("trust_input_expired");
+    expect(config.errorMessage.value).toBe("auth.pairingExpired");
+  });
+
+  it("clears stale bearer tokens when gateway auth rejects them", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const config = useConfig((key: string) => key);
+    config.bearerToken.value = "stale-token";
+
+    const connected = await config.connectGateway();
+
+    expect(connected).toBe(false);
+    expect(config.bearerToken.value).toBe("");
+    expect(config.onboardingState.value.state).toBe("blocked");
+    expect(config.onboardingState.value.recoveryKind).toBe("credential_invalid");
+    expect(config.errorMessage.value).toBe("auth.credentialInvalid");
+  });
+
+  it("marks missing bearer tokens as credential_missing when admin access is rejected", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    const config = useConfig((key: string) => key);
+
+    const connected = await config.connectGateway();
+
+    expect(connected).toBe(false);
+    expect(config.onboardingState.value.state).toBe("blocked");
+    expect(config.onboardingState.value.recoveryKind).toBe("credential_missing");
+    expect(config.errorMessage.value).toBe("auth.credentialMissing");
+  });
+
+  it("preserves trust progress when the dashboard is paired but the gateway cannot complete auth fetches", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ token: "token-123" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 503 }));
+
+    const config = useConfig((key: string) => key);
+    config.pairingCode.value = "857258";
+
+    const paired = await config.pairGateway();
+
+    expect(paired).toBe(false);
+    expect(config.bearerToken.value).toBe("token-123");
+    expect(config.onboardingState.value.state).toBe("blocked");
+    expect(config.onboardingState.value.recoveryKind).toBe("paired_but_not_connected");
+    expect(config.onboardingState.value.canResume).toBe(true);
+    expect(config.onboardingSteps.value[1]?.status).toBe("complete");
+    expect(config.onboardingSteps.value[2]?.status).toBe("blocked");
   });
 
   it("tracks section saving and sends diff-only payload", async () => {
@@ -248,6 +381,7 @@ describe("useConfig", () => {
     expect(paired).toBe(true);
     expect(config.bearerToken.value).toBe("token-123");
     expect(config.statusMessage.value).toBe("auth.pairSuccess");
+    expect(config.onboardingState.value.state).toBe("trust_established");
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -412,7 +546,7 @@ describe("useConfig", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(config.quickPairState.value).toBe("failed");
-      expect(config.errorMessage.value).toBe("auth.loadError");
+      expect(config.errorMessage.value).toBe("auth.pairingInvalid");
       expect(config.pairingCode.value).toBe("");
       expect(config.bearerToken.value).toBe("");
     });
@@ -607,7 +741,164 @@ describe("useConfig", () => {
       expect(config.form.webhook_secret_mode).toBe("replace");
       expect(config.form.webhook_secret_value).toBe("new-secret");
       expect(config.statusMessage.value).toBe("");
+      expect(config.errorMessage.value).toBe("auth.credentialInvalid");
+      expect(config.bearerToken.value).toBe("");
+    });
+  });
+
+  describe("connectGateway additional paths", () => {
+    it("returns false with insecureUrlError when URL is insecure and bearer token is set", async () => {
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "https://example.com/api";
+      config.bearerToken.value = "secret-token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
+      expect(config.errorMessage.value).toBe("errors.insecureUrlError");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("calls handleTransportFailure when options response is not ok and not 401/403", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 500 }));
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
       expect(config.errorMessage.value).toBe("auth.loadError");
+      expect(config.onboardingState.value.state).toBe("blocked");
+      expect(config.onboardingState.value.recoveryKind).toBe("paired_but_not_connected");
+    });
+
+    it("clears credentials when config response returns 401", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 })
+        );
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "stale-token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
+      expect(config.bearerToken.value).toBe("");
+      expect(config.onboardingState.value.state).toBe("blocked");
+      expect(config.onboardingState.value.recoveryKind).toBe("credential_invalid");
+      expect(config.errorMessage.value).toBe("auth.credentialInvalid");
+    });
+
+    it("calls handleTransportFailure when config response is not ok and not 401/403", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 502 }));
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
+      expect(config.errorMessage.value).toBe("auth.loadError");
+      expect(config.onboardingState.value.state).toBe("blocked");
+      expect(config.onboardingState.value.recoveryKind).toBe("paired_but_not_connected");
+    });
+
+    it("calls handleTransportFailure when fetch throws a network error", async () => {
+      fetchMock.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "token";
+
+      const result = await config.connectGateway();
+
+      expect(result).toBe(false);
+      expect(config.errorMessage.value).toBe("auth.loadError");
+      expect(config.onboardingState.value.state).toBe("blocked");
+      expect(config.onboardingState.value.recoveryKind).toBe("paired_but_not_connected");
+    });
+
+    it("resets quickPairState from failed to idle on entry", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({}), { status: 500 }));
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.quickPairState.value = "failed";
+
+      await config.connectGateway();
+
+      expect(config.quickPairState.value).toBe("idle");
+    });
+
+    it("does not send Authorization header when no bearer token is present", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ config: { channels: { webhook: {} } } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "https://example.com/api";
+
+      expect(config.bearerToken.value).toBe("");
+
+      await config.connectGateway();
+
+      const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+      expect(headers).toBeDefined();
+      expect(headers.Authorization).toBeUndefined();
+    });
+
+    it("sends Authorization header and marks trust before transport when bearer token is present", async () => {
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({}), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        )
+        .mockResolvedValueOnce(
+          new Response(JSON.stringify({ config: { channels: { webhook: {} } } }), {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          })
+        );
+
+      const config = useConfig((key: string) => key);
+      config.baseUrl.value = "http://localhost:3000/api";
+      config.bearerToken.value = "token";
+
+      await config.connectGateway();
+
+      const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>;
+      expect(headers.Authorization).toBe("Bearer token");
+      expect(config.onboardingState.value.state).toBe("ready");
     });
   });
 });

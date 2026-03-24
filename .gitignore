@@ -163,6 +163,9 @@ build/spotless-prettier-node-modules-*/serve.js
 .pnpm-store
 
 /ephemeral
+
+# Rust coverage artifacts
+*.profraw
 # START AI Agent Symlinks
 .agent/commands
 .agent/commands.bak.*
@@ -211,11 +214,5 @@ CLAUDE.md
 CLAUDE.md.bak.*
 GEMINI.md
 GEMINI.md.bak.*
-clients/agent-runtime/CLAUDE.md
-clients/agent-runtime/CLAUDE.md.bak.*
-clients/web/apps/dashboard/CLAUDE.md
-clients/web/apps/dashboard/CLAUDE.md.bak.*
-modules/agent-core-kmp/CLAUDE.md
-modules/agent-core-kmp/CLAUDE.md.bak.*
 opencode.json
 # END AI Agent Symlinks

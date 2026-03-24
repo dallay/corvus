@@ -6,6 +6,95 @@ use axum::{
 use sha2::{Digest, Sha256};
 use std::net::{IpAddr, SocketAddr};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HttpTrustMode {
+    HttpPaired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HttpTransportMode {
+    HttpGateway,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HttpRecoveryKind {
+    RuntimeUnavailable,
+    TransportUnavailable,
+    TrustInputInvalid,
+    TrustInputExpired,
+    CredentialMissing,
+    CredentialInvalid,
+    PairedButNotConnected,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum HttpOnboardingStateKind {
+    IntentSelected,
+    RuntimePathConfirmed,
+    TrustPending,
+    TrustEstablished,
+    TransportConnecting,
+    Ready,
+    SessionPending,
+    SessionReady,
+    Blocked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[allow(clippy::struct_excessive_bools)] // Surface contract fields, not control flow flags.
+pub(crate) struct HttpOnboardingState {
+    pub(crate) state: HttpOnboardingStateKind,
+    pub(crate) trust_mode: HttpTrustMode,
+    pub(crate) transport_mode: HttpTransportMode,
+    pub(crate) recovery_kind: Option<HttpRecoveryKind>,
+    pub(crate) can_retry: bool,
+    pub(crate) can_resume: bool,
+    pub(crate) persists_pairing_code: bool,
+    pub(crate) persists_bearer_token: bool,
+}
+
+pub(crate) fn http_onboarding_state(
+    state: HttpOnboardingStateKind,
+    can_retry: bool,
+    can_resume: bool,
+) -> HttpOnboardingState {
+    HttpOnboardingState {
+        state,
+        trust_mode: HttpTrustMode::HttpPaired,
+        transport_mode: HttpTransportMode::HttpGateway,
+        recovery_kind: None,
+        can_retry,
+        can_resume,
+        persists_pairing_code: false,
+        persists_bearer_token: matches!(
+            state,
+            HttpOnboardingStateKind::TrustEstablished
+                | HttpOnboardingStateKind::TransportConnecting
+                | HttpOnboardingStateKind::Ready
+                | HttpOnboardingStateKind::SessionPending
+                | HttpOnboardingStateKind::SessionReady
+        ),
+    }
+}
+
+pub(crate) fn blocked_http_onboarding_state(
+    recovery_kind: HttpRecoveryKind,
+    can_retry: bool,
+    can_resume: bool,
+) -> HttpOnboardingState {
+    HttpOnboardingState {
+        recovery_kind: Some(recovery_kind),
+        can_retry,
+        can_resume,
+        persists_bearer_token: can_resume,
+        ..http_onboarding_state(HttpOnboardingStateKind::Blocked, can_retry, can_resume)
+    }
+}
+
 /// Extract bearer token from Authorization header.
 pub fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
     let auth = headers

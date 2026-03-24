@@ -8,7 +8,7 @@
     "subtitle": "Configuración segura del gateway"
   },
   "sections": {
-    "auth": "Autenticación",
+    "auth": "Onboarding del dashboard",
     "core": "Configuración base",
     "observability": "Observabilidad",
     "runtime": "Runtime",
@@ -18,20 +18,147 @@
     "webhook": "Webhook"
   },
   "auth": {
-    "baseUrl": "Base URL",
+    "baseUrl": "URL base del gateway",
     "pairingCode": "Código de emparejamiento",
     "bearerToken": "Token bearer",
-    "connect": "Conectar",
-    "pair": "Emparejar",
-    "pairSuccess": "Emparejamiento exitoso. Token cargado.",
-    "connected": "Conectado correctamente.",
+    "connect": "Conectar al gateway",
+    "pair": "Emparejar este dashboard",
+    "pairSuccess": "Emparejamiento completado. Token bearer cargado.",
+    "connected": "Dashboard listo para tareas de operación.",
     "loadError": "No se pudo cargar la configuración admin.",
     "networkError": "No se pudo conectar con el gateway. Verifica red, URL y que el servicio esté activo.",
     "emptyWebhookSecret": "El webhook secret no puede estar vacío. Usa 'Limpiar' si deseas removerlo.",
     "unauthorized": "No autorizado. Haz pairing y vuelve a intentar.",
+    "pairingInvalid": "El código de emparejamiento es inválido. Obtén un código nuevo y vuelve a intentarlo.",
+    "pairingExpired": "El código de emparejamiento expiró. Genera uno nuevo y vuelve a emparejar.",
+    "credentialMissing": "Se requiere un token bearer. Empareja este dashboard para continuar.",
+    "credentialInvalid": "El token bearer guardado fue rechazado. Empareja de nuevo para recuperar el acceso.",
     "quickPairValidating": "Enlace detectado, validando...",
     "quickPairConnecting": "Conectando al gateway...",
     "quickPairFailed": "Falló el emparejamiento rápido, revisa la URL o el código."
+  },
+  "onboarding": {
+    "intro": "Sigue el flujo compartido de onboarding: confirma el runtime, empareja este dashboard, conecta al gateway y termina en estado listo para operar.",
+    "stepStatus": {
+      "pending": "Pendiente",
+      "current": "Actual",
+      "complete": "Completo",
+      "blocked": "Bloqueado"
+    },
+    "steps": {
+      "runtime": {
+        "title": "Runtime disponible",
+        "description": "Alcanza un runtime o gateway local de Corvus utilizable para este dashboard."
+      },
+      "trust": {
+        "title": "Confiar en esta superficie",
+        "description": "Intercambia un código de emparejamiento una sola vez para obtener el token bearer de este dashboard."
+      },
+      "connect": {
+        "title": "Conectar al gateway",
+        "description": "Valida el transporte admin con el token bearer actual y la URL del gateway."
+      },
+      "ready": {
+        "title": "Listo para tareas de operación",
+        "description": "Carga la configuración y continúa con el trabajo de gestión desde el dashboard."
+      }
+    },
+    "ready": {
+      "title": "Listo para operar",
+      "description": "El dashboard completó el emparejamiento y la conexión al gateway. Ahora puedes gestionar Corvus desde esta superficie."
+    },
+    "recovery": {
+      "runtime_unavailable": {
+        "title": "Runtime no disponible",
+        "description": "El dashboard no pudo alcanzar el runtime local de Corvus. Inicia el runtime y vuelve a intentar el paso de conexión."
+      },
+      "transport_unavailable": {
+        "title": "Transporte de la superficie no disponible",
+        "description": "El dashboard encontró una falla inesperada del transporte. Verifica la URL del gateway y reintenta de forma segura."
+      },
+      "trust_input_invalid": {
+        "title": "Código de emparejamiento inválido",
+        "description": "El código de emparejamiento fue rechazado. Solicita un código válido al runtime y vuelve a emparejar."
+      },
+      "trust_input_expired": {
+        "title": "Código de emparejamiento expirado",
+        "description": "El código de emparejamiento ya no es válido. Genera uno nuevo y repite el paso de confianza."
+      },
+      "credential_missing": {
+        "title": "Falta el token bearer",
+        "description": "Este dashboard todavía no está autenticado. Empareja esta superficie para recibir un token bearer antes de conectar."
+      },
+      "credential_invalid": {
+        "title": "Token bearer inválido o revocado",
+        "description": "El token bearer guardado ya no funciona. El dashboard limpió el token obsoleto; vuelve a emparejar para continuar."
+      },
+      "paired_but_not_connected": {
+        "title": "Emparejado pero sin conexión",
+        "description": "La confianza ya existe, pero el dashboard no pudo completar la verificación autenticada del gateway. Reintenta el paso de conexión."
+      }
+    }
+  },
+  "chatOnboarding": {
+    "intro": "Confirma el runtime local, empareja esta superficie de chat, conecta al gateway y luego crea o reanuda una sesión de chat.",
+    "gatewayReady": "Gateway listo. Crea o reanuda una sesión de chat para continuar.",
+    "loadError": "No se pudo alcanzar el gateway local.",
+    "transportDisconnected": "El emparejamiento se completó, pero la superficie de chat no pudo mantener su conexión con el gateway.",
+    "steps": {
+      "runtime": {
+        "title": "Runtime disponible",
+        "description": "Alcanza un runtime o gateway local de Corvus utilizable para esta superficie de chat."
+      },
+      "trust": {
+        "title": "Confiar en esta superficie",
+        "description": "Intercambia un código de emparejamiento una sola vez para obtener el token bearer de esta superficie de chat."
+      },
+      "connect": {
+        "title": "Conectar al gateway",
+        "description": "Valida el transporte de chat con el token bearer actual y la URL local del gateway."
+      },
+      "ready": {
+        "title": "Listo para iniciar chat",
+        "description": "Completa el onboarding HTTP para que esta superficie pueda crear o reanudar una sesión de chat."
+      }
+    },
+    "ready": {
+      "title": "Listo para iniciar chat",
+      "description": "Esta superficie de chat completó el emparejamiento y la conexión al gateway. Crea o reanuda una sesión para empezar a chatear."
+    },
+    "session": {
+      "title": "Se requiere una sesión",
+      "description": "La confianza con el gateway está lista. Crea una nueva sesión o reanuda una existente antes de enviar mensajes."
+    },
+    "recovery": {
+      "runtime_unavailable": {
+        "title": "Runtime no disponible",
+        "description": "La superficie de chat no pudo alcanzar el runtime local de Corvus. Inicia el runtime y vuelve a intentar el paso de conexión."
+      },
+      "transport_unavailable": {
+        "title": "Transporte de la superficie no disponible",
+        "description": "La superficie de chat encontró una falla inesperada del transporte. Verifica la URL local del gateway y reintenta de forma segura."
+      },
+      "trust_input_invalid": {
+        "title": "Código de emparejamiento inválido",
+        "description": "El código de emparejamiento fue rechazado. Solicita un código válido al runtime y vuelve a emparejar."
+      },
+      "trust_input_expired": {
+        "title": "Código de emparejamiento expirado",
+        "description": "El código de emparejamiento ya no es válido. Genera uno nuevo y repite el paso de confianza."
+      },
+      "credential_missing": {
+        "title": "Falta el token bearer",
+        "description": "Esta superficie de chat todavía no está autenticada. Empareja esta superficie para recibir un token bearer antes de conectar."
+      },
+      "credential_invalid": {
+        "title": "Token bearer inválido o revocado",
+        "description": "El token bearer guardado ya no funciona. La superficie de chat limpió el token obsoleto; vuelve a emparejar para continuar."
+      },
+      "paired_but_not_connected": {
+        "title": "Emparejado pero sin conexión",
+        "description": "La confianza ya existe, pero la superficie de chat no pudo completar su verificación del gateway. Reintenta el paso de conexión."
+      }
+    }
   },
   "form": {
     "baseUrl": "Base URL",
@@ -104,6 +231,16 @@
     "inputPlaceholder": "Escribe un mensaje...",
     "send": "Enviar",
     "newChat": "Nuevo chat",
+    "newSession": "Nueva sesión",
+    "startSession": "Iniciar nueva sesión",
+    "resumeSession": "Reanudar sesión",
+    "sessionReady": "Sesión lista.",
+    "sessionResumed": "Sesión reanudada.",
+    "sessionCleared": "Sesión limpiada.",
+    "sessionUnavailable": "Todavía no hay una sesión reanudable. Inicia una nueva sesión.",
+    "sessionActive": "Sesión: {sessionId}",
+    "connectBeforeChat": "Completa el onboarding del gateway antes de iniciar el chat.",
+    "emptyMessageError": "Escribe un mensaje antes de enviarlo.",
     "disclaimer": "Corvus Agent puede cometer errores. Verifica la información importante."
   },
   "webhook": {

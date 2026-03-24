@@ -46,13 +46,9 @@ import androidx.compose.ui.unit.dp
 import com.profiletailors.corvus.ui.theme.CorvusColorPalette
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 
-// ============================================================================
-// Corvus Chat - Futuristic Tech UI Components
-// ============================================================================
-
 internal val ChatPanelShape = RoundedCornerShape(20.dp)
 internal val ConfigPanelShape = RoundedCornerShape(20.dp)
-internal val EndpointCardShape = RoundedCornerShape(16.dp)
+internal val DiagnosticsCardShape = RoundedCornerShape(16.dp)
 internal val ChatBubbleShape = RoundedCornerShape(18.dp)
 
 @Immutable data class ChatMessage(val id: Int, val role: ChatRole, val content: String)
@@ -239,6 +235,7 @@ fun ChatInputField(
   onSend: () -> Unit,
   placeholder: String,
   modifier: Modifier = Modifier,
+  enabled: Boolean = true,
 ) {
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
@@ -246,7 +243,7 @@ fun ChatInputField(
     remember(corvusColors.gradientPrimary) {
       Brush.horizontalGradient(corvusColors.gradientPrimary)
     }
-  val isEnabled = value.trim().isNotBlank()
+  val isEnabled = enabled && value.trim().isNotBlank()
 
   Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
     Surface(
@@ -259,6 +256,7 @@ fun ChatInputField(
         value = value,
         onValueChange = onValueChange,
         modifier = Modifier.fillMaxWidth(),
+        enabled = enabled,
         placeholder = {
           Text(text = placeholder, color = colors.onSurfaceVariant.copy(alpha = 0.6f))
         },
@@ -268,6 +266,8 @@ fun ChatInputField(
             unfocusedBorderColor = Color.Transparent,
             focusedTextColor = colors.onSurface,
             unfocusedTextColor = colors.onSurface,
+            disabledBorderColor = Color.Transparent,
+            disabledTextColor = colors.onSurfaceVariant,
           ),
         maxLines = 4,
         textStyle = TextStyle(fontFamily = FontFamily.SansSerif),
@@ -303,17 +303,17 @@ fun ChatInputField(
 }
 
 @Composable
-fun StatusIndicator(configured: Boolean, modifier: Modifier = Modifier) {
+fun StatusIndicator(active: Boolean, label: String, modifier: Modifier = Modifier) {
   val corvusColors = CorvusTheme.colors
   val color by
     animateColorAsState(
-      targetValue = if (configured) corvusColors.connected else corvusColors.disconnected,
+      targetValue = if (active) corvusColors.connected else corvusColors.disconnected,
       animationSpec = tween(300),
       label = "statusColor",
     )
   val glowAlpha by
     animateFloatAsState(
-      targetValue = if (configured) 0.6f else 0.2f,
+      targetValue = if (active) 0.6f else 0.2f,
       animationSpec = tween(300),
       label = "glowAlpha",
     )
@@ -327,7 +327,7 @@ fun StatusIndicator(configured: Boolean, modifier: Modifier = Modifier) {
     )
     Spacer(modifier = Modifier.width(8.dp))
     Text(
-      text = if (configured) "Configured" else "Not configured",
+      text = label,
       style = MaterialTheme.typography.labelSmall,
       color = color,
       fontWeight = FontWeight.Medium,
@@ -336,7 +336,12 @@ fun StatusIndicator(configured: Boolean, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun ChatHeader(modelName: String, showConfig: Boolean, onToggleConfig: () -> Unit) {
+fun ChatHeader(
+  modelName: String,
+  bridgeState: MobileBridgeUiState,
+  showConfig: Boolean,
+  onToggleConfig: () -> Unit,
+) {
   val corvusColors = CorvusTheme.colors
 
   Row(
@@ -352,7 +357,8 @@ fun ChatHeader(modelName: String, showConfig: Boolean, onToggleConfig: () -> Uni
         color = MaterialTheme.colorScheme.onBackground,
       )
       Text(
-        text = if (showConfig) "Gateway Configuration" else "Always-on AI Agent",
+        text =
+          if (showConfig) bridgeStateHeadline(bridgeState) else bridgeStateDescription(bridgeState),
         style = MaterialTheme.typography.labelMedium,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
@@ -379,21 +385,46 @@ fun ChatHeader(modelName: String, showConfig: Boolean, onToggleConfig: () -> Uni
 }
 
 @Composable
-fun endpointCard(title: String, subtitle: String, details: List<String>) {
+fun BridgeStatusCard(bridgeState: MobileBridgeUiState, modifier: Modifier = Modifier) {
+  val description = bridgeStateDescription(bridgeState)
+  val recovery = bridgeStateRecovery(bridgeState)
+  val details = buildList {
+    add(description)
+    if (description != recovery) {
+      add(recovery)
+    }
+  }
+
+  diagnosticsCard(
+    title = onboardingStateLabel(bridgeState.onboardingState),
+    subtitle = bridgeStateHeadline(bridgeState),
+    details = details,
+    modifier = modifier,
+  )
+}
+
+@Composable
+fun diagnosticsCard(
+  title: String,
+  subtitle: String,
+  details: List<String>,
+  modifier: Modifier = Modifier,
+) {
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
 
   Box(
     modifier =
-      Modifier.fillMaxWidth()
+      modifier
+        .fillMaxWidth()
         .shadow(
           elevation = 4.dp,
-          shape = EndpointCardShape,
+          shape = DiagnosticsCardShape,
           spotColor = corvusColors.glowPurple.copy(alpha = 0.1f),
         )
   ) {
     Surface(
-      shape = EndpointCardShape,
+      shape = DiagnosticsCardShape,
       color = corvusColors.glassSurface,
       border = BorderStroke(1.dp, corvusColors.glassOverlay),
     ) {
@@ -420,7 +451,6 @@ fun endpointCard(title: String, subtitle: String, details: List<String>) {
         Text(
           text = subtitle,
           style = MaterialTheme.typography.bodySmall,
-          fontFamily = FontFamily.Monospace,
           color = colors.onSurfaceVariant,
         )
         details.forEach { line ->
@@ -435,20 +465,61 @@ fun endpointCard(title: String, subtitle: String, details: List<String>) {
   }
 }
 
-internal fun endpointUrl(baseUrl: String, path: String): String {
-  val normalizedBase = baseUrl.trim().removeSuffix("/")
-  if (normalizedBase.isEmpty()) {
-    return path
+internal fun onboardingStateLabel(onboardingState: MobileOnboardingState): String =
+  when (onboardingState.status) {
+    MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "Runtime available"
+    MobileOnboardingStatus.TRUST_PENDING -> "Trust this surface"
+    MobileOnboardingStatus.TRANSPORT_CONNECTING -> "Connect to runtime"
+    MobileOnboardingStatus.SESSION_PENDING -> "Session pending"
+    MobileOnboardingStatus.SESSION_READY -> "Session ready"
+    MobileOnboardingStatus.BLOCKED -> "Recovery required"
   }
-  return "$normalizedBase$path"
-}
+
+internal fun bridgeStateHeadline(bridgeState: MobileBridgeUiState): String =
+  when (bridgeState.onboardingState.status) {
+    MobileOnboardingStatus.TRUST_PENDING -> "Link this app to local Corvus"
+    MobileOnboardingStatus.SESSION_PENDING -> "Bridge linked. Start or resume a session next."
+    MobileOnboardingStatus.SESSION_READY -> "Linked session ready on ${bridgeState.platformName}"
+    MobileOnboardingStatus.BLOCKED -> "Bridge attention needed on ${bridgeState.platformName}"
+    MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "Runtime path confirmed"
+    MobileOnboardingStatus.TRANSPORT_CONNECTING -> "Connecting to runtime"
+  }
+
+internal fun bridgeStateDescription(bridgeState: MobileBridgeUiState): String =
+  when (bridgeState.onboardingState.status) {
+    MobileOnboardingStatus.TRUST_PENDING ->
+      "Complete mobile linking before Corvus can trust this surface."
+    MobileOnboardingStatus.SESSION_PENDING ->
+      "The bridge can reach Corvus. Create or resume a chat session to continue."
+    MobileOnboardingStatus.SESSION_READY ->
+      "Messages now flow through the local CLI bridge instead of HTTP pairing."
+    MobileOnboardingStatus.BLOCKED -> bridgeStateRecovery(bridgeState)
+    else -> "Corvus keeps mobile trust, transport, and session steps separate."
+  }
+
+internal fun bridgeStateRecovery(bridgeState: MobileBridgeUiState): String =
+  when (bridgeState.onboardingState.recoveryKind) {
+    MobileRecoveryKind.RUNTIME_UNAVAILABLE ->
+      "Make sure the Corvus CLI or approved companion path is running, then retry."
+    MobileRecoveryKind.LINKED_BUT_NOT_SESSION_READY ->
+      "The app is linked, but session operations are still unavailable. Retry the bridge check."
+    MobileRecoveryKind.ENVIRONMENT_UNSUPPORTED ->
+      "This environment needs the approved companion path. Do not switch to HTTP pairing here."
+    null ->
+      when (bridgeState.onboardingState.status) {
+        MobileOnboardingStatus.TRUST_PENDING ->
+          "Linking is the trust step for mobile. Pairing codes and bearer tokens stay on web surfaces."
+        MobileOnboardingStatus.SESSION_PENDING ->
+          "Start a session after the bridge confirms Corvus is reachable and session-capable."
+        else -> "No recovery action needed."
+      }
+  }
 
 internal fun buildLocalAssistantReply(
   prompt: String,
   modelName: String,
-  gateway: AgentGatewayConfig,
+  bridgeState: MobileBridgeUiState,
 ): String {
-  val webhook = endpointUrl(gateway.baseUrl, "/webhook")
-  val authState = if (gateway.bearerToken.isBlank()) "sin token" else "con token"
-  return "[$modelName] Recibido: \"$prompt\". Endpoint objetivo: $webhook ($authState)."
+  val sessionLabel = bridgeState.snapshot.sessionId ?: "pending-session"
+  return "[$modelName] Received \"$prompt\" through the local bridge for session $sessionLabel."
 }

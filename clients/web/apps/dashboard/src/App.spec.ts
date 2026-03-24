@@ -4,7 +4,11 @@ import { nextTick, reactive, ref } from "vue";
 import { createI18n } from "vue-i18n";
 
 import App from "@/App.vue";
-import type { QuickPairState } from "@/composables/useConfig";
+import type {
+  DashboardOnboardingState,
+  DashboardOnboardingStep,
+  QuickPairState,
+} from "@/composables/useConfig";
 import { i18nConfig } from "@/i18n";
 import { createAdminConfigForm } from "@/test/adminConfigFormFactory";
 
@@ -117,8 +121,53 @@ function createMockConfig(
     errorMessage?: string;
     webhookSecretExists?: boolean;
     sectionSaving?: Partial<Record<string, boolean>>;
+    onboardingState?: DashboardOnboardingState;
+    onboardingSteps?: DashboardOnboardingStep[];
+    isOperatorReady?: boolean;
   } = {}
 ) {
+  const onboardingState =
+    overrides.onboardingState ??
+    ({
+      surfaceId: "web_dashboard",
+      state: "trust_pending",
+      trustMode: "http_paired",
+      transportMode: "http_gateway",
+      recoveryKind: null,
+      canRetry: false,
+      canResume: false,
+      persistsPairingCode: false,
+      persistsBearerToken: false,
+    } satisfies DashboardOnboardingState);
+  const onboardingSteps =
+    overrides.onboardingSteps ??
+    ([
+      {
+        key: "runtime",
+        titleKey: "onboarding.steps.runtime.title",
+        descriptionKey: "onboarding.steps.runtime.description",
+        status: "current",
+      },
+      {
+        key: "trust",
+        titleKey: "onboarding.steps.trust.title",
+        descriptionKey: "onboarding.steps.trust.description",
+        status: "pending",
+      },
+      {
+        key: "connect",
+        titleKey: "onboarding.steps.connect.title",
+        descriptionKey: "onboarding.steps.connect.description",
+        status: "pending",
+      },
+      {
+        key: "ready",
+        titleKey: "onboarding.steps.ready.title",
+        descriptionKey: "onboarding.steps.ready.description",
+        status: "pending",
+      },
+    ] satisfies DashboardOnboardingStep[]);
+
   return {
     baseUrl: ref("/api"),
     pairingCode: ref(""),
@@ -147,6 +196,9 @@ function createMockConfig(
     observabilityBackendOptions: ref(["none", "otel"]),
     runtimeKindOptions: ref(["native", "docker"]),
     autonomyLevelOptions: ref(["readonly", "supervised", "full"]),
+    onboardingState: ref(onboardingState),
+    onboardingSteps: ref(onboardingSteps),
+    isOperatorReady: ref(overrides.isOperatorReady ?? false),
     pairGateway: vi.fn(async () => true),
     connectGateway: vi.fn(async () => true),
     saveSection: vi.fn(async () => undefined),
@@ -176,10 +228,12 @@ describe("Dashboard App", () => {
     );
 
     expect(wrapper.text()).toContain("Configuración segura del gateway");
-    expect(wrapper.text()).toContain("Autenticación");
+    expect(wrapper.text()).toContain("Onboarding del dashboard");
+    expect(wrapper.text()).toContain("Runtime disponible");
     expect(wrapper.text()).toContain("Secret actual: configurado");
     expect(wrapper.findAll("input")).toHaveLength(3);
     expect(wrapper.findAll("[data-section]")).toHaveLength(7);
+    expect(wrapper.findAll(".onboarding-step")).toHaveLength(4);
   });
 
   it("shows quick-pair progress states and hides auth controls while connecting", async () => {
@@ -200,10 +254,48 @@ describe("Dashboard App", () => {
       createMockConfig({
         quickPairState: "failed",
         errorMessage: "No se pudo conectar",
+        onboardingState: {
+          surfaceId: "web_dashboard",
+          state: "blocked",
+          trustMode: "http_paired",
+          transportMode: "http_gateway",
+          recoveryKind: "paired_but_not_connected",
+          canRetry: true,
+          canResume: true,
+          persistsPairingCode: false,
+          persistsBearerToken: true,
+        },
+        onboardingSteps: [
+          {
+            key: "runtime",
+            titleKey: "onboarding.steps.runtime.title",
+            descriptionKey: "onboarding.steps.runtime.description",
+            status: "complete",
+          },
+          {
+            key: "trust",
+            titleKey: "onboarding.steps.trust.title",
+            descriptionKey: "onboarding.steps.trust.description",
+            status: "complete",
+          },
+          {
+            key: "connect",
+            titleKey: "onboarding.steps.connect.title",
+            descriptionKey: "onboarding.steps.connect.description",
+            status: "blocked",
+          },
+          {
+            key: "ready",
+            titleKey: "onboarding.steps.ready.title",
+            descriptionKey: "onboarding.steps.ready.description",
+            status: "pending",
+          },
+        ],
       })
     );
 
     expect(wrapper.text()).toContain("Falló el emparejamiento rápido");
+    expect(wrapper.text()).toContain("Emparejado pero sin conexión");
     expect(wrapper.text()).toContain("No se pudo conectar");
 
     const buttons = wrapper.findAll("button");
@@ -235,5 +327,53 @@ describe("Dashboard App", () => {
     expect(config.form.default_model).toBe("general-model");
     expect(config.saveSection).toHaveBeenNthCalledWith(1, "general");
     expect(config.saveSection).toHaveBeenNthCalledWith(2, "webhook");
+  });
+
+  it("renders operator-ready completion copy when the dashboard is ready", () => {
+    const { wrapper } = mountApp(
+      createMockConfig({
+        isOperatorReady: true,
+        onboardingState: {
+          surfaceId: "web_dashboard",
+          state: "ready",
+          trustMode: "http_paired",
+          transportMode: "http_gateway",
+          recoveryKind: null,
+          canRetry: false,
+          canResume: true,
+          persistsPairingCode: false,
+          persistsBearerToken: true,
+        },
+        onboardingSteps: [
+          {
+            key: "runtime",
+            titleKey: "onboarding.steps.runtime.title",
+            descriptionKey: "onboarding.steps.runtime.description",
+            status: "complete",
+          },
+          {
+            key: "trust",
+            titleKey: "onboarding.steps.trust.title",
+            descriptionKey: "onboarding.steps.trust.description",
+            status: "complete",
+          },
+          {
+            key: "connect",
+            titleKey: "onboarding.steps.connect.title",
+            descriptionKey: "onboarding.steps.connect.description",
+            status: "complete",
+          },
+          {
+            key: "ready",
+            titleKey: "onboarding.steps.ready.title",
+            descriptionKey: "onboarding.steps.ready.description",
+            status: "complete",
+          },
+        ],
+      })
+    );
+
+    expect(wrapper.text()).toContain("Listo para operar");
+    expect(wrapper.text()).toContain("dashboard completó el emparejamiento");
   });
 });

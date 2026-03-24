@@ -142,10 +142,114 @@ export type QuickPairState =
   | "failed"
   | "connected";
 
+export type DashboardTrustMode = "http_paired";
+export type DashboardTransportMode = "http_gateway";
+export type DashboardIntent = "operator";
+export type DashboardRecoveryKind =
+  | "runtime_unavailable"
+  | "transport_unavailable"
+  | "trust_input_invalid"
+  | "trust_input_expired"
+  | "credential_missing"
+  | "credential_invalid"
+  | "paired_but_not_connected";
+export type DashboardOnboardingStatus =
+  | "intent_selected"
+  | "runtime_path_confirmed"
+  | "trust_pending"
+  | "trust_established"
+  | "transport_connecting"
+  | "ready"
+  | "blocked";
+export type DashboardStepStatus = "pending" | "current" | "complete" | "blocked";
+
+export function dashboardOnboardingTransitionLabel(
+  from: DashboardOnboardingStatus,
+  to: DashboardOnboardingStatus
+): string {
+  return `${from}__to__${to}`;
+}
+
+export function dashboardOnboardingRecoveryLabel(recoveryKind: DashboardRecoveryKind): string {
+  return recoveryKind;
+}
+
+export type DashboardOnboardingState = {
+  surfaceId: "web_dashboard";
+  state: DashboardOnboardingStatus;
+  trustMode: DashboardTrustMode;
+  transportMode: DashboardTransportMode;
+  recoveryKind: DashboardRecoveryKind | null;
+  canRetry: boolean;
+  canResume: boolean;
+  persistsPairingCode: false;
+  persistsBearerToken: boolean;
+};
+
+export type DashboardOnboardingStep = {
+  key: "runtime" | "trust" | "connect" | "ready";
+  titleKey: string;
+  descriptionKey: string;
+  status: DashboardStepStatus;
+};
+
+export type DashboardIntentSelection = {
+  surfaceId: "web_dashboard";
+  intent: DashboardIntent;
+  trustMode: DashboardTrustMode;
+  transportMode: DashboardTransportMode;
+  requiresSessionEntry: false;
+};
+
+export function dashboardOperatorIntentSelection(): DashboardIntentSelection {
+  return {
+    surfaceId: "web_dashboard",
+    intent: "operator",
+    trustMode: "http_paired",
+    transportMode: "http_gateway",
+    requiresSessionEntry: false,
+  };
+}
+
 type PairGatewayOptions = {
   autoConnect?: boolean;
   onBeforeConnect?: () => void;
 };
+
+function createOnboardingState(
+  state: DashboardOnboardingStatus,
+  recoveryKind: DashboardRecoveryKind | null = null,
+  canRetry = false,
+  canResume = false
+): DashboardOnboardingState {
+  return {
+    surfaceId: "web_dashboard",
+    state,
+    trustMode: "http_paired",
+    transportMode: "http_gateway",
+    recoveryKind,
+    canRetry,
+    canResume,
+    persistsPairingCode: false,
+    persistsBearerToken:
+      state === "trust_established" ||
+      state === "transport_connecting" ||
+      state === "ready" ||
+      canResume,
+  };
+}
+
+function parseErrorMessage(payload: unknown): string {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "error" in payload &&
+    typeof payload.error === "string"
+  ) {
+    return payload.error.toLowerCase();
+  }
+  return "";
+}
 
 export function useConfig(t: (key: string, params?: Record<string, unknown>) => string) {
   const baseUrl = ref(DEFAULT_GATEWAY_BASE_URL);
@@ -155,8 +259,21 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   const statusMessage = ref("");
   const errorMessage = ref("");
   const quickPairState = ref<QuickPairState>("idle");
+  const onboardingState = ref<DashboardOnboardingState>(createOnboardingState("trust_pending"));
+  const lastTransitionLabel = ref<string | null>(null);
+  const currentRecoveryLabel = computed(() =>
+    onboardingState.value.recoveryKind
+      ? dashboardOnboardingRecoveryLabel(onboardingState.value.recoveryKind)
+      : null
+  );
   const form = reactive(defaultForm());
   const initialConfig = ref<AdminConfigSnapshot | null>(null);
+  const progress = reactive({
+    runtimeConfirmed: false,
+    trustEstablished: false,
+    transportConnected: false,
+    operatorReady: false,
+  });
   const memoryBackendOptions = ref([
     "sqlite",
     "lucid",
@@ -185,6 +302,61 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       Object.values(sectionSaving).every((value) => !value) &&
       !!bearerToken.value.trim()
   );
+  const isOperatorReady = computed(() => progress.operatorReady);
+  const onboardingSteps = computed<DashboardOnboardingStep[]>(() => {
+    const blockedRecovery =
+      onboardingState.value.state === "blocked" ? onboardingState.value.recoveryKind : null;
+
+    return [
+      {
+        key: "runtime",
+        titleKey: "onboarding.steps.runtime.title",
+        descriptionKey: "onboarding.steps.runtime.description",
+        status: progress.runtimeConfirmed
+          ? "complete"
+          : blockedRecovery === "runtime_unavailable" || blockedRecovery === "transport_unavailable"
+            ? "blocked"
+            : "current",
+      },
+      {
+        key: "trust",
+        titleKey: "onboarding.steps.trust.title",
+        descriptionKey: "onboarding.steps.trust.description",
+        status: progress.trustEstablished
+          ? "complete"
+          : !progress.runtimeConfirmed
+            ? "pending"
+            : blockedRecovery === "trust_input_invalid" ||
+                blockedRecovery === "trust_input_expired" ||
+                blockedRecovery === "credential_missing" ||
+                blockedRecovery === "credential_invalid"
+              ? "blocked"
+              : "current",
+      },
+      {
+        key: "connect",
+        titleKey: "onboarding.steps.connect.title",
+        descriptionKey: "onboarding.steps.connect.description",
+        status: progress.transportConnected
+          ? "complete"
+          : !progress.trustEstablished
+            ? "pending"
+            : blockedRecovery === "paired_but_not_connected"
+              ? "blocked"
+              : "current",
+      },
+      {
+        key: "ready",
+        titleKey: "onboarding.steps.ready.title",
+        descriptionKey: "onboarding.steps.ready.description",
+        status: progress.operatorReady
+          ? "complete"
+          : !progress.transportConnected
+            ? "pending"
+            : "current",
+      },
+    ];
+  });
 
   function trimTrailingSlashes(value: string): string {
     let end = value.length;
@@ -233,6 +405,84 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     initialConfig.value = mapFormToSnapshot(nextForm);
   }
 
+  function updateOnboardingState(nextState: DashboardOnboardingState): void {
+    const previousState = onboardingState.value.state;
+    onboardingState.value = nextState;
+    lastTransitionLabel.value =
+      previousState === nextState.state
+        ? null
+        : dashboardOnboardingTransitionLabel(previousState, nextState.state);
+  }
+
+  function setStableOnboardingState(state: DashboardOnboardingStatus): void {
+    updateOnboardingState(createOnboardingState(state, null, false, progress.trustEstablished));
+  }
+
+  function setBlockedOnboardingState(
+    recoveryKind: DashboardRecoveryKind,
+    canRetry: boolean,
+    canResume: boolean
+  ): void {
+    updateOnboardingState(createOnboardingState("blocked", recoveryKind, canRetry, canResume));
+  }
+
+  function markRuntimeConfirmed(): void {
+    progress.runtimeConfirmed = true;
+    if (!progress.trustEstablished) {
+      setStableOnboardingState("runtime_path_confirmed");
+    }
+  }
+
+  function markTrustEstablished(): void {
+    progress.runtimeConfirmed = true;
+    progress.trustEstablished = true;
+    setStableOnboardingState("trust_established");
+  }
+
+  function markTransportConnecting(): void {
+    progress.runtimeConfirmed = true;
+    if (bearerToken.value.trim()) {
+      progress.trustEstablished = true;
+    }
+    updateOnboardingState(
+      createOnboardingState("transport_connecting", null, false, progress.trustEstablished)
+    );
+  }
+
+  function markOperatorReady(): void {
+    progress.runtimeConfirmed = true;
+    progress.trustEstablished = true;
+    progress.transportConnected = true;
+    progress.operatorReady = true;
+    setStableOnboardingState("ready");
+  }
+
+  function clearCredentialState(recoveryKind: "credential_missing" | "credential_invalid"): void {
+    bearerToken.value = "";
+    progress.trustEstablished = false;
+    progress.transportConnected = false;
+    progress.operatorReady = false;
+    setBlockedOnboardingState(recoveryKind, true, false);
+  }
+
+  function handleTransportFailure(): void {
+    progress.transportConnected = false;
+    progress.operatorReady = false;
+    if (progress.trustEstablished || !!bearerToken.value.trim()) {
+      setBlockedOnboardingState("paired_but_not_connected", true, true);
+    } else {
+      setBlockedOnboardingState("runtime_unavailable", true, false);
+    }
+  }
+
+  async function readJsonPayload(response: Response): Promise<unknown> {
+    try {
+      return await response.json();
+    } catch {
+      return null;
+    }
+  }
+
   async function pairGateway(options?: PairGatewayOptions): Promise<boolean> {
     if (quickPairState.value === "failed") {
       quickPairState.value = "idle";
@@ -257,14 +507,32 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         },
       });
       if (!response.ok) {
-        throw new Error(`HTTP_${response.status}`);
+        markRuntimeConfirmed();
+        const message = parseErrorMessage(await readJsonPayload(response));
+        if (response.status === 410 || message.includes("expired")) {
+          setBlockedOnboardingState("trust_input_expired", true, false);
+          errorMessage.value = t("auth.pairingExpired");
+          return false;
+        }
+        if (response.status === 401 || response.status === 403) {
+          setBlockedOnboardingState("trust_input_invalid", true, false);
+          errorMessage.value = t("auth.pairingInvalid");
+          return false;
+        }
+        setBlockedOnboardingState("transport_unavailable", true, false);
+        errorMessage.value = t("auth.loadError");
+        return false;
       }
       const data = (await response.json()) as { token?: string };
       if (!data.token) {
-        throw new Error("missing-token");
+        markRuntimeConfirmed();
+        setBlockedOnboardingState("transport_unavailable", true, false);
+        errorMessage.value = t("form.pairingMissingTokenError");
+        return false;
       }
       bearerToken.value = data.token;
       pairingCode.value = "";
+      markTrustEstablished();
       statusMessage.value = t("auth.pairSuccess");
 
       if (options?.autoConnect ?? true) {
@@ -274,6 +542,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
 
       return true;
     } catch {
+      setBlockedOnboardingState("runtime_unavailable", true, false);
       errorMessage.value = t("auth.loadError");
       return false;
     } finally {
@@ -295,14 +564,29 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         errorMessage.value = t("errors.insecureUrlError");
         return false;
       }
+      if (bearerToken.value.trim()) {
+        progress.trustEstablished = true;
+      }
+      markTransportConnecting();
       const headers = safeForSecrets ? authHeaders() : { "Content-Type": "application/json" };
 
       const optionsResponse = await fetch(gatewayUrl("/web/admin/options"), {
         method: "GET",
         headers,
       });
+      markRuntimeConfirmed();
+      if (optionsResponse.status === 401 || optionsResponse.status === 403) {
+        const hasBearerToken = !!bearerToken.value.trim();
+        clearCredentialState(hasBearerToken ? "credential_invalid" : "credential_missing");
+        errorMessage.value = t(
+          hasBearerToken ? "auth.credentialInvalid" : "auth.credentialMissing"
+        );
+        return false;
+      }
       if (!optionsResponse.ok) {
-        throw new Error("options");
+        handleTransportFailure();
+        errorMessage.value = t("auth.loadError");
+        return false;
       }
       const options = (await optionsResponse.json()) as AdminOptionsResponse;
       if (Array.isArray(options.memory_backends) && options.memory_backends.length > 0) {
@@ -325,17 +609,31 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         method: "GET",
         headers,
       });
+      if (configResponse.status === 401 || configResponse.status === 403) {
+        const hasBearerToken = !!bearerToken.value.trim();
+        clearCredentialState(hasBearerToken ? "credential_invalid" : "credential_missing");
+        errorMessage.value = t(
+          hasBearerToken ? "auth.credentialInvalid" : "auth.credentialMissing"
+        );
+        return false;
+      }
       if (!configResponse.ok) {
-        throw new Error("config");
+        handleTransportFailure();
+        errorMessage.value = t("auth.loadError");
+        return false;
       }
       const configData = (await configResponse.json()) as AdminConfigResponse;
       if (!configData.config) {
-        throw new Error("missing-config");
+        handleTransportFailure();
+        errorMessage.value = t("auth.loadError");
+        return false;
       }
       setFormValues(mapViewToForm(configData.config));
+      markOperatorReady();
       statusMessage.value = t("auth.connected");
       return true;
     } catch {
+      handleTransportFailure();
       errorMessage.value = t("auth.loadError");
       return false;
     } finally {
@@ -438,6 +736,11 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         headers: authHeaders(),
         body: JSON.stringify(payload),
       });
+      if (response.status === 401 || response.status === 403) {
+        clearCredentialState("credential_invalid");
+        errorMessage.value = t("auth.credentialInvalid");
+        return;
+      }
       if (response.status === 409) {
         const conflict = (await response.json()) as { fields?: string[] };
         const fields = Array.isArray(conflict.fields) ? conflict.fields.join(", ") : "";
@@ -482,6 +785,11 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     runtimeKindOptions,
     autonomyLevelOptions,
     quickPairState,
+    onboardingState,
+    lastTransitionLabel,
+    currentRecoveryLabel,
+    onboardingSteps,
+    isOperatorReady,
     pairGateway,
     connectGateway,
     saveSection,

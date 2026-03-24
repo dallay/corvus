@@ -41,20 +41,31 @@ Constraints:
 - The prompt appears after onboarding summary is complete.
 - The prompt wording clearly states this step is optional.
 
+### RF1A - Dashboard Onboarding Boundary
+
+The dashboard specification SHALL remain the operator-specific source of truth for dashboard
+activation behavior, while aligning its user-visible sequence and terminology to the shared
+onboarding specification.
+
+Constraints:
+
+- The dashboard spec governs only the operator-specific activation slice.
+- Shared onboarding sequence and terminology remain governed by `openspec/specs/onboarding/spec.md`.
+
 ### RF2 - Accepted-Path Activation Guidance
 
-If the user accepts activation, the system shall provide a compact activation guide that includes:
-
-1. Dashboard URL to open.
-2. Gateway status expectation (running/not running) and pairing expectation.
-3. Pairing instructions that use existing secure flow.
-4. Optional browser-open attempt when supported, with non-fatal fallback messaging.
+If the user accepts dashboard activation, the system SHALL provide a compact operator activation
+guide that fits into the canonical onboarding model: confirm runtime availability, complete HTTP
+pairing to acquire a bearer token when required, connect to the gateway, and confirm dashboard-ready
+state.
 
 Constraints:
 
 - Guidance is 3-5 actionable steps.
 - Canonical local defaults are used consistently (`http://corvus.localhost` entrypoint with
   proxied gateway health at `/api/health`).
+- Guidance uses the shared terms `pairing`, `pairing code`, `bearer token`, and `connect to
+  gateway` where applicable.
 
 ### RF3 - Decline Preserves CLI-Only Experience
 
@@ -68,8 +79,8 @@ Constraints:
 
 ### RF4 - Deterministic Diagnosis and Fallback Commands
 
-For accepted activation flow, the system shall classify activation readiness/failure into
-deterministic local states and provide exact manual fallback commands for each state.
+For accepted dashboard activation flow, the system SHALL classify activation readiness or failure
+using the shared onboarding recovery taxonomy before presenting operator-specific fallback commands.
 
 Minimum diagnosis states:
 
@@ -82,6 +93,7 @@ Constraints:
 
 - Diagnosis logic uses bounded checks with explicit timeout limits.
 - Fallback commands are copy-paste ready and avoid insecure direct admin API calls.
+- Printed fallback commands remain copy-paste ready for the operator.
 
 ### RF5 - Resume Later Path
 
@@ -126,8 +138,8 @@ Constraints:
 
 Given interactive onboarding reaches final step,
 When user chooses to activate dashboard now and required local services are available,
-Then system shows 3-5 activation steps, shows canonical URLs, and user can complete pairing via
-standard flow.
+Then system shows 3-5 activation steps using canonical onboarding sequence and terminology,
+shows canonical URLs, and user can complete pairing via standard flow.
 
 ### Scenario B - Decline Activation
 
@@ -140,8 +152,23 @@ Then system exits through unchanged CLI-only path with existing next-step behavi
 Given user accepts activation,
 When deterministic checks detect unavailable prerequisites (for example gateway not running or
 dashboard UI unavailable),
-Then system reports the exact diagnosed state and prints exact manual fallback commands for
-recovery.
+Then system reports the exact diagnosed state mapped to the shared onboarding recovery taxonomy and
+prints exact manual fallback commands for recovery.
+
+### Scenario E - Dashboard activation remains an operator slice of shared onboarding
+
+Given a user reaches the dashboard activation portion of onboarding,
+When the dashboard flow is evaluated,
+Then the dashboard spec MUST govern the operator-specific activation behavior,
+And the shared onboarding spec MUST govern the cross-surface sequence and terminology used around
+that slice.
+
+### Scenario F - Dashboard recovery language matches shared taxonomy
+
+Given the dashboard activation flow diagnoses a blocked or incomplete state,
+When guidance is shown to the user,
+Then the diagnosis MUST map to the shared onboarding recovery taxonomy,
+And the dashboard MAY provide operator-specific commands or next actions within that taxonomy.
 
 ### Scenario D - Resume Later
 
@@ -163,12 +190,15 @@ through the same secure path.
   NFR-S1)
 - AC7: Messaging uses canonical local defaults and avoids insecure direct admin API fallback
   guidance. (RF2, RF4, NFR-S1, NFR-U1)
+- AC8: Dashboard activation remains an operator-specific slice that uses shared onboarding sequence,
+  terminology, and recovery taxonomy. (RF1A, RF2, RF4)
 
 ## Traceability Matrix
 
 | Requirement | Covered By Scenarios | Verified By Acceptance Criteria |
 |-------------|----------------------|---------------------------------|
 | RF1         | A, B                 | AC1                             |
+| RF1A        | E, F                 | AC8                             |
 | RF2         | A, C                 | AC2, AC7                        |
 | RF3         | B                    | AC3                             |
 | RF4         | C                    | AC4, AC7                        |
