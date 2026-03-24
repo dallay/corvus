@@ -1,3 +1,4 @@
+import { computeOnboardingSteps } from "@corvus/shared";
 import { computed, reactive, ref } from "vue";
 
 const DEFAULT_GATEWAY_BASE_URL = "/api";
@@ -164,51 +165,13 @@ export function useGateway(t: (key: string, params?: Record<string, unknown>) =>
     const blockedRecovery =
       onboardingState.value.state === "blocked" ? onboardingState.value.recoveryKind : null;
 
-    return [
-      {
-        key: "runtime",
-        titleKey: "chatOnboarding.steps.runtime.title",
-        descriptionKey: "chatOnboarding.steps.runtime.description",
-        status: progress.runtimeConfirmed
-          ? "complete"
-          : blockedRecovery === "runtime_unavailable" || blockedRecovery === "transport_unavailable"
-            ? "blocked"
-            : "current",
-      },
-      {
-        key: "trust",
-        titleKey: "chatOnboarding.steps.trust.title",
-        descriptionKey: "chatOnboarding.steps.trust.description",
-        status: progress.trustEstablished
-          ? "complete"
-          : !progress.runtimeConfirmed
-            ? "pending"
-            : blockedRecovery === "trust_input_invalid" ||
-                blockedRecovery === "trust_input_expired" ||
-                blockedRecovery === "credential_missing" ||
-                blockedRecovery === "credential_invalid"
-              ? "blocked"
-              : "current",
-      },
-      {
-        key: "connect",
-        titleKey: "chatOnboarding.steps.connect.title",
-        descriptionKey: "chatOnboarding.steps.connect.description",
-        status: progress.transportConnected
-          ? "complete"
-          : !progress.trustEstablished
-            ? "pending"
-            : blockedRecovery === "paired_but_not_connected"
-              ? "blocked"
-              : "current",
-      },
-      {
-        key: "ready",
-        titleKey: "chatOnboarding.steps.ready.title",
-        descriptionKey: "chatOnboarding.steps.ready.description",
-        status: progress.ready ? "complete" : !progress.transportConnected ? "pending" : "current",
-      },
-    ];
+    return computeOnboardingSteps(
+      progress,
+      blockedRecovery,
+      "chatOnboarding.steps",
+      "ready",
+      "ready"
+    ) as WebChatOnboardingStep[];
   });
 
   function trimTrailingSlashes(value: string): string {

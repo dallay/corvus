@@ -1,5 +1,5 @@
+import { computeOnboardingSteps } from "@corvus/shared";
 import { computed, reactive, ref } from "vue";
-
 import { buildPayloadForSection } from "@/composables/configPayload";
 import type {
   AdminConfigForm,
@@ -251,6 +251,24 @@ function parseErrorMessage(payload: unknown): string {
   return "";
 }
 
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.codePointAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return end === value.length ? value : value.slice(0, end);
+}
+
+function trimLeadingSlashes(value: string): string {
+  let start = 0;
+  while (start < value.length && value.codePointAt(start) === 47) {
+    start += 1;
+  }
+  return start === 0 ? value : value.slice(start);
+}
+
+const QUICK_PAIR_HASH_PREFIX = "#/quick-pair?";
+
 export function useConfig(t: (key: string, params?: Record<string, unknown>) => string) {
   const baseUrl = ref(DEFAULT_GATEWAY_BASE_URL);
   const pairingCode = ref("");
@@ -307,72 +325,14 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     const blockedRecovery =
       onboardingState.value.state === "blocked" ? onboardingState.value.recoveryKind : null;
 
-    return [
-      {
-        key: "runtime",
-        titleKey: "onboarding.steps.runtime.title",
-        descriptionKey: "onboarding.steps.runtime.description",
-        status: progress.runtimeConfirmed
-          ? "complete"
-          : blockedRecovery === "runtime_unavailable" || blockedRecovery === "transport_unavailable"
-            ? "blocked"
-            : "current",
-      },
-      {
-        key: "trust",
-        titleKey: "onboarding.steps.trust.title",
-        descriptionKey: "onboarding.steps.trust.description",
-        status: progress.trustEstablished
-          ? "complete"
-          : !progress.runtimeConfirmed
-            ? "pending"
-            : blockedRecovery === "trust_input_invalid" ||
-                blockedRecovery === "trust_input_expired" ||
-                blockedRecovery === "credential_missing" ||
-                blockedRecovery === "credential_invalid"
-              ? "blocked"
-              : "current",
-      },
-      {
-        key: "connect",
-        titleKey: "onboarding.steps.connect.title",
-        descriptionKey: "onboarding.steps.connect.description",
-        status: progress.transportConnected
-          ? "complete"
-          : !progress.trustEstablished
-            ? "pending"
-            : blockedRecovery === "paired_but_not_connected"
-              ? "blocked"
-              : "current",
-      },
-      {
-        key: "ready",
-        titleKey: "onboarding.steps.ready.title",
-        descriptionKey: "onboarding.steps.ready.description",
-        status: progress.operatorReady
-          ? "complete"
-          : !progress.transportConnected
-            ? "pending"
-            : "current",
-      },
-    ];
+    return computeOnboardingSteps(
+      progress,
+      blockedRecovery,
+      "onboarding.steps",
+      "ready",
+      "operatorReady"
+    ) as DashboardOnboardingStep[];
   });
-
-  function trimTrailingSlashes(value: string): string {
-    let end = value.length;
-    while (end > 0 && value.charCodeAt(end - 1) === 47) {
-      end -= 1;
-    }
-    return end === value.length ? value : value.slice(0, end);
-  }
-
-  function trimLeadingSlashes(value: string): string {
-    let start = 0;
-    while (start < value.length && value.charCodeAt(start) === 47) {
-      start += 1;
-    }
-    return start === 0 ? value : value.slice(start);
-  }
 
   function normalizeBaseUrl(): string {
     const normalized = trimTrailingSlashes(baseUrl.value.trim());
@@ -463,6 +423,35 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     progress.transportConnected = false;
     progress.operatorReady = false;
     setBlockedOnboardingState(recoveryKind, true, false);
+  }
+
+  function isAuthRejected(status: number): boolean {
+    return status === 401 || status === 403;
+  }
+
+  function handleAuthRejection(): false {
+    const hasBearerToken = !!bearerToken.value.trim();
+    clearCredentialState(hasBearerToken ? "credential_invalid" : "credential_missing");
+    errorMessage.value = t(hasBearerToken ? "auth.credentialInvalid" : "auth.credentialMissing");
+    return false;
+  }
+
+  function applyAdminOptions(options: AdminOptionsResponse): void {
+    if (Array.isArray(options.memory_backends) && options.memory_backends.length > 0) {
+      memoryBackendOptions.value = options.memory_backends;
+    }
+    if (
+      Array.isArray(options.observability_backends) &&
+      options.observability_backends.length > 0
+    ) {
+      observabilityBackendOptions.value = options.observability_backends;
+    }
+    if (Array.isArray(options.runtime_kinds) && options.runtime_kinds.length > 0) {
+      runtimeKindOptions.value = options.runtime_kinds;
+    }
+    if (Array.isArray(options.autonomy_levels) && options.autonomy_levels.length > 0) {
+      autonomyLevelOptions.value = options.autonomy_levels;
+    }
   }
 
   function handleTransportFailure(): void {
@@ -575,13 +564,8 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         headers,
       });
       markRuntimeConfirmed();
-      if (optionsResponse.status === 401 || optionsResponse.status === 403) {
-        const hasBearerToken = !!bearerToken.value.trim();
-        clearCredentialState(hasBearerToken ? "credential_invalid" : "credential_missing");
-        errorMessage.value = t(
-          hasBearerToken ? "auth.credentialInvalid" : "auth.credentialMissing"
-        );
-        return false;
+      if (isAuthRejected(optionsResponse.status)) {
+        return handleAuthRejection();
       }
       if (!optionsResponse.ok) {
         handleTransportFailure();
@@ -589,33 +573,14 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         return false;
       }
       const options = (await optionsResponse.json()) as AdminOptionsResponse;
-      if (Array.isArray(options.memory_backends) && options.memory_backends.length > 0) {
-        memoryBackendOptions.value = options.memory_backends;
-      }
-      if (
-        Array.isArray(options.observability_backends) &&
-        options.observability_backends.length > 0
-      ) {
-        observabilityBackendOptions.value = options.observability_backends;
-      }
-      if (Array.isArray(options.runtime_kinds) && options.runtime_kinds.length > 0) {
-        runtimeKindOptions.value = options.runtime_kinds;
-      }
-      if (Array.isArray(options.autonomy_levels) && options.autonomy_levels.length > 0) {
-        autonomyLevelOptions.value = options.autonomy_levels;
-      }
+      applyAdminOptions(options);
 
       const configResponse = await fetch(gatewayUrl("/web/admin/config"), {
         method: "GET",
         headers,
       });
-      if (configResponse.status === 401 || configResponse.status === 403) {
-        const hasBearerToken = !!bearerToken.value.trim();
-        clearCredentialState(hasBearerToken ? "credential_invalid" : "credential_missing");
-        errorMessage.value = t(
-          hasBearerToken ? "auth.credentialInvalid" : "auth.credentialMissing"
-        );
-        return false;
+      if (isAuthRejected(configResponse.status)) {
+        return handleAuthRejection();
       }
       if (!configResponse.ok) {
         handleTransportFailure();
@@ -642,11 +607,13 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   }
 
   function initQuickPair() {
-    if (typeof window === "undefined" || !window.location.hash.startsWith("#/quick-pair?")) {
+    if (typeof window === "undefined" || !window.location.hash.startsWith(QUICK_PAIR_HASH_PREFIX)) {
       return;
     }
 
-    const hashParams = new URLSearchParams(window.location.hash.slice(13));
+    const hashParams = new URLSearchParams(
+      window.location.hash.slice(QUICK_PAIR_HASH_PREFIX.length)
+    );
     const qpCode = hashParams.get("pairingCode");
     const qpUrl = hashParams.get("gatewayUrl");
 
@@ -736,9 +703,8 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         headers: authHeaders(),
         body: JSON.stringify(payload),
       });
-      if (response.status === 401 || response.status === 403) {
-        clearCredentialState("credential_invalid");
-        errorMessage.value = t("auth.credentialInvalid");
+      if (isAuthRejected(response.status)) {
+        handleAuthRejection();
         return;
       }
       if (response.status === 409) {

@@ -29,81 +29,101 @@ pub fn chunk_markdown(text: &str, max_tokens: usize) -> Vec<Chunk> {
     let mut chunks = Vec::new();
 
     for (heading, body) in sections {
-        let full = if let Some(ref h) = heading {
-            format!("{h}\n{body}")
-        } else {
-            body.clone()
-        };
-
-        if full.len() <= max_chars {
-            chunks.push(Chunk {
-                index: chunks.len(),
-                content: full.trim().to_string(),
-                heading: heading.clone(),
-            });
-        } else {
-            // Split on paragraphs (blank lines)
-            let paragraphs = split_on_blank_lines(&body);
-            let mut current = heading
-                .as_ref()
-                .map_or_else(String::new, |h| format!("{h}\n"));
-
-            for para in paragraphs {
-                if current.len() + para.len() > max_chars && !current.trim().is_empty() {
-                    chunks.push(Chunk {
-                        index: chunks.len(),
-                        content: current.trim().to_string(),
-                        heading: heading.clone(),
-                    });
-                    current = heading
-                        .as_ref()
-                        .map_or_else(String::new, |h| format!("{h}\n"));
-                }
-
-                if para.len() > max_chars {
-                    // Paragraph too big — split on lines
-                    if !current.trim().is_empty() {
-                        chunks.push(Chunk {
-                            index: chunks.len(),
-                            content: current.trim().to_string(),
-                            heading: heading.clone(),
-                        });
-                        current = heading
-                            .as_ref()
-                            .map_or_else(String::new, |h| format!("{h}\n"));
-                    }
-                    for line_chunk in split_on_lines(&para, max_chars) {
-                        chunks.push(Chunk {
-                            index: chunks.len(),
-                            content: line_chunk.trim().to_string(),
-                            heading: heading.clone(),
-                        });
-                    }
-                } else {
-                    current.push_str(&para);
-                    current.push('\n');
-                }
-            }
-
-            if !current.trim().is_empty() {
-                chunks.push(Chunk {
-                    index: chunks.len(),
-                    content: current.trim().to_string(),
-                    heading: heading.clone(),
-                });
-            }
-        }
+        chunk_section(heading.as_deref(), &body, max_chars, &mut chunks);
     }
 
-    // Filter out empty chunks
+    // Filter out empty chunks and re-index
     chunks.retain(|c| !c.content.is_empty());
-
-    // Re-index
     for (i, chunk) in chunks.iter_mut().enumerate() {
         chunk.index = i;
     }
 
     chunks
+}
+
+/// Build the full text for a section by prepending the heading (if any) to the body.
+fn build_section_text(heading: Option<&str>, body: &str) -> String {
+    if let Some(h) = heading {
+        format!("{h}\n{body}")
+    } else {
+        body.to_string()
+    }
+}
+
+/// Reset `current` buffer to the heading prefix (no temp allocation).
+fn reset_to_heading(current: &mut String, heading: Option<&str>) {
+    current.clear();
+    if let Some(h) = heading {
+        current.push_str(h);
+        current.push('\n');
+    }
+}
+
+/// Return true if `current` contains content beyond just the heading prefix.
+fn has_content_beyond_heading(current: &str, heading: Option<&str>) -> bool {
+    let trimmed = current.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    match heading {
+        Some(h) => trimmed != h.trim(),
+        None => true,
+    }
+}
+
+/// Push a chunk built from `current` buffer, then reset it to the heading prefix.
+/// If the buffer contains only the heading (no body), emit a heading-only chunk
+/// so that sections are never silently dropped.
+fn flush_current(current: &mut String, heading: Option<&str>, chunks: &mut Vec<Chunk>) {
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
+        chunks.push(Chunk {
+            index: chunks.len(),
+            content: trimmed.to_string(),
+            heading: heading.map(String::from),
+        });
+    }
+    reset_to_heading(current, heading);
+}
+
+/// Chunk a single heading+body section into pieces that fit within `max_chars`.
+fn chunk_section(heading: Option<&str>, body: &str, max_chars: usize, chunks: &mut Vec<Chunk>) {
+    let full = build_section_text(heading, body);
+
+    if full.len() <= max_chars {
+        chunks.push(Chunk {
+            index: chunks.len(),
+            content: full.trim().to_string(),
+            heading: heading.map(String::from),
+        });
+        return;
+    }
+
+    let paragraphs = split_on_blank_lines(body);
+    let mut current = String::new();
+    reset_to_heading(&mut current, heading);
+
+    for para in paragraphs {
+        if current.len() + para.len() > max_chars && !current.trim().is_empty() {
+            flush_current(&mut current, heading, chunks);
+        }
+
+        if para.len() > max_chars {
+            flush_current(&mut current, heading, chunks);
+            for line_chunk in split_on_lines(&para, max_chars) {
+                chunks.push(Chunk {
+                    index: chunks.len(),
+                    content: line_chunk.trim().to_string(),
+                    heading: heading.map(String::from),
+                });
+            }
+        } else {
+            current.push_str(&para);
+            current.push('\n');
+        }
+    }
+
+    flush_current(&mut current, heading, chunks);
 }
 
 /// Split text into `(heading, body)` sections.

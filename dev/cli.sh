@@ -75,6 +75,7 @@ function activate_caddyfile {
     fi
 
     cp "$source_file" "$ACTIVE_CADDYFILE"
+    return 0
 }
 
 function print_help {

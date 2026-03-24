@@ -169,6 +169,16 @@ fn split_sasl_authenticate_payload(encoded: &str) -> Vec<String> {
     chunks
 }
 
+/// Action returned by `dispatch_irc_command` to communicate state changes back to the listen loop.
+enum IrcAction {
+    None,
+    SetRegistered,
+    SetNick(String),
+    SetSasl(bool),
+    ChannelClosed,
+    Fatal(String),
+}
+
 /// Split a message into lines safe for IRC transmission.
 ///
 /// IRC is a line-based protocol — `\r\n` terminates each command, so any
@@ -184,17 +194,7 @@ fn split_message(message: &str, max_bytes: usize) -> Vec<String> {
 
     // Guard against max_bytes == 0 to prevent infinite loop
     if max_bytes == 0 {
-        let full: String = message
-            .lines()
-            .map(|l| l.trim_end_matches('\r'))
-            .filter(|l| !l.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ");
-        if full.is_empty() {
-            chunks.push(String::new());
-        } else {
-            chunks.push(full);
-        }
+        chunks.push(collapse_to_single_line(message));
         return chunks;
     }
 
@@ -206,31 +206,8 @@ fn split_message(message: &str, max_bytes: usize) -> Vec<String> {
 
         if line.len() <= max_bytes {
             chunks.push(line.to_string());
-            continue;
-        }
-
-        // Line exceeds max_bytes — split at safe UTF-8 boundaries
-        let mut remaining = line;
-        while !remaining.is_empty() {
-            if remaining.len() <= max_bytes {
-                chunks.push(remaining.to_string());
-                break;
-            }
-
-            let mut split_at = max_bytes;
-            while split_at > 0 && !remaining.is_char_boundary(split_at) {
-                split_at -= 1;
-            }
-            if split_at == 0 {
-                // No valid boundary found going backward — advance forward instead
-                split_at = max_bytes;
-                while split_at < remaining.len() && !remaining.is_char_boundary(split_at) {
-                    split_at += 1;
-                }
-            }
-
-            chunks.push(remaining[..split_at].to_string());
-            remaining = &remaining[split_at..];
+        } else {
+            split_line_at_utf8_boundaries(line, max_bytes, &mut chunks);
         }
     }
 
@@ -239,6 +216,52 @@ fn split_message(message: &str, max_bytes: usize) -> Vec<String> {
     }
 
     chunks
+}
+
+/// Collapse all non-empty lines into a single space-separated string.
+fn collapse_to_single_line(message: &str) -> String {
+    let full: String = message
+        .lines()
+        .map(|l| l.trim_end_matches('\r'))
+        .filter(|l| !l.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if full.is_empty() {
+        String::new()
+    } else {
+        full
+    }
+}
+
+/// Split a single line into chunks at safe UTF-8 char boundaries.
+fn split_line_at_utf8_boundaries(line: &str, max_bytes: usize, chunks: &mut Vec<String>) {
+    let mut remaining = line;
+    while !remaining.is_empty() {
+        if remaining.len() <= max_bytes {
+            chunks.push(remaining.to_string());
+            break;
+        }
+
+        let split_at = find_utf8_split_point(remaining, max_bytes);
+        chunks.push(remaining[..split_at].to_string());
+        remaining = &remaining[split_at..];
+    }
+}
+
+/// Find a safe UTF-8 boundary to split at, preferring backward search from `max_bytes`.
+fn find_utf8_split_point(text: &str, max_bytes: usize) -> usize {
+    let mut split_at = max_bytes;
+    while split_at > 0 && !text.is_char_boundary(split_at) {
+        split_at -= 1;
+    }
+    if split_at == 0 {
+        // No valid boundary found going backward — advance forward instead
+        split_at = max_bytes;
+        while split_at < text.len() && !text.is_char_boundary(split_at) {
+            split_at += 1;
+        }
+    }
+    split_at
 }
 
 /// Configuration for constructing an `IrcChannel`.
@@ -408,6 +431,74 @@ impl IrcChannel {
         Ok(())
     }
 
+    /// Dispatch a single parsed IRC command, returning an action for the listen loop.
+    async fn dispatch_irc_command(
+        &self,
+        msg: &IrcMessage,
+        tx: &mpsc::Sender<ChannelMessage>,
+        registered: bool,
+        sasl_pending: bool,
+        current_nick: &str,
+    ) -> anyhow::Result<IrcAction> {
+        match msg.command.as_str() {
+            "PING" => {
+                let token = msg.params.first().map_or("", String::as_str);
+                self.send_to_writer(&format!("PONG :{token}")).await?;
+            }
+            "CAP" => {
+                let mut sasl = sasl_pending;
+                self.handle_cap_message(msg, sasl_pending, &mut sasl)
+                    .await?;
+                if sasl != sasl_pending {
+                    return Ok(IrcAction::SetSasl(sasl));
+                }
+            }
+            "AUTHENTICATE" => {
+                let mut sasl = sasl_pending;
+                self.handle_authenticate(msg, sasl_pending, current_nick, &mut sasl)
+                    .await?;
+                if sasl != sasl_pending {
+                    return Ok(IrcAction::SetSasl(sasl));
+                }
+            }
+            "903" => {
+                self.send_to_writer("CAP END").await?;
+                return Ok(IrcAction::SetSasl(false));
+            }
+            "904" | "905" | "906" | "907" => {
+                tracing::warn!("IRC SASL authentication failed ({})", msg.command);
+                self.send_to_writer("CAP END").await?;
+                return Ok(IrcAction::SetSasl(false));
+            }
+            "001" => {
+                tracing::info!("IRC registered as {}", current_nick);
+                self.handle_welcome(current_nick).await?;
+                return Ok(IrcAction::SetRegistered);
+            }
+            "433" => {
+                let alt = format!("{current_nick}_");
+                tracing::warn!("IRC nickname {current_nick} is in use, trying {alt}");
+                self.send_to_writer(&format!("NICK {alt}")).await?;
+                return Ok(IrcAction::SetNick(alt));
+            }
+            "PRIVMSG" => {
+                if registered {
+                    let sender_nick = msg.nick().unwrap_or("unknown");
+                    if let Some(channel_msg) = self.parse_privmsg(msg, sender_nick) {
+                        if tx.send(channel_msg).await.is_err() {
+                            return Ok(IrcAction::ChannelClosed);
+                        }
+                    }
+                }
+            }
+            "464" => {
+                return Ok(IrcAction::Fatal("IRC password mismatch".to_string()));
+            }
+            _ => {}
+        }
+        Ok(IrcAction::None)
+    }
+
     /// Create a TLS connection to the IRC server.
     async fn connect(
         &self,
@@ -557,64 +648,27 @@ impl Channel for IrcChannel {
                 continue;
             };
 
-            match msg.command.as_str() {
-                "PING" => {
-                    let token = msg.params.first().map_or("", String::as_str);
-                    self.send_to_writer(&format!("PONG :{token}")).await?;
-                }
+            let action = self
+                .dispatch_irc_command(&msg, &tx, registered, sasl_pending, &current_nick)
+                .await?;
 
-                "CAP" => {
-                    self.handle_cap_message(&msg, sasl_pending, &mut sasl_pending)
-                        .await?;
-                }
-
-                "AUTHENTICATE" => {
-                    self.handle_authenticate(&msg, sasl_pending, &current_nick, &mut sasl_pending)
-                        .await?;
-                }
-
-                "903" => {
-                    sasl_pending = false;
-                    self.send_to_writer("CAP END").await?;
-                }
-
-                "904" | "905" | "906" | "907" => {
-                    tracing::warn!("IRC SASL authentication failed ({})", msg.command);
-                    sasl_pending = false;
-                    self.send_to_writer("CAP END").await?;
-                }
-
-                "001" => {
+            match action {
+                IrcAction::None => {}
+                IrcAction::SetRegistered => {
                     registered = true;
-                    tracing::info!("IRC registered as {}", current_nick);
-                    self.handle_welcome(&current_nick).await?;
                 }
-
-                "433" => {
-                    let alt = format!("{current_nick}_");
-                    tracing::warn!("IRC nickname {current_nick} is in use, trying {alt}");
-                    self.send_to_writer(&format!("NICK {alt}")).await?;
-                    current_nick = alt;
+                IrcAction::SetNick(nick) => {
+                    current_nick = nick;
                 }
-
-                "PRIVMSG" => {
-                    if !registered {
-                        continue;
-                    }
-
-                    let sender_nick = msg.nick().unwrap_or("unknown");
-                    if let Some(channel_msg) = self.parse_privmsg(&msg, sender_nick) {
-                        if tx.send(channel_msg).await.is_err() {
-                            return Ok(());
-                        }
-                    }
+                IrcAction::SetSasl(val) => {
+                    sasl_pending = val;
                 }
-
-                "464" => {
-                    anyhow::bail!("IRC password mismatch");
+                IrcAction::ChannelClosed => {
+                    return Ok(());
                 }
-
-                _ => {}
+                IrcAction::Fatal(msg) => {
+                    anyhow::bail!("{msg}");
+                }
             }
         }
     }
@@ -1071,6 +1125,159 @@ nickname = "bot"
         let json = r#"{"server":"irc.test","nickname":"bot"}"#;
         let parsed: IrcConfig = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.port, 6697);
+    }
+
+    // ── collapse_to_single_line ─────────────────────────────
+
+    #[test]
+    fn collapse_multiline_to_single() {
+        assert_eq!(collapse_to_single_line("a\nb\nc"), "a b c");
+    }
+
+    #[test]
+    fn collapse_skips_empty_lines() {
+        assert_eq!(collapse_to_single_line("a\n\nb"), "a b");
+    }
+
+    #[test]
+    fn collapse_empty_input() {
+        assert_eq!(collapse_to_single_line(""), "");
+    }
+
+    #[test]
+    fn collapse_strips_cr() {
+        assert_eq!(collapse_to_single_line("a\r\nb\r\n"), "a b");
+    }
+
+    // ── find_utf8_split_point ────────────────────────────────
+
+    #[test]
+    fn split_point_ascii() {
+        assert_eq!(find_utf8_split_point("hello", 3), 3);
+    }
+
+    #[test]
+    fn split_point_advances_past_mid_char() {
+        // 'é' is 2 bytes; splitting at byte 1 backs up to 0, then advances forward to 2
+        assert_eq!(find_utf8_split_point("é", 1), 2);
+    }
+
+    #[test]
+    fn split_point_advances_when_backup_fails() {
+        // 4-byte emoji: splitting at 0 would fail backward, must advance
+        let text = "🌍";
+        let point = find_utf8_split_point(text, 0);
+        // Should advance to the first valid boundary (0 or 4)
+        assert!(text.is_char_boundary(point));
+    }
+
+    // ── sasl_cap_action ──────────────────────────────────────
+
+    #[test]
+    fn sasl_cap_action_ack_starts_auth() {
+        let msg = IrcMessage::parse(":server CAP * ACK :sasl").unwrap();
+        assert_eq!(
+            sasl_cap_action(&msg, true),
+            Some(SaslCapAction::StartAuthenticatePlain)
+        );
+    }
+
+    #[test]
+    fn sasl_cap_action_not_pending_returns_none() {
+        let msg = IrcMessage::parse(":server CAP * ACK :sasl").unwrap();
+        assert_eq!(sasl_cap_action(&msg, false), None);
+    }
+
+    #[test]
+    fn sasl_cap_action_non_cap_returns_none() {
+        let msg = IrcMessage::parse("PING :test").unwrap();
+        assert_eq!(sasl_cap_action(&msg, true), None);
+    }
+
+    #[test]
+    fn sasl_cap_action_no_sasl_param_returns_none() {
+        let msg = IrcMessage::parse(":server CAP * ACK :multi-prefix").unwrap();
+        assert_eq!(sasl_cap_action(&msg, true), None);
+    }
+
+    // ── parse_privmsg ────────────────────────────────────────
+
+    #[test]
+    fn parse_privmsg_channel_message_includes_style_prefix() {
+        let ch = IrcChannel::new(IrcChannelConfig {
+            server: "irc.test".into(),
+            port: 6697,
+            nickname: "bot".into(),
+            username: None,
+            channels: vec!["#test".into()],
+            allowed_users: vec!["*".into()],
+            server_password: None,
+            nickserv_password: None,
+            sasl_password: None,
+            verify_tls: true,
+        });
+        let msg = IrcMessage::parse(":alice!a@host PRIVMSG #test :hello").unwrap();
+        let result = ch.parse_privmsg(&msg, "alice");
+        assert!(result.is_some());
+        let cm = result.unwrap();
+        assert_eq!(cm.reply_target, "#test");
+        assert!(cm.content.contains("hello"));
+        assert!(cm.content.contains("[context:"));
+        assert_eq!(cm.channel, "irc");
+    }
+
+    #[test]
+    fn parse_privmsg_dm_uses_sender_as_reply_target() {
+        let ch = IrcChannel::new(IrcChannelConfig {
+            server: "irc.test".into(),
+            port: 6697,
+            nickname: "bot".into(),
+            username: None,
+            channels: vec![],
+            allowed_users: vec!["*".into()],
+            server_password: None,
+            nickserv_password: None,
+            sasl_password: None,
+            verify_tls: true,
+        });
+        let msg = IrcMessage::parse(":alice!a@host PRIVMSG bot :hi there").unwrap();
+        let result = ch.parse_privmsg(&msg, "alice");
+        assert!(result.is_some());
+        let cm = result.unwrap();
+        assert_eq!(cm.reply_target, "alice");
+    }
+
+    #[test]
+    fn parse_privmsg_filters_nickserv() {
+        let ch = make_channel();
+        let msg = IrcMessage::parse(":NickServ!s@host PRIVMSG bot :identify now").unwrap();
+        assert!(ch.parse_privmsg(&msg, "NickServ").is_none());
+    }
+
+    #[test]
+    fn parse_privmsg_filters_unauthorized_user() {
+        let ch = IrcChannel::new(IrcChannelConfig {
+            server: "irc.test".into(),
+            port: 6697,
+            nickname: "bot".into(),
+            username: None,
+            channels: vec![],
+            allowed_users: vec!["alice".into()],
+            server_password: None,
+            nickserv_password: None,
+            sasl_password: None,
+            verify_tls: true,
+        });
+        let msg = IrcMessage::parse(":eve!e@host PRIVMSG #test :spam").unwrap();
+        assert!(ch.parse_privmsg(&msg, "eve").is_none());
+    }
+
+    // ── split_message zero max_bytes ─────────────────────────
+
+    #[test]
+    fn split_message_zero_max_collapses() {
+        let chunks = split_message("a\nb\nc", 0);
+        assert_eq!(chunks, vec!["a b c"]);
     }
 
     // ── Helpers ─────────────────────────────────────────────

@@ -16,6 +16,57 @@ pub struct WhatsAppChannel {
     client: reqwest::Client,
 }
 
+/// Normalize a phone number to E.164 format (ensure leading `+`).
+fn normalize_phone_number(from: &str) -> String {
+    if from.starts_with('+') {
+        from.to_string()
+    } else {
+        format!("+{from}")
+    }
+}
+
+/// Extract text content from a WhatsApp message JSON object.
+/// Returns `None` for non-text messages (image, audio, etc.).
+/// Mask a phone number, showing only the last 4 digits.
+fn mask_phone(phone: &str) -> String {
+    let count = phone.chars().count();
+    if count <= 4 {
+        return "****".to_string();
+    }
+    let visible: String = phone.chars().skip(count - 4).collect();
+    format!("{}{visible}", "*".repeat(count - 4))
+}
+
+fn extract_whatsapp_text_content(msg: &serde_json::Value, from: &str) -> Option<String> {
+    if let Some(text_obj) = msg.get("text") {
+        let body = text_obj
+            .get("body")
+            .and_then(|b| b.as_str())
+            .unwrap_or("")
+            .to_string();
+        Some(body)
+    } else {
+        tracing::debug!(
+            "WhatsApp: skipping non-text message from {}",
+            mask_phone(from)
+        );
+        None
+    }
+}
+
+/// Extract the timestamp from a WhatsApp message, falling back to current time.
+fn extract_whatsapp_timestamp(msg: &serde_json::Value) -> u64 {
+    msg.get("timestamp")
+        .and_then(|t| t.as_str())
+        .and_then(|t| t.parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        })
+}
+
 impl WhatsAppChannel {
     pub fn new(
         access_token: String,
@@ -46,8 +97,6 @@ impl WhatsAppChannel {
     pub fn parse_webhook_payload(&self, payload: &serde_json::Value) -> Vec<ChannelMessage> {
         let mut messages = Vec::new();
 
-        // WhatsApp Cloud API webhook structure:
-        // { "object": "whatsapp_business_account", "entry": [...] }
         let Some(entries) = payload.get("entry").and_then(|e| e.as_array()) else {
             return messages;
         };
@@ -58,78 +107,56 @@ impl WhatsAppChannel {
             };
 
             for change in changes {
-                let Some(value) = change.get("value") else {
-                    continue;
-                };
-
-                // Extract messages array
-                let Some(msgs) = value.get("messages").and_then(|m| m.as_array()) else {
+                let Some(msgs) = change
+                    .get("value")
+                    .and_then(|v| v.get("messages"))
+                    .and_then(|m| m.as_array())
+                else {
                     continue;
                 };
 
                 for msg in msgs {
-                    // Get sender phone number
-                    let Some(from) = msg.get("from").and_then(|f| f.as_str()) else {
-                        continue;
-                    };
-
-                    // Check allowlist
-                    let normalized_from = if from.starts_with('+') {
-                        from.to_string()
-                    } else {
-                        format!("+{from}")
-                    };
-
-                    if !self.is_number_allowed(&normalized_from) {
-                        tracing::warn!(
-                            "WhatsApp: ignoring message from unauthorized number: {normalized_from}. \
-                            Add to allowed_numbers in config.toml, then run `corvus onboard --channels-only`."
-                        );
-                        continue;
+                    if let Some(channel_msg) = self.parse_single_whatsapp_message(msg) {
+                        messages.push(channel_msg);
                     }
-
-                    // Extract text content (support text messages only for now)
-                    let content = if let Some(text_obj) = msg.get("text") {
-                        text_obj
-                            .get("body")
-                            .and_then(|b| b.as_str())
-                            .unwrap_or("")
-                            .to_string()
-                    } else {
-                        // Could be image, audio, etc. — skip for now
-                        tracing::debug!("WhatsApp: skipping non-text message from {from}");
-                        continue;
-                    };
-
-                    if content.is_empty() {
-                        continue;
-                    }
-
-                    // Get timestamp
-                    let timestamp = msg
-                        .get("timestamp")
-                        .and_then(|t| t.as_str())
-                        .and_then(|t| t.parse::<u64>().ok())
-                        .unwrap_or_else(|| {
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs()
-                        });
-
-                    messages.push(ChannelMessage {
-                        id: Uuid::new_v4().to_string(),
-                        reply_target: normalized_from.clone(),
-                        sender: normalized_from,
-                        content,
-                        channel: "whatsapp".to_string(),
-                        timestamp,
-                    });
                 }
             }
         }
 
         messages
+    }
+
+    /// Parse a single WhatsApp message JSON object into a `ChannelMessage`.
+    /// Returns `None` if the message should be skipped.
+    fn parse_single_whatsapp_message(&self, msg: &serde_json::Value) -> Option<ChannelMessage> {
+        let from = msg.get("from").and_then(|f| f.as_str())?;
+
+        let normalized_from = normalize_phone_number(from);
+
+        if !self.is_number_allowed(&normalized_from) {
+            tracing::warn!(
+                "WhatsApp: ignoring message from unauthorized number: {}. \
+                Add to allowed_numbers in config.toml, then run `corvus onboard --channels-only`.",
+                mask_phone(&normalized_from),
+            );
+            return None;
+        }
+
+        let content = extract_whatsapp_text_content(msg, from)?;
+        if content.is_empty() {
+            return None;
+        }
+
+        let timestamp = extract_whatsapp_timestamp(msg);
+
+        Some(ChannelMessage {
+            id: Uuid::new_v4().to_string(),
+            reply_target: normalized_from.clone(),
+            sender: normalized_from,
+            content,
+            channel: "whatsapp".to_string(),
+            timestamp,
+        })
     }
 }
 
@@ -931,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn whatsapp_parse_whitespace_only_message_skipped() {
+    fn whatsapp_parse_whitespace_only_message_preserved() {
         let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
         let payload = serde_json::json!({
             "entry": [{
@@ -1085,6 +1112,71 @@ mod tests {
         let msgs = ch.parse_webhook_payload(&payload);
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].content, "Line 1\nLine 2\nLine 3");
+    }
+
+    // ── mask_phone ────────────────────────────────────────────
+
+    #[test]
+    fn mask_phone_normal_number() {
+        assert_eq!(mask_phone("1234567890"), "******7890");
+    }
+
+    #[test]
+    fn mask_phone_short_number() {
+        assert_eq!(mask_phone("1234"), "****");
+    }
+
+    #[test]
+    fn mask_phone_with_country_code() {
+        // "+15551234567" is 12 chars, last 4 visible = "4567", 8 stars
+        assert_eq!(mask_phone("+15551234567"), "********4567");
+    }
+
+    #[test]
+    fn mask_phone_empty_string() {
+        assert_eq!(mask_phone(""), "****");
+    }
+
+    #[test]
+    fn mask_phone_exactly_four_chars() {
+        assert_eq!(mask_phone("abcd"), "****");
+    }
+
+    #[test]
+    fn mask_phone_five_chars() {
+        assert_eq!(mask_phone("12345"), "*2345");
+    }
+
+    // ── normalize_phone_number ───────────────────────────────
+
+    #[test]
+    fn normalize_phone_adds_plus() {
+        assert_eq!(normalize_phone_number("1234567890"), "+1234567890");
+    }
+
+    #[test]
+    fn normalize_phone_already_has_plus() {
+        assert_eq!(normalize_phone_number("+1234567890"), "+1234567890");
+    }
+
+    // ── extract_whatsapp_timestamp ───────────────────────────
+
+    #[test]
+    fn extract_timestamp_valid() {
+        let msg = serde_json::json!({"timestamp": "1699999999"});
+        assert_eq!(extract_whatsapp_timestamp(&msg), 1_699_999_999);
+    }
+
+    #[test]
+    fn extract_timestamp_missing_falls_back() {
+        let msg = serde_json::json!({});
+        assert!(extract_whatsapp_timestamp(&msg) > 0);
+    }
+
+    #[test]
+    fn extract_timestamp_invalid_falls_back() {
+        let msg = serde_json::json!({"timestamp": "not_a_number"});
+        assert!(extract_whatsapp_timestamp(&msg) > 0);
     }
 
     #[test]

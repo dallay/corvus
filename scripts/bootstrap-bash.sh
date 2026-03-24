@@ -9,4 +9,7 @@ case "${OS:-}" in
       exit 1
     fi
     ;;
+  *)
+    # Non-Windows: bash is assumed available
+    ;;
 esac

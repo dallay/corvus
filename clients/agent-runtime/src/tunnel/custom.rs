@@ -64,45 +64,8 @@ impl Tunnel for CustomTunnel {
         // If a URL pattern is provided, try to extract the public URL from stdout
         if let Some(ref pattern) = self.url_pattern {
             if let Some(stdout) = child.stdout.take() {
-                let mut reader = tokio::io::BufReader::new(stdout).lines();
-                let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(15);
-
-                while tokio::time::Instant::now() < deadline {
-                    let line = tokio::time::timeout(
-                        tokio::time::Duration::from_secs(3),
-                        reader.next_line(),
-                    )
-                    .await;
-
-                    match line {
-                        Ok(Ok(Some(l))) => {
-                            tracing::debug!("custom-tunnel: {l}");
-                            // Simple substring match on the pattern
-                            if l.contains(pattern)
-                                || l.contains("https://")
-                                || l.contains("http://")
-                            {
-                                // Extract URL from the line
-                                if let Some(idx) = l.find("https://") {
-                                    let url_part = &l[idx..];
-                                    let end = url_part
-                                        .find(|c: char| c.is_whitespace())
-                                        .unwrap_or(url_part.len());
-                                    public_url = url_part[..end].to_string();
-                                    break;
-                                } else if let Some(idx) = l.find("http://") {
-                                    let url_part = &l[idx..];
-                                    let end = url_part
-                                        .find(|c: char| c.is_whitespace())
-                                        .unwrap_or(url_part.len());
-                                    public_url = url_part[..end].to_string();
-                                    break;
-                                }
-                            }
-                        }
-                        Ok(Ok(None) | Err(_)) => break,
-                        Err(_) => {}
-                    }
+                if let Some(url) = extract_url_from_child_stdout(stdout, pattern).await {
+                    public_url = url;
                 }
             }
         }
@@ -142,6 +105,69 @@ impl Tunnel for CustomTunnel {
             .ok()
             .and_then(|g| g.as_ref().map(|tp| tp.public_url.clone()))
     }
+}
+
+/// Extract a URL from child process stdout by scanning lines for a pattern or URL prefix.
+async fn extract_url_from_child_stdout(
+    stdout: tokio::process::ChildStdout,
+    pattern: &str,
+) -> Option<String> {
+    let mut reader = tokio::io::BufReader::new(stdout).lines();
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(15);
+
+    while tokio::time::Instant::now() < deadline {
+        let line =
+            tokio::time::timeout(tokio::time::Duration::from_secs(3), reader.next_line()).await;
+
+        match line {
+            Ok(Ok(Some(l))) => {
+                if let Some(url) = try_extract_url_from_line(&l, pattern) {
+                    tracing::debug!("custom-tunnel: extracted URL");
+                    return Some(url);
+                }
+                tracing::debug!("custom-tunnel: [non-url output]");
+            }
+            Ok(Ok(None) | Err(_)) => break,
+            Err(_) => {}
+        }
+    }
+    None
+}
+
+/// Try to extract an http(s) URL from a single line if it matches the pattern.
+/// Finds the pattern position, then looks for the nearest URL that contains
+/// the pattern (searching backwards from the pattern for the URL start).
+fn try_extract_url_from_line(line: &str, pattern: &str) -> Option<String> {
+    let pattern_pos = line.find(pattern)?;
+
+    // Search backwards from pattern_pos for the nearest https:// or http://
+    let before_inclusive = &line[..=pattern_pos.min(line.len() - 1)];
+    for prefix in ["https://", "http://"] {
+        if let Some(idx) = before_inclusive.rfind(prefix) {
+            let url_part = &line[idx..];
+            let end = url_part
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(url_part.len());
+            let url = &url_part[..end];
+            // Ensure the extracted URL actually contains the pattern
+            if url.contains(pattern) {
+                return Some(url.to_string());
+            }
+        }
+    }
+
+    // Also check if URL starts after the pattern position
+    let after_pattern = &line[pattern_pos..];
+    for prefix in ["https://", "http://"] {
+        if let Some(idx) = after_pattern.find(prefix) {
+            let url_part = &after_pattern[idx..];
+            let end = url_part
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(url_part.len());
+            return Some(url_part[..end].to_string());
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -205,6 +231,48 @@ mod tests {
 
         assert_eq!(url, "http://10.1.2.3:4321");
         tunnel.stop().await.unwrap();
+    }
+
+    // ── try_extract_url_from_line ───────────────────────────
+
+    #[test]
+    fn extract_url_https_with_pattern() {
+        let url =
+            try_extract_url_from_line("Forwarding https://abc.ngrok.io -> localhost:8080", "ngrok");
+        assert_eq!(url.as_deref(), Some("https://abc.ngrok.io"));
+    }
+
+    #[test]
+    fn extract_url_http_with_pattern() {
+        let url = try_extract_url_from_line("URL: http://example.com/path", "example");
+        assert_eq!(url.as_deref(), Some("http://example.com/path"));
+    }
+
+    #[test]
+    fn extract_url_no_match() {
+        let url = try_extract_url_from_line("nothing interesting here", "ngrok");
+        assert!(url.is_none());
+    }
+
+    #[test]
+    fn extract_url_stops_at_whitespace() {
+        let url = try_extract_url_from_line("see https://a.com/path more text", "a.com");
+        assert_eq!(url.as_deref(), Some("https://a.com/path"));
+    }
+
+    #[test]
+    fn extract_url_prefers_https_over_http() {
+        // Pattern must match the line; https:// is scanned before http://
+        let url = try_extract_url_from_line("http://a.com https://b.com", "b.com");
+        assert_eq!(url.as_deref(), Some("https://b.com"));
+
+        // When pattern matches and only https present, it is returned
+        let url = try_extract_url_from_line("tunnel: https://b.com ready", "tunnel:");
+        assert_eq!(url.as_deref(), Some("https://b.com"));
+
+        // Pattern not in line → None (enforced)
+        let url = try_extract_url_from_line("http://a.com https://b.com", "whatever");
+        assert_eq!(url, None);
     }
 
     #[tokio::test]

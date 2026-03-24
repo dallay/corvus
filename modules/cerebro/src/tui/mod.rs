@@ -122,6 +122,75 @@ pub async fn start_tui_task(
 }
 
 #[cfg(feature = "tui")]
+fn run_headless(shutdown: &mut watch::Receiver<bool>) {
+    if std::env::var("CEREBRO_TUI_TEST_CRASH").is_ok() {
+        panic!("forced tui crash");
+    }
+    while !*shutdown.borrow() {
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[cfg(feature = "tui")]
+fn init_terminal(
+    init_tx: &mut Option<oneshot::Sender<Result<(), TuiError>>>,
+) -> Result<TerminalGuard, TuiError> {
+    match TerminalGuard::new() {
+        Ok(guard) => {
+            if let Some(tx) = init_tx.take() {
+                let _ = tx.send(Ok(()));
+            }
+            Ok(guard)
+        }
+        Err(err) => {
+            if let Some(tx) = init_tx.take() {
+                let _ = tx.send(Err(TuiError::InitFailed(err.clone())));
+            }
+            Err(TuiError::InitFailed(err))
+        }
+    }
+}
+
+#[cfg(feature = "tui")]
+fn tick_storage(
+    app: &mut TuiApp,
+    storage: &Arc<dyn Storage>,
+    handle: &tokio::runtime::Handle,
+    last_tick: &mut Instant,
+    refresh_interval: &mut Duration,
+    base_ms: u64,
+) {
+    if last_tick.elapsed() < *refresh_interval {
+        return;
+    }
+    match handle.block_on(app.refresh_storage(storage)) {
+        Ok(_) => {
+            *refresh_interval = Duration::from_millis(base_ms.max(50));
+            app.clear_error();
+        }
+        Err(error) => {
+            app.set_error(&error);
+            *refresh_interval = (*refresh_interval * 2).min(Duration::from_secs(5));
+        }
+    }
+    *last_tick = Instant::now();
+}
+
+#[cfg(feature = "tui")]
+fn poll_and_handle_key(app: &mut TuiApp) -> Result<bool, TuiError> {
+    if crossterm::event::poll(Duration::from_millis(50))
+        .map_err(|err| TuiError::EventFailed(err.to_string()))?
+    {
+        if let crossterm::event::Event::Key(key) =
+            crossterm::event::read().map_err(|err| TuiError::EventFailed(err.to_string()))?
+        {
+            return Ok(app.on_key(key));
+        }
+    }
+    Ok(false)
+}
+
+#[cfg(feature = "tui")]
 fn run_tui(
     config: TuiConfig,
     storage: Arc<dyn Storage>,
@@ -134,31 +203,14 @@ fn run_tui(
         panic!("forced tui panic");
     }
 
-    let headless = std::env::var("CEREBRO_TUI_HEADLESS").is_ok();
-    if headless {
+    if std::env::var("CEREBRO_TUI_HEADLESS").is_ok() {
         let _ = init_tx.send(Ok(()));
-        if std::env::var("CEREBRO_TUI_TEST_CRASH").is_ok() {
-            panic!("forced tui crash");
-        }
-        while !*shutdown.borrow() {
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        run_headless(shutdown);
         return Ok(());
     }
 
     let mut init_tx = Some(init_tx);
-    let mut guard = match TerminalGuard::new() {
-        Ok(guard) => guard,
-        Err(err) => {
-            if let Some(tx) = init_tx.take() {
-                let _ = tx.send(Err(TuiError::InitFailed(err.clone())));
-            }
-            return Err(TuiError::InitFailed(err));
-        }
-    };
-    if let Some(tx) = init_tx.take() {
-        let _ = tx.send(Ok(()));
-    }
+    let mut guard = init_terminal(&mut init_tx)?;
 
     if std::env::var("CEREBRO_TUI_TEST_CRASH").is_ok() {
         panic!("forced tui crash");
@@ -179,35 +231,22 @@ fn run_tui(
         }
         app.drop_count = event_stream.drop_count();
 
-        if last_tick.elapsed() >= refresh_interval {
-            match handle.block_on(app.refresh_storage(&storage)) {
-                Ok(_) => {
-                    refresh_interval = Duration::from_millis(config.refresh_ms.max(50));
-                    app.clear_error();
-                }
-                Err(error) => {
-                    app.set_error(&error);
-                    refresh_interval = (refresh_interval * 2).min(Duration::from_secs(5));
-                }
-            }
-            last_tick = Instant::now();
-        }
+        tick_storage(
+            &mut app,
+            &storage,
+            &handle,
+            &mut last_tick,
+            &mut refresh_interval,
+            config.refresh_ms,
+        );
 
         guard
             .terminal
             .draw(|frame| app.draw(frame))
             .map_err(|err| TuiError::RenderFailed(err.to_string()))?;
 
-        if crossterm::event::poll(Duration::from_millis(50))
-            .map_err(|err| TuiError::EventFailed(err.to_string()))?
-        {
-            if let crossterm::event::Event::Key(key) =
-                crossterm::event::read().map_err(|err| TuiError::EventFailed(err.to_string()))?
-            {
-                if app.on_key(key) {
-                    break;
-                }
-            }
+        if poll_and_handle_key(&mut app)? {
+            break;
         }
     }
 

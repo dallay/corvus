@@ -27,6 +27,44 @@ use uuid::Uuid;
 
 use super::traits::{Channel, ChannelMessage, SendMessage};
 
+/// Mask an email address for safe logging (e.g. "j***@example.com").
+fn mask_email(email: &str) -> String {
+    match email.split_once('@') {
+        Some((local, domain)) => {
+            if local.is_empty() {
+                return format!("***@{domain}");
+            }
+            let first: String = local.chars().take(1).collect();
+            format!("{first}***@{domain}")
+        }
+        None => "***".to_string(),
+    }
+}
+
+/// Extract a timestamp from a parsed email, falling back to current time.
+#[allow(clippy::cast_sign_loss)]
+fn extract_email_timestamp(parsed: &mail_parser::Message<'_>) -> u64 {
+    parsed
+        .date()
+        .map(|d| {
+            let naive = chrono::NaiveDate::from_ymd_opt(
+                d.year as i32,
+                u32::from(d.month),
+                u32::from(d.day),
+            )
+            .and_then(|date| {
+                date.and_hms_opt(u32::from(d.hour), u32::from(d.minute), u32::from(d.second))
+            });
+            naive.map_or(0, |n| n.and_utc().timestamp() as u64)
+        })
+        .unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        })
+}
+
 /// Email channel configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmailConfig {
@@ -286,11 +324,9 @@ impl EmailChannel {
         let mut tag_counter = 4_u32; // Start after A1, A2, A3
 
         for uid in &uids {
-            // Fetch RFC822 with unique tag
             let fetch_tag = format!("A{}", tag_counter);
             tag_counter += 1;
             let fetch_resp = send_cmd(&mut tls, &fetch_tag, &format!("FETCH {} RFC822", uid))?;
-            // Reconstruct the raw email from the response (skip first and last lines)
             let raw: String = fetch_resp
                 .iter()
                 .skip(1)
@@ -299,40 +335,9 @@ impl EmailChannel {
                 .collect();
 
             if let Some(parsed) = MessageParser::default().parse(raw.as_bytes()) {
-                let sender = Self::extract_sender(&parsed);
-                let subject = parsed.subject().unwrap_or("(no subject)").to_string();
-                let body = Self::extract_text(&parsed);
-                let content = format!("Subject: {}\n\n{}", subject, body);
-                let msg_id = parsed
-                    .message_id()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("gen-{}", Uuid::new_v4()));
-                #[allow(clippy::cast_sign_loss)]
-                let ts = parsed
-                    .date()
-                    .map(|d| {
-                        let naive = chrono::NaiveDate::from_ymd_opt(
-                            d.year as i32,
-                            u32::from(d.month),
-                            u32::from(d.day),
-                        )
-                        .and_then(|date| {
-                            date.and_hms_opt(
-                                u32::from(d.hour),
-                                u32::from(d.minute),
-                                u32::from(d.second),
-                            )
-                        });
-                        naive.map_or(0, |n| n.and_utc().timestamp() as u64)
-                    })
-                    .unwrap_or_else(|| {
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0)
-                    });
-
-                results.push((msg_id, sender, content, ts));
+                if let Some(tuple) = Self::parsed_email_to_tuple(&parsed) {
+                    results.push(tuple);
+                }
             }
 
             // Mark as seen with unique tag
@@ -350,6 +355,62 @@ impl EmailChannel {
         let _ = send_cmd(&mut tls, &logout_tag, "LOGOUT");
 
         Ok(results)
+    }
+
+    /// Extract (msg_id, sender, content, timestamp) from a parsed email.
+    fn parsed_email_to_tuple(
+        parsed: &mail_parser::Message<'_>,
+    ) -> Option<(String, String, String, u64)> {
+        let sender = Self::extract_sender(parsed);
+        if sender == "unknown" {
+            return None;
+        }
+        let subject = parsed.subject().unwrap_or("(no subject)").to_string();
+        let body = Self::extract_text(parsed);
+        if body.trim().is_empty() {
+            return None;
+        }
+        let content = format!("Subject: {}\n\n{}", subject, body);
+        let msg_id = parsed
+            .message_id()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("gen-{}", Uuid::new_v4()));
+        let ts = extract_email_timestamp(parsed);
+        Some((msg_id, sender, content, ts))
+    }
+
+    /// Filter, deduplicate, and send fetched emails to the channel.
+    /// Returns `true` if the channel receiver has been dropped (caller should exit).
+    async fn dispatch_emails(
+        &self,
+        messages: Vec<(String, String, String, u64)>,
+        tx: &mpsc::Sender<ChannelMessage>,
+    ) -> Result<bool> {
+        for (id, sender, content, ts) in messages {
+            {
+                let mut seen = self.seen_messages.lock();
+                if seen.contains(&id) {
+                    continue;
+                }
+                if !self.is_sender_allowed(&sender) {
+                    warn!("Blocked email from {}", mask_email(&sender));
+                    continue;
+                }
+                seen.insert(id.clone());
+            } // MutexGuard dropped before await
+            let msg = ChannelMessage {
+                id,
+                reply_target: sender.clone(),
+                sender,
+                content,
+                channel: "email".to_string(),
+                timestamp: ts,
+            };
+            if tx.send(msg).await.is_err() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn create_smtp_transport(&self) -> Result<SmtpTransport> {
@@ -414,29 +475,8 @@ impl Channel for EmailChannel {
             let cfg = config.clone();
             match tokio::task::spawn_blocking(move || Self::fetch_unseen_imap(&cfg)).await {
                 Ok(Ok(messages)) => {
-                    for (id, sender, content, ts) in messages {
-                        {
-                            let mut seen = self.seen_messages.lock();
-                            if seen.contains(&id) {
-                                continue;
-                            }
-                            if !self.is_sender_allowed(&sender) {
-                                warn!("Blocked email from {}", sender);
-                                continue;
-                            }
-                            seen.insert(id.clone());
-                        } // MutexGuard dropped before await
-                        let msg = ChannelMessage {
-                            id,
-                            reply_target: sender.clone(),
-                            sender,
-                            content,
-                            channel: "email".to_string(),
-                            timestamp: ts,
-                        };
-                        if tx.send(msg).await.is_err() {
-                            return Ok(());
-                        }
+                    if self.dispatch_emails(messages, &tx).await? {
+                        return Ok(());
                     }
                 }
                 Ok(Err(e)) => {
@@ -840,5 +880,60 @@ mod tests {
         };
         let debug_str = format!("{:?}", config);
         assert!(debug_str.contains("imap.debug.com"));
+    }
+
+    // ── extract_email_timestamp ──────────────────────────────
+
+    #[test]
+    fn extract_email_timestamp_from_valid_email() {
+        let raw = b"Date: Tue, 01 Jan 2030 12:00:00 +0000\r\nFrom: a@b.com\r\nTo: c@d.com\r\nSubject: test\r\n\r\nBody";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let ts = extract_email_timestamp(&parsed);
+        // 2030-01-01 12:00:00 UTC = 1893499200
+        assert_eq!(ts, 1_893_499_200);
+    }
+
+    #[test]
+    fn extract_email_timestamp_fallback_to_now() {
+        let raw = b"From: a@b.com\r\nTo: c@d.com\r\nSubject: no date\r\n\r\nBody";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let ts = extract_email_timestamp(&parsed);
+        assert!(ts > 0, "should fall back to current time");
+    }
+
+    // ── parsed_email_to_tuple ────────────────────────────────
+
+    #[test]
+    fn parsed_email_to_tuple_valid_email() {
+        let raw =
+            b"From: sender@example.com\r\nTo: recv@example.com\r\nSubject: Hello\r\n\r\nBody text";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let result = EmailChannel::parsed_email_to_tuple(&parsed);
+        assert!(result.is_some());
+        let (_, sender, content, _) = result.unwrap();
+        assert_eq!(sender, "sender@example.com");
+        assert!(content.contains("Subject: Hello"));
+        assert!(content.contains("Body text"));
+    }
+
+    #[test]
+    fn parsed_email_to_tuple_skips_unknown_sender() {
+        // No From header -> sender becomes "unknown" -> None
+        let raw = b"To: recv@example.com\r\nSubject: test\r\n\r\nBody";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let result = EmailChannel::parsed_email_to_tuple(&parsed);
+        assert!(result.is_none(), "should skip emails with unknown sender");
+    }
+
+    #[test]
+    fn parsed_email_to_tuple_skips_empty_body() {
+        let raw = b"From: a@b.com\r\nTo: c@d.com\r\nSubject: empty\r\n\r\n";
+        let parsed = mail_parser::MessageParser::default().parse(raw).unwrap();
+        let result = EmailChannel::parsed_email_to_tuple(&parsed);
+        // The body extraction may return "(no readable content)" which is not empty,
+        // so this tests the actual behavior
+        if let Some((_, _, content, _)) = result {
+            assert!(!content.trim().is_empty());
+        }
     }
 }

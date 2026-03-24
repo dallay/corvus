@@ -32,6 +32,59 @@ const MEMORY_MAPS: &[(&str, &str)] = &[
     ),
 ];
 
+/// Build a structured error `ToolResult` with a code and message.
+fn structured_err(code: &str, message: &str) -> ToolResult {
+    ToolResult {
+        success: false,
+        output: String::new(),
+        error: Some(message.to_string()),
+        structured: Some(json!({
+            "code": code,
+            "message": message,
+        })),
+    }
+}
+
+/// Resolve the board name from args, defaulting to the first configured board.
+/// Returns `Ok(Ok(board))` on success, `Ok(Err(ToolResult))` for validation errors.
+fn resolve_board_arg(
+    args: &serde_json::Value,
+    boards: &[String],
+) -> anyhow::Result<Result<String, ToolResult>> {
+    let obj = match args.as_object() {
+        Some(obj) => obj,
+        None => {
+            return Ok(Err(structured_err(
+                "invalid_args",
+                "hardware_memory_map args must be a JSON object",
+            )));
+        }
+    };
+
+    let board = match obj.get("board") {
+        Some(value) => match value.as_str() {
+            Some(b) => b.to_string(),
+            None => {
+                return Ok(Err(structured_err(
+                    "invalid_args",
+                    "'board' must be a string",
+                )));
+            }
+        },
+        None => {
+            if boards.is_empty() {
+                return Ok(Err(structured_err(
+                    "no_peripherals",
+                    "No boards available. Add boards to config.toml [peripherals.boards].",
+                )));
+            }
+            boards[0].clone()
+        }
+    };
+
+    Ok(Ok(board))
+}
+
 /// Tool: report hardware memory map for connected boards.
 pub struct HardwareMemoryMapTool {
     boards: Vec<String>,
@@ -48,90 +101,10 @@ impl HardwareMemoryMapTool {
             .find(|(b, _)| *b == board)
             .map(|(_, m)| *m)
     }
-}
 
-#[async_trait]
-impl Tool for HardwareMemoryMapTool {
-    fn name(&self) -> &str {
-        "hardware_memory_map"
-    }
-
-    fn description(&self) -> &str {
-        "Return the memory map (flash and RAM address ranges) for connected hardware. Use when: user asks for 'upper and lower memory addresses', 'memory map', 'address space', or 'readable addresses'. Returns flash/RAM ranges from datasheets."
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "board": {
-                    "type": "string",
-                    "description": "Optional board name (e.g. nucleo-f401re, arduino-uno). If omitted, returns map for first configured board."
-                }
-            }
-        })
-    }
-
-    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        if self.boards.is_empty() {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(
-                    "No peripherals configured. Add boards to config.toml [peripherals.boards]."
-                        .into(),
-                ),
-                structured: Some(json!({
-                    "code": "no_peripherals",
-                    "message": "No peripherals configured. Add boards to config.toml [peripherals.boards].",
-                })),
-            });
-        }
-
-        let obj = match args.as_object() {
-            Some(obj) => obj,
-            None => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some("hardware_memory_map args must be a JSON object".into()),
-                    structured: Some(json!({
-                        "code": "invalid_args",
-                        "message": "hardware_memory_map args must be a JSON object",
-                    })),
-                });
-            }
-        };
-        let board = match obj.get("board") {
-            Some(value) => match value.as_str() {
-                Some(board) => board.to_string(),
-                None => {
-                    return Ok(ToolResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some("'board' must be a string".into()),
-                        structured: Some(json!({
-                            "code": "invalid_args",
-                            "message": "'board' must be a string",
-                        })),
-                    });
-                }
-            },
-            None => self.boards[0].clone(),
-        };
-
-        if !self.boards.iter().any(|known| known == &board) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(format!(
-                    "Board '{board}' is not configured. Configured boards: {}",
-                    self.boards.join(", ")
-                )),
-                structured: None,
-            });
-        }
-
+    /// Look up the memory map for a board using probe-rs (if available) or static data.
+    /// Returns `(output_text, map_text, source)`.
+    fn lookup_memory_map(&self, board: &str) -> (String, Option<String>, &'static str) {
         let mut output = String::new();
         let mut map_text: Option<String> = None;
         let mut source = "unknown";
@@ -167,7 +140,7 @@ impl Tool for HardwareMemoryMapTool {
         let probe_ok = false;
 
         if !probe_ok {
-            if let Some(map) = self.static_map_for_board(&board) {
+            if let Some(map) = self.static_map_for_board(board) {
                 use std::fmt::Write;
                 let _ = write!(output, "**{board}** (from datasheet):\n{map}");
                 map_text = Some(map.to_string());
@@ -183,12 +156,74 @@ impl Tool for HardwareMemoryMapTool {
             }
         }
 
+        (output, map_text, source)
+    }
+}
+
+#[async_trait]
+impl Tool for HardwareMemoryMapTool {
+    fn name(&self) -> &str {
+        "hardware_memory_map"
+    }
+
+    fn description(&self) -> &str {
+        "Return the memory map (flash and RAM address ranges) for connected hardware. Use when: user asks for 'upper and lower memory addresses', 'memory map', 'address space', or 'readable addresses'. Returns flash/RAM ranges from datasheets."
+    }
+
+    fn parameters_schema(&self) -> serde_json::Value {
+        json!({
+            "type": "object",
+            "properties": {
+                "board": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Optional board name (e.g. nucleo-f401re, arduino-uno). If omitted, returns map for first configured board."
+                }
+            },
+            "additionalProperties": false
+        })
+    }
+
+    async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
+        if self.boards.is_empty() {
+            return Ok(structured_err(
+                "no_peripherals",
+                "No peripherals configured. Add boards to config.toml [peripherals.boards].",
+            ));
+        }
+
+        let board = match resolve_board_arg(&args, &self.boards)? {
+            Ok(b) => b,
+            Err(r) => return Ok(r),
+        };
+
+        if !self.boards.iter().any(|known| known == &board) {
+            let message = format!(
+                "Board '{board}' is not configured. Configured boards: {}",
+                self.boards.join(", ")
+            );
+            return Ok(ToolResult {
+                success: false,
+                output: String::new(),
+                error: Some(message.clone()),
+                structured: Some(json!({
+                    "code": "UNCONFIGURED_BOARD",
+                    "message": message,
+                    "board": board,
+                    "configured_boards": self.boards,
+                })),
+            });
+        }
+
+        let (output, map_text, source) = self.lookup_memory_map(&board);
+
         if map_text.is_none() {
             return Ok(ToolResult {
                 success: false,
                 output,
                 error: Some(format!("No memory map for board '{board}'")),
                 structured: Some(json!({
+                    "code": "NO_MEMORY_MAP",
                     "board": board,
                     "source": source,
                     "map": map_text,
@@ -268,5 +303,105 @@ mod tests {
     fn static_map_arduino() {
         let tool = HardwareMemoryMapTool::new(vec!["arduino-uno".into()]);
         assert!(tool.static_map_for_board("arduino-uno").is_some());
+    }
+
+    #[test]
+    fn parameters_schema_has_additional_properties_false() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let schema = tool.parameters_schema();
+        assert!(schema.is_object());
+        assert_eq!(schema["additionalProperties"], json!(false));
+        assert!(schema["properties"]["board"].is_object());
+    }
+
+    #[tokio::test]
+    async fn unconfigured_board_returns_structured_error() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let result = tool
+            .execute(json!({"board": "unknown-board"}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["code"], "UNCONFIGURED_BOARD");
+        assert_eq!(structured["board"], "unknown-board");
+        assert!(structured["configured_boards"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("nucleo-f401re")));
+    }
+
+    #[tokio::test]
+    async fn no_peripherals_returns_no_peripherals_error() {
+        let tool = HardwareMemoryMapTool::new(vec![]);
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(!result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["code"], "no_peripherals");
+    }
+
+    #[tokio::test]
+    async fn configured_board_returns_memory_map() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let result = tool
+            .execute(json!({"board": "nucleo-f401re"}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert!(result.output.contains("Flash"));
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["board"], "nucleo-f401re");
+        assert_eq!(structured["source"], "datasheet");
+        assert!(structured["map"].as_str().unwrap().contains("0x0800_0000"));
+    }
+
+    #[tokio::test]
+    async fn default_board_when_omitted() {
+        let tool = HardwareMemoryMapTool::new(vec!["arduino-uno".into(), "nucleo-f401re".into()]);
+        let result = tool.execute(json!({})).await.unwrap();
+        assert!(result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["board"], "arduino-uno");
+    }
+
+    #[tokio::test]
+    async fn invalid_args_not_object() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let result = tool.execute(json!("not an object")).await.unwrap();
+        assert!(!result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["code"], "invalid_args");
+    }
+
+    #[tokio::test]
+    async fn board_arg_not_string() {
+        let tool = HardwareMemoryMapTool::new(vec!["nucleo-f401re".into()]);
+        let result = tool.execute(json!({"board": 42})).await.unwrap();
+        assert!(!result.success);
+        let structured = result.structured.as_ref().unwrap();
+        assert_eq!(structured["code"], "invalid_args");
+    }
+
+    #[test]
+    fn lookup_unknown_board_no_map() {
+        let tool = HardwareMemoryMapTool::new(vec!["custom-board".into()]);
+        let (output, map_text, _source) = tool.lookup_memory_map("custom-board");
+        assert!(map_text.is_none());
+        assert!(output.contains("No memory map"));
+    }
+
+    #[test]
+    fn static_map_esp32() {
+        let tool = HardwareMemoryMapTool::new(vec!["esp32".into()]);
+        let map = tool.static_map_for_board("esp32").unwrap();
+        assert!(map.contains("DRAM"));
+        assert!(map.contains("IRAM"));
+    }
+
+    #[test]
+    fn name_and_description() {
+        let tool = HardwareMemoryMapTool::new(vec![]);
+        assert_eq!(tool.name(), "hardware_memory_map");
+        assert!(!tool.description().is_empty());
     }
 }

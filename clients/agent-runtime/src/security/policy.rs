@@ -527,16 +527,7 @@ impl SecurityPolicy {
             return false;
         }
 
-        // Expand tilde for comparison
-        let expanded = if let Some(stripped) = path.strip_prefix("~/") {
-            if let Some(home) = std::env::var("HOME").ok().map(PathBuf::from) {
-                home.join(stripped).to_string_lossy().to_string()
-            } else {
-                path.to_string()
-            }
-        } else {
-            path.to_string()
-        };
+        let expanded = expand_tilde(path);
 
         // Block absolute paths when workspace_only is set
         if self.workspace_only && Path::new(&expanded).is_absolute() {
@@ -544,21 +535,8 @@ impl SecurityPolicy {
         }
 
         // Block forbidden paths using path-component-aware matching
-        let expanded_path = Path::new(&expanded);
-        for forbidden in &self.forbidden_paths {
-            let forbidden_expanded = if let Some(stripped) = forbidden.strip_prefix("~/") {
-                if let Some(home) = std::env::var("HOME").ok().map(PathBuf::from) {
-                    home.join(stripped).to_string_lossy().to_string()
-                } else {
-                    forbidden.clone()
-                }
-            } else {
-                forbidden.clone()
-            };
-            let forbidden_path = Path::new(&forbidden_expanded);
-            if expanded_path.starts_with(forbidden_path) {
-                return false;
-            }
+        if matches_any_forbidden_path(&expanded, &self.forbidden_paths) {
+            return false;
         }
 
         true
@@ -639,6 +617,29 @@ impl SecurityPolicy {
             tracker: ActionTracker::new(),
         }
     }
+}
+
+/// Expand a leading `~/` to the user's home directory.
+fn expand_tilde(path: &str) -> String {
+    if let Some(stripped) = path.strip_prefix("~/") {
+        if let Some(home) = std::env::var("HOME").ok().map(PathBuf::from) {
+            return home.join(stripped).to_string_lossy().to_string();
+        }
+    }
+    path.to_string()
+}
+
+/// Check whether `expanded` path starts with any of the forbidden paths.
+fn matches_any_forbidden_path(expanded: &str, forbidden_paths: &[String]) -> bool {
+    let expanded_path = Path::new(expanded);
+    for forbidden in forbidden_paths {
+        let forbidden_expanded = expand_tilde(forbidden);
+        let forbidden_path = Path::new(&forbidden_expanded);
+        if expanded_path.starts_with(forbidden_path) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(test)]

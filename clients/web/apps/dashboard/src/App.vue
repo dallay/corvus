@@ -56,15 +56,14 @@ const config = useConfig(t);
           </div>
         </li>
       </ol>
-      <div
+      <output
         v-if="config.isOperatorReady.value"
         class="onboarding-banner onboarding-banner-ready"
-        role="status"
         aria-live="polite"
       >
-        <p class="banner-title">{{ t("onboarding.ready.title") }}</p>
-        <p>{{ t("onboarding.ready.description") }}</p>
-      </div>
+        <span class="banner-title">{{ t("onboarding.ready.title") }}</span>
+        <span class="banner-description">{{ t("onboarding.ready.description") }}</span>
+      </output>
       <div
         v-else-if="
           config.onboardingState.value.state === 'blocked' && config.onboardingState.value.recoveryKind
@@ -78,12 +77,12 @@ const config = useConfig(t);
         </p>
         <p>{{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.description`) }}</p>
       </div>
-      <div v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state" role="status" aria-live="polite" aria-atomic="true">
-        <p>{{ t("auth.quickPairValidating") }}</p>
-      </div>
-      <div v-else-if="config.quickPairState.value === 'connecting'" class="quick-pair-state" role="status" aria-live="polite" aria-atomic="true">
-        <p>{{ t("auth.quickPairConnecting") }}</p>
-      </div>
+      <output v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
+        <span>{{ t("auth.quickPairValidating") }}</span>
+      </output>
+      <output v-else-if="config.quickPairState.value === 'connecting'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
+        <span>{{ t("auth.quickPairConnecting") }}</span>
+      </output>
       <div v-else>
         <p v-if="config.quickPairState.value === 'failed'" class="error" role="alert" aria-live="assertive" aria-atomic="true">{{ t("auth.quickPairFailed") }}</p>
         <div class="grid">
@@ -307,7 +306,8 @@ label span {
 }
 
 .onboarding-step p,
-.onboarding-banner p {
+.onboarding-banner span {
+  display: block;
   margin: 6px 0 0;
 }
 
@@ -352,6 +352,7 @@ label span {
 }
 
 .banner-title {
+  display: block;
   font-weight: 600;
 }
 
@@ -367,7 +368,8 @@ label span {
   color: #ef4444;
 }
 
-.quick-pair-state p {
+.quick-pair-state span {
+  display: block;
   margin: 10px 0;
   font-size: 14px;
   color: var(--color-text-secondary);

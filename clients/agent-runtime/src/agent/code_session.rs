@@ -149,7 +149,15 @@ impl CodeSessionResult {
             lines.push(format!("summary: {}", self.summary));
         }
 
-        // Support both new and legacy file fields
+        self.render_files(&mut lines);
+        self.render_commands(&mut lines);
+        self.render_validations(&mut lines);
+        self.render_blockers(&mut lines);
+
+        lines.join("\n")
+    }
+
+    fn render_files(&self, lines: &mut Vec<String>) {
         let file_count = self.changed_files.len() + self.files_changed.len();
         if file_count > 0 {
             lines.push(format!("files_changed: {file_count}"));
@@ -160,12 +168,16 @@ impl CodeSessionResult {
                 lines.push(format!("  modified {f}"));
             }
         }
+    }
 
+    fn render_commands(&self, lines: &mut Vec<String>) {
         let cmd_count = self.commands.len() + self.commands_executed.len();
         if cmd_count > 0 {
             lines.push(format!("commands_executed: {cmd_count}"));
         }
+    }
 
+    fn render_validations(&self, lines: &mut Vec<String>) {
         let all_validations = self.validations.len() + self.validation_outcomes.len();
         if all_validations > 0 {
             let passed_new = self.validations.iter().filter(|v| v.success).count();
@@ -181,15 +193,15 @@ impl CodeSessionResult {
                 lines.push(format!("  {} {}", mark, v.command));
             }
         }
+    }
 
+    fn render_blockers(&self, lines: &mut Vec<String>) {
         if !self.blockers.is_empty() {
             lines.push(format!("blockers: {}", self.blockers.len()));
             for b in &self.blockers {
                 lines.push(format!("  - {b}"));
             }
         }
-
-        lines.join("\n")
     }
 
     /// Convert to a `serde_json::Value` for use as `ToolResult.structured`.
@@ -219,15 +231,7 @@ impl CodeSessionResult {
 
         let block = &output[block_start..];
         let status = parse_field(block, "status")
-            .map(|s| match s.trim().to_ascii_lowercase().as_str() {
-                "success" | "completed" => CodeSessionStatus::Completed,
-                "completed_with_warnings" => CodeSessionStatus::CompletedWithWarnings,
-                "validation_failed" => CodeSessionStatus::ValidationFailed,
-                "blocked" => CodeSessionStatus::Blocked,
-                "budget_exceeded" => CodeSessionStatus::BudgetExceeded,
-                "error" => CodeSessionStatus::Error,
-                _ => CodeSessionStatus::Failed,
-            })
+            .map(|s| parse_status_label(&s))
             .unwrap_or(CodeSessionStatus::Failed);
 
         let summary = parse_field(block, "summary")
@@ -289,6 +293,19 @@ impl CodeSessionResult {
     }
 }
 
+fn parse_status_label(s: &str) -> CodeSessionStatus {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "success" => CodeSessionStatus::Success,
+        "completed" => CodeSessionStatus::Completed,
+        "completed_with_warnings" => CodeSessionStatus::CompletedWithWarnings,
+        "validation_failed" => CodeSessionStatus::ValidationFailed,
+        "blocked" => CodeSessionStatus::Blocked,
+        "budget_exceeded" => CodeSessionStatus::BudgetExceeded,
+        "error" => CodeSessionStatus::Error,
+        _ => CodeSessionStatus::Failed,
+    }
+}
+
 fn parse_command_entry(raw: &str) -> (String, bool) {
     let trimmed = raw.trim();
     let lowered = trimmed.to_ascii_lowercase();
@@ -299,15 +316,17 @@ fn parse_command_entry(raw: &str) -> (String, bool) {
         || lowered.contains("status: failed");
     let success = !is_failure;
 
-    let cleaned = trimmed
-        .strip_prefix("fail:")
-        .or_else(|| trimmed.strip_prefix("failed:"))
-        .or_else(|| trimmed.strip_prefix("error:"))
-        .or_else(|| trimmed.strip_prefix("success:"))
-        .or_else(|| trimmed.strip_prefix("succeeded:"))
-        .unwrap_or(trimmed)
-        .trim()
-        .to_string();
+    let prefixes = ["fail:", "failed:", "error:", "success:", "succeeded:"];
+    let cleaned = prefixes
+        .iter()
+        .find_map(|p| {
+            if lowered.starts_with(p) {
+                Some(trimmed[p.len()..].trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| trimmed.to_string());
 
     (cleaned, success)
 }
@@ -494,6 +513,75 @@ pending_work: []
         assert_eq!(result.session_id, "sess-test");
         assert!(result.changed_files.contains(&"src/lib.rs".to_string()));
         assert!(!result.commands.is_empty());
+    }
+
+    #[test]
+    fn parse_status_label_success_returns_success_not_completed() {
+        assert_eq!(parse_status_label("success"), CodeSessionStatus::Success);
+        assert_ne!(parse_status_label("success"), CodeSessionStatus::Completed);
+    }
+
+    #[test]
+    fn parse_status_label_all_variants() {
+        assert_eq!(
+            parse_status_label("completed"),
+            CodeSessionStatus::Completed
+        );
+        assert_eq!(
+            parse_status_label("completed_with_warnings"),
+            CodeSessionStatus::CompletedWithWarnings
+        );
+        assert_eq!(
+            parse_status_label("validation_failed"),
+            CodeSessionStatus::ValidationFailed
+        );
+        assert_eq!(parse_status_label("blocked"), CodeSessionStatus::Blocked);
+        assert_eq!(
+            parse_status_label("budget_exceeded"),
+            CodeSessionStatus::BudgetExceeded
+        );
+        assert_eq!(parse_status_label("error"), CodeSessionStatus::Error);
+        assert_eq!(
+            parse_status_label("unknown_thing"),
+            CodeSessionStatus::Failed
+        );
+    }
+
+    #[test]
+    fn parse_status_label_case_insensitive() {
+        assert_eq!(parse_status_label("SUCCESS"), CodeSessionStatus::Success);
+        assert_eq!(
+            parse_status_label("  Success  "),
+            CodeSessionStatus::Success
+        );
+    }
+
+    #[test]
+    fn parse_command_entry_success_prefix() {
+        let (cmd, success) = parse_command_entry("success: cargo test");
+        assert_eq!(cmd, "cargo test");
+        assert!(success);
+    }
+
+    #[test]
+    fn parse_command_entry_fail_prefix() {
+        let (cmd, success) = parse_command_entry("fail: cargo clippy");
+        assert_eq!(cmd, "cargo clippy");
+        assert!(!success);
+    }
+
+    #[test]
+    fn parse_command_entry_plain() {
+        let (cmd, success) = parse_command_entry("cargo fmt");
+        assert_eq!(cmd, "cargo fmt");
+        assert!(success);
+    }
+
+    #[test]
+    fn parse_command_entry_uppercase_fail_prefix() {
+        let (cmd, success) = parse_command_entry("FAIL: cargo clippy");
+        assert!(!success);
+        assert_eq!(cmd, "cargo clippy");
     }
 
     #[test]
