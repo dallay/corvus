@@ -47,6 +47,9 @@
 - name: module|containers
   description: Testcontainers, Docker Compose and Buildpack features
   color: "#0366D6"
+- name: module|broken-links
+  description: Issues related to broken links detected by automated checks
+  color: "#0366D6"
 
 # Status (status|)
 ## Triage
