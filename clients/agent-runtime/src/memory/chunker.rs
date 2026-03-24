@@ -50,22 +50,37 @@ fn build_section_text(heading: Option<&str>, body: &str) -> String {
     }
 }
 
-/// Return the heading prefix string used to start each chunk in a section.
-fn heading_prefix(heading: Option<&str>) -> String {
-    heading.map_or_else(String::new, |h| format!("{h}\n"))
+/// Reset `current` buffer to the heading prefix (no temp allocation).
+fn reset_to_heading(current: &mut String, heading: Option<&str>) {
+    current.clear();
+    if let Some(h) = heading {
+        current.push_str(h);
+        current.push('\n');
+    }
+}
+
+/// Return true if `current` contains content beyond just the heading prefix.
+fn has_content_beyond_heading(current: &str, heading: Option<&str>) -> bool {
+    let trimmed = current.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    match heading {
+        Some(h) => trimmed != h.trim(),
+        None => true,
+    }
 }
 
 /// Push a chunk built from `current` buffer, then reset it to the heading prefix.
 fn flush_current(current: &mut String, heading: Option<&str>, chunks: &mut Vec<Chunk>) {
-    if !current.trim().is_empty() {
+    if has_content_beyond_heading(current, heading) {
         chunks.push(Chunk {
             index: chunks.len(),
             content: current.trim().to_string(),
             heading: heading.map(String::from),
         });
     }
-    current.clear();
-    current.push_str(&heading_prefix(heading));
+    reset_to_heading(current, heading);
 }
 
 /// Chunk a single heading+body section into pieces that fit within `max_chars`.
@@ -82,7 +97,8 @@ fn chunk_section(heading: Option<&str>, body: &str, max_chars: usize, chunks: &m
     }
 
     let paragraphs = split_on_blank_lines(body);
-    let mut current = heading_prefix(heading);
+    let mut current = String::new();
+    reset_to_heading(&mut current, heading);
 
     for para in paragraphs {
         if current.len() + para.len() > max_chars && !current.trim().is_empty() {

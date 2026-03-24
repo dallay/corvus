@@ -136,7 +136,7 @@ async fn extract_url_from_child_stdout(
 
 /// Try to extract an http(s) URL from a single line if it matches the pattern.
 fn try_extract_url_from_line(line: &str, pattern: &str) -> Option<String> {
-    if !line.contains(pattern) && !line.contains("https://") && !line.contains("http://") {
+    if !line.contains(pattern) {
         return None;
     }
 
@@ -244,10 +244,17 @@ mod tests {
 
     #[test]
     fn extract_url_prefers_https_over_http() {
-        let url = try_extract_url_from_line("http://a.com https://b.com", "whatever");
-        // Line contains both but finds https:// first via the http(s):// fallback scan
-        // Actually the function checks for the pattern first, then scans for https:// then http://
+        // Pattern must match the line; https:// is scanned before http://
+        let url = try_extract_url_from_line("http://a.com https://b.com", "b.com");
         assert_eq!(url.as_deref(), Some("https://b.com"));
+
+        // When pattern matches and only https present, it is returned
+        let url = try_extract_url_from_line("tunnel: https://b.com ready", "tunnel:");
+        assert_eq!(url.as_deref(), Some("https://b.com"));
+
+        // Pattern not in line → None (enforced)
+        let url = try_extract_url_from_line("http://a.com https://b.com", "whatever");
+        assert_eq!(url, None);
     }
 
     #[tokio::test]

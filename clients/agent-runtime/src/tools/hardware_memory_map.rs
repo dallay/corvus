@@ -71,7 +71,15 @@ fn resolve_board_arg(
                 )));
             }
         },
-        None => boards[0].clone(),
+        None => {
+            if boards.is_empty() {
+                return Ok(Err(structured_err(
+                    "no_peripherals",
+                    "No boards available. Add boards to config.toml [peripherals.boards].",
+                )));
+            }
+            boards[0].clone()
+        }
     };
 
     Ok(Ok(board))
@@ -197,7 +205,7 @@ impl Tool for HardwareMemoryMapTool {
                     self.boards.join(", ")
                 )),
                 structured: Some(json!({
-                    "error_code": "UNCONFIGURED_BOARD",
+                    "code": "UNCONFIGURED_BOARD",
                     "board": board,
                     "configured_boards": self.boards,
                 })),
@@ -311,7 +319,7 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         let structured = result.structured.as_ref().unwrap();
-        assert_eq!(structured["error_code"], "UNCONFIGURED_BOARD");
+        assert_eq!(structured["code"], "UNCONFIGURED_BOARD");
         assert_eq!(structured["board"], "unknown-board");
         assert!(structured["configured_boards"]
             .as_array()

@@ -27,6 +27,20 @@ use uuid::Uuid;
 
 use super::traits::{Channel, ChannelMessage, SendMessage};
 
+/// Mask an email address for safe logging (e.g. "j***@example.com").
+fn mask_email(email: &str) -> String {
+    match email.split_once('@') {
+        Some((local, domain)) => {
+            if local.is_empty() {
+                return format!("***@{domain}");
+            }
+            let first: String = local.chars().take(1).collect();
+            format!("{first}***@{domain}")
+        }
+        None => "***".to_string(),
+    }
+}
+
 /// Extract a timestamp from a parsed email, falling back to current time.
 #[allow(clippy::cast_sign_loss)]
 fn extract_email_timestamp(parsed: &mail_parser::Message<'_>) -> u64 {
@@ -379,7 +393,7 @@ impl EmailChannel {
                     continue;
                 }
                 if !self.is_sender_allowed(&sender) {
-                    warn!("Blocked email from {}", sender);
+                    warn!("Blocked email from {}", mask_email(&sender));
                     continue;
                 }
                 seen.insert(id.clone());

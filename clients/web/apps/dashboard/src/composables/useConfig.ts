@@ -19,7 +19,7 @@ function isTrustedLocalHost(hostname: string): boolean {
 function isUrlSafeForSecrets(rawUrl: string): boolean {
   let parsed: URL;
   try {
-    parsed = rawUrl.startsWith("/") ? new URL(rawUrl, globalThis.location.href) : new URL(rawUrl);
+    parsed = rawUrl.startsWith("/") ? new URL(rawUrl, window.location.href) : new URL(rawUrl);
   } catch {
     return false;
   }
@@ -342,7 +342,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   function gatewayUrl(path: string): string {
     const normalizedBaseUrl = normalizeBaseUrl();
     if (normalizedBaseUrl.startsWith("/")) {
-      return new URL(`${normalizedBaseUrl}${path}`, globalThis.location.origin).toString();
+      return new URL(`${normalizedBaseUrl}${path}`, window.location.origin).toString();
     }
 
     const cleanPath = trimLeadingSlashes(path);
@@ -607,24 +607,17 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   }
 
   function initQuickPair() {
-    if (
-      typeof globalThis.window === "undefined" ||
-      !globalThis.location.hash.startsWith(QUICK_PAIR_HASH_PREFIX)
-    ) {
+    if (typeof window === "undefined" || !window.location.hash.startsWith(QUICK_PAIR_HASH_PREFIX)) {
       return;
     }
 
     const hashParams = new URLSearchParams(
-      globalThis.location.hash.slice(QUICK_PAIR_HASH_PREFIX.length)
+      window.location.hash.slice(QUICK_PAIR_HASH_PREFIX.length)
     );
     const qpCode = hashParams.get("pairingCode");
     const qpUrl = hashParams.get("gatewayUrl");
 
-    globalThis.history.replaceState(
-      null,
-      "",
-      globalThis.location.pathname + globalThis.location.search
-    );
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
 
     if (qpCode && qpUrl) {
       quickPairState.value = "validating";

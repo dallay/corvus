@@ -368,7 +368,8 @@ label span {
   color: #ef4444;
 }
 
-.quick-pair-state p {
+.quick-pair-state span {
+  display: block;
   margin: 10px 0;
   font-size: 14px;
   color: var(--color-text-secondary);

@@ -18,18 +18,15 @@ pub enum ScoutSource {
 }
 
 impl std::str::FromStr for ScoutSource {
-    type Err = std::convert::Infallible;
+    type Err = String;
 
     fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
-        Ok(match s.to_lowercase().as_str() {
-            "github" => Self::GitHub,
-            "clawhub" => Self::ClawHub,
-            "huggingface" | "hf" => Self::HuggingFace,
-            _ => {
-                warn!(source = s, "Unknown scout source, defaulting to GitHub");
-                Self::GitHub
-            }
-        })
+        match s.to_lowercase().as_str() {
+            "github" => Ok(Self::GitHub),
+            "clawhub" => Ok(Self::ClawHub),
+            "huggingface" | "hf" => Ok(Self::HuggingFace),
+            _ => Err(format!("Unknown scout source: {s}")),
+        }
     }
 }
 

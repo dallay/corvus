@@ -106,17 +106,17 @@ fn sensitive_regex_set() -> &'static RegexSet {
 }
 
 /// Parse a category string into `MemoryCategory`.
-/// Returns `Err` for `None` or whitespace-only input.
+/// `None` defaults to `Core`; empty/whitespace-only returns `Err`.
 fn parse_category(cat: Option<&str>) -> Result<MemoryCategory, String> {
-    let s = cat
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .ok_or_else(|| "Missing or empty 'category' parameter".to_string())?;
-    match s.to_ascii_lowercase().as_str() {
-        "core" => Ok(MemoryCategory::Core),
-        "daily" => Ok(MemoryCategory::Daily),
-        "conversation" => Ok(MemoryCategory::Conversation),
-        _ => Ok(MemoryCategory::Custom(s.to_string())),
+    match cat.map(str::trim) {
+        None => Ok(MemoryCategory::Core),
+        Some("") => Err("Empty 'category' parameter".to_string()),
+        Some(s) => match s.to_ascii_lowercase().as_str() {
+            "core" => Ok(MemoryCategory::Core),
+            "daily" => Ok(MemoryCategory::Daily),
+            "conversation" => Ok(MemoryCategory::Conversation),
+            _ => Ok(MemoryCategory::Custom(s.to_string())),
+        },
     }
 }
 

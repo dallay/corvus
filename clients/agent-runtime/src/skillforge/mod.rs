@@ -172,7 +172,13 @@ impl SkillForge {
     async fn run_scouts(&self) -> Vec<ScoutResult> {
         let mut candidates: Vec<ScoutResult> = Vec::new();
         for src in &self.config.sources {
-            let source: ScoutSource = src.parse().unwrap(); // Infallible
+            let source: ScoutSource = match src.parse() {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(source = %src, error = %e, "Skipping unknown scout source");
+                    continue;
+                }
+            };
             match source {
                 ScoutSource::GitHub => {
                     let scout = GitHubScout::new(self.config.github_token.clone());

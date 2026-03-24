@@ -29,11 +29,12 @@ fn normalize_phone_number(from: &str) -> String {
 /// Returns `None` for non-text messages (image, audio, etc.).
 /// Mask a phone number, showing only the last 4 digits.
 fn mask_phone(phone: &str) -> String {
-    if phone.len() <= 4 {
+    let count = phone.chars().count();
+    if count <= 4 {
         return "****".to_string();
     }
-    let visible = &phone[phone.len() - 4..];
-    format!("{}{visible}", "*".repeat(phone.len() - 4))
+    let visible: String = phone.chars().skip(count - 4).collect();
+    format!("{}{visible}", "*".repeat(count - 4))
 }
 
 fn extract_whatsapp_text_content(msg: &serde_json::Value, from: &str) -> Option<String> {

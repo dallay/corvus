@@ -56,6 +56,11 @@ impl TelegramChannel {
             return None;
         }
 
+        let content = msg["text"]
+            .as_str()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())?;
+
         Some(ChannelMessage {
             id: msg["message_id"]
                 .as_i64()
@@ -63,7 +68,7 @@ impl TelegramChannel {
                 .or_else(|| msg["message_id"].as_str().map(|s| s.to_string()))
                 .unwrap_or_else(|| msg["message_id"].to_string()),
             sender,
-            content: msg["text"].as_str().unwrap_or("").to_string(),
+            content: content.to_string(),
             channel: "telegram".into(),
             timestamp: msg["date"].as_u64().unwrap_or(0),
         })

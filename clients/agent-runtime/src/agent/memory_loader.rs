@@ -117,7 +117,16 @@ impl MemoryLoader for CerebroMemoryLoader {
             return Ok(finalize_context(context, added));
         }
 
-        let results = fetch_cerebro_results(&self.config, user_message, self.limit).await?;
+        let results = match fetch_cerebro_results(&self.config, user_message, self.limit).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %e, "Cerebro remote recall failed, using local context");
+                if added || !context.is_empty() {
+                    return Ok(finalize_context(context, added));
+                }
+                return Err(e);
+            }
+        };
         added = append_cerebro_results(&mut context, &results, self.min_relevance_score) || added;
 
         if !added {
@@ -179,12 +188,13 @@ async fn fetch_cerebro_results(
         anyhow::bail!(message);
     }
 
-    let value: serde_json::Value = serde_json::from_str(&response.output)?;
+    let mut value: serde_json::Value = serde_json::from_str(&response.output)?;
     let results = value
-        .get("results")
-        .and_then(serde_json::Value::as_array)
+        .get_mut("results")
+        .and_then(serde_json::Value::as_array_mut)
+        .map(std::mem::take)
         .ok_or_else(|| anyhow::anyhow!("Cerebro response missing results"))?;
-    Ok(results.clone())
+    Ok(results)
 }
 
 /// Append Cerebro remote recall results to the context string.
@@ -209,6 +219,7 @@ fn append_cerebro_results(
         let summary = entry
             .get("summary")
             .and_then(serde_json::Value::as_str)
+            .map(str::trim)
             .filter(|s| !s.is_empty());
         if let Some(summary) = summary {
             if context.is_empty() {
