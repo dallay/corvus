@@ -141,3 +141,45 @@ The boundary:
 
 - [ComposeApp Mobile Contract](./composeapp-mobile.md) — Mobile surface that consumes these contracts
 - [MCP Runtime](../../mcp-runtime/spec.md) — Tool registry contract
+
+## i18n Requirements
+
+**Locale Tier**: Exempt
+**Supported Locales**: N/A
+**Parity Requirement**: None
+**Glossary Compliance**: N/A
+
+### String Externalization
+
+- The shared module is a contracts-only library and is EXEMPT from locale tier classification
+- The shared module MUST NOT contain any user-facing strings
+- The shared module MUST NOT contain locale files or translation resources
+- Type definitions (e.g., `CoreResult.Failure.message`) MUST use English-only technical identifiers
+
+### Parity Testing
+
+- No parity testing required — the shared module contains no locale files
+
+### Design Tokens
+
+- No design token requirements — the shared module contains no UI
+
+### Scenarios
+
+#### Scenario: Shared module contains no user-facing strings
+
+- GIVEN the `modules/agent-core-kmp` module
+- WHEN the module is scanned for user-facing strings
+- THEN zero user-facing strings MUST be found
+- AND all string constants MUST be technical identifiers (API field names, transport names)
+
+### References
+
+- [i18n Governance Specification](../../i18n-governance/spec.md)
+- [Canonical Glossary](../../../glossary/README.md)
+
+## Change History
+
+| Version | Date       | Changes                                                  |
+|---------|------------|----------------------------------------------------------|
+| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Exempt, #278)           |

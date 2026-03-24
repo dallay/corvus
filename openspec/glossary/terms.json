@@ -1,0 +1,135 @@
+{
+  "version": "1.0.0",
+  "terms": {
+    "agent": {
+      "canonical": "Corvus Agent",
+      "definition": "The AI agent powered by the Corvus runtime. The product identity for the assistant personality across all surfaces.",
+      "context": "Always use 'Corvus Agent' (capitalized) in user-facing text. Never refer to the agent generically as a bot or assistant.",
+      "aliases": [],
+      "anti_terms": ["assistant", "bot", "AI", "model"],
+      "locales": {
+        "es": "Agente Corvus"
+      }
+    },
+    "session": {
+      "canonical": "Session",
+      "definition": "A bounded interaction context between a user and the Corvus Agent, identified by a UUID v4.",
+      "context": "Used across all session-capable surfaces. A session groups messages, tool calls, and memory operations into a single interaction unit.",
+      "aliases": [],
+      "anti_terms": ["conversation", "thread", "chat"],
+      "locales": {
+        "es": "Sesión"
+      }
+    },
+    "chat": {
+      "canonical": "Chat",
+      "definition": "The interactive messaging interface where users communicate with the Corvus Agent.",
+      "context": "Refers to the action and surface for real-time messaging. Do not use 'chat' as a noun synonym for 'session'.",
+      "aliases": [],
+      "anti_terms": ["message", "conversation"],
+      "locales": {
+        "es": "Chat"
+      }
+    },
+    "surface": {
+      "canonical": "Surface",
+      "definition": "A client application in the Corvus ecosystem that presents capabilities to users or operators.",
+      "context": "Corvus-specific term for any client interface — web, mobile, CLI, docs, or marketing. Each surface has a defined role and transport.",
+      "aliases": [],
+      "anti_terms": ["app", "client", "frontend", "interface"],
+      "locales": {
+        "es": "Superficie"
+      }
+    },
+    "pairing": {
+      "canonical": "Pair / Pairing",
+      "definition": "The one-time trust exchange where a surface receives credentials to communicate with the Corvus runtime.",
+      "context": "Web surfaces exchange a pairing code for a bearer token. Mobile surfaces perform local linking, but the user-facing term is always 'pairing'. Resolves the mobile 'link' inconsistency.",
+      "aliases": ["pair"],
+      "anti_terms": ["link", "linking", "connect", "bind", "associate"],
+      "locales": {
+        "es": "Emparejamiento"
+      }
+    },
+    "trust": {
+      "canonical": "Trust",
+      "definition": "The onboarding step where a surface is authorized to interact with the Corvus runtime.",
+      "context": "Trust is established during pairing. Once trusted, the surface can communicate over its assigned transport.",
+      "aliases": [],
+      "anti_terms": ["authorize", "approve"],
+      "locales": {
+        "es": "Confianza"
+      }
+    },
+    "runtime": {
+      "canonical": "Runtime",
+      "definition": "The Rust-based Corvus agent execution environment that processes agent loops, tool calls, and memory operations.",
+      "context": "The core backend process. Surfaces never access the runtime directly except the CLI; all others go through a gateway or bridge.",
+      "aliases": [],
+      "anti_terms": ["server", "backend", "engine", "daemon"],
+      "locales": {
+        "es": "Entorno de ejecución"
+      }
+    },
+    "gateway": {
+      "canonical": "Gateway",
+      "definition": "The HTTP API bridge between web surfaces and the Corvus runtime.",
+      "context": "Web clients (chat, dashboard) communicate exclusively through the gateway. Exposes a client-safe subset of runtime capabilities over REST/WebSocket.",
+      "aliases": [],
+      "anti_terms": ["API", "proxy", "server", "relay"],
+      "locales": {
+        "es": "Pasarela"
+      }
+    },
+    "bridge": {
+      "canonical": "Bridge",
+      "definition": "The process-level connection between mobile surfaces and the Corvus runtime via stdin/stdout.",
+      "context": "Mobile clients use the RustCliBridge for runtime communication. The bridge spawns the runtime as a subprocess.",
+      "aliases": [],
+      "anti_terms": ["connector", "adapter", "wrapper"],
+      "locales": {
+        "es": "Puente"
+      }
+    },
+    "onboarding": {
+      "canonical": "Onboarding",
+      "definition": "The first-run setup flow where a surface discovers the runtime, establishes trust, and reaches a ready state.",
+      "context": "All onboarding-capable surfaces implement the canonical onboarding steps. The flow varies by transport but achieves the same outcome.",
+      "aliases": [],
+      "anti_terms": ["setup", "wizard", "first-run", "registration"],
+      "locales": {
+        "es": "Incorporación"
+      }
+    },
+    "tool": {
+      "canonical": "Tool",
+      "definition": "An MCP-registered capability that the Corvus Agent can invoke to perform actions on behalf of the user.",
+      "context": "Tools are registered in the MCP runtime and may require user approval before execution. Displayed in chat and dashboard surfaces.",
+      "aliases": [],
+      "anti_terms": ["function", "action", "command", "skill"],
+      "locales": {
+        "es": "Herramienta"
+      }
+    },
+    "memory": {
+      "canonical": "Memory",
+      "definition": "The agent's persistent knowledge system powered by Cerebro, providing long-term context across sessions.",
+      "context": "Memory is managed through the Cerebro module using MCP tools. Accessible from chat, dashboard, and CLI surfaces.",
+      "aliases": [],
+      "anti_terms": ["context", "history", "recall", "knowledge base"],
+      "locales": {
+        "es": "Memoria"
+      }
+    },
+    "operator": {
+      "canonical": "Operator",
+      "definition": "A human administrator who manages the Corvus runtime, configures surfaces, and monitors system health.",
+      "context": "Operators interact through the CLI and dashboard surfaces. They have elevated privileges compared to end-users.",
+      "aliases": [],
+      "anti_terms": ["admin", "administrator"],
+      "locales": {
+        "es": "Operador"
+      }
+    }
+  }
+}

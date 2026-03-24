@@ -1,6 +1,6 @@
 ---
 doc_id: client-surfaces-capability-matrix
-version: 1.1.0
+version: 1.2.0
 created: 2026-03-21
 status: active
 owner: architecture
@@ -30,15 +30,15 @@ platforms.
 
 ## Capability Matrix
 
-| Surface | Chat | Config | Memory | Tools | Sessions | Admin | Transport |
-|---------|------|--------|--------|-------|----------|-------|-----------|
-| `agent-runtime` (CLI) | Yes | Yes | Yes | Yes | Yes | Yes | Direct |
-| `web/apps/chat` | **Yes** | No | Opt | Opt | Yes | No | Gateway |
-| `web/apps/dashboard` | No | Yes | Yes | Yes | Yes | **Yes** | Gateway |
-| `composeApp` (mobile) | **Yes** | No | Opt | Opt | Yes | No | CLI Bridge |
-| `web/apps/docs` | No | No | No | No | No | No | None |
-| `web/apps/marketing` | No | No | No | No | No | No | None |
-| `composeApp` (shared) | Contracts | Contracts | Contracts | Contracts | Contracts | No | Contracts |
+| Surface | Chat | Config | Memory | Tools | Sessions | Admin | Transport | i18n Tier |
+|---------|------|--------|--------|-------|----------|-------|-----------|-----------|
+| `agent-runtime` (CLI) | Yes | Yes | Yes | Yes | Yes | Yes | Direct | Tier 3 |
+| `web/apps/chat` | **Yes** | No | Opt | Opt | Yes | No | Gateway | **Tier 1** |
+| `web/apps/dashboard` | No | Yes | Yes | Yes | Yes | **Yes** | Gateway | **Tier 1** |
+| `composeApp` (mobile) | **Yes** | No | Opt | Opt | Yes | No | CLI Bridge | **Tier 1** |
+| `web/apps/docs` | No | No | No | No | No | No | None | Tier 2 |
+| `web/apps/marketing` | No | No | No | No | No | No | None | Tier 3 |
+| `composeApp` (shared) | Contracts | Contracts | Contracts | Contracts | Contracts | No | Contracts | Exempt |
 
 **Legend**: `Yes` = Mandatory, `Opt` = Optional, `No` = Out-of-scope, `Contracts` = Type definitions only
 
@@ -304,10 +304,14 @@ The `modules/agent-core-kmp` module has a two-tier structure:
 - [Agent Loop Specification](../agent-loop/spec.md) — Canonical loop behavior
 - [Dashboard Specification](../dashboard/spec.md) — Admin surface contract
 - [Cerebro Specification](../cerebro/spec.md) — Memory system
+- [i18n Governance Specification](../i18n-governance/spec.md) — Locale tiers, parity rules, and terminology governance
+- [Design Token Governance](../design-tokens/spec.md) — Cross-platform visual token naming conventions
+- [Canonical Glossary](../../glossary/README.md) — Product terminology reference
 
 ## Change History
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.2.0 | 2026-03-24 | Added i18n Tier column to capability matrix; cross-references to i18n governance and design token specs |
 | 1.1.0 | 2026-03-24 | Added onboarding alignment and recovery coverage requirements; clarified transport validation during onboarding |
 | 1.0.0 | 2026-03-21 | Initial specification — canonical matrix, transport rules, parity requirements |

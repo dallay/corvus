@@ -131,3 +131,79 @@ UUID-based (e.g., `550e8400-e29b-41d4-a716-446655440000`) for consistency with g
 2. On resume, check session state via bridge
 3. If active, resume conversation
 4. If expired, notify user and offer new session
+
+## i18n Requirements
+
+**Locale Tier**: Tier 1 — Full
+**Supported Locales**: en, es
+**Parity Requirement**: Mandatory — CI-enforced
+**Glossary Compliance**: Mandatory — CI-enforced
+
+### String Externalization
+
+- The surface MUST use Compose Resources (`values/strings.xml`, `values-es/strings.xml`)
+- All UI strings MUST use `stringResource(Res.string.*)` — no hardcoded user-facing strings
+- Translation keys MUST follow the `{domain}.{feature}.{element}` naming convention, adapted to
+  XML `name` attributes using underscores (e.g., `onboarding.pairing.title` →
+  `onboarding_pairing_title`)
+- `AGENT_NAME` MUST be moved from a hardcoded constant to string resources
+- Recovery messages MUST use canonical recovery patterns from the i18n governance spec
+- All product terms MUST match the canonical glossary
+- The inconsistency of "link" MUST be resolved to "pair" per the canonical glossary
+
+### Parity Testing
+
+- The surface MUST implement a Kotlin parity test validating key parity across locale files
+- All `<string name="...">` entries MUST exist in both `strings.xml` and `strings-es.xml`
+- The Gradle parity test MUST pass on every PR that touches locale files
+
+### Design Tokens
+
+- The surface MUST use `CorvusTheme.*` extensions for all visual tokens
+- The surface MUST support light and dark themes via `MaterialTheme` token switching
+- Glass morphism styling MUST use canonical glass tokens via `CorvusTheme`
+- No hardcoded color values MUST exist in composable functions
+
+### Scenarios
+
+#### Scenario: Mobile surface passes i18n audit
+
+- GIVEN the `composeApp` surface
+- WHEN the i18n compliance audit runs
+- THEN all `<string name="...">` entries MUST exist in both `strings.xml` and `strings-es.xml`
+- AND no hardcoded user-facing strings MUST exist in Kotlin/Compose source files
+- AND `AGENT_NAME` MUST be sourced from string resources, not a constant
+- AND the Gradle parity test MUST pass
+
+#### Scenario: Mobile onboarding uses canonical "pair" term
+
+- GIVEN the mobile surface renders the onboarding trust step
+- WHEN the step text is displayed
+- THEN the text MUST use "pair" (en) or "emparejar" (es)
+- AND the text MUST NOT use "link" (the current inconsistency MUST be resolved)
+
+#### Scenario: Mobile XML key naming convention
+
+- GIVEN the Compose resource format uses XML `name` attributes
+- WHEN a canonical key `onboarding.pairing.title` is mapped
+- THEN the XML name MUST be `onboarding_pairing_title` (dots replaced with underscores)
+- AND the mapping MUST be deterministic and reversible
+
+#### Scenario: Mobile surface uses canonical tokens
+
+- GIVEN the composeApp's Compose theme
+- WHEN the token audit runs
+- THEN all color, spacing, and typography values MUST reference `CorvusTheme.*` properties
+- AND no hardcoded color values MUST exist in composable functions
+
+### References
+
+- [i18n Governance Specification](../../i18n-governance/spec.md)
+- [Design Token Governance](../../design-tokens/spec.md)
+- [Canonical Glossary](../../../glossary/README.md)
+
+## Change History
+
+| Version | Date       | Changes                                                  |
+|---------|------------|----------------------------------------------------------|
+| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 1 — Full, #278)   |
