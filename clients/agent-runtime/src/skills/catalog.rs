@@ -333,4 +333,65 @@ version = 1
         let results = search(&index, "nonexistent-xyz");
         assert!(results.is_empty());
     }
+
+    // ── 12. Embedded index parses successfully ───────────────────
+
+    #[test]
+    fn embedded_index_parses_successfully() {
+        let index = embedded_index().expect("embedded index should parse");
+        assert_eq!(index.meta.version, 1);
+    }
+
+    // ── 13. resolve_index uses embedded when no cache ────────────
+
+    #[test]
+    fn resolve_index_uses_embedded_when_no_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = crate::config::SkillsConfig::default();
+        // No cache file exists, fetch will fail (no network in test)
+        // Should fall back to embedded
+        let result = resolve_index(dir.path(), &config);
+        assert!(result.is_ok());
+        let index = result.unwrap();
+        assert_eq!(index.meta.version, 1);
+    }
+
+    // ── 14. resolve_index returns cached when fresh ──────────────
+
+    #[test]
+    fn resolve_index_returns_cached_when_fresh() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path().join(".catalog-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        // Write a valid index as cache (it's fresh — just written)
+        std::fs::write(cache_dir.join("index.toml"), sample_index_toml()).unwrap();
+
+        let config = crate::config::SkillsConfig::default();
+        let result = resolve_index(dir.path(), &config);
+        assert!(result.is_ok());
+        let index = result.unwrap();
+        // Should return our cached index with 2 skills, not the embedded one
+        assert_eq!(index.skills.len(), 2);
+        assert!(index.skills.contains_key("git-expert"));
+    }
+
+    // ── 15. resolve_index skips stale cache and falls back ───────
+
+    #[test]
+    fn resolve_index_skips_stale_cache() {
+        let dir = tempfile::tempdir().unwrap();
+        let cache_dir = dir.path().join(".catalog-cache");
+        std::fs::create_dir_all(&cache_dir).unwrap();
+        let cache_path = cache_dir.join("index.toml");
+        std::fs::write(&cache_path, sample_index_toml()).unwrap();
+
+        // TTL of 0 hours means any non-zero age is stale
+        let config = crate::config::SkillsConfig {
+            catalog_cache_ttl_hours: Some(0),
+            ..Default::default()
+        };
+        // Cache is stale (age > 0s), fetch will fail (no network), falls back to embedded
+        let result = resolve_index(dir.path(), &config);
+        assert!(result.is_ok());
+    }
 }

@@ -234,18 +234,35 @@ impl Default for CodeSessionConfig {
 
 // ── Skills config ──────────────────────────────────────────────
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SkillsConfig {
-    /// Enable deprecated open-skills auto-clone behavior.
-    /// Default: false. Will be removed in a future release.
-    #[serde(default)]
-    pub legacy_open_skills: bool,
     /// Override the official skills catalog repository URL.
     #[serde(default)]
     pub catalog_repo_url: Option<String>,
     /// Cache TTL in hours for the catalog index (default: 24).
     #[serde(default)]
     pub catalog_cache_ttl_hours: Option<u64>,
+    /// Enable content integrity verification on load (default: true).
+    #[serde(default = "default_true")]
+    pub verify_integrity: bool,
+    /// Prompt injection scan threshold score (default: 50). None disables scanning.
+    #[serde(default = "default_scan_threshold")]
+    pub scan_threshold: Option<u32>,
+}
+
+fn default_scan_threshold() -> Option<u32> {
+    Some(50)
+}
+
+impl Default for SkillsConfig {
+    fn default() -> Self {
+        Self {
+            catalog_repo_url: None,
+            catalog_cache_ttl_hours: None,
+            verify_integrity: true,
+            scan_threshold: default_scan_threshold(),
+        }
+    }
 }
 
 // ── Hardware Config (wizard-driven) ─────────────────────────────

@@ -437,7 +437,7 @@ mod tests {
         assert_eq!(failed, 0);
 
         // No files should be created since auto-integration is deprecated
-        assert!(!tmp.path().join("skill-a").join("SKILL.toml").exists());
+        assert!(!tmp.path().join("skill-a").join("SKILL.md").exists());
         assert!(!tmp.path().join("skill-b").join("SKILL.md").exists());
     }
 

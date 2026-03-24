@@ -148,9 +148,8 @@ pub fn repair_lockfile(workspace_dir: &Path) -> Result<RepairSummary> {
             let name = entry.file_name().to_string_lossy().to_string();
             let skill_dir = entry.path();
             let skill_md = skill_dir.join("SKILL.md");
-            let skill_toml = skill_dir.join("SKILL.toml");
 
-            if !skill_md.exists() && !skill_toml.exists() {
+            if !skill_md.exists() {
                 continue; // Not a valid skill directory
             }
 
@@ -208,6 +207,52 @@ pub fn repair_lockfile(workspace_dir: &Path) -> Result<RepairSummary> {
     std::fs::write(&path, content)?;
 
     Ok(summary)
+}
+
+/// Result of content integrity verification.
+#[derive(Debug, PartialEq)]
+pub enum IntegrityResult {
+    /// Content hash matches lockfile entry.
+    Match,
+    /// Content hash differs from lockfile entry.
+    Mismatch { expected: String, actual: String },
+    /// No lockfile entry or no content_hash to compare against.
+    NoBaseline,
+    /// Integrity verification is disabled via config.
+    Disabled,
+}
+
+/// Verify the integrity of a skill's SKILL.md against its lockfile entry.
+/// Returns the verification result without side effects.
+pub fn verify_integrity(
+    skill_md_path: &Path,
+    lockfile_hash: Option<&str>,
+    enabled: bool,
+) -> IntegrityResult {
+    if !enabled {
+        return IntegrityResult::Disabled;
+    }
+
+    let expected = match lockfile_hash {
+        Some(h) => h,
+        None => return IntegrityResult::NoBaseline,
+    };
+
+    let content = match std::fs::read(skill_md_path) {
+        Ok(c) => c,
+        Err(_) => return IntegrityResult::NoBaseline,
+    };
+
+    let actual = compute_content_hash(&content);
+
+    if actual == expected {
+        IntegrityResult::Match
+    } else {
+        IntegrityResult::Mismatch {
+            expected: expected.to_string(),
+            actual,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -484,5 +529,182 @@ mod tests {
         let ts = entry.installed_at.as_ref().unwrap();
         assert!(ts.contains('T'), "expected ISO 8601 format, got: {ts}");
         assert_eq!(entry.allowed_tools.as_ref().unwrap(), &["Read"],);
+    }
+
+    #[test]
+    fn verify_integrity_match() {
+        let dir = tempfile::tempdir().unwrap();
+        let md_path = dir.path().join("SKILL.md");
+        let content = b"# Test Skill\nSome content.\n";
+        std::fs::write(&md_path, content).unwrap();
+        let hash = compute_content_hash(content);
+
+        let result = verify_integrity(&md_path, Some(&hash), true);
+        assert_eq!(result, IntegrityResult::Match);
+    }
+
+    #[test]
+    fn verify_integrity_mismatch() {
+        let dir = tempfile::tempdir().unwrap();
+        let md_path = dir.path().join("SKILL.md");
+        std::fs::write(&md_path, b"modified content").unwrap();
+        let stale_hash = compute_content_hash(b"original content");
+
+        let result = verify_integrity(&md_path, Some(&stale_hash), true);
+        match result {
+            IntegrityResult::Mismatch { expected, actual } => {
+                assert_eq!(expected, stale_hash);
+                assert_ne!(actual, stale_hash);
+            }
+            other => panic!("expected Mismatch, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn verify_integrity_no_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let md_path = dir.path().join("SKILL.md");
+        std::fs::write(&md_path, b"content").unwrap();
+
+        let result = verify_integrity(&md_path, None, true);
+        assert_eq!(result, IntegrityResult::NoBaseline);
+    }
+
+    #[test]
+    fn verify_integrity_disabled() {
+        let dir = tempfile::tempdir().unwrap();
+        let md_path = dir.path().join("SKILL.md");
+        std::fs::write(&md_path, b"content").unwrap();
+        let hash = compute_content_hash(b"content");
+
+        let result = verify_integrity(&md_path, Some(&hash), false);
+        assert_eq!(result, IntegrityResult::Disabled);
+    }
+
+    #[test]
+    fn verify_integrity_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let md_path = dir.path().join("nonexistent.md");
+        let hash = compute_content_hash(b"anything");
+
+        let result = verify_integrity(&md_path, Some(&hash), true);
+        assert_eq!(result, IntegrityResult::NoBaseline);
+    }
+
+    // ── Repair lockfile tests (R20.2) ────────────────────────────
+
+    #[test]
+    fn repair_adds_missing_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        std::fs::create_dir_all(skills_dir.join("my-skill")).unwrap();
+        std::fs::write(skills_dir.join("my-skill/SKILL.md"), "# My Skill").unwrap();
+        // No lockfile exists
+        let summary = repair_lockfile(dir.path()).unwrap();
+        assert_eq!(summary.added, 1);
+        assert_eq!(summary.removed, 0);
+        // Verify lockfile was created
+        let lockfile = read_lockfile(dir.path());
+        assert!(lockfile.skills.contains_key("my-skill"));
+        // Verify the entry has a content hash
+        let entry = &lockfile.skills["my-skill"];
+        assert!(entry.content_hash.is_some());
+        assert!(entry.content_hash.as_ref().unwrap().starts_with("sha256:"));
+    }
+
+    #[test]
+    fn repair_removes_orphaned_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        std::fs::create_dir_all(&skills_dir).unwrap();
+        // Write a lockfile with an entry but no skill on disk
+        let mut lockfile = SkillsLockfile::default();
+        lockfile.skills.insert(
+            "ghost-skill".to_string(),
+            LockEntry {
+                trust: "local".to_string(),
+                source: "local".to_string(),
+                path: None,
+                pinned_ref: None,
+                content_hash: None,
+                installed_at: None,
+                allowed_tools: None,
+            },
+        );
+        let content = toml::to_string_pretty(&lockfile).unwrap();
+        std::fs::write(dir.path().join("skills.lock"), content).unwrap();
+
+        let summary = repair_lockfile(dir.path()).unwrap();
+        assert_eq!(summary.removed, 1);
+        let repaired = read_lockfile(dir.path());
+        assert!(!repaired.skills.contains_key("ghost-skill"));
+    }
+
+    #[test]
+    fn repair_updates_mismatched_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        std::fs::create_dir_all(skills_dir.join("my-skill")).unwrap();
+        std::fs::write(skills_dir.join("my-skill/SKILL.md"), "# Updated").unwrap();
+        // Write lockfile with wrong hash
+        let mut lockfile = SkillsLockfile::default();
+        lockfile.skills.insert(
+            "my-skill".to_string(),
+            LockEntry {
+                trust: "local".to_string(),
+                source: "local".to_string(),
+                path: None,
+                pinned_ref: None,
+                content_hash: Some("sha256:wrong".to_string()),
+                installed_at: None,
+                allowed_tools: None,
+            },
+        );
+        let content = toml::to_string_pretty(&lockfile).unwrap();
+        std::fs::write(dir.path().join("skills.lock"), content).unwrap();
+
+        let summary = repair_lockfile(dir.path()).unwrap();
+        assert_eq!(summary.updated, 1);
+        // Verify hash was recomputed
+        let repaired = read_lockfile(dir.path());
+        let entry = &repaired.skills["my-skill"];
+        let expected_hash = compute_content_hash(b"# Updated");
+        assert_eq!(entry.content_hash.as_deref(), Some(expected_hash.as_str()));
+    }
+
+    #[test]
+    fn repair_preserves_unchanged_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        std::fs::create_dir_all(skills_dir.join("stable-skill")).unwrap();
+        let skill_content = b"# Stable Skill\nContent here.\n";
+        std::fs::write(skills_dir.join("stable-skill/SKILL.md"), skill_content).unwrap();
+        let correct_hash = compute_content_hash(skill_content);
+        // Write lockfile with correct hash
+        let mut lockfile = SkillsLockfile::default();
+        lockfile.skills.insert(
+            "stable-skill".to_string(),
+            LockEntry {
+                trust: "local".to_string(),
+                source: "local".to_string(),
+                path: None,
+                pinned_ref: None,
+                content_hash: Some(correct_hash.clone()),
+                installed_at: Some("2026-01-01T00:00:00Z".to_string()),
+                allowed_tools: None,
+            },
+        );
+        let content = toml::to_string_pretty(&lockfile).unwrap();
+        std::fs::write(dir.path().join("skills.lock"), content).unwrap();
+
+        let summary = repair_lockfile(dir.path()).unwrap();
+        assert_eq!(summary.unchanged, 1);
+        assert_eq!(summary.added, 0);
+        assert_eq!(summary.removed, 0);
+        assert_eq!(summary.updated, 0);
+        // Verify original timestamp preserved
+        let repaired = read_lockfile(dir.path());
+        let entry = &repaired.skills["stable-skill"];
+        assert_eq!(entry.installed_at.as_deref(), Some("2026-01-01T00:00:00Z"),);
     }
 }

@@ -1,19 +1,15 @@
 pub mod catalog;
 pub mod frontmatter;
 pub mod lockfile;
+pub mod sandbox;
+pub mod scanner;
 pub mod trust;
+pub mod validation;
 
 use anyhow::Result;
-use directories::UserDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{Duration, SystemTime};
-
-const OPEN_SKILLS_REPO_URL: &str = "https://github.com/besoeasy/open-skills";
-const OPEN_SKILLS_SYNC_MARKER: &str = ".corvus-open-skills-sync";
-const OPEN_SKILLS_SYNC_INTERVAL_SECS: u64 = 60 * 60 * 24 * 7;
 
 /// A skill is a user-defined or community-built capability.
 /// Skills live in `~/.corvus/workspace/skills/<name>/SKILL.md`
@@ -52,56 +48,27 @@ pub struct SkillTool {
     pub command: String,
     #[serde(default)]
     pub args: HashMap<String, String>,
+    /// Whether this tool is sandboxed (filesystem restricted to skill dir).
+    /// Derived from skill trust tier: true for ThirdParty, false for Official/Local.
+    #[serde(skip)]
+    pub sandboxed: bool,
 }
 
-/// Skill manifest parsed from SKILL.toml
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SkillManifest {
-    skill: SkillMeta,
-    #[serde(default)]
-    tools: Vec<SkillTool>,
-    #[serde(default)]
-    prompts: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct SkillMeta {
-    name: String,
-    description: String,
-    #[serde(default = "default_version")]
-    version: String,
-    #[serde(default)]
-    author: Option<String>,
-    #[serde(default)]
-    tags: Vec<String>,
-}
-
-fn default_version() -> String {
-    "0.1.0".to_string()
-}
-
-/// Load all skills from the workspace skills directory
+/// Load all skills from the workspace skills directory.
+/// Uses default config (integrity verification enabled).
 pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
-    load_skills_with_config(workspace_dir, None)
+    load_skills_with_config(workspace_dir, true)
 }
 
-/// Load all skills, optionally consulting skills config for open-skills.
-pub fn load_skills_with_config(
-    workspace_dir: &Path,
-    skills_config: Option<&crate::config::SkillsConfig>,
-) -> Vec<Skill> {
-    let mut skills = Vec::new();
-
-    if let Some(open_skills_dir) = ensure_open_skills_repo(skills_config) {
-        skills.extend(load_open_skills(&open_skills_dir));
-    }
-
+/// Load all skills with explicit integrity verification toggle.
+pub fn load_skills_with_config(workspace_dir: &Path, verify_integrity: bool) -> Vec<Skill> {
     // Read lockfile for trust/origin enrichment
     let lockfile = lockfile::read_lockfile(workspace_dir);
+    let skills_path = skills_dir(workspace_dir);
 
-    let mut workspace_skills = load_workspace_skills(workspace_dir);
+    let mut skills = load_workspace_skills(workspace_dir);
     // Enrich workspace skills with lockfile data
-    for skill in &mut workspace_skills {
+    for skill in &mut skills {
         if let Some(entry) = lockfile.skills.get(&skill.name) {
             skill.origin = lockfile::lock_entry_to_origin(entry);
             skill.trust = trust::SkillTrust::from(&skill.origin.source);
@@ -110,8 +77,72 @@ pub fn load_skills_with_config(
             }
         }
         // Skills without lockfile entry keep default Local trust
+
+        // Integrity verification
+        if verify_integrity {
+            let skill_md_path = skill
+                .location
+                .clone()
+                .unwrap_or_else(|| skills_path.join(&skill.name).join("SKILL.md"));
+
+            let result = lockfile::verify_integrity(
+                &skill_md_path,
+                skill.origin.content_hash.as_deref(),
+                true,
+            );
+
+            if let lockfile::IntegrityResult::Mismatch { expected, actual } = result {
+                match skill.trust {
+                    trust::SkillTrust::ThirdParty => {
+                        tracing::warn!(
+                            "integrity mismatch for third-party skill '{}': \
+                             expected {expected}, got {actual}. \
+                             Tools disabled — instruction-only mode.",
+                            skill.name,
+                        );
+                        skill.allowed_tools.clear();
+                    }
+                    trust::SkillTrust::Official => {
+                        tracing::warn!(
+                            "integrity mismatch for official skill '{}': \
+                             expected {expected}, got {actual}. \
+                             Content may have been updated locally.",
+                            skill.name,
+                        );
+                    }
+                    trust::SkillTrust::Local => {
+                        tracing::warn!(
+                            "integrity mismatch for local skill '{}': \
+                             expected {expected}, got {actual}.",
+                            skill.name,
+                        );
+                    }
+                }
+            }
+        }
+
+        // Scanner check (ThirdParty only)
+        if skill.trust == trust::SkillTrust::ThirdParty {
+            if let Some(prompt) = skill.prompts.first() {
+                let scan = scanner::scan_skill_content(prompt);
+                if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) {
+                    tracing::warn!(
+                        "skill '{}' scored {} in injection scan (threshold: {}). \
+                         Tools disabled — instruction-only mode.",
+                        skill.name,
+                        scan.score,
+                        scanner::DEFAULT_SCAN_THRESHOLD,
+                    );
+                    skill.allowed_tools.clear();
+                }
+            }
+        }
+
+        // Set sandboxed flag on all tools based on trust tier
+        for tool in &mut skill.tools {
+            tool.sandboxed = skill.trust == trust::SkillTrust::ThirdParty;
+        }
     }
-    skills.extend(workspace_skills);
 
     skills
 }
@@ -138,236 +169,31 @@ fn load_skills_from_directory(skills_dir: &Path) -> Vec<Skill> {
             continue;
         }
 
-        // Try SKILL.toml first, then SKILL.md
-        let manifest_path = path.join("SKILL.toml");
+        // Validate directory name per Agent Skills standard (warn only for backward compat)
+        let dir_name = entry.file_name().to_string_lossy().to_string();
+        if let Err(err) = validation::validate_skill_name(&dir_name) {
+            tracing::warn!("skill '{}' has invalid name: {err}", dir_name);
+        }
+
         let md_path = path.join("SKILL.md");
 
-        if manifest_path.exists() {
-            if let Ok(skill) = load_skill_toml(&manifest_path) {
-                skills.push(skill);
-            }
-        } else if md_path.exists() {
+        if md_path.exists() {
             if let Ok(skill) = load_skill_md(&md_path, &path) {
                 skills.push(skill);
             }
+        } else if path.join("SKILL.toml").exists() {
+            tracing::warn!(
+                "Skill directory '{}' contains only SKILL.toml which is no longer supported. \
+                 Create a SKILL.md file with YAML frontmatter instead. Skipping.",
+                path.display(),
+            );
         }
     }
 
     skills
 }
 
-fn load_open_skills(repo_dir: &Path) -> Vec<Skill> {
-    let mut skills = Vec::new();
-
-    let Ok(entries) = std::fs::read_dir(repo_dir) else {
-        return skills;
-    };
-
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_file() {
-            continue;
-        }
-
-        let is_markdown = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"));
-        if !is_markdown {
-            continue;
-        }
-
-        let is_readme = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .is_some_and(|name| name.eq_ignore_ascii_case("README.md"));
-        if is_readme {
-            continue;
-        }
-
-        if let Ok(skill) = load_open_skill_md(&path) {
-            skills.push(skill);
-        }
-    }
-
-    skills
-}
-
-fn open_skills_enabled(config: Option<&crate::config::SkillsConfig>) -> bool {
-    // 1. Config file takes precedence
-    if let Some(cfg) = config {
-        if cfg.legacy_open_skills {
-            tracing::warn!(
-                "open-skills is deprecated and will be removed in a future release. \
-                 Install individual skills with 'corvus skills install <url>' instead."
-            );
-            return true;
-        }
-    }
-
-    // 2. Env vars (legacy compat)
-    for var_name in &["CORVUS_OPEN_SKILLS_ENABLED", "CORVUS_OPEN_SKILLS"] {
-        if let Ok(raw) = std::env::var(var_name) {
-            let value = raw.trim().to_ascii_lowercase();
-            let enabled = !matches!(value.as_str(), "0" | "false" | "off" | "no" | "");
-            if enabled {
-                tracing::warn!(
-                    "open-skills is deprecated and will be removed in a future release. \
-                     Install individual skills with 'corvus skills install <url>' instead."
-                );
-                return true;
-            }
-        }
-    }
-
-    // 3. Default: disabled (was !cfg!(test), now always false)
-    false
-}
-
-fn resolve_open_skills_dir() -> Option<PathBuf> {
-    if let Ok(path) = std::env::var("CORVUS_OPEN_SKILLS_DIR") {
-        let trimmed = path.trim();
-        if !trimmed.is_empty() {
-            return Some(PathBuf::from(trimmed));
-        }
-    }
-
-    UserDirs::new().map(|dirs| dirs.home_dir().join("open-skills"))
-}
-
-fn ensure_open_skills_repo(config: Option<&crate::config::SkillsConfig>) -> Option<PathBuf> {
-    if !open_skills_enabled(config) {
-        return None;
-    }
-
-    let repo_dir = resolve_open_skills_dir()?;
-
-    if !repo_dir.exists() {
-        if !clone_open_skills_repo(&repo_dir) {
-            return None;
-        }
-        let _ = mark_open_skills_synced(&repo_dir);
-        return Some(repo_dir);
-    }
-
-    if should_sync_open_skills(&repo_dir) {
-        if pull_open_skills_repo(&repo_dir) {
-            let _ = mark_open_skills_synced(&repo_dir);
-        } else {
-            tracing::warn!(
-                "open-skills update failed; using local copy from {}",
-                repo_dir.display()
-            );
-        }
-    }
-
-    Some(repo_dir)
-}
-
-fn clone_open_skills_repo(repo_dir: &Path) -> bool {
-    if let Some(parent) = repo_dir.parent() {
-        if let Err(err) = std::fs::create_dir_all(parent) {
-            tracing::warn!(
-                "failed to create open-skills parent directory {}: {err}",
-                parent.display()
-            );
-            return false;
-        }
-    }
-
-    let output = Command::new("git")
-        .args(["clone", "--depth", "1", OPEN_SKILLS_REPO_URL])
-        .arg(repo_dir)
-        .output();
-
-    match output {
-        Ok(result) if result.status.success() => {
-            tracing::info!("initialized open-skills at {}", repo_dir.display());
-            true
-        }
-        Ok(result) => {
-            let stderr = String::from_utf8_lossy(&result.stderr);
-            tracing::warn!("failed to clone open-skills: {stderr}");
-            false
-        }
-        Err(err) => {
-            tracing::warn!("failed to run git clone for open-skills: {err}");
-            false
-        }
-    }
-}
-
-fn pull_open_skills_repo(repo_dir: &Path) -> bool {
-    // If user points to a non-git directory via env var, keep using it without pulling.
-    if !repo_dir.join(".git").exists() {
-        return true;
-    }
-
-    let output = Command::new("git")
-        .arg("-C")
-        .arg(repo_dir)
-        .args(["pull", "--ff-only"])
-        .output();
-
-    match output {
-        Ok(result) if result.status.success() => true,
-        Ok(result) => {
-            let stderr = String::from_utf8_lossy(&result.stderr);
-            tracing::warn!("failed to pull open-skills updates: {stderr}");
-            false
-        }
-        Err(err) => {
-            tracing::warn!("failed to run git pull for open-skills: {err}");
-            false
-        }
-    }
-}
-
-fn should_sync_open_skills(repo_dir: &Path) -> bool {
-    let marker = repo_dir.join(OPEN_SKILLS_SYNC_MARKER);
-    let Ok(metadata) = std::fs::metadata(marker) else {
-        return true;
-    };
-    let Ok(modified_at) = metadata.modified() else {
-        return true;
-    };
-    let Ok(age) = SystemTime::now().duration_since(modified_at) else {
-        return true;
-    };
-
-    age >= Duration::from_secs(OPEN_SKILLS_SYNC_INTERVAL_SECS)
-}
-
-fn mark_open_skills_synced(repo_dir: &Path) -> Result<()> {
-    std::fs::write(repo_dir.join(OPEN_SKILLS_SYNC_MARKER), b"synced")?;
-    Ok(())
-}
-
-/// Load a skill from a SKILL.toml manifest
-fn load_skill_toml(path: &Path) -> Result<Skill> {
-    tracing::warn!(
-        "SKILL.toml is deprecated and will be removed in a future release. \
-         Migrate to SKILL.md with YAML frontmatter instead."
-    );
-    let content = std::fs::read_to_string(path)?;
-    let manifest: SkillManifest = toml::from_str(&content)?;
-
-    Ok(Skill {
-        name: manifest.skill.name,
-        description: manifest.skill.description,
-        version: manifest.skill.version,
-        author: manifest.skill.author,
-        tags: manifest.skill.tags,
-        tools: manifest.tools,
-        prompts: manifest.prompts,
-        location: Some(path.to_path_buf()),
-        trust: trust::SkillTrust::Local,
-        origin: trust::SkillOrigin::default(),
-        allowed_tools: Vec::new(),
-    })
-}
-
-/// Load a skill from a SKILL.md file (simpler format)
+/// Load a skill from a SKILL.md file
 fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
     let content = std::fs::read_to_string(path)?;
     let dir_name = dir
@@ -391,36 +217,6 @@ fn load_skill_md(path: &Path, dir: &Path) -> Result<Skill> {
         trust: trust::SkillTrust::Local,
         origin: trust::SkillOrigin::default(),
         allowed_tools: fm.allowed_tools,
-    })
-}
-
-fn load_open_skill_md(path: &Path) -> Result<Skill> {
-    let content = std::fs::read_to_string(path)?;
-    let name = path
-        .file_stem()
-        .and_then(|n| n.to_str())
-        .unwrap_or("open-skill")
-        .to_string();
-
-    Ok(Skill {
-        name,
-        description: extract_description(&content),
-        version: "open-skills".to_string(),
-        author: Some("besoeasy/open-skills".to_string()),
-        tags: vec!["open-skills".to_string()],
-        tools: Vec::new(),
-        prompts: vec![content],
-        location: Some(path.to_path_buf()),
-        trust: trust::SkillTrust::ThirdParty,
-        origin: trust::SkillOrigin {
-            source: trust::SkillSource::GitRepo {
-                url: OPEN_SKILLS_REPO_URL.to_string(),
-            },
-            installed_at: None,
-            pinned_ref: None,
-            content_hash: None,
-        },
-        allowed_tools: Vec::new(),
     })
 }
 
@@ -492,6 +288,23 @@ pub fn skills_to_prompt(skills: &[Skill]) -> String {
     prompt
 }
 
+/// Check if a tool invocation is allowed under sandbox policy.
+/// Returns Ok(()) or Err with violation description.
+pub fn check_sandbox(tool: &SkillTool, skill: &Skill, args: &[&str]) -> Result<()> {
+    if !tool.sandboxed {
+        return Ok(()); // Not sandboxed — allow everything
+    }
+
+    let skill_dir = skill
+        .location
+        .as_ref()
+        .and_then(|p| p.parent())
+        .ok_or_else(|| anyhow::anyhow!("sandboxed tool has no skill directory"))?;
+
+    sandbox::validate_tool_paths(args, skill_dir)
+        .map_err(|violation| anyhow::anyhow!("sandbox violation: {violation}"))
+}
+
 /// Get the skills directory path
 pub fn skills_dir(workspace_dir: &Path) -> PathBuf {
     workspace_dir.join("skills")
@@ -507,24 +320,22 @@ pub fn init_skills_dir(workspace_dir: &Path) -> Result<()> {
         std::fs::write(
             &readme,
             "# Corvus Skills\n\n\
-             Each subdirectory is a skill. Create a `SKILL.toml` or `SKILL.md` file inside.\n\n\
-             ## SKILL.toml format\n\n\
-             ```toml\n\
-             [skill]\n\
-             name = \"my-skill\"\n\
-             description = \"What this skill does\"\n\
-             version = \"0.1.0\"\n\
-             author = \"your-name\"\n\
-             tags = [\"productivity\", \"automation\"]\n\n\
-             [[tools]]\n\
-             name = \"my_tool\"\n\
-             description = \"What this tool does\"\n\
-             kind = \"shell\"\n\
-             command = \"echo hello\"\n\
+             Each subdirectory is a skill. Create a `SKILL.md` file inside.\n\n\
+             ## SKILL.md format\n\n\
+             Write a markdown file with optional YAML frontmatter and instructions for the agent.\n\n\
+             ```markdown\n\
+             ---\n\
+             name: my-skill\n\
+             description: What this skill does\n\
+             version: 0.1.0\n\
+             author: your-name\n\
+             tags:\n\
+               - productivity\n\
+               - automation\n\
+             ---\n\n\
+             # My Skill\n\n\
+             Instructions for the agent go here.\n\
              ```\n\n\
-             ## SKILL.md format (simpler)\n\n\
-             Just write a markdown file with instructions for the agent.\n\
-             The agent will read it and follow the instructions.\n\n\
              ## Installing community skills\n\n\
              ```bash\n\
              corvus skills install <github-url>\n\
@@ -904,6 +715,11 @@ fn handle_catalog_install(workspace_dir: &Path, name: &str) -> Result<()> {
         }
     };
 
+    // Defense in depth: validate catalog name even though catalog entries should be valid
+    if let Err(err) = validation::validate_skill_name(name) {
+        anyhow::bail!("Invalid skill name in catalog: {err}");
+    }
+
     println!(
         "  {} Installing official skill '{}' (v{})...",
         console::style("→").cyan().bold(),
@@ -1047,6 +863,47 @@ fn handle_install_command(workspace_dir: &Path, source: &str, trust_flag: bool) 
              Skills must contain a SKILL.md file."
         );
     };
+
+    // 3b. Validate skill name per Agent Skills standard
+    let dir_name_for_validation = skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let skill_name_to_validate = fm.name.as_deref().unwrap_or(dir_name_for_validation);
+    if let Err(err) = validation::validate_skill_name(skill_name_to_validate) {
+        let _ = std::fs::remove_dir_all(&skill_dir);
+        anyhow::bail!("Invalid skill name: {err}");
+    }
+
+    // 3c. Scan for prompt injection (ThirdParty only)
+    if skill_trust == trust::SkillTrust::ThirdParty {
+        if let Ok(content) = std::fs::read_to_string(skill_dir.join("SKILL.md")) {
+            let scan = scanner::scan_skill_content(&content);
+            if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) && !trust_flag {
+                // Report findings and abort
+                for finding in &scan.findings {
+                    println!(
+                        "  {} [line {}] {} (score: +{})",
+                        console::style("\u{26a0}").yellow().bold(),
+                        finding.line,
+                        finding.pattern,
+                        finding.severity,
+                    );
+                }
+                let _ = std::fs::remove_dir_all(&skill_dir);
+                anyhow::bail!(
+                    "Skill content scored {} (threshold: {}). \
+               Use --trust to install anyway.",
+                    scan.score,
+                    scanner::DEFAULT_SCAN_THRESHOLD,
+                );
+            } else if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) {
+                // --trust flag: warn but proceed
+                tracing::warn!(
+                    "skill content scored {} (threshold: {}) — proceeding with --trust",
+                    scan.score,
+                    scanner::DEFAULT_SCAN_THRESHOLD,
+                );
+            }
+        }
+    }
 
     // 4. Trust gate: ThirdParty skills with tools require explicit consent
     if skill_trust == trust::SkillTrust::ThirdParty && !fm.allowed_tools.is_empty() && !trust_flag {
@@ -1485,7 +1342,7 @@ fn update_thirdparty_skill(
 }
 
 fn handle_remove_command(workspace_dir: &Path, name: &str) -> Result<()> {
-    validate_skill_name(name)?;
+    validate_skill_name_path_safety(name)?;
 
     let skills_path = skills_dir(workspace_dir);
     let skill_path = skills_path.join(name);
@@ -1510,7 +1367,7 @@ fn handle_remove_command(workspace_dir: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_skill_name(name: &str) -> Result<()> {
+fn validate_skill_name_path_safety(name: &str) -> Result<()> {
     if name.contains("..") || name.contains('/') || name.contains('\\') {
         anyhow::bail!("Invalid skill name: {name}");
     }
@@ -1541,38 +1398,6 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let skills = load_skills(dir.path());
         assert!(skills.is_empty());
-    }
-
-    #[test]
-    fn load_skill_from_toml() {
-        let dir = tempfile::tempdir().unwrap();
-        let skills_dir = dir.path().join("skills");
-        let skill_dir = skills_dir.join("test-skill");
-        fs::create_dir_all(&skill_dir).unwrap();
-
-        fs::write(
-            skill_dir.join("SKILL.toml"),
-            r#"
-[skill]
-name = "test-skill"
-description = "A test skill"
-version = "1.0.0"
-tags = ["test"]
-
-[[tools]]
-name = "hello"
-description = "Says hello"
-kind = "shell"
-command = "echo hello"
-"#,
-        )
-        .unwrap();
-
-        let skills = load_skills(dir.path());
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "test-skill");
-        assert_eq!(skills[0].tools.len(), 1);
-        assert_eq!(skills[0].tools[0].name, "hello");
     }
 
     #[test]
@@ -1660,7 +1485,7 @@ command = "echo hello"
         let skills_dir = dir.path().join("skills");
         let empty_skill = skills_dir.join("empty-skill");
         fs::create_dir_all(&empty_skill).unwrap();
-        // Directory exists but no SKILL.toml or SKILL.md
+        // Directory exists but no SKILL.md
         let skills = load_skills(dir.path());
         assert!(skills.is_empty());
     }
@@ -1682,95 +1507,6 @@ command = "echo hello"
 
         let skills = load_skills(dir.path());
         assert_eq!(skills.len(), 3);
-    }
-
-    #[test]
-    fn toml_skill_with_multiple_tools() {
-        let dir = tempfile::tempdir().unwrap();
-        let skills_dir = dir.path().join("skills");
-        let skill_dir = skills_dir.join("multi-tool");
-        fs::create_dir_all(&skill_dir).unwrap();
-
-        fs::write(
-            skill_dir.join("SKILL.toml"),
-            r#"
-[skill]
-name = "multi-tool"
-description = "Has many tools"
-version = "2.0.0"
-author = "tester"
-tags = ["automation", "devops"]
-
-[[tools]]
-name = "build"
-description = "Build the project"
-kind = "shell"
-command = "cargo build"
-
-[[tools]]
-name = "test"
-description = "Run tests"
-kind = "shell"
-command = "cargo test"
-
-[[tools]]
-name = "deploy"
-description = "Deploy via HTTP"
-kind = "http"
-command = "https://api.example.com/deploy"
-"#,
-        )
-        .unwrap();
-
-        let skills = load_skills(dir.path());
-        assert_eq!(skills.len(), 1);
-        let s = &skills[0];
-        assert_eq!(s.name, "multi-tool");
-        assert_eq!(s.version, "2.0.0");
-        assert_eq!(s.author.as_deref(), Some("tester"));
-        assert_eq!(s.tags, vec!["automation", "devops"]);
-        assert_eq!(s.tools.len(), 3);
-        assert_eq!(s.tools[0].name, "build");
-        assert_eq!(s.tools[1].kind, "shell");
-        assert_eq!(s.tools[2].kind, "http");
-    }
-
-    #[test]
-    fn toml_skill_minimal() {
-        let dir = tempfile::tempdir().unwrap();
-        let skills_dir = dir.path().join("skills");
-        let skill_dir = skills_dir.join("minimal");
-        fs::create_dir_all(&skill_dir).unwrap();
-
-        fs::write(
-            skill_dir.join("SKILL.toml"),
-            r#"
-[skill]
-name = "minimal"
-description = "Bare minimum"
-"#,
-        )
-        .unwrap();
-
-        let skills = load_skills(dir.path());
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].version, "0.1.0"); // default version
-        assert!(skills[0].author.is_none());
-        assert!(skills[0].tags.is_empty());
-        assert!(skills[0].tools.is_empty());
-    }
-
-    #[test]
-    fn toml_skill_invalid_syntax_skipped() {
-        let dir = tempfile::tempdir().unwrap();
-        let skills_dir = dir.path().join("skills");
-        let skill_dir = skills_dir.join("broken");
-        fs::create_dir_all(&skill_dir).unwrap();
-
-        fs::write(skill_dir.join("SKILL.toml"), "this is not valid toml {{{{").unwrap();
-
-        let skills = load_skills(dir.path());
-        assert!(skills.is_empty()); // broken skill is skipped
     }
 
     #[test]
@@ -1801,6 +1537,7 @@ description = "Bare minimum"
                 kind: "shell".to_string(),
                 command: "curl wttr.in".to_string(),
                 args: HashMap::new(),
+                sandboxed: false,
             }],
             prompts: vec![],
             location: None,
@@ -1838,23 +1575,40 @@ description = "Bare minimum"
         assert!(error.to_string().contains("Invalid skill source path"));
     }
 
+    // ── Catalog install rejects unknown skill (R20.3) ────────────
+
     #[test]
-    fn toml_prefers_over_md() {
+    fn catalog_install_rejects_unknown_skill() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("skills")).unwrap();
+        // handle_catalog_install should fail for a non-existent skill
+        let result = handle_catalog_install(dir.path(), "nonexistent-skill-xyz");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("not found") || err.contains("catalog"),
+            "error should mention 'not found' or 'catalog', got: {err}",
+        );
+    }
+
+    // ── SKILL.toml-only directory is skipped on load (R20.4) ─────
+
+    #[test]
+    fn toml_only_directory_skipped() {
         let dir = tempfile::tempdir().unwrap();
         let skills_dir = dir.path().join("skills");
-        let skill_dir = skills_dir.join("dual");
-        fs::create_dir_all(&skill_dir).unwrap();
-
+        fs::create_dir_all(skills_dir.join("toml-only")).unwrap();
         fs::write(
-            skill_dir.join("SKILL.toml"),
-            "[skill]\nname = \"from-toml\"\ndescription = \"TOML wins\"\n",
+            skills_dir.join("toml-only/SKILL.toml"),
+            "[skill]\nname = \"toml-only\"\n",
         )
         .unwrap();
-        fs::write(skill_dir.join("SKILL.md"), "# From MD\nMD description\n").unwrap();
-
+        // No SKILL.md — should be skipped
         let skills = load_skills(dir.path());
-        assert_eq!(skills.len(), 1);
-        assert_eq!(skills[0].name, "from-toml"); // TOML takes priority
+        assert!(
+            skills.iter().all(|s| s.name != "toml-only"),
+            "SKILL.toml-only directory should not appear in loaded skills",
+        );
     }
 }
 
