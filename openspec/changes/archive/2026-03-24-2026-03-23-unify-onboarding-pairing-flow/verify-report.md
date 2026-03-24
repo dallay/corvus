@@ -6,7 +6,7 @@
 
 ---
 
-### Completeness
+## Completeness
 
 | Metric | Value |
 |--------|-------|
@@ -18,7 +18,7 @@ All tasks in `openspec/changes/2026-03-23-unify-onboarding-pairing-flow/tasks.md
 
 ---
 
-### Build & Tests Execution
+## Build & Tests Execution
 
 **Build**: ✅ Passed
 
@@ -89,7 +89,7 @@ Result:
 
 ---
 
-### Spec Compliance Matrix
+## Spec Compliance Matrix
 
 | Requirement | Scenario | Test | Result |
 |-------------|----------|------|--------|
@@ -123,7 +123,7 @@ Result:
 
 ---
 
-### Correctness (Static - Structural Evidence)
+## Correctness (Static - Structural Evidence)
 
 | Requirement | Status | Notes |
 |------------|--------|-------|
@@ -138,7 +138,7 @@ Result:
 
 ---
 
-### Coherence (Design)
+## Coherence (Design)
 
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
@@ -150,7 +150,7 @@ Result:
 
 ---
 
-### Issues Found
+## Issues Found
 
 **CRITICAL** (must fix before archive):
 - None.
@@ -165,7 +165,7 @@ Result:
 
 ---
 
-### Verdict
+## Verdict
 
 PASS WITH WARNINGS
 

@@ -8,9 +8,10 @@ function isTrustedLocalHost(hostname: string): boolean {
 }
 
 function isUrlSafeForSecrets(rawUrl: string): boolean {
+  if (rawUrl.startsWith("//")) return false;
   let parsed: URL;
   try {
-    parsed = rawUrl.startsWith("/") ? new URL(rawUrl, window.location.href) : new URL(rawUrl);
+    parsed = rawUrl.startsWith("/") ? new URL(rawUrl, window.location.origin) : new URL(rawUrl);
   } catch {
     return false;
   }
@@ -304,8 +305,9 @@ export function useGateway(t: (key: string, params?: Record<string, unknown>) =>
 
   function markTransportConnecting(): void {
     progress.runtimeConfirmed = true;
-    progress.trustEstablished = true;
-    updateOnboardingState(createOnboardingState("transport_connecting", null, false, true));
+    updateOnboardingState(
+      createOnboardingState("transport_connecting", null, false, progress.trustEstablished)
+    );
   }
 
   function markReady(): void {

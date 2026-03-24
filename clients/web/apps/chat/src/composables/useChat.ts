@@ -60,7 +60,7 @@ export function useChat(
   );
 
   const isSessionReady = computed(() => sessionState.value.state === "session_ready");
-  const canResumeSession = computed(() => !!readStoredSessionId());
+  const canResumeSession = computed(() => !!currentSessionId.value || !!readStoredSessionId());
 
   watch(
     () => gateway.baseUrl.value,

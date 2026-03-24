@@ -89,7 +89,9 @@ async function beginSession(preferResume: boolean): Promise<void> {
     return;
   }
 
-  resetMessagesForSession();
+  if (!preferResume) {
+    resetMessagesForSession();
+  }
   showConfig.value = false;
   await nextTick();
   scrollChatToBottom();

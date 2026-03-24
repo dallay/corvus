@@ -385,11 +385,7 @@ fun ChatHeader(
 }
 
 @Composable
-fun BridgeStatusCard(
-  bridgeState: MobileBridgeUiState,
-  actions: ChatWorkspaceActions,
-  modifier: Modifier = Modifier,
-) {
+fun BridgeStatusCard(bridgeState: MobileBridgeUiState, modifier: Modifier = Modifier) {
   val description = bridgeStateDescription(bridgeState)
   val recovery = bridgeStateRecovery(bridgeState)
   val details = buildList {

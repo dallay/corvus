@@ -254,11 +254,7 @@ private fun ChatPanel(
   val corvusColors = CorvusTheme.colors
 
   Column(modifier = modifier) {
-    BridgeStatusCard(
-      bridgeState = bridgeState,
-      actions = actions,
-      modifier = Modifier.fillMaxWidth(),
-    )
+    BridgeStatusCard(bridgeState = bridgeState, modifier = Modifier.fillMaxWidth())
 
     Spacer(modifier = Modifier.height(16.dp))
 

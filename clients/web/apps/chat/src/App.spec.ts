@@ -162,17 +162,19 @@ describe("App", () => {
     await wrapper
       .get(`input[placeholder="${translatedText("form.bearerTokenPlaceholder")}"]`)
       .setValue("stale-token");
-    await wrapper
+    const connectButton = wrapper
       .findAll("button")
-      .find((button) => button.text() === translatedText("auth.connect"))
-      ?.trigger("click");
+      .find((button) => button.text() === translatedText("auth.connect"));
+    expect(connectButton?.exists()).toBe(true);
+    await connectButton!.trigger("click");
     await flushPromises();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    await wrapper
+    const sessionButton = wrapper
       .findAll("button")
-      .find((button) => button.text() === translatedText("chat.startSession"))
-      ?.trigger("click");
+      .find((button) => button.text() === translatedText("chat.startSession"));
+    expect(sessionButton?.exists()).toBe(true);
+    await sessionButton!.trigger("click");
     await flushPromises();
 
     const input = wrapper.get(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`);
