@@ -16,6 +16,44 @@ pub struct WhatsAppChannel {
     client: reqwest::Client,
 }
 
+/// Normalize a phone number to E.164 format (ensure leading `+`).
+fn normalize_phone_number(from: &str) -> String {
+    if from.starts_with('+') {
+        from.to_string()
+    } else {
+        format!("+{from}")
+    }
+}
+
+/// Extract text content from a WhatsApp message JSON object.
+/// Returns `None` for non-text messages (image, audio, etc.).
+fn extract_whatsapp_text_content(msg: &serde_json::Value, from: &str) -> Option<String> {
+    if let Some(text_obj) = msg.get("text") {
+        let body = text_obj
+            .get("body")
+            .and_then(|b| b.as_str())
+            .unwrap_or("")
+            .to_string();
+        Some(body)
+    } else {
+        tracing::debug!("WhatsApp: skipping non-text message from {from}");
+        None
+    }
+}
+
+/// Extract the timestamp from a WhatsApp message, falling back to current time.
+fn extract_whatsapp_timestamp(msg: &serde_json::Value) -> u64 {
+    msg.get("timestamp")
+        .and_then(|t| t.as_str())
+        .and_then(|t| t.parse::<u64>().ok())
+        .unwrap_or_else(|| {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        })
+}
+
 impl WhatsAppChannel {
     pub fn new(
         access_token: String,
@@ -46,8 +84,6 @@ impl WhatsAppChannel {
     pub fn parse_webhook_payload(&self, payload: &serde_json::Value) -> Vec<ChannelMessage> {
         let mut messages = Vec::new();
 
-        // WhatsApp Cloud API webhook structure:
-        // { "object": "whatsapp_business_account", "entry": [...] }
         let Some(entries) = payload.get("entry").and_then(|e| e.as_array()) else {
             return messages;
         };
@@ -58,78 +94,55 @@ impl WhatsAppChannel {
             };
 
             for change in changes {
-                let Some(value) = change.get("value") else {
-                    continue;
-                };
-
-                // Extract messages array
-                let Some(msgs) = value.get("messages").and_then(|m| m.as_array()) else {
+                let Some(msgs) = change
+                    .get("value")
+                    .and_then(|v| v.get("messages"))
+                    .and_then(|m| m.as_array())
+                else {
                     continue;
                 };
 
                 for msg in msgs {
-                    // Get sender phone number
-                    let Some(from) = msg.get("from").and_then(|f| f.as_str()) else {
-                        continue;
-                    };
-
-                    // Check allowlist
-                    let normalized_from = if from.starts_with('+') {
-                        from.to_string()
-                    } else {
-                        format!("+{from}")
-                    };
-
-                    if !self.is_number_allowed(&normalized_from) {
-                        tracing::warn!(
-                            "WhatsApp: ignoring message from unauthorized number: {normalized_from}. \
-                            Add to allowed_numbers in config.toml, then run `corvus onboard --channels-only`."
-                        );
-                        continue;
+                    if let Some(channel_msg) = self.parse_single_whatsapp_message(msg) {
+                        messages.push(channel_msg);
                     }
-
-                    // Extract text content (support text messages only for now)
-                    let content = if let Some(text_obj) = msg.get("text") {
-                        text_obj
-                            .get("body")
-                            .and_then(|b| b.as_str())
-                            .unwrap_or("")
-                            .to_string()
-                    } else {
-                        // Could be image, audio, etc. — skip for now
-                        tracing::debug!("WhatsApp: skipping non-text message from {from}");
-                        continue;
-                    };
-
-                    if content.is_empty() {
-                        continue;
-                    }
-
-                    // Get timestamp
-                    let timestamp = msg
-                        .get("timestamp")
-                        .and_then(|t| t.as_str())
-                        .and_then(|t| t.parse::<u64>().ok())
-                        .unwrap_or_else(|| {
-                            std::time::SystemTime::now()
-                                .duration_since(std::time::UNIX_EPOCH)
-                                .unwrap_or_default()
-                                .as_secs()
-                        });
-
-                    messages.push(ChannelMessage {
-                        id: Uuid::new_v4().to_string(),
-                        reply_target: normalized_from.clone(),
-                        sender: normalized_from,
-                        content,
-                        channel: "whatsapp".to_string(),
-                        timestamp,
-                    });
                 }
             }
         }
 
         messages
+    }
+
+    /// Parse a single WhatsApp message JSON object into a `ChannelMessage`.
+    /// Returns `None` if the message should be skipped.
+    fn parse_single_whatsapp_message(&self, msg: &serde_json::Value) -> Option<ChannelMessage> {
+        let from = msg.get("from").and_then(|f| f.as_str())?;
+
+        let normalized_from = normalize_phone_number(from);
+
+        if !self.is_number_allowed(&normalized_from) {
+            tracing::warn!(
+                "WhatsApp: ignoring message from unauthorized number: {normalized_from}. \
+                Add to allowed_numbers in config.toml, then run `corvus onboard --channels-only`."
+            );
+            return None;
+        }
+
+        let content = extract_whatsapp_text_content(msg, from)?;
+        if content.is_empty() {
+            return None;
+        }
+
+        let timestamp = extract_whatsapp_timestamp(msg);
+
+        Some(ChannelMessage {
+            id: Uuid::new_v4().to_string(),
+            reply_target: normalized_from.clone(),
+            sender: normalized_from,
+            content,
+            channel: "whatsapp".to_string(),
+            timestamp,
+        })
     }
 }
 

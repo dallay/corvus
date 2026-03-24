@@ -19,7 +19,7 @@ function isTrustedLocalHost(hostname: string): boolean {
 function isUrlSafeForSecrets(rawUrl: string): boolean {
   let parsed: URL;
   try {
-    parsed = rawUrl.startsWith("/") ? new URL(rawUrl, window.location.href) : new URL(rawUrl);
+    parsed = rawUrl.startsWith("/") ? new URL(rawUrl, globalThis.location.href) : new URL(rawUrl);
   } catch {
     return false;
   }
@@ -251,6 +251,22 @@ function parseErrorMessage(payload: unknown): string {
   return "";
 }
 
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.codePointAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return end === value.length ? value : value.slice(0, end);
+}
+
+function trimLeadingSlashes(value: string): string {
+  let start = 0;
+  while (start < value.length && value.codePointAt(start) === 47) {
+    start += 1;
+  }
+  return start === 0 ? value : value.slice(start);
+}
+
 export function useConfig(t: (key: string, params?: Record<string, unknown>) => string) {
   const baseUrl = ref(DEFAULT_GATEWAY_BASE_URL);
   const pairingCode = ref("");
@@ -358,22 +374,6 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     ];
   });
 
-  function trimTrailingSlashes(value: string): string {
-    let end = value.length;
-    while (end > 0 && value.charCodeAt(end - 1) === 47) {
-      end -= 1;
-    }
-    return end === value.length ? value : value.slice(0, end);
-  }
-
-  function trimLeadingSlashes(value: string): string {
-    let start = 0;
-    while (start < value.length && value.charCodeAt(start) === 47) {
-      start += 1;
-    }
-    return start === 0 ? value : value.slice(start);
-  }
-
   function normalizeBaseUrl(): string {
     const normalized = trimTrailingSlashes(baseUrl.value.trim());
     return normalized || DEFAULT_GATEWAY_BASE_URL;
@@ -382,7 +382,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   function gatewayUrl(path: string): string {
     const normalizedBaseUrl = normalizeBaseUrl();
     if (normalizedBaseUrl.startsWith("/")) {
-      return new URL(`${normalizedBaseUrl}${path}`, window.location.origin).toString();
+      return new URL(`${normalizedBaseUrl}${path}`, globalThis.location.origin).toString();
     }
 
     const cleanPath = trimLeadingSlashes(path);
@@ -463,6 +463,35 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     progress.transportConnected = false;
     progress.operatorReady = false;
     setBlockedOnboardingState(recoveryKind, true, false);
+  }
+
+  function isAuthRejected(status: number): boolean {
+    return status === 401 || status === 403;
+  }
+
+  function handleAuthRejection(): false {
+    const hasBearerToken = !!bearerToken.value.trim();
+    clearCredentialState(hasBearerToken ? "credential_invalid" : "credential_missing");
+    errorMessage.value = t(hasBearerToken ? "auth.credentialInvalid" : "auth.credentialMissing");
+    return false;
+  }
+
+  function applyAdminOptions(options: AdminOptionsResponse): void {
+    if (Array.isArray(options.memory_backends) && options.memory_backends.length > 0) {
+      memoryBackendOptions.value = options.memory_backends;
+    }
+    if (
+      Array.isArray(options.observability_backends) &&
+      options.observability_backends.length > 0
+    ) {
+      observabilityBackendOptions.value = options.observability_backends;
+    }
+    if (Array.isArray(options.runtime_kinds) && options.runtime_kinds.length > 0) {
+      runtimeKindOptions.value = options.runtime_kinds;
+    }
+    if (Array.isArray(options.autonomy_levels) && options.autonomy_levels.length > 0) {
+      autonomyLevelOptions.value = options.autonomy_levels;
+    }
   }
 
   function handleTransportFailure(): void {
@@ -575,13 +604,8 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         headers,
       });
       markRuntimeConfirmed();
-      if (optionsResponse.status === 401 || optionsResponse.status === 403) {
-        const hasBearerToken = !!bearerToken.value.trim();
-        clearCredentialState(hasBearerToken ? "credential_invalid" : "credential_missing");
-        errorMessage.value = t(
-          hasBearerToken ? "auth.credentialInvalid" : "auth.credentialMissing"
-        );
-        return false;
+      if (isAuthRejected(optionsResponse.status)) {
+        return handleAuthRejection();
       }
       if (!optionsResponse.ok) {
         handleTransportFailure();
@@ -589,33 +613,14 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         return false;
       }
       const options = (await optionsResponse.json()) as AdminOptionsResponse;
-      if (Array.isArray(options.memory_backends) && options.memory_backends.length > 0) {
-        memoryBackendOptions.value = options.memory_backends;
-      }
-      if (
-        Array.isArray(options.observability_backends) &&
-        options.observability_backends.length > 0
-      ) {
-        observabilityBackendOptions.value = options.observability_backends;
-      }
-      if (Array.isArray(options.runtime_kinds) && options.runtime_kinds.length > 0) {
-        runtimeKindOptions.value = options.runtime_kinds;
-      }
-      if (Array.isArray(options.autonomy_levels) && options.autonomy_levels.length > 0) {
-        autonomyLevelOptions.value = options.autonomy_levels;
-      }
+      applyAdminOptions(options);
 
       const configResponse = await fetch(gatewayUrl("/web/admin/config"), {
         method: "GET",
         headers,
       });
-      if (configResponse.status === 401 || configResponse.status === 403) {
-        const hasBearerToken = !!bearerToken.value.trim();
-        clearCredentialState(hasBearerToken ? "credential_invalid" : "credential_missing");
-        errorMessage.value = t(
-          hasBearerToken ? "auth.credentialInvalid" : "auth.credentialMissing"
-        );
-        return false;
+      if (isAuthRejected(configResponse.status)) {
+        return handleAuthRejection();
       }
       if (!configResponse.ok) {
         handleTransportFailure();
@@ -642,15 +647,22 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   }
 
   function initQuickPair() {
-    if (typeof window === "undefined" || !window.location.hash.startsWith("#/quick-pair?")) {
+    if (
+      typeof globalThis.window === "undefined" ||
+      !globalThis.location.hash.startsWith("#/quick-pair?")
+    ) {
       return;
     }
 
-    const hashParams = new URLSearchParams(window.location.hash.slice(13));
+    const hashParams = new URLSearchParams(globalThis.location.hash.slice(13));
     const qpCode = hashParams.get("pairingCode");
     const qpUrl = hashParams.get("gatewayUrl");
 
-    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+    globalThis.history.replaceState(
+      null,
+      "",
+      globalThis.location.pathname + globalThis.location.search
+    );
 
     if (qpCode && qpUrl) {
       quickPairState.value = "validating";
@@ -736,9 +748,8 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
         headers: authHeaders(),
         body: JSON.stringify(payload),
       });
-      if (response.status === 401 || response.status === 403) {
-        clearCredentialState("credential_invalid");
-        errorMessage.value = t("auth.credentialInvalid");
+      if (isAuthRejected(response.status)) {
+        handleAuthRejection();
         return;
       }
       if (response.status === 409) {

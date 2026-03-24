@@ -149,7 +149,15 @@ impl CodeSessionResult {
             lines.push(format!("summary: {}", self.summary));
         }
 
-        // Support both new and legacy file fields
+        self.render_files(&mut lines);
+        self.render_commands(&mut lines);
+        self.render_validations(&mut lines);
+        self.render_blockers(&mut lines);
+
+        lines.join("\n")
+    }
+
+    fn render_files(&self, lines: &mut Vec<String>) {
         let file_count = self.changed_files.len() + self.files_changed.len();
         if file_count > 0 {
             lines.push(format!("files_changed: {file_count}"));
@@ -160,12 +168,16 @@ impl CodeSessionResult {
                 lines.push(format!("  modified {f}"));
             }
         }
+    }
 
+    fn render_commands(&self, lines: &mut Vec<String>) {
         let cmd_count = self.commands.len() + self.commands_executed.len();
         if cmd_count > 0 {
             lines.push(format!("commands_executed: {cmd_count}"));
         }
+    }
 
+    fn render_validations(&self, lines: &mut Vec<String>) {
         let all_validations = self.validations.len() + self.validation_outcomes.len();
         if all_validations > 0 {
             let passed_new = self.validations.iter().filter(|v| v.success).count();
@@ -181,15 +193,15 @@ impl CodeSessionResult {
                 lines.push(format!("  {} {}", mark, v.command));
             }
         }
+    }
 
+    fn render_blockers(&self, lines: &mut Vec<String>) {
         if !self.blockers.is_empty() {
             lines.push(format!("blockers: {}", self.blockers.len()));
             for b in &self.blockers {
                 lines.push(format!("  - {b}"));
             }
         }
-
-        lines.join("\n")
     }
 
     /// Convert to a `serde_json::Value` for use as `ToolResult.structured`.
@@ -219,15 +231,7 @@ impl CodeSessionResult {
 
         let block = &output[block_start..];
         let status = parse_field(block, "status")
-            .map(|s| match s.trim().to_ascii_lowercase().as_str() {
-                "success" | "completed" => CodeSessionStatus::Completed,
-                "completed_with_warnings" => CodeSessionStatus::CompletedWithWarnings,
-                "validation_failed" => CodeSessionStatus::ValidationFailed,
-                "blocked" => CodeSessionStatus::Blocked,
-                "budget_exceeded" => CodeSessionStatus::BudgetExceeded,
-                "error" => CodeSessionStatus::Error,
-                _ => CodeSessionStatus::Failed,
-            })
+            .map(|s| parse_status_label(&s))
             .unwrap_or(CodeSessionStatus::Failed);
 
         let summary = parse_field(block, "summary")
@@ -286,6 +290,18 @@ impl CodeSessionResult {
             commands_executed: vec![],
             validation_outcomes: vec![],
         }
+    }
+}
+
+fn parse_status_label(s: &str) -> CodeSessionStatus {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "success" | "completed" => CodeSessionStatus::Completed,
+        "completed_with_warnings" => CodeSessionStatus::CompletedWithWarnings,
+        "validation_failed" => CodeSessionStatus::ValidationFailed,
+        "blocked" => CodeSessionStatus::Blocked,
+        "budget_exceeded" => CodeSessionStatus::BudgetExceeded,
+        "error" => CodeSessionStatus::Error,
+        _ => CodeSessionStatus::Failed,
     }
 }
 

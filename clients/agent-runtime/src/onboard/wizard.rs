@@ -2639,11 +2639,23 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
 
     let (api_key, provider_api_url) = collect_api_key(provider_name)?;
 
-    // ── Model selection ──
+    let model = select_model(workspace_dir, provider_name, &api_key)?;
+
+    println!(
+        "  {} Provider: {} | Model: {}",
+        style("✓").green().bold(),
+        style(provider_name).green(),
+        style(&model).green()
+    );
+
+    Ok((provider_name.to_string(), api_key, model, provider_api_url))
+}
+
+fn select_model(workspace_dir: &Path, provider_name: &str, api_key: &str) -> Result<String> {
     let canonical_provider = canonical_provider_name(provider_name);
     let mut model_options: Vec<(String, String)> = models_for_provider(canonical_provider);
 
-    let live_options = fetch_live_model_options(workspace_dir, provider_name, &api_key)?;
+    let live_options = fetch_live_model_options(workspace_dir, provider_name, api_key)?;
 
     if let Some(live_model_options) = live_options {
         let source_options = vec![
@@ -2686,23 +2698,14 @@ fn setup_provider(workspace_dir: &Path) -> Result<(String, String, String, Optio
         .interact()?;
 
     let selected_model = model_options[model_idx].0.clone();
-    let model = if selected_model == CUSTOM_MODEL_SENTINEL {
-        Input::new()
+    if selected_model == CUSTOM_MODEL_SENTINEL {
+        Ok(Input::new()
             .with_prompt("  Enter custom model ID")
             .default(default_model_for_provider(provider_name))
-            .interact_text()?
+            .interact_text()?)
     } else {
-        selected_model
-    };
-
-    println!(
-        "  {} Provider: {} | Model: {}",
-        style("✓").green().bold(),
-        style(provider_name).green(),
-        style(&model).green()
-    );
-
-    Ok((provider_name.to_string(), api_key, model, provider_api_url))
+        Ok(selected_model)
+    }
 }
 
 /// Map provider name to its conventional env var
@@ -4333,40 +4336,7 @@ fn setup_channels() -> Result<ChannelsConfig> {
         println!();
     }
 
-    let mut active: Vec<&str> = vec!["CLI"];
-    if config.telegram.is_some() {
-        active.push("Telegram");
-    }
-    if config.discord.is_some() {
-        active.push("Discord");
-    }
-    if config.slack.is_some() {
-        active.push("Slack");
-    }
-    if config.imessage.is_some() {
-        active.push("iMessage");
-    }
-    if config.matrix.is_some() {
-        active.push("Matrix");
-    }
-    if config.whatsapp.is_some() {
-        active.push("WhatsApp");
-    }
-    if config.email.is_some() {
-        active.push("Email");
-    }
-    if config.irc.is_some() {
-        active.push("IRC");
-    }
-    if config.webhook.is_some() {
-        active.push("Webhook");
-    }
-    if config.dingtalk.is_some() {
-        active.push("DingTalk");
-    }
-    if config.qq.is_some() {
-        active.push("QQ");
-    }
+    let active = collect_active_channel_names(&config);
 
     println!(
         "  {} Channels: {}",
@@ -4375,6 +4345,29 @@ fn setup_channels() -> Result<ChannelsConfig> {
     );
 
     Ok(config)
+}
+
+fn collect_active_channel_names(config: &ChannelsConfig) -> Vec<&'static str> {
+    let mut active: Vec<&str> = vec!["CLI"];
+    let checks: &[(bool, &str)] = &[
+        (config.telegram.is_some(), "Telegram"),
+        (config.discord.is_some(), "Discord"),
+        (config.slack.is_some(), "Slack"),
+        (config.imessage.is_some(), "iMessage"),
+        (config.matrix.is_some(), "Matrix"),
+        (config.whatsapp.is_some(), "WhatsApp"),
+        (config.email.is_some(), "Email"),
+        (config.irc.is_some(), "IRC"),
+        (config.webhook.is_some(), "Webhook"),
+        (config.dingtalk.is_some(), "DingTalk"),
+        (config.qq.is_some(), "QQ"),
+    ];
+    for &(enabled, name) in checks {
+        if enabled {
+            active.push(name);
+        }
+    }
+    active
 }
 
 // ── Step 4: Tunnel ──────────────────────────────────────────────

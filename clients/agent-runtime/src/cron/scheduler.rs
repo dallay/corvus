@@ -288,6 +288,18 @@ fn strip_wrapping_quotes(token: &str) -> &str {
 }
 
 fn forbidden_path_argument(security: &SecurityPolicy, command: &str) -> Option<String> {
+    let normalized = normalize_command_separators(command);
+
+    for segment in normalized.split('\x00') {
+        if let Some(path) = check_segment_for_forbidden_path(security, segment) {
+            return Some(path);
+        }
+    }
+
+    None
+}
+
+fn normalize_command_separators(command: &str) -> String {
     let mut normalized = command.to_string();
     for sep in ["&&", "||"] {
         normalized = normalized.replace(sep, "\x00");
@@ -295,42 +307,44 @@ fn forbidden_path_argument(security: &SecurityPolicy, command: &str) -> Option<S
     for sep in ['\n', ';', '|'] {
         normalized = normalized.replace(sep, "\x00");
     }
+    normalized
+}
 
-    for segment in normalized.split('\x00') {
-        let tokens: Vec<&str> = segment.split_whitespace().collect();
-        if tokens.is_empty() {
-            continue;
-        }
-
-        // Skip leading env assignments and executable token.
-        let mut idx = 0;
-        while idx < tokens.len() && is_env_assignment(tokens[idx]) {
-            idx += 1;
-        }
-        if idx >= tokens.len() {
-            continue;
-        }
-        idx += 1;
-
-        for token in &tokens[idx..] {
-            let candidate = strip_wrapping_quotes(token);
-            if candidate.is_empty() || candidate.starts_with('-') || candidate.contains("://") {
-                continue;
-            }
-
-            let looks_like_path = candidate.starts_with('/')
-                || candidate.starts_with("./")
-                || candidate.starts_with("../")
-                || candidate.starts_with("~/")
-                || candidate.contains('/');
-
-            if looks_like_path && !security.is_path_allowed(candidate) {
-                return Some(candidate.to_string());
-            }
-        }
+fn check_segment_for_forbidden_path(security: &SecurityPolicy, segment: &str) -> Option<String> {
+    let tokens: Vec<&str> = segment.split_whitespace().collect();
+    if tokens.is_empty() {
+        return None;
     }
 
+    // Skip leading env assignments and executable token.
+    let mut idx = 0;
+    while idx < tokens.len() && is_env_assignment(tokens[idx]) {
+        idx += 1;
+    }
+    if idx >= tokens.len() {
+        return None;
+    }
+    idx += 1;
+
+    for token in &tokens[idx..] {
+        let candidate = strip_wrapping_quotes(token);
+        if candidate.is_empty() || candidate.starts_with('-') || candidate.contains("://") {
+            continue;
+        }
+
+        if looks_like_path(candidate) && !security.is_path_allowed(candidate) {
+            return Some(candidate.to_string());
+        }
+    }
     None
+}
+
+fn looks_like_path(candidate: &str) -> bool {
+    candidate.starts_with('/')
+        || candidate.starts_with("./")
+        || candidate.starts_with("../")
+        || candidate.starts_with("~/")
+        || candidate.contains('/')
 }
 
 async fn run_job_command(

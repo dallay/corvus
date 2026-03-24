@@ -1752,11 +1752,7 @@ async fn handle_webhook(
         );
         let (response, persist_idempotency) =
             webhook_response_from_dispatch_result(dispatch_result);
-        if !persist_idempotency {
-            if let Some(idempotency_key) = reserved_idempotency_key {
-                state.idempotency_store.remove(idempotency_key);
-            }
-        }
+        release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
         return response;
     }
 
@@ -1766,11 +1762,7 @@ async fn handle_webhook(
         if let Some((response, persist_idempotency)) =
             canonical_outcome_early_response(&state, &session_id, &scrubbed_message).await
         {
-            if !persist_idempotency {
-                if let Some(idempotency_key) = reserved_idempotency_key {
-                    state.idempotency_store.remove(idempotency_key);
-                }
-            }
+            release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
             return response;
         }
     }
@@ -1783,6 +1775,26 @@ async fn handle_webhook(
             .await;
     }
 
+    let (response, persist_idempotency) = legacy_simple_chat(&state, message, &session_id).await;
+
+    release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+
+    response
+}
+
+fn release_idempotency_key(state: &AppState, reserved_key: Option<&str>, persist: bool) {
+    if !persist {
+        if let Some(key) = reserved_key {
+            state.idempotency_store.remove(key);
+        }
+    }
+}
+
+async fn legacy_simple_chat(
+    state: &AppState,
+    message: &str,
+    session_id: &str,
+) -> (WebhookResponse, bool) {
     let provider_label = state
         .config
         .lock()
@@ -1806,37 +1818,16 @@ async fn handle_webhook(
             messages_count: 1,
         });
 
-    let (response, persist_idempotency) = match state
+    match state
         .provider
         .simple_chat(message, &state.model, state.temperature)
         .await
     {
         Ok(response) => {
             let duration = started_at.elapsed();
-            state
-                .observer
-                .record_event(&crate::observability::ObserverEvent::LlmResponse {
-                    provider: provider_label.clone(),
-                    model: model_label.clone(),
-                    duration,
-                    success: true,
-                    error_message: None,
-                });
-            state.observer.record_metric(
-                &crate::observability::traits::ObserverMetric::RequestLatency(duration),
-            );
-            state
-                .observer
-                .record_event(&crate::observability::ObserverEvent::AgentEnd {
-                    provider: provider_label,
-                    model: model_label,
-                    duration,
-                    tokens_used: None,
-                    cost_usd: None,
-                });
-
+            record_llm_success(&state.observer, &provider_label, &model_label, duration);
             let sanitized_response = scrub_sensitive_boundary_text(&response);
-            log_webhook_terminal_outcome(&session_id, "legacy_simple_chat", "completed");
+            log_webhook_terminal_outcome(session_id, "legacy_simple_chat", "completed");
             let body = serde_json::json!({
                 "response": sanitized_response,
                 "model": state.model,
@@ -1847,49 +1838,70 @@ async fn handle_webhook(
         Err(e) => {
             let duration = started_at.elapsed();
             let sanitized = providers::sanitize_api_error(&e.to_string());
-
-            state
-                .observer
-                .record_event(&crate::observability::ObserverEvent::LlmResponse {
-                    provider: provider_label.clone(),
-                    model: model_label.clone(),
-                    duration,
-                    success: false,
-                    error_message: Some(sanitized.clone()),
-                });
-            state.observer.record_metric(
-                &crate::observability::traits::ObserverMetric::RequestLatency(duration),
+            record_llm_failure(
+                &state.observer,
+                &provider_label,
+                &model_label,
+                duration,
+                &sanitized,
             );
-            state
-                .observer
-                .record_event(&crate::observability::ObserverEvent::Error {
-                    component: "gateway".to_string(),
-                    message: sanitized.clone(),
-                });
-            state
-                .observer
-                .record_event(&crate::observability::ObserverEvent::AgentEnd {
-                    provider: provider_label,
-                    model: model_label,
-                    duration,
-                    tokens_used: None,
-                    cost_usd: None,
-                });
-
             tracing::error!("Webhook provider error: {}", sanitized);
-            log_webhook_terminal_outcome(&session_id, "legacy_simple_chat", "error");
+            log_webhook_terminal_outcome(session_id, "legacy_simple_chat", "error");
             let err = serde_json::json!({"error": "LLM request failed"});
             ((StatusCode::INTERNAL_SERVER_ERROR, Json(err)), false)
         }
-    };
-
-    if !persist_idempotency {
-        if let Some(idempotency_key) = reserved_idempotency_key {
-            state.idempotency_store.remove(idempotency_key);
-        }
     }
+}
 
-    response
+fn record_llm_success(
+    observer: &Arc<dyn crate::observability::traits::Observer>,
+    provider: &str,
+    model: &str,
+    duration: std::time::Duration,
+) {
+    observer.record_event(&crate::observability::ObserverEvent::LlmResponse {
+        provider: provider.to_string(),
+        model: model.to_string(),
+        duration,
+        success: true,
+        error_message: None,
+    });
+    observer.record_metric(&crate::observability::traits::ObserverMetric::RequestLatency(duration));
+    observer.record_event(&crate::observability::ObserverEvent::AgentEnd {
+        provider: provider.to_string(),
+        model: model.to_string(),
+        duration,
+        tokens_used: None,
+        cost_usd: None,
+    });
+}
+
+fn record_llm_failure(
+    observer: &Arc<dyn crate::observability::traits::Observer>,
+    provider: &str,
+    model: &str,
+    duration: std::time::Duration,
+    sanitized_error: &str,
+) {
+    observer.record_event(&crate::observability::ObserverEvent::LlmResponse {
+        provider: provider.to_string(),
+        model: model.to_string(),
+        duration,
+        success: false,
+        error_message: Some(sanitized_error.to_string()),
+    });
+    observer.record_metric(&crate::observability::traits::ObserverMetric::RequestLatency(duration));
+    observer.record_event(&crate::observability::ObserverEvent::Error {
+        component: "gateway".to_string(),
+        message: sanitized_error.to_string(),
+    });
+    observer.record_event(&crate::observability::ObserverEvent::AgentEnd {
+        provider: provider.to_string(),
+        model: model.to_string(),
+        duration,
+        tokens_used: None,
+        cost_usd: None,
+    });
 }
 
 /// `WhatsApp` verification query params

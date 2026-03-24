@@ -325,20 +325,7 @@ impl Storage for DiskBackedStorage {
 
         if let Err(error) = self.persist_records(snapshot).await {
             let mut map = self.records.write().await;
-            if hard_delete {
-                if map.get(memory_id).is_none() {
-                    if let Some(prev) = previous {
-                        map.insert(memory_id.to_string(), prev);
-                    }
-                }
-            } else if let Some(prev) = previous {
-                if map
-                    .get(memory_id)
-                    .is_some_and(|current| current.deleted && current.memory_id == prev.memory_id)
-                {
-                    map.insert(memory_id.to_string(), prev);
-                }
-            }
+            rollback_delete(&mut map, memory_id, previous, hard_delete);
             return Err(error);
         }
 
@@ -410,6 +397,46 @@ impl Storage for DiskBackedStorage {
     async fn count(&self) -> Result<usize, CerebroError> {
         let map = self.records.read().await;
         Ok(map.len())
+    }
+}
+
+fn rollback_delete(
+    map: &mut HashMap<String, MemoryRecord>,
+    memory_id: &str,
+    previous: Option<MemoryRecord>,
+    hard_delete: bool,
+) {
+    if hard_delete {
+        rollback_hard_delete(map, memory_id, previous);
+    } else {
+        rollback_soft_delete(map, memory_id, previous);
+    }
+}
+
+fn rollback_hard_delete(
+    map: &mut HashMap<String, MemoryRecord>,
+    memory_id: &str,
+    previous: Option<MemoryRecord>,
+) {
+    if map.get(memory_id).is_none() {
+        if let Some(prev) = previous {
+            map.insert(memory_id.to_string(), prev);
+        }
+    }
+}
+
+fn rollback_soft_delete(
+    map: &mut HashMap<String, MemoryRecord>,
+    memory_id: &str,
+    previous: Option<MemoryRecord>,
+) {
+    if let Some(prev) = previous {
+        if map
+            .get(memory_id)
+            .is_some_and(|current| current.deleted && current.memory_id == prev.memory_id)
+        {
+            map.insert(memory_id.to_string(), prev);
+        }
     }
 }
 

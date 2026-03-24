@@ -134,8 +134,40 @@ impl SkillForge {
         }
 
         // --- Scout ----------------------------------------------------------
-        let mut candidates: Vec<ScoutResult> = Vec::new();
+        let mut candidates = self.run_scouts().await;
 
+        // Deduplicate by URL
+        scout::dedup(&mut candidates);
+        let discovered = candidates.len();
+        info!(discovered, "Total unique candidates after dedup");
+
+        // --- Evaluate -------------------------------------------------------
+        let results: Vec<EvalResult> = candidates
+            .into_iter()
+            .map(|c| self.evaluator.evaluate(c))
+            .collect();
+        let evaluated = results.len();
+
+        // --- Integrate ------------------------------------------------------
+        let (auto_integrated, manual_review, skipped) = self.integrate_results(&results);
+
+        info!(
+            auto_integrated,
+            manual_review, skipped, "Forge pipeline complete"
+        );
+
+        Ok(ForgeReport {
+            discovered,
+            evaluated,
+            auto_integrated,
+            manual_review,
+            skipped,
+            results,
+        })
+    }
+
+    async fn run_scouts(&self) -> Vec<ScoutResult> {
+        let mut candidates: Vec<ScoutResult> = Vec::new();
         for src in &self.config.sources {
             let source: ScoutSource = src.parse().unwrap(); // Infallible
             match source {
@@ -159,32 +191,20 @@ impl SkillForge {
                 }
             }
         }
+        candidates
+    }
 
-        // Deduplicate by URL
-        scout::dedup(&mut candidates);
-        let discovered = candidates.len();
-        info!(discovered, "Total unique candidates after dedup");
-
-        // --- Evaluate -------------------------------------------------------
-        let results: Vec<EvalResult> = candidates
-            .into_iter()
-            .map(|c| self.evaluator.evaluate(c))
-            .collect();
-        let evaluated = results.len();
-
-        // --- Integrate ------------------------------------------------------
+    fn integrate_results(&self, results: &[EvalResult]) -> (usize, usize, usize) {
         let mut auto_integrated = 0usize;
         let mut manual_review = 0usize;
         let mut skipped = 0usize;
 
-        for res in &results {
+        for res in results {
             match res.recommendation {
                 Recommendation::Auto => {
                     if self.config.auto_integrate {
                         match self.integrator.integrate(&res.candidate) {
-                            Ok(_) => {
-                                auto_integrated += 1;
-                            }
+                            Ok(_) => auto_integrated += 1,
                             Err(e) => {
                                 warn!(
                                     skill = res.candidate.name.as_str(),
@@ -194,32 +214,15 @@ impl SkillForge {
                             }
                         }
                     } else {
-                        // Count as would-be auto but not actually integrated
                         manual_review += 1;
                     }
                 }
-                Recommendation::Manual => {
-                    manual_review += 1;
-                }
-                Recommendation::Skip => {
-                    skipped += 1;
-                }
+                Recommendation::Manual => manual_review += 1,
+                Recommendation::Skip => skipped += 1,
             }
         }
 
-        info!(
-            auto_integrated,
-            manual_review, skipped, "Forge pipeline complete"
-        );
-
-        Ok(ForgeReport {
-            discovered,
-            evaluated,
-            auto_integrated,
-            manual_review,
-            skipped,
-            results,
-        })
+        (auto_integrated, manual_review, skipped)
     }
 }
 

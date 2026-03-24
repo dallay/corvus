@@ -106,11 +106,7 @@ impl MemoryLoader for CerebroMemoryLoader {
 
         if let Some(endpoint) = endpoint {
             if enforce_cerebro_egress(endpoint, &self.config, ToolOperation::Read).is_err() {
-                if added {
-                    context.push('\n');
-                    return Ok(context);
-                }
-                return Ok(String::new());
+                return Ok(finalize_context(context, added));
             }
         }
 
@@ -118,57 +114,11 @@ impl MemoryLoader for CerebroMemoryLoader {
             tracing::warn!(
                 "Skipping Cerebro remote recall for session-scoped turn until mem_search supports session filtering"
             );
-            if added {
-                context.push('\n');
-            }
-            return Ok(context);
+            return Ok(finalize_context(context, added));
         }
 
-        let adapter = cerebro::cerebro_tool_adapter(&self.config, normalize::CEREBRO_TOOL_RECALL)?;
-        let payload = json!({
-            "input": {
-                "query": user_message,
-                "limit": self.limit
-            }
-        });
-        let response = adapter.execute(payload).await?;
-        if !response.success {
-            let message = response
-                .error
-                .unwrap_or_else(|| "Cerebro mem_search failed".to_string());
-            anyhow::bail!(message);
-        }
-
-        let value: serde_json::Value = serde_json::from_str(&response.output)?;
-        let results = value
-            .get("results")
-            .and_then(serde_json::Value::as_array)
-            .ok_or_else(|| anyhow::anyhow!("Cerebro response missing results"))?;
-
-        if !results.is_empty() {
-            for entry in results {
-                let score = entry.get("score").and_then(serde_json::Value::as_f64);
-                if let Some(score) = score {
-                    if score < self.min_relevance_score {
-                        continue;
-                    }
-                }
-                let key = entry
-                    .get("topic_key")
-                    .or_else(|| entry.get("memory_id"))
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("memory");
-                let summary = entry
-                    .get("summary")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
-                if context.is_empty() {
-                    context.push_str("[Memory context]\n");
-                }
-                let _ = writeln!(context, "- {key}: {summary}");
-                added = true;
-            }
-        }
+        let results = fetch_cerebro_results(&self.config, user_message, self.limit).await?;
+        added = append_cerebro_results(&mut context, &results, self.min_relevance_score) || added;
 
         if !added {
             return Ok(String::new());
@@ -195,6 +145,75 @@ fn append_local_entries(
             context.push_str("[Memory context]\n");
         }
         let _ = writeln!(context, "- {}: {}", entry.key, entry.content);
+        added = true;
+    }
+    added
+}
+
+/// Finalize a context string: append newline if entries were added, else return empty.
+fn finalize_context(mut context: String, added: bool) -> String {
+    if added {
+        context.push('\n');
+    }
+    context
+}
+
+/// Call the Cerebro MCP adapter and return the parsed results array.
+async fn fetch_cerebro_results(
+    config: &MemoryCerebroConfig,
+    user_message: &str,
+    limit: usize,
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let adapter = cerebro::cerebro_tool_adapter(config, normalize::CEREBRO_TOOL_RECALL)?;
+    let payload = json!({
+        "input": {
+            "query": user_message,
+            "limit": limit
+        }
+    });
+    let response = adapter.execute(payload).await?;
+    if !response.success {
+        let message = response
+            .error
+            .unwrap_or_else(|| "Cerebro mem_search failed".to_string());
+        anyhow::bail!(message);
+    }
+
+    let value: serde_json::Value = serde_json::from_str(&response.output)?;
+    let results = value
+        .get("results")
+        .and_then(serde_json::Value::as_array)
+        .ok_or_else(|| anyhow::anyhow!("Cerebro response missing results"))?;
+    Ok(results.clone())
+}
+
+/// Append Cerebro remote recall results to the context string.
+fn append_cerebro_results(
+    context: &mut String,
+    results: &[serde_json::Value],
+    min_relevance_score: f64,
+) -> bool {
+    let mut added = false;
+    for entry in results {
+        let score = entry.get("score").and_then(serde_json::Value::as_f64);
+        if let Some(score) = score {
+            if score < min_relevance_score {
+                continue;
+            }
+        }
+        let key = entry
+            .get("topic_key")
+            .or_else(|| entry.get("memory_id"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or("memory");
+        let summary = entry
+            .get("summary")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        if context.is_empty() {
+            context.push_str("[Memory context]\n");
+        }
+        let _ = writeln!(context, "- {key}: {summary}");
         added = true;
     }
     added

@@ -109,6 +109,85 @@ impl MatrixChannel {
         let who: WhoAmIResponse = resp.json().await?;
         Ok(who.user_id)
     }
+
+    /// Perform the initial Matrix sync to obtain the `since` token.
+    async fn initial_sync(&self) -> anyhow::Result<String> {
+        let url = format!(
+            "{}/_matrix/client/v3/sync?timeout=30000&filter={{\"room\":{{\"timeline\":{{\"limit\":1}}}}}}",
+            self.homeserver
+        );
+
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.access_token))
+            .send()
+            .await?;
+
+        if !resp.status().is_success() {
+            let err = resp.text().await?;
+            anyhow::bail!("Matrix initial sync failed: {err}");
+        }
+
+        let sync: SyncResponse = resp.json().await?;
+        Ok(sync.next_batch)
+    }
+
+    /// Long-poll for the next sync batch. Returns an error on network failure
+    /// or non-success status so the caller can retry.
+    async fn poll_sync(&self, since: &str) -> anyhow::Result<SyncResponse> {
+        let url = format!(
+            "{}/_matrix/client/v3/sync?since={}&timeout=30000",
+            self.homeserver, since
+        );
+
+        let resp = self
+            .client
+            .get(&url)
+            .header("Authorization", format!("Bearer {}", self.access_token))
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!("Matrix sync error: {e}, retrying...");
+                e
+            })?;
+
+        if !resp.status().is_success() {
+            anyhow::bail!("Matrix sync returned non-success status");
+        }
+
+        Ok(resp.json().await?)
+    }
+
+    /// Convert a single timeline event into a `ChannelMessage`, filtering out
+    /// own messages, non-text types, and unauthorized senders.
+    fn event_to_message(&self, event: &TimelineEvent, my_user_id: &str) -> Option<ChannelMessage> {
+        if event.sender == my_user_id {
+            return None;
+        }
+        if event.event_type != "m.room.message" {
+            return None;
+        }
+        if event.content.msgtype.as_deref() != Some("m.text") {
+            return None;
+        }
+        let body = event.content.body.as_ref()?;
+        if !self.is_user_allowed(&event.sender) {
+            return None;
+        }
+
+        Some(ChannelMessage {
+            id: format!("mx_{}", chrono::Utc::now().timestamp_millis()),
+            sender: event.sender.clone(),
+            reply_target: event.sender.clone(),
+            content: body.clone(),
+            channel: "matrix".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        })
+    }
 }
 
 #[async_trait]
@@ -149,98 +228,25 @@ impl Channel for MatrixChannel {
         tracing::info!("Matrix channel listening on room {}...", self.room_id);
 
         let my_user_id = self.get_my_user_id().await?;
-
-        // Initial sync to get the since token
-        let url = format!(
-            "{}/_matrix/client/v3/sync?timeout=30000&filter={{\"room\":{{\"timeline\":{{\"limit\":1}}}}}}",
-            self.homeserver
-        );
-
-        let resp = self
-            .client
-            .get(&url)
-            .header("Authorization", format!("Bearer {}", self.access_token))
-            .send()
-            .await?;
-
-        if !resp.status().is_success() {
-            let err = resp.text().await?;
-            anyhow::bail!("Matrix initial sync failed: {err}");
-        }
-
-        let sync: SyncResponse = resp.json().await?;
-        let mut since = sync.next_batch;
+        let mut since = self.initial_sync().await?;
 
         // Long-poll loop
         loop {
-            let url = format!(
-                "{}/_matrix/client/v3/sync?since={}&timeout=30000",
-                self.homeserver, since
-            );
-
-            let resp = self
-                .client
-                .get(&url)
-                .header("Authorization", format!("Bearer {}", self.access_token))
-                .send()
-                .await;
-
-            let resp = match resp {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::warn!("Matrix sync error: {e}, retrying...");
+            let sync = match self.poll_sync(&since).await {
+                Ok(s) => s,
+                Err(_) => {
                     tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
                     continue;
                 }
             };
-
-            if !resp.status().is_success() {
-                tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
-                continue;
-            }
-
-            let sync: SyncResponse = resp.json().await?;
             since = sync.next_batch;
 
-            // Process events from our room
             if let Some(room) = sync.rooms.join.get(&self.room_id) {
                 for event in &room.timeline.events {
-                    // Skip our own messages
-                    if event.sender == my_user_id {
-                        continue;
-                    }
-
-                    // Only process text messages
-                    if event.event_type != "m.room.message" {
-                        continue;
-                    }
-
-                    if event.content.msgtype.as_deref() != Some("m.text") {
-                        continue;
-                    }
-
-                    let Some(ref body) = event.content.body else {
-                        continue;
-                    };
-
-                    if !self.is_user_allowed(&event.sender) {
-                        continue;
-                    }
-
-                    let msg = ChannelMessage {
-                        id: format!("mx_{}", chrono::Utc::now().timestamp_millis()),
-                        sender: event.sender.clone(),
-                        reply_target: event.sender.clone(),
-                        content: body.clone(),
-                        channel: "matrix".to_string(),
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                    };
-
-                    if tx.send(msg).await.is_err() {
-                        return Ok(());
+                    if let Some(msg) = self.event_to_message(event, &my_user_id) {
+                        if tx.send(msg).await.is_err() {
+                            return Ok(());
+                        }
                     }
                 }
             }

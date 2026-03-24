@@ -27,6 +27,30 @@ use uuid::Uuid;
 
 use super::traits::{Channel, ChannelMessage, SendMessage};
 
+/// Extract a timestamp from a parsed email, falling back to current time.
+#[allow(clippy::cast_sign_loss)]
+fn extract_email_timestamp(parsed: &mail_parser::Message<'_>) -> u64 {
+    parsed
+        .date()
+        .map(|d| {
+            let naive = chrono::NaiveDate::from_ymd_opt(
+                d.year as i32,
+                u32::from(d.month),
+                u32::from(d.day),
+            )
+            .and_then(|date| {
+                date.and_hms_opt(u32::from(d.hour), u32::from(d.minute), u32::from(d.second))
+            });
+            naive.map_or(0, |n| n.and_utc().timestamp() as u64)
+        })
+        .unwrap_or_else(|| {
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0)
+        })
+}
+
 /// Email channel configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EmailConfig {
@@ -286,11 +310,9 @@ impl EmailChannel {
         let mut tag_counter = 4_u32; // Start after A1, A2, A3
 
         for uid in &uids {
-            // Fetch RFC822 with unique tag
             let fetch_tag = format!("A{}", tag_counter);
             tag_counter += 1;
             let fetch_resp = send_cmd(&mut tls, &fetch_tag, &format!("FETCH {} RFC822", uid))?;
-            // Reconstruct the raw email from the response (skip first and last lines)
             let raw: String = fetch_resp
                 .iter()
                 .skip(1)
@@ -299,40 +321,9 @@ impl EmailChannel {
                 .collect();
 
             if let Some(parsed) = MessageParser::default().parse(raw.as_bytes()) {
-                let sender = Self::extract_sender(&parsed);
-                let subject = parsed.subject().unwrap_or("(no subject)").to_string();
-                let body = Self::extract_text(&parsed);
-                let content = format!("Subject: {}\n\n{}", subject, body);
-                let msg_id = parsed
-                    .message_id()
-                    .map(|s| s.to_string())
-                    .unwrap_or_else(|| format!("gen-{}", Uuid::new_v4()));
-                #[allow(clippy::cast_sign_loss)]
-                let ts = parsed
-                    .date()
-                    .map(|d| {
-                        let naive = chrono::NaiveDate::from_ymd_opt(
-                            d.year as i32,
-                            u32::from(d.month),
-                            u32::from(d.day),
-                        )
-                        .and_then(|date| {
-                            date.and_hms_opt(
-                                u32::from(d.hour),
-                                u32::from(d.minute),
-                                u32::from(d.second),
-                            )
-                        });
-                        naive.map_or(0, |n| n.and_utc().timestamp() as u64)
-                    })
-                    .unwrap_or_else(|| {
-                        SystemTime::now()
-                            .duration_since(UNIX_EPOCH)
-                            .map(|d| d.as_secs())
-                            .unwrap_or(0)
-                    });
-
-                results.push((msg_id, sender, content, ts));
+                if let Some(tuple) = Self::parsed_email_to_tuple(&parsed) {
+                    results.push(tuple);
+                }
             }
 
             // Mark as seen with unique tag
@@ -350,6 +341,56 @@ impl EmailChannel {
         let _ = send_cmd(&mut tls, &logout_tag, "LOGOUT");
 
         Ok(results)
+    }
+
+    /// Extract (msg_id, sender, content, timestamp) from a parsed email.
+    fn parsed_email_to_tuple(
+        parsed: &mail_parser::Message<'_>,
+    ) -> Option<(String, String, String, u64)> {
+        let sender = Self::extract_sender(parsed);
+        let subject = parsed.subject().unwrap_or("(no subject)").to_string();
+        let body = Self::extract_text(parsed);
+        let content = format!("Subject: {}\n\n{}", subject, body);
+        let msg_id = parsed
+            .message_id()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("gen-{}", Uuid::new_v4()));
+        let ts = extract_email_timestamp(parsed);
+        Some((msg_id, sender, content, ts))
+    }
+
+    /// Filter, deduplicate, and send fetched emails to the channel.
+    /// Returns `true` if the channel receiver has been dropped (caller should exit).
+    async fn dispatch_emails(
+        &self,
+        messages: Vec<(String, String, String, u64)>,
+        tx: &mpsc::Sender<ChannelMessage>,
+    ) -> Result<bool> {
+        for (id, sender, content, ts) in messages {
+            {
+                let mut seen = self.seen_messages.lock();
+                if seen.contains(&id) {
+                    continue;
+                }
+                if !self.is_sender_allowed(&sender) {
+                    warn!("Blocked email from {}", sender);
+                    continue;
+                }
+                seen.insert(id.clone());
+            } // MutexGuard dropped before await
+            let msg = ChannelMessage {
+                id,
+                reply_target: sender.clone(),
+                sender,
+                content,
+                channel: "email".to_string(),
+                timestamp: ts,
+            };
+            if tx.send(msg).await.is_err() {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn create_smtp_transport(&self) -> Result<SmtpTransport> {
@@ -414,29 +455,8 @@ impl Channel for EmailChannel {
             let cfg = config.clone();
             match tokio::task::spawn_blocking(move || Self::fetch_unseen_imap(&cfg)).await {
                 Ok(Ok(messages)) => {
-                    for (id, sender, content, ts) in messages {
-                        {
-                            let mut seen = self.seen_messages.lock();
-                            if seen.contains(&id) {
-                                continue;
-                            }
-                            if !self.is_sender_allowed(&sender) {
-                                warn!("Blocked email from {}", sender);
-                                continue;
-                            }
-                            seen.insert(id.clone());
-                        } // MutexGuard dropped before await
-                        let msg = ChannelMessage {
-                            id,
-                            reply_target: sender.clone(),
-                            sender,
-                            content,
-                            channel: "email".to_string(),
-                            timestamp: ts,
-                        };
-                        if tx.send(msg).await.is_err() {
-                            return Ok(());
-                        }
+                    if self.dispatch_emails(messages, &tx).await? {
+                        return Ok(());
                     }
                 }
                 Ok(Err(e)) => {

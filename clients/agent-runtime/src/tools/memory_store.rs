@@ -104,6 +104,106 @@ fn sensitive_regex_set() -> &'static RegexSet {
     })
 }
 
+/// Extract a trimmed, non-empty string from a JSON args object.
+fn extract_trimmed_str<'a>(args: &'a serde_json::Value, field: &str) -> Option<&'a str> {
+    args.get(field)
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+}
+
+/// Build a failure `ToolResult` with the given error message.
+fn err_result(msg: &str) -> ToolResult {
+    ToolResult {
+        success: false,
+        output: String::new(),
+        error: Some(msg.to_string()),
+        structured: None,
+    }
+}
+
+/// Validate and return the Cerebro endpoint, or a failure `ToolResult`.
+fn validated_endpoint<'a>(
+    cerebro: &'a MemoryCerebroConfig,
+    tool_name: &str,
+) -> Result<&'a str, ToolResult> {
+    cerebro
+        .endpoint
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| err_result(&format!("Cerebro MCP endpoint is required for {tool_name}")))
+}
+
+/// Parse a category string into `MemoryCategory`.
+fn parse_category(cat: Option<&str>) -> MemoryCategory {
+    match cat {
+        Some("core") | None => MemoryCategory::Core,
+        Some("daily") => MemoryCategory::Daily,
+        Some("conversation") => MemoryCategory::Conversation,
+        Some(other) => MemoryCategory::Custom(other.to_string()),
+    }
+}
+
+/// Store via local memory backend.
+async fn store_local(
+    local: &Arc<dyn Memory>,
+    key: &str,
+    content: &str,
+    category: MemoryCategory,
+) -> anyhow::Result<ToolResult> {
+    match local.store(key, content, category, None).await {
+        Ok(()) => Ok(ToolResult {
+            success: true,
+            output: format!("Stored memory: {key}"),
+            error: None,
+            structured: None,
+        }),
+        Err(error) => Ok(err_result(&error.to_string())),
+    }
+}
+
+/// Store via Cerebro MCP.
+async fn store_via_cerebro(
+    cerebro: &MemoryCerebroConfig,
+    key: &str,
+    content: &str,
+    category: &MemoryCategory,
+) -> anyhow::Result<ToolResult> {
+    let adapter = cerebro::cerebro_tool_adapter(cerebro, normalize::CEREBRO_TOOL_STORE)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let payload = json!({
+        "input": {
+            "scope": "shared",
+            "topic_key": key,
+            "observation": {
+                "content": content,
+                "metadata": {
+                    "legacy_category": category.to_string()
+                }
+            }
+        }
+    });
+    let response = match adapter.execute(payload).await {
+        Ok(r) => r,
+        Err(e) => return Ok(err_result(&e.to_string())),
+    };
+    if response.success {
+        return Ok(ToolResult {
+            success: true,
+            output: format!("Stored memory: {key}"),
+            error: None,
+            structured: None,
+        });
+    }
+    Ok(ToolResult {
+        success: false,
+        output: String::new(),
+        error: response.error,
+        structured: None,
+    })
+}
+
 /// Let the agent store memories — its own brain writes
 pub struct MemoryStoreTool {
     cerebro: MemoryCerebroConfig,
@@ -162,172 +262,47 @@ impl Tool for MemoryStoreTool {
     }
 
     async fn execute(&self, args: serde_json::Value) -> anyhow::Result<ToolResult> {
-        let key = match args
-            .get("key")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            Some(value) => value,
-            None => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some("Missing or empty 'key' parameter".into()),
-                    structured: None,
-                });
-            }
+        let key = match extract_trimmed_str(&args, "key") {
+            Some(v) => v,
+            None => return Ok(err_result("Missing or empty 'key' parameter")),
         };
 
         if contains_sensitive_data(key) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(SENSITIVE_DATA_ERROR.to_string()),
-                structured: None,
-            });
+            return Ok(err_result(SENSITIVE_DATA_ERROR));
         }
 
-        let content = match args
-            .get("content")
-            .and_then(|v| v.as_str())
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-        {
-            Some(value) => value,
-            None => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some("Missing or empty 'content' parameter".into()),
-                    structured: None,
-                });
-            }
+        let content = match extract_trimmed_str(&args, "content") {
+            Some(v) => v,
+            None => return Ok(err_result("Missing or empty 'content' parameter")),
         };
 
-        let category = match args.get("category").and_then(|v| v.as_str()) {
-            Some("core") | None => MemoryCategory::Core,
-            Some("daily") => MemoryCategory::Daily,
-            Some("conversation") => MemoryCategory::Conversation,
-            Some(other) => MemoryCategory::Custom(other.to_string()),
-        };
+        let category = parse_category(args.get("category").and_then(|v| v.as_str()));
 
         if contains_sensitive_data(content) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(SENSITIVE_DATA_ERROR.to_string()),
-                structured: None,
-            });
+            return Ok(err_result(SENSITIVE_DATA_ERROR));
         }
 
         if let Err(error) = self
             .security
             .enforce_tool_operation(ToolOperation::Act, "memory_store")
         {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(error),
-                structured: None,
-            });
+            return Ok(err_result(&error));
         }
 
         if let Some(local) = &self.local {
-            return match local.store(key, content, category, None).await {
-                Ok(()) => Ok(ToolResult {
-                    success: true,
-                    output: format!("Stored memory: {key}"),
-                    error: None,
-                    structured: None,
-                }),
-                Err(error) => Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(error.to_string()),
-                    structured: None,
-                }),
-            };
+            return store_local(local, key, content, category).await;
         }
 
-        let endpoint = self
-            .cerebro
-            .endpoint
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty());
-
-        let endpoint = match endpoint {
-            Some(value) => value,
-            None => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some("Cerebro MCP endpoint is required for memory_store".into()),
-                    structured: None,
-                });
-            }
+        let endpoint = match validated_endpoint(&self.cerebro, "memory_store") {
+            Ok(ep) => ep,
+            Err(r) => return Ok(r),
         };
 
         if let Err(error) = enforce_cerebro_egress(endpoint, &self.cerebro, ToolOperation::Act) {
-            return Ok(ToolResult {
-                success: false,
-                output: String::new(),
-                error: Some(error.to_string()),
-                structured: None,
-            });
+            return Ok(err_result(&error.to_string()));
         }
 
-        let adapter =
-            match cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_STORE) {
-                Ok(adapter) => adapter,
-                Err(error) => {
-                    return Ok(ToolResult {
-                        success: false,
-                        output: String::new(),
-                        error: Some(error.to_string()),
-                        structured: None,
-                    });
-                }
-            };
-        let payload = json!({
-            "input": {
-                "scope": "shared",
-                "topic_key": key,
-                "observation": {
-                    "content": content,
-                    "metadata": {
-                        "legacy_category": category.to_string()
-                    }
-                }
-            }
-        });
-        let response = match adapter.execute(payload).await {
-            Ok(response) => response,
-            Err(error) => {
-                return Ok(ToolResult {
-                    success: false,
-                    output: String::new(),
-                    error: Some(error.to_string()),
-                    structured: None,
-                });
-            }
-        };
-        if response.success {
-            return Ok(ToolResult {
-                success: true,
-                output: format!("Stored memory: {key}"),
-                error: None,
-                structured: None,
-            });
-        }
-
-        Ok(ToolResult {
-            success: false,
-            output: String::new(),
-            error: response.error,
-            structured: None,
-        })
+        store_via_cerebro(&self.cerebro, key, content, &category).await
     }
 }
 

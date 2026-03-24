@@ -3,7 +3,7 @@ set -euo pipefail
 
 echo "Running diagnostics..."
 
-if [ -f .gitmodules ]; then
+if [[ -f .gitmodules ]]; then
   echo "✅ Git submodules detected"
 else
   echo "ℹ️  No git submodules"

@@ -64,45 +64,8 @@ impl Tunnel for CustomTunnel {
         // If a URL pattern is provided, try to extract the public URL from stdout
         if let Some(ref pattern) = self.url_pattern {
             if let Some(stdout) = child.stdout.take() {
-                let mut reader = tokio::io::BufReader::new(stdout).lines();
-                let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(15);
-
-                while tokio::time::Instant::now() < deadline {
-                    let line = tokio::time::timeout(
-                        tokio::time::Duration::from_secs(3),
-                        reader.next_line(),
-                    )
-                    .await;
-
-                    match line {
-                        Ok(Ok(Some(l))) => {
-                            tracing::debug!("custom-tunnel: {l}");
-                            // Simple substring match on the pattern
-                            if l.contains(pattern)
-                                || l.contains("https://")
-                                || l.contains("http://")
-                            {
-                                // Extract URL from the line
-                                if let Some(idx) = l.find("https://") {
-                                    let url_part = &l[idx..];
-                                    let end = url_part
-                                        .find(|c: char| c.is_whitespace())
-                                        .unwrap_or(url_part.len());
-                                    public_url = url_part[..end].to_string();
-                                    break;
-                                } else if let Some(idx) = l.find("http://") {
-                                    let url_part = &l[idx..];
-                                    let end = url_part
-                                        .find(|c: char| c.is_whitespace())
-                                        .unwrap_or(url_part.len());
-                                    public_url = url_part[..end].to_string();
-                                    break;
-                                }
-                            }
-                        }
-                        Ok(Ok(None) | Err(_)) => break,
-                        Err(_) => {}
-                    }
+                if let Some(url) = extract_url_from_child_stdout(stdout, pattern).await {
+                    public_url = url;
                 }
             }
         }
@@ -142,6 +105,50 @@ impl Tunnel for CustomTunnel {
             .ok()
             .and_then(|g| g.as_ref().map(|tp| tp.public_url.clone()))
     }
+}
+
+/// Extract a URL from child process stdout by scanning lines for a pattern or URL prefix.
+async fn extract_url_from_child_stdout(
+    stdout: tokio::process::ChildStdout,
+    pattern: &str,
+) -> Option<String> {
+    let mut reader = tokio::io::BufReader::new(stdout).lines();
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(15);
+
+    while tokio::time::Instant::now() < deadline {
+        let line =
+            tokio::time::timeout(tokio::time::Duration::from_secs(3), reader.next_line()).await;
+
+        match line {
+            Ok(Ok(Some(l))) => {
+                tracing::debug!("custom-tunnel: {l}");
+                if let Some(url) = try_extract_url_from_line(&l, pattern) {
+                    return Some(url);
+                }
+            }
+            Ok(Ok(None) | Err(_)) => break,
+            Err(_) => {}
+        }
+    }
+    None
+}
+
+/// Try to extract an http(s) URL from a single line if it matches the pattern.
+fn try_extract_url_from_line(line: &str, pattern: &str) -> Option<String> {
+    if !line.contains(pattern) && !line.contains("https://") && !line.contains("http://") {
+        return None;
+    }
+
+    for prefix in ["https://", "http://"] {
+        if let Some(idx) = line.find(prefix) {
+            let url_part = &line[idx..];
+            let end = url_part
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(url_part.len());
+            return Some(url_part[..end].to_string());
+        }
+    }
+    None
 }
 
 #[cfg(test)]

@@ -44,6 +44,26 @@ impl TelegramChannel {
     fn api_url(&self, method: &str) -> String {
         format!("https://api.telegram.org/bot{}/{method}", self.bot_token)
     }
+
+    fn parse_update(&self, update: &serde_json::Value) -> Option<ChannelMessage> {
+        let msg = update.get("message")?;
+        let sender = msg["from"]["username"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+
+        if !self.allowed_users.is_empty() && !self.allowed_users.contains(&sender) {
+            return None;
+        }
+
+        Some(ChannelMessage {
+            id: msg["message_id"].to_string(),
+            sender,
+            content: msg["text"].as_str().unwrap_or("").to_string(),
+            channel: "telegram".into(),
+            timestamp: msg["date"].as_u64().unwrap_or(0),
+        })
+    }
 }
 
 #[async_trait]
@@ -80,25 +100,8 @@ impl Channel for TelegramChannel {
 
             if let Some(updates) = resp["result"].as_array() {
                 for update in updates {
-                    if let Some(msg) = update.get("message") {
-                        let sender = msg["from"]["username"]
-                            .as_str()
-                            .unwrap_or("unknown")
-                            .to_string();
-
-                        if !self.allowed_users.is_empty() && !self.allowed_users.contains(&sender) {
-                            continue;
-                        }
-
-                        let channel_msg = ChannelMessage {
-                            id: msg["message_id"].to_string(),
-                            sender,
-                            content: msg["text"].as_str().unwrap_or("").to_string(),
-                            channel: "telegram".into(),
-                            timestamp: msg["date"].as_u64().unwrap_or(0),
-                        };
-
-                        if tx.send(channel_msg).await.is_err() {
+                    if let Some(msg) = self.parse_update(update) {
+                        if tx.send(msg).await.is_err() {
                             return Ok(());
                         }
                     }

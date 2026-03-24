@@ -43,6 +43,82 @@ impl SlackChannel {
             .and_then(|u| u.as_str())
             .map(String::from)
     }
+
+    /// Poll Slack conversations.history API. Returns parsed JSON on success,
+    /// logs and returns error on failure so the caller can skip.
+    async fn poll_history(
+        &self,
+        channel_id: &str,
+        last_ts: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let mut params = vec![
+            ("channel", channel_id.to_string()),
+            ("limit", "10".to_string()),
+        ];
+        if !last_ts.is_empty() {
+            params.push(("oldest", last_ts.to_string()));
+        }
+
+        let resp = self
+            .client
+            .get("https://slack.com/api/conversations.history")
+            .bearer_auth(&self.bot_token)
+            .query(&params)
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!("Slack poll error: {e}");
+                e
+            })?;
+
+        resp.json().await.map_err(|e| {
+            tracing::warn!("Slack parse error: {e}");
+            e.into()
+        })
+    }
+
+    /// Parse a single Slack message JSON value into a `ChannelMessage`.
+    /// Returns `None` if the message should be skipped (bot, unauthorized, empty, already-seen).
+    /// On success returns `(ChannelMessage, new_ts)`.
+    fn parse_slack_message(
+        &self,
+        msg: &serde_json::Value,
+        bot_user_id: &str,
+        last_ts: &str,
+        channel_id: &str,
+    ) -> Option<(ChannelMessage, String)> {
+        let ts = msg.get("ts").and_then(|t| t.as_str()).unwrap_or("");
+        let user = msg
+            .get("user")
+            .and_then(|u| u.as_str())
+            .unwrap_or("unknown");
+        let text = msg.get("text").and_then(|t| t.as_str()).unwrap_or("");
+
+        if user == bot_user_id {
+            return None;
+        }
+        if !self.is_user_allowed(user) {
+            tracing::warn!("Slack: ignoring message from unauthorized user: {user}");
+            return None;
+        }
+        if text.is_empty() || ts <= last_ts {
+            return None;
+        }
+
+        let channel_msg = ChannelMessage {
+            id: format!("slack_{channel_id}_{ts}"),
+            sender: user.to_string(),
+            reply_target: channel_id.to_string(),
+            content: text.to_string(),
+            channel: "slack".to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        };
+
+        Some((channel_msg, ts.to_string()))
+    }
 }
 
 #[async_trait]
@@ -102,74 +178,21 @@ impl Channel for SlackChannel {
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
-            let mut params = vec![("channel", channel_id.clone()), ("limit", "10".to_string())];
-            if !last_ts.is_empty() {
-                params.push(("oldest", last_ts.clone()));
-            }
-
-            let resp = match self
-                .client
-                .get("https://slack.com/api/conversations.history")
-                .bearer_auth(&self.bot_token)
-                .query(&params)
-                .send()
-                .await
-            {
-                Ok(r) => r,
-                Err(e) => {
-                    tracing::warn!("Slack poll error: {e}");
-                    continue;
-                }
-            };
-
-            let data: serde_json::Value = match resp.json().await {
+            let data = match self.poll_history(&channel_id, &last_ts).await {
                 Ok(d) => d,
-                Err(e) => {
-                    tracing::warn!("Slack parse error: {e}");
-                    continue;
-                }
+                Err(_) => continue,
             };
 
-            if let Some(messages) = data.get("messages").and_then(|m| m.as_array()) {
-                // Messages come newest-first, reverse to process oldest first
-                for msg in messages.iter().rev() {
-                    let ts = msg.get("ts").and_then(|t| t.as_str()).unwrap_or("");
-                    let user = msg
-                        .get("user")
-                        .and_then(|u| u.as_str())
-                        .unwrap_or("unknown");
-                    let text = msg.get("text").and_then(|t| t.as_str()).unwrap_or("");
+            let Some(messages) = data.get("messages").and_then(|m| m.as_array()) else {
+                continue;
+            };
 
-                    // Skip bot's own messages
-                    if user == bot_user_id {
-                        continue;
-                    }
-
-                    // Sender validation
-                    if !self.is_user_allowed(user) {
-                        tracing::warn!("Slack: ignoring message from unauthorized user: {user}");
-                        continue;
-                    }
-
-                    // Skip empty or already-seen
-                    if text.is_empty() || ts <= last_ts.as_str() {
-                        continue;
-                    }
-
-                    last_ts = ts.to_string();
-
-                    let channel_msg = ChannelMessage {
-                        id: format!("slack_{channel_id}_{ts}"),
-                        sender: user.to_string(),
-                        reply_target: channel_id.clone(),
-                        content: text.to_string(),
-                        channel: "slack".to_string(),
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                    };
-
+            // Messages come newest-first, reverse to process oldest first
+            for msg in messages.iter().rev() {
+                if let Some((channel_msg, new_ts)) =
+                    self.parse_slack_message(msg, &bot_user_id, &last_ts, &channel_id)
+                {
+                    last_ts = new_ts;
                     if tx.send(channel_msg).await.is_err() {
                         return Ok(());
                     }

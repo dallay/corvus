@@ -2983,23 +2983,32 @@ mod tests {
         .unwrap();
 
         assert_eq!(response, "done");
+        assert!(history_contains_structured_denial(
+            &history,
+            "approval_required",
+            "mcp.docs.search"
+        ));
+    }
 
-        let mut has_structured_denial = false;
-        for message in &history {
+    /// Check whether conversation history contains a tool result with the given code and tool name.
+    fn history_contains_structured_denial(
+        history: &[ConversationMessage],
+        expected_code: &str,
+        expected_tool: &str,
+    ) -> bool {
+        history.iter().any(|message| {
             if let ConversationMessage::ToolResults(results) = message {
-                for result in results {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&result.content) {
-                        if parsed["code"] == "approval_required"
-                            && parsed["tool"] == "mcp.docs.search"
-                        {
-                            has_structured_denial = true;
-                        }
-                    }
-                }
+                results.iter().any(|result| {
+                    serde_json::from_str::<serde_json::Value>(&result.content)
+                        .ok()
+                        .is_some_and(|parsed| {
+                            parsed["code"] == expected_code && parsed["tool"] == expected_tool
+                        })
+                })
+            } else {
+                false
             }
-        }
-
-        assert!(has_structured_denial);
+        })
     }
 
     #[test]

@@ -3004,21 +3004,30 @@ impl Config {
             let mut seen_ids = std::collections::HashSet::new();
             for (idx, account) in pool.accounts.iter().enumerate() {
                 let base = format!("reliability.account_pools.{provider}.accounts[{idx}]");
-                if account.id.trim().is_empty() {
-                    anyhow::bail!("{base}.id must be non-empty");
-                }
-                if account.api_key.trim().is_empty() {
-                    anyhow::bail!("{base}.api_key must be non-empty");
-                }
-                if account.weight == 0 {
-                    anyhow::bail!("{base}.weight must be greater than zero");
-                }
-                if !seen_ids.insert(account.id.trim().to_string()) {
-                    anyhow::bail!("{base}.id must be unique within pool");
-                }
+                Self::validate_single_pool_account(account, &base, &mut seen_ids)?;
             }
         }
 
+        Ok(())
+    }
+
+    fn validate_single_pool_account(
+        account: &ProviderAccountConfig,
+        base: &str,
+        seen_ids: &mut std::collections::HashSet<String>,
+    ) -> Result<()> {
+        if account.id.trim().is_empty() {
+            anyhow::bail!("{base}.id must be non-empty");
+        }
+        if account.api_key.trim().is_empty() {
+            anyhow::bail!("{base}.api_key must be non-empty");
+        }
+        if account.weight == 0 {
+            anyhow::bail!("{base}.weight must be greater than zero");
+        }
+        if !seen_ids.insert(account.id.trim().to_string()) {
+            anyhow::bail!("{base}.id must be unique within pool");
+        }
         Ok(())
     }
 
