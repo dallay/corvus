@@ -295,7 +295,8 @@ impl CodeSessionResult {
 
 fn parse_status_label(s: &str) -> CodeSessionStatus {
     match s.trim().to_ascii_lowercase().as_str() {
-        "success" | "completed" => CodeSessionStatus::Completed,
+        "success" => CodeSessionStatus::Success,
+        "completed" => CodeSessionStatus::Completed,
         "completed_with_warnings" => CodeSessionStatus::CompletedWithWarnings,
         "validation_failed" => CodeSessionStatus::ValidationFailed,
         "blocked" => CodeSessionStatus::Blocked,

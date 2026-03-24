@@ -121,10 +121,11 @@ async fn extract_url_from_child_stdout(
 
         match line {
             Ok(Ok(Some(l))) => {
-                tracing::debug!("custom-tunnel: {l}");
                 if let Some(url) = try_extract_url_from_line(&l, pattern) {
+                    tracing::debug!("custom-tunnel: extracted URL");
                     return Some(url);
                 }
+                tracing::debug!("custom-tunnel: [non-url output]");
             }
             Ok(Ok(None) | Err(_)) => break,
             Err(_) => {}

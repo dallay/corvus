@@ -95,6 +95,7 @@ pub struct ForgeReport {
     pub auto_integrated: usize,
     pub manual_review: usize,
     pub skipped: usize,
+    pub failed: usize,
     pub results: Vec<EvalResult>,
 }
 
@@ -129,6 +130,7 @@ impl SkillForge {
                 auto_integrated: 0,
                 manual_review: 0,
                 skipped: 0,
+                failed: 0,
                 results: vec![],
             });
         }
@@ -149,11 +151,11 @@ impl SkillForge {
         let evaluated = results.len();
 
         // --- Integrate ------------------------------------------------------
-        let (auto_integrated, manual_review, skipped) = self.integrate_results(&results);
+        let (auto_integrated, manual_review, skipped, failed) = self.integrate_results(&results);
 
         info!(
             auto_integrated,
-            manual_review, skipped, "Forge pipeline complete"
+            manual_review, skipped, failed, "Forge pipeline complete"
         );
 
         Ok(ForgeReport {
@@ -162,6 +164,7 @@ impl SkillForge {
             auto_integrated,
             manual_review,
             skipped,
+            failed,
             results,
         })
     }
@@ -194,10 +197,11 @@ impl SkillForge {
         candidates
     }
 
-    fn integrate_results(&self, results: &[EvalResult]) -> (usize, usize, usize) {
+    fn integrate_results(&self, results: &[EvalResult]) -> (usize, usize, usize, usize) {
         let mut auto_integrated = 0usize;
         let mut manual_review = 0usize;
         let mut skipped = 0usize;
+        let mut failed = 0usize;
 
         for res in results {
             match res.recommendation {
@@ -211,6 +215,7 @@ impl SkillForge {
                                     error = %e,
                                     "Integration failed for candidate, continuing"
                                 );
+                                failed += 1;
                             }
                         }
                     } else {
@@ -222,7 +227,7 @@ impl SkillForge {
             }
         }
 
-        (auto_integrated, manual_review, skipped)
+        (auto_integrated, manual_review, skipped, failed)
     }
 }
 

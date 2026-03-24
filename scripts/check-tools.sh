@@ -10,6 +10,17 @@ require_cmd() {
   return 0
 }
 
+# Extract leading numeric portion from a version string (e.g., "21-ea" → "21")
+numeric_prefix() {
+  local raw="$1"
+  local num="${raw%%[!0-9]*}"
+  if [[ -z "$num" ]]; then
+    echo "0"
+  else
+    echo "$num"
+  fi
+}
+
 echo "Checking required tools and versions..."
 
 require_cmd java
@@ -25,17 +36,18 @@ if [[ "$java_major" = "1" ]]; then
   java_major=${java_ver_raw#1.}
   java_major=${java_major%%.*}
 fi
+java_major=$(numeric_prefix "$java_major")
 
-node_major=$(node -p "process.versions.node.split('.')[0]")
-pnpm_major=$(pnpm --version | awk -F. '{print $1}')
+node_major=$(numeric_prefix "$(node -p "process.versions.node.split('.')[0]")")
+pnpm_major=$(numeric_prefix "$(pnpm --version | awk -F. '{print $1}')")
 
 rust_full_ver=$(rustc --version | awk '{print $2}')
-rust_major=${rust_full_ver%%.*}
+rust_major=$(numeric_prefix "${rust_full_ver%%.*}")
 rust_minor_part=${rust_full_ver#*.}
-rust_minor=${rust_minor_part%%.*}
+rust_minor=$(numeric_prefix "${rust_minor_part%%.*}")
 
-if [[ -z "$java_major" || "$java_major" -lt 21 ]]; then
-  echo "Error: JDK 21+ required. Found: ${java_major:-unknown}" >&2
+if [[ "$java_major" -lt 21 ]]; then
+  echo "Error: JDK 21+ required. Found: ${java_ver_raw:-unknown}" >&2
   exit 1
 fi
 

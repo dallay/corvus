@@ -27,6 +27,15 @@ fn normalize_phone_number(from: &str) -> String {
 
 /// Extract text content from a WhatsApp message JSON object.
 /// Returns `None` for non-text messages (image, audio, etc.).
+/// Mask a phone number, showing only the last 4 digits.
+fn mask_phone(phone: &str) -> String {
+    if phone.len() <= 4 {
+        return "****".to_string();
+    }
+    let visible = &phone[phone.len() - 4..];
+    format!("{}{visible}", "*".repeat(phone.len() - 4))
+}
+
 fn extract_whatsapp_text_content(msg: &serde_json::Value, from: &str) -> Option<String> {
     if let Some(text_obj) = msg.get("text") {
         let body = text_obj
@@ -36,7 +45,10 @@ fn extract_whatsapp_text_content(msg: &serde_json::Value, from: &str) -> Option<
             .to_string();
         Some(body)
     } else {
-        tracing::debug!("WhatsApp: skipping non-text message from {from}");
+        tracing::debug!(
+            "WhatsApp: skipping non-text message from {}",
+            mask_phone(from)
+        );
         None
     }
 }
@@ -122,8 +134,9 @@ impl WhatsAppChannel {
 
         if !self.is_number_allowed(&normalized_from) {
             tracing::warn!(
-                "WhatsApp: ignoring message from unauthorized number: {normalized_from}. \
-                Add to allowed_numbers in config.toml, then run `corvus onboard --channels-only`."
+                "WhatsApp: ignoring message from unauthorized number: {}. \
+                Add to allowed_numbers in config.toml, then run `corvus onboard --channels-only`.",
+                mask_phone(&normalized_from),
             );
             return None;
         }

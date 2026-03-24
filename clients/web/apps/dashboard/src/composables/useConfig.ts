@@ -267,6 +267,8 @@ function trimLeadingSlashes(value: string): string {
   return start === 0 ? value : value.slice(start);
 }
 
+const QUICK_PAIR_HASH_PREFIX = "#/quick-pair?";
+
 export function useConfig(t: (key: string, params?: Record<string, unknown>) => string) {
   const baseUrl = ref(DEFAULT_GATEWAY_BASE_URL);
   const pairingCode = ref("");
@@ -649,12 +651,14 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   function initQuickPair() {
     if (
       typeof globalThis.window === "undefined" ||
-      !globalThis.location.hash.startsWith("#/quick-pair?")
+      !globalThis.location.hash.startsWith(QUICK_PAIR_HASH_PREFIX)
     ) {
       return;
     }
 
-    const hashParams = new URLSearchParams(globalThis.location.hash.slice(13));
+    const hashParams = new URLSearchParams(
+      globalThis.location.hash.slice(QUICK_PAIR_HASH_PREFIX.length)
+    );
     const qpCode = hashParams.get("pairingCode");
     const qpUrl = hashParams.get("gatewayUrl");
 

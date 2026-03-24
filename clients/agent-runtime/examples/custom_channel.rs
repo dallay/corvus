@@ -57,7 +57,11 @@ impl TelegramChannel {
         }
 
         Some(ChannelMessage {
-            id: msg["message_id"].to_string(),
+            id: msg["message_id"]
+                .as_i64()
+                .map(|n| n.to_string())
+                .or_else(|| msg["message_id"].as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| msg["message_id"].to_string()),
             sender,
             content: msg["text"].as_str().unwrap_or("").to_string(),
             channel: "telegram".into(),

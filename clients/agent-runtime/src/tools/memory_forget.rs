@@ -143,8 +143,10 @@ impl MemoryForgetTool {
     /// Delete via Cerebro MCP (recall → resolve → forget).
     async fn forget_via_cerebro(&self, key: &str) -> anyhow::Result<ToolResult> {
         let recall_adapter =
-            cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL)
-                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            match cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_RECALL) {
+                Ok(a) => a,
+                Err(e) => return Ok(err_result(&format!("Cerebro recall adapter error: {e}"))),
+            };
         let recall_payload = json!({
             "input": {
                 "query": key,
@@ -178,8 +180,11 @@ impl MemoryForgetTool {
             Err(e) => return Ok(err_result(&e.to_string())),
         };
 
-        let adapter = cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_FORGET)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let adapter =
+            match cerebro::cerebro_tool_adapter(&self.cerebro, normalize::CEREBRO_TOOL_FORGET) {
+                Ok(a) => a,
+                Err(e) => return Ok(err_result(&format!("Cerebro forget adapter error: {e}"))),
+            };
         let payload = json!({
             "input": {
                 "memory_id": resolved_id,
@@ -199,8 +204,10 @@ impl MemoryForgetTool {
             Err(e) => return Ok(err_result(&e.to_string())),
         };
 
-        let output = normalize::normalize_legacy_forget_output(&response.output, key)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let output = match normalize::normalize_legacy_forget_output(&response.output, key) {
+            Ok(o) => o,
+            Err(e) => return Ok(err_result(&format!("Cerebro normalize error: {e}"))),
+        };
         Ok(ToolResult {
             success: true,
             output,

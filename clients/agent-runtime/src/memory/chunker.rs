@@ -64,7 +64,8 @@ fn flush_current(current: &mut String, heading: Option<&str>, chunks: &mut Vec<C
             heading: heading.map(String::from),
         });
     }
-    *current = heading_prefix(heading);
+    current.clear();
+    current.push_str(&heading_prefix(heading));
 }
 
 /// Chunk a single heading+body section into pieces that fit within `max_chars`.

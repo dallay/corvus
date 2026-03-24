@@ -348,8 +348,14 @@ impl EmailChannel {
         parsed: &mail_parser::Message<'_>,
     ) -> Option<(String, String, String, u64)> {
         let sender = Self::extract_sender(parsed);
+        if sender == "unknown" {
+            return None;
+        }
         let subject = parsed.subject().unwrap_or("(no subject)").to_string();
         let body = Self::extract_text(parsed);
+        if body.trim().is_empty() {
+            return None;
+        }
         let content = format!("Subject: {}\n\n{}", subject, body);
         let msg_id = parsed
             .message_id()

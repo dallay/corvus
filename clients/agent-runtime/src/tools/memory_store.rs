@@ -136,12 +136,17 @@ fn validated_endpoint<'a>(
 }
 
 /// Parse a category string into `MemoryCategory`.
-fn parse_category(cat: Option<&str>) -> MemoryCategory {
-    match cat {
-        Some("core") | None => MemoryCategory::Core,
-        Some("daily") => MemoryCategory::Daily,
-        Some("conversation") => MemoryCategory::Conversation,
-        Some(other) => MemoryCategory::Custom(other.to_string()),
+/// Returns `Err` for `None` or whitespace-only input.
+fn parse_category(cat: Option<&str>) -> Result<MemoryCategory, String> {
+    let s = cat
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .ok_or_else(|| "Missing or empty 'category' parameter".to_string())?;
+    match s.to_ascii_lowercase().as_str() {
+        "core" => Ok(MemoryCategory::Core),
+        "daily" => Ok(MemoryCategory::Daily),
+        "conversation" => Ok(MemoryCategory::Conversation),
+        _ => Ok(MemoryCategory::Custom(s.to_string())),
     }
 }
 
@@ -170,8 +175,10 @@ async fn store_via_cerebro(
     content: &str,
     category: &MemoryCategory,
 ) -> anyhow::Result<ToolResult> {
-    let adapter = cerebro::cerebro_tool_adapter(cerebro, normalize::CEREBRO_TOOL_STORE)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let adapter = match cerebro::cerebro_tool_adapter(cerebro, normalize::CEREBRO_TOOL_STORE) {
+        Ok(a) => a,
+        Err(e) => return Ok(err_result(&format!("Cerebro store adapter error: {e}"))),
+    };
     let payload = json!({
         "input": {
             "scope": "shared",
@@ -276,7 +283,10 @@ impl Tool for MemoryStoreTool {
             None => return Ok(err_result("Missing or empty 'content' parameter")),
         };
 
-        let category = parse_category(args.get("category").and_then(|v| v.as_str()));
+        let category = match parse_category(args.get("category").and_then(|v| v.as_str())) {
+            Ok(c) => c,
+            Err(e) => return Ok(err_result(&e)),
+        };
 
         if contains_sensitive_data(content) {
             return Ok(err_result(SENSITIVE_DATA_ERROR));

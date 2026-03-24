@@ -209,12 +209,14 @@ fn append_cerebro_results(
         let summary = entry
             .get("summary")
             .and_then(serde_json::Value::as_str)
-            .unwrap_or_default();
-        if context.is_empty() {
-            context.push_str("[Memory context]\n");
+            .filter(|s| !s.is_empty());
+        if let Some(summary) = summary {
+            if context.is_empty() {
+                context.push_str("[Memory context]\n");
+            }
+            let _ = writeln!(context, "- {key}: {summary}");
+            added = true;
         }
-        let _ = writeln!(context, "- {key}: {summary}");
-        added = true;
     }
     added
 }

@@ -61,8 +61,8 @@ const config = useConfig(t);
         class="onboarding-banner onboarding-banner-ready"
         aria-live="polite"
       >
-        <p class="banner-title">{{ t("onboarding.ready.title") }}</p>
-        <p>{{ t("onboarding.ready.description") }}</p>
+        <span class="banner-title">{{ t("onboarding.ready.title") }}</span>
+        <span class="banner-description">{{ t("onboarding.ready.description") }}</span>
       </output>
       <div
         v-else-if="
@@ -78,10 +78,10 @@ const config = useConfig(t);
         <p>{{ t(`onboarding.recovery.${config.onboardingState.value.recoveryKind}.description`) }}</p>
       </div>
       <output v-if="config.quickPairState.value === 'validating' || config.quickPairState.value === 'pairing'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
-        <p>{{ t("auth.quickPairValidating") }}</p>
+        <span>{{ t("auth.quickPairValidating") }}</span>
       </output>
       <output v-else-if="config.quickPairState.value === 'connecting'" class="quick-pair-state" aria-live="polite" aria-atomic="true">
-        <p>{{ t("auth.quickPairConnecting") }}</p>
+        <span>{{ t("auth.quickPairConnecting") }}</span>
       </output>
       <div v-else>
         <p v-if="config.quickPairState.value === 'failed'" class="error" role="alert" aria-live="assertive" aria-atomic="true">{{ t("auth.quickPairFailed") }}</p>
@@ -306,7 +306,8 @@ label span {
 }
 
 .onboarding-step p,
-.onboarding-banner p {
+.onboarding-banner span {
+  display: block;
   margin: 6px 0 0;
 }
 
@@ -351,6 +352,7 @@ label span {
 }
 
 .banner-title {
+  display: block;
   font-weight: 600;
 }
 

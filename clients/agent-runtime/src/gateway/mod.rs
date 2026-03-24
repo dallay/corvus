@@ -1854,22 +1854,26 @@ async fn legacy_simple_chat(
 }
 
 fn record_llm_success(
-    observer: &Arc<dyn crate::observability::traits::Observer>,
+    observer: &Arc<dyn crate::observability::Observer>,
     provider: &str,
     model: &str,
     duration: std::time::Duration,
 ) {
+    let provider_s = provider.to_string();
+    let model_s = model.to_string();
     observer.record_event(&crate::observability::ObserverEvent::LlmResponse {
-        provider: provider.to_string(),
-        model: model.to_string(),
+        provider: provider_s.clone(),
+        model: model_s.clone(),
         duration,
         success: true,
         error_message: None,
     });
-    observer.record_metric(&crate::observability::traits::ObserverMetric::RequestLatency(duration));
+    observer.record_metric(&crate::observability::ObserverMetric::RequestLatency(
+        duration,
+    ));
     observer.record_event(&crate::observability::ObserverEvent::AgentEnd {
-        provider: provider.to_string(),
-        model: model.to_string(),
+        provider: provider_s,
+        model: model_s,
         duration,
         tokens_used: None,
         cost_usd: None,
@@ -1877,27 +1881,32 @@ fn record_llm_success(
 }
 
 fn record_llm_failure(
-    observer: &Arc<dyn crate::observability::traits::Observer>,
+    observer: &Arc<dyn crate::observability::Observer>,
     provider: &str,
     model: &str,
     duration: std::time::Duration,
     sanitized_error: &str,
 ) {
+    let provider_s = provider.to_string();
+    let model_s = model.to_string();
+    let error_s = sanitized_error.to_string();
     observer.record_event(&crate::observability::ObserverEvent::LlmResponse {
-        provider: provider.to_string(),
-        model: model.to_string(),
+        provider: provider_s.clone(),
+        model: model_s.clone(),
         duration,
         success: false,
-        error_message: Some(sanitized_error.to_string()),
+        error_message: Some(error_s.clone()),
     });
-    observer.record_metric(&crate::observability::traits::ObserverMetric::RequestLatency(duration));
+    observer.record_metric(&crate::observability::ObserverMetric::RequestLatency(
+        duration,
+    ));
     observer.record_event(&crate::observability::ObserverEvent::Error {
         component: "gateway".to_string(),
-        message: sanitized_error.to_string(),
+        message: error_s,
     });
     observer.record_event(&crate::observability::ObserverEvent::AgentEnd {
-        provider: provider.to_string(),
-        model: model.to_string(),
+        provider: provider_s,
+        model: model_s,
         duration,
         tokens_used: None,
         cost_usd: None,
