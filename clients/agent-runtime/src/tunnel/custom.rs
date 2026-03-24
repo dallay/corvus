@@ -135,14 +135,32 @@ async fn extract_url_from_child_stdout(
 }
 
 /// Try to extract an http(s) URL from a single line if it matches the pattern.
+/// Finds the pattern position, then looks for the nearest URL that contains
+/// the pattern (searching backwards from the pattern for the URL start).
 fn try_extract_url_from_line(line: &str, pattern: &str) -> Option<String> {
-    if !line.contains(pattern) {
-        return None;
+    let pattern_pos = line.find(pattern)?;
+
+    // Search backwards from pattern_pos for the nearest https:// or http://
+    let before_inclusive = &line[..=pattern_pos.min(line.len() - 1)];
+    for prefix in ["https://", "http://"] {
+        if let Some(idx) = before_inclusive.rfind(prefix) {
+            let url_part = &line[idx..];
+            let end = url_part
+                .find(|c: char| c.is_whitespace())
+                .unwrap_or(url_part.len());
+            let url = &url_part[..end];
+            // Ensure the extracted URL actually contains the pattern
+            if url.contains(pattern) {
+                return Some(url.to_string());
+            }
+        }
     }
 
+    // Also check if URL starts after the pattern position
+    let after_pattern = &line[pattern_pos..];
     for prefix in ["https://", "http://"] {
-        if let Some(idx) = line.find(prefix) {
-            let url_part = &line[idx..];
+        if let Some(idx) = after_pattern.find(prefix) {
+            let url_part = &after_pattern[idx..];
             let end = url_part
                 .find(|c: char| c.is_whitespace())
                 .unwrap_or(url_part.len());

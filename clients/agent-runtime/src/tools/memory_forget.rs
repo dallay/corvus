@@ -194,12 +194,16 @@ fn resolve_memory_id(raw_output: &str) -> anyhow::Result<Option<String>> {
         .get("results")
         .and_then(serde_json::Value::as_array)
         .ok_or_else(|| anyhow::anyhow!("Cerebro response missing results"))?;
-    let memory_id = results
-        .first()
-        .and_then(|entry| entry.get("memory_id"))
+    let entry = match results.first() {
+        Some(e) => e,
+        None => return Ok(None), // empty results → no memory found
+    };
+    // A present result MUST contain memory_id; otherwise the response is malformed.
+    let memory_id = entry
+        .get("memory_id")
         .and_then(serde_json::Value::as_str)
-        .map(|value| value.to_string());
-    Ok(memory_id)
+        .ok_or_else(|| anyhow::anyhow!("Malformed recall response: result missing memory_id"))?;
+    Ok(Some(memory_id.to_string()))
 }
 
 #[cfg(test)]
@@ -414,6 +418,23 @@ mod tests {
             .as_deref()
             .unwrap_or("")
             .contains("invalid Cerebro response"));
+    }
+
+    #[test]
+    fn resolve_memory_id_empty_results_returns_none() {
+        let raw = r#"{"results":[]}"#;
+        let result = resolve_memory_id(raw).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_memory_id_missing_memory_id_field_returns_error() {
+        let raw = r#"{"results":[{"summary":"no id here"}]}"#;
+        let err = resolve_memory_id(raw).unwrap_err();
+        assert!(
+            err.to_string().contains("Malformed recall response"),
+            "expected malformed error, got: {err}"
+        );
     }
 
     #[tokio::test]

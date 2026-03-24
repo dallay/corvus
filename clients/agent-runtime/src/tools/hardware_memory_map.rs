@@ -176,6 +176,7 @@ impl Tool for HardwareMemoryMapTool {
             "properties": {
                 "board": {
                     "type": "string",
+                    "minLength": 1,
                     "description": "Optional board name (e.g. nucleo-f401re, arduino-uno). If omitted, returns map for first configured board."
                 }
             },
@@ -197,15 +198,17 @@ impl Tool for HardwareMemoryMapTool {
         };
 
         if !self.boards.iter().any(|known| known == &board) {
+            let message = format!(
+                "Board '{board}' is not configured. Configured boards: {}",
+                self.boards.join(", ")
+            );
             return Ok(ToolResult {
                 success: false,
                 output: String::new(),
-                error: Some(format!(
-                    "Board '{board}' is not configured. Configured boards: {}",
-                    self.boards.join(", ")
-                )),
+                error: Some(message.clone()),
                 structured: Some(json!({
                     "code": "UNCONFIGURED_BOARD",
+                    "message": message,
                     "board": board,
                     "configured_boards": self.boards,
                 })),
@@ -220,6 +223,7 @@ impl Tool for HardwareMemoryMapTool {
                 output,
                 error: Some(format!("No memory map for board '{board}'")),
                 structured: Some(json!({
+                    "code": "NO_MEMORY_MAP",
                     "board": board,
                     "source": source,
                     "map": map_text,

@@ -958,7 +958,7 @@ mod tests {
     }
 
     #[test]
-    fn whatsapp_parse_whitespace_only_message_skipped() {
+    fn whatsapp_parse_whitespace_only_message_preserved() {
         let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
         let payload = serde_json::json!({
             "entry": [{

@@ -253,11 +253,8 @@ mod tests {
             "hf".parse::<ScoutSource>().unwrap(),
             ScoutSource::HuggingFace
         );
-        // unknown falls back to GitHub
-        assert_eq!(
-            "unknown".parse::<ScoutSource>().unwrap(),
-            ScoutSource::GitHub
-        );
+        // unknown returns Err
+        assert!("unknown".parse::<ScoutSource>().is_err());
     }
 
     #[test]

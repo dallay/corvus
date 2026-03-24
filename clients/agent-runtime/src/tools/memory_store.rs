@@ -253,9 +253,14 @@ impl Tool for MemoryStoreTool {
             None => return Ok(err_result("Missing or empty 'content' parameter")),
         };
 
-        let category = match parse_category(args.get("category").and_then(|v| v.as_str())) {
-            Ok(c) => c,
-            Err(e) => return Ok(err_result(&e)),
+        let category = match args.get("category") {
+            Some(v) if !v.is_string() && !v.is_null() => {
+                return Ok(err_result("category must be a string"));
+            }
+            cat_val => match parse_category(cat_val.and_then(|v| v.as_str())) {
+                Ok(c) => c,
+                Err(e) => return Ok(err_result(&e)),
+            },
         };
 
         if contains_sensitive_data(content) {
@@ -458,6 +463,21 @@ mod tests {
             .error
             .unwrap_or_default()
             .contains("Sensitive data is not allowed"));
+    }
+
+    #[tokio::test]
+    async fn store_rejects_non_string_category() {
+        let tool = MemoryStoreTool::new(MemoryCerebroConfig::default(), test_security());
+        let result = tool
+            .execute(json!({"key": "k", "content": "c", "category": 42}))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_deref()
+            .unwrap_or("")
+            .contains("category must be a string"));
     }
 
     #[tokio::test]

@@ -72,11 +72,14 @@ fn has_content_beyond_heading(current: &str, heading: Option<&str>) -> bool {
 }
 
 /// Push a chunk built from `current` buffer, then reset it to the heading prefix.
+/// If the buffer contains only the heading (no body), emit a heading-only chunk
+/// so that sections are never silently dropped.
 fn flush_current(current: &mut String, heading: Option<&str>, chunks: &mut Vec<Chunk>) {
-    if has_content_beyond_heading(current, heading) {
+    let trimmed = current.trim();
+    if !trimmed.is_empty() {
         chunks.push(Chunk {
             index: chunks.len(),
-            content: current.trim().to_string(),
+            content: trimmed.to_string(),
             heading: heading.map(String::from),
         });
     }

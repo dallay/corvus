@@ -316,15 +316,17 @@ fn parse_command_entry(raw: &str) -> (String, bool) {
         || lowered.contains("status: failed");
     let success = !is_failure;
 
-    let cleaned = trimmed
-        .strip_prefix("fail:")
-        .or_else(|| trimmed.strip_prefix("failed:"))
-        .or_else(|| trimmed.strip_prefix("error:"))
-        .or_else(|| trimmed.strip_prefix("success:"))
-        .or_else(|| trimmed.strip_prefix("succeeded:"))
-        .unwrap_or(trimmed)
-        .trim()
-        .to_string();
+    let prefixes = ["fail:", "failed:", "error:", "success:", "succeeded:"];
+    let cleaned = prefixes
+        .iter()
+        .find_map(|p| {
+            if lowered.starts_with(p) {
+                Some(trimmed[p.len()..].trim().to_string())
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| trimmed.to_string());
 
     (cleaned, success)
 }
@@ -573,6 +575,13 @@ pending_work: []
         let (cmd, success) = parse_command_entry("cargo fmt");
         assert_eq!(cmd, "cargo fmt");
         assert!(success);
+    }
+
+    #[test]
+    fn parse_command_entry_uppercase_fail_prefix() {
+        let (cmd, success) = parse_command_entry("FAIL: cargo clippy");
+        assert!(!success);
+        assert_eq!(cmd, "cargo clippy");
     }
 
     #[test]

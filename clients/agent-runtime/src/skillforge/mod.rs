@@ -95,6 +95,7 @@ pub struct ForgeReport {
     pub auto_integrated: usize,
     pub manual_review: usize,
     pub skipped: usize,
+    #[serde(default)]
     pub failed: usize,
     pub results: Vec<EvalResult>,
 }
@@ -304,11 +305,14 @@ mod tests {
 
     #[test]
     fn integrate_results_increments_failed_on_bad_path() {
+        // Create a real temp file, then use it as a "directory" — fails cross-platform
+        // because you can't create a subdirectory under a regular file.
+        let tmp_file = tempfile::NamedTempFile::new().unwrap();
+        let bad_path = tmp_file.path().join("child");
         let cfg = SkillForgeConfig {
             enabled: true,
             auto_integrate: true,
-            // Use an invalid path that will fail integration
-            output_dir: "/dev/null/impossible/path".into(),
+            output_dir: bad_path.to_string_lossy().into_owned(),
             ..Default::default()
         };
         let forge = SkillForge::new(cfg);
@@ -436,6 +440,21 @@ mod tests {
         let json = serde_json::to_value(&report).unwrap();
         assert_eq!(json["failed"], 0);
         assert_eq!(json["results"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn forge_report_legacy_json_without_failed() {
+        let json = r#"{
+            "discovered": 3,
+            "evaluated": 2,
+            "auto_integrated": 1,
+            "manual_review": 0,
+            "skipped": 1,
+            "results": []
+        }"#;
+        let report: ForgeReport = serde_json::from_str(json).unwrap();
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.discovered, 3);
     }
 
     #[test]
