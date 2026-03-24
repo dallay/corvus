@@ -144,8 +144,16 @@ webApps.forEach { appName ->
       description = "Check ${appName} sources"
       dependsOn(appInstall)
       workingDir = appDir
+      val dir = appDir
       commandLine(pnpmShim, "run", "check")
-      isIgnoreExitValue = true // Some apps may not have check script yet
+      onlyIf {
+        val pkgJson = java.io.File(dir, "package.json")
+        if (pkgJson.exists()) {
+          val pkg = groovy.json.JsonSlurper().parseText(pkgJson.readText()) as Map<*, *>
+          val scripts = pkg["scripts"] as? Map<*, *>
+          scripts?.containsKey("check") == true
+        } else false
+      }
     }
 
 

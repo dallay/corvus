@@ -279,7 +279,7 @@ mod tests {
         // Try to overflow by using max + 1
         let err = parse_delay("9223372036854775807s").unwrap_err();
         let msg = err.to_string().to_lowercase();
-        assert!(msg.contains("invalid") && msg.contains("s") && msg.contains("overflow"));
+        assert!(msg.contains("invalid") && msg.contains('s') && msg.contains("overflow"));
     }
 
     #[test]
@@ -287,7 +287,7 @@ mod tests {
         // i64::MAX / (60 * 1_000_000_000) = 153_722_867_280 is the max safe minutes
         let err = parse_delay("153722867280912950m").unwrap_err();
         let msg = err.to_string().to_lowercase();
-        assert!(msg.contains("invalid") && msg.contains("m") && msg.contains("overflow"));
+        assert!(msg.contains("invalid") && msg.contains('m') && msg.contains("overflow"));
     }
 
     #[test]
@@ -295,7 +295,7 @@ mod tests {
         // i64::MAX / (3600 * 1_000_000_000) = 2_562_047_788 is the max safe hours
         let err = parse_delay("2562047788015216h").unwrap_err();
         let msg = err.to_string().to_lowercase();
-        assert!(msg.contains("invalid") && msg.contains("h") && msg.contains("overflow"));
+        assert!(msg.contains("invalid") && msg.contains('h') && msg.contains("overflow"));
     }
 
     #[test]
@@ -303,6 +303,6 @@ mod tests {
         // i64::MAX / (86400 * 1_000_000_000) = 106_751_991 is the max safe days
         let err = parse_delay("106751991167301d").unwrap_err();
         let msg = err.to_string().to_lowercase();
-        assert!(msg.contains("invalid") && msg.contains("d") && msg.contains("overflow"));
+        assert!(msg.contains("invalid") && msg.contains('d') && msg.contains("overflow"));
     }
 }

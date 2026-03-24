@@ -12,12 +12,16 @@ class MainActivity : ComponentActivity() {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
 
-    setContent { App() }
+    val platform = AndroidPlatform()
+    setContent {
+      App(platformOverride = platform, initialBridgeSnapshot = defaultBridgeSnapshotFor(platform))
+    }
   }
 }
 
 @Preview
 @Composable
 fun AppAndroidPreview() {
-  App()
+  val platform = AndroidPlatform()
+  App(platformOverride = platform, initialBridgeSnapshot = defaultBridgeSnapshotFor(platform))
 }

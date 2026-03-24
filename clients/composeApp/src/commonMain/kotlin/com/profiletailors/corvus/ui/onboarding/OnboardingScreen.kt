@@ -39,13 +39,18 @@ import com.profiletailors.composeapp.generated.resources.Res
 import com.profiletailors.composeapp.generated.resources.button_next
 import com.profiletailors.composeapp.generated.resources.button_skip
 import com.profiletailors.composeapp.generated.resources.button_start
-import com.profiletailors.composeapp.generated.resources.onboarding_desc_connect_gateway
-import com.profiletailors.composeapp.generated.resources.onboarding_desc_talk_agent
-import com.profiletailors.composeapp.generated.resources.onboarding_desc_welcome
-import com.profiletailors.composeapp.generated.resources.onboarding_title_connect_gateway
-import com.profiletailors.composeapp.generated.resources.onboarding_title_talk_agent
-import com.profiletailors.composeapp.generated.resources.onboarding_title_welcome
+import com.profiletailors.composeapp.generated.resources.onboarding_desc_connect_runtime
+import com.profiletailors.composeapp.generated.resources.onboarding_desc_link_surface
+import com.profiletailors.composeapp.generated.resources.onboarding_desc_resume_session
+import com.profiletailors.composeapp.generated.resources.onboarding_desc_runtime_available
+import com.profiletailors.composeapp.generated.resources.onboarding_title_connect_runtime
+import com.profiletailors.composeapp.generated.resources.onboarding_title_link_surface
+import com.profiletailors.composeapp.generated.resources.onboarding_title_resume_session
+import com.profiletailors.composeapp.generated.resources.onboarding_title_runtime_available
 import com.profiletailors.corvus.ui.chat.GradientButton
+import com.profiletailors.corvus.ui.chat.MobileOnboardingStatus
+import com.profiletailors.corvus.ui.chat.MobileTransportMode
+import com.profiletailors.corvus.ui.chat.MobileTrustMode
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.stringResource
@@ -58,32 +63,45 @@ import org.jetbrains.compose.resources.stringResource
 data class OnboardingStep(
   val titleRes: StringResource,
   val descriptionRes: StringResource,
-  val icon: OnboardingIcon = OnboardingIcon.NEURAL,
+  val status: MobileOnboardingStatus,
+  val trustMode: MobileTrustMode = MobileTrustMode.BRIDGE_LINKED,
+  val transportMode: MobileTransportMode = MobileTransportMode.CLI_BRIDGE,
+  val icon: OnboardingIcon = OnboardingIcon.SESSION,
 )
 
 enum class OnboardingIcon {
-  WAVE, // Welcome
-  LINK, // Connect Gateway
-  NEURAL, // Talk to Agent
+  RUNTIME,
+  LINK,
+  SYNC,
+  SESSION,
 }
 
 object OnboardingDefaults {
   val steps: List<OnboardingStep> =
     listOf(
       OnboardingStep(
-        titleRes = Res.string.onboarding_title_welcome,
-        descriptionRes = Res.string.onboarding_desc_welcome,
-        icon = OnboardingIcon.WAVE,
+        titleRes = Res.string.onboarding_title_runtime_available,
+        descriptionRes = Res.string.onboarding_desc_runtime_available,
+        status = MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED,
+        icon = OnboardingIcon.RUNTIME,
       ),
       OnboardingStep(
-        titleRes = Res.string.onboarding_title_connect_gateway,
-        descriptionRes = Res.string.onboarding_desc_connect_gateway,
+        titleRes = Res.string.onboarding_title_link_surface,
+        descriptionRes = Res.string.onboarding_desc_link_surface,
+        status = MobileOnboardingStatus.TRUST_PENDING,
         icon = OnboardingIcon.LINK,
       ),
       OnboardingStep(
-        titleRes = Res.string.onboarding_title_talk_agent,
-        descriptionRes = Res.string.onboarding_desc_talk_agent,
-        icon = OnboardingIcon.NEURAL,
+        titleRes = Res.string.onboarding_title_connect_runtime,
+        descriptionRes = Res.string.onboarding_desc_connect_runtime,
+        status = MobileOnboardingStatus.TRANSPORT_CONNECTING,
+        icon = OnboardingIcon.SYNC,
+      ),
+      OnboardingStep(
+        titleRes = Res.string.onboarding_title_resume_session,
+        descriptionRes = Res.string.onboarding_desc_resume_session,
+        status = MobileOnboardingStatus.SESSION_PENDING,
+        icon = OnboardingIcon.SESSION,
       ),
     )
 }
@@ -233,9 +251,10 @@ private fun OnboardingIconDisplay(icon: OnboardingIcon) {
       Text(
         text =
           when (icon) {
-            OnboardingIcon.WAVE -> "👋"
+            OnboardingIcon.RUNTIME -> "⚙"
             OnboardingIcon.LINK -> "🔗"
-            OnboardingIcon.NEURAL -> "🧠"
+            OnboardingIcon.SYNC -> "📡"
+            OnboardingIcon.SESSION -> "💬"
           },
         fontSize = 48.sp,
       )

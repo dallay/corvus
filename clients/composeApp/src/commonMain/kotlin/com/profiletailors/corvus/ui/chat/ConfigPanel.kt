@@ -12,53 +12,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 
-private val HEALTH_DETAILS =
-  listOf("Auth: none", "Response: {\"status\": \"ok\", \"paired\": bool}")
-
-private val PAIR_DETAILS =
-  listOf(
-    "Header: X-Pairing-Code",
-    "Response: {\"paired\": true, \"token\": \"zc_...\"}",
-    "Errors: 403 invalid, 429 rate limit",
-  )
-
-private val WEBHOOK_DETAILS =
-  listOf(
-    "Body: {\"message\": \"...\"}",
-    "Auth: Bearer <token>",
-    "Response: {\"response\": \"...\"}",
-  )
-
 @Composable
 internal fun ConfigPanel(
-  gatewayConfig: AgentGatewayConfig,
-  isGatewayConfigured: Boolean,
+  bridgeState: MobileBridgeUiState,
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
@@ -75,26 +44,16 @@ internal fun ConfigPanel(
           brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
         )
     ) {
-      ConfigSettingsList(
-        gatewayConfig = gatewayConfig,
-        isGatewayConfigured = isGatewayConfigured,
-        actions = actions,
-      )
+      ConfigSettingsList(bridgeState = bridgeState, actions = actions)
     }
   }
 }
 
 @Composable
-internal fun ConfigSettingsList(
-  gatewayConfig: AgentGatewayConfig,
-  isGatewayConfigured: Boolean,
-  actions: ChatWorkspaceActions,
-) {
+internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatWorkspaceActions) {
   val corvusColors = CorvusTheme.colors
-  val healthUrl = remember(gatewayConfig.baseUrl) { endpointUrl(gatewayConfig.baseUrl, "/health") }
-  val pairUrl = remember(gatewayConfig.baseUrl) { endpointUrl(gatewayConfig.baseUrl, "/pair") }
-  val webhookUrl =
-    remember(gatewayConfig.baseUrl) { endpointUrl(gatewayConfig.baseUrl, "/webhook") }
+  val onboardingState = bridgeState.onboardingState
+  val detailLines = buildDiagnosticsLines(bridgeState)
 
   LazyColumn(
     modifier = Modifier.fillMaxSize().padding(20.dp),
@@ -103,110 +62,94 @@ internal fun ConfigSettingsList(
     item {
       Column {
         Text(
-          text = "Gateway Connection",
+          text = "Bridge Linking",
           style = MaterialTheme.typography.titleLarge,
           fontWeight = FontWeight.Bold,
           color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-          text = "Configure your Corvus runtime endpoint",
+          text = bridgeStateHeadline(bridgeState),
           style = MaterialTheme.typography.bodyMedium,
           color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
       }
     }
 
-    item { StatusIndicator(configured = isGatewayConfigured, modifier = Modifier.fillMaxWidth()) }
-
     item {
-      Column {
-        Text(
-          text = "Gateway URL",
-          style = MaterialTheme.typography.labelMedium,
-          fontWeight = FontWeight.Medium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-          value = gatewayConfig.baseUrl,
-          onValueChange = actions.onBaseUrlChange,
-          placeholder = { Text(ChatWorkspaceDefaults.DefaultGatewayBaseUrl) },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-          colors =
-            OutlinedTextFieldDefaults.colors(
-              focusedBorderColor = corvusColors.glowPurple,
-              unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-              focusedTextColor = MaterialTheme.colorScheme.onSurface,
-              unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            ),
-          shape = RoundedCornerShape(12.dp),
-        )
-      }
-    }
-
-    item {
-      Column {
-        Text(
-          text = "Pairing Code",
-          style = MaterialTheme.typography.labelMedium,
-          fontWeight = FontWeight.Medium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(modifier = Modifier.height(8.dp))
-        OutlinedTextField(
-          value = gatewayConfig.pairingCode,
-          onValueChange = actions.onPairingCodeChange,
-          placeholder = { Text("6-digit code") },
-          singleLine = true,
-          modifier = Modifier.fillMaxWidth(),
-          colors =
-            OutlinedTextFieldDefaults.colors(
-              focusedBorderColor = corvusColors.glowCyan,
-              unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f),
-              focusedTextColor = MaterialTheme.colorScheme.onSurface,
-              unfocusedTextColor = MaterialTheme.colorScheme.onSurface,
-            ),
-          shape = RoundedCornerShape(12.dp),
-        )
-      }
-    }
-
-    item {
-      PasswordTextField(
-        value = gatewayConfig.bearerToken,
-        onValueChange = actions.onBearerTokenChange,
-        label = "Bearer Token",
-        placeholder = "zc_...",
+      StatusIndicator(
+        active = bridgeState.snapshot.linkEstablished && bridgeState.snapshot.sessionCapable,
+        label = onboardingStateLabel(onboardingState),
+        modifier = Modifier.fillMaxWidth(),
       )
     }
 
     item {
-      PasswordTextField(
-        value = gatewayConfig.webhookSecret,
-        onValueChange = actions.onWebhookSecretChange,
-        label = "Webhook Secret (Optional)",
-        placeholder = "X-Webhook-Secret",
+      diagnosticsCard(
+        title = "Current state",
+        subtitle = bridgeState.platformName,
+        details = detailLines,
+      )
+    }
+
+    item {
+      diagnosticsCard(
+        title = "Recovery guidance",
+        subtitle = bridgeStateDescription(bridgeState),
+        details = listOf(bridgeStateRecovery(bridgeState)),
       )
     }
 
     item {
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        OutlinedButton(
-          onClick = { actions.onTestConnection(gatewayConfig) },
-          modifier = Modifier.weight(1f),
-          shape = RoundedCornerShape(12.dp),
-          colors = ButtonDefaults.outlinedButtonColors(contentColor = corvusColors.glowCyan),
-        ) {
-          Text(text = "Test Connection", fontWeight = FontWeight.Medium)
+        if (onboardingState.canRetry) {
+          OutlinedButton(
+            onClick = actions.onRetryBridge,
+            modifier = Modifier.weight(1f),
+            shape = RoundedCornerShape(12.dp),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = corvusColors.glowCyan),
+          ) {
+            Text(text = "Retry", fontWeight = FontWeight.Medium)
+          }
         }
 
-        GradientButton(
-          text = "Save",
-          onClick = { actions.onSaveGatewayConfig(gatewayConfig) },
-          modifier = Modifier.weight(1f),
-        )
+        when (onboardingState.status) {
+          MobileOnboardingStatus.TRUST_PENDING -> {
+            GradientButton(
+              text = "Link app",
+              onClick = actions.onLinkSurface,
+              modifier = Modifier.weight(1f),
+            )
+          }
+
+          MobileOnboardingStatus.SESSION_PENDING -> {
+            GradientButton(
+              text = "Start session",
+              onClick = actions.onStartSession,
+              modifier = Modifier.weight(1f),
+            )
+          }
+
+          MobileOnboardingStatus.SESSION_READY -> {
+            GradientButton(
+              text = "Relink",
+              onClick = actions.onClearSession,
+              modifier = Modifier.weight(1f),
+            )
+          }
+
+          MobileOnboardingStatus.BLOCKED -> {
+            if (bridgeState.snapshot.environmentSupported) {
+              GradientButton(
+                text = "Relink",
+                onClick = actions.onClearSession,
+                modifier = Modifier.weight(1f),
+              )
+            }
+          }
+
+          else -> Unit
+        }
       }
     }
 
@@ -225,71 +168,27 @@ internal fun ConfigSettingsList(
     }
 
     item {
-      Column {
-        Text(
-          text = "API Reference",
-          style = MaterialTheme.typography.titleMedium,
-          fontWeight = FontWeight.SemiBold,
-          color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(modifier = Modifier.height(16.dp))
-        endpointCard(title = "GET /health", subtitle = healthUrl, details = HEALTH_DETAILS)
-        Spacer(modifier = Modifier.height(12.dp))
-        endpointCard(title = "POST /pair", subtitle = pairUrl, details = PAIR_DETAILS)
-        Spacer(modifier = Modifier.height(12.dp))
-        endpointCard(title = "POST /webhook", subtitle = webhookUrl, details = WEBHOOK_DETAILS)
-      }
+      diagnosticsCard(
+        title = "Trust boundary",
+        subtitle = "Mobile uses linking through the CLI bridge",
+        details =
+          listOf(
+            "Trust mode: bridge linked",
+            "Transport: local Corvus CLI bridge",
+            "HTTP pairing is not the primary recovery path on mobile",
+          ),
+      )
     }
 
     item { Spacer(modifier = Modifier.height(32.dp)) }
   }
 }
 
-@Composable
-private fun PasswordTextField(
-  value: String,
-  onValueChange: (String) -> Unit,
-  label: String,
-  placeholder: String,
-) {
-  var isVisible by remember { mutableStateOf(false) }
-  val colors = MaterialTheme.colorScheme
-  val corvusColors = CorvusTheme.colors
-
-  Column {
-    Text(
-      text = label,
-      style = MaterialTheme.typography.labelMedium,
-      fontWeight = FontWeight.Medium,
-      color = colors.onSurfaceVariant,
-    )
-    Spacer(modifier = Modifier.height(8.dp))
-    OutlinedTextField(
-      value = value,
-      onValueChange = onValueChange,
-      label = { Text(label) },
-      placeholder = { Text(placeholder) },
-      singleLine = true,
-      modifier = Modifier.fillMaxWidth(),
-      visualTransformation =
-        if (isVisible) VisualTransformation.None else PasswordVisualTransformation(),
-      colors =
-        OutlinedTextFieldDefaults.colors(
-          focusedBorderColor = corvusColors.glowPurple,
-          unfocusedBorderColor = colors.outline.copy(alpha = 0.3f),
-          focusedTextColor = colors.onSurface,
-          unfocusedTextColor = colors.onSurface,
-        ),
-      trailingIcon = {
-        IconButton(onClick = { isVisible = !isVisible }) {
-          Icon(
-            imageVector = if (isVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-            contentDescription = if (isVisible) "Hide" else "Show",
-            tint = colors.onSurfaceVariant,
-          )
-        }
-      },
-      shape = RoundedCornerShape(12.dp),
-    )
-  }
+private fun buildDiagnosticsLines(bridgeState: MobileBridgeUiState): List<String> = buildList {
+  add("Runtime available: ${yesNo(bridgeState.snapshot.runtimeAvailable)}")
+  add("Link established: ${yesNo(bridgeState.snapshot.linkEstablished)}")
+  add("Session capable: ${yesNo(bridgeState.snapshot.sessionCapable)}")
+  add("Session id: ${bridgeState.snapshot.sessionId ?: "No active or resumable session"}")
 }
+
+private fun yesNo(value: Boolean): String = if (value) "Yes" else "No"

@@ -1,0 +1,66 @@
+# Agent Instructions — agent-core-kmp
+
+Role: **Supporting (Shared Contracts Library)**
+Scope: **Type definitions only — no execution**
+
+## Surface Contract
+
+See: `../../../openspec/specs/client-surfaces/surface-contracts/composeapp-shared.md`
+
+## Contract Scope
+
+This module provides **runtime communication contracts only**:
+
+```kotlin
+// In: Surface → Runtime
+data class CoreInvocation(
+  val prompt: String,
+  val sessionId: String? = null,  // UUID, optional
+  val metadata: Map<String, String> = emptyMap(),
+  val timeoutMs: Long? = null,
+)
+
+// Out: Runtime → Surface
+data class CoreOutput(
+  val text: String,
+  val transport: String,
+  val rawOutput: String? = null,
+)
+
+// Result
+sealed interface CoreResult {
+  data class Success(val output: CoreOutput) : CoreResult
+  data class Failure(...) : CoreResult
+}
+
+// Bridge interface
+fun interface AgentCoreBridge {
+  fun invoke(invocation: CoreInvocation): CoreResult
+}
+```
+
+## What This Module Is NOT
+
+- **No execution logic** — runtime lives in `clients/agent-runtime`
+- **No UI** — UI lives in `clients/composeApp`
+- **No state management** — handled by platform targets
+
+## Out of Scope
+
+- HTTP Gateway logic (web-specific)
+- CLI direct access (runtime handles this)
+- Configuration management
+- Session management (CLI bridge handles this)
+
+## Versioning
+
+Contract version: `0.1`
+See: `../../../openspec/specs/client-surfaces/spec.md#requirement-contract-layer-scope`
+
+## Adding New Contracts
+
+When adding new contracts:
+1. Define in `commonMain` (platform-agnostic)
+2. Document in surface contract
+3. Update contract version if breaking change
+4. Add migration guide if needed

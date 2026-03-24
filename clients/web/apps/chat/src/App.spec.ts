@@ -7,8 +7,8 @@ import { i18nConfig } from "@/i18n";
 
 const testI18n = createI18n(i18nConfig);
 
-function translatedPlaceholder(key: string): string {
-  return testI18n.global.t(key);
+function translatedText(key: string): string {
+  return String(testI18n.global.t(key));
 }
 
 function mountApp() {
@@ -24,91 +24,49 @@ const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promis
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+  window.sessionStorage.clear();
 });
 
 describe("App", () => {
-  it("agrega mensajes y limpia el prompt al enviar", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ response: "Respuesta <b>ok</b>" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-
+  it("renders onboarding gating before chat becomes available", () => {
     const wrapper = mountApp();
 
-    // In the new design, the empty state (hero) is shown when there's only the welcome message.
-    // The input is still visible at the bottom.
-    const input = wrapper.get(
-      `input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`
-    );
-    await input.setValue('Hola <script>alert("x")</script>');
-    await wrapper.get("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] ?? [];
-    expect(String(url)).toContain("/webhook");
-    expect(init?.method).toBe("POST");
-
-    const chatMessages = wrapper.findAll('[data-testid="chat-message"]');
-    const userMessage = chatMessages[chatMessages.length - 2];
-    const lastMessage = chatMessages[chatMessages.length - 1];
-
-    expect(chatMessages).toHaveLength(3);
-    expect(userMessage?.html()).toContain("&lt;script&gt;alert");
-    expect(userMessage?.find("script").exists()).toBe(false);
-    expect(userMessage?.text()).toContain('<script>alert("x")</script>');
-
-    expect(lastMessage?.html()).toContain("&lt;b&gt;ok&lt;/b&gt;");
-    expect(lastMessage?.find("script").exists()).toBe(false);
-    expect(lastMessage?.find("b").exists()).toBe(false);
-    expect((input.element as HTMLInputElement).value).toBe("");
+    expect(wrapper.text()).toContain(translatedText("chatOnboarding.ready.title"));
+    expect(wrapper.text()).toContain(translatedText("chatOnboarding.steps.runtime.title"));
+    expect(
+      wrapper.find(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`).exists()
+    ).toBe(false);
   });
 
-  it("alterna entre configuracion y chat", async () => {
+  it("toggles between configuration and onboarding gate", async () => {
     const wrapper = mountApp();
 
-    expect(
-      wrapper
-        .find(`input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`)
-        .exists()
-    ).toBe(true);
-
-    // Find the first toggle-config button (could be sidebar or mobile header)
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
 
     expect(
-      wrapper
-        .find(`input[placeholder="${translatedPlaceholder("form.baseUrlPlaceholder")}"]`)
-        .exists()
+      wrapper.find(`input[placeholder="${translatedText("form.baseUrlPlaceholder")}"]`).exists()
     ).toBe(true);
     expect(
-      wrapper
-        .find(`input[placeholder="${translatedPlaceholder("form.pairingCodePlaceholder")}"]`)
-        .exists()
-    ).toBe(true);
-    expect(
-      wrapper
-        .find(`input[placeholder="${translatedPlaceholder("form.bearerTokenPlaceholder")}"]`)
-        .exists()
-    ).toBe(true);
-    expect(
-      wrapper
-        .find(`input[placeholder="${translatedPlaceholder("form.webhookSecretPlaceholder")}"]`)
-        .exists()
+      wrapper.find(`input[placeholder="${translatedText("form.pairingCodePlaceholder")}"]`).exists()
     ).toBe(true);
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    expect(
-      wrapper
-        .find(`input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`)
-        .exists()
-    ).toBe(true);
+
+    expect(wrapper.text()).toContain(translatedText("chatOnboarding.steps.trust.title"));
   });
 
-  it("hace pairing y luego usa bearer token en webhook", async () => {
+  it("pairs, gates on session start, and sends chat turns with bearer and session headers", async () => {
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce("11111111-1111-4111-8111-111111111111")
+      .mockReturnValueOnce("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+
     fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok", paired: false }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ paired: true, token: "zc_test_token" }), {
           status: 200,
@@ -116,111 +74,113 @@ describe("App", () => {
         })
       )
       .mockResolvedValueOnce(
-        new Response(JSON.stringify({ response: "ok" }), {
+        new Response(JSON.stringify({ status: "ok", paired: true }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         })
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            response: "Respuesta <b>ok</b>",
+            session_id: "11111111-1111-4111-8111-111111111111",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          }
+        )
       );
 
     const wrapper = mountApp();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
     await wrapper
-      .get(`input[placeholder="${translatedPlaceholder("form.pairingCodePlaceholder")}"]`)
+      .get(`input[placeholder="${translatedText("form.pairingCodePlaceholder")}"]`)
       .setValue("123456");
-    await wrapper.get("form").trigger("submit.prevent");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === translatedText("auth.pair"))
+      ?.trigger("click");
     await flushPromises();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    const input = wrapper.get(
-      `input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`
-    );
-    await input.setValue("hola");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === translatedText("chat.startSession"))
+      ?.trigger("click");
+    await flushPromises();
+
+    const input = wrapper.get(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`);
+    await input.setValue('Hola <script>alert("x")</script>');
     await wrapper.get("form").trigger("submit.prevent");
     await flushPromises();
 
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-
-    const [pairUrl, pairInit] = fetchMock.mock.calls[0] ?? [];
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+    const [pairUrl, pairInit] = fetchMock.mock.calls[1] ?? [];
     expect(String(pairUrl)).toContain("/pair");
     expect((pairInit?.headers as Record<string, string>)["X-Pairing-Code"]).toBe("123456");
 
-    const [webhookUrl, webhookInit] = fetchMock.mock.calls[1] ?? [];
+    const [webhookUrl, webhookInit] = fetchMock.mock.calls[3] ?? [];
     expect(String(webhookUrl)).toContain("/webhook");
     expect((webhookInit?.headers as Record<string, string>).Authorization).toBe(
       "Bearer zc_test_token"
     );
-  });
-
-  it("bloquea guardar secretos cuando el gateway no es seguro", async () => {
-    const wrapper = mountApp();
-
-    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    await wrapper
-      .get(`input[placeholder="${translatedPlaceholder("form.baseUrlPlaceholder")}"]`)
-      .setValue("http://example.com");
-    await wrapper
-      .get(`input[placeholder="${translatedPlaceholder("form.pairingCodePlaceholder")}"]`)
-      .setValue("123456");
-    await wrapper.get("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(wrapper.text()).toContain(translatedPlaceholder("errors.insecureUrlError"));
-  });
-
-  it("incluye webhook secret al enviar mensajes despues de guardar configuracion local", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response(JSON.stringify({ response: "ok" }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
+    expect((webhookInit?.headers as Record<string, string>)["X-Session-Id"]).toBe(
+      "11111111-1111-4111-8111-111111111111"
     );
-
-    const wrapper = mountApp();
-
-    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    await wrapper
-      .get(`input[placeholder="${translatedPlaceholder("form.baseUrlPlaceholder")}"]`)
-      .setValue("https://example.com");
-    await wrapper
-      .get(`input[placeholder="${translatedPlaceholder("form.webhookSecretPlaceholder")}"]`)
-      .setValue("shared-secret");
-    await wrapper.get("form").trigger("submit.prevent");
-    await flushPromises();
-
-    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
-    const input = wrapper.get(
-      `input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`
-    );
-    await input.setValue("hola webhook");
-    await wrapper.get("form").trigger("submit.prevent");
-    await flushPromises();
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [webhookUrl, webhookInit] = fetchMock.mock.calls[0] ?? [];
-    expect(String(webhookUrl)).toBe("https://example.com/webhook");
-    expect((webhookInit?.headers as Record<string, string>)["X-Webhook-Secret"]).toBe(
-      "shared-secret"
-    );
-  });
-
-  it("muestra error de timeout cuando el webhook expira", async () => {
-    const abortError = new Error("timeout");
-    abortError.name = "AbortError";
-    fetchMock.mockRejectedValueOnce(abortError);
-
-    const wrapper = mountApp();
-    const input = wrapper.get(
-      `input[placeholder="${translatedPlaceholder("chat.inputPlaceholder")}"]`
-    );
-    await input.setValue("hola timeout");
-    await wrapper.get("form").trigger("submit.prevent");
-    await flushPromises();
 
     const chatMessages = wrapper.findAll('[data-testid="chat-message"]');
-    expect(chatMessages[chatMessages.length - 1]?.text()).toContain(
-      translatedPlaceholder("chat.timeoutError")
+    expect(chatMessages).toHaveLength(3);
+    expect(chatMessages[1]?.html()).toContain("&lt;script&gt;alert");
+    expect(chatMessages[2]?.html()).toContain("&lt;b&gt;ok&lt;/b&gt;");
+  });
+
+  it("surfaces credential recovery when a chat turn is rejected", async () => {
+    vi.spyOn(crypto, "randomUUID")
+      .mockReturnValueOnce("22222222-2222-4222-8222-222222222222")
+      .mockReturnValueOnce("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok", paired: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ error: "Unauthorized" }), {
+          status: 401,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+    const wrapper = mountApp();
+    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
+    await wrapper
+      .get(`input[placeholder="${translatedText("form.bearerTokenPlaceholder")}"]`)
+      .setValue("stale-token");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === translatedText("auth.connect"))
+      ?.trigger("click");
+    await flushPromises();
+
+    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
+    await wrapper
+      .findAll("button")
+      .find((button) => button.text() === translatedText("chat.startSession"))
+      ?.trigger("click");
+    await flushPromises();
+
+    const input = wrapper.get(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`);
+    await input.setValue("hola");
+    await wrapper.get("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain(
+      translatedText("chatOnboarding.recovery.credential_invalid.description")
     );
+    expect(wrapper.text()).toContain(translatedText("chatOnboarding.steps.trust.title"));
   });
 });

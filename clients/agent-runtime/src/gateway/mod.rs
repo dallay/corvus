@@ -11,6 +11,10 @@ use crate::agent::dispatcher::{evaluate_tool_risk, DispatchAction};
 use crate::bootstrap;
 use crate::channels::{Channel, SendMessage, WhatsAppChannel};
 use crate::config::Config;
+use crate::gateway::utils::{
+    blocked_http_onboarding_state, http_onboarding_state, HttpOnboardingState,
+    HttpOnboardingStateKind, HttpRecoveryKind,
+};
 use crate::memory::{Memory, MemoryCategory};
 use crate::providers::{self, Provider};
 use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard};
@@ -638,6 +642,101 @@ pub const RATE_LIMIT_MAX_KEYS_DEFAULT: usize = 10_000;
 /// Fallback max distinct idempotency keys retained in gateway memory.
 pub const IDEMPOTENCY_MAX_KEYS_DEFAULT: usize = 10_000;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HttpHealthProbe {
+    HealthyUnpaired,
+    HealthyPaired,
+    Unavailable,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HttpPairOutcome {
+    Paired,
+    InvalidCode,
+    ExpiredCode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HttpAuthenticatedFollowUp {
+    Authorized,
+    MissingBearerToken,
+    RejectedBearerToken,
+    TransportUnavailable,
+}
+
+fn map_health_to_http_onboarding_state(probe: HttpHealthProbe) -> HttpOnboardingState {
+    match probe {
+        HttpHealthProbe::HealthyUnpaired => {
+            http_onboarding_state(HttpOnboardingStateKind::TrustPending, false, false)
+        }
+        HttpHealthProbe::HealthyPaired => {
+            http_onboarding_state(HttpOnboardingStateKind::TrustEstablished, false, true)
+        }
+        HttpHealthProbe::Unavailable => {
+            blocked_http_onboarding_state(HttpRecoveryKind::RuntimeUnavailable, true, false)
+        }
+        HttpHealthProbe::Error => {
+            blocked_http_onboarding_state(HttpRecoveryKind::TransportUnavailable, true, false)
+        }
+    }
+}
+
+fn map_pair_to_http_onboarding_state(outcome: HttpPairOutcome) -> HttpOnboardingState {
+    match outcome {
+        HttpPairOutcome::Paired => {
+            http_onboarding_state(HttpOnboardingStateKind::TrustEstablished, false, true)
+        }
+        HttpPairOutcome::InvalidCode => {
+            blocked_http_onboarding_state(HttpRecoveryKind::TrustInputInvalid, true, false)
+        }
+        HttpPairOutcome::ExpiredCode => {
+            blocked_http_onboarding_state(HttpRecoveryKind::TrustInputExpired, true, false)
+        }
+    }
+}
+
+fn map_authenticated_follow_up_to_http_onboarding_state(
+    outcome: HttpAuthenticatedFollowUp,
+) -> HttpOnboardingState {
+    match outcome {
+        HttpAuthenticatedFollowUp::Authorized => {
+            http_onboarding_state(HttpOnboardingStateKind::Ready, false, true)
+        }
+        HttpAuthenticatedFollowUp::MissingBearerToken => {
+            blocked_http_onboarding_state(HttpRecoveryKind::CredentialMissing, true, false)
+        }
+        HttpAuthenticatedFollowUp::RejectedBearerToken => {
+            blocked_http_onboarding_state(HttpRecoveryKind::CredentialInvalid, true, false)
+        }
+        HttpAuthenticatedFollowUp::TransportUnavailable => {
+            blocked_http_onboarding_state(HttpRecoveryKind::PairedButNotConnected, true, true)
+        }
+    }
+}
+
+fn pairing_code_guidance_lines(code: &str) -> Vec<String> {
+    vec![
+        "  🔐 PAIRING REQUIRED — use this one-time pairing code:".to_string(),
+        "     ┌──────────────┐".to_string(),
+        format!("     │  {code}  │"),
+        "     └──────────────┘".to_string(),
+        format!(
+            "     Send POST /pair with X-Pairing-Code: {code} to exchange the pairing code for a bearer token."
+        ),
+        "     Then connect to gateway from the dashboard or web client with Authorization: Bearer <token>."
+            .to_string(),
+    ]
+}
+
+fn quick_pair_magic_link_lines(magic_link: &str) -> Vec<String> {
+    vec![
+        "  ✨ QUICK PAIR (Temporary Magic Link):".to_string(),
+        "     Click here to pair and connect to gateway from your dashboard:".to_string(),
+        format!("     {magic_link}"),
+    ]
+}
+
 fn webhook_memory_key() -> String {
     format!("webhook_msg_{}", Uuid::new_v4())
 }
@@ -1147,11 +1246,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         use std::io::IsTerminal;
         if should_emit_pairing_secrets(std::io::stdout().is_terminal()) {
             println!();
-            println!("  🔐 PAIRING REQUIRED — use this one-time code:");
-            println!("     ┌──────────────┐");
-            println!("     │  {code}  │");
-            println!("     └──────────────┘");
-            println!("     Send: POST /pair with header X-Pairing-Code: {code}");
+            for line in pairing_code_guidance_lines(&code) {
+                println!("{line}");
+            }
 
             let default_dash = "http://localhost:1355".to_string();
             let dash_url = std::env::var("CORVUS_DASHBOARD_URL").unwrap_or(default_dash);
@@ -1161,9 +1258,9 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
 
             if let Some(magic_link) = build_magic_link(&dash_url, &code, &gateway_url) {
                 println!();
-                println!("  ✨ QUICK PAIR (Temporary Magic Link):");
-                println!("     Click here to automatically connect your dashboard:");
-                println!("     {magic_link}");
+                for line in quick_pair_magic_link_lines(&magic_link) {
+                    println!("{line}");
+                }
             } else {
                 tracing::warn!(
                     "CORVUS_DASHBOARD_URL is not a trusted local origin. Suppressing magic link."
@@ -1172,11 +1269,11 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         } else {
             tracing::info!("🔐 Pairing is required but terminal is non-interactive. Pairing code will not be printed to stdout.");
             tracing::info!(
-                "To pair, run the agent interactively or use an automated provisioning strategy."
+                "To pair, run the agent interactively to get a pairing code and bearer token, or use an automated provisioning strategy."
             );
         }
     } else if pairing.require_pairing() {
-        println!("  🔒 Pairing: ACTIVE (bearer token required)");
+        println!("  🔒 Pairing active — connect to gateway with a bearer token.");
     } else {
         println!("  ⚠️  Pairing: DISABLED (all requests accepted)");
     }
@@ -1312,7 +1409,7 @@ async fn handle_pair(
                 "paired": true,
                 "persisted": true,
                 "token": token,
-                "message": "Save this token — use it as Authorization: Bearer <token>"
+                "message": "Save this bearer token — use it as Authorization: Bearer <token> when you connect to gateway."
             });
             (StatusCode::OK, Json(body))
         }
@@ -2020,6 +2117,7 @@ mod tests {
     use super::*;
     use crate::channels::traits::ChannelMessage;
     use crate::channels::whatsapp::WhatsAppChannel;
+    use crate::gateway::utils::{HttpTransportMode, HttpTrustMode};
     use crate::memory::{Memory, MemoryCategory, MemoryEntry};
     use crate::providers::{ChatRequest, ChatResponse, Provider, ToolCall};
     use crate::test_support::GatewayWebhookDispatcherEnvGuard;
@@ -3088,6 +3186,103 @@ mod tests {
             .await
             .into_response();
         assert_eq!(admin_response.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn health_mapping_distinguishes_runtime_and_trust_progress() {
+        let pending = map_health_to_http_onboarding_state(HttpHealthProbe::HealthyUnpaired);
+        assert_eq!(pending.state, HttpOnboardingStateKind::TrustPending);
+        assert_eq!(pending.recovery_kind, None);
+        assert_eq!(pending.trust_mode, HttpTrustMode::HttpPaired);
+        assert_eq!(pending.transport_mode, HttpTransportMode::HttpGateway);
+        assert!(!pending.can_resume);
+
+        let established = map_health_to_http_onboarding_state(HttpHealthProbe::HealthyPaired);
+        assert_eq!(established.state, HttpOnboardingStateKind::TrustEstablished);
+        assert!(established.can_resume);
+
+        let blocked = map_health_to_http_onboarding_state(HttpHealthProbe::Unavailable);
+        assert_eq!(blocked.state, HttpOnboardingStateKind::Blocked);
+        assert_eq!(
+            blocked.recovery_kind,
+            Some(HttpRecoveryKind::RuntimeUnavailable)
+        );
+        assert!(blocked.can_retry);
+    }
+
+    #[test]
+    fn pairing_guidance_uses_canonical_pairing_and_gateway_terms() {
+        let lines = pairing_code_guidance_lines("ABC123")
+            .join("\n")
+            .to_ascii_lowercase();
+
+        assert!(lines.contains("pairing code"));
+        assert!(lines.contains("/pair"));
+        assert!(lines.contains("bearer token"));
+        assert!(lines.contains("connect to gateway"));
+    }
+
+    #[test]
+    fn quick_pair_magic_link_guidance_mentions_gateway_connection() {
+        let lines = quick_pair_magic_link_lines("http://localhost:1355/#pair").join("\n");
+
+        assert!(lines.contains("pair and connect to gateway"));
+    }
+
+    #[test]
+    fn pair_mapping_keeps_pairing_codes_ephemeral() {
+        let established = map_pair_to_http_onboarding_state(HttpPairOutcome::Paired);
+        assert_eq!(established.state, HttpOnboardingStateKind::TrustEstablished);
+        assert!(established.persists_bearer_token);
+        assert!(!established.persists_pairing_code);
+        assert!(established.can_resume);
+
+        let invalid = map_pair_to_http_onboarding_state(HttpPairOutcome::InvalidCode);
+        assert_eq!(invalid.state, HttpOnboardingStateKind::Blocked);
+        assert_eq!(
+            invalid.recovery_kind,
+            Some(HttpRecoveryKind::TrustInputInvalid)
+        );
+        assert!(invalid.can_retry);
+        assert!(!invalid.can_resume);
+    }
+
+    #[test]
+    fn authenticated_follow_up_mapping_normalizes_credential_and_transport_failures() {
+        let ready = map_authenticated_follow_up_to_http_onboarding_state(
+            HttpAuthenticatedFollowUp::Authorized,
+        );
+        assert_eq!(ready.state, HttpOnboardingStateKind::Ready);
+        assert_eq!(ready.recovery_kind, None);
+        assert!(ready.can_resume);
+
+        let missing = map_authenticated_follow_up_to_http_onboarding_state(
+            HttpAuthenticatedFollowUp::MissingBearerToken,
+        );
+        assert_eq!(missing.state, HttpOnboardingStateKind::Blocked);
+        assert_eq!(
+            missing.recovery_kind,
+            Some(HttpRecoveryKind::CredentialMissing)
+        );
+
+        let invalid = map_authenticated_follow_up_to_http_onboarding_state(
+            HttpAuthenticatedFollowUp::RejectedBearerToken,
+        );
+        assert_eq!(invalid.state, HttpOnboardingStateKind::Blocked);
+        assert_eq!(
+            invalid.recovery_kind,
+            Some(HttpRecoveryKind::CredentialInvalid)
+        );
+
+        let disconnected = map_authenticated_follow_up_to_http_onboarding_state(
+            HttpAuthenticatedFollowUp::TransportUnavailable,
+        );
+        assert_eq!(disconnected.state, HttpOnboardingStateKind::Blocked);
+        assert_eq!(
+            disconnected.recovery_kind,
+            Some(HttpRecoveryKind::PairedButNotConnected)
+        );
+        assert!(disconnected.can_retry);
     }
 
     #[tokio::test]

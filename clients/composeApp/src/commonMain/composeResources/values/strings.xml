@@ -1,16 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <string name="onboarding_title_welcome">Welcome to Corvus</string>
-  <string name="onboarding_desc_welcome">
-    Set up your assistant in minutes and talk to your AI agent from your mobile device.
+  <string name="onboarding_title_runtime_available">Check local runtime</string>
+  <string name="onboarding_desc_runtime_available">
+    Confirm the Corvus CLI bridge is available on this device before you trust the app.
   </string>
-  <string name="onboarding_title_connect_gateway">Connect your gateway</string>
-  <string name="onboarding_desc_connect_gateway">
-    Enter the base URL, pairing code and credentials to connect your secure environment.
+  <string name="onboarding_title_link_surface">Link this app</string>
+  <string name="onboarding_desc_link_surface">
+    Trust this mobile surface through local linking so Corvus can safely continue without HTTP pairing.
   </string>
-  <string name="onboarding_title_talk_agent">Talk to your agent</string>
-  <string name="onboarding_desc_talk_agent">
-    Send messages, validate responses and adjust settings as needed.
+  <string name="onboarding_title_connect_runtime">Connect to runtime</string>
+  <string name="onboarding_desc_connect_runtime">
+    Validate that the linked bridge can reach the local Corvus runtime and handle chat requests.
+  </string>
+  <string name="onboarding_title_resume_session">Start or resume chat</string>
+  <string name="onboarding_desc_resume_session">
+    Enter a new or resumable mobile session only after the bridge reports that chat is ready.
   </string>
   <string name="button_skip">Skip</string>
   <string name="button_next">Next</string>

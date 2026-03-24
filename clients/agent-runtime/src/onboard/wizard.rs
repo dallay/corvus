@@ -105,6 +105,214 @@ struct DashboardActivationResult {
     browser_open_result: BrowserOpenResult,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanonicalTrustMode {
+    HostTrusted,
+    HttpPaired,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanonicalIntent {
+    Operator,
+    EndUser,
+}
+
+impl CanonicalIntent {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Operator => "operator",
+            Self::EndUser => "end_user",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CanonicalIntentSelection {
+    intent: CanonicalIntent,
+    trust_mode: CanonicalTrustMode,
+    transport_mode: CanonicalTransportMode,
+    requires_session_entry: bool,
+}
+
+impl CanonicalTrustMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::HostTrusted => "host_trusted",
+            Self::HttpPaired => "http_paired",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanonicalTransportMode {
+    Direct,
+    HttpGateway,
+}
+
+impl CanonicalTransportMode {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::HttpGateway => "http_gateway",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanonicalRecoveryKind {
+    RuntimeUnavailable,
+    TransportUnavailable,
+}
+
+impl CanonicalRecoveryKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::RuntimeUnavailable => "runtime_unavailable",
+            Self::TransportUnavailable => "transport_unavailable",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CanonicalOnboardingStateKind {
+    Ready,
+    TrustPending,
+    TrustEstablished,
+    Blocked,
+}
+
+impl CanonicalOnboardingStateKind {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Ready => "ready",
+            Self::TrustPending => "trust_pending",
+            Self::TrustEstablished => "trust_established",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CanonicalOnboardingState {
+    state: CanonicalOnboardingStateKind,
+    trust_mode: CanonicalTrustMode,
+    transport_mode: CanonicalTransportMode,
+    recovery_kind: Option<CanonicalRecoveryKind>,
+    can_retry: bool,
+    can_resume: bool,
+}
+
+impl CanonicalOnboardingState {
+    fn state_label(self) -> &'static str {
+        self.state.label()
+    }
+
+    fn recovery_label(self) -> Option<&'static str> {
+        self.recovery_kind.map(CanonicalRecoveryKind::label)
+    }
+
+    fn transition_label_to(self, next: CanonicalOnboardingState) -> String {
+        canonical_transition_label(self.state, next.state)
+    }
+}
+
+fn canonical_transition_label(
+    from: CanonicalOnboardingStateKind,
+    to: CanonicalOnboardingStateKind,
+) -> String {
+    format!("{}__to__{}", from.label(), to.label())
+}
+
+fn cli_runtime_ready_state() -> CanonicalOnboardingState {
+    CanonicalOnboardingState {
+        state: CanonicalOnboardingStateKind::Ready,
+        trust_mode: CanonicalTrustMode::HostTrusted,
+        transport_mode: CanonicalTransportMode::Direct,
+        recovery_kind: None,
+        can_retry: false,
+        can_resume: false,
+    }
+}
+
+fn cli_operator_intent_selection() -> CanonicalIntentSelection {
+    CanonicalIntentSelection {
+        intent: CanonicalIntent::Operator,
+        trust_mode: CanonicalTrustMode::HostTrusted,
+        transport_mode: CanonicalTransportMode::Direct,
+        requires_session_entry: false,
+    }
+}
+
+fn dashboard_activation_onboarding_state(
+    status: DashboardActivationStatus,
+) -> CanonicalOnboardingState {
+    match status {
+        DashboardActivationStatus::GatewayNotRunning => CanonicalOnboardingState {
+            state: CanonicalOnboardingStateKind::Blocked,
+            trust_mode: CanonicalTrustMode::HttpPaired,
+            transport_mode: CanonicalTransportMode::HttpGateway,
+            recovery_kind: Some(CanonicalRecoveryKind::RuntimeUnavailable),
+            can_retry: true,
+            can_resume: false,
+        },
+        DashboardActivationStatus::GatewayRunningPairingRequired => CanonicalOnboardingState {
+            state: CanonicalOnboardingStateKind::TrustPending,
+            trust_mode: CanonicalTrustMode::HttpPaired,
+            transport_mode: CanonicalTransportMode::HttpGateway,
+            recovery_kind: None,
+            can_retry: false,
+            can_resume: false,
+        },
+        DashboardActivationStatus::GatewayRunningAlreadyPaired => CanonicalOnboardingState {
+            state: CanonicalOnboardingStateKind::TrustEstablished,
+            trust_mode: CanonicalTrustMode::HttpPaired,
+            transport_mode: CanonicalTransportMode::HttpGateway,
+            recovery_kind: None,
+            can_retry: false,
+            can_resume: true,
+        },
+        DashboardActivationStatus::DashboardUiUnavailable
+        | DashboardActivationStatus::UnknownLocalFailure => CanonicalOnboardingState {
+            state: CanonicalOnboardingStateKind::Blocked,
+            trust_mode: CanonicalTrustMode::HttpPaired,
+            transport_mode: CanonicalTransportMode::HttpGateway,
+            recovery_kind: Some(CanonicalRecoveryKind::TransportUnavailable),
+            can_retry: true,
+            can_resume: true,
+        },
+    }
+}
+
+fn dashboard_activation_guide_lines(status: DashboardActivationStatus) -> Vec<String> {
+    let normalized = dashboard_activation_onboarding_state(status);
+    let trust_line = match normalized.state {
+        CanonicalOnboardingStateKind::TrustEstablished => {
+            "2. Trust this surface — pairing is already complete; reuse the existing bearer token if prompted."
+                .to_string()
+        }
+        CanonicalOnboardingStateKind::TrustPending => {
+            "2. Trust this surface — use the pairing code once at /pair to get a bearer token."
+                .to_string()
+        }
+        CanonicalOnboardingStateKind::Blocked | CanonicalOnboardingStateKind::Ready => {
+            "2. Trust this surface — once runtime is available, use a pairing code at /pair to get a bearer token."
+                .to_string()
+        }
+    };
+
+    vec![
+        format!(
+            "1. Runtime available — confirm the local gateway is reachable at {DASHBOARD_GATEWAY_URL}."
+        ),
+        trust_line,
+        format!(
+            "3. Connect to gateway — open the dashboard UI at {DASHBOARD_UI_URL} and verify authenticated access."
+        ),
+        "4. Ready — the dashboard is ready for operator tasks after it connects to the gateway."
+            .to_string(),
+    ]
+}
+
 impl DashboardActivationStatus {
     fn code_and_label(self) -> &'static str {
         match self {
@@ -411,19 +619,23 @@ fn render_dashboard_activation_output(
         };
     }
 
-    let guide_lines = vec![
-        format!("1. Verify gateway is reachable at {DASHBOARD_GATEWAY_URL}."),
-        format!("2. Open dashboard UI at {DASHBOARD_UI_URL}."),
-        "3. Complete secure pairing via /pair when prompted.".to_string(),
-        "4. If dashboard UI is not running, start it from repository root with: make dashboard-dev"
-            .to_string(),
-    ];
+    let normalized = dashboard_activation_onboarding_state(status);
+    let guide_lines = dashboard_activation_guide_lines(status);
 
     let mut detail_lines = vec![browser_open_result_line(browser_open_result)];
     detail_lines.push(format!(
         "Dashboard activation status: {}",
         status.code_and_label()
     ));
+    detail_lines.push(format!(
+        "Canonical state: {} (trust: {}, transport: {})",
+        normalized.state.label(),
+        normalized.trust_mode.label(),
+        normalized.transport_mode.label()
+    ));
+    if let Some(recovery_kind) = normalized.recovery_kind {
+        detail_lines.push(format!("Recovery kind: {}", recovery_kind.label()));
+    }
     detail_lines.push(format!("Cause: {}", status.cause()));
     detail_lines.push("Fallback commands:".to_string());
     detail_lines.extend(dashboard_status_fallback_lines(status));
@@ -4929,6 +5141,24 @@ mod tests {
     }
 
     #[test]
+    fn cli_runtime_ready_state_is_operator_only_and_uses_host_trust() {
+        let intent = cli_operator_intent_selection();
+        let ready = cli_runtime_ready_state();
+
+        assert_eq!(intent.intent, CanonicalIntent::Operator);
+        assert_eq!(intent.intent.label(), "operator");
+        assert_eq!(intent.trust_mode, CanonicalTrustMode::HostTrusted);
+        assert_eq!(intent.transport_mode, CanonicalTransportMode::Direct);
+        assert!(!intent.requires_session_entry);
+        assert_eq!(ready.state, CanonicalOnboardingStateKind::Ready);
+        assert_eq!(ready.trust_mode, CanonicalTrustMode::HostTrusted);
+        assert_eq!(ready.transport_mode, CanonicalTransportMode::Direct);
+        assert_eq!(ready.recovery_kind, None);
+        assert!(!ready.can_retry);
+        assert!(!ready.can_resume);
+    }
+
+    #[test]
     fn dashboard_decline_branch_keeps_cli_only_output_by_default() {
         let lines = dashboard_activation_output_lines(DashboardActivationDecision::Decline);
         assert_eq!(lines, dashboard_resume_later_output_lines());
@@ -4990,6 +5220,78 @@ mod tests {
     }
 
     #[test]
+    fn dashboard_statuses_map_to_shared_onboarding_states() {
+        let runtime_blocked =
+            dashboard_activation_onboarding_state(DashboardActivationStatus::GatewayNotRunning);
+        assert_eq!(runtime_blocked.state, CanonicalOnboardingStateKind::Blocked);
+        assert_eq!(
+            runtime_blocked.recovery_kind,
+            Some(CanonicalRecoveryKind::RuntimeUnavailable)
+        );
+        assert!(runtime_blocked.can_retry);
+        assert!(!runtime_blocked.can_resume);
+
+        let trust_pending = dashboard_activation_onboarding_state(
+            DashboardActivationStatus::GatewayRunningPairingRequired,
+        );
+        assert_eq!(
+            trust_pending.state,
+            CanonicalOnboardingStateKind::TrustPending
+        );
+        assert_eq!(trust_pending.trust_mode, CanonicalTrustMode::HttpPaired);
+        assert_eq!(
+            trust_pending.transport_mode,
+            CanonicalTransportMode::HttpGateway
+        );
+        assert_eq!(trust_pending.recovery_kind, None);
+
+        let trust_established = dashboard_activation_onboarding_state(
+            DashboardActivationStatus::GatewayRunningAlreadyPaired,
+        );
+        assert_eq!(
+            trust_established.state,
+            CanonicalOnboardingStateKind::TrustEstablished
+        );
+        assert!(trust_established.can_resume);
+
+        let ui_blocked = dashboard_activation_onboarding_state(
+            DashboardActivationStatus::DashboardUiUnavailable,
+        );
+        assert_eq!(ui_blocked.state, CanonicalOnboardingStateKind::Blocked);
+        assert_eq!(
+            ui_blocked.recovery_kind,
+            Some(CanonicalRecoveryKind::TransportUnavailable)
+        );
+
+        let unknown_blocked =
+            dashboard_activation_onboarding_state(DashboardActivationStatus::UnknownLocalFailure);
+        assert_eq!(unknown_blocked.state, CanonicalOnboardingStateKind::Blocked);
+        assert_eq!(
+            unknown_blocked.recovery_kind,
+            Some(CanonicalRecoveryKind::TransportUnavailable)
+        );
+    }
+
+    #[test]
+    fn dashboard_observability_labels_use_canonical_vocabulary() {
+        let trust_pending = dashboard_activation_onboarding_state(
+            DashboardActivationStatus::GatewayRunningPairingRequired,
+        );
+        let trust_established = dashboard_activation_onboarding_state(
+            DashboardActivationStatus::GatewayRunningAlreadyPaired,
+        );
+        let blocked =
+            dashboard_activation_onboarding_state(DashboardActivationStatus::GatewayNotRunning);
+
+        assert_eq!(trust_pending.state_label(), "trust_pending");
+        assert_eq!(
+            trust_pending.transition_label_to(trust_established),
+            "trust_pending__to__trust_established"
+        );
+        assert_eq!(blocked.recovery_label(), Some("runtime_unavailable"));
+    }
+
+    #[test]
     fn dashboard_resume_and_fallback_output_never_contains_tokens() {
         let mut lines = dashboard_resume_later_output_lines();
         lines.extend(dashboard_status_fallback_lines(
@@ -5004,7 +5306,7 @@ mod tests {
     }
 
     #[test]
-    fn dashboard_render_output_never_contains_sensitive_or_insecure_tokens() {
+    fn dashboard_render_output_never_contains_sensitive_headers_or_token_values() {
         let statuses = [
             DashboardActivationStatus::GatewayNotRunning,
             DashboardActivationStatus::GatewayRunningPairingRequired,
@@ -5034,11 +5336,24 @@ mod tests {
                     .collect::<Vec<String>>()
                     .join("\n");
 
-                assert!(!combined.contains("bearer "));
                 assert!(!combined.contains("authorization:"));
                 assert!(!combined.contains("token="));
                 assert!(!combined.contains("token_hash"));
                 assert!(!combined.contains("/web/admin/"));
+                // Detect leaked bearer credentials (e.g. "bearer eyJ...")
+                // without false-positiving on guide text that mentions "bearer token".
+                let has_bearer_credential = combined.split("bearer ").skip(1).any(|after| {
+                    after
+                        .chars()
+                        .next()
+                        .is_some_and(|ch| ch.is_ascii_alphanumeric())
+                        && after.len() > 8
+                        && !after.starts_with("token")
+                });
+                assert!(
+                    !has_bearer_credential,
+                    "output contains what looks like a leaked bearer credential"
+                );
             }
         }
     }
@@ -5061,6 +5376,66 @@ mod tests {
             .iter()
             .any(|line| line.contains(DASHBOARD_UI_URL)));
         assert!(output.guide_lines.iter().any(|line| line.contains("/pair")));
+    }
+
+    #[test]
+    fn dashboard_accept_path_guide_uses_canonical_sequence_and_terms() {
+        let output = render_dashboard_activation_output(
+            DashboardActivationDecision::Accept,
+            DashboardActivationStatus::GatewayRunningPairingRequired,
+            BrowserOpenResult::Opened,
+        );
+
+        assert!(output.guide_lines[0].contains("Runtime available"));
+        assert!(output.guide_lines[1].contains("Trust this surface"));
+        assert!(output.guide_lines[1].contains("pairing code"));
+        assert!(output.guide_lines[1].contains("bearer token"));
+        assert!(output.guide_lines[2].contains("Connect to gateway"));
+        assert!(output.guide_lines[3].contains("Ready"));
+    }
+
+    #[test]
+    fn cli_operator_sequence_stops_before_session_creation_and_ends_with_operator_tasks() {
+        let ready = cli_runtime_ready_state();
+        let output = render_dashboard_activation_output(
+            DashboardActivationDecision::Accept,
+            DashboardActivationStatus::GatewayRunningAlreadyPaired,
+            BrowserOpenResult::Opened,
+        );
+        let combined = output
+            .guide_lines
+            .iter()
+            .chain(output.detail_lines.iter())
+            .cloned()
+            .collect::<Vec<String>>()
+            .join("\n")
+            .to_ascii_lowercase();
+
+        assert_eq!(ready.state, CanonicalOnboardingStateKind::Ready);
+        assert!(!ready.can_resume);
+        assert!(output.guide_lines[3].contains("operator tasks"));
+        assert!(!combined.contains("session creation"));
+        assert!(!combined.contains("resume a chat session"));
+    }
+
+    #[test]
+    fn dashboard_http_activation_always_uses_gateway_connection_term() {
+        for status in [
+            DashboardActivationStatus::GatewayNotRunning,
+            DashboardActivationStatus::GatewayRunningPairingRequired,
+            DashboardActivationStatus::GatewayRunningAlreadyPaired,
+            DashboardActivationStatus::DashboardUiUnavailable,
+            DashboardActivationStatus::UnknownLocalFailure,
+        ] {
+            let output = render_dashboard_activation_output(
+                DashboardActivationDecision::Accept,
+                status,
+                BrowserOpenResult::Opened,
+            );
+
+            assert!(output.guide_lines[2].contains("Connect to gateway"));
+            assert!(!output.guide_lines[2].contains("Connect to runtime"));
+        }
     }
 
     #[test]
@@ -5096,6 +5471,10 @@ mod tests {
             .iter()
             .filter(|line| line.starts_with("Dashboard activation status:"))
             .count();
+        let canonical_lines = output
+            .iter()
+            .filter(|line| line.starts_with("Canonical state:"))
+            .count();
         let cause_lines = output
             .iter()
             .filter(|line| line.starts_with("Cause:"))
@@ -5106,8 +5485,24 @@ mod tests {
             .count();
 
         assert_eq!(status_lines, 1);
+        assert_eq!(canonical_lines, 1);
         assert_eq!(cause_lines, 1);
         assert_eq!(fallback_headers, 1);
+    }
+
+    #[test]
+    fn blocked_dashboard_output_prints_normalized_recovery_kind() {
+        let output = dashboard_activation_output_lines_for_result(
+            DashboardActivationDecision::Accept,
+            DashboardActivationResult {
+                status: DashboardActivationStatus::GatewayNotRunning,
+                browser_open_result: BrowserOpenResult::Skipped,
+            },
+        );
+
+        assert!(output
+            .iter()
+            .any(|line| line == "Recovery kind: runtime_unavailable"));
     }
 
     #[test]
