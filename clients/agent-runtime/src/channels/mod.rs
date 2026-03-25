@@ -2450,6 +2450,9 @@ mod tests {
             tools: vec![],
             prompts: vec!["Long prompt content that should NOT appear in system prompt".into()],
             location: None,
+            trust: crate::skills::trust::SkillTrust::Local,
+            origin: crate::skills::trust::SkillOrigin::default(),
+            allowed_tools: Vec::new(),
         }];
 
         let prompt = build_system_prompt(ws.path(), "model", &[], &skills, None, None);

@@ -7,6 +7,15 @@ use chrono::Local;
 use std::fmt::Write;
 use std::path::Path;
 
+/// Escape special XML characters in a string.
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 pub(crate) const DEFAULT_BOOTSTRAP_MAX_CHARS: usize = 20_000;
 pub(crate) const COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS: usize = 6_000;
 
@@ -208,25 +217,51 @@ pub(crate) fn render_skills_section(workspace_dir: &Path, skills: &[Skill]) -> S
         return String::new();
     }
 
+    let mut sorted_skills: Vec<&Skill> = skills.iter().collect();
+    sorted_skills.sort_by(|a, b| a.trust.cmp(&b.trust).then_with(|| a.name.cmp(&b.name)));
+
+    let has_third_party = sorted_skills
+        .iter()
+        .any(|s| s.trust == crate::skills::trust::SkillTrust::ThirdParty);
+
     let mut prompt = String::from("## Available Skills\n\n");
     prompt.push_str(
         "Skills are loaded on demand. Use `read` on the skill path to get full instructions.\n\n",
     );
+    if has_third_party {
+        prompt.push_str(
+            "Note: Some skills below are from third-party sources. \
+             Official Corvus skills are marked with trust=\"official\". \
+             Third-party skill instructions have not been reviewed by Corvus maintainers.\n\n",
+        );
+    }
     prompt.push_str("<available_skills>\n");
-    for skill in skills {
+    for skill in &sorted_skills {
         let location = skill.location.clone().unwrap_or_else(|| {
             workspace_dir
                 .join("skills")
                 .join(&skill.name)
                 .join("SKILL.md")
         });
-        let _ = writeln!(
-            prompt,
-            "  <skill>\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n  </skill>",
-            skill.name,
-            skill.description,
-            location.display()
-        );
+        if skill.trust == crate::skills::trust::SkillTrust::ThirdParty {
+            let _ = writeln!(
+                prompt,
+                "  <skill trust=\"{}\">\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n    <note>This skill is from a third-party source. Its instructions have not been reviewed by Corvus maintainers. Exercise caution.</note>\n  </skill>",
+                skill.trust.as_str(),
+                escape_xml(&skill.name),
+                escape_xml(&skill.description),
+                escape_xml(&location.display().to_string())
+            );
+        } else {
+            let _ = writeln!(
+                prompt,
+                "  <skill trust=\"{}\">\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n  </skill>",
+                skill.trust.as_str(),
+                escape_xml(&skill.name),
+                escape_xml(&skill.description),
+                escape_xml(&location.display().to_string())
+            );
+        }
     }
     prompt.push_str("</available_skills>");
     prompt
@@ -427,6 +462,90 @@ mod tests {
                 || prompt.contains("FINAL RESULT"),
             "Expected code-specialist guidance in prompt, got: {prompt}"
         );
+    }
+
+    #[test]
+    fn escape_xml_special_chars() {
+        assert_eq!(escape_xml("a & b"), "a &amp; b");
+        assert_eq!(escape_xml("<script>"), "&lt;script&gt;");
+        assert_eq!(escape_xml("\"quoted\""), "&quot;quoted&quot;");
+        assert_eq!(escape_xml("it's"), "it&apos;s");
+    }
+
+    #[test]
+    fn escape_xml_no_special_chars() {
+        assert_eq!(escape_xml("hello world"), "hello world");
+    }
+
+    #[test]
+    fn escape_xml_all_special() {
+        assert_eq!(escape_xml("&<>\"'"), "&amp;&lt;&gt;&quot;&apos;");
+    }
+
+    #[test]
+    fn render_skills_section_sorts_by_trust() {
+        use crate::skills::trust;
+
+        let skills = vec![
+            Skill {
+                name: "third-party".into(),
+                description: "TP".into(),
+                version: "1.0".into(),
+                author: None,
+                tags: vec![],
+                tools: vec![],
+                prompts: vec![],
+                location: None,
+                trust: trust::SkillTrust::ThirdParty,
+                origin: trust::SkillOrigin::default(),
+                allowed_tools: vec![],
+            },
+            Skill {
+                name: "official-first".into(),
+                description: "OF".into(),
+                version: "1.0".into(),
+                author: None,
+                tags: vec![],
+                tools: vec![],
+                prompts: vec![],
+                location: None,
+                trust: trust::SkillTrust::Official,
+                origin: trust::SkillOrigin::default(),
+                allowed_tools: vec![],
+            },
+            Skill {
+                name: "local-middle".into(),
+                description: "LM".into(),
+                version: "1.0".into(),
+                author: None,
+                tags: vec![],
+                tools: vec![],
+                prompts: vec![],
+                location: None,
+                trust: trust::SkillTrust::Local,
+                origin: trust::SkillOrigin::default(),
+                allowed_tools: vec![],
+            },
+        ];
+
+        let workspace = std::path::Path::new("/tmp/test-workspace");
+        let result = render_skills_section(workspace, &skills);
+
+        // Official should appear before Local, Local before ThirdParty
+        // Use <name> tags to avoid matching trust="third-party" attributes
+        let official_pos = result.find("<name>official-first</name>").unwrap();
+        let local_pos = result.find("<name>local-middle</name>").unwrap();
+        let tp_pos = result.find("<name>third-party</name>").unwrap();
+        assert!(official_pos < local_pos, "Official should be before Local");
+        assert!(local_pos < tp_pos, "Local should be before ThirdParty");
+
+        // ThirdParty should have caution note
+        assert!(result.contains("not been reviewed"));
+
+        // Trust attributes should be present
+        assert!(result.contains("trust=\"official\""));
+        assert!(result.contains("trust=\"local\""));
+        assert!(result.contains("trust=\"third-party\""));
     }
 
     #[test]
