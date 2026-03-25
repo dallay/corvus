@@ -151,18 +151,66 @@ pub fn validate_tool_paths(args: &[&str], skill_dir: &Path) -> Result<(), Sandbo
                 });
             }
         } else {
-            // Path doesn't exist yet — check the logical path
-            // Normalize by checking if it logically escapes
-            if path.is_absolute() {
-                let canonical_skill = skill_dir
-                    .canonicalize()
-                    .unwrap_or_else(|_| skill_dir.to_path_buf());
-                if !path.starts_with(&canonical_skill) && !path.starts_with(skill_dir) {
-                    return Err(SandboxViolation::PathEscape {
-                        path: arg.to_string(),
-                        skill_dir: canonical_skill,
-                    });
+            // Path doesn't exist yet — walk existing ancestors to catch
+            // symlinked parent directories that escape the sandbox.
+            let canonical_skill = skill_dir
+                .canonicalize()
+                .unwrap_or_else(|_| skill_dir.to_path_buf());
+
+            // Check each existing ancestor between skill_dir and the leaf
+            let mut ancestor = path.clone();
+            while ancestor != *skill_dir && ancestor.parent().is_some() {
+                ancestor = match ancestor.parent() {
+                    Some(p) => p.to_path_buf(),
+                    None => break,
+                };
+                if !ancestor.exists() {
+                    continue;
                 }
+                // Check if this ancestor is a symlink escaping the sandbox
+                if let Ok(meta) = ancestor.symlink_metadata() {
+                    if meta.file_type().is_symlink() {
+                        match ancestor.canonicalize() {
+                            Ok(canonical) => {
+                                if !canonical.starts_with(&canonical_skill) {
+                                    return Err(SandboxViolation::SymlinkEscape {
+                                        path: arg.to_string(),
+                                        target: canonical,
+                                        skill_dir: canonical_skill,
+                                    });
+                                }
+                            }
+                            Err(_) => {
+                                return Err(SandboxViolation::SymlinkEscape {
+                                    path: arg.to_string(),
+                                    target: PathBuf::from("(dangling)"),
+                                    skill_dir: canonical_skill,
+                                });
+                            }
+                        }
+                    }
+                }
+                // Also verify the canonicalized ancestor stays in sandbox
+                if let Ok(canonical) = ancestor.canonicalize() {
+                    if !canonical.starts_with(&canonical_skill) {
+                        return Err(SandboxViolation::PathEscape {
+                            path: arg.to_string(),
+                            skill_dir: canonical_skill,
+                        });
+                    }
+                }
+                break; // Only need to check the nearest existing ancestor
+            }
+
+            // Also reject absolute paths outside sandbox
+            if path.is_absolute()
+                && !path.starts_with(&canonical_skill)
+                && !path.starts_with(skill_dir)
+            {
+                return Err(SandboxViolation::PathEscape {
+                    path: arg.to_string(),
+                    skill_dir: canonical_skill,
+                });
             }
         }
     }
@@ -246,6 +294,22 @@ mod tests {
         assert!(
             matches!(result, Err(SandboxViolation::SymlinkEscape { .. })),
             "expected SymlinkEscape for dangling symlink, got: {result:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn symlinked_parent_directory_escape_rejected() {
+        let skill_dir = tempfile::tempdir().unwrap();
+        let outside_dir = tempfile::tempdir().unwrap();
+        // Create a symlink inside skill_dir that points to the outside directory
+        std::os::unix::fs::symlink(outside_dir.path(), skill_dir.path().join("escape-dir"))
+            .unwrap();
+        // Try to access a non-existent file through the symlinked parent
+        let result = validate_tool_paths(&["escape-dir/new.txt"], skill_dir.path());
+        assert!(
+            matches!(result, Err(SandboxViolation::SymlinkEscape { .. })),
+            "expected SymlinkEscape for symlinked parent dir, got: {result:?}"
         );
     }
 }

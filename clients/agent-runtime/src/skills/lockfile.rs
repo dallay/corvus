@@ -46,7 +46,14 @@ pub fn read_lockfile(workspace_dir: &Path) -> SkillsLockfile {
                 SkillsLockfile::default()
             }
         },
-        Err(_) => SkillsLockfile::default(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => SkillsLockfile::default(),
+        Err(err) => {
+            tracing::error!(
+                "failed to read skills lockfile at {}: {err}",
+                path.display()
+            );
+            SkillsLockfile::default()
+        }
     }
 }
 

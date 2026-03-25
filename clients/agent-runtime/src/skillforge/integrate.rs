@@ -48,7 +48,7 @@ impl Integrator {
     // -- Generators ---------------------------------------------------------
 
     fn generate_md(&self, c: &ScoutResult) -> String {
-        let lang = c.language.as_deref().unwrap_or("unknown");
+        let lang = yaml_sanitize(c.language.as_deref().unwrap_or("unknown"));
         let tags_yaml = format!("  - discovered\n  - {lang}");
         format!(
             r#"---

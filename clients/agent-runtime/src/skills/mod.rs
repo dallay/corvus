@@ -899,7 +899,10 @@ fn handle_install_command(
     if skill_trust == trust::SkillTrust::ThirdParty {
         if let Ok(content) = std::fs::read_to_string(skill_dir.join("SKILL.md")) {
             let scan = scanner::scan_skill_content(&content);
-            if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) && !trust_flag {
+            let threshold = config
+                .scan_threshold
+                .unwrap_or(scanner::DEFAULT_SCAN_THRESHOLD);
+            if scan.exceeds_threshold(threshold) && !trust_flag {
                 // Report findings and abort
                 for finding in &scan.findings {
                     println!(
@@ -915,14 +918,14 @@ fn handle_install_command(
                     "Skill content scored {} (threshold: {}). \
                Use --trust to install anyway.",
                     scan.score,
-                    scanner::DEFAULT_SCAN_THRESHOLD,
+                    threshold,
                 );
-            } else if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) {
+            } else if scan.exceeds_threshold(threshold) {
                 // --trust flag: warn but proceed
                 tracing::warn!(
                     "skill content scored {} (threshold: {}) — proceeding with --trust",
                     scan.score,
-                    scanner::DEFAULT_SCAN_THRESHOLD,
+                    threshold,
                 );
             }
         }
