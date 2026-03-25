@@ -156,12 +156,9 @@ pub fn repair_lockfile(workspace_dir: &Path) -> Result<RepairSummary> {
             on_disk.insert(name.clone());
 
             // Compute current hash
-            let current_hash = if skill_md.exists() {
-                let content = std::fs::read(&skill_md).ok();
-                content.map(|c| compute_content_hash(&c))
-            } else {
-                None
-            };
+            let current_hash = std::fs::read(&skill_md)
+                .ok()
+                .map(|c| compute_content_hash(&c));
 
             if let Some(existing) = current.skills.get_mut(&name) {
                 // Check if hash matches

@@ -7,6 +7,15 @@ use chrono::Local;
 use std::fmt::Write;
 use std::path::Path;
 
+/// Escape special XML characters in a string.
+fn escape_xml(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&apos;")
+}
+
 pub(crate) const DEFAULT_BOOTSTRAP_MAX_CHARS: usize = 20_000;
 pub(crate) const COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS: usize = 6_000;
 
@@ -239,18 +248,18 @@ pub(crate) fn render_skills_section(workspace_dir: &Path, skills: &[Skill]) -> S
                 prompt,
                 "  <skill trust=\"{}\">\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n    <note>This skill is from a third-party source. Its instructions have not been reviewed by Corvus maintainers. Exercise caution.</note>\n  </skill>",
                 skill.trust.as_str(),
-                skill.name,
-                skill.description,
-                location.display()
+                escape_xml(&skill.name),
+                escape_xml(&skill.description),
+                escape_xml(&location.display().to_string())
             );
         } else {
             let _ = writeln!(
                 prompt,
                 "  <skill trust=\"{}\">\n    <name>{}</name>\n    <description>{}</description>\n    <location>{}</location>\n  </skill>",
                 skill.trust.as_str(),
-                skill.name,
-                skill.description,
-                location.display()
+                escape_xml(&skill.name),
+                escape_xml(&skill.description),
+                escape_xml(&location.display().to_string())
             );
         }
     }

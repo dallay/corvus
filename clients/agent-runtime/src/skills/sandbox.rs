@@ -68,11 +68,14 @@ pub fn build_policy(trust: super::trust::SkillTrust, skill_dir: &Path) -> Sandbo
 /// Returns Ok(()) if all paths are safe, or Err with the first violation found.
 pub fn validate_tool_paths(args: &[&str], skill_dir: &Path) -> Result<(), SandboxViolation> {
     for arg in args {
-        // Check for explicit traversal sequences
-        if arg.contains("../") || arg.contains("..\\") || *arg == ".." {
-            return Err(SandboxViolation::TraversalSequence {
-                path: arg.to_string(),
-            });
+        // Check for traversal via path components
+        let check_path = std::path::Path::new(arg);
+        for component in check_path.components() {
+            if matches!(component, std::path::Component::ParentDir) {
+                return Err(SandboxViolation::TraversalSequence {
+                    path: arg.to_string(),
+                });
+            }
         }
 
         // Check if path resolves within skill directory
@@ -102,8 +105,19 @@ pub fn validate_tool_paths(args: &[&str], skill_dir: &Path) -> Result<(), Sandbo
                         skill_dir: canonical_skill,
                     });
                 }
+            } else {
+                // Existing path that can't be canonicalized — deny by default
+                tracing::warn!(
+                    "cannot canonicalize existing path '{}' — denying access",
+                    arg
+                );
+                return Err(SandboxViolation::PathEscape {
+                    path: arg.to_string(),
+                    skill_dir: skill_dir
+                        .canonicalize()
+                        .unwrap_or_else(|_| skill_dir.to_path_buf()),
+                });
             }
-            // Can't canonicalize — allow (might be a new file)
         } else {
             // Path doesn't exist yet — check the logical path
             // Normalize by checking if it logically escapes
@@ -172,5 +186,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let policy = build_policy(super::super::trust::SkillTrust::Official, dir.path());
         assert!(!policy.enabled);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn symlink_escape_rejected() {
+        let skill_dir = tempfile::tempdir().unwrap();
+        let outside_dir = tempfile::tempdir().unwrap();
+        let outside_file = outside_dir.path().join("secret.txt");
+        std::fs::write(&outside_file, "secret").unwrap();
+        std::os::unix::fs::symlink(&outside_file, skill_dir.path().join("escape-link")).unwrap();
+        let result = validate_tool_paths(&["escape-link"], skill_dir.path());
+        assert!(
+            matches!(result, Err(SandboxViolation::SymlinkEscape { .. })),
+            "expected SymlinkEscape, got: {result:?}"
+        );
     }
 }

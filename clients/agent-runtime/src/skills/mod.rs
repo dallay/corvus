@@ -123,8 +123,9 @@ pub fn load_skills_with_config(workspace_dir: &Path, verify_integrity: bool) -> 
 
         // Scanner check (ThirdParty only)
         if skill.trust == trust::SkillTrust::ThirdParty {
-            if let Some(prompt) = skill.prompts.first() {
-                let scan = scanner::scan_skill_content(prompt);
+            let all_content: String = skill.prompts.join("\n");
+            if !all_content.is_empty() {
+                let scan = scanner::scan_skill_content(&all_content);
                 if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) {
                     tracing::warn!(
                         "skill '{}' scored {} in injection scan (threshold: {}). \
@@ -1287,9 +1288,9 @@ fn update_thirdparty_skill(
     let skills_path = skills_dir(workspace_dir);
     let skill_dir = skills_path.join(name);
 
-    if skill_dir.exists() {
-        std::fs::remove_dir_all(&skill_dir)?;
-    }
+    // Clone to temp directory first (atomic update)
+    let temp_dir = skill_dir.with_extension("tmp");
+    let _ = std::fs::remove_dir_all(&temp_dir); // Clean any leftover temp
 
     let clone_status = std::process::Command::new("git")
         .args([
@@ -1297,21 +1298,29 @@ fn update_thirdparty_skill(
             "--depth",
             "1",
             source_url,
-            skill_dir.to_str().unwrap_or("corvus-skill-tmp"),
+            temp_dir.to_str().unwrap_or("corvus-skill-tmp"),
         ])
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
 
     match clone_status {
-        Ok(s) if s.success() => {}
-        _ => anyhow::bail!("Failed to clone '{source_url}' for update"),
-    }
-
-    // Remove .git directory
-    let git_dir = skill_dir.join(".git");
-    if git_dir.exists() {
-        let _ = std::fs::remove_dir_all(&git_dir);
+        Ok(s) if s.success() => {
+            // Remove .git from temp
+            let git_dir = temp_dir.join(".git");
+            if git_dir.exists() {
+                let _ = std::fs::remove_dir_all(&git_dir);
+            }
+            // Atomic swap: remove old, rename temp
+            if skill_dir.exists() {
+                std::fs::remove_dir_all(&skill_dir)?;
+            }
+            std::fs::rename(&temp_dir, &skill_dir)?;
+        }
+        _ => {
+            let _ = std::fs::remove_dir_all(&temp_dir);
+            anyhow::bail!("Failed to clone '{source_url}' for update");
+        }
     }
 
     // Update lockfile

@@ -143,7 +143,7 @@ pub enum SkillCommands {
     },
     /// Install a new skill from a URL, local path, or catalog name
     Install {
-        /// Source URL or local path
+        /// Source URL, local path, or catalog skill name
         source: String,
         /// Acknowledge trust for third-party skills with tools
         #[arg(long)]

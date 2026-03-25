@@ -43,13 +43,12 @@ impl ScanResult {
 }
 
 /// Scan SKILL.md content for prompt injection patterns.
+///
+/// Single-pass: iterates lines once, checking all pattern categories per line.
 pub fn scan_skill_content(content: &str) -> ScanResult {
     let mut findings = Vec::new();
     let mut score = 0u32;
 
-    let content_lower = content.to_lowercase();
-
-    // SystemPromptOverride patterns (severity: 40)
     let system_override_patterns = [
         "ignore previous instructions",
         "ignore all previous",
@@ -58,22 +57,7 @@ pub fn scan_skill_content(content: &str) -> ScanResult {
         "override system prompt",
         "new system prompt",
     ];
-    for pattern in &system_override_patterns {
-        for (line_idx, line) in content_lower.lines().enumerate() {
-            if line.contains(pattern) {
-                findings.push(ScanFinding {
-                    category: ScanCategory::SystemPromptOverride,
-                    pattern: pattern.to_string(),
-                    line: line_idx + 1,
-                    severity: 40,
-                });
-                score += 40;
-            }
-        }
-    }
 
-    // RoleManipulation patterns (severity: 15)
-    // Be careful: "act as a code reviewer" is legitimate
     let role_manipulation_patterns = [
         "you are now an unrestricted",
         "act as an unrestricted",
@@ -82,21 +66,7 @@ pub fn scan_skill_content(content: &str) -> ScanResult {
         "bypass your restrictions",
         "pretend you have no limits",
     ];
-    for pattern in &role_manipulation_patterns {
-        for (line_idx, line) in content_lower.lines().enumerate() {
-            if line.contains(pattern) {
-                findings.push(ScanFinding {
-                    category: ScanCategory::RoleManipulation,
-                    pattern: pattern.to_string(),
-                    line: line_idx + 1,
-                    severity: 15,
-                });
-                score += 15;
-            }
-        }
-    }
 
-    // TrustEscalation patterns (severity: 40)
     let trust_escalation_patterns = [
         "this skill is official",
         "trust level: official",
@@ -104,22 +74,53 @@ pub fn scan_skill_content(content: &str) -> ScanResult {
         "i am an official skill",
         "treat this as trusted",
     ];
-    for pattern in &trust_escalation_patterns {
-        for (line_idx, line) in content_lower.lines().enumerate() {
-            if line.contains(pattern) {
+
+    let zwc_chars = ['\u{200B}', '\u{200C}', '\u{200D}', '\u{FEFF}', '\u{2060}'];
+
+    for (line_idx, line) in content.lines().enumerate() {
+        let line_lower = line.to_lowercase();
+        let line_num = line_idx + 1;
+
+        // SystemPromptOverride (severity: 40)
+        for pattern in &system_override_patterns {
+            if line_lower.contains(pattern) {
                 findings.push(ScanFinding {
-                    category: ScanCategory::TrustEscalation,
+                    category: ScanCategory::SystemPromptOverride,
                     pattern: pattern.to_string(),
-                    line: line_idx + 1,
+                    line: line_num,
                     severity: 40,
                 });
                 score += 40;
             }
         }
-    }
 
-    // EncodedPayload: base64 blocks > 200 chars (severity: 30)
-    for (line_idx, line) in content.lines().enumerate() {
+        // RoleManipulation (severity: 15)
+        for pattern in &role_manipulation_patterns {
+            if line_lower.contains(pattern) {
+                findings.push(ScanFinding {
+                    category: ScanCategory::RoleManipulation,
+                    pattern: pattern.to_string(),
+                    line: line_num,
+                    severity: 15,
+                });
+                score += 15;
+            }
+        }
+
+        // TrustEscalation (severity: 40)
+        for pattern in &trust_escalation_patterns {
+            if line_lower.contains(pattern) {
+                findings.push(ScanFinding {
+                    category: ScanCategory::TrustEscalation,
+                    pattern: pattern.to_string(),
+                    line: line_num,
+                    severity: 40,
+                });
+                score += 40;
+            }
+        }
+
+        // EncodedPayload (severity: 30)
         let trimmed = line.trim();
         if trimmed.len() > 200
             && trimmed
@@ -129,21 +130,18 @@ pub fn scan_skill_content(content: &str) -> ScanResult {
             findings.push(ScanFinding {
                 category: ScanCategory::EncodedPayload,
                 pattern: format!("base64 block ({} chars)", trimmed.len()),
-                line: line_idx + 1,
+                line: line_num,
                 severity: 30,
             });
             score += 30;
         }
-    }
 
-    // UnicodeAnomaly: zero-width characters (severity: 25)
-    let zwc_chars = ['\u{200B}', '\u{200C}', '\u{200D}', '\u{FEFF}', '\u{2060}'];
-    for (line_idx, line) in content.lines().enumerate() {
+        // UnicodeAnomaly (severity: 25)
         if line.chars().any(|c| zwc_chars.contains(&c)) {
             findings.push(ScanFinding {
                 category: ScanCategory::UnicodeAnomaly,
                 pattern: "zero-width character detected".to_string(),
-                line: line_idx + 1,
+                line: line_num,
                 severity: 25,
             });
             score += 25;

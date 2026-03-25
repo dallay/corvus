@@ -97,7 +97,6 @@ pub fn resolve_index(
     let index_url = config
         .catalog_repo_url
         .as_deref()
-        .map(|_| OFFICIAL_INDEX_URL)
         .unwrap_or(OFFICIAL_INDEX_URL);
 
     if let Some(index) = try_fetch_index(index_url, &cache_dir, &cache_path) {

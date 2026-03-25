@@ -2960,7 +2960,8 @@ impl Config {
         self.validate_memory_config()?;
         self.validate_delegate_overrides()?;
         self.validate_code_session_config()?;
-        self.validate_account_pools()
+        self.validate_account_pools()?;
+        self.validate_skills_config()
     }
 
     fn validate_agent_profile(&self) -> Result<()> {
@@ -3064,6 +3065,24 @@ impl Config {
         }
         if !seen_ids.insert(account.id.trim().to_string()) {
             anyhow::bail!("{base}.id must be unique within pool");
+        }
+        Ok(())
+    }
+
+    fn validate_skills_config(&self) -> Result<()> {
+        if let Some(ref url) = self.skills.catalog_repo_url {
+            let parsed = Url::parse(url)
+                .map_err(|e| anyhow::anyhow!("invalid catalog_repo_url '{}': {}", url, e))?;
+            if parsed.scheme() != "https" {
+                anyhow::bail!("catalog_repo_url must use https:// scheme, got '{}'", url,);
+            }
+            let host = parsed.host_str().unwrap_or("");
+            if host == "localhost" || host == "127.0.0.1" || host == "::1" || host.is_empty() {
+                anyhow::bail!("catalog_repo_url must not point to localhost: '{}'", url,);
+            }
+        }
+        if self.skills.catalog_cache_ttl_hours == Some(0) {
+            anyhow::bail!("catalog_cache_ttl_hours must be > 0 (got 0)");
         }
         Ok(())
     }
