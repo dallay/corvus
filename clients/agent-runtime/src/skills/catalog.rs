@@ -417,6 +417,55 @@ version = 1
     // ── 16. parse_index rejects traversal path ───────────────────
 
     #[test]
+    fn search_matches_by_description() {
+        let content = r#"
+[meta]
+version = 1
+generated_at = "2026-01-01T00:00:00Z"
+
+[skills.helper]
+name = "helper"
+description = "A database optimization tool"
+path = "skills/helper"
+"#;
+        let index = parse_index(content).unwrap();
+        let results = search(&index, "database");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].name, "helper");
+    }
+
+    #[test]
+    fn search_matches_by_tag() {
+        let content = r#"
+[meta]
+version = 1
+generated_at = "2026-01-01T00:00:00Z"
+
+[skills.helper]
+name = "helper"
+description = "A tool"
+path = "skills/helper"
+tags = ["database", "sql"]
+"#;
+        let index = parse_index(content).unwrap();
+        let results = search(&index, "sql");
+        assert_eq!(results.len(), 1);
+    }
+
+    #[test]
+    fn is_bare_name_various_inputs() {
+        assert!(is_bare_name("git-expert"));
+        assert!(is_bare_name("a"));
+        assert!(is_bare_name("skill123"));
+        assert!(!is_bare_name(""));
+        assert!(!is_bare_name("https://example.com"));
+        assert!(!is_bare_name("./local"));
+        assert!(!is_bare_name("path/to/skill"));
+        assert!(!is_bare_name("file.txt"));
+        assert!(!is_bare_name("host:port"));
+    }
+
+    #[test]
     fn parse_index_rejects_traversal_path() {
         let content = r#"
 [meta]

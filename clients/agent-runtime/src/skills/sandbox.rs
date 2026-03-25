@@ -269,6 +269,32 @@ mod tests {
     }
 
     #[test]
+    fn traversal_embedded_in_path_components_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = validate_tool_paths(&["foo/bar/.."], dir.path());
+        assert!(matches!(
+            result,
+            Err(SandboxViolation::TraversalSequence { .. })
+        ));
+    }
+
+    #[test]
+    fn relative_path_within_sandbox_subdir_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join("subdir")).unwrap();
+        fs::write(dir.path().join("subdir/file.txt"), "ok").unwrap();
+        let result = validate_tool_paths(&["subdir/file.txt"], dir.path());
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn empty_args_allowed() {
+        let dir = tempfile::tempdir().unwrap();
+        let result = validate_tool_paths(&[], dir.path());
+        assert!(result.is_ok());
+    }
+
+    #[test]
     #[cfg(unix)]
     fn symlink_escape_rejected() {
         let skill_dir = tempfile::tempdir().unwrap();

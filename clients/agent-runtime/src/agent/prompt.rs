@@ -465,6 +465,90 @@ mod tests {
     }
 
     #[test]
+    fn escape_xml_special_chars() {
+        assert_eq!(escape_xml("a & b"), "a &amp; b");
+        assert_eq!(escape_xml("<script>"), "&lt;script&gt;");
+        assert_eq!(escape_xml("\"quoted\""), "&quot;quoted&quot;");
+        assert_eq!(escape_xml("it's"), "it&apos;s");
+    }
+
+    #[test]
+    fn escape_xml_no_special_chars() {
+        assert_eq!(escape_xml("hello world"), "hello world");
+    }
+
+    #[test]
+    fn escape_xml_all_special() {
+        assert_eq!(escape_xml("&<>\"'"), "&amp;&lt;&gt;&quot;&apos;");
+    }
+
+    #[test]
+    fn render_skills_section_sorts_by_trust() {
+        use crate::skills::trust;
+
+        let skills = vec![
+            Skill {
+                name: "third-party".into(),
+                description: "TP".into(),
+                version: "1.0".into(),
+                author: None,
+                tags: vec![],
+                tools: vec![],
+                prompts: vec![],
+                location: None,
+                trust: trust::SkillTrust::ThirdParty,
+                origin: trust::SkillOrigin::default(),
+                allowed_tools: vec![],
+            },
+            Skill {
+                name: "official-first".into(),
+                description: "OF".into(),
+                version: "1.0".into(),
+                author: None,
+                tags: vec![],
+                tools: vec![],
+                prompts: vec![],
+                location: None,
+                trust: trust::SkillTrust::Official,
+                origin: trust::SkillOrigin::default(),
+                allowed_tools: vec![],
+            },
+            Skill {
+                name: "local-middle".into(),
+                description: "LM".into(),
+                version: "1.0".into(),
+                author: None,
+                tags: vec![],
+                tools: vec![],
+                prompts: vec![],
+                location: None,
+                trust: trust::SkillTrust::Local,
+                origin: trust::SkillOrigin::default(),
+                allowed_tools: vec![],
+            },
+        ];
+
+        let workspace = std::path::Path::new("/tmp/test-workspace");
+        let result = render_skills_section(workspace, &skills);
+
+        // Official should appear before Local, Local before ThirdParty
+        // Use <name> tags to avoid matching trust="third-party" attributes
+        let official_pos = result.find("<name>official-first</name>").unwrap();
+        let local_pos = result.find("<name>local-middle</name>").unwrap();
+        let tp_pos = result.find("<name>third-party</name>").unwrap();
+        assert!(official_pos < local_pos, "Official should be before Local");
+        assert!(local_pos < tp_pos, "Local should be before ThirdParty");
+
+        // ThirdParty should have caution note
+        assert!(result.contains("not been reviewed"));
+
+        // Trust attributes should be present
+        assert!(result.contains("trust=\"official\""));
+        assert!(result.contains("trust=\"local\""));
+        assert!(result.contains("trust=\"third-party\""));
+    }
+
+    #[test]
     fn code_mode_section_absent_when_not_active() {
         let tools: Vec<Box<dyn Tool>> = vec![];
         let ctx = PromptContext {

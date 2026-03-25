@@ -1676,6 +1676,458 @@ mod tests {
             "SKILL.toml-only directory should not appear in loaded skills",
         );
     }
+
+    // ── resolve_skill_source ─────────────────────────────────
+
+    #[test]
+    fn resolve_skill_source_https_is_git_repo() {
+        let source = resolve_skill_source("https://github.com/user/repo");
+        assert!(matches!(source, trust::SkillSource::GitRepo { .. }));
+    }
+
+    #[test]
+    fn resolve_skill_source_local_path() {
+        let source = resolve_skill_source("/some/local/path");
+        assert!(matches!(source, trust::SkillSource::Local));
+    }
+
+    #[test]
+    fn resolve_skill_source_relative_path() {
+        let source = resolve_skill_source("./my-skill");
+        assert!(matches!(source, trust::SkillSource::Local));
+    }
+
+    // ── extract_description ──────────────────────────────────
+
+    #[test]
+    fn extract_description_skips_headings() {
+        let content = "# Title\n## Subtitle\nActual description here.";
+        assert_eq!(extract_description(content), "Actual description here.");
+    }
+
+    #[test]
+    fn extract_description_skips_empty_lines() {
+        let content = "\n\n  \nFirst real line.";
+        assert_eq!(extract_description(content), "First real line.");
+    }
+
+    #[test]
+    fn extract_description_empty_content() {
+        let content = "";
+        assert_eq!(extract_description(content), "No description");
+    }
+
+    #[test]
+    fn extract_description_only_headings() {
+        let content = "# Heading\n## Another heading";
+        assert_eq!(extract_description(content), "No description");
+    }
+
+    // ── filter_tools_by_trust ────────────────────────────────
+
+    #[test]
+    fn filter_tools_official_returns_all() {
+        let skill = Skill {
+            name: "test".into(),
+            description: "test".into(),
+            version: "1.0".into(),
+            author: None,
+            tags: vec![],
+            tools: vec![SkillTool {
+                name: "tool1".into(),
+                description: "d".into(),
+                kind: "shell".into(),
+                command: "cmd".into(),
+                args: HashMap::new(),
+                sandboxed: false,
+            }],
+            prompts: vec![],
+            location: None,
+            trust: trust::SkillTrust::Official,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: vec![],
+        };
+        assert_eq!(filter_tools_by_trust(&skill).len(), 1);
+    }
+
+    #[test]
+    fn filter_tools_local_returns_all() {
+        let skill = Skill {
+            name: "test".into(),
+            description: "test".into(),
+            version: "1.0".into(),
+            author: None,
+            tags: vec![],
+            tools: vec![SkillTool {
+                name: "tool1".into(),
+                description: "d".into(),
+                kind: "shell".into(),
+                command: "cmd".into(),
+                args: HashMap::new(),
+                sandboxed: false,
+            }],
+            prompts: vec![],
+            location: None,
+            trust: trust::SkillTrust::Local,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: vec![],
+        };
+        assert_eq!(filter_tools_by_trust(&skill).len(), 1);
+    }
+
+    #[test]
+    fn filter_tools_thirdparty_empty_allowed_returns_none() {
+        let skill = Skill {
+            name: "test".into(),
+            description: "test".into(),
+            version: "1.0".into(),
+            author: None,
+            tags: vec![],
+            tools: vec![SkillTool {
+                name: "tool1".into(),
+                description: "d".into(),
+                kind: "shell".into(),
+                command: "cmd".into(),
+                args: HashMap::new(),
+                sandboxed: false,
+            }],
+            prompts: vec![],
+            location: None,
+            trust: trust::SkillTrust::ThirdParty,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: vec![],
+        };
+        assert_eq!(filter_tools_by_trust(&skill).len(), 0);
+    }
+
+    #[test]
+    fn filter_tools_thirdparty_filters_by_allowed() {
+        let skill = Skill {
+            name: "test".into(),
+            description: "test".into(),
+            version: "1.0".into(),
+            author: None,
+            tags: vec![],
+            tools: vec![
+                SkillTool {
+                    name: "allowed_tool".into(),
+                    description: "d".into(),
+                    kind: "shell".into(),
+                    command: "cmd".into(),
+                    args: HashMap::new(),
+                    sandboxed: false,
+                },
+                SkillTool {
+                    name: "blocked_tool".into(),
+                    description: "d".into(),
+                    kind: "shell".into(),
+                    command: "cmd".into(),
+                    args: HashMap::new(),
+                    sandboxed: false,
+                },
+            ],
+            prompts: vec![],
+            location: None,
+            trust: trust::SkillTrust::ThirdParty,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: vec!["allowed_tool".into()],
+        };
+        let filtered = filter_tools_by_trust(&skill);
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].name, "allowed_tool");
+    }
+
+    // ── validate_skill_name_path_safety ──────────────────────
+
+    #[test]
+    fn validate_name_rejects_traversal() {
+        assert!(validate_skill_name_path_safety("..").is_err());
+        assert!(validate_skill_name_path_safety("foo/../bar").is_err());
+    }
+
+    #[test]
+    fn validate_name_rejects_slashes() {
+        assert!(validate_skill_name_path_safety("foo/bar").is_err());
+        assert!(validate_skill_name_path_safety("foo\\bar").is_err());
+    }
+
+    #[test]
+    fn validate_name_accepts_valid() {
+        assert!(validate_skill_name_path_safety("my-skill").is_ok());
+        assert!(validate_skill_name_path_safety("skill123").is_ok());
+    }
+
+    // ── ensure_skill_path_stays_within_root ──────────────────
+
+    #[test]
+    fn ensure_path_within_root_ok() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let skill_path = root.join("my-skill");
+        fs::create_dir_all(&skill_path).unwrap();
+        assert!(ensure_skill_path_stays_within_root(root, &skill_path, "my-skill").is_ok());
+    }
+
+    // ── copy_dir_recursive ───────────────────────────────────
+
+    #[test]
+    fn copy_dir_recursive_copies_files() {
+        let src_dir = tempfile::tempdir().unwrap();
+        let dst_dir = tempfile::tempdir().unwrap();
+        let dst_path = dst_dir.path().join("copy");
+
+        fs::write(src_dir.path().join("file.txt"), "content").unwrap();
+        fs::create_dir(src_dir.path().join("sub")).unwrap();
+        fs::write(src_dir.path().join("sub/nested.txt"), "nested").unwrap();
+
+        copy_dir_recursive(src_dir.path(), &dst_path).unwrap();
+
+        assert!(dst_path.join("file.txt").exists());
+        assert!(dst_path.join("sub/nested.txt").exists());
+        assert_eq!(
+            fs::read_to_string(dst_path.join("file.txt")).unwrap(),
+            "content"
+        );
+        assert_eq!(
+            fs::read_to_string(dst_path.join("sub/nested.txt")).unwrap(),
+            "nested"
+        );
+    }
+
+    // ── format_tool_names ────────────────────────────────────
+
+    #[test]
+    fn format_tool_names_empty() {
+        let skill = Skill {
+            name: "test".into(),
+            description: String::new(),
+            version: "1.0".into(),
+            author: None,
+            tags: vec![],
+            tools: vec![],
+            prompts: vec![],
+            location: None,
+            trust: trust::SkillTrust::Local,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: Vec::new(),
+        };
+        let result = format_tool_names(&skill);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn format_tool_names_multiple() {
+        let skill = Skill {
+            name: "test".into(),
+            description: String::new(),
+            version: "1.0".into(),
+            author: None,
+            tags: vec![],
+            tools: vec![
+                SkillTool {
+                    name: "read".into(),
+                    description: String::new(),
+                    kind: "shell".into(),
+                    command: String::new(),
+                    args: HashMap::new(),
+                    sandboxed: false,
+                },
+                SkillTool {
+                    name: "write".into(),
+                    description: String::new(),
+                    kind: "shell".into(),
+                    command: String::new(),
+                    args: HashMap::new(),
+                    sandboxed: false,
+                },
+            ],
+            prompts: vec![],
+            location: None,
+            trust: trust::SkillTrust::Local,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: Vec::new(),
+        };
+        let result = format_tool_names(&skill);
+        assert!(result.contains("read"));
+        assert!(result.contains("write"));
+    }
+
+    // ── check_sandbox ────────────────────────────────────────
+
+    #[test]
+    fn check_sandbox_not_sandboxed_allows_everything() {
+        let tool = SkillTool {
+            name: "test".into(),
+            description: String::new(),
+            kind: "shell".into(),
+            command: String::new(),
+            args: HashMap::new(),
+            sandboxed: false,
+        };
+        let skill = Skill {
+            name: "test".into(),
+            description: String::new(),
+            version: "1.0".into(),
+            author: None,
+            tags: vec![],
+            tools: vec![],
+            prompts: vec![],
+            location: None,
+            trust: trust::SkillTrust::Local,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: Vec::new(),
+        };
+        assert!(check_sandbox(&tool, &skill, &["/etc/passwd"]).is_ok());
+    }
+
+    #[test]
+    fn check_sandbox_sandboxed_no_location_errors() {
+        let tool = SkillTool {
+            name: "test".into(),
+            description: String::new(),
+            kind: "shell".into(),
+            command: String::new(),
+            args: HashMap::new(),
+            sandboxed: true,
+        };
+        let skill = Skill {
+            name: "test".into(),
+            description: String::new(),
+            version: "1.0".into(),
+            author: None,
+            tags: vec![],
+            tools: vec![],
+            prompts: vec![],
+            location: None,
+            trust: trust::SkillTrust::ThirdParty,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: Vec::new(),
+        };
+        assert!(check_sandbox(&tool, &skill, &["file.txt"]).is_err());
+    }
+
+    // ── handle_remove_command ────────────────────────────────
+
+    #[test]
+    fn handle_remove_nonexistent_skill_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+        let result = handle_remove_command(dir.path(), "nonexistent");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("not found"));
+    }
+
+    #[test]
+    fn handle_remove_existing_skill_succeeds() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        let skill_dir = skills_dir.join("removable");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "# Removable").unwrap();
+
+        let result = handle_remove_command(dir.path(), "removable");
+        assert!(result.is_ok());
+        assert!(!skill_dir.exists());
+    }
+
+    // ── skills_to_prompt with ThirdParty tool filtering ──────
+
+    #[test]
+    fn skills_to_prompt_thirdparty_no_tools_shown() {
+        let skills = vec![Skill {
+            name: "untrusted".to_string(),
+            description: "Third party".to_string(),
+            version: "1.0.0".to_string(),
+            author: None,
+            tags: vec![],
+            tools: vec![SkillTool {
+                name: "dangerous".to_string(),
+                description: "bad tool".to_string(),
+                kind: "shell".to_string(),
+                command: "rm -rf /".to_string(),
+                args: HashMap::new(),
+                sandboxed: true,
+            }],
+            prompts: vec![],
+            location: None,
+            trust: trust::SkillTrust::ThirdParty,
+            origin: trust::SkillOrigin::default(),
+            allowed_tools: vec![],
+        }];
+        let prompt = skills_to_prompt(&skills);
+        assert!(prompt.contains("untrusted"));
+        assert!(!prompt.contains("dangerous"));
+    }
+
+    // ── load_skill_md with frontmatter ───────────────────────
+
+    #[test]
+    fn load_skill_md_with_frontmatter() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        let skill_dir = skills_dir.join("fm-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+
+        fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: fm-skill\ndescription: A frontmatter skill\nversion: 2.0.0\nauthor: Test Author\ntags:\n  - testing\n  - example\nallowed-tools:\n  - Read\n  - Write\n---\n\n# FM Skill\n\nSome instructions.\n",
+        )
+        .unwrap();
+
+        let skills = load_skills(dir.path());
+        assert_eq!(skills.len(), 1);
+        let skill = &skills[0];
+        assert_eq!(skill.name, "fm-skill");
+        assert_eq!(skill.description, "A frontmatter skill");
+        assert_eq!(skill.version, "2.0.0");
+        assert_eq!(skill.author.as_deref(), Some("Test Author"));
+        assert!(skill.tags.contains(&"testing".to_string()));
+        assert!(skill.tags.contains(&"example".to_string()));
+        assert!(skill.allowed_tools.contains(&"Read".to_string()));
+        assert!(skill.allowed_tools.contains(&"Write".to_string()));
+    }
+
+    // ── is_remote_skill_source ───────────────────────────────
+
+    #[test]
+    fn is_remote_rejects_http_without_s() {
+        assert!(!is_remote_skill_source("http://example.com"));
+    }
+
+    #[test]
+    fn is_remote_rejects_local_path() {
+        assert!(!is_remote_skill_source("./local-skill"));
+        assert!(!is_remote_skill_source("/absolute/path"));
+    }
+
+    // ── lockfile integration with load ───────────────────────
+
+    #[test]
+    fn load_skill_with_lockfile_enrichment() {
+        let dir = tempfile::tempdir().unwrap();
+        let skills_dir = dir.path().join("skills");
+        let skill_dir = skills_dir.join("locked-skill");
+        fs::create_dir_all(&skill_dir).unwrap();
+        fs::write(skill_dir.join("SKILL.md"), "# Locked\nA locked skill.").unwrap();
+
+        let entry = lockfile::LockEntry {
+            trust: "third-party".into(),
+            source: "https://github.com/example/skill".into(),
+            path: None,
+            pinned_ref: None,
+            content_hash: Some(lockfile::compute_content_hash(b"# Locked\nA locked skill.")),
+            installed_at: None,
+            allowed_tools: Some(vec!["Read".into()]),
+        };
+        lockfile::write_lock_entry(dir.path(), "locked-skill", entry).unwrap();
+
+        let skills = load_skills(dir.path());
+        assert_eq!(skills.len(), 1);
+        let skill = &skills[0];
+        assert_eq!(skill.trust, trust::SkillTrust::ThirdParty);
+        assert!(skill.allowed_tools.contains(&"Read".to_string()));
+    }
 }
 
 #[cfg(test)]
