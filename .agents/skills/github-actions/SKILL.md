@@ -204,6 +204,10 @@ When reviewing workflows, check:
 # Validate workflow YAML syntax locally
 npx yaml-lint .github/workflows/*.{yml,yaml}
 
+# Mirror CodeRabbit's GitHub Actions validation locally with actionlint
+# using the repository rule configuration in .github/actionlint.yml
+actionlint -config-file .github/actionlint.yml .github/workflows/*.{yml,yaml}
+
 # List action versions and check for updates
 gh api repos/actions/checkout/releases/latest --jq '.tag_name'
 
