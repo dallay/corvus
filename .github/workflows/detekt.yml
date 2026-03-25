@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 # This workflow uses actions that are not certified by GitHub.
 # They are provided by a third-party and are governed by
 # separate terms of service, privacy policy, and support
@@ -44,6 +45,7 @@ jobs:
 
     # Required for upload-sarif to push security events
     permissions:
+      contents: read
       security-events: write
 
     # Steps represent a sequence of tasks that will be executed as part of the job
@@ -122,7 +124,7 @@ jobs:
           )" > "${{ github.workspace }}/detekt.sarif.json"
 
       # Uploads results to GitHub repository using the upload-sarif action
-      - uses: github/codeql-action/upload-sarif@v4
+      - uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10
         with:
           # Path to SARIF file relative to the root of the repository
           sarif_file: ${{ github.workspace }}/detekt.sarif.json

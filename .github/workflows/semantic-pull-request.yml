@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Lint PR title
 
 on:
@@ -9,5 +10,5 @@ permissions:
 
 jobs:
   lint:
-    uses: dallay/common-actions/.github/workflows/semantic-pr.yml@main
+    uses: dallay/common-actions/.github/workflows/semantic-pr.yml@e77aee209c07cd031e1fc6a3f275df774b4685a2 # v1.1.0
     secrets: inherit
