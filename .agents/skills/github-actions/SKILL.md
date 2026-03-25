@@ -2,7 +2,7 @@
 name: github-actions
 description: >
   GitHub Actions CI/CD best practices for workflow design, security hardening, and pipeline optimization.
-  Trigger: When creating, reviewing, or auditing GitHub Actions workflows (.github/workflows/*.yml),
+  Trigger: When creating, reviewing, or auditing GitHub Actions workflows (.github/workflows/*.{yml,yaml}),
   fixing CI/CD issues, or hardening pipeline security.
 license: Apache-2.0
 metadata:
@@ -16,7 +16,7 @@ Expert guidance for designing, securing, and optimizing GitHub Actions CI/CD pip
 
 ## When to Use
 
-- Creating or modifying `.github/workflows/*.yml` files
+- Creating or modifying `.github/workflows/*.{yml,yaml}` files
 - Auditing existing CI/CD pipelines for security, performance, or reliability issues
 - Fixing workflow triggers, permissions, or caching problems
 - Setting up deployment pipelines (staging, production, rollback)
@@ -49,7 +49,7 @@ Expert guidance for designing, securing, and optimizing GitHub Actions CI/CD pip
 - **Conditional execution**: Use `if` conditions for branch-specific, actor-specific, or
   event-specific logic.
 - **Reusable workflows**: Extract common patterns into `workflow_call` workflows (prefix with `_`
-  for internal ones, e.g., `_publish.yml`).
+  for internal ones, e.g., `_publish.yml` or `_publish.yaml`).
 - **Timeout**: Set `timeout-minutes` on long-running jobs to prevent hung runners.
 
 ### Performance
@@ -202,7 +202,7 @@ When reviewing workflows, check:
 
 ```bash
 # Validate workflow YAML syntax locally
-npx yaml-lint .github/workflows/*.yml
+npx yaml-lint .github/workflows/*.{yml,yaml}
 
 # List action versions and check for updates
 gh api repos/actions/checkout/releases/latest --jq '.tag_name'
@@ -210,8 +210,8 @@ gh api repos/actions/checkout/releases/latest --jq '.tag_name'
 # Resolve tag to immutable SHA (for pinning)
 git ls-remote --tags https://github.com/actions/checkout.git | rg "refs/tags/v6.0.2(\^\{\})?$" | sort | tail -n 1 | awk '{print $1}'
 
-# Check workflow run status
-gh run list --workflow=pull-request-check.yml --limit=5
+# Check workflow run status (use workflow name or either file extension)
+gh run list --workflow="PR Checks" --limit=5
 ```
 
 ## Resources
