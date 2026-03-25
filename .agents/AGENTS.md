@@ -163,17 +163,10 @@ Tier 3: Client Surfaces    → web/chat, web/dashboard, composeApp (mobile), doc
 - CLI operators → **Direct runtime** access
 - Supporting surfaces → **No runtime** communication
 
-**See**: [openspec/specs/client-surfaces/spec.md](../../openspec/specs/client-surfaces/spec.md)
-
-For surface-specific guidance, see the surface contracts:
-
-- [web/chat contract](../../openspec/specs/client-surfaces/surface-contracts/web-chat.md)
-- [composeApp mobile contract](../../openspec/specs/client-surfaces/surface-contracts/composeapp-mobile.md)
-- [composeApp shared contract](../../openspec/specs/client-surfaces/surface-contracts/composeapp-shared.md)
-- [dashboard contract](../../openspec/specs/client-surfaces/surface-contracts/web-dashboard.md)
+Surface contracts and detailed specs live in the openspec workspace (external, volatile).
+Refer to those docs when available, but do not hardlink from this file.
 
 ## Project Structure
-
 ```text
 ├── clients/
 │   ├── agent-runtime/       # Rust CLI/daemon (Tier 1 core)
@@ -203,7 +196,7 @@ LLM that supports the Model Context Protocol (MCP). It is implemented as a singl
 uses SurrealDB (embedded) for multi-model storage (document, graph, vector search).
 
 - **Integration:** Agents interact with Cerebro via the MCP JSON-RPC protocol, using a set of 13
-  memory/session tools (see [cerebro spec](../specs/cerebro/spec.md) for full API and business logic).
+  memory/session tools (see the cerebro spec in the openspec workspace for full API and business logic).
 - **Architecture:** Cerebro uses a sync API for fast agent responses and an async worker for
   background tasks (e.g., vector embeddings, entity extraction, graph edges) if an LLM is
   configured.
