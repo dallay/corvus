@@ -1,0 +1,11 @@
+## Resumen
+## Aviso de paridad
+## Valores seguros por defecto (requerido)
+## Configuración de Cerebro MCP
+## Alias de herramientas heredadas
+## Esquemas de herramientas MCP
+## Lista de verificación para la migración
+## Valores por defecto de almacenamiento en Cerebro (embebido)
+## TUI opcional (solo para operadores)
+## CLI de migración
+## Notas operativas

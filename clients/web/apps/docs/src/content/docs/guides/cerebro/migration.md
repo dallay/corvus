@@ -15,15 +15,9 @@ https://github.com/dallay/corvus/blob/main/openspec/specs/cerebro/spec.md.
 - Legacy tools (`memory_store`, `memory_recall`, `memory_forget`) are aliases to MCP tools.
 - Cerebro defaults to embedded SurrealDB storage unless explicitly configured otherwise.
 
-## Parity notice (EN/ES)
+## Parity notice
 
-EN: Cerebro is not a drop-in replacement for SurrealDB. There is no automatic migration, and
-search/ranking behavior may differ. Plan a deliberate export/import step and a rollback path before
-cutover.
-
-ES: Cerebro no es un reemplazo 1:1 de SurrealDB. No hay migracion automatica y el comportamiento de
-busqueda/ordenamiento puede variar. Planifica exportar/importar y un plan de rollback antes del
-cambio.
+Cerebro is not a drop-in replacement for SurrealDB. There is no automatic migration, and search/ranking behavior may differ. Plan a deliberate export/import step and a rollback path before cutover.
 
 ## Secure defaults (required)
 
@@ -93,8 +87,6 @@ Use these schemas to validate tool calls and responses in agents and integration
 
 ## Cerebro storage defaults (embedded)
 
-> **ES pending**: Translation for this section is forthcoming. Sections to translate: "Cerebro storage defaults (embedded)", "Supported storage modes", "Use storage_fallback only when...".
-
 New Cerebro deployments default to embedded SurrealDB storage. To override the default, set the
 storage mode explicitly in Cerebro configuration (not runtime config).
 
@@ -108,8 +100,6 @@ Supported storage modes:
 Use `storage_fallback` only when you explicitly accept fallback semantics for startup failures.
 
 ## Optional TUI (operator-only)
-
-> **ES pending**: Translation for this section is forthcoming. Sections to translate: "Optional TUI (operator-only)", "Enable via CLI", "Enable via environment", "Configuration keys", "Safety notes".
 
 Cerebro ships with an optional terminal UI for live operational insight. It is disabled by default
 and does not expose any network listeners.
@@ -142,8 +132,6 @@ Safety notes:
 
 ## Migration CLI
 
-> **ES pending**: Translation for this section is forthcoming. Sections to translate: "Migration CLI", "Optional flags".
-
 Use the bundled CLI to import legacy exports and validate results:
 
 ```bash
@@ -162,8 +150,6 @@ Optional flags:
 - `--dry-run` to compute counts/checksums without writes.
 
 ## Operational notes
-
-> **ES pending**: Translation for this section is forthcoming. Sections to translate: "Operational notes", "Migration validation exit codes".
 
 - If embedded initialization fails and no `storage_fallback` is configured, Cerebro exits with an
   error to prevent silent data loss.

@@ -13,3 +13,16 @@
 - Confirmed `gemini-cli` OAuth token support in `gemini.rs`.
 - Confirmed `ANTHROPIC_OAUTH_TOKEN` support in `mod.rs`.
 - Maintained strict bilingual parity between English and Spanish versions.
+
+## 2026-03-25 - Cerebro Migration Guide Sync - Completed
+
+**Verification:** Inspected `clients/agent-runtime/src/config/schema.rs` to confirm the correct environment variable for Cerebro auth token is `CORVUS_CEREBRO_AUTH_TOKEN`.
+**Changes:**
+- Removed `> **ES pending**` markers from `clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md` (EN).
+- Fixed environment variable name in `clients/web/apps/docs/src/content/docs/es/guides/cerebro/migration.md` (ES) from `CEREBRO_AUTH_TOKEN` to `CORVUS_CEREBRO_AUTH_TOKEN`.
+- Clarified that no SurrealDB fallback is attempted in the runtime if Cerebro is unreachable in the Spanish version.
+- Ensured strict bilingual parity for the entire guide.
+**Validation:** Ran `make docs-web-build` and `make docs-web-check` (via `make docs-build` and `make docs-check`).
+**Notes:**
+- The Spanish translation was already complete but had pending markers in the English file.
+- Corrected a logic discrepancy in the Spanish version regarding storage fallback.

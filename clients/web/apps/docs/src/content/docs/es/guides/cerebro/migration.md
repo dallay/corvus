@@ -36,19 +36,19 @@ backend = "sqlite"              # memoria local a corto plazo
 
 [memory.cerebro]
 endpoint = "https://cerebro.example.com/mcp"
-# el auth_token se lee de CEREBRO_AUTH_TOKEN
+# el auth_token se lee de CORVUS_CEREBRO_AUTH_TOKEN
 request_timeout_ms = 30000
 allow_insecure_loopback = false
 ```
 
-Configura `CEREBRO_AUTH_TOKEN` en tu entorno; evita incluir tokens en archivos de configuración.
+Configura `CORVUS_CEREBRO_AUTH_TOKEN` en tu entorno; evita incluir tokens en archivos de configuración.
 
 Ejemplo de desarrollo solo en loopback:
 
 ```toml
 [memory.cerebro]
 endpoint = "http://127.0.0.1:4040/mcp"
-# el auth_token se lee de CEREBRO_AUTH_TOKEN
+# el auth_token se lee de CORVUS_CEREBRO_AUTH_TOKEN
 allow_insecure_loopback = true
 ```
 
@@ -60,7 +60,7 @@ El runtime preserva los nombres de las herramientas heredadas durante la migraci
 - `memory_recall` -> `mem_search`
 - `memory_forget` -> `mem_delete`
 
-Si Cerebro no está configurado o no es accesible, las llamadas a herramientas heredadas devuelven un error estructurado. Dependiendo de la configuración de `storage_fallback`, Cerebro puede intentar usar un almacenamiento de respaldo (como `InMemory`, `Disk` o `RemoteSurreal`) si el almacenamiento principal falla.
+Si Cerebro no está configurado o no es accesible, las llamadas a herramientas heredadas devuelven un error estructurado y no se intenta ningún respaldo (fallback) hacia SurrealDB.
 
 ## Esquemas de herramientas MCP
 
