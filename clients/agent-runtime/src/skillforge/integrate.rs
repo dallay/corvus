@@ -77,7 +77,7 @@ tags:
 ## Usage
 
 ```bash
-corvus skills install {raw_name}
+corvus skills install {url} --trust
 ```
 
 ## Notes
@@ -85,15 +85,14 @@ corvus skills install {raw_name}
 This manifest was auto-generated from repository metadata.
 Review before enabling in production.
 "#,
-            name = yaml_escape(&c.name),
-            description = yaml_escape(&c.description),
-            owner = yaml_escape(&c.owner),
+            name = yaml_sanitize(&c.name),
+            description = yaml_sanitize(&c.description),
+            owner = yaml_sanitize(&c.owner),
             tags = tags_yaml,
             title = c.name,
             raw_description = c.description,
             url = c.url,
             raw_owner = c.owner,
-            raw_name = c.name,
             lang = lang,
             stars = c.stars,
             license = if c.has_license { "yes" } else { "unknown" },
@@ -101,12 +100,21 @@ Review before enabling in production.
     }
 }
 
-/// Escape a string for safe inclusion in YAML frontmatter values.
-fn yaml_escape(s: &str) -> String {
-    if s.contains(':') || s.contains('#') || s.contains('\n') || s.contains('"') {
-        format!("\"{}\"", s.replace('"', "\\\""))
+/// Sanitize a string for safe inclusion in YAML frontmatter.
+/// The skills frontmatter parser only strips outer double quotes —
+/// it does NOT handle backslash escapes. So we remove problematic
+/// characters instead of escaping them.
+fn yaml_sanitize(s: &str) -> String {
+    let sanitized: String = s
+        .chars()
+        .filter(|&c| c != '\n' && c != '\r')
+        .map(|c| if c == '"' { '\'' } else { c })
+        .collect();
+    // Quote if contains YAML-special chars
+    if sanitized.contains(':') || sanitized.contains('#') {
+        format!("\"{}\"", sanitized)
     } else {
-        s.to_string()
+        sanitized
     }
 }
 
@@ -184,6 +192,18 @@ mod tests {
         assert!(md.contains("# test-skill"));
         assert!(md.contains("A test skill for unit tests"));
 
+        // Parse frontmatter to validate round-trip
+        let fm = crate::skills::frontmatter::parse_frontmatter(&md);
+        assert_eq!(fm.name.as_deref(), Some("test-skill"));
+        assert_eq!(
+            fm.description.as_deref(),
+            Some("A test skill for unit tests"),
+        );
+        assert_eq!(fm.version.as_deref(), Some("0.1.0"));
+        assert_eq!(fm.author.as_deref(), Some("user"));
+        assert!(fm.tags.contains(&"discovered".to_string()));
+        assert!(fm.tags.contains(&"Rust".to_string()));
+
         let _ = fs::remove_dir_all(&tmp);
     }
 
@@ -208,5 +228,26 @@ mod tests {
     fn sanitize_trims_dots() {
         let s = sanitize_path_component(".hidden.").unwrap();
         assert_eq!(s, "hidden");
+    }
+
+    #[test]
+    fn integrate_handles_special_chars_in_description() {
+        let tmp = std::env::temp_dir().join(format!(
+            "corvus-test-integrate-special-{}",
+            std::process::id(),
+        ));
+        let _ = fs::remove_dir_all(&tmp);
+
+        let integrator = Integrator::new(tmp.to_string_lossy().into_owned());
+        let mut c = sample_candidate();
+        c.description = "A skill with: colons and \"quotes\"".into();
+        let path = integrator.integrate(&c).unwrap();
+
+        let md = fs::read_to_string(path.join("SKILL.md")).unwrap();
+        let fm = crate::skills::frontmatter::parse_frontmatter(&md);
+        // Description should be parseable (quotes replaced with single quotes)
+        assert!(fm.description.is_some());
+
+        let _ = fs::remove_dir_all(&tmp);
     }
 }

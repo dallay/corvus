@@ -3077,7 +3077,7 @@ impl Config {
                 anyhow::bail!("catalog_repo_url must use https:// scheme, got '{}'", url,);
             }
             let host = parsed.host_str().unwrap_or("");
-            if host == "localhost" || host == "127.0.0.1" || host == "::1" || host.is_empty() {
+            if host.is_empty() || Self::is_loopback_host(host) {
                 anyhow::bail!("catalog_repo_url must not point to localhost: '{}'", url,);
             }
         }

@@ -57,11 +57,14 @@ pub struct SkillTool {
 /// Load all skills from the workspace skills directory.
 /// Uses default config (integrity verification enabled).
 pub fn load_skills(workspace_dir: &Path) -> Vec<Skill> {
-    load_skills_with_config(workspace_dir, true)
+    load_skills_with_config(workspace_dir, &crate::config::SkillsConfig::default())
 }
 
-/// Load all skills with explicit integrity verification toggle.
-pub fn load_skills_with_config(workspace_dir: &Path, verify_integrity: bool) -> Vec<Skill> {
+/// Load all skills with explicit skills configuration.
+pub fn load_skills_with_config(
+    workspace_dir: &Path,
+    config: &crate::config::SkillsConfig,
+) -> Vec<Skill> {
     // Read lockfile for trust/origin enrichment
     let lockfile = lockfile::read_lockfile(workspace_dir);
     let skills_path = skills_dir(workspace_dir);
@@ -79,7 +82,7 @@ pub fn load_skills_with_config(workspace_dir: &Path, verify_integrity: bool) -> 
         // Skills without lockfile entry keep default Local trust
 
         // Integrity verification
-        if verify_integrity {
+        if config.verify_integrity {
             let skill_md_path = skill
                 .location
                 .clone()
@@ -123,18 +126,21 @@ pub fn load_skills_with_config(workspace_dir: &Path, verify_integrity: bool) -> 
 
         // Scanner check (ThirdParty only)
         if skill.trust == trust::SkillTrust::ThirdParty {
-            let all_content: String = skill.prompts.join("\n");
-            if !all_content.is_empty() {
-                let scan = scanner::scan_skill_content(&all_content);
-                if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) {
-                    tracing::warn!(
-                        "skill '{}' scored {} in injection scan (threshold: {}). \
-                         Tools disabled — instruction-only mode.",
-                        skill.name,
-                        scan.score,
-                        scanner::DEFAULT_SCAN_THRESHOLD,
-                    );
-                    skill.allowed_tools.clear();
+            if let Some(threshold) = config.scan_threshold {
+                let all_content: String = skill.prompts.join("\n");
+                if !all_content.is_empty() {
+                    let scan = scanner::scan_skill_content(&all_content);
+                    if scan.exceeds_threshold(threshold) {
+                        tracing::warn!(
+                            "skill '{}' scored {} in injection scan \
+                             (threshold: {}). \
+                             Tools disabled — instruction-only mode.",
+                            skill.name,
+                            scan.score,
+                            threshold,
+                        );
+                        skill.allowed_tools.clear();
+                    }
                 }
             }
         }
@@ -366,22 +372,28 @@ fn copy_dir_recursive(src: &Path, dest: &Path) -> Result<()> {
 
 /// Handle the `skills` CLI command
 #[allow(clippy::too_many_lines)]
-pub fn handle_command(command: crate::SkillCommands, workspace_dir: &Path) -> Result<()> {
+pub fn handle_command(
+    command: crate::SkillCommands,
+    workspace_dir: &Path,
+    config: &crate::config::SkillsConfig,
+) -> Result<()> {
     match command {
         crate::SkillCommands::List { catalog } => {
             if catalog {
-                handle_list_catalog(workspace_dir)
+                handle_list_catalog(workspace_dir, config)
             } else {
                 handle_list_command(workspace_dir)
             }
         }
         crate::SkillCommands::Install { source, trust } => {
-            handle_install_command(workspace_dir, &source, trust)
+            handle_install_command(workspace_dir, &source, trust, config)
         }
         crate::SkillCommands::Remove { name } => handle_remove_command(workspace_dir, &name),
-        crate::SkillCommands::Search { query } => handle_search_command(workspace_dir, &query),
+        crate::SkillCommands::Search { query } => {
+            handle_search_command(workspace_dir, &query, config)
+        }
         crate::SkillCommands::Update { name } => {
-            handle_update_command(workspace_dir, name.as_deref())
+            handle_update_command(workspace_dir, name.as_deref(), config)
         }
         crate::SkillCommands::Discover { query } => {
             handle_discover_command(workspace_dir, query.as_deref())
@@ -404,9 +416,8 @@ fn handle_list_command(workspace_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn handle_list_catalog(workspace_dir: &Path) -> Result<()> {
-    let config = crate::config::SkillsConfig::default();
-    let index = catalog::resolve_index(workspace_dir, &config)?;
+fn handle_list_catalog(workspace_dir: &Path, config: &crate::config::SkillsConfig) -> Result<()> {
+    let index = catalog::resolve_index(workspace_dir, config)?;
 
     if index.skills.is_empty() {
         println!("The official catalog has no skills yet.");
@@ -506,9 +517,12 @@ fn handle_lock_repair_command(workspace_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-fn handle_search_command(workspace_dir: &Path, query: &str) -> Result<()> {
-    let config = crate::config::SkillsConfig::default();
-    let index = catalog::resolve_index(workspace_dir, &config)?;
+fn handle_search_command(
+    workspace_dir: &Path,
+    query: &str,
+    config: &crate::config::SkillsConfig,
+) -> Result<()> {
+    let index = catalog::resolve_index(workspace_dir, config)?;
     let results = catalog::search(&index, query);
 
     if results.is_empty() {
@@ -690,10 +704,13 @@ fn discover_from_github() -> Result<Vec<DiscoveredSkill>> {
 /// Install an official skill resolved from the catalog index.
 /// Only this code path may produce `SkillSource::Official` — URL installs
 /// of the same repo MUST remain `ThirdParty` (AD5).
-fn handle_catalog_install(workspace_dir: &Path, name: &str) -> Result<()> {
+fn handle_catalog_install(
+    workspace_dir: &Path,
+    name: &str,
+    config: &crate::config::SkillsConfig,
+) -> Result<()> {
     // 1. Resolve catalog index
-    let config = crate::config::SkillsConfig::default();
-    let index = catalog::resolve_index(workspace_dir, &config)?;
+    let index = catalog::resolve_index(workspace_dir, config)?;
 
     // 2. Look up skill in catalog
     let entry = match index.skills.get(name) {
@@ -809,10 +826,15 @@ fn handle_catalog_install(workspace_dir: &Path, name: &str) -> Result<()> {
     Ok(())
 }
 
-fn handle_install_command(workspace_dir: &Path, source: &str, trust_flag: bool) -> Result<()> {
+fn handle_install_command(
+    workspace_dir: &Path,
+    source: &str,
+    trust_flag: bool,
+    config: &crate::config::SkillsConfig,
+) -> Result<()> {
     // Bare catalog name detection — must come before URL/path checks (AD5)
     if catalog::is_bare_name(source) {
-        return handle_catalog_install(workspace_dir, source);
+        return handle_catalog_install(workspace_dir, source, config);
     }
 
     println!("Installing skill from: {source}");
@@ -1090,7 +1112,11 @@ fn print_skill_location(action: &str, dest: &Path) {
     );
 }
 
-fn handle_update_command(workspace_dir: &Path, name: Option<&str>) -> Result<()> {
+fn handle_update_command(
+    workspace_dir: &Path,
+    name: Option<&str>,
+    config: &crate::config::SkillsConfig,
+) -> Result<()> {
     let lockfile = lockfile::read_lockfile(workspace_dir);
 
     if lockfile.skills.is_empty() {
@@ -1103,7 +1129,7 @@ fn handle_update_command(workspace_dir: &Path, name: Option<&str>) -> Result<()>
         if !lockfile.skills.contains_key(skill_name) {
             anyhow::bail!("Skill '{skill_name}' is not installed.");
         }
-        return update_single_skill(workspace_dir, skill_name, &lockfile);
+        return update_single_skill(workspace_dir, skill_name, &lockfile, config);
     }
 
     // Update all
@@ -1113,7 +1139,7 @@ fn handle_update_command(workspace_dir: &Path, name: Option<&str>) -> Result<()>
     let skill_names: Vec<String> = lockfile.skills.keys().cloned().collect();
 
     for skill_name in &skill_names {
-        match update_single_skill(workspace_dir, skill_name, &lockfile) {
+        match update_single_skill(workspace_dir, skill_name, &lockfile, config) {
             Ok(()) => updated += 1,
             Err(err) => {
                 let msg = err.to_string();
@@ -1144,6 +1170,7 @@ fn update_single_skill(
     workspace_dir: &Path,
     name: &str,
     lockfile: &lockfile::SkillsLockfile,
+    config: &crate::config::SkillsConfig,
 ) -> Result<()> {
     let entry = lockfile
         .skills
@@ -1155,9 +1182,9 @@ fn update_single_skill(
 
     match trust_tier {
         trust::SkillTrust::Local => {
-            anyhow::bail!("Local skill '{name}' — skipping (not managed by a remote source)");
+            anyhow::bail!("Local skill '{name}' — skipping (not managed by a remote source)",);
         }
-        trust::SkillTrust::Official => update_official_skill(workspace_dir, name, entry),
+        trust::SkillTrust::Official => update_official_skill(workspace_dir, name, entry, config),
         trust::SkillTrust::ThirdParty => update_thirdparty_skill(workspace_dir, name, entry),
     }
 }
@@ -1166,9 +1193,9 @@ fn update_official_skill(
     workspace_dir: &Path,
     name: &str,
     entry: &lockfile::LockEntry,
+    config: &crate::config::SkillsConfig,
 ) -> Result<()> {
-    let config = crate::config::SkillsConfig::default();
-    let index = catalog::resolve_index(workspace_dir, &config)?;
+    let index = catalog::resolve_index(workspace_dir, config)?;
 
     let catalog_entry = index
         .skills
@@ -1198,11 +1225,8 @@ fn update_official_skill(
     let skills_path = skills_dir(workspace_dir);
     let skill_dir = skills_path.join(name);
 
-    if skill_dir.exists() {
-        std::fs::remove_dir_all(&skill_dir)?;
-    }
-
     let repo_url = catalog::OFFICIAL_REPO;
+    // Clone to temp first (atomic update)
     let temp_base = std::env::temp_dir().join(format!("corvus-update-{name}"));
     let _ = std::fs::remove_dir_all(&temp_base);
 
@@ -1221,7 +1245,8 @@ fn update_official_skill(
     match clone_status {
         Ok(s) if s.success() => {}
         _ => {
-            anyhow::bail!("Failed to clone official skills repository for update");
+            let _ = std::fs::remove_dir_all(&temp_base);
+            anyhow::bail!("Failed to clone official skills repository for update",);
         }
     }
 
@@ -1230,12 +1255,21 @@ fn update_official_skill(
         let _ = std::fs::remove_dir_all(&temp_base);
         anyhow::bail!(
             "Skill path '{}' not found in official repo",
-            catalog_entry.path
+            catalog_entry.path,
         );
     }
 
-    copy_dir_recursive(&source_path, &skill_dir)?;
+    // Copy skill subdirectory to staging
+    let staging_dir = skill_dir.with_extension("staging");
+    let _ = std::fs::remove_dir_all(&staging_dir);
+    copy_dir_recursive(&source_path, &staging_dir)?;
     let _ = std::fs::remove_dir_all(&temp_base);
+
+    // Atomic swap
+    if skill_dir.exists() {
+        std::fs::remove_dir_all(&skill_dir)?;
+    }
+    std::fs::rename(&staging_dir, &skill_dir)?;
 
     // Update lockfile
     let skill_md = skill_dir.join("SKILL.md");
@@ -1323,8 +1357,27 @@ fn update_thirdparty_skill(
         }
     }
 
-    // Update lockfile
+    // Validate after update
     let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.exists() {
+        tracing::warn!("updated skill '{name}' is missing SKILL.md");
+    }
+
+    // Run scanner on updated content
+    if let Ok(content) = std::fs::read_to_string(&skill_md) {
+        let scan = scanner::scan_skill_content(&content);
+        if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) {
+            tracing::warn!(
+                "updated skill '{}' scored {} in injection scan \
+                 (threshold: {}). Review the skill content.",
+                name,
+                scan.score,
+                scanner::DEFAULT_SCAN_THRESHOLD,
+            );
+        }
+    }
+
+    // Update lockfile
     let hash = if skill_md.exists() {
         let content = std::fs::read_to_string(&skill_md)?;
         Some(lockfile::compute_content_hash(content.as_bytes()))
@@ -1591,7 +1644,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::create_dir_all(dir.path().join("skills")).unwrap();
         // handle_catalog_install should fail for a non-existent skill
-        let result = handle_catalog_install(dir.path(), "nonexistent-skill-xyz");
+        let config = crate::config::SkillsConfig::default();
+        let result = handle_catalog_install(dir.path(), "nonexistent-skill-xyz", &config);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(

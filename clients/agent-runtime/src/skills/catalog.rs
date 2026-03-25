@@ -62,6 +62,26 @@ pub fn parse_index(content: &str) -> anyhow::Result<CatalogIndex> {
             index.meta.version
         );
     }
+    // Validate entry paths — reject absolute or traversal paths
+    for (name, entry) in &index.skills {
+        let path = std::path::Path::new(&entry.path);
+        if path.is_absolute() {
+            anyhow::bail!(
+                "catalog entry '{}' has absolute path '{}' — rejected",
+                name,
+                entry.path
+            );
+        }
+        for component in path.components() {
+            if matches!(component, std::path::Component::ParentDir) {
+                anyhow::bail!(
+                    "catalog entry '{}' has path traversal in '{}' — rejected",
+                    name,
+                    entry.path
+                );
+            }
+        }
+    }
     Ok(index)
 }
 
@@ -392,5 +412,43 @@ version = 1
         // Cache is stale (age > 0s), fetch will fail (no network), falls back to embedded
         let result = resolve_index(dir.path(), &config);
         assert!(result.is_ok());
+    }
+
+    // ── 16. parse_index rejects traversal path ───────────────────
+
+    #[test]
+    fn parse_index_rejects_traversal_path() {
+        let content = r#"
+[meta]
+version = 1
+generated_at = "2026-01-01T00:00:00Z"
+
+[skills.evil]
+name = "evil"
+description = "bad"
+path = "../etc/passwd"
+"#;
+        let result = parse_index(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("traversal"));
+    }
+
+    // ── 17. parse_index rejects absolute path ────────────────────
+
+    #[test]
+    fn parse_index_rejects_absolute_path() {
+        let content = r#"
+[meta]
+version = 1
+generated_at = "2026-01-01T00:00:00Z"
+
+[skills.evil]
+name = "evil"
+description = "bad"
+path = "/etc/passwd"
+"#;
+        let result = parse_index(content);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("absolute"));
     }
 }

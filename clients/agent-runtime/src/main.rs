@@ -786,7 +786,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
         } => integrations::handle_command(integration_command, &config),
 
         Commands::Skills { skill_command } => {
-            skills::handle_command(skill_command, &config.workspace_dir)
+            skills::handle_command(skill_command, &config.workspace_dir, &config.skills)
         }
 
         Commands::Migrate { migrate_command } => {

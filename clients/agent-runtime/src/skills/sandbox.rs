@@ -85,7 +85,39 @@ pub fn validate_tool_paths(args: &[&str], skill_dir: &Path) -> Result<(), Sandbo
             skill_dir.join(arg)
         };
 
-        // Canonicalize if the path exists (handles symlinks)
+        // Check for symlinks (including dangling ones) before exists()
+        if let Ok(meta) = path.symlink_metadata() {
+            if meta.file_type().is_symlink() {
+                // It's a symlink — check where it points
+                match path.canonicalize() {
+                    Ok(canonical) => {
+                        let canonical_skill = skill_dir
+                            .canonicalize()
+                            .unwrap_or_else(|_| skill_dir.to_path_buf());
+                        if !canonical.starts_with(&canonical_skill) {
+                            return Err(SandboxViolation::SymlinkEscape {
+                                path: arg.to_string(),
+                                target: canonical,
+                                skill_dir: canonical_skill,
+                            });
+                        }
+                    }
+                    Err(_) => {
+                        // Dangling symlink — deny
+                        return Err(SandboxViolation::SymlinkEscape {
+                            path: arg.to_string(),
+                            target: PathBuf::from("(dangling)"),
+                            skill_dir: skill_dir
+                                .canonicalize()
+                                .unwrap_or_else(|_| skill_dir.to_path_buf()),
+                        });
+                    }
+                }
+                continue; // Already handled
+            }
+        }
+
+        // Non-symlink path handling
         if path.exists() {
             if let Ok(canonical) = path.canonicalize() {
                 let canonical_skill = skill_dir
@@ -200,6 +232,20 @@ mod tests {
         assert!(
             matches!(result, Err(SandboxViolation::SymlinkEscape { .. })),
             "expected SymlinkEscape, got: {result:?}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn dangling_symlink_rejected() {
+        let skill_dir = tempfile::tempdir().unwrap();
+        // Create a symlink to a non-existent target
+        std::os::unix::fs::symlink("/nonexistent/target", skill_dir.path().join("dangling"))
+            .unwrap();
+        let result = validate_tool_paths(&["dangling"], skill_dir.path());
+        assert!(
+            matches!(result, Err(SandboxViolation::SymlinkEscape { .. })),
+            "expected SymlinkEscape for dangling symlink, got: {result:?}"
         );
     }
 }

@@ -148,6 +148,48 @@ pub fn scan_skill_content(content: &str) -> ScanResult {
         }
     }
 
+    // Multi-line base64 detection (contiguous base64-like lines)
+    let mut block_start: Option<usize> = None;
+    let mut block_len: usize = 0;
+
+    for (line_idx, line) in content.lines().enumerate() {
+        let trimmed = line.trim();
+        let is_b64_line = !trimmed.is_empty()
+            && trimmed.len() <= 200 // Not already caught by single-line check
+            && trimmed
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=');
+
+        if is_b64_line {
+            if block_start.is_none() {
+                block_start = Some(line_idx + 1);
+            }
+            block_len += trimmed.len();
+        } else {
+            if block_len > 200 {
+                findings.push(ScanFinding {
+                    category: ScanCategory::EncodedPayload,
+                    pattern: format!("multi-line base64 block ({block_len} chars)"),
+                    line: block_start.unwrap_or(1),
+                    severity: 30,
+                });
+                score += 30;
+            }
+            block_start = None;
+            block_len = 0;
+        }
+    }
+    // Check trailing block
+    if block_len > 200 {
+        findings.push(ScanFinding {
+            category: ScanCategory::EncodedPayload,
+            pattern: format!("multi-line base64 block ({block_len} chars)"),
+            line: block_start.unwrap_or(1),
+            severity: 30,
+        });
+        score += 30;
+    }
+
     ScanResult { score, findings }
 }
 
@@ -228,6 +270,18 @@ mod tests {
             result.score < 50,
             "legitimate 'act as' should not cross threshold"
         );
+    }
+
+    #[test]
+    fn multiline_base64_detected() {
+        // 3 lines of 80 chars each = 240 chars total
+        let line = "A".repeat(80);
+        let content = format!("# Skill\n{line}\n{line}\n{line}\n# End");
+        let result = scan_skill_content(&content);
+        assert!(result.score >= 30);
+        assert!(result.findings.iter().any(|f| {
+            f.category == ScanCategory::EncodedPayload && f.pattern.contains("multi-line")
+        }));
     }
 
     #[test]

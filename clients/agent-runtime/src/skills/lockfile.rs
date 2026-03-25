@@ -57,7 +57,9 @@ pub fn write_lock_entry(workspace_dir: &Path, name: &str, entry: LockEntry) -> R
     let mut lockfile = read_lockfile(workspace_dir);
     lockfile.skills.insert(name.to_string(), entry);
     let content = toml::to_string_pretty(&lockfile)?;
-    std::fs::write(&path, content)?;
+    let temp_path = path.with_extension("lock.tmp");
+    std::fs::write(&temp_path, &content)?;
+    std::fs::rename(&temp_path, &path)?;
     Ok(())
 }
 
@@ -67,7 +69,9 @@ pub fn remove_lock_entry(workspace_dir: &Path, name: &str) -> Result<()> {
     let mut lockfile = read_lockfile(workspace_dir);
     lockfile.skills.remove(name);
     let content = toml::to_string_pretty(&lockfile)?;
-    std::fs::write(&path, content)?;
+    let temp_path = path.with_extension("lock.tmp");
+    std::fs::write(&temp_path, &content)?;
+    std::fs::rename(&temp_path, &path)?;
     Ok(())
 }
 
@@ -161,18 +165,26 @@ pub fn repair_lockfile(workspace_dir: &Path) -> Result<RepairSummary> {
                 .map(|c| compute_content_hash(&c));
 
             if let Some(existing) = current.skills.get_mut(&name) {
-                // Check if hash matches
-                if existing.content_hash == current_hash {
-                    summary.unchanged += 1;
-                } else {
-                    existing.content_hash = current_hash;
-                    existing.installed_at = Some(chrono::Utc::now().to_rfc3339());
-                    summary.updated += 1;
+                match std::fs::read(&skill_md) {
+                    Ok(bytes) => {
+                        let new_hash = Some(compute_content_hash(&bytes));
+                        if existing.content_hash == new_hash {
+                            summary.unchanged += 1;
+                        } else {
+                            existing.content_hash = new_hash;
+                            existing.installed_at = Some(chrono::Utc::now().to_rfc3339());
+                            summary.updated += 1;
+                        }
+                    }
+                    Err(_) => {
+                        // Can't read — preserve existing hash
+                        summary.unchanged += 1;
+                    }
                 }
             } else {
-                // New entry — default to Local trust
+                // New entry — default to third-party trust (safer)
                 let entry = LockEntry {
-                    trust: "local".to_string(),
+                    trust: "third-party".to_string(),
                     source: "local".to_string(),
                     path: None,
                     pinned_ref: None,
@@ -198,10 +210,12 @@ pub fn repair_lockfile(workspace_dir: &Path) -> Result<RepairSummary> {
         summary.removed += 1;
     }
 
-    // Write repaired lockfile
+    // Write repaired lockfile (atomic)
     let path = workspace_dir.join(LOCKFILE_NAME);
     let content = toml::to_string_pretty(&current)?;
-    std::fs::write(&path, content)?;
+    let temp_path = path.with_extension("lock.tmp");
+    std::fs::write(&temp_path, &content)?;
+    std::fs::rename(&temp_path, &path)?;
 
     Ok(summary)
 }
