@@ -136,17 +136,51 @@ pub enum ChannelCommands {
 #[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SkillCommands {
     /// List all installed skills
-    List,
-    /// Install a new skill from a URL or local path
+    List {
+        /// Show all available official skills from the catalog
+        #[arg(long)]
+        catalog: bool,
+    },
+    /// Install a new skill from a URL, local path, or catalog name
     Install {
-        /// Source URL or local path
+        /// Source URL, local path, or catalog skill name
         source: String,
+        /// Acknowledge trust for third-party skills with tools
+        #[arg(long)]
+        trust: bool,
     },
     /// Remove an installed skill
     Remove {
         /// Skill name to remove
         name: String,
     },
+    /// Search the official skills catalog
+    Search {
+        /// Search query
+        query: String,
+    },
+    /// Update installed skills
+    Update {
+        /// Skill name to update (updates all if omitted)
+        name: Option<String>,
+    },
+    /// Discover third-party skills from external sources
+    Discover {
+        /// Optional search query for discovery
+        query: Option<String>,
+    },
+    /// Lockfile maintenance commands
+    Lock {
+        #[command(subcommand)]
+        cmd: LockCommands,
+    },
+}
+
+/// Lockfile maintenance subcommands
+#[derive(Subcommand, Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum LockCommands {
+    /// Repair the skills lockfile
+    Repair,
 }
 
 /// Migration subcommands

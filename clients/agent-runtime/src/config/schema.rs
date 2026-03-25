@@ -115,6 +115,9 @@ pub struct Config {
     /// Hardware configuration (wizard-driven physical world setup).
     #[serde(default)]
     pub hardware: HardwareConfig,
+
+    #[serde(default)]
+    pub skills: SkillsConfig,
 }
 
 // ── Delegate Agents ──────────────────────────────────────────────
@@ -225,6 +228,39 @@ impl Default for CodeSessionConfig {
             validation_commands: Vec::new(),
             max_iterations: default_code_session_max_iterations(),
             timeout_ms: default_code_session_timeout_ms(),
+        }
+    }
+}
+
+// ── Skills config ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SkillsConfig {
+    /// Override the official skills catalog repository URL.
+    #[serde(default)]
+    pub catalog_repo_url: Option<String>,
+    /// Cache TTL in hours for the catalog index (default: 24).
+    #[serde(default)]
+    pub catalog_cache_ttl_hours: Option<u64>,
+    /// Enable content integrity verification on load (default: true).
+    #[serde(default = "default_true")]
+    pub verify_integrity: bool,
+    /// Prompt injection scan threshold score (default: 50). None disables scanning.
+    #[serde(default = "default_scan_threshold")]
+    pub scan_threshold: Option<u32>,
+}
+
+fn default_scan_threshold() -> Option<u32> {
+    Some(50)
+}
+
+impl Default for SkillsConfig {
+    fn default() -> Self {
+        Self {
+            catalog_repo_url: None,
+            catalog_cache_ttl_hours: None,
+            verify_integrity: true,
+            scan_threshold: default_scan_threshold(),
         }
     }
 }
@@ -2185,6 +2221,7 @@ impl Default for Config {
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
+            skills: SkillsConfig::default(),
         }
     }
 }
@@ -2923,7 +2960,8 @@ impl Config {
         self.validate_memory_config()?;
         self.validate_delegate_overrides()?;
         self.validate_code_session_config()?;
-        self.validate_account_pools()
+        self.validate_account_pools()?;
+        self.validate_skills_config()
     }
 
     fn validate_agent_profile(&self) -> Result<()> {
@@ -3027,6 +3065,24 @@ impl Config {
         }
         if !seen_ids.insert(account.id.trim().to_string()) {
             anyhow::bail!("{base}.id must be unique within pool");
+        }
+        Ok(())
+    }
+
+    fn validate_skills_config(&self) -> Result<()> {
+        if let Some(ref url) = self.skills.catalog_repo_url {
+            let parsed = Url::parse(url)
+                .map_err(|e| anyhow::anyhow!("invalid catalog_repo_url '{}': {}", url, e))?;
+            if parsed.scheme() != "https" {
+                anyhow::bail!("catalog_repo_url must use https:// scheme, got '{}'", url,);
+            }
+            let host = parsed.host_str().unwrap_or("");
+            if host.is_empty() || Self::is_loopback_host(host) {
+                anyhow::bail!("catalog_repo_url must not point to localhost: '{}'", url,);
+            }
+        }
+        if self.skills.catalog_cache_ttl_hours == Some(0) {
+            anyhow::bail!("catalog_cache_ttl_hours must be > 0 (got 0)");
         }
         Ok(())
     }
@@ -3587,6 +3643,7 @@ default_temperature = 0.7
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
+            skills: SkillsConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -3910,6 +3967,7 @@ tool_dispatcher = "xml"
             peripherals: PeripheralsConfig::default(),
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
+            skills: SkillsConfig::default(),
         };
 
         config.save().unwrap();
