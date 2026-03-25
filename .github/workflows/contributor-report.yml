@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Contributor Report
 
 on:
@@ -10,5 +11,5 @@ permissions:
 
 jobs:
   report:
-    uses: dallay/common-actions/.github/workflows/contributor-report.yml@main
+    uses: dallay/common-actions/.github/workflows/contributor-report.yml@e77aee209c07cd031e1fc6a3f275df774b4685a2 # v1.1.0
     secrets: inherit

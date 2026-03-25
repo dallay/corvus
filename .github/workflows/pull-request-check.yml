@@ -25,6 +25,8 @@ jobs:
   pr-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
 
     steps:
       - name: ✈ Checkout default branch
@@ -48,10 +50,21 @@ jobs:
       #          git fetch origin ${{ github.base_ref }}:target-branch
       #          git merge --no-ff target-branch
 
+      - name: 📦 Setup pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: 10
+
       - name: 📦 Setup Node
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            clients/web/pnpm-lock.yaml
+            clients/web/apps/docs/pnpm-lock.yaml
+            clients/web/apps/marketing/pnpm-lock.yaml
 
       - name: ☕ Setup Java
         uses: actions/setup-java@be666c2fcd27ec809703dec50e508c2fdc7f6654 # v5.2.0

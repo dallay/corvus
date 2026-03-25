@@ -9,6 +9,10 @@ on:
 
 jobs:
   pr-limit:
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
     if: >
       github.event_name == 'pull_request_target' &&
       github.event.pull_request.head.repo.full_name == github.repository &&

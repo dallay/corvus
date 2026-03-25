@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: Greetings
 
 on: [pull_request_target, issues]
@@ -8,5 +9,5 @@ permissions:
 
 jobs:
   greet:
-    uses: dallay/common-actions/.github/workflows/greetings.yml@main
+    uses: dallay/common-actions/.github/workflows/greetings.yml@e77aee209c07cd031e1fc6a3f275df774b4685a2 # v1.1.0
     secrets: inherit

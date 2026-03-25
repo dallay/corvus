@@ -31,6 +31,8 @@ jobs:
   pr-checks-build-logic:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
 
     steps:
       - name: ✈ Checkout default branch
