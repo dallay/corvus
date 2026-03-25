@@ -670,6 +670,22 @@ mod tests {
     use crate::security::SecurityPolicy;
     use tempfile::TempDir;
 
+    fn init_temp_git_repo(dir: &std::path::Path) {
+        let output = std::process::Command::new("git")
+            .args(["init"])
+            .current_dir(dir)
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .output()
+            .unwrap();
+
+        assert!(
+            output.status.success(),
+            "git init failed: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
     fn test_tool(dir: &std::path::Path) -> GitOperationsTool {
         let security = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::Supervised,
@@ -791,12 +807,7 @@ mod tests {
     #[tokio::test]
     async fn blocks_readonly_mode_for_write_ops() {
         let tmp = TempDir::new().unwrap();
-        // Initialize a git repository
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(tmp.path())
-            .output()
-            .unwrap();
+        init_temp_git_repo(tmp.path());
 
         let security = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::ReadOnly,
@@ -820,12 +831,7 @@ mod tests {
     #[tokio::test]
     async fn allows_branch_listing_in_readonly_mode() {
         let tmp = TempDir::new().unwrap();
-        // Initialize a git repository so the command can succeed
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(tmp.path())
-            .output()
-            .unwrap();
+        init_temp_git_repo(tmp.path());
 
         let security = Arc::new(SecurityPolicy {
             autonomy: AutonomyLevel::ReadOnly,
@@ -883,12 +889,7 @@ mod tests {
     #[tokio::test]
     async fn rejects_unknown_operation() {
         let tmp = TempDir::new().unwrap();
-        // Initialize a git repository
-        std::process::Command::new("git")
-            .args(["init"])
-            .current_dir(tmp.path())
-            .output()
-            .unwrap();
+        init_temp_git_repo(tmp.path());
 
         let tool = test_tool(tmp.path());
 
