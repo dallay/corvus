@@ -166,7 +166,7 @@ jobs:
       id-token: write  # For OIDC
     steps:
       - name: Configure cloud credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@<SHA> # v4
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4
         with:
           role-to-assume: arn:aws:iam::123456789:role/deploy
           aws-region: us-east-1
