@@ -38,12 +38,16 @@ backend = "sqlite"              # local short-term memory
 
 [memory.cerebro]
 endpoint = "https://cerebro.example.com/mcp"
-# auth_token is read from CORVUS_CEREBRO_AUTH_TOKEN
+# auth_token is read from CORVUS_CEREBRO_AUTH_TOKEN (agent-runtime client)
 request_timeout_ms = 30000
 allow_insecure_loopback = false
 ```
 
-Set `CORVUS_CEREBRO_AUTH_TOKEN` in your environment; avoid committing tokens to config files.
+Two separate environment variables are used for authentication:
+- `CORVUS_CEREBRO_AUTH_TOKEN`: Used by the **agent-runtime (client)** to authenticate outgoing requests. It is forwarded as `MCP_AUTH_TOKEN` when contacting Cerebro.
+- `CEREBRO_AUTH_TOKEN`: Used by the **Cerebro server** to validate incoming requests.
+
+Avoid committing tokens to config files; set them in your environment instead.
 
 Loopback-only development example:
 
@@ -62,8 +66,7 @@ The runtime preserves legacy tool names during migration:
 - `memory_recall` -> `mem_search`
 - `memory_forget` -> `mem_delete`
 
-If Cerebro is not configured or unreachable, legacy tool calls return a structured error and no
-SurrealDB fallback is attempted.
+If Cerebro is not configured or unreachable, legacy tool calls return a structured error. No SurrealDB fallback is attempted by the runtime.
 
 ## MCP tool schemas
 

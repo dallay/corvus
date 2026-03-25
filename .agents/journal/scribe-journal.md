@@ -20,7 +20,8 @@
 **Changes:**
 - Removed `> **ES pending**` markers from `clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md` (EN).
 - Fixed environment variable name in `clients/web/apps/docs/src/content/docs/es/guides/cerebro/migration.md` (ES) from `CEREBRO_AUTH_TOKEN` to `CORVUS_CEREBRO_AUTH_TOKEN`.
-- Clarified that no SurrealDB fallback is attempted in the runtime if Cerebro is unreachable in the Spanish version.
+- Clarified that no SurrealDB fallback is attempted in the runtime if Cerebro is unreachable in both English and Spanish versions.
+- Explicitly documented the roles of `CORVUS_CEREBRO_AUTH_TOKEN` (used by agent-runtime client, forwarded as `MCP_AUTH_TOKEN`) and `CEREBRO_AUTH_TOKEN` (used by Cerebro server).
 - Ensured strict bilingual parity for the entire guide.
 **Validation:** Ran `make docs-web-build` and `make docs-web-check` (via `make docs-build` and `make docs-check`).
 **Notes:**

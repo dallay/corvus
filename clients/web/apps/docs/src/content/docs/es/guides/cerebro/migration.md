@@ -36,12 +36,16 @@ backend = "sqlite"              # memoria local a corto plazo
 
 [memory.cerebro]
 endpoint = "https://cerebro.example.com/mcp"
-# el auth_token se lee de CORVUS_CEREBRO_AUTH_TOKEN
+# el auth_token se lee de CORVUS_CEREBRO_AUTH_TOKEN (cliente agent-runtime)
 request_timeout_ms = 30000
 allow_insecure_loopback = false
 ```
 
-Configura `CORVUS_CEREBRO_AUTH_TOKEN` en tu entorno; evita incluir tokens en archivos de configuración.
+Se utilizan dos variables de entorno distintas para la autenticación:
+- `CORVUS_CEREBRO_AUTH_TOKEN`: Utilizada por el **agent-runtime (cliente)** para autenticar las peticiones salientes. Se reenvía como `MCP_AUTH_TOKEN` al contactar con Cerebro.
+- `CEREBRO_AUTH_TOKEN`: Utilizada por el **servidor Cerebro** para validar las peticiones entrantes.
+
+Evita incluir tokens en archivos de configuración; configúralos en tu entorno en su lugar.
 
 Ejemplo de desarrollo solo en loopback:
 
@@ -60,7 +64,7 @@ El runtime preserva los nombres de las herramientas heredadas durante la migraci
 - `memory_recall` -> `mem_search`
 - `memory_forget` -> `mem_delete`
 
-Si Cerebro no está configurado o no es accesible, las llamadas a herramientas heredadas devuelven un error estructurado y no se intenta ningún respaldo (fallback) hacia SurrealDB.
+Si Cerebro no está configurado o no es accesible, las llamadas a herramientas heredadas devuelven un error estructurado. El runtime no intenta ningún respaldo (fallback) hacia SurrealDB.
 
 ## Esquemas de herramientas MCP
 
