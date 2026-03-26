@@ -317,9 +317,8 @@ mod tests {
 
     #[test]
     fn staged_image_cleanup_removes_temp_file() {
-        let dir = std::env::temp_dir().join("corvus_test_media");
-        std::fs::create_dir_all(&dir).unwrap();
-        let tmp = dir.join("test_cleanup.jpg");
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("test_cleanup.jpg");
         std::fs::write(&tmp, b"fake").unwrap();
 
         let staged = StagedImage {
@@ -334,8 +333,6 @@ mod tests {
         assert!(tmp.exists());
         staged.cleanup();
         assert!(!tmp.exists());
-
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

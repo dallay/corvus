@@ -4176,9 +4176,8 @@ mod tests {
 
     #[test]
     fn staged_image_guard_cleanup_called_on_drop() {
-        let dir = std::env::temp_dir().join("corvus_test_guard");
-        std::fs::create_dir_all(&dir).unwrap();
-        let tmp = dir.join("guard_test.jpg");
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("guard_test.jpg");
         std::fs::write(&tmp, b"fake-image").unwrap();
         assert!(tmp.exists());
 
@@ -4195,7 +4194,6 @@ mod tests {
         }
 
         assert!(!tmp.exists(), "temp file should be removed on guard drop");
-        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[tokio::test]
