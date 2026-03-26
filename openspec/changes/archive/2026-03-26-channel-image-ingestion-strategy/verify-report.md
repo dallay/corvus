@@ -33,8 +33,14 @@ All Phase 1 tasks are complete. Phase 2 tasks are tracked in Linear as follow-up
 
 ## Spec Compliance Matrix
 
-➖ Not applicable — this is a spec-only change. No implementation to validate against scenarios.
-Behavioral validation will occur when follow-up implementation issues are completed.
+Discord image ingestion (DALLAY-192) was implemented as part of this change cycle. Runtime validation
+covers Scenarios 1-5 and 7-9 for the Discord path. Remaining Slack scenarios (DALLAY-193) will be
+validated when that follow-up issue is completed.
+
+- `cargo check`: ✅ passed
+- `cargo test`: ✅ 2860 tests passed (discord.rs, schema.rs changes exercised)
+- `cargo clippy`: ✅ clean
+- `cargo fmt`: ✅ clean
 
 ---
 
@@ -96,8 +102,8 @@ REQ-10 (dedup out of scope), 9 behavioral scenarios.
 
 | Check | Result |
 |-------|--------|
-| Proposal says spec-only ↔ Tasks Phase 1 is documentation only | ✅ Consistent |
-| Spec says Discord/Slack are Wave 2 ↔ Tasks separate them as follow-up issues | ✅ Consistent |
+| Proposal says spec + Discord implementation ↔ Tasks Phase 1 complete, Discord in Phase 2 done | ✅ Consistent |
+| Spec says Discord is MVP, Slack is Wave 2 ↔ Tasks separate Slack as follow-up issue | ✅ Consistent |
 | Spec's 5-step pipeline ↔ Design's pipeline architecture | ✅ Consistent |
 | Spec REQ-2 step 5 naming ↔ Design staging naming convention | ✅ Consistent |
 | Spec MIME types (JPEG, PNG, WebP) ↔ Design ADR-2 | ✅ Consistent |
@@ -146,9 +152,8 @@ None
 1. **Add observability to the sequence diagram** — The Telegram sequence diagram (design.md) does not
    show `ImageIngressEvent` emission points. Adding them would make the diagram fully consistent with
    the new observability section and help implementers see exactly where events fire.
-2. Tasks Phase 2 uses `#next`, `#next+1`, `#next+2` as placeholder issue numbers. Follow-up issues
-   could not be auto-created due to token permissions — issue definitions saved in
-   `follow-up-issues.md`.
+2. Follow-up issues created in Linear: DALLAY-192 (Discord), DALLAY-193 (Slack), DALLAY-194
+   (startup reaper), DALLAY-195 (multi-image). Tasks.md updated with real issue links.
 
 ---
 

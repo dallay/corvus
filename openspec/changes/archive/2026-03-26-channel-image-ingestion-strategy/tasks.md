@@ -12,9 +12,9 @@
 - [x] 1.4 Write design with architecture, ADRs, and sequence diagrams
 - [x] 1.5 Write tasks breakdown with follow-up issue definitions
 
-## Phase 2: Follow-Up Implementation Issues (to be created)
+## Phase 2: Follow-Up Implementation Issues (tracked in Linear)
 
-These are discrete implementation issues that can be created from this strategy:
+These are discrete implementation issues created from this strategy:
 
 ### Issue: Discord image ingestion ([DALLAY-192](https://linear.app/dallay/issue/DALLAY-192/feat-discord-image-ingestion))
 
@@ -59,7 +59,7 @@ These are discrete implementation issues that can be created from this strategy:
 
 | Acceptance Criterion                                           | Addressed By                                          |
 |----------------------------------------------------------------|-------------------------------------------------------|
-| Initial channel list is defined                                | REQ-1 (Telegram, WhatsApp MVP; Discord, Slack Wave 2) |
+| Initial channel list is defined                                | REQ-1 (Telegram, WhatsApp, Discord MVP; Slack Wave 2) |
 | Channel-specific ingest behavior is defined                    | Channel-Specific Contracts section + REQ-2 pipeline   |
 | File staging and retention expectations are defined            | REQ-7, Design ADR-3, staging naming convention        |
 | Follow-up channel implementation issues can be created cleanly | Phase 2 task breakdown above                          |

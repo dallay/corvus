@@ -3153,8 +3153,9 @@ impl Config {
         }
         for ch in &mm.allowed_channels {
             if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&ch.as_str()) {
-                anyhow::bail!(
-                    "multimodal.allowed_channels contains '{}' which is not a supported MVP channel (telegram, whatsapp, discord)",
+                tracing::warn!(
+                    "multimodal.allowed_channels contains '{}' which is not a supported MVP channel \
+                     (telegram, whatsapp, discord) — it will be fail-closed at runtime",
                     ch,
                 );
             }
@@ -6176,7 +6177,7 @@ allow_image_input = true
     }
 
     #[test]
-    fn multimodal_validation_rejects_unsupported_channels_when_enabled() {
+    fn multimodal_validation_warns_but_passes_for_non_mvp_channels() {
         let config = Config {
             multimodal: MultimodalConfig {
                 enabled: true,
@@ -6187,9 +6188,7 @@ allow_image_input = true
             model_routes: vec![make_vision_route()],
             ..Config::default()
         };
-        let error = config
-            .validate_multimodal_config()
-            .expect_err("should fail");
-        assert!(error.to_string().contains("slack"));
+        // Non-MVP channels warn but don't reject (fail-closed at runtime per ADR-4)
+        assert!(config.validate_multimodal_config().is_ok());
     }
 }

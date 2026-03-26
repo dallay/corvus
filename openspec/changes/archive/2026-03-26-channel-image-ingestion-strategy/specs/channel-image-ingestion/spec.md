@@ -9,8 +9,8 @@
 
 This specification defines the canonical strategy for how Corvus messaging channels ingest user-sent
 images, validate them, stage them to disk, and hand them off to the runtime's provider pipeline. It
-codifies the patterns already implemented for Telegram and WhatsApp, and defines contracts for
-future channel implementations.
+codifies the patterns implemented for Telegram, WhatsApp, and Discord, and defines contracts for
+remaining channel implementations (Slack and beyond).
 
 ## Definitions
 
@@ -106,7 +106,8 @@ Config validation at startup MUST enforce:
 
 - If `enabled=true`, then `vision_model_hint` MUST be set and non-empty
 - If `enabled=true`, then `allowed_channels` MUST be non-empty
-- All entries in `allowed_channels` MUST be valid MVP channel names
+- All entries in `allowed_channels` SHOULD be valid MVP channel names; non-MVP entries are permitted
+  but will be fail-closed at runtime (ADR-4) since no staging implementation exists
 
 ### REQ-6: Runtime Handoff Format
 
@@ -258,7 +259,7 @@ Image deduplication is explicitly **out of scope** for MVP. If a user sends the 
 - **Metadata available**: `mime_type`, `caption` from image object
 - **Caption**: From `image.caption` field
 
-### Discord (Wave 2 — contract only)
+### Discord (Implemented — MVP)
 
 - **Inbound forms**: Message attachments with image content_type
 - **Channel handle**: Attachment URL (direct CDN link)

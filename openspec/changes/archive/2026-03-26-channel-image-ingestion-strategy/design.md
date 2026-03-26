@@ -113,8 +113,10 @@ new match arm.
 ## Observability (REQ-9)
 
 Every image ingestion attempt emits an `ImageIngressEvent` through the `Observer` trait. Events are
-fired at the **single dispatch point** (`stage_channel_images()` in `mod.rs`) so that every path —
-success, validation failure, channel-not-allowed, provider error — is captured uniformly.
+fired at both **pre-dispatch gating points** (e.g., channel-not-allowed or disabled rejections in
+`channels::mod` before staging) and the **staging/provider dispatch point**
+(`stage_channel_images()` in `mod.rs`) for post-staging outcomes (validation success, provider
+errors, etc.).
 
 ### Event structure
 

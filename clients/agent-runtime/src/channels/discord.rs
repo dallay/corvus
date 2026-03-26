@@ -59,7 +59,8 @@ impl DiscordChannel {
     ) -> Result<media::StagedImage, media::ImageRejectionReason> {
         // 1. GET the attachment URL (Discord CDN URLs are pre-authenticated)
         let dl_resp = self.client.get(attachment_url).send().await.map_err(|e| {
-            tracing::warn!("Discord image download failed: {e}");
+            let sanitized = format!("{e}").replace(attachment_url, "[CDN_URL]");
+            tracing::warn!("Discord image download failed: {sanitized}");
             media::ImageRejectionReason::FetchFailed
         })?;
 
@@ -77,8 +78,9 @@ impl DiscordChannel {
         let mut bytes = Vec::new();
         let mut stream = dl_resp.bytes_stream();
         while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|_| {
-                tracing::warn!("Discord image download stream read error");
+            let chunk = chunk_result.map_err(|e| {
+                let sanitized = format!("{e}").replace(attachment_url, "[CDN_URL]");
+                tracing::warn!("Discord image download stream read error: {sanitized}");
                 media::ImageRejectionReason::FetchFailed
             })?;
             bytes.extend_from_slice(&chunk);
