@@ -27,6 +27,8 @@ exclude = [
     '^https://packages\.ubuntu\.com(?:/.*)?(?:[?].*)?$',
     # Common placeholders
     'mailto:.*@example\.com',
+    # SurrealDB returns 429 Too Many Requests to bots
+    '^https://surrealdb\.com(/.*)?$',
     # Internal docs links resolved by Astro/Starlight at build time
     # These are links to other pages within the documentation that Astro resolves at build time
     # Root-relative links: /en/guides/pagename or /es/guides/pagename
