@@ -22,8 +22,24 @@ name: Scan with Detekt
   # Triggers the workflow on push or pull request events but only for default and protected branches
   push:
     branches: ["main"]
+    paths:
+      - "clients/composeApp/**"
+      - "clients/androidApp/**"
+      - "modules/agent-core-kmp/**"
+      - "gradle/**"
+      - "**/*.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/detekt.yml"
   pull_request:
     branches: ["main"]
+    paths:
+      - "clients/composeApp/**"
+      - "clients/androidApp/**"
+      - "modules/agent-core-kmp/**"
+      - "gradle/**"
+      - "**/*.gradle.kts"
+      - "settings.gradle.kts"
+      - ".github/workflows/detekt.yml"
   schedule:
     - cron: "38 13 * * 3"
 
@@ -35,6 +51,10 @@ env:
   # SARIF support (required for this workflow) was introduced in Detekt v1.15.0
   DETEKT_RELEASE_TAG: v1.23.8
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: true
+
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   # This workflow contains a single job called "scan"
@@ -42,6 +62,7 @@ jobs:
     name: Scan
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     # Required for upload-sarif to push security events
     permissions:
@@ -52,6 +73,8 @@ jobs:
     steps:
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 1
 
       # Gets the download URL associated with the $DETEKT_RELEASE_TAG
       - name: Get Detekt download URL
@@ -59,23 +82,25 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh api graphql --field tagName=$DETEKT_RELEASE_TAG --raw-field query='
-            query getReleaseAssetDownloadUrl($tagName: String!) {
-              repository(name: "detekt", owner: "detekt") {
-                release(tagName: $tagName) {
-                  releaseAssets(first: 10) {
-                    nodes {
-                      name
-                      downloadUrl
-                    }
+          query="$(cat <<'EOF'
+          query getReleaseAssetDownloadUrl($tagName: String!) {
+            repository(name: "detekt", owner: "detekt") {
+              release(tagName: $tagName) {
+                releaseAssets(first: 10) {
+                  nodes {
+                    name
+                    downloadUrl
                   }
-                  tagCommit {
-                    oid
-                  }
+                }
+                tagCommit {
+                  oid
                 }
               }
             }
-          ' 1> gh_response.json
+          }
+          EOF
+          )"
+          gh api graphql --field "tagName=$DETEKT_RELEASE_TAG" --raw-field "query=$query" > gh_response.json
 
           DETEKT_RELEASE_SHA=$(jq --raw-output '.data.repository.release.tagCommit.oid' gh_response.json)
           if [ "$DETEKT_RELEASE_SHA" != "046263730eb5368cb344489ac36543294e8e87bd" ]; then
@@ -116,12 +141,12 @@ jobs:
       - name: Make artifact location URIs relative
         continue-on-error: true
         run: |
-          echo "$(
-            jq \
-              --arg github_workspace "${{ github.workspace }}" \
-              '. | ( .runs[].results[].locations[].physicalLocation.artifactLocation.uri |= if test($github_workspace) then .[($github_workspace | length | . + 1):] else . end )' \
-              "${{ github.workspace }}/detekt.sarif.json"
-          )" > "${{ github.workspace }}/detekt.sarif.json"
+          tmp_sarif="$(mktemp)"
+          jq \
+            --arg github_workspace "${{ github.workspace }}" \
+            '. | ( .runs[].results[].locations[].physicalLocation.artifactLocation.uri |= if test($github_workspace) then .[($github_workspace | length | . + 1):] else . end )' \
+            "${{ github.workspace }}/detekt.sarif.json" > "$tmp_sarif"
+          mv "$tmp_sarif" "${{ github.workspace }}/detekt.sarif.json"
 
       # Uploads results to GitHub repository using the upload-sarif action
       - uses: github/codeql-action/upload-sarif@cdefb33c0f6224e58673d9004f47f7cb3e328b89 # v4.31.10

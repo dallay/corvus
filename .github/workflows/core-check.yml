@@ -4,7 +4,8 @@ name: Core Checks
 on:
   push:
     branches:
-      - "**"
+      - main
+      - minor
     paths:
       - "modules/agent-core-kmp/**"
       - "gradle/**"
