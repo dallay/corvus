@@ -6,7 +6,7 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 
 | Category        | Workflow                             | Purpose                                     | Trigger                                 |
 | --------------- | ------------------------------------ | ------------------------------------------- | --------------------------------------- |
-| **CI/CD**       | `pull-request-check.yml`             | Main CI checks for PRs and pushes           | Push to any branch, PR to main/minor/\* |
+| **CI/CD**       | `pull-request-check.yml`             | Main CI checks for PRs and protected pushes | Push to main/minor, PR to main/minor/\* |
 | **CI/CD**       | `pull-request-check-build-logic.yml` | Checks for build-logic changes              | Changes to `gradle/build-logic/**`      |
 | **CI/CD**       | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages        | Push docs to `main`, Release published  |
 | **Security**    | `codeql-analysis.yml`                | Security scanning with CodeQL               | Push to main/minor, daily schedule      |
@@ -22,6 +22,7 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 | **Repo Mgmt**   | `git-sync-labels.yml`                | Sync labels from config                     | Push to `labels.yml`                    |
 | **Quality**     | `semantic-pull-request.yml`          | Lint PR titles                              | PR open/edit                            |
 | **Quality**     | `pull-request-limit.yml`             | Block changes to restricted files           | PR touching CODEOWNERS/workflows        |
+| **Quality**     | `detekt.yml`                         | Kotlin static analysis for KMP surfaces     | Kotlin/Gradle changes, weekly, manual   |
 | **Quality**     | `lychee-links.yml`                   | Check project links with Lychee (full repo) | Daily schedule (4am), manual            |
 | **Maintenance** | `cleanup-cache.yml`                  | Clean up Action caches                      | PR closed                               |
 | **Maintenance** | `stale.yml`                          | Mark stale issues/PRs                       | Daily schedule                          |
@@ -34,11 +35,11 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 
 ### `pull-request-check.yml` - Main CI Pipeline
 
-**Purpose**: Runs the primary CI checks for all pushes and pull requests.
+**Purpose**: Runs the primary CI checks for protected branch pushes and pull requests.
 
 **Triggers**:
 
-- Push to any branch (except tags)
+- Push to `main` and `minor` (except tags)
 - Pull requests to `main`, `minor`, `fix/**`, `feat/**`, `patch/**`
 - Manual trigger (`workflow_dispatch`)
 
@@ -56,7 +57,7 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 **Key Points**:
 
 - Uses concurrency control to cancel in-progress runs
-- Full fetch-depth (0) for proper commit message validation
+- Shallow checkout (`fetch-depth: 1`) because only the latest commit message is validated
 - 60-minute timeout
 
 ---
@@ -147,31 +148,30 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 
 ---
 
-### `snyk-security.yml` - Snyk Security Platform Scan
+### `detekt.yml` - Kotlin Static Analysis
 
-**Purpose**: Runs Snyk Code, Open Source, Container, and IaC scans and uploads SARIF to GitHub
+**Purpose**: Runs Detekt against Kotlin and Gradle-related surfaces and uploads SARIF to GitHub
 Code Scanning.
 
 **Triggers**:
 
-- Push to `main` or `minor`
-- Pull request to `main` or `minor`
+- Push to `main` when Kotlin/Gradle-related files change
+- Pull request to `main` when Kotlin/Gradle-related files change
+- Weekly schedule
 - Manual trigger
 
 **What it does**:
 
-1. ✈ Checks out repository
-2. 🔐 Installs Snyk CLI
-3. 🔍 Runs `snyk code test` and uploads SARIF
-4. 📚 Runs Open Source scan (`snyk test --all-projects`)
-5. 🐳 Builds and scans runtime container image
-6. 🧱 Runs IaC scan (`snyk iac test --report`)
+1. Checks out the repository with shallow history
+2. Resolves a pinned Detekt release asset
+3. Downloads the Detekt CLI
+4. Runs static analysis and uploads SARIF results
 
 **Key Points**:
 
-- Requires `SNYK_TOKEN` secret
-- `monitor` commands run only on non-PR events
-- Findings are currently non-blocking (`continue-on-error: true`)
+- Path-filtered to avoid running on docs/web/Rust-only changes
+- Uses concurrency cancellation to avoid redundant scans
+- Uploads findings via GitHub Code Scanning
 
 ---
 
@@ -621,7 +621,7 @@ if: >
 - [Workflow Syntax](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions)
 - [Security Hardening](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions)
 - [Reusable Workflows](https://docs.github.com/en/actions/using-workflows/reusing-workflows)
-- [Starter-Gradle Makefile](../Makefile) - Local development commands
+- [Starter-Gradle Makefile](../../Makefile) - Local development commands
 - [AGENTS.md](../../AGENTS.md) - Agent development guidelines
 
 ---
