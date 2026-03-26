@@ -1,7 +1,7 @@
 ---
 title: Guía de Migración a Cerebro
 description: Mueve la memoria a largo plazo al servicio Cerebro basado en MCP.
-slug: es/guides/cerebro/migration-guide
+slug: es/guides/cerebro/migration
 owner: team-platform
 status: canonical
 lastReviewed: 2026-03-26
