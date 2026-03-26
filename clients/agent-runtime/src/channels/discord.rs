@@ -58,15 +58,10 @@ impl DiscordChannel {
         declared_mime: Option<&str>,
     ) -> Result<media::StagedImage, media::ImageRejectionReason> {
         // 1. GET the attachment URL (Discord CDN URLs are pre-authenticated)
-        let dl_resp = self
-            .client
-            .get(attachment_url)
-            .send()
-            .await
-            .map_err(|e| {
-                tracing::warn!("Discord image download failed: {e}");
-                media::ImageRejectionReason::FetchFailed
-            })?;
+        let dl_resp = self.client.get(attachment_url).send().await.map_err(|e| {
+            tracing::warn!("Discord image download failed: {e}");
+            media::ImageRejectionReason::FetchFailed
+        })?;
 
         if !dl_resp.status().is_success() {
             tracing::warn!("Discord image download HTTP {}", dl_resp.status());
@@ -108,8 +103,7 @@ impl DiscordChannel {
             media::AllowedImageMime::Png => "png",
             media::AllowedImageMime::Webp => "webp",
         };
-        let temp_path =
-            std::env::temp_dir().join(format!("corvus-dc-img-{}.{ext}", &sha256[..16]));
+        let temp_path = std::env::temp_dir().join(format!("corvus-dc-img-{}.{ext}", &sha256[..16]));
 
         tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
             tracing::warn!(
@@ -376,151 +370,151 @@ impl Channel for DiscordChannel {
 
         loop {
             tokio::select! {
-                            _ = hb_rx.recv() => {
-                                let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
-                                let hb = json!({"op": 1, "d": d});
-                                if write.send(Message::Text(hb.to_string())).await.is_err() {
-                                    break;
-                                }
-                            }
-                            msg = read.next() => {
-                                let msg = match msg {
-                                    Some(Ok(Message::Text(t))) => t,
-                                    Some(Ok(Message::Close(_))) | None => break,
-                                    _ => continue,
-                                };
-
-                                let event: serde_json::Value = match serde_json::from_str(&msg) {
-                                    Ok(e) => e,
-                                    Err(_) => continue,
-                                };
-
-                                // Track sequence number from all dispatch events
-                                if let Some(s) = event.get("s").and_then(serde_json::Value::as_i64) {
-                                    sequence = s;
-                                }
-
-                                let op = event.get("op").and_then(serde_json::Value::as_u64).unwrap_or(0);
-
-                                match op {
-                                    // Op 1: Server requests an immediate heartbeat
-                                    1 => {
-                                        let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
-                                        let hb = json!({"op": 1, "d": d});
-                                        if write.send(Message::Text(hb.to_string())).await.is_err() {
-                                            break;
+                                        _ = hb_rx.recv() => {
+                                            let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
+                                            let hb = json!({"op": 1, "d": d});
+                                            if write.send(Message::Text(hb.to_string())).await.is_err() {
+                                                break;
+                                            }
                                         }
-                                        continue;
-                                    }
-                                    // Op 7: Reconnect
-                                    7 => {
-                                        tracing::warn!("Discord: received Reconnect (op 7), closing for restart");
-                                        break;
-                                    }
-                                    // Op 9: Invalid Session
-                                    9 => {
-                                        tracing::warn!("Discord: received Invalid Session (op 9), closing for restart");
-                                        break;
-                                    }
-                                    _ => {}
-                                }
+                                        msg = read.next() => {
+                                            let msg = match msg {
+                                                Some(Ok(Message::Text(t))) => t,
+                                                Some(Ok(Message::Close(_))) | None => break,
+                                                _ => continue,
+                                            };
 
-                                // Only handle MESSAGE_CREATE (opcode 0, type "MESSAGE_CREATE")
-                                let event_type = event.get("t").and_then(|t| t.as_str()).unwrap_or("");
-                                if event_type != "MESSAGE_CREATE" {
-                                    continue;
-                                }
+                                            let event: serde_json::Value = match serde_json::from_str(&msg) {
+                                                Ok(e) => e,
+                                                Err(_) => continue,
+                                            };
 
-                                let Some(d) = event.get("d") else {
-                                    continue;
-                                };
+                                            // Track sequence number from all dispatch events
+                                            if let Some(s) = event.get("s").and_then(serde_json::Value::as_i64) {
+                                                sequence = s;
+                                            }
 
-                                // Skip messages from the bot itself
-                                let author_id = d.get("author").and_then(|a| a.get("id")).and_then(|i| i.as_str()).unwrap_or("");
-                                if author_id == bot_user_id {
-                                    continue;
-                                }
+                                            let op = event.get("op").and_then(serde_json::Value::as_u64).unwrap_or(0);
 
-                                // Skip bot messages (unless listen_to_bots is enabled)
-                                if !self.listen_to_bots && d.get("author").and_then(|a| a.get("bot")).and_then(serde_json::Value::as_bool).unwrap_or(false) {
-                                    continue;
-                                }
+                                            match op {
+                                                // Op 1: Server requests an immediate heartbeat
+                                                1 => {
+                                                    let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
+                                                    let hb = json!({"op": 1, "d": d});
+                                                    if write.send(Message::Text(hb.to_string())).await.is_err() {
+                                                        break;
+                                                    }
+                                                    continue;
+                                                }
+                                                // Op 7: Reconnect
+                                                7 => {
+                                                    tracing::warn!("Discord: received Reconnect (op 7), closing for restart");
+                                                    break;
+                                                }
+                                                // Op 9: Invalid Session
+                                                9 => {
+                                                    tracing::warn!("Discord: received Invalid Session (op 9), closing for restart");
+                                                    break;
+                                                }
+                                                _ => {}
+                                            }
 
-                                // Sender validation
-                                if !self.is_user_allowed(author_id) {
-                                    tracing::warn!("Discord: ignoring message from unauthorized user: {author_id}");
-                                    continue;
-                                }
+                                            // Only handle MESSAGE_CREATE (opcode 0, type "MESSAGE_CREATE")
+                                            let event_type = event.get("t").and_then(|t| t.as_str()).unwrap_or("");
+                                            if event_type != "MESSAGE_CREATE" {
+                                                continue;
+                                            }
 
-                                // Guild filter
-                                if let Some(ref gid) = guild_filter {
-                                    let msg_guild = d.get("guild_id").and_then(serde_json::Value::as_str);
-                                    // DMs have no guild_id — let them through; for guild messages, enforce the filter
-                                    if let Some(g) = msg_guild {
-                                        if g != gid {
-                                            continue;
+                                            let Some(d) = event.get("d") else {
+                                                continue;
+                                            };
+
+                                            // Skip messages from the bot itself
+                                            let author_id = d.get("author").and_then(|a| a.get("id")).and_then(|i| i.as_str()).unwrap_or("");
+                                            if author_id == bot_user_id {
+                                                continue;
+                                            }
+
+                                            // Skip bot messages (unless listen_to_bots is enabled)
+                                            if !self.listen_to_bots && d.get("author").and_then(|a| a.get("bot")).and_then(serde_json::Value::as_bool).unwrap_or(false) {
+                                                continue;
+                                            }
+
+                                            // Sender validation
+                                            if !self.is_user_allowed(author_id) {
+                                                tracing::warn!("Discord: ignoring message from unauthorized user: {author_id}");
+                                                continue;
+                                            }
+
+                                            // Guild filter
+                                            if let Some(ref gid) = guild_filter {
+                                                let msg_guild = d.get("guild_id").and_then(serde_json::Value::as_str);
+                                                // DMs have no guild_id — let them through; for guild messages, enforce the filter
+                                                if let Some(g) = msg_guild {
+                                                    if g != gid {
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+
+                                            let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
+
+                                            // Parse image attachments
+            let image_parts = parse_image_attachments(d);
+
+                                            let clean_content =
+                                                normalize_incoming_content(content, self.mention_only, &bot_user_id);
+
+                                            // Skip if no text content AND no image attachments
+                                            if clean_content.is_none() && image_parts.is_empty() {
+                                                continue;
+                                            }
+
+                                            // In mention_only mode, require mention even for image-only messages
+                                            if self.mention_only
+                                                && !content.is_empty()
+                                                && !contains_bot_mention(content, &bot_user_id)
+                                            {
+                                                continue;
+                                            }
+
+                                            let text_for_content = clean_content.clone().unwrap_or_default();
+
+                                            let mut parts: Vec<ContentPart> = Vec::new();
+                                            if let Some(ref text) = clean_content {
+                                                parts.push(ContentPart::Text { text: text.clone() });
+                                            }
+                                            parts.extend(image_parts);
+
+                                            let message_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                                            let channel_id = d.get("channel_id").and_then(|c| c.as_str()).unwrap_or("").to_string();
+
+                                            let channel_msg = ChannelMessage {
+                                                id: if message_id.is_empty() {
+                                                    format!("discord_{}", Uuid::new_v4())
+                                                } else {
+                                                    format!("discord_{message_id}")
+                                                },
+                                                sender: author_id.to_string(),
+                                                reply_target: if channel_id.is_empty() {
+                                                    author_id.to_string()
+                                                } else {
+                                                    channel_id.clone()
+                                                },
+                                                content: text_for_content,
+                                                channel: "discord".to_string(),
+                                                timestamp: std::time::SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH)
+                                                    .unwrap_or_default()
+                                                    .as_secs(),
+                                                parts,
+                        };
+
+                                            if tx.send(channel_msg).await.is_err() {
+                                                break;
+                                            }
                                         }
                                     }
-                                }
-
-                                let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
-
-                                // Parse image attachments
-let image_parts = parse_image_attachments(d);
-
-                                let clean_content =
-                                    normalize_incoming_content(content, self.mention_only, &bot_user_id);
-
-                                // Skip if no text content AND no image attachments
-                                if clean_content.is_none() && image_parts.is_empty() {
-                                    continue;
-                                }
-
-                                // In mention_only mode, require mention even for image-only messages
-                                if self.mention_only
-                                    && !content.is_empty()
-                                    && !contains_bot_mention(content, &bot_user_id)
-                                {
-                                    continue;
-                                }
-
-                                let text_for_content = clean_content.clone().unwrap_or_default();
-
-                                let mut parts: Vec<ContentPart> = Vec::new();
-                                if let Some(ref text) = clean_content {
-                                    parts.push(ContentPart::Text { text: text.clone() });
-                                }
-                                parts.extend(image_parts);
-
-                                let message_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                                let channel_id = d.get("channel_id").and_then(|c| c.as_str()).unwrap_or("").to_string();
-
-                                let channel_msg = ChannelMessage {
-                                    id: if message_id.is_empty() {
-                                        format!("discord_{}", Uuid::new_v4())
-                                    } else {
-                                        format!("discord_{message_id}")
-                                    },
-                                    sender: author_id.to_string(),
-                                    reply_target: if channel_id.is_empty() {
-                                        author_id.to_string()
-                                    } else {
-                                        channel_id.clone()
-                                    },
-                                    content: text_for_content,
-                                    channel: "discord".to_string(),
-                                    timestamp: std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_secs(),
-                                    parts,
-            };
-
-                                if tx.send(channel_msg).await.is_err() {
-                                    break;
-                                }
-                            }
-                        }
         }
 
         Ok(())
@@ -590,10 +584,7 @@ fn parse_image_attachments(d: &serde_json::Value) -> Vec<ContentPart> {
         if media::AllowedImageMime::from_mime_str(ct).is_none() {
             continue;
         }
-        let url = att
-            .get("url")
-            .and_then(|u| u.as_str())
-            .unwrap_or("");
+        let url = att.get("url").and_then(|u| u.as_str()).unwrap_or("");
         if url.is_empty() {
             continue;
         }
@@ -1007,7 +998,10 @@ mod tests {
                 file_name,
                 declared_bytes,
             } => {
-                assert_eq!(channel_handle, "https://cdn.discordapp.com/attachments/1/2/photo.jpg");
+                assert_eq!(
+                    channel_handle,
+                    "https://cdn.discordapp.com/attachments/1/2/photo.jpg"
+                );
                 assert_eq!(source_channel, "discord");
                 assert_eq!(declared_mime.as_deref(), Some("image/jpeg"));
                 assert!(caption_text.is_none());
