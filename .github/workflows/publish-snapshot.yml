@@ -6,6 +6,10 @@ on:
   schedule:
     - cron: "12 2 * * *"
 
+concurrency:
+  group: publish-snapshot-${{ github.ref || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   publish-snapshot:
     if: github.repository == 'dallay/corvus'
