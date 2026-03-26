@@ -93,10 +93,18 @@ impl RouterProvider {
 #[async_trait]
 impl Provider for RouterProvider {
     fn capabilities(&self) -> super::traits::ProviderCapabilities {
-        self.providers
-            .get(self.default_index)
-            .map(|(_, p)| p.capabilities())
-            .unwrap_or_default()
+        let mut merged = super::traits::ProviderCapabilities::default();
+        for (_, provider) in &self.providers {
+            let caps = provider.capabilities();
+            merged.native_tool_calling = merged.native_tool_calling || caps.native_tool_calling;
+            merged.image_input = merged.image_input || caps.image_input;
+            for form in caps.image_transport_forms {
+                if !merged.image_transport_forms.contains(&form) {
+                    merged.image_transport_forms.push(form);
+                }
+            }
+        }
+        merged
     }
 
     async fn chat_with_system(
@@ -524,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn capabilities_delegates_to_default_provider() {
+    fn capabilities_merges_all_providers() {
         let (router, _) = make_router(vec![("default", "ok")], vec![]);
         let caps = <RouterProvider as Provider>::capabilities(&router);
         // Default MockProvider has default capabilities (no image).

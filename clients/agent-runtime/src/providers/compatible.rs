@@ -505,10 +505,13 @@ impl OpenAiCompatibleProvider {
             )
         })?;
 
+        // Find the index of the last user message for image attachment.
+        let last_user_idx = request.messages.iter().rposition(|m| m.role == "user");
+
         // Build messages with content blocks for the user turn.
         let mut api_messages = Vec::new();
 
-        for msg in request.messages {
+        for (idx, msg) in request.messages.iter().enumerate() {
             if msg.role == "user" {
                 // Build content blocks: text + image parts.
                 let mut blocks = Vec::new();
@@ -520,16 +523,19 @@ impl OpenAiCompatibleProvider {
                     }));
                 }
 
-                for image in request.images {
-                    let bytes = std::fs::read(&image.temp_path)
-                        .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
-                    let b64 = base64_encode(&bytes);
-                    let mime = image.mime_type.as_str();
-                    let data_url = format!("data:{mime};base64,{b64}");
-                    blocks.push(serde_json::json!({
-                        "type": "image_url",
-                        "image_url": { "url": data_url },
-                    }));
+                // Only attach images to the last user message.
+                if Some(idx) == last_user_idx {
+                    for image in request.images {
+                        let bytes = std::fs::read(&image.temp_path)
+                            .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
+                        let b64 = base64_encode(&bytes);
+                        let mime = image.mime_type.as_str();
+                        let data_url = format!("data:{mime};base64,{b64}");
+                        blocks.push(serde_json::json!({
+                            "type": "image_url",
+                            "image_url": { "url": data_url },
+                        }));
+                    }
                 }
 
                 api_messages.push(serde_json::json!({
@@ -545,12 +551,23 @@ impl OpenAiCompatibleProvider {
             }
         }
 
-        let body = serde_json::json!({
+        // Include tools when present.
+        let tools_json = request
+            .tools
+            .filter(|t| !t.is_empty())
+            .map(Self::tool_specs_to_openai_format);
+
+        let mut body = serde_json::json!({
             "model": model,
             "messages": api_messages,
             "temperature": temperature,
             "stream": false,
         });
+
+        if let Some(ref tools) = tools_json {
+            body["tools"] = serde_json::json!(tools);
+            body["tool_choice"] = serde_json::json!("auto");
+        }
 
         let url = self.chat_completions_url();
         let response = self
@@ -570,10 +587,25 @@ impl OpenAiCompatibleProvider {
             .next()
             .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))?;
 
-        Ok(ProviderChatResponse {
-            text: choice.message.effective_content_optional(),
-            tool_calls: Vec::new(),
-        })
+        let text = choice.message.effective_content_optional();
+        let tool_calls = choice
+            .message
+            .tool_calls
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|tc| {
+                let function = tc.function?;
+                let name = function.name?;
+                let arguments = function.arguments.unwrap_or_else(|| "{}".to_string());
+                Some(ProviderToolCall {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name,
+                    arguments,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Ok(ProviderChatResponse { text, tool_calls })
     }
 
     fn apply_auth_header(

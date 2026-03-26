@@ -1,4 +1,4 @@
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use parking_lot::Mutex;
@@ -395,7 +395,7 @@ impl Channel for DiscordChannel {
 
                                 let channel_msg = ChannelMessage {
                                     id: if message_id.is_empty() {
-                                        Uuid::new_v4().to_string()
+                                        format!("discord_{}", Uuid::new_v4())
                                     } else {
                                         format!("discord_{message_id}")
                                     },
@@ -405,13 +405,13 @@ impl Channel for DiscordChannel {
                                     } else {
                                         channel_id.clone()
                                     },
-                                    content: clean_content,
+                                    content: clean_content.clone(),
                                     channel: "discord".to_string(),
                                     timestamp: std::time::SystemTime::now()
                                         .duration_since(std::time::UNIX_EPOCH)
                                         .unwrap_or_default()
                                         .as_secs(),
-                                                        parts: vec![],
+                                    parts: vec![ContentPart::Text { text: clean_content }],
             };
 
                                 if tx.send(channel_msg).await.is_err() {

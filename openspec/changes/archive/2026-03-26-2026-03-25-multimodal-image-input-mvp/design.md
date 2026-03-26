@@ -137,7 +137,7 @@ Only two part kinds are valid in this change:
 
 | Part kind | Required fields | Notes |
 |-----------|-----------------|-------|
-| `text` | `text`, `source_role` | Used for message body text and captions |
+| `text` | `text` | Used for message body text and captions |
 | `image` | `channel_handle`, `source_channel`, `declared_mime`, `caption_text`, `file_name`, `declared_bytes` | Represents an image reference before fetch/staging |
 
 ### Text projection rules

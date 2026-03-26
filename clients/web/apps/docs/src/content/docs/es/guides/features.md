@@ -51,7 +51,7 @@ disponibles en este repositorio.
 
 - [x] **Sitio Web Estático**: Construido con Astro y Starlight.
 - [x] **Documentación de API**: Generada con Dokka (Kotlin/Java).
-- [x] **README/AGENTS**: Documentación interna para desarrolladores y agentes.
+- [x] **README/CLAUDE**: Documentación interna para desarrolladores y agentes.
 
 ## Despliegue y Distribución
 

@@ -4,6 +4,7 @@ use crate::config::{Config, StreamMode};
 use crate::security::pairing::PairingGuard;
 use anyhow::Context;
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use directories::UserDirs;
 use parking_lot::Mutex;
 use reqwest::multipart::{Form, Part};
@@ -777,14 +778,13 @@ impl TelegramChannel {
             });
         }
 
-        // Caption → Text part (ordered before image)
-        if let Some(ref cap) = caption {
-            parts.push(ContentPart::Text { text: cap.clone() });
-        }
-
         // Photo → Image part (last element = largest variant)
         if let Some(photos) = message.get("photo").and_then(serde_json::Value::as_array) {
             if let Some(largest) = photos.last() {
+                // Caption → Text part (only when image is accepted)
+                if let Some(ref cap) = caption {
+                    parts.push(ContentPart::Text { text: cap.clone() });
+                }
                 let file_id = largest
                     .get("file_id")
                     .and_then(serde_json::Value::as_str)
@@ -810,6 +810,10 @@ impl TelegramChannel {
                 .unwrap_or_default();
 
             if media::AllowedImageMime::from_mime_str(mime).is_some() {
+                // Caption → Text part (only when MIME passes)
+                if let Some(ref cap) = caption {
+                    parts.push(ContentPart::Text { text: cap.clone() });
+                }
                 let file_id = doc
                     .get("file_id")
                     .and_then(serde_json::Value::as_str)
@@ -1524,6 +1528,11 @@ impl TelegramChannel {
         )
     }
 
+    /// Redact bot token from error messages to prevent credential leaks in logs.
+    fn sanitize_error(&self, err: &impl std::fmt::Display) -> String {
+        format!("{err}").replace(&self.bot_token, "[REDACTED]")
+    }
+
     /// Fetch image bytes from Telegram, validate, stage to temp,
     /// and return a `StagedImage` or rejection reason.
     pub async fn fetch_and_stage_image(
@@ -1543,8 +1552,9 @@ impl TelegramChannel {
             .await
             .map_err(|e| {
                 tracing::warn!(
-                    "Telegram getFile failed for {}: {e}",
-                    &file_id[..file_id.len().min(8)]
+                    "Telegram getFile failed for {}: {}",
+                    &file_id[..file_id.len().min(8)],
+                    self.sanitize_error(&e)
                 );
                 media::ImageRejectionReason::FetchFailed
             })?;
@@ -1563,10 +1573,13 @@ impl TelegramChannel {
                 media::ImageRejectionReason::FetchFailed
             })?;
 
-        // 2. Download bytes with size limit
+        // 2. Download bytes with streaming size limit
         let download_url = self.file_download_url(file_path);
         let dl_resp = self.client.get(&download_url).send().await.map_err(|e| {
-            tracing::warn!("Telegram file download failed: {e}");
+            tracing::warn!(
+                "Telegram file download failed: {}",
+                self.sanitize_error(&e)
+            );
             media::ImageRejectionReason::FetchFailed
         })?;
 
@@ -1581,13 +1594,21 @@ impl TelegramChannel {
             media::validate_size(cl, media::MAX_IMAGE_BYTES)?;
         }
 
-        let bytes = dl_resp.bytes().await.map_err(|e| {
-            tracing::warn!("Telegram file download read error: {e}");
-            media::ImageRejectionReason::FetchFailed
-        })?;
-
+        // Stream body with per-chunk size validation
+        let mut bytes = Vec::new();
+        let mut stream = dl_resp.bytes_stream();
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| {
+                tracing::warn!(
+                    "Telegram file download stream error: {}",
+                    self.sanitize_error(&e)
+                );
+                media::ImageRejectionReason::FetchFailed
+            })?;
+            bytes.extend_from_slice(&chunk);
+            media::validate_size(bytes.len() as u64, media::MAX_IMAGE_BYTES)?;
+        }
         let byte_len = bytes.len() as u64;
-        media::validate_size(byte_len, media::MAX_IMAGE_BYTES)?;
 
         // 3. Validate MIME via magic-byte sniffing
         let mime = media::validate_mime(declared_mime, &bytes)?;

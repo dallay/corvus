@@ -3125,9 +3125,25 @@ impl Config {
         if !mm.enabled {
             return Ok(());
         }
-        if mm.vision_model_hint.is_none() {
+        let hint = match mm.vision_model_hint {
+            Some(ref h) => h,
+            None => {
+                anyhow::bail!(
+                    "multimodal.enabled=true requires multimodal.vision_model_hint to be set"
+                );
+            }
+        };
+        // Cross-reference: a matching model_route must exist with
+        // allow_image_input enabled.
+        let has_image_route = self
+            .model_routes
+            .iter()
+            .any(|r| r.hint == *hint && r.allow_image_input);
+        if !has_image_route {
             anyhow::bail!(
-                "multimodal.enabled=true requires multimodal.vision_model_hint to be set"
+                "multimodal.vision_model_hint='{}' does not match any \
+                 [[model_routes]] entry with allow_image_input=true",
+                hint,
             );
         }
         if mm.allowed_channels.is_empty() {
@@ -6083,6 +6099,16 @@ allow_image_input = true
         assert!(config.validate_multimodal_config().is_ok());
     }
 
+    fn make_vision_route() -> ModelRouteConfig {
+        ModelRouteConfig {
+            hint: "vision".into(),
+            provider: "test-provider".into(),
+            model: "test-model".into(),
+            api_key: None,
+            allow_image_input: true,
+        }
+    }
+
     #[test]
     fn multimodal_validation_passes_when_fully_configured() {
         let config = Config {
@@ -6092,6 +6118,7 @@ allow_image_input = true
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
             },
+            model_routes: vec![make_vision_route()],
             ..Config::default()
         };
         // Warnings emitted but no error
@@ -6107,6 +6134,7 @@ allow_image_input = true
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
             },
+            model_routes: vec![make_vision_route()],
             ..Config::default()
         };
         let error = config
@@ -6141,6 +6169,7 @@ allow_image_input = true
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
             },
+            model_routes: vec![make_vision_route()],
             ..Config::default()
         };
         let error = config

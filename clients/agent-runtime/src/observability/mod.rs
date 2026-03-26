@@ -14,8 +14,8 @@ pub use noop::NoopObserver;
 pub use otel::OtelObserver;
 pub use prometheus::PrometheusObserver;
 pub use traits::{
-    redact_observer_payload, ImageIngressEvent, ImageIngressOutcome, Observer, ObserverEvent,
-    ObserverMetric,
+    redact_observer_payload, ImageIngressEvent, ImageIngressOutcome, ImageIngressReason, Observer,
+    ObserverEvent, ObserverMetric,
 };
 #[allow(unused_imports)]
 pub use verbose::VerboseObserver;

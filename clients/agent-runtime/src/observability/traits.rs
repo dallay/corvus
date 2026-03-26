@@ -13,6 +13,37 @@ pub enum ImageIngressOutcome {
     ProviderError,
 }
 
+/// Closed set of reasons for image ingress rejection/failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageIngressReason {
+    Disabled,
+    ChannelNotAllowed,
+    MissingVisionRoute,
+    RouteNotImageCapable,
+    FetchFailed,
+    MimeRejected,
+    Oversize,
+    TooManyImages,
+    ProviderError,
+}
+
+impl std::fmt::Display for ImageIngressReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let code = match self {
+            Self::Disabled => "disabled",
+            Self::ChannelNotAllowed => "channel_not_allowed",
+            Self::MissingVisionRoute => "missing_vision_route",
+            Self::RouteNotImageCapable => "route_not_image_capable",
+            Self::FetchFailed => "fetch_failed",
+            Self::MimeRejected => "mime_rejected",
+            Self::Oversize => "oversize",
+            Self::TooManyImages => "too_many_images",
+            Self::ProviderError => "provider_error",
+        };
+        f.write_str(code)
+    }
+}
+
 /// Metadata-only event for image ingress telemetry.
 ///
 /// Never includes raw image bytes, channel URLs, tokens,
@@ -23,7 +54,7 @@ pub struct ImageIngressEvent {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub outcome: ImageIngressOutcome,
-    pub reason: Option<String>,
+    pub reason: Option<ImageIngressReason>,
     pub image_count: usize,
     pub mime_type: Option<String>,
     pub byte_len: Option<u64>,
@@ -163,8 +194,12 @@ pub trait Observer: Send + Sync + 'static {
     /// Record a numeric metric
     fn record_metric(&self, metric: &ObserverMetric);
 
-    /// Record an image ingress lifecycle event (default: no-op).
-    fn on_image_ingress(&self, _event: &ImageIngressEvent) {}
+    /// Record an image ingress lifecycle event.
+    ///
+    /// Default: forwards to `record_event` as `ObserverEvent::ImageIngress`.
+    fn on_image_ingress(&self, event: &ImageIngressEvent) {
+        self.record_event(&ObserverEvent::ImageIngress(event.clone()));
+    }
 
     /// Flush any buffered data (no-op for most backends)
     fn flush(&self) {}
@@ -330,13 +365,13 @@ mod tests {
             provider: None,
             model: None,
             outcome: ImageIngressOutcome::Rejected,
-            reason: Some("disabled".into()),
+            reason: Some(ImageIngressReason::Disabled),
             image_count: 1,
             mime_type: None,
             byte_len: None,
         };
         assert_eq!(event.outcome, ImageIngressOutcome::Rejected);
-        assert_eq!(event.reason.as_deref(), Some("disabled"));
+        assert_eq!(event.reason, Some(ImageIngressReason::Disabled));
     }
 
     #[test]
@@ -355,7 +390,7 @@ mod tests {
             provider: None,
             model: None,
             outcome: ImageIngressOutcome::ProviderError,
-            reason: Some("provider_error".into()),
+            reason: Some(ImageIngressReason::ProviderError),
             image_count: 1,
             mime_type: None,
             byte_len: None,
@@ -372,7 +407,7 @@ mod tests {
             provider: None,
             model: None,
             outcome: ImageIngressOutcome::Rejected,
-            reason: Some("channel_not_allowed".into()),
+            reason: Some(ImageIngressReason::ChannelNotAllowed),
             image_count: 1,
             mime_type: None,
             byte_len: None,
@@ -381,21 +416,20 @@ mod tests {
     }
 
     #[test]
-    fn observer_default_on_image_ingress_is_noop() {
+    fn observer_default_on_image_ingress_forwards_to_record_event() {
         let observer = DummyObserver::default();
         let event = ImageIngressEvent {
             channel: "telegram".into(),
             provider: None,
             model: None,
             outcome: ImageIngressOutcome::Rejected,
-            reason: Some("disabled".into()),
+            reason: Some(ImageIngressReason::Disabled),
             image_count: 1,
             mime_type: None,
             byte_len: None,
         };
-        // Must not panic
         observer.on_image_ingress(&event);
-        // Event count unchanged — on_image_ingress is separate
-        assert_eq!(*observer.events.lock(), 0);
+        // Default forwards to record_event
+        assert_eq!(*observer.events.lock(), 1);
     }
 }

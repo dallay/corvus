@@ -74,6 +74,8 @@ body:
         - label: I ensured my code follows the project's style guidelines.
         - label: I have added or updated tests that prove my fix is effective or that my feature works.
         - label: I have updated the documentation, or I explained above why no documentation update is needed.
+          required: true
         - label: I verified the documentation matches the current behavior.
+          required: true
         - label: I have documented any breaking changes in the Breaking Changes section.
         - label: I have linked the related issue (if any).

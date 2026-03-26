@@ -19,7 +19,6 @@ use crate::gateway::utils::{
 use crate::memory::{Memory, MemoryCategory};
 use crate::providers::{self, Provider};
 use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard};
-use crate::util::truncate_with_ellipsis;
 use anyhow::{Context, Result};
 use axum::{
     body::Bytes,
@@ -2007,30 +2006,43 @@ async fn handle_whatsapp_message(
         );
     };
 
-    // ── Security: Verify X-Hub-Signature-256 ──────────────
-    if let Some(ref app_secret) = state.whatsapp_app_secret {
-        let signature = headers
-            .get("X-Hub-Signature-256")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or("");
-
-        if !verify_whatsapp_signature(app_secret, &body, signature) {
+    // ── Security: Verify X-Hub-Signature-256 (fail-closed) ─
+    let app_secret = match state.whatsapp_app_secret {
+        Some(ref s) => s,
+        None => {
             tracing::warn!(
-                "WhatsApp webhook signature verification \
-                 failed (signature: {})",
-                if signature.is_empty() {
-                    "missing"
-                } else {
-                    "invalid"
-                }
+                "WhatsApp webhook rejected: app secret not configured"
             );
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({
-                    "error": "Invalid signature"
+                    "error": "WhatsApp signature verification not configured"
                 })),
             );
         }
+    };
+
+    let signature = headers
+        .get("X-Hub-Signature-256")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+
+    if !verify_whatsapp_signature(app_secret, &body, signature) {
+        tracing::warn!(
+            "WhatsApp webhook signature verification \
+             failed (signature: {})",
+            if signature.is_empty() {
+                "missing"
+            } else {
+                "invalid"
+            }
+        );
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "error": "Invalid signature"
+            })),
+        );
     }
 
     // Parse JSON body
@@ -2052,22 +2064,45 @@ async fn handle_whatsapp_message(
 
     // ── Canonical runtime path ────────────────────────────
     if let Some(ref handle) = state.channel_runtime_handle {
+        let mut enqueued = 0u32;
         for msg in messages {
+            // Deduplicate: skip already-seen message ids.
+            if !state.idempotency_store.record_if_new(&msg.id) {
+                tracing::debug!(
+                    msg.id = %msg.id,
+                    "WhatsApp duplicate skipped",
+                );
+                continue;
+            }
+
             tracing::info!(
-                "WhatsApp → canonical runtime: {} from {}",
-                truncate_with_ellipsis(&msg.content, 50),
-                msg.sender,
+                msg.id = %msg.id,
+                msg.sender = %msg.sender,
+                has_image = msg.has_image_parts(),
+                "WhatsApp → canonical runtime",
             );
+
             if let Err(e) = handle.enqueue(msg) {
                 tracing::error!("Failed to enqueue WhatsApp message: {e}");
+                // Enqueue failed — don't count as accepted.
+            } else {
+                enqueued += 1;
             }
         }
-        // 202 Accepted: processing is async through the
-        // canonical channel runtime pipeline.
+
+        if enqueued > 0 {
+            return (
+                StatusCode::ACCEPTED,
+                Json(serde_json::json!({
+                    "status": "accepted"
+                })),
+            );
+        }
+        // All messages were duplicates or failed to enqueue.
         return (
-            StatusCode::ACCEPTED,
+            StatusCode::OK,
             Json(serde_json::json!({
-                "status": "accepted"
+                "status": "ok"
             })),
         );
     }
@@ -2075,9 +2110,10 @@ async fn handle_whatsapp_message(
     // ── Legacy fallback (no runtime handle) ───────────────
     for msg in &messages {
         tracing::info!(
-            "WhatsApp message from {}: {}",
-            msg.sender,
-            truncate_with_ellipsis(&msg.content, 50)
+            msg.id = %msg.id,
+            msg.sender = %msg.sender,
+            has_image = msg.has_image_parts(),
+            "WhatsApp → legacy path",
         );
 
         if state.auto_save {

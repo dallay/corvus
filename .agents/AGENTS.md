@@ -1,208 +1,176 @@
-# CLAUDE.md
+# AGENTS.md
+Agent operating guide for the Corvus monorepo.
+Scope: entire repository.
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## Agent Metadata
 
-## Project Overview
-
-Corvus is a multi-interface agentic platform — a Kotlin Multiplatform (KMP) monorepo with a
-high-performance Rust agent runtime, web surfaces (Astro/Vue 3), and Compose Multiplatform
-desktop/mobile apps.
-
-## Core Principles
-
-**Security First, Performance Second.** Every decision must prioritize security, then extreme
-performance. These override convenience and speed of development.
-
-- Never trust user input; parameterized queries only; principle of least privilege
-- Optimize for algorithmic complexity, avoid unnecessary allocations, profile before optimizing
-- **TDD by default**: Red → Green → Refactor for new behavior, bug fixes, risky refactors
-- **No `!!` operator** in Kotlin; use `?.`, `?:`, `requireNotNull`
-- **No `unwrap()` in production Rust**; use `?`, `anyhow`, or `thiserror`
-
-## Build & Run Commands
-
-```bash
-# Build
-make build              # Full build with tests
-make build-fast         # Build without tests
-make run                # Run Compose desktop app
-
-# Testing — Kotlin
-make test               # All Gradle tests
-make test-app           # Desktop app tests only
-make test-core          # Core KMP module tests
-./gradlew :composeApp:jvmTest --tests "ClassName.methodName"  # Single test
-./gradlew :composeApp:jvmTest --tests "*Pattern*"             # Pattern match
-
-# Testing — Rust
-make rust-test          # cargo test via Gradle
-cargo test --manifest-path clients/agent-runtime/Cargo.toml   # Direct cargo
-cargo test --manifest-path clients/agent-runtime/Cargo.toml --lib test_name  # Single test
-
-# Testing — Web
-make chat-test          # Chat app tests
-make dashboard-test     # Dashboard tests
-make web-test-all       # All web tests
-
-# Code Quality
-make format             # Spotless apply (Kotlin/Gradle)
-make check-format       # Spotless check
-make lint-kotlin        # Detekt
-make rust-clippy        # Clippy
-make rust-fmt           # Rust format check
-make check              # All checks (includes Rust with -PenableRustTasks=true)
-make check-all          # Full quality gate (format + lint + all tests)
-
-# Web Dev Servers
-make docs-dev           # Docs at localhost
-make chat-dev           # Chat app
-make dashboard-dev      # Dashboard
-make marketing-dev      # Marketing site
-
-# Docker Dev Environment
-make dev-up             # Start at corvus.localhost
-make dev-down           # Stop
-make dev-shell          # Enter sandbox container
+```yaml
+name: corvus-agent
+description: >-
+  Operating guide for AI agents working in the Corvus multi-interface
+  agentic platform monorepo.
+purpose: >-
+  Provide deterministic, machine-parseable instructions so that any
+  compliant AI coding agent can navigate, build, lint, test, and
+  contribute to the Corvus repository safely and effectively.
+capabilities:
+  - kotlin-multiplatform-development
+  - rust-runtime-development
+  - astro-vue-web-development
+  - gradle-build-logic
+  - ci-cd-workflow-management
+  - documentation-governance
+  - multi-language-linting-and-formatting
+  - test-driven-development
+version: "1.0"
+compatibility:
+  - claude-code
+  - opencode
+  - github-copilot
+  - cursor
 ```
 
-**Important**: Rust tasks require `-PenableRustTasks=true` when using Gradle directly. The Makefile
-handles this automatically.
+## Mission
+Corvus is a multi-interface agentic platform:
+- Kotlin Multiplatform in `clients/composeApp` and `modules/agent-core-kmp`
+- Rust runtime in `clients/agent-runtime`
+- Astro/Vue web apps in `clients/web`
+- shared Gradle build logic in `gradle/`
+Optimize in this order: security, performance, maintainability, delivery speed.
 
-## Architecture
+## Repo rule sources
+Checked for extra agent rules:
+- `.cursor/rules/`: not present
+- `.cursorrules`: not present
+- `.github/copilot-instructions.md`: not present
+Incorporated guidance from `.agents/AGENTS.md` and `clients/agent-runtime/AGENTS.md`.
 
-### 3-Tier Client Surfaces
+## Non-negotiables
+- Follow TDD by default: Red → Green → Refactor.
+- For bug fixes, add a regression test first when practical.
+- Keep patches small and local.
+- Never invent APIs, modules, commands, or file paths.
+- Do not weaken sandboxing, auth, secrets handling, or policy boundaries.
+- Do not log secrets, tokens, pairing codes, or sensitive payloads.
+- Kotlin: no `!!` in production code.
+- Rust: no `unwrap()` / `expect()` in production paths unless failure is truly impossible.
+- Prefer safe, reversible changes with a clear rollback path.
 
-```
-Tier 1: Runtime Core   → clients/agent-runtime (Rust CLI/daemon)
-Tier 2: Gateway Layer   → HTTP Gateway (web) + RustCliBridge (mobile)
-Tier 3: Client Surfaces → web/{chat,dashboard,docs,marketing}, composeApp
-```
-
-**Transport rules (mandatory)**:
-- Web clients → HTTP Gateway only
-- Mobile (composeApp) → RustCliBridge only
-- CLI operators → Direct runtime access
-
-### Rust Agent Runtime — Trait-Based Pluggability
-
-Every subsystem in `clients/agent-runtime/src/` is swappable via traits:
-
-| Directory        | Trait              | Purpose                         |
-|------------------|--------------------|---------------------------------|
-| `providers/`     | `Provider`         | LLM backends (OpenAI, Gemini…) |
-| `channels/`      | `Channel`          | Messaging (Slack, Discord, Telegram…) |
-| `observability/` | `Observer`         | Metrics/logging (Prometheus, OTLP) |
-| `tools/`         | `Tool`             | Agent tools (file, web, shell…) |
-| `memory/`        | `Memory`           | Persistence backends            |
-| `security/`      | `SecurityPolicy`   | Sandboxing                      |
-
-To add a new integration: implement the trait, register in the subsystem's `mod.rs`.
-
-### Rust Feature Flags
-
-Default features: `hardware`, `mcp-runtime`. Optional: `browser-native`, `sandbox-landlock`,
-`sandbox-bubblewrap`, `probe`, `rag-pdf`, `peripheral-rpi` (Linux only).
-
-### Cerebro Memory Module
-
-MCP-based memory service using SurrealDB (embedded). Agents interact via MCP JSON-RPC protocol
-(13 memory/session tools). Sync API for fast responses, async worker for background tasks
-(embeddings, entity extraction, graph edges).
-
-### Web Monorepo
-
-`clients/web/` is a pnpm workspace with four apps:
-- `apps/docs` — Astro Starlight documentation
-- `apps/chat` — Vue 3 chat UI
-- `apps/dashboard` — Vue 3 admin panel
-- `apps/marketing` — Astro landing pages
-- `packages/shared` — Shared utilities
-
-Formatting: Biome. Package manager: pnpm 10+.
-
-### KMP Modules
-
-- `modules/agent-core-kmp` — Core contracts library, Tier 2 bridge between mobile and runtime
-- `composeApp` — Shared Compose Multiplatform UI (Desktop + Android + iOS targets)
-
-## Code Style
-
-### Formatting (.editorconfig)
-
-- 2 spaces indent, 100 char max line, trailing commas required
-- No wildcard imports, UTF-8, trim whitespace, final newline
-
-### Kotlin Conventions
-
-- Data classes with value classes for type safety (`@JvmInline value class UserId(val value: UUID)`)
-- Sealed interfaces for result/error hierarchies
-- Expression bodies for simple functions
-- Booleans: `is`/`has` prefix
-- Tests: backtick names `` `should do something` ``
-
-### Rust Conventions
-
-- Minimal dependencies (binary size matters — release profile uses `opt-level = "z"`, `strip = true`)
-- Inline tests at bottom of each file: `#[cfg(test)] mod tests {}`
-- Trait-first design: define trait, then implement
-- Security by default: sandbox everything, allowlist over blocklist
-
-### Naming
-
-- Classes/structs: `PascalCase`
-- Functions/methods: `camelCase` (Kotlin) / `snake_case` (Rust)
-- Constants: `UPPER_SNAKE_CASE`
-- Commit scopes: `provider`, `channel`, `memory`, `security`, `runtime`, `ci`, `docs`, `tests`
-
-## Gradle Guidelines
-
-- Use `tasks.register` not `create` (lazy registration)
-- Use `configureEach` not `all`
-- Never use `afterEvaluate`
-- All dependencies via version catalog (`gradle/libs.versions.toml`)
-- Custom plugins in `gradle/build-logic/`
-- Gradle wrapper invoked via `bash ./scripts/gradlew.sh`
-
-## Git Hooks & CI
-
-Git hooks in `.githooks/` — enable with `git config core.hooksPath .githooks`:
-- **pre-commit**: runs `spotlessApply` on staged Kotlin/Gradle files, checks forbidden files,
-  validates local links with lychee
-- **pre-push**: Rust validations, `checkLocksAll`, Kover XML reports
-
-CI runs the same checks. Conventional Commits required. Squash merge preferred.
-
-## PR Guidelines
-
-- One concern per PR, prefer small PRs (XS/S/M)
-- Template is mandatory (`.github/pull_request_template.md`)
-- Every PR must include a fast rollback path
-- Changes in `security/`, runtime, and CI need stricter validation
+## Architecture essentials
+- Tier 1: `clients/agent-runtime` — Rust runtime core
+- Tier 2: gateway / bridge layer
+- Tier 3: `clients/web/*`, `clients/composeApp`, mobile hosts
+Transport rules: web clients use the HTTP gateway only; mobile clients use the Rust CLI bridge only; CLI/operator flows may access runtime capabilities directly.
+Rust extension points in `clients/agent-runtime/src/` are trait-based: `Provider`, `Channel`, `Tool`, `Memory`, `Observer`, `SecurityPolicy` under `providers/`, `channels/`, `tools/`, `memory/`, `observability/`, and `security/`.
+When adding an integration, implement the trait and register it in the module/factory entrypoint.
 
 ## Prerequisites
+JDK 21+, Node.js 22+, pnpm 10+, Rust 1.75+, Docker optional.
+Bootstrap: `make check-tools`, `make setup`, `make doctor`.
 
-- JDK 21+, Rust 1.75+, Node.js 22+, pnpm 10+
-- Docker (optional, for sandbox environment)
-- Run `make setup` for initial project setup
-- Run `make doctor` to diagnose environment health
+## Build, lint, and test commands
+Prefer `make` targets first.
 
-## Project Structure
+### Whole repo
+- `make build`, `make build-fast`, `make clean`
+- `make check`, `make check-all`, `make quick`
 
-```text
-├── clients/
-│   ├── agent-runtime/       # Rust CLI/daemon (Tier 1)
-│   ├── web/                 # pnpm monorepo: docs, chat, dashboard, marketing
-│   ├── composeApp/          # KMP Compose UI (Desktop/Mobile)
-│   ├── androidApp/          # Android host
-│   └── iosApp/              # iOS host
-├── modules/
-│   ├── agent-core-kmp/      # KMP contracts (Tier 2 bridge)
-│   ├── agent-core-rust/     # Embedded Rust AI core
-│   └── cerebro/             # MCP memory service
-├── gradle/
-│   ├── build-logic/         # Custom Gradle plugins
-│   └── libs.versions.toml   # Version catalog
-├── dev/                     # Docker dev environment
-├── openspec/                # External specs (volatile)
-└── .agents/skills/          # AI agent skill definitions
-```
+### Kotlin / Android / KMP
+- `make run`, `make android-build`, `make android-lint`
+- `make test`, `make test-app`, `make test-core`
+Single Gradle test examples:
+- `bash ./scripts/gradlew.sh :composeApp:jvmTest --tests "ClassName.methodName"`
+- `bash ./scripts/gradlew.sh :composeApp:jvmTest --tests "*Pattern*"`
+- `bash ./scripts/gradlew.sh :agent-core-kmp:jvmTest --tests "ClassName.methodName"`
+- `bash ./scripts/gradlew.sh :agent-core-kmp:jvmTest --tests "*Pattern*"`
+Module builds:
+- `bash ./scripts/gradlew.sh :composeApp:build`
+- `bash ./scripts/gradlew.sh :agent-core-kmp:build`
+- `bash ./scripts/gradlew.sh :androidApp:assembleDebug`
+
+### Rust runtime
+If using Gradle directly for Rust tasks, include `-PenableRustTasks=true`.
+- `make rust-check`, `make rust-test`, `make rust-clippy`, `make rust-fmt`, `make rust-build`
+- `make rust-test-matrix`
+Direct cargo examples:
+- `cargo test --manifest-path clients/agent-runtime/Cargo.toml`
+- `cargo test --manifest-path clients/agent-runtime/Cargo.toml --lib test_name`
+- `cargo test --manifest-path clients/agent-runtime/Cargo.toml module_name::tests::test_name`
+- `cargo clippy --manifest-path clients/agent-runtime/Cargo.toml --all-targets -- -D warnings`
+
+### Web workspace
+- `make web-install`, `make web-build-all`, `make web-test-all`, `make web-check-all`
+- `make docs-dev` / `make docs-build` / `make docs-check`
+- `make chat-dev` / `make chat-build` / `make chat-check` / `make chat-test`
+- `make dashboard-dev` / `make dashboard-build` / `make dashboard-check` / `make dashboard-test`
+- `make marketing-dev` / `make marketing-build` / `make marketing-check`
+Direct pnpm examples from `clients/web`:
+- `pnpm test`, `pnpm test:chat`, `pnpm test:dashboard`, `pnpm test:dashboard:e2e`
+Single web test examples:
+- `pnpm --dir clients/web --filter @corvus/chat test -- src/path/to/file.test.ts`
+- `pnpm --dir clients/web --filter @corvus/chat test -- src/path/to/file.test.ts -t "case name"`
+- `pnpm --dir clients/web --filter @corvus/dashboard test -- src/path/to/file.test.ts`
+- `pnpm --dir clients/web --filter @corvus/dashboard exec playwright test e2e/file.spec.ts --grep "case name"`
+
+### Formatting / lint / coverage
+- `make format`, `make check-format`, `make lint-kotlin`, `make lint-rust`, `make lint-android`
+- `make docs-check`, `make chat-check`, `make dashboard-check`, `make marketing-check`
+- `make test-coverage`, `make rust-coverage`, `make link-check`, `make link-check-local`
+
+## Code style
+Formatting and imports:
+- Follow `.editorconfig`: 2-space indentation, UTF-8, trim trailing whitespace, final newline.
+- Kotlin/KTS max line length is 100.
+- Use trailing commas where formatter expects them.
+- Do not use wildcard imports.
+- Keep import lists explicit and stable.
+- Web code follows `clients/web/biome.json`: spaces, width 100, double quotes, trailing commas `es5`.
+Kotlin:
+- Prefer strong types and small focused APIs.
+- Use value classes where they improve safety.
+- Prefer sealed interfaces/classes for result and error hierarchies.
+- Prefer expression bodies for simple functions.
+- Boolean names should read like predicates: `isX`, `hasX`, `canX`.
+- Use null-safe operators and `requireNotNull`; avoid `!!`.
+- Keep coroutines structured; do not leak scopes.
+- Tests may use backtick names: ``fun `should do something`()``.
+Rust:
+- Prefer minimal dependencies; binary size matters.
+- Avoid needless clones, allocations, and blocking operations.
+- Keep tests near code with `#[cfg(test)]` where practical.
+- Prefer trait-first extension points over hard-coded branching.
+- Use `Result`, `?`, `thiserror`, or `anyhow` appropriately.
+TypeScript / Vue / Astro:
+- Use strict typing; avoid `any` unless justified and tightly contained.
+- Prefer shared types over stringly typed objects.
+- Keep components small and composables focused.
+- Validate external data at the boundary.
+- In web surfaces, do not bypass the gateway contract.
+Naming:
+- Types/classes/structs/components: `PascalCase`
+- Kotlin functions/properties: `camelCase`
+- Rust functions/modules: `snake_case`
+- Constants: `UPPER_SNAKE_CASE`
+- Boolean fields: predicate style (`isReady`, `hasAccess`)
+
+## Error handling, dependencies, and build logic
+- Fail closed on auth, permission, sandbox, and policy checks.
+- Prefer explicit errors over silent fallbacks.
+- Validate and sanitize tool inputs.
+- Use allowlists over blocklists.
+- Preserve existing CLI and API contracts unless intentionally changing them.
+- Use `tasks.register`, not eager task creation; use `configureEach`, not `all`; never use `afterEvaluate`.
+- Keep dependencies in `gradle/libs.versions.toml` and reusable Gradle conventions in `gradle/build-logic/`.
+- Prefer the wrapper script: `bash ./scripts/gradlew.sh`.
+
+## Validation expectations
+Before declaring work done, run the smallest relevant checks:
+- docs-only: relevant formatting/checks
+- Kotlin/KMP: targeted tests + relevant lint/format
+- Rust: targeted `cargo test` + clippy if behavior changed
+- Web: target app `check` + relevant Vitest/Playwright tests
+If validation cannot be run, state exactly what was skipped and why.
+
+## Handy paths
+- `clients/agent-runtime/`, `clients/web/`, `clients/composeApp/`, `clients/androidApp/`
+- `modules/agent-core-kmp/`, `gradle/build-logic/`, `.githooks/`

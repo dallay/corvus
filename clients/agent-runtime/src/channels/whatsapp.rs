@@ -1,6 +1,7 @@
 use super::media;
 use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use uuid::Uuid;
 
 /// `WhatsApp` channel — uses `WhatsApp` Business Cloud API
@@ -202,15 +203,15 @@ impl WhatsAppChannel {
                 media::ImageRejectionReason::FetchFailed
             })?;
 
-        // 2. Download bytes with bearer auth + size limit
+        // 2. Download bytes with bearer auth + streaming size limit
         let dl_resp = self
             .client
             .get(download_url)
             .bearer_auth(&self.access_token)
             .send()
             .await
-            .map_err(|e| {
-                tracing::warn!("WhatsApp media download failed: {e}");
+            .map_err(|_| {
+                tracing::warn!("WhatsApp media download request failed");
                 media::ImageRejectionReason::FetchFailed
             })?;
 
@@ -224,13 +225,18 @@ impl WhatsAppChannel {
             media::validate_size(cl, media::MAX_IMAGE_BYTES)?;
         }
 
-        let bytes = dl_resp.bytes().await.map_err(|e| {
-            tracing::warn!("WhatsApp media download read error: {e}");
-            media::ImageRejectionReason::FetchFailed
-        })?;
-
+        // Stream body with per-chunk size validation
+        let mut bytes = Vec::new();
+        let mut stream = dl_resp.bytes_stream();
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|_| {
+                tracing::warn!("WhatsApp media download stream read error");
+                media::ImageRejectionReason::FetchFailed
+            })?;
+            bytes.extend_from_slice(&chunk);
+            media::validate_size(bytes.len() as u64, media::MAX_IMAGE_BYTES)?;
+        }
         let byte_len = bytes.len() as u64;
-        media::validate_size(byte_len, media::MAX_IMAGE_BYTES)?;
 
         // 3. Validate MIME via magic-byte sniffing
         let mime = media::validate_mime(declared_mime, &bytes)?;

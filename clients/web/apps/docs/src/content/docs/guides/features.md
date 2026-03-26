@@ -51,7 +51,7 @@ in this repository.
 
 - [x] **Static Website**: Built with Astro and Starlight.
 - [x] **API Docs**: Generated with Dokka (Kotlin/Java).
-- [x] **README/AGENTS**: In-repo documentation for developers and agents.
+- [x] **README/CLAUDE**: In-repo documentation for developers and agents.
 
 ## Deployment & Distribution
 

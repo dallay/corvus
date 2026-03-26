@@ -34,7 +34,13 @@ function getSidebarSlugs() {
   return slugs;
 }
 
-const sidebarSlugs = getSidebarSlugs();
+let _sidebarSlugs;
+function lazyGetSidebarSlugs() {
+  if (!_sidebarSlugs) {
+    _sidebarSlugs = getSidebarSlugs();
+  }
+  return _sidebarSlugs;
+}
 
 function walk(directory) {
   const entries = readdirSync(directory, { withFileTypes: true });
@@ -107,7 +113,8 @@ function getChangedDocsFiles() {
       .filter(Boolean)
       .filter((file) => /\.(md|mdx)$/.test(file))
       .map((file) => path.resolve(repoRoot, file));
-  } catch {
+  } catch (error) {
+    console.error("Failed to determine changed docs files via git, falling back to full walk:", error);
     return walk(docsRoot);
   }
 }
@@ -200,7 +207,13 @@ function collectReferencedSlugs() {
   return referenced;
 }
 
-const referencedSlugs = collectReferencedSlugs();
+let _referencedSlugs;
+function lazyGetReferencedSlugs() {
+  if (!_referencedSlugs) {
+    _referencedSlugs = collectReferencedSlugs();
+  }
+  return _referencedSlugs;
+}
 
 function getParityPartnerPath(filePath) {
   const relativePath = path.relative(docsRoot, filePath);
@@ -272,7 +285,7 @@ function validateOrphanStatus(filePath, metadata) {
 
   const slug = getRouteSlug(filePath, metadata);
 
-  if (sidebarSlugs.has(slug) || referencedSlugs.has(slug)) {
+  if (lazyGetSidebarSlugs().has(slug) || lazyGetReferencedSlugs().has(slug)) {
     return [];
   }
 
@@ -321,12 +334,12 @@ function validateFile(filePath) {
     errors.push(`${relativePath}: invalid lastReviewed '${lastReviewed}', expected YYYY-MM-DD`);
   } else {
     const reviewedAt = new Date(`${lastReviewed}T00:00:00Z`);
-    const ageMs = Date.now() - reviewedAt.getTime();
-    const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
 
     if (Number.isNaN(reviewedAt.getTime())) {
       errors.push(`${relativePath}: invalid lastReviewed '${lastReviewed}'`);
     } else if (status !== "deprecated") {
+      const ageMs = Date.now() - reviewedAt.getTime();
+      const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
       const maxReviewAgeDays = maxReviewAgeDaysByDocType[docType] ?? 90;
       if (ageDays > maxReviewAgeDays) {
         errors.push(

@@ -19,7 +19,7 @@ A detailed look at the organization of the **Corvus** repository.
 - `Makefile`: Standardized commands for common tasks.
 - `settings.gradle.kts`: Defines the project hierarchy and includes modules.
 - `README.md`: High-level project overview.
-- `AGENTS.md`: Specialized instructions for AI agents.
+- `CLAUDE.md`: Specialized instructions for AI agents.
 
 ## The `clients` Directory
 

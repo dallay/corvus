@@ -23,6 +23,9 @@ pub struct PrometheusObserver {
     tokens_used: prometheus::IntGauge,
     active_sessions: GaugeVec,
     queue_depth: GaugeVec,
+
+    // Image ingress
+    image_ingress: IntCounterVec,
 }
 
 impl PrometheusObserver {
@@ -102,7 +105,17 @@ impl PrometheusObserver {
         )
         .expect("valid metric");
 
+        let image_ingress = IntCounterVec::new(
+            prometheus::Opts::new(
+                "corvus_image_ingress_total",
+                "Image ingress lifecycle events",
+            ),
+            &["channel", "outcome", "reason"],
+        )
+        .expect("valid metric");
+
         // Register all metrics
+        registry.register(Box::new(image_ingress.clone())).ok();
         registry.register(Box::new(agent_starts.clone())).ok();
         registry.register(Box::new(tool_calls.clone())).ok();
         registry.register(Box::new(channel_messages.clone())).ok();
@@ -128,6 +141,7 @@ impl PrometheusObserver {
             tokens_used,
             active_sessions,
             queue_depth,
+            image_ingress,
         }
     }
 
@@ -173,8 +187,18 @@ impl Observer for PrometheusObserver {
             | ObserverEvent::MissionCheckpointProgress { .. }
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. }
-            | ObserverEvent::ImageIngress(_) => {}
+            | ObserverEvent::MissionTerminated { .. } => {}
+            ObserverEvent::ImageIngress(evt) => {
+                let outcome = format!("{:?}", evt.outcome);
+                let reason = evt
+                    .reason
+                    .as_ref()
+                    .map(|r| r.to_string())
+                    .unwrap_or_default();
+                self.image_ingress
+                    .with_label_values(&[&evt.channel, &outcome, &reason])
+                    .inc();
+            }
             ObserverEvent::ToolCall {
                 tool,
                 duration,

@@ -1,4 +1,4 @@
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
@@ -349,17 +349,18 @@ impl Channel for QQChannel {
 
                                         let chat_id = format!("user:{user_openid}");
 
+                                        let content_string = content.to_string();
                                         let channel_msg = ChannelMessage {
                                             id: Uuid::new_v4().to_string(),
                                             sender: user_openid.to_string(),
                                             reply_target: chat_id,
-                                            content: content.to_string(),
+                                            content: content_string.clone(),
                                             channel: "qq".to_string(),
                                             timestamp: std::time::SystemTime::now()
                                                 .duration_since(std::time::UNIX_EPOCH)
                                                 .unwrap_or_default()
                                                 .as_secs(),
-                                                                        parts: vec![],
+                                            parts: vec![ContentPart::Text { text: content_string }],
             };
 
                                         if tx.send(channel_msg).await.is_err() {
@@ -388,17 +389,18 @@ impl Channel for QQChannel {
                                         let group_openid = d.get("group_openid").and_then(|g| g.as_str()).unwrap_or("unknown");
                                         let chat_id = format!("group:{group_openid}");
 
+                                        let content_string = content.to_string();
                                         let channel_msg = ChannelMessage {
                                             id: Uuid::new_v4().to_string(),
                                             sender: author_id.to_string(),
                                             reply_target: chat_id,
-                                            content: content.to_string(),
+                                            content: content_string.clone(),
                                             channel: "qq".to_string(),
                                             timestamp: std::time::SystemTime::now()
                                                 .duration_since(std::time::UNIX_EPOCH)
                                                 .unwrap_or_default()
                                                 .as_secs(),
-                                                                        parts: vec![],
+                                            parts: vec![ContentPart::Text { text: content_string }],
             };
 
                                         if tx.send(channel_msg).await.is_err() {

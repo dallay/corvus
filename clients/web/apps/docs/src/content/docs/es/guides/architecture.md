@@ -30,7 +30,7 @@ centralizada y separación clara entre clientes y módulos compartidos.
 │   ├── versions/               # Gestión de versiones
 │   ├── libs.versions.toml      # Catálogo de versiones
 │   └── wrapper/                # Wrapper de Gradle
-├── docs/                       # Documentación (Astro + Starlight)
+├── clients/web/apps/docs/      # Documentación (Astro + Starlight)
 ├── Makefile                    # Interfaz de comandos estandarizada
 └── settings.gradle.kts         # Configuración global del proyecto
 ```

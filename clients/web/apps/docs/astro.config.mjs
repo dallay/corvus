@@ -158,7 +158,7 @@ export default defineConfig({
             },
             {
               label: "Cerebro Migration",
-              slug: "guides/cerebro/migration-guide",
+              slug: "guides/cerebro/migration",
               translations: {
                 es: "Migración a Cerebro",
               },

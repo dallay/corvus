@@ -30,7 +30,7 @@ clear separation between clients and shared modules.
 │   ├── versions/               # Version management
 │   ├── libs.versions.toml      # Version catalog
 │   └── wrapper/                # Gradle wrapper
-├── docs/                       # Documentation (Astro + Starlight)
+├── clients/web/apps/docs/      # Documentation (Astro + Starlight)
 ├── Makefile                    # Standardized command interface
 └── settings.gradle.kts         # Global project configuration
 ```

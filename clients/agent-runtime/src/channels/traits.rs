@@ -39,6 +39,9 @@ impl ChannelMessage {
     /// Caption text for image parts is emitted as a text block; no
     /// synthetic placeholders like `[image]` are inserted.
     pub fn text_projection(&self) -> String {
+        if self.parts.is_empty() {
+            return self.content.clone();
+        }
         let blocks: Vec<&str> = self
             .parts
             .iter()

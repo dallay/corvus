@@ -1,4 +1,4 @@
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use prost::Message as ProstMessage;
@@ -451,13 +451,13 @@ impl LarkChannel {
                                     id: Uuid::new_v4().to_string(),
                                     sender: lark_msg.chat_id.clone(),
                                     reply_target: lark_msg.chat_id.clone(),
-                                    content: text,
+                                    content: text.clone(),
                                     channel: "lark".to_string(),
                                     timestamp: std::time::SystemTime::now()
                                         .duration_since(std::time::UNIX_EPOCH)
                                         .unwrap_or_default()
                                         .as_secs(),
-                                                        parts: vec![],
+                                    parts: vec![ContentPart::Text { text }],
             };
 
                                 tracing::debug!("Lark WS: message in {}", lark_msg.chat_id);
@@ -616,10 +616,10 @@ impl LarkChannel {
             id: Uuid::new_v4().to_string(),
             sender: chat_id.to_string(),
             reply_target: chat_id.to_string(),
-            content: text,
+            content: text.clone(),
             channel: "lark".to_string(),
             timestamp,
-            parts: vec![],
+            parts: vec![ContentPart::Text { text }],
         });
 
         messages

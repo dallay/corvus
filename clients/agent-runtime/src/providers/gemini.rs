@@ -366,28 +366,45 @@ impl Provider for GeminiProvider {
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("Gemini API key not found for image request"))?;
 
-        // Build user content parts: text parts first, then image parts.
-        let mut user_parts: Vec<Part> = Vec::new();
+        // Build contents from all messages (excluding system).
+        let last_user_idx = request.messages.iter().rposition(|m| m.role == "user");
+        let mut contents: Vec<Content> = Vec::new();
 
-        // Extract text from the last user message.
-        if let Some(user_msg) = request.messages.iter().rfind(|m| m.role == "user") {
-            if !user_msg.content.is_empty() {
-                user_parts.push(Part::Text {
-                    text: user_msg.content.clone(),
+        for (idx, msg) in request.messages.iter().enumerate() {
+            if msg.role == "system" {
+                continue; // handled separately as system_instruction
+            }
+
+            let mut parts = Vec::new();
+            if !msg.content.is_empty() {
+                parts.push(Part::Text {
+                    text: msg.content.clone(),
                 });
             }
-        }
 
-        // Add image parts as inline_data.
-        for image in request.images {
-            let bytes = std::fs::read(&image.temp_path)
-                .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
-            let b64 = base64_encode(&bytes);
-            user_parts.push(Part::InlineData {
-                inline_data: InlineData {
-                    mime_type: image.mime_type.as_str().to_string(),
-                    data: b64,
-                },
+            // Attach images only to the last user message.
+            if msg.role == "user" && Some(idx) == last_user_idx {
+                for image in request.images {
+                    let bytes = std::fs::read(&image.temp_path)
+                        .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
+                    let b64 = base64_encode(&bytes);
+                    parts.push(Part::InlineData {
+                        inline_data: InlineData {
+                            mime_type: image.mime_type.as_str().to_string(),
+                            data: b64,
+                        },
+                    });
+                }
+            }
+
+            let role = match msg.role.as_str() {
+                "assistant" => "model",
+                other => other,
+            };
+
+            contents.push(Content {
+                role: Some(role.to_string()),
+                parts,
             });
         }
 
@@ -403,10 +420,7 @@ impl Provider for GeminiProvider {
             });
 
         let gemini_request = GenerateContentRequest {
-            contents: vec![Content {
-                role: Some("user".to_string()),
-                parts: user_parts,
-            }],
+            contents,
             system_instruction,
             generation_config: GenerationConfig {
                 temperature,
@@ -422,14 +436,19 @@ impl Provider for GeminiProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Gemini API error ({status}): {error_text}");
+            // Do not surface raw response body (may echo credentials or leak internals).
+            let _ = response.text().await;
+            anyhow::bail!("Gemini API error ({status}): request failed");
         }
 
         let result: GenerateContentResponse = response.json().await?;
 
         if let Some(err) = result.error {
-            anyhow::bail!("Gemini API error: {}", err.message);
+            // Surface only the status-level message; do not echo raw body/URL.
+            anyhow::bail!(
+                "Gemini API returned an error: {}",
+                super::sanitize_api_error(&err.message)
+            );
         }
 
         let text = result
@@ -492,15 +511,19 @@ impl Provider for GeminiProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Gemini API error ({status}): {error_text}");
+            // Do not surface raw response body (may echo credentials or leak internals).
+            let _ = response.text().await;
+            anyhow::bail!("Gemini API error ({status}): request failed");
         }
 
         let result: GenerateContentResponse = response.json().await?;
 
         // Check for API error in response body
         if let Some(err) = result.error {
-            anyhow::bail!("Gemini API error: {}", err.message);
+            anyhow::bail!(
+                "Gemini API returned an error: {}",
+                super::sanitize_api_error(&err.message)
+            );
         }
 
         // Extract text from response

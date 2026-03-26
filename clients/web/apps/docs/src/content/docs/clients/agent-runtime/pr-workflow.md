@@ -6,6 +6,7 @@ status: canonical
 lastReviewed: 2026-03-26
 appliesTo: main
 docType: runbook
+translationPending: ["es"]
 ---
 
 # Corvus PR Workflow (High-Volume Collaboration)

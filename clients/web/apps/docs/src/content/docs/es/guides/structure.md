@@ -15,11 +15,11 @@ Una mirada detallada a la organización del repositorio **Corvus**.
 - `clients/`: Aplicaciones cliente (Android, iOS, Web, runtime del agente).
 - `modules/`: Módulos compartidos y reutilizables (core del agente).
 - `gradle/`: Configuraciones específicas de Gradle y lógica de construcción.
-- `docs/`: Documentación del proyecto (sitio Astro + Starlight).
+- `clients/web/apps/docs/src/content/docs/`: Documentación del proyecto (sitio Astro + Starlight).
 - `Makefile`: Comandos estandarizados para tareas comunes.
 - `settings.gradle.kts`: Define la jerarquía del proyecto e incluye los módulos.
 - `README.md`: Descripción general del proyecto a alto nivel.
-- `AGENTS.md`: Instrucciones especializadas para agentes de IA.
+- `CLAUDE.md`: Instrucciones especializadas para agentes de IA.
 
 ## El Directorio `clients`
 
@@ -49,9 +49,9 @@ Contiene todas las aplicaciones cliente que consumen los módulos compartidos:
   consistentes.
 - **`configs/`**: Configuraciones adicionales de herramientas (Detekt, Spotless, etc.).
 
-## El Directorio `docs`
+## Documentación
 
-- **`docs/`**: Documentación en inglés (locale raíz).
+- **`clients/web/apps/docs/src/content/docs/`**: Documentación en inglés (locale raíz).
   - `index.mdx`: Página de inicio.
   - `guides/`: Guías detalladas del proyecto.
-- **`docs/es/`**: Documentación en español.
+- **`clients/web/apps/docs/src/content/docs/es/`**: Documentación en español.

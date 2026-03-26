@@ -319,10 +319,18 @@ impl ReliableProvider {
 #[async_trait]
 impl Provider for ReliableProvider {
     fn capabilities(&self) -> super::traits::ProviderCapabilities {
-        self.providers
-            .first()
-            .map(|(_, p)| p.capabilities())
-            .unwrap_or_default()
+        let mut merged = super::traits::ProviderCapabilities::default();
+        for (_, provider) in &self.providers {
+            let caps = provider.capabilities();
+            merged.native_tool_calling = merged.native_tool_calling || caps.native_tool_calling;
+            merged.image_input = merged.image_input || caps.image_input;
+            for form in caps.image_transport_forms {
+                if !merged.image_transport_forms.contains(&form) {
+                    merged.image_transport_forms.push(form);
+                }
+            }
+        }
+        merged
     }
 
     async fn warmup(&self) -> anyhow::Result<()> {
@@ -395,8 +403,8 @@ impl Provider for ReliableProvider {
                 .await;
         }
 
-        // Image turn: only try image-capable providers. Never silently
-        // fall back to a text-only provider for an image turn.
+        // Image turn: only try image-capable providers with retry/backoff.
+        // Never silently fall back to a text-only provider for an image turn.
         let models = self.model_chain(model);
         let mut failures = Vec::new();
 
@@ -411,15 +419,24 @@ impl Provider for ReliableProvider {
                     continue;
                 }
 
-                match provider.chat(request, current_model, temperature).await {
+                let result = self
+                    .execute_single_provider(
+                        name.as_str(),
+                        provider.as_ref(),
+                        current_model,
+                        &mut |p, m| p.chat(request, m, temperature),
+                    )
+                    .await;
+
+                match result {
                     Ok(resp) => return Ok(resp),
                     Err(e) => {
                         tracing::warn!(
                             provider = name.as_str(),
                             model = *current_model,
-                            "Image-capable provider failed: {e}"
+                            "Image-capable provider exhausted retries"
                         );
-                        failures.push(format!("provider={name} model={current_model}"));
+                        failures.push(e);
                     }
                 }
             }
@@ -1161,6 +1178,19 @@ mod tests {
             }
         }
 
+        async fn chat(
+            &self,
+            _request: super::super::traits::ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<super::super::traits::ChatResponse> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(super::super::traits::ChatResponse {
+                text: Some(self.response.to_string()),
+                tool_calls: Vec::new(),
+            })
+        }
+
         async fn chat_with_system(
             &self,
             _system_prompt: Option<&str>,
@@ -1308,7 +1338,7 @@ mod tests {
     }
 
     #[test]
-    fn reliable_capabilities_delegates_to_first_provider() {
+    fn reliable_capabilities_merges_all_providers() {
         let provider = ReliableProvider::new(
             vec![(
                 "p".into(),
