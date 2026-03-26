@@ -1,5 +1,11 @@
 ---
 title: Arquitectura
+description: Arquitectura de alto nivel del repositorio, incluyendo límites entre módulos, lógica centralizada de build y separación entre clientes y código compartido.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: architecture
 ---
 
 El proyecto sigue una arquitectura modular con un fuerte énfasis en la lógica de construcción
@@ -24,7 +30,7 @@ centralizada y separación clara entre clientes y módulos compartidos.
 │   ├── versions/               # Gestión de versiones
 │   ├── libs.versions.toml      # Catálogo de versiones
 │   └── wrapper/                # Wrapper de Gradle
-├── docs/                       # Documentación (Astro + Starlight)
+├── clients/web/apps/docs/      # Documentación (Astro + Starlight)
 ├── Makefile                    # Interfaz de comandos estandarizada
 └── settings.gradle.kts         # Configuración global del proyecto
 ```

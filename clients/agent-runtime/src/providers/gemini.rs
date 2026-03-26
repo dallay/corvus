@@ -5,10 +5,16 @@
 
 use crate::providers::traits::Provider;
 use async_trait::async_trait;
+use base64::Engine;
 use directories::UserDirs;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+/// Encode bytes as standard base64.
+fn base64_encode(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
 
 /// Gemini provider supporting multiple authentication methods.
 pub struct GeminiProvider {
@@ -87,9 +93,17 @@ struct Content {
     parts: Vec<Part>,
 }
 
-#[derive(Debug, Serialize)]
-struct Part {
-    text: String,
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+enum Part {
+    Text { text: String },
+    InlineData { inline_data: InlineData },
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct InlineData {
+    mime_type: String,
+    data: String,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -297,24 +311,12 @@ impl GeminiProvider {
                         .iter()
                         .map(|c| Content {
                             role: c.role.clone(),
-                            parts: c
-                                .parts
-                                .iter()
-                                .map(|p| Part {
-                                    text: p.text.clone(),
-                                })
-                                .collect(),
+                            parts: c.parts.to_vec(),
                         })
                         .collect(),
                     system_instruction: request.system_instruction.as_ref().map(|si| Content {
                         role: si.role.clone(),
-                        parts: si
-                            .parts
-                            .iter()
-                            .map(|p| Part {
-                                text: p.text.clone(),
-                            })
-                            .collect(),
+                        parts: si.parts.to_vec(),
                     }),
                 };
                 self.client
@@ -329,6 +331,138 @@ impl GeminiProvider {
 
 #[async_trait]
 impl Provider for GeminiProvider {
+    fn capabilities(&self) -> crate::providers::traits::ProviderCapabilities {
+        crate::providers::traits::ProviderCapabilities {
+            native_tool_calling: false,
+            image_input: true,
+            image_transport_forms: vec![crate::channels::media::ImageTransportForm::InlineBytes],
+        }
+    }
+
+    async fn chat(
+        &self,
+        request: crate::providers::traits::ChatRequest<'_>,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<crate::providers::traits::ChatResponse> {
+        if request.images.is_empty() {
+            // Text-only: delegate to default trait implementation.
+            let text = self
+                .chat_with_history(request.messages, model, temperature)
+                .await?;
+            return Ok(crate::providers::traits::ChatResponse {
+                text: Some(text),
+                tool_calls: Vec::new(),
+            });
+        }
+
+        // Image turn: build multimodal Gemini request.
+        if !self.capabilities().supports_image_input() {
+            anyhow::bail!("Gemini provider does not support image input");
+        }
+
+        let auth = self
+            .auth
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Gemini API key not found for image request"))?;
+
+        // Build contents from all messages (excluding system).
+        let last_user_idx = request.messages.iter().rposition(|m| m.role == "user");
+        let mut contents: Vec<Content> = Vec::new();
+
+        for (idx, msg) in request.messages.iter().enumerate() {
+            if msg.role == "system" {
+                continue; // handled separately as system_instruction
+            }
+
+            let mut parts = Vec::new();
+            if !msg.content.is_empty() {
+                parts.push(Part::Text {
+                    text: msg.content.clone(),
+                });
+            }
+
+            // Attach images only to the last user message.
+            if msg.role == "user" && Some(idx) == last_user_idx {
+                for image in request.images {
+                    let bytes = std::fs::read(&image.temp_path)
+                        .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
+                    let b64 = base64_encode(&bytes);
+                    parts.push(Part::InlineData {
+                        inline_data: InlineData {
+                            mime_type: image.mime_type.as_str().to_string(),
+                            data: b64,
+                        },
+                    });
+                }
+            }
+
+            let role = match msg.role.as_str() {
+                "assistant" => "model",
+                other => other,
+            };
+
+            contents.push(Content {
+                role: Some(role.to_string()),
+                parts,
+            });
+        }
+
+        let system_instruction = request
+            .messages
+            .iter()
+            .find(|m| m.role == "system")
+            .map(|m| Content {
+                role: None,
+                parts: vec![Part::Text {
+                    text: m.content.clone(),
+                }],
+            });
+
+        let gemini_request = GenerateContentRequest {
+            contents,
+            system_instruction,
+            generation_config: GenerationConfig {
+                temperature,
+                max_output_tokens: 8192,
+            },
+        };
+
+        let url = Self::build_generate_content_url(model, auth);
+        let response = self
+            .build_generate_content_request(auth, &url, &gemini_request, model)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            // Do not surface raw response body (may echo credentials or leak internals).
+            let _ = response.text().await;
+            anyhow::bail!("Gemini API error ({status}): request failed");
+        }
+
+        let result: GenerateContentResponse = response.json().await?;
+
+        if let Some(err) = result.error {
+            // Surface only the status-level message; do not echo raw body/URL.
+            anyhow::bail!(
+                "Gemini API returned an error: {}",
+                super::sanitize_api_error(&err.message)
+            );
+        }
+
+        let text = result
+            .candidates
+            .and_then(|c| c.into_iter().next())
+            .and_then(|c| c.content.parts.into_iter().next())
+            .and_then(|p| p.text);
+
+        Ok(crate::providers::traits::ChatResponse {
+            text,
+            tool_calls: Vec::new(),
+        })
+    }
+
     async fn chat_with_system(
         &self,
         system_prompt: Option<&str>,
@@ -349,7 +483,7 @@ impl Provider for GeminiProvider {
         // Build request
         let system_instruction = system_prompt.map(|sys| Content {
             role: None,
-            parts: vec![Part {
+            parts: vec![Part::Text {
                 text: sys.to_string(),
             }],
         });
@@ -357,7 +491,7 @@ impl Provider for GeminiProvider {
         let request = GenerateContentRequest {
             contents: vec![Content {
                 role: Some("user".to_string()),
-                parts: vec![Part {
+                parts: vec![Part::Text {
                     text: message.to_string(),
                 }],
             }],
@@ -377,15 +511,19 @@ impl Provider for GeminiProvider {
 
         if !response.status().is_success() {
             let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            anyhow::bail!("Gemini API error ({status}): {error_text}");
+            // Do not surface raw response body (may echo credentials or leak internals).
+            let _ = response.text().await;
+            anyhow::bail!("Gemini API error ({status}): request failed");
         }
 
         let result: GenerateContentResponse = response.json().await?;
 
         // Check for API error in response body
         if let Some(err) = result.error {
-            anyhow::bail!("Gemini API error: {}", err.message);
+            anyhow::bail!(
+                "Gemini API returned an error: {}",
+                super::sanitize_api_error(&err.message)
+            );
         }
 
         // Extract text from response
@@ -541,7 +679,7 @@ mod tests {
         let body = GenerateContentRequest {
             contents: vec![Content {
                 role: Some("user".into()),
-                parts: vec![Part {
+                parts: vec![Part::Text {
                     text: "hello".into(),
                 }],
             }],
@@ -577,7 +715,7 @@ mod tests {
         let body = GenerateContentRequest {
             contents: vec![Content {
                 role: Some("user".into()),
-                parts: vec![Part {
+                parts: vec![Part::Text {
                     text: "hello".into(),
                 }],
             }],
@@ -601,13 +739,13 @@ mod tests {
         let request = GenerateContentRequest {
             contents: vec![Content {
                 role: Some("user".to_string()),
-                parts: vec![Part {
+                parts: vec![Part::Text {
                     text: "Hello".to_string(),
                 }],
             }],
             system_instruction: Some(Content {
                 role: None,
-                parts: vec![Part {
+                parts: vec![Part::Text {
                     text: "You are helpful".to_string(),
                 }],
             }),
@@ -634,7 +772,7 @@ mod tests {
             },
             contents: vec![Content {
                 role: Some("user".to_string()),
-                parts: vec![Part {
+                parts: vec![Part::Text {
                     text: "Hello".to_string(),
                 }],
             }],
@@ -696,5 +834,76 @@ mod tests {
         let provider = GeminiProvider::new(None);
         let result = provider.warmup().await;
         assert!(result.is_ok());
+    }
+
+    // ── §2.3 Gemini multimodal serialization tests ───────────
+
+    #[test]
+    fn gemini_capabilities_declare_image_support() {
+        let provider = GeminiProvider::new(Some("test-key"));
+        let caps = Provider::capabilities(&provider);
+        assert!(caps.image_input);
+        assert!(caps.supports_image_input());
+        assert_eq!(
+            caps.image_transport_forms,
+            vec![crate::channels::media::ImageTransportForm::InlineBytes]
+        );
+    }
+
+    #[test]
+    fn part_text_serializes_as_text_object() {
+        let part = Part::Text {
+            text: "Hello".to_string(),
+        };
+        let json = serde_json::to_string(&part).unwrap();
+        assert!(json.contains("\"text\":\"Hello\""));
+        assert!(!json.contains("inline_data"));
+    }
+
+    #[test]
+    fn part_inline_data_serializes_as_inline_data_object() {
+        let part = Part::InlineData {
+            inline_data: InlineData {
+                mime_type: "image/jpeg".to_string(),
+                data: "AQID".to_string(), // base64 of [1,2,3]
+            },
+        };
+        let json = serde_json::to_string(&part).unwrap();
+        assert!(json.contains("\"inline_data\""));
+        assert!(json.contains("\"mime_type\":\"image/jpeg\""));
+        assert!(json.contains("\"data\":\"AQID\""));
+        assert!(!json.contains("\"text\""));
+    }
+
+    #[test]
+    fn multimodal_request_serializes_text_and_image_parts() {
+        let request = GenerateContentRequest {
+            contents: vec![Content {
+                role: Some("user".to_string()),
+                parts: vec![
+                    Part::Text {
+                        text: "Describe this image".to_string(),
+                    },
+                    Part::InlineData {
+                        inline_data: InlineData {
+                            mime_type: "image/png".to_string(),
+                            data: "iVBOR".to_string(),
+                        },
+                    },
+                ],
+            }],
+            system_instruction: None,
+            generation_config: GenerationConfig {
+                temperature: 0.7,
+                max_output_tokens: 8192,
+            },
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        // Must contain both a text part and an inline_data part.
+        assert!(json.contains("\"text\":\"Describe this image\""));
+        assert!(json.contains("\"inline_data\""));
+        assert!(json.contains("\"mime_type\":\"image/png\""));
+        assert!(json.contains("\"data\":\"iVBOR\""));
     }
 }

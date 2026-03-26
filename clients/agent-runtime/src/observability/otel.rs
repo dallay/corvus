@@ -27,6 +27,7 @@ pub struct OtelObserver {
     tokens_used: Counter<u64>,
     active_sessions: Gauge<u64>,
     queue_depth: Gauge<u64>,
+    image_ingress: Counter<u64>,
 }
 
 impl OtelObserver {
@@ -150,6 +151,11 @@ impl OtelObserver {
             .with_description("Current message queue depth")
             .build();
 
+        let image_ingress = meter
+            .u64_counter("corvus.image.ingress")
+            .with_description("Image ingress lifecycle events")
+            .build();
+
         Ok(Self {
             tracer_provider,
             meter_provider: meter_provider_clone,
@@ -166,6 +172,7 @@ impl OtelObserver {
             tokens_used,
             active_sessions,
             queue_depth,
+            image_ingress,
         })
     }
 }
@@ -192,6 +199,21 @@ impl Observer for OtelObserver {
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
             | ObserverEvent::MissionTerminated { .. } => {}
+            ObserverEvent::ImageIngress(evt) => {
+                let reason_str = evt
+                    .reason
+                    .as_ref()
+                    .map(|r| r.to_string())
+                    .unwrap_or_default();
+                self.image_ingress.add(
+                    1,
+                    &[
+                        KeyValue::new("channel", evt.channel.clone()),
+                        KeyValue::new("outcome", format!("{:?}", evt.outcome)),
+                        KeyValue::new("reason", reason_str),
+                    ],
+                );
+            }
             ObserverEvent::LlmResponse {
                 provider,
                 model,

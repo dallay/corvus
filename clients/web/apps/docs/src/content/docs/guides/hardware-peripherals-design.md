@@ -1,5 +1,11 @@
 ---
 title: Hardware Peripherals Design
+description: Architecture and design notes for Corvus hardware-control scenarios across MCUs, SBCs, and runtime-generated peripheral logic.
+owner: team-platform
+status: draft
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: architecture
 ---
 
 Corvus enables microcontrollers (MCUs) and single-board computers (SBCs) to dynamically

@@ -1,5 +1,11 @@
 ---
 title: "Mapa de Workflows de CI"
+description: Mapa de referencia de los workflows de GitHub, sus responsabilidades, condiciones de disparo y si deben bloquear merges.
+owner: team-runtime
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 # Mapa de Workflows de CI

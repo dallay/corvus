@@ -1,4 +1,4 @@
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
@@ -266,148 +266,152 @@ impl Channel for QQChannel {
 
         loop {
             tokio::select! {
-                _ = hb_rx.recv() => {
-                    let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
-                    let hb = json!({"op": 1, "d": d});
-                    if write.send(Message::Text(hb.to_string())).await.is_err() {
-                        break;
-                    }
-                }
-                msg = read.next() => {
-                    let msg = match msg {
-                        Some(Ok(Message::Text(t))) => t,
-                        Some(Ok(Message::Close(_))) | None => break,
-                        _ => continue,
-                    };
-
-                    let event: serde_json::Value = match serde_json::from_str(&msg) {
-                        Ok(e) => e,
-                        Err(_) => continue,
-                    };
-
-                    // Track sequence number
-                    if let Some(s) = event.get("s").and_then(serde_json::Value::as_i64) {
-                        sequence = s;
-                    }
-
-                    let op = event.get("op").and_then(serde_json::Value::as_u64).unwrap_or(0);
-
-                    match op {
-                        // Server requests immediate heartbeat
-                        1 => {
-                            let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
-                            let hb = json!({"op": 1, "d": d});
-                            if write.send(Message::Text(hb.to_string())).await.is_err() {
-                                break;
+                            _ = hb_rx.recv() => {
+                                let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
+                                let hb = json!({"op": 1, "d": d});
+                                if write.send(Message::Text(hb.to_string())).await.is_err() {
+                                    break;
+                                }
                             }
-                            continue;
+                            msg = read.next() => {
+                                let msg = match msg {
+                                    Some(Ok(Message::Text(t))) => t,
+                                    Some(Ok(Message::Close(_))) | None => break,
+                                    _ => continue,
+                                };
+
+                                let event: serde_json::Value = match serde_json::from_str(&msg) {
+                                    Ok(e) => e,
+                                    Err(_) => continue,
+                                };
+
+                                // Track sequence number
+                                if let Some(s) = event.get("s").and_then(serde_json::Value::as_i64) {
+                                    sequence = s;
+                                }
+
+                                let op = event.get("op").and_then(serde_json::Value::as_u64).unwrap_or(0);
+
+                                match op {
+                                    // Server requests immediate heartbeat
+                                    1 => {
+                                        let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
+                                        let hb = json!({"op": 1, "d": d});
+                                        if write.send(Message::Text(hb.to_string())).await.is_err() {
+                                            break;
+                                        }
+                                        continue;
+                                    }
+                                    // Reconnect
+                                    7 => {
+                                        tracing::warn!("QQ: received Reconnect (op 7)");
+                                        break;
+                                    }
+                                    // Invalid Session
+                                    9 => {
+                                        tracing::warn!("QQ: received Invalid Session (op 9)");
+                                        break;
+                                    }
+                                    _ => {}
+                                }
+
+                                // Only process dispatch events (op 0)
+                                if op != 0 {
+                                    continue;
+                                }
+
+                                let event_type = event.get("t").and_then(|t| t.as_str()).unwrap_or("");
+                                let d = match event.get("d") {
+                                    Some(d) => d,
+                                    None => continue,
+                                };
+
+                                match event_type {
+                                    "C2C_MESSAGE_CREATE" => {
+                                        let msg_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                                        if self.is_duplicate(msg_id).await {
+                                            continue;
+                                        }
+
+                                        let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("").trim();
+                                        if content.is_empty() {
+                                            continue;
+                                        }
+
+                                        let author_id = d.get("author").and_then(|a| a.get("id")).and_then(|i| i.as_str()).unwrap_or("unknown");
+                                        // For QQ, user_openid is the identifier
+                                        let user_openid = d.get("author").and_then(|a| a.get("user_openid")).and_then(|u| u.as_str()).unwrap_or(author_id);
+
+                                        if !self.is_user_allowed(user_openid) {
+                                            tracing::warn!("QQ: ignoring C2C message from unauthorized user: {user_openid}");
+                                            continue;
+                                        }
+
+                                        let chat_id = format!("user:{user_openid}");
+
+                                        let content_string = content.to_string();
+                                        let channel_msg = ChannelMessage {
+                                            id: Uuid::new_v4().to_string(),
+                                            sender: user_openid.to_string(),
+                                            reply_target: chat_id,
+                                            content: content_string.clone(),
+                                            channel: "qq".to_string(),
+                                            timestamp: std::time::SystemTime::now()
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .unwrap_or_default()
+                                                .as_secs(),
+                                            parts: vec![ContentPart::Text { text: content_string }],
+            };
+
+                                        if tx.send(channel_msg).await.is_err() {
+                                            tracing::warn!("QQ: message channel closed");
+                                            break;
+                                        }
+                                    }
+                                    "GROUP_AT_MESSAGE_CREATE" => {
+                                        let msg_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                                        if self.is_duplicate(msg_id).await {
+                                            continue;
+                                        }
+
+                                        let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("").trim();
+                                        if content.is_empty() {
+                                            continue;
+                                        }
+
+                                        let author_id = d.get("author").and_then(|a| a.get("member_openid")).and_then(|m| m.as_str()).unwrap_or("unknown");
+
+                                        if !self.is_user_allowed(author_id) {
+                                            tracing::warn!("QQ: ignoring group message from unauthorized user: {author_id}");
+                                            continue;
+                                        }
+
+                                        let group_openid = d.get("group_openid").and_then(|g| g.as_str()).unwrap_or("unknown");
+                                        let chat_id = format!("group:{group_openid}");
+
+                                        let content_string = content.to_string();
+                                        let channel_msg = ChannelMessage {
+                                            id: Uuid::new_v4().to_string(),
+                                            sender: author_id.to_string(),
+                                            reply_target: chat_id,
+                                            content: content_string.clone(),
+                                            channel: "qq".to_string(),
+                                            timestamp: std::time::SystemTime::now()
+                                                .duration_since(std::time::UNIX_EPOCH)
+                                                .unwrap_or_default()
+                                                .as_secs(),
+                                            parts: vec![ContentPart::Text { text: content_string }],
+            };
+
+                                        if tx.send(channel_msg).await.is_err() {
+                                            tracing::warn!("QQ: message channel closed");
+                                            break;
+                                        }
+                                    }
+                                    _ => {}
+                                }
+                            }
                         }
-                        // Reconnect
-                        7 => {
-                            tracing::warn!("QQ: received Reconnect (op 7)");
-                            break;
-                        }
-                        // Invalid Session
-                        9 => {
-                            tracing::warn!("QQ: received Invalid Session (op 9)");
-                            break;
-                        }
-                        _ => {}
-                    }
-
-                    // Only process dispatch events (op 0)
-                    if op != 0 {
-                        continue;
-                    }
-
-                    let event_type = event.get("t").and_then(|t| t.as_str()).unwrap_or("");
-                    let d = match event.get("d") {
-                        Some(d) => d,
-                        None => continue,
-                    };
-
-                    match event_type {
-                        "C2C_MESSAGE_CREATE" => {
-                            let msg_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                            if self.is_duplicate(msg_id).await {
-                                continue;
-                            }
-
-                            let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("").trim();
-                            if content.is_empty() {
-                                continue;
-                            }
-
-                            let author_id = d.get("author").and_then(|a| a.get("id")).and_then(|i| i.as_str()).unwrap_or("unknown");
-                            // For QQ, user_openid is the identifier
-                            let user_openid = d.get("author").and_then(|a| a.get("user_openid")).and_then(|u| u.as_str()).unwrap_or(author_id);
-
-                            if !self.is_user_allowed(user_openid) {
-                                tracing::warn!("QQ: ignoring C2C message from unauthorized user: {user_openid}");
-                                continue;
-                            }
-
-                            let chat_id = format!("user:{user_openid}");
-
-                            let channel_msg = ChannelMessage {
-                                id: Uuid::new_v4().to_string(),
-                                sender: user_openid.to_string(),
-                                reply_target: chat_id,
-                                content: content.to_string(),
-                                channel: "qq".to_string(),
-                                timestamp: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs(),
-                            };
-
-                            if tx.send(channel_msg).await.is_err() {
-                                tracing::warn!("QQ: message channel closed");
-                                break;
-                            }
-                        }
-                        "GROUP_AT_MESSAGE_CREATE" => {
-                            let msg_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                            if self.is_duplicate(msg_id).await {
-                                continue;
-                            }
-
-                            let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("").trim();
-                            if content.is_empty() {
-                                continue;
-                            }
-
-                            let author_id = d.get("author").and_then(|a| a.get("member_openid")).and_then(|m| m.as_str()).unwrap_or("unknown");
-
-                            if !self.is_user_allowed(author_id) {
-                                tracing::warn!("QQ: ignoring group message from unauthorized user: {author_id}");
-                                continue;
-                            }
-
-                            let group_openid = d.get("group_openid").and_then(|g| g.as_str()).unwrap_or("unknown");
-                            let chat_id = format!("group:{group_openid}");
-
-                            let channel_msg = ChannelMessage {
-                                id: Uuid::new_v4().to_string(),
-                                sender: author_id.to_string(),
-                                reply_target: chat_id,
-                                content: content.to_string(),
-                                channel: "qq".to_string(),
-                                timestamp: std::time::SystemTime::now()
-                                    .duration_since(std::time::UNIX_EPOCH)
-                                    .unwrap_or_default()
-                                    .as_secs(),
-                            };
-
-                            if tx.send(channel_msg).await.is_err() {
-                                tracing::warn!("QQ: message channel closed");
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
         }
 
         anyhow::bail!("QQ WebSocket connection closed")

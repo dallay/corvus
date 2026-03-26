@@ -1,6 +1,11 @@
 ---
 title: Descripción de Arquitectura
 description: Colección de diagramas C4 para el proyecto Corvus
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: architecture
 ---
 
 # Diagramas de Arquitectura

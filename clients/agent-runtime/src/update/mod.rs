@@ -2525,6 +2525,7 @@ mod tests {
             content: "hi".into(),
             channel: "telegram".into(),
             timestamp: 1,
+            parts: vec![],
         };
 
         let first =
@@ -2587,6 +2588,7 @@ mod tests {
             content: "hi".into(),
             channel: "telegram".into(),
             timestamp: 1,
+            parts: vec![],
         };
 
         let sent =

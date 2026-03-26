@@ -1,5 +1,11 @@
 ---
 title: Getting Started
+description: Set up Corvus locally with the supported toolchain and canonical first-run commands.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: guide
 ---
 
 Welcome to **Corvus**. This guide helps you run the customized project baseline locally.

@@ -1406,6 +1406,7 @@ impl Agent {
                     } else {
                         None
                     },
+                    images: &[],
                 },
                 effective_model,
                 self.temperature,

@@ -46,6 +46,19 @@ Steps, configurations, test environment, etc. Is there anything you'd like revie
 
 ---
 
+## Documentation Impact
+
+<!--
+If docs changed, list the exact paths updated.
+If docs were not needed, explain why the change does not affect behavior, setup, configuration, UX, APIs, or operations.
+-->
+
+- Docs updated in:
+- No docs update required because:
+- I verified the documentation matches the current behavior.
+
+---
+
 ## Breaking Changes
 
 <!--
@@ -59,9 +72,10 @@ Only fill if there are breaking changes.
 ## Checklist
 
 - [x] I have checked that there isn’t already a PR solving the same problem.
-- [x] I have read the [Contributing Guidelines](blob/main/.github/CONTRIBUTING.md).
+- [x] I have read the [Contributing Guidelines](https://github.com/dallay/corvus/blob/main/.github/CONTRIBUTING.md).
 - [x] I ensured my code follows the project's style guidelines.
 - [x] I have added or updated tests that prove my fix is effective or that my feature works.
-- [x] I have updated the documentation if needed.
+- [x] I have updated the documentation, or I explained above why no documentation update is needed.
+- [x] I verified the documentation matches the current behavior.
 - [x] I have documented any breaking changes in the Breaking Changes section.
 - [x] I have linked the related issue (if any).

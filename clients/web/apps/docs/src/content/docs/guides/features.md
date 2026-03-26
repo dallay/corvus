@@ -1,5 +1,11 @@
 ---
 title: Features Checklist
+description: Repository-wide checklist of modules, capabilities, build features, and supported integration surfaces in Corvus.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 This page provides a comprehensive checklist of all functionalities, modules, and options available
@@ -45,7 +51,7 @@ in this repository.
 
 - [x] **Static Website**: Built with Astro and Starlight.
 - [x] **API Docs**: Generated with Dokka (Kotlin/Java).
-- [x] **README/AGENTS**: In-repo documentation for developers and agents.
+- [x] **README/CLAUDE**: In-repo documentation for developers and agents.
 
 ## Deployment & Distribution
 

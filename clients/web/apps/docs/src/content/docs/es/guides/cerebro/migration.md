@@ -1,7 +1,12 @@
 ---
 title: Guía de Migración a Cerebro
 description: Mueve la memoria a largo plazo al servicio Cerebro basado en MCP.
-slug: es/guides/cerebro/migration-guide
+slug: es/guides/cerebro/migration
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: runbook
 ---
 
 Esta guía cubre la migración desde la memoria SurrealDB local del runtime al servicio Cerebro basado en MCP. Para contexto narrativo e intención de diseño, consulta la especificación de Cerebro en
@@ -36,19 +41,19 @@ backend = "sqlite"              # memoria local a corto plazo
 
 [memory.cerebro]
 endpoint = "https://cerebro.example.com/mcp"
-# el auth_token se lee de CEREBRO_AUTH_TOKEN
+# el auth_token se lee de CORVUS_CEREBRO_AUTH_TOKEN
 request_timeout_ms = 30000
 allow_insecure_loopback = false
 ```
 
-Configura `CEREBRO_AUTH_TOKEN` en tu entorno; evita incluir tokens en archivos de configuración.
+Configura `CORVUS_CEREBRO_AUTH_TOKEN` en tu entorno; evita incluir tokens en archivos de configuración.
 
 Ejemplo de desarrollo solo en loopback:
 
 ```toml
 [memory.cerebro]
 endpoint = "http://127.0.0.1:4040/mcp"
-# el auth_token se lee de CEREBRO_AUTH_TOKEN
+# el auth_token se lee de CORVUS_CEREBRO_AUTH_TOKEN
 allow_insecure_loopback = true
 ```
 

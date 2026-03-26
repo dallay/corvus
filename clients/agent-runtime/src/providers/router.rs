@@ -92,6 +92,21 @@ impl RouterProvider {
 
 #[async_trait]
 impl Provider for RouterProvider {
+    fn capabilities(&self) -> super::traits::ProviderCapabilities {
+        let mut merged = super::traits::ProviderCapabilities::default();
+        for (_, provider) in &self.providers {
+            let caps = provider.capabilities();
+            merged.native_tool_calling = merged.native_tool_calling || caps.native_tool_calling;
+            merged.image_input = merged.image_input || caps.image_input;
+            for form in caps.image_transport_forms {
+                if !merged.image_transport_forms.contains(&form) {
+                    merged.image_transport_forms.push(form);
+                }
+            }
+        }
+        merged
+    }
+
     async fn chat_with_system(
         &self,
         system_prompt: Option<&str>,
@@ -133,7 +148,17 @@ impl Provider for RouterProvider {
         temperature: f64,
     ) -> anyhow::Result<ChatResponse> {
         let (provider_idx, resolved_model) = self.resolve(model);
-        let (_, provider) = &self.providers[provider_idx];
+        let (provider_name, provider) = &self.providers[provider_idx];
+
+        // Fail-closed: reject image turns to text-only providers.
+        if !request.images.is_empty() && !provider.capabilities().supports_image_input() {
+            anyhow::bail!(
+                "Image turn cannot be routed to provider \
+                 '{provider_name}' (model '{resolved_model}'): \
+                 provider does not support image input"
+            );
+        }
+
         provider.chat(request, &resolved_model, temperature).await
     }
 
@@ -454,5 +479,63 @@ mod tests {
         assert_eq!(mocks[1].call_count(), 1);
         assert_eq!(mocks[1].last_model(), "claude-opus");
         assert_eq!(mocks[0].call_count(), 0);
+    }
+
+    // ── §2.2 Image routing tests ─────────────────────────────
+
+    #[tokio::test]
+    async fn chat_rejects_image_turn_to_text_only_provider() {
+        use crate::channels::media::{AllowedImageMime, ImageTransportForm, StagedImage};
+        use std::path::PathBuf;
+
+        let (router, _mocks) = make_router(vec![("default", "ok")], vec![]);
+
+        let staged = StagedImage {
+            sha256: "abc".into(),
+            mime_type: AllowedImageMime::Jpeg,
+            byte_len: 100,
+            temp_path: PathBuf::from("/tmp/fake.jpg"),
+            transport_form: ImageTransportForm::InlineBytes,
+            channel_origin: "test".into(),
+        };
+
+        let images = [staged];
+        let request = super::super::traits::ChatRequest {
+            messages: &[ChatMessage::user("describe this")],
+            tools: None,
+            images: &images,
+        };
+
+        let err = router
+            .chat(request, "model", 0.5)
+            .await
+            .expect_err("should reject image turn");
+        assert!(
+            err.to_string().contains("does not support image input"),
+            "Error should mention image support, got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn chat_text_only_passes_through_without_image_check() {
+        let (router, mocks) = make_router(vec![("default", "text-ok")], vec![]);
+
+        let request = super::super::traits::ChatRequest {
+            messages: &[ChatMessage::user("hello")],
+            tools: None,
+            images: &[],
+        };
+
+        let result = router.chat(request, "model", 0.5).await.unwrap();
+        assert_eq!(result.text.as_deref(), Some("text-ok"));
+        assert_eq!(mocks[0].call_count(), 1);
+    }
+
+    #[test]
+    fn capabilities_merges_all_providers() {
+        let (router, _) = make_router(vec![("default", "ok")], vec![]);
+        let caps = <RouterProvider as Provider>::capabilities(&router);
+        // Default MockProvider has default capabilities (no image).
+        assert!(!caps.supports_image_input());
     }
 }

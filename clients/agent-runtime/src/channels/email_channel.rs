@@ -405,6 +405,7 @@ impl EmailChannel {
                 content,
                 channel: "email".to_string(),
                 timestamp: ts,
+                parts: vec![],
             };
             if tx.send(msg).await.is_err() {
                 return Ok(true);

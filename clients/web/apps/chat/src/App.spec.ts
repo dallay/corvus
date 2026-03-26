@@ -101,16 +101,22 @@ describe("App", () => {
     const pairButton = wrapper
       .findAll("button")
       .find((button) => button.text() === translatedText("auth.pair"));
-    expect(pairButton?.exists()).toBe(true);
-    await pairButton!.trigger("click");
+    if (!pairButton) {
+      throw new Error("Expected pairing button to exist");
+    }
+    expect(pairButton.exists()).toBe(true);
+    await pairButton.trigger("click");
     await flushPromises();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
     const startSessionButton = wrapper
       .findAll("button")
       .find((button) => button.text() === translatedText("chat.startSession"));
-    expect(startSessionButton?.exists()).toBe(true);
-    await startSessionButton!.trigger("click");
+    if (!startSessionButton) {
+      throw new Error("Expected start session button to exist");
+    }
+    expect(startSessionButton.exists()).toBe(true);
+    await startSessionButton.trigger("click");
     await flushPromises();
 
     const input = wrapper.get(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`);
@@ -165,16 +171,22 @@ describe("App", () => {
     const connectButton = wrapper
       .findAll("button")
       .find((button) => button.text() === translatedText("auth.connect"));
-    expect(connectButton?.exists()).toBe(true);
-    await connectButton!.trigger("click");
+    if (!connectButton) {
+      throw new Error("Expected connect button to exist");
+    }
+    expect(connectButton.exists()).toBe(true);
+    await connectButton.trigger("click");
     await flushPromises();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
     const sessionButton = wrapper
       .findAll("button")
       .find((button) => button.text() === translatedText("chat.startSession"));
-    expect(sessionButton?.exists()).toBe(true);
-    await sessionButton!.trigger("click");
+    if (!sessionButton) {
+      throw new Error("Expected session button to exist");
+    }
+    expect(sessionButton.exists()).toBe(true);
+    await sessionButton.trigger("click");
     await flushPromises();
 
     const input = wrapper.get(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`);

@@ -1,5 +1,11 @@
 ---
 title: Procedimientos de Desarrollo
+description: Flujo canónico de desarrollo, entrypoints del Makefile y pasos diarios de verificación para contribuidores de Corvus.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: guide
 ---
 
 Esta guía describe los procedimientos estándar para desarrollar y mantener este proyecto.

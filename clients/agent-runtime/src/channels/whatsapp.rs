@@ -1,5 +1,7 @@
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use super::media;
+use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
+use futures_util::StreamExt;
 use uuid::Uuid;
 
 /// `WhatsApp` channel — uses `WhatsApp` Business Cloud API
@@ -25,8 +27,6 @@ fn normalize_phone_number(from: &str) -> String {
     }
 }
 
-/// Extract text content from a WhatsApp message JSON object.
-/// Returns `None` for non-text messages (image, audio, etc.).
 /// Mask a phone number, showing only the last 4 digits.
 fn mask_phone(phone: &str) -> String {
     let count = phone.chars().count();
@@ -37,21 +37,85 @@ fn mask_phone(phone: &str) -> String {
     format!("{}{visible}", "*".repeat(count - 4))
 }
 
-fn extract_whatsapp_text_content(msg: &serde_json::Value, from: &str) -> Option<String> {
-    if let Some(text_obj) = msg.get("text") {
-        let body = text_obj
-            .get("body")
-            .and_then(|b| b.as_str())
-            .unwrap_or("")
-            .to_string();
-        Some(body)
-    } else {
-        tracing::debug!(
-            "WhatsApp: skipping non-text message from {}",
-            mask_phone(from)
-        );
-        None
+/// Extract canonical content parts from a WhatsApp message.
+///
+/// Returns `None` for unsupported message types (audio, video,
+/// document, sticker, location, contacts, reaction, etc.).
+/// For `type=text`, produces a single `Text` part.
+/// For `type=image`, produces an `Image` part (plus a preceding
+/// `Text` part when a caption is present).
+fn extract_whatsapp_parts(
+    msg: &serde_json::Value,
+    from: &str,
+) -> Option<(Vec<ContentPart>, String)> {
+    let msg_type = msg.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+    match msg_type {
+        "text" => {
+            let body = msg
+                .get("text")
+                .and_then(|t| t.get("body"))
+                .and_then(|b| b.as_str())
+                .unwrap_or("")
+                .to_string();
+            if body.is_empty() {
+                return None;
+            }
+            let parts = vec![ContentPart::Text { text: body.clone() }];
+            Some((parts, body))
+        }
+        "image" => {
+            let image_obj = msg.get("image")?;
+            let media_id = image_obj
+                .get("id")
+                .and_then(|id| id.as_str())
+                .unwrap_or("")
+                .to_string();
+            if media_id.is_empty() {
+                return None;
+            }
+            let declared_mime = image_obj
+                .get("mime_type")
+                .and_then(|m| m.as_str())
+                .map(ToString::to_string);
+            let caption = image_obj
+                .get("caption")
+                .and_then(|c| c.as_str())
+                .map(ToString::to_string)
+                .filter(|c| !c.is_empty());
+
+            let mut parts = Vec::new();
+            if let Some(ref cap) = caption {
+                parts.push(ContentPart::Text { text: cap.clone() });
+            }
+            parts.push(ContentPart::Image {
+                channel_handle: media_id,
+                source_channel: "whatsapp".to_string(),
+                declared_mime,
+                caption_text: caption.clone(),
+                file_name: None,
+                declared_bytes: None,
+            });
+
+            // Text projection: caption only (no placeholder)
+            let content = caption.unwrap_or_default();
+            Some((parts, content))
+        }
+        _ => {
+            tracing::debug!(
+                "WhatsApp: skipping unsupported message type \
+                 '{}' from {}",
+                msg_type,
+                mask_phone(from),
+            );
+            None
+        }
     }
+}
+
+/// Check whether a parts list contains at least one image.
+fn has_image_part(parts: &[ContentPart]) -> bool {
+    parts.iter().any(|p| matches!(p, ContentPart::Image { .. }))
 }
 
 /// Extract the timestamp from a WhatsApp message, falling back to current time.
@@ -93,6 +157,124 @@ impl WhatsAppChannel {
         &self.verify_token
     }
 
+    /// Fetch image bytes from WhatsApp Graph API, validate,
+    /// stage to temp, and return a `StagedImage` or rejection.
+    ///
+    /// Two-step flow:
+    /// 1. GET media metadata to obtain the download URL
+    /// 2. GET the download URL to stream bytes
+    pub async fn fetch_and_stage_image(
+        &self,
+        media_id: &str,
+        declared_mime: Option<&str>,
+    ) -> Result<media::StagedImage, media::ImageRejectionReason> {
+        // 1. Resolve media id → download URL
+        let meta_url = format!("https://graph.facebook.com/v21.0/{media_id}");
+        let meta_resp = self
+            .client
+            .get(&meta_url)
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!(
+                    "WhatsApp media metadata fetch failed \
+                     for {}: {e}",
+                    &media_id[..media_id.len().min(8)]
+                );
+                media::ImageRejectionReason::FetchFailed
+            })?;
+
+        if !meta_resp.status().is_success() {
+            tracing::warn!("WhatsApp media metadata HTTP {}", meta_resp.status());
+            return Err(media::ImageRejectionReason::FetchFailed);
+        }
+
+        let meta: serde_json::Value = meta_resp.json().await.map_err(|e| {
+            tracing::warn!("WhatsApp media metadata parse error: {e}");
+            media::ImageRejectionReason::FetchFailed
+        })?;
+
+        let download_url = meta
+            .get("url")
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                tracing::warn!("WhatsApp media metadata: missing url");
+                media::ImageRejectionReason::FetchFailed
+            })?;
+
+        // 2. Download bytes with bearer auth + streaming size limit
+        let dl_resp = self
+            .client
+            .get(download_url)
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .map_err(|_| {
+                tracing::warn!("WhatsApp media download request failed");
+                media::ImageRejectionReason::FetchFailed
+            })?;
+
+        if !dl_resp.status().is_success() {
+            tracing::warn!("WhatsApp media download HTTP {}", dl_resp.status());
+            return Err(media::ImageRejectionReason::FetchFailed);
+        }
+
+        // Early reject via Content-Length
+        if let Some(cl) = dl_resp.content_length() {
+            media::validate_size(cl, media::MAX_IMAGE_BYTES)?;
+        }
+
+        // Stream body with per-chunk size validation
+        let mut bytes = Vec::new();
+        let mut stream = dl_resp.bytes_stream();
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|_| {
+                tracing::warn!("WhatsApp media download stream read error");
+                media::ImageRejectionReason::FetchFailed
+            })?;
+            bytes.extend_from_slice(&chunk);
+            media::validate_size(bytes.len() as u64, media::MAX_IMAGE_BYTES)?;
+        }
+        let byte_len = bytes.len() as u64;
+
+        // 3. Validate MIME via magic-byte sniffing
+        let mime = media::validate_mime(declared_mime, &bytes)?;
+
+        // 4. Stage to temp file and compute SHA-256
+        use sha2::Digest;
+        let sha256 = {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(&bytes);
+            hex::encode(hasher.finalize())
+        };
+
+        let ext = match mime {
+            media::AllowedImageMime::Jpeg => "jpg",
+            media::AllowedImageMime::Png => "png",
+            media::AllowedImageMime::Webp => "webp",
+        };
+        let temp_path =
+            std::env::temp_dir().join(format!("corvus-wa-img-{}.{ext}", &sha256[..16],));
+
+        tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
+            tracing::warn!(
+                "Failed to stage WhatsApp image to {}: {e}",
+                temp_path.display()
+            );
+            media::ImageRejectionReason::FetchFailed
+        })?;
+
+        Ok(media::StagedImage {
+            sha256,
+            mime_type: mime,
+            byte_len,
+            temp_path,
+            transport_form: media::ImageTransportForm::InlineBytes,
+            channel_origin: "whatsapp".to_string(),
+        })
+    }
+
     /// Parse an incoming webhook payload from Meta and extract messages
     pub fn parse_webhook_payload(&self, payload: &serde_json::Value) -> Vec<ChannelMessage> {
         let mut messages = Vec::new();
@@ -126,24 +308,27 @@ impl WhatsAppChannel {
         messages
     }
 
-    /// Parse a single WhatsApp message JSON object into a `ChannelMessage`.
-    /// Returns `None` if the message should be skipped.
+    /// Parse a single WhatsApp message JSON object into a
+    /// `ChannelMessage`. Returns `None` if the message should be
+    /// skipped (unauthorized sender, unsupported type, empty).
     fn parse_single_whatsapp_message(&self, msg: &serde_json::Value) -> Option<ChannelMessage> {
         let from = msg.get("from").and_then(|f| f.as_str())?;
-
         let normalized_from = normalize_phone_number(from);
 
         if !self.is_number_allowed(&normalized_from) {
             tracing::warn!(
-                "WhatsApp: ignoring message from unauthorized number: {}. \
-                Add to allowed_numbers in config.toml, then run `corvus onboard --channels-only`.",
+                "WhatsApp: ignoring message from unauthorized \
+                 number: {}. Add to allowed_numbers in \
+                 config.toml, then run \
+                 `corvus onboard --channels-only`.",
                 mask_phone(&normalized_from),
             );
             return None;
         }
 
-        let content = extract_whatsapp_text_content(msg, from)?;
-        if content.is_empty() {
+        let (parts, content) = extract_whatsapp_parts(msg, from)?;
+        // Text-only messages with empty body are skipped
+        if content.is_empty() && !has_image_part(&parts) {
             return None;
         }
 
@@ -156,6 +341,7 @@ impl WhatsAppChannel {
             content,
             channel: "whatsapp".to_string(),
             timestamp,
+            parts,
         })
     }
 }
@@ -352,7 +538,7 @@ mod tests {
     }
 
     #[test]
-    fn whatsapp_parse_non_text_message_skipped() {
+    fn whatsapp_parse_image_message_produces_image_part() {
         let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
         let payload = serde_json::json!({
             "entry": [{
@@ -362,7 +548,10 @@ mod tests {
                             "from": "1234567890",
                             "timestamp": "1699999999",
                             "type": "image",
-                            "image": { "id": "img123" }
+                            "image": {
+                                "id": "img123",
+                                "mime_type": "image/jpeg"
+                            }
                         }]
                     }
                 }]
@@ -370,7 +559,25 @@ mod tests {
         });
 
         let msgs = ch.parse_webhook_payload(&payload);
-        assert!(msgs.is_empty(), "Non-text messages should be skipped");
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].parts.len(), 1);
+        match &msgs[0].parts[0] {
+            ContentPart::Image {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                caption_text,
+                ..
+            } => {
+                assert_eq!(channel_handle, "img123");
+                assert_eq!(source_channel, "whatsapp");
+                assert_eq!(declared_mime.as_deref(), Some("image/jpeg"));
+                assert!(caption_text.is_none());
+            }
+            ContentPart::Text { .. } => panic!("expected Image part"),
+        }
+        // Image-only: content is empty (no placeholder)
+        assert!(msgs[0].content.is_empty());
     }
 
     #[test]
@@ -1202,5 +1409,224 @@ mod tests {
             msgs[0].content,
             "<script>alert('xss')</script> & \"quotes\" 'apostrophe'"
         );
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // MULTIMODAL PARSING — Task 3.5 (WhatsApp portion)
+    // ══════════════════════════════════════════════════════════
+
+    #[test]
+    fn whatsapp_text_message_produces_text_part() {
+        let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
+        let payload = serde_json::json!({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "111",
+                            "timestamp": "1",
+                            "type": "text",
+                            "text": { "body": "Hello world" }
+                        }]
+                    }
+                }]
+            }]
+        });
+        let msgs = ch.parse_webhook_payload(&payload);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].parts.len(), 1);
+        match &msgs[0].parts[0] {
+            ContentPart::Text { text } => {
+                assert_eq!(text, "Hello world");
+            }
+            ContentPart::Image { .. } => panic!("expected Text part"),
+        }
+        assert_eq!(msgs[0].content, "Hello world");
+    }
+
+    #[test]
+    fn text_only_whatsapp_regression_remains_text_only() {
+        let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
+        let payload = serde_json::json!({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "111",
+                            "timestamp": "2",
+                            "type": "text",
+                            "text": { "body": "plain text still works" }
+                        }]
+                    }
+                }]
+            }]
+        });
+
+        let msgs = ch.parse_webhook_payload(&payload);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].content, "plain text still works");
+        assert!(!msgs[0].has_image_parts());
+        assert_eq!(msgs[0].parts.len(), 1);
+    }
+
+    #[test]
+    fn whatsapp_image_with_caption_produces_text_and_image() {
+        let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
+        let payload = serde_json::json!({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "111",
+                            "timestamp": "1",
+                            "type": "image",
+                            "image": {
+                                "id": "media_456",
+                                "mime_type": "image/png",
+                                "caption": "Check this out"
+                            }
+                        }]
+                    }
+                }]
+            }]
+        });
+        let msgs = ch.parse_webhook_payload(&payload);
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0].parts.len(), 2);
+
+        // First part: caption as Text
+        match &msgs[0].parts[0] {
+            ContentPart::Text { text } => {
+                assert_eq!(text, "Check this out");
+            }
+            ContentPart::Image { .. } => panic!("expected Text part first"),
+        }
+
+        // Second part: Image with caption_text set
+        match &msgs[0].parts[1] {
+            ContentPart::Image {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                caption_text,
+                file_name,
+                declared_bytes,
+            } => {
+                assert_eq!(channel_handle, "media_456");
+                assert_eq!(source_channel, "whatsapp");
+                assert_eq!(declared_mime.as_deref(), Some("image/png"));
+                assert_eq!(caption_text.as_deref(), Some("Check this out"));
+                assert!(file_name.is_none());
+                assert!(declared_bytes.is_none());
+            }
+            ContentPart::Text { .. } => panic!("expected Image part second"),
+        }
+
+        // Content is the caption text
+        assert_eq!(msgs[0].content, "Check this out");
+    }
+
+    #[test]
+    fn whatsapp_image_without_mime_still_parses() {
+        let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
+        let payload = serde_json::json!({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "111",
+                            "timestamp": "1",
+                            "type": "image",
+                            "image": { "id": "no_mime_img" }
+                        }]
+                    }
+                }]
+            }]
+        });
+        let msgs = ch.parse_webhook_payload(&payload);
+        assert_eq!(msgs.len(), 1);
+        match &msgs[0].parts[0] {
+            ContentPart::Image { declared_mime, .. } => {
+                assert!(declared_mime.is_none());
+            }
+            ContentPart::Text { .. } => panic!("expected Image part"),
+        }
+    }
+
+    #[test]
+    fn whatsapp_image_missing_id_skipped() {
+        let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
+        let payload = serde_json::json!({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "111",
+                            "timestamp": "1",
+                            "type": "image",
+                            "image": { "mime_type": "image/jpeg" }
+                        }]
+                    }
+                }]
+            }]
+        });
+        let msgs = ch.parse_webhook_payload(&payload);
+        assert!(msgs.is_empty(), "Image without media id should be skipped");
+    }
+
+    #[test]
+    fn whatsapp_unsupported_types_still_skipped() {
+        let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
+        for msg_type in [
+            "audio", "video", "document", "sticker", "location", "contacts", "reaction",
+        ] {
+            let payload = serde_json::json!({
+                "entry": [{
+                    "changes": [{
+                        "value": {
+                            "messages": [{
+                                "from": "111",
+                                "timestamp": "1",
+                                "type": msg_type,
+                                msg_type: { "id": "x" }
+                            }]
+                        }
+                    }]
+                }]
+            });
+            let msgs = ch.parse_webhook_payload(&payload);
+            assert!(msgs.is_empty(), "type={msg_type} should be skipped");
+        }
+    }
+
+    #[test]
+    fn whatsapp_image_empty_caption_not_emitted() {
+        let ch = WhatsAppChannel::new("tok".into(), "123".into(), "ver".into(), vec!["*".into()]);
+        let payload = serde_json::json!({
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "111",
+                            "timestamp": "1",
+                            "type": "image",
+                            "image": {
+                                "id": "img_empty_cap",
+                                "caption": ""
+                            }
+                        }]
+                    }
+                }]
+            }]
+        });
+        let msgs = ch.parse_webhook_payload(&payload);
+        assert_eq!(msgs.len(), 1);
+        // Only Image part, no Text part for empty caption
+        assert_eq!(msgs[0].parts.len(), 1);
+        assert!(matches!(
+            &msgs[0].parts[0],
+            ContentPart::Image { caption_text, .. }
+            if caption_text.is_none()
+        ));
     }
 }

@@ -1,5 +1,11 @@
 ---
 title: Primeros Pasos
+description: Configura Corvus localmente con el toolchain soportado y los comandos canónicos de primera ejecución.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: guide
 ---
 
 Bienvenido a **Corvus**. Esta guía te ayuda a ejecutar localmente la base personalizada del

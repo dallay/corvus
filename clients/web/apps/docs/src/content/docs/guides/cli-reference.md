@@ -1,6 +1,11 @@
 ---
 title: CLI Reference
 description: Comprehensive guide to the Corvus Agent CLI commands and options.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 The Corvus CLI (`corvus`) is the primary interface for managing your agents, hardware, and services.

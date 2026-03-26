@@ -1,5 +1,11 @@
 ---
 title: Template Customization
+description: Reference guide for tailoring the original Gradle template into Corvus-specific identity, publishing, and repository settings.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: guide
 ---
 
 This repository was created from a Gradle template and customized for **Corvus**.

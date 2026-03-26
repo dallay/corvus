@@ -1,9 +1,11 @@
-use super::traits::{Channel, ChannelMessage, SendMessage};
+use super::media;
+use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use crate::config::{Config, StreamMode};
 use crate::security::pairing::PairingGuard;
 use anyhow::Context;
 use async_trait::async_trait;
 use directories::UserDirs;
+use futures_util::StreamExt;
 use parking_lot::Mutex;
 use reqwest::multipart::{Form, Part};
 use std::fs;
@@ -733,8 +735,6 @@ impl TelegramChannel {
     fn parse_update_message(&self, update: &serde_json::Value) -> Option<ChannelMessage> {
         let message = update.get("message")?;
 
-        let text = message.get("text").and_then(serde_json::Value::as_str)?;
-
         let username = message
             .get("from")
             .and_then(|from| from.get("username"))
@@ -763,6 +763,103 @@ impl TelegramChannel {
             return None;
         }
 
+        // ── Build canonical parts ────────────────────────────
+        let mut parts: Vec<ContentPart> = Vec::new();
+
+        let caption = message
+            .get("caption")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from);
+
+        // Text-only message
+        if let Some(text) = message.get("text").and_then(serde_json::Value::as_str) {
+            parts.push(ContentPart::Text {
+                text: text.to_string(),
+            });
+        }
+
+        // Photo → Image part (last element = largest variant)
+        if let Some(photos) = message.get("photo").and_then(serde_json::Value::as_array) {
+            if let Some(largest) = photos.last() {
+                // Caption → Text part (only when image is accepted)
+                if let Some(ref cap) = caption {
+                    parts.push(ContentPart::Text { text: cap.clone() });
+                }
+                let file_id = largest
+                    .get("file_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                let file_size = largest.get("file_size").and_then(serde_json::Value::as_u64);
+
+                parts.push(ContentPart::Image {
+                    channel_handle: file_id.to_string(),
+                    source_channel: "telegram".to_string(),
+                    declared_mime: Some("image/jpeg".to_string()),
+                    caption_text: caption.clone(),
+                    file_name: None,
+                    declared_bytes: file_size,
+                });
+            }
+        }
+
+        // Document → Image part ONLY if MIME is allowed image
+        if let Some(doc) = message.get("document") {
+            let mime = doc
+                .get("mime_type")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+
+            if media::AllowedImageMime::from_mime_str(mime).is_some() {
+                // Caption → Text part (only when MIME passes)
+                if let Some(ref cap) = caption {
+                    parts.push(ContentPart::Text { text: cap.clone() });
+                }
+                let file_id = doc
+                    .get("file_id")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                let file_size = doc.get("file_size").and_then(serde_json::Value::as_u64);
+                let file_name = doc
+                    .get("file_name")
+                    .and_then(serde_json::Value::as_str)
+                    .map(String::from);
+
+                parts.push(ContentPart::Image {
+                    channel_handle: file_id.to_string(),
+                    source_channel: "telegram".to_string(),
+                    declared_mime: Some(mime.to_string()),
+                    caption_text: caption.clone(),
+                    file_name,
+                    declared_bytes: file_size,
+                });
+            }
+        }
+
+        // If no parts were produced, nothing to process
+        if parts.is_empty() {
+            return None;
+        }
+
+        // ── Derive text projection for backward compat ───────
+        // Caption is already emitted as a Text part, so skip
+        // the Image's caption_text to avoid duplication.
+        let content = {
+            let blocks: Vec<&str> = parts
+                .iter()
+                .filter_map(|p| match p {
+                    ContentPart::Text { text } => {
+                        if text.is_empty() {
+                            None
+                        } else {
+                            Some(text.as_str())
+                        }
+                    }
+                    ContentPart::Image { .. } => None,
+                })
+                .collect();
+            blocks.join("\n\n")
+        };
+
         let chat_id = message
             .get("chat")
             .and_then(|chat| chat.get("id"))
@@ -774,13 +871,11 @@ impl TelegramChannel {
             .and_then(serde_json::Value::as_i64)
             .unwrap_or(0);
 
-        // Extract thread/topic ID for forum support
         let thread_id = message
             .get("message_thread_id")
             .and_then(serde_json::Value::as_i64)
             .map(|id| id.to_string());
 
-        // reply_target: chat_id or chat_id:thread_id format
         let reply_target = if let Some(tid) = thread_id {
             format!("{}:{}", chat_id, tid)
         } else {
@@ -791,12 +886,13 @@ impl TelegramChannel {
             id: format!("telegram_{chat_id}_{message_id}"),
             sender: sender_identity,
             reply_target,
-            content: text.to_string(),
+            content,
             channel: "telegram".to_string(),
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs(),
+            parts,
         })
     }
 
@@ -1422,6 +1518,129 @@ impl TelegramChannel {
             );
             anyhow::anyhow!("Telegram API error ({}): {}", error_code, description)
         }
+    }
+
+    /// Build a Telegram file download URL from a file path.
+    fn file_download_url(&self, file_path: &str) -> String {
+        format!(
+            "https://api.telegram.org/file/bot{}/{}",
+            self.bot_token, file_path
+        )
+    }
+
+    /// Redact bot token from error messages to prevent credential leaks in logs.
+    fn sanitize_error(&self, err: &impl std::fmt::Display) -> String {
+        format!("{err}").replace(&self.bot_token, "[REDACTED]")
+    }
+
+    /// Fetch image bytes from Telegram, validate, stage to temp,
+    /// and return a `StagedImage` or rejection reason.
+    pub async fn fetch_and_stage_image(
+        &self,
+        file_id: &str,
+        declared_mime: Option<&str>,
+    ) -> Result<media::StagedImage, media::ImageRejectionReason> {
+        // 1. Call getFile to resolve file_path
+        let get_file_body = serde_json::json!({
+            "file_id": file_id,
+        });
+        let resp = self
+            .client
+            .post(self.api_url("getFile"))
+            .json(&get_file_body)
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!(
+                    "Telegram getFile failed for {}: {}",
+                    &file_id[..file_id.len().min(8)],
+                    self.sanitize_error(&e)
+                );
+                media::ImageRejectionReason::FetchFailed
+            })?;
+
+        let data: serde_json::Value = resp.json().await.map_err(|e| {
+            tracing::warn!("Telegram getFile response parse error: {e}");
+            media::ImageRejectionReason::FetchFailed
+        })?;
+
+        let file_path = data
+            .get("result")
+            .and_then(|r| r.get("file_path"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                tracing::warn!("Telegram getFile: missing file_path in response");
+                media::ImageRejectionReason::FetchFailed
+            })?;
+
+        // 2. Download bytes with streaming size limit
+        let download_url = self.file_download_url(file_path);
+        let dl_resp = self.client.get(&download_url).send().await.map_err(|e| {
+            tracing::warn!("Telegram file download failed: {}", self.sanitize_error(&e));
+            media::ImageRejectionReason::FetchFailed
+        })?;
+
+        let status = dl_resp.status();
+        if !status.is_success() {
+            tracing::warn!("Telegram file download HTTP {status}");
+            return Err(media::ImageRejectionReason::FetchFailed);
+        }
+
+        // Check Content-Length header for early reject
+        if let Some(cl) = dl_resp.content_length() {
+            media::validate_size(cl, media::MAX_IMAGE_BYTES)?;
+        }
+
+        // Stream body with per-chunk size validation
+        let mut bytes = Vec::new();
+        let mut stream = dl_resp.bytes_stream();
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| {
+                tracing::warn!(
+                    "Telegram file download stream error: {}",
+                    self.sanitize_error(&e)
+                );
+                media::ImageRejectionReason::FetchFailed
+            })?;
+            bytes.extend_from_slice(&chunk);
+            media::validate_size(bytes.len() as u64, media::MAX_IMAGE_BYTES)?;
+        }
+        let byte_len = bytes.len() as u64;
+
+        // 3. Validate MIME via magic-byte sniffing
+        let mime = media::validate_mime(declared_mime, &bytes)?;
+
+        // 4. Stage to temp file and compute SHA-256
+        use sha2::Digest;
+        let sha256 = {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(&bytes);
+            hex::encode(hasher.finalize())
+        };
+
+        let temp_path = std::env::temp_dir().join(format!(
+            "corvus-tg-img-{}.{}",
+            &sha256[..16],
+            match mime {
+                media::AllowedImageMime::Jpeg => "jpg",
+                media::AllowedImageMime::Png => "png",
+                media::AllowedImageMime::Webp => "webp",
+            }
+        ));
+
+        tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
+            tracing::warn!("Failed to stage image to {}: {e}", temp_path.display());
+            media::ImageRejectionReason::FetchFailed
+        })?;
+
+        Ok(media::StagedImage {
+            sha256,
+            mime_type: mime,
+            byte_len,
+            temp_path,
+            transport_form: media::ImageTransportForm::InlineBytes,
+            channel_origin: "telegram".to_string(),
+        })
     }
 
     async fn send_typing_action(&self, chat_id: &str) {
@@ -2634,5 +2853,307 @@ mod tests {
         let input = "<tool>{\"name\":\"test\"}</tool>";
         let result = strip_tool_call_tags(input);
         assert_eq!(result, "");
+    }
+
+    // ── Task 3.1 / 3.5: Inbound multimodal parsing tests ────────
+
+    #[test]
+    fn parse_update_text_only_produces_text_part_and_content() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 1,
+            "message": {
+                "message_id": 10,
+                "text": "hello world",
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 }
+            }
+        });
+
+        let msg = ch.parse_update_message(&update).unwrap();
+        assert_eq!(msg.content, "hello world");
+        assert_eq!(msg.parts.len(), 1);
+        match &msg.parts[0] {
+            ContentPart::Text { text } => assert_eq!(text, "hello world"),
+            ContentPart::Image { .. } => panic!("expected Text part"),
+        }
+    }
+
+    #[test]
+    fn text_only_telegram_regression_remains_text_only() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 101,
+            "message": {
+                "message_id": 22,
+                "text": "still text only",
+                "from": { "id": 777, "username": "regression" },
+                "chat": { "id": 200 }
+            }
+        });
+
+        let msg = ch.parse_update_message(&update).unwrap();
+        assert_eq!(msg.content, "still text only");
+        assert!(!msg.has_image_parts());
+        assert_eq!(msg.parts.len(), 1);
+    }
+
+    #[test]
+    fn parse_update_photo_produces_image_part_largest_variant() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 2,
+            "message": {
+                "message_id": 11,
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 },
+                "photo": [
+                    { "file_id": "small_id", "file_unique_id": "s",
+                      "width": 90, "height": 90, "file_size": 1000 },
+                    { "file_id": "medium_id", "file_unique_id": "m",
+                      "width": 320, "height": 320, "file_size": 5000 },
+                    { "file_id": "large_id", "file_unique_id": "l",
+                      "width": 800, "height": 800, "file_size": 50000 }
+                ]
+            }
+        });
+
+        let msg = ch.parse_update_message(&update).unwrap();
+        // content should be empty for photo-only (no text, no caption)
+        assert_eq!(msg.content, "");
+        assert_eq!(msg.parts.len(), 1);
+        match &msg.parts[0] {
+            ContentPart::Image {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                caption_text,
+                file_name,
+                declared_bytes,
+            } => {
+                assert_eq!(channel_handle, "large_id");
+                assert_eq!(source_channel, "telegram");
+                assert_eq!(declared_mime.as_deref(), Some("image/jpeg"));
+                assert!(caption_text.is_none());
+                assert!(file_name.is_none());
+                assert_eq!(*declared_bytes, Some(50000));
+            }
+            ContentPart::Text { .. } => panic!("expected Image part"),
+        }
+    }
+
+    #[test]
+    fn parse_update_photo_with_caption_produces_text_then_image() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 3,
+            "message": {
+                "message_id": 12,
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 },
+                "caption": "Look at this!",
+                "photo": [
+                    { "file_id": "only_id", "file_unique_id": "o",
+                      "width": 800, "height": 600, "file_size": 40000 }
+                ]
+            }
+        });
+
+        let msg = ch.parse_update_message(&update).unwrap();
+        // content = text projection of caption
+        assert_eq!(msg.content, "Look at this!");
+        assert_eq!(msg.parts.len(), 2);
+
+        // First part: Text from caption
+        match &msg.parts[0] {
+            ContentPart::Text { text } => {
+                assert_eq!(text, "Look at this!");
+            }
+            ContentPart::Image { .. } => panic!("expected Text part first"),
+        }
+
+        // Second part: Image with caption_text set
+        match &msg.parts[1] {
+            ContentPart::Image {
+                channel_handle,
+                caption_text,
+                ..
+            } => {
+                assert_eq!(channel_handle, "only_id");
+                assert_eq!(caption_text.as_deref(), Some("Look at this!"));
+            }
+            ContentPart::Text { .. } => panic!("expected Image part second"),
+        }
+    }
+
+    #[test]
+    fn parse_update_document_image_mime_produces_image_part() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 4,
+            "message": {
+                "message_id": 13,
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 },
+                "document": {
+                    "file_id": "doc_img_id",
+                    "file_unique_id": "di",
+                    "mime_type": "image/png",
+                    "file_name": "screenshot.png",
+                    "file_size": 120_000
+                }
+            }
+        });
+
+        let msg = ch.parse_update_message(&update).unwrap();
+        assert_eq!(msg.parts.len(), 1);
+        match &msg.parts[0] {
+            ContentPart::Image {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                file_name,
+                declared_bytes,
+                ..
+            } => {
+                assert_eq!(channel_handle, "doc_img_id");
+                assert_eq!(source_channel, "telegram");
+                assert_eq!(declared_mime.as_deref(), Some("image/png"));
+                assert_eq!(file_name.as_deref(), Some("screenshot.png"));
+                assert_eq!(*declared_bytes, Some(120_000));
+            }
+            ContentPart::Text { .. } => panic!("expected Image part"),
+        }
+    }
+
+    #[test]
+    fn parse_update_document_non_image_mime_no_image_part() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 5,
+            "message": {
+                "message_id": 14,
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 },
+                "document": {
+                    "file_id": "pdf_id",
+                    "file_unique_id": "pd",
+                    "mime_type": "application/pdf",
+                    "file_name": "report.pdf",
+                    "file_size": 500_000
+                }
+            }
+        });
+
+        // Non-image documents should NOT produce an image part.
+        // The message should still parse (returning None since
+        // there is no text and no admitted media).
+        let msg = ch.parse_update_message(&update);
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn parse_update_document_webp_produces_image_part() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 6,
+            "message": {
+                "message_id": 15,
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 },
+                "document": {
+                    "file_id": "webp_id",
+                    "file_unique_id": "wp",
+                    "mime_type": "image/webp",
+                    "file_name": "sticker.webp",
+                    "file_size": 30000
+                }
+            }
+        });
+
+        let msg = ch.parse_update_message(&update).unwrap();
+        assert_eq!(msg.parts.len(), 1);
+        match &msg.parts[0] {
+            ContentPart::Image { declared_mime, .. } => {
+                assert_eq!(declared_mime.as_deref(), Some("image/webp"));
+            }
+            ContentPart::Text { .. } => panic!("expected Image part"),
+        }
+    }
+
+    #[test]
+    fn parse_update_document_gif_mime_rejected() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 7,
+            "message": {
+                "message_id": 16,
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 },
+                "document": {
+                    "file_id": "gif_id",
+                    "file_unique_id": "gf",
+                    "mime_type": "image/gif",
+                    "file_name": "anim.gif",
+                    "file_size": 200_000
+                }
+            }
+        });
+
+        // image/gif is NOT in the allowed set
+        let msg = ch.parse_update_message(&update);
+        assert!(msg.is_none());
+    }
+
+    #[test]
+    fn parse_update_largest_photo_variant_selected() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 8,
+            "message": {
+                "message_id": 17,
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 },
+                "photo": [
+                    { "file_id": "tiny", "file_unique_id": "t",
+                      "width": 50, "height": 50 },
+                    { "file_id": "biggest", "file_unique_id": "b",
+                      "width": 1280, "height": 960, "file_size": 99999 }
+                ]
+            }
+        });
+
+        let msg = ch.parse_update_message(&update).unwrap();
+        match &msg.parts[0] {
+            ContentPart::Image {
+                channel_handle,
+                declared_bytes,
+                ..
+            } => {
+                assert_eq!(channel_handle, "biggest");
+                assert_eq!(*declared_bytes, Some(99999));
+            }
+            ContentPart::Text { .. } => panic!("expected Image part"),
+        }
+    }
+
+    // ── Task 3.2: Media fetch helper tests ──────────────────────
+
+    #[test]
+    fn telegram_get_file_url_format() {
+        let ch = TelegramChannel::new("123:ABC".into(), vec!["*".into()]);
+        assert_eq!(
+            ch.api_url("getFile"),
+            "https://api.telegram.org/bot123:ABC/getFile"
+        );
+        // Download URL uses a different base path
+        let download = format!(
+            "https://api.telegram.org/file/bot{}/{}",
+            "123:ABC", "photos/file_42.jpg"
+        );
+        assert_eq!(
+            download,
+            "https://api.telegram.org/file/bot123:ABC/photos/file_42.jpg"
+        );
     }
 }

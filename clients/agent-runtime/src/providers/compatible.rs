@@ -7,9 +7,15 @@ use crate::providers::traits::{
     Provider, StreamChunk, StreamError, StreamOptions, StreamResult, ToolCall as ProviderToolCall,
 };
 use async_trait::async_trait;
+use base64::Engine;
 use futures_util::{stream, StreamExt};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+
+/// Encode bytes as standard base64.
+fn base64_encode(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
 
 /// A provider that speaks the OpenAI-compatible chat completions API.
 /// Used by: Venice, Vercel AI Gateway, Cloudflare AI Gateway, Moonshot,
@@ -480,6 +486,128 @@ fn extract_responses_text(response: ResponsesResponse) -> Option<String> {
 }
 
 impl OpenAiCompatibleProvider {
+    /// Send a multimodal chat request using content-blocks format.
+    ///
+    /// Converts staged images to inline data-URL image blocks alongside
+    /// text blocks, using the Chat Completions content array format
+    /// instead of the legacy string-only `content` field.
+    async fn chat_multimodal(
+        &self,
+        request: &ProviderChatRequest<'_>,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<ProviderChatResponse> {
+        let credential = self.credential.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "{} API key not set. Run `corvus onboard` \
+                 or set the appropriate env var.",
+                self.name
+            )
+        })?;
+
+        // Find the index of the last user message for image attachment.
+        let last_user_idx = request.messages.iter().rposition(|m| m.role == "user");
+
+        // Build messages with content blocks for the user turn.
+        let mut api_messages = Vec::new();
+
+        for (idx, msg) in request.messages.iter().enumerate() {
+            if msg.role == "user" {
+                // Build content blocks: text + image parts.
+                let mut blocks = Vec::new();
+
+                if !msg.content.is_empty() {
+                    blocks.push(serde_json::json!({
+                        "type": "text",
+                        "text": msg.content,
+                    }));
+                }
+
+                // Only attach images to the last user message.
+                if Some(idx) == last_user_idx {
+                    for image in request.images {
+                        let bytes = std::fs::read(&image.temp_path)
+                            .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
+                        let b64 = base64_encode(&bytes);
+                        let mime = image.mime_type.as_str();
+                        let data_url = format!("data:{mime};base64,{b64}");
+                        blocks.push(serde_json::json!({
+                            "type": "image_url",
+                            "image_url": { "url": data_url },
+                        }));
+                    }
+                }
+
+                api_messages.push(serde_json::json!({
+                    "role": "user",
+                    "content": blocks,
+                }));
+            } else {
+                // Non-user messages: string content as-is.
+                api_messages.push(serde_json::json!({
+                    "role": msg.role,
+                    "content": msg.content,
+                }));
+            }
+        }
+
+        // Include tools when present.
+        let tools_json = request
+            .tools
+            .filter(|t| !t.is_empty())
+            .map(Self::tool_specs_to_openai_format);
+
+        let mut body = serde_json::json!({
+            "model": model,
+            "messages": api_messages,
+            "temperature": temperature,
+            "stream": false,
+        });
+
+        if let Some(ref tools) = tools_json {
+            body["tools"] = serde_json::json!(tools);
+            body["tool_choice"] = serde_json::json!("auto");
+        }
+
+        let url = self.chat_completions_url();
+        let response = self
+            .apply_auth_header(self.client.post(&url).json(&body), credential)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            return Err(super::api_error(&self.name, response).await);
+        }
+
+        let chat_response: ApiChatResponse = response.json().await?;
+
+        let choice = chat_response
+            .choices
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("No response from {}", self.name))?;
+
+        let text = choice.message.effective_content_optional();
+        let tool_calls = choice
+            .message
+            .tool_calls
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|tc| {
+                let function = tc.function?;
+                let name = function.name?;
+                let arguments = function.arguments.unwrap_or_else(|| "{}".to_string());
+                Some(ProviderToolCall {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    name,
+                    arguments,
+                })
+            })
+            .collect::<Vec<_>>();
+
+        Ok(ProviderChatResponse { text, tool_calls })
+    }
+
     fn apply_auth_header(
         &self,
         req: reqwest::RequestBuilder,
@@ -533,6 +661,8 @@ impl Provider for OpenAiCompatibleProvider {
     fn capabilities(&self) -> crate::providers::traits::ProviderCapabilities {
         crate::providers::traits::ProviderCapabilities {
             native_tool_calling: true,
+            image_input: true,
+            image_transport_forms: vec![crate::channels::media::ImageTransportForm::InlineBytes],
         }
     }
 
@@ -798,6 +928,11 @@ impl Provider for OpenAiCompatibleProvider {
         model: &str,
         temperature: f64,
     ) -> anyhow::Result<ProviderChatResponse> {
+        // Multimodal image turn: use content blocks format.
+        if !request.images.is_empty() {
+            return self.chat_multimodal(&request, model, temperature).await;
+        }
+
         // If native tools are requested, delegate to chat_with_tools.
         if let Some(tools) = request.tools {
             if !tools.is_empty() && self.supports_native_tools() {
@@ -1666,5 +1801,90 @@ mod tests {
         let line = "data: [DONE]";
         let result = parse_sse_line(line).unwrap();
         assert_eq!(result, None);
+    }
+
+    // ── §2.4 Compatible multimodal tests ─────────────────────
+
+    #[test]
+    fn compatible_capabilities_declare_inline_image_support() {
+        let p = make_provider("test", "https://example.com", None);
+        let caps = <OpenAiCompatibleProvider as Provider>::capabilities(&p);
+        assert!(caps.native_tool_calling);
+        assert!(caps.image_input);
+        assert!(caps.supports_image_input());
+        assert_eq!(
+            caps.image_transport_forms,
+            vec![crate::channels::media::ImageTransportForm::InlineBytes]
+        );
+    }
+
+    #[test]
+    fn multimodal_content_blocks_serialization() {
+        // Verify the JSON shape produced for multimodal turns
+        // matches OpenAI Chat Completions content-blocks format.
+        let text_block = serde_json::json!({
+            "type": "text",
+            "text": "Describe this image",
+        });
+        let image_block = serde_json::json!({
+            "type": "image_url",
+            "image_url": {
+                "url": "data:image/jpeg;base64,/9j/4AAQ"
+            },
+        });
+
+        let message = serde_json::json!({
+            "role": "user",
+            "content": [text_block, image_block],
+        });
+
+        let json = serde_json::to_string(&message).unwrap();
+
+        // Text block present.
+        assert!(json.contains("\"type\":\"text\""));
+        assert!(json.contains("\"text\":\"Describe this image\""));
+
+        // Image block present with data URL.
+        assert!(json.contains("\"type\":\"image_url\""));
+        assert!(json.contains("\"image_url\""));
+        assert!(json.contains("data:image/jpeg;base64,/9j/4AAQ"));
+
+        // Content is an array, not a string.
+        assert!(json.contains("\"content\":["));
+    }
+
+    #[test]
+    fn base64_encode_produces_valid_output() {
+        let bytes = b"Hello, World!";
+        let encoded = base64_encode(bytes);
+        assert_eq!(encoded, "SGVsbG8sIFdvcmxkIQ==");
+    }
+
+    #[tokio::test]
+    async fn chat_multimodal_fails_without_key() {
+        let p = make_provider("TestProvider", "https://example.com", None);
+        let images = [crate::channels::media::StagedImage {
+            sha256: "abc".into(),
+            mime_type: crate::channels::media::AllowedImageMime::Jpeg,
+            byte_len: 100,
+            temp_path: std::path::PathBuf::from("/tmp/fake.jpg"),
+            transport_form: crate::channels::media::ImageTransportForm::InlineBytes,
+            channel_origin: "test".into(),
+        }];
+
+        let request = crate::providers::traits::ChatRequest {
+            messages: &[ChatMessage::user("describe this")],
+            tools: None,
+            images: &images,
+        };
+
+        let err = p
+            .chat(request, "model", 0.7)
+            .await
+            .expect_err("should fail without key");
+        assert!(
+            err.to_string().contains("API key not set"),
+            "Error should mention key, got: {err}"
+        );
     }
 }

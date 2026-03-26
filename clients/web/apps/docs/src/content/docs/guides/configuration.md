@@ -1,5 +1,11 @@
 ---
 title: Configuration Options
+description: Canonical configuration surfaces for Gradle properties, version catalogs, environment variables, and runtime rollout flags.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 The project is highly configurable through Gradle properties and version catalogs.

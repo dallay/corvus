@@ -86,6 +86,7 @@ fn state_with_config(config: Config) -> AppState {
         )),
         whatsapp: None,
         whatsapp_app_secret: None,
+        channel_runtime_handle: None,
         observer: Arc::new(corvus::observability::NoopObserver),
     }
 }

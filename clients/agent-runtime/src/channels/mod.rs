@@ -7,6 +7,7 @@ pub mod irc;
 pub mod lark;
 pub mod matrix;
 pub mod mattermost;
+pub mod media;
 pub mod qq;
 pub mod signal;
 pub mod slack;
@@ -91,6 +92,48 @@ struct ChannelRuntimeContext {
     conversation_histories: ConversationHistoryMap,
 }
 
+/// Shared handle for enqueuing messages into the channel runtime
+/// pipeline. `Clone + Send + Sync` so it can be shared between
+/// channel listeners and the gateway module.
+#[derive(Clone)]
+pub struct ChannelRuntimeHandle {
+    tx: tokio::sync::mpsc::Sender<traits::ChannelMessage>,
+}
+
+impl ChannelRuntimeHandle {
+    /// Create a new handle from an mpsc sender.
+    pub fn new(tx: tokio::sync::mpsc::Sender<traits::ChannelMessage>) -> Self {
+        Self { tx }
+    }
+
+    /// Enqueue a canonical message into the processing pipeline.
+    ///
+    /// Returns an error if the receiver has been dropped or the
+    /// channel buffer is full (backpressure).
+    pub fn enqueue(&self, msg: traits::ChannelMessage) -> Result<()> {
+        self.tx
+            .try_send(msg)
+            .map_err(|e| anyhow::anyhow!("failed to enqueue channel message: {e}"))
+    }
+
+    /// Obtain a sender clone for use with channel listeners.
+    pub(crate) fn sender(&self) -> tokio::sync::mpsc::Sender<traits::ChannelMessage> {
+        self.tx.clone()
+    }
+}
+
+/// RAII guard ensuring staged image temp files are cleaned up on
+/// all exit paths (success, error, timeout, early return).
+struct StagedImageGuard(Vec<media::StagedImage>);
+
+impl Drop for StagedImageGuard {
+    fn drop(&mut self) {
+        for img in &self.0 {
+            img.cleanup();
+        }
+    }
+}
+
 fn conversation_memory_key(msg: &traits::ChannelMessage) -> String {
     format!("{}_{}_{}", msg.channel, msg.sender, msg.id)
 }
@@ -112,6 +155,92 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
         ),
         _ => None,
     }
+}
+
+#[derive(Debug)]
+struct ResolvedImageRoute {
+    selector: String,
+    provider: String,
+    model: String,
+}
+
+fn resolve_image_route(config: &Config) -> Result<ResolvedImageRoute, media::ImageRejectionReason> {
+    let hint = config
+        .multimodal
+        .vision_model_hint
+        .as_deref()
+        .map(str::trim)
+        .filter(|hint| !hint.is_empty())
+        .ok_or(media::ImageRejectionReason::MissingVisionRoute)?;
+
+    let route = config
+        .model_routes
+        .iter()
+        .find(|route| route.hint == hint)
+        .ok_or(media::ImageRejectionReason::MissingVisionRoute)?;
+
+    if !route.allow_image_input {
+        return Err(media::ImageRejectionReason::RouteNotImageCapable);
+    }
+
+    Ok(ResolvedImageRoute {
+        selector: format!("hint:{hint}"),
+        provider: route.provider.clone(),
+        model: route.model.clone(),
+    })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn rejection_to_ingress_reason(
+    r: &media::ImageRejectionReason,
+) -> crate::observability::ImageIngressReason {
+    use crate::observability::ImageIngressReason;
+    match r {
+        media::ImageRejectionReason::Disabled => ImageIngressReason::Disabled,
+        media::ImageRejectionReason::ChannelNotAllowed => ImageIngressReason::ChannelNotAllowed,
+        media::ImageRejectionReason::MissingVisionRoute => ImageIngressReason::MissingVisionRoute,
+        media::ImageRejectionReason::RouteNotImageCapable => {
+            ImageIngressReason::RouteNotImageCapable
+        }
+        media::ImageRejectionReason::FetchFailed => ImageIngressReason::FetchFailed,
+        media::ImageRejectionReason::MimeRejected => ImageIngressReason::MimeRejected,
+        media::ImageRejectionReason::Oversize => ImageIngressReason::Oversize,
+        media::ImageRejectionReason::TooManyImages => ImageIngressReason::TooManyImages,
+        media::ImageRejectionReason::ProviderError => ImageIngressReason::ProviderError,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn emit_image_ingress(
+    observer: &dyn Observer,
+    channel: &str,
+    provider: Option<String>,
+    model: Option<String>,
+    outcome: crate::observability::ImageIngressOutcome,
+    reason: Option<media::ImageRejectionReason>,
+    image_count: usize,
+    mime_type: Option<String>,
+    byte_len: Option<u64>,
+) {
+    observer.on_image_ingress(&crate::observability::ImageIngressEvent {
+        channel: channel.to_string(),
+        provider,
+        model,
+        outcome,
+        reason: reason.as_ref().map(rejection_to_ingress_reason),
+        image_count,
+        mime_type,
+        byte_len,
+    });
+}
+
+fn execution_model_for_turn<'a>(
+    default_model: &'a str,
+    image_route: Option<&'a ResolvedImageRoute>,
+) -> &'a str {
+    image_route
+        .map(|route| route.selector.as_str())
+        .unwrap_or(default_model)
 }
 
 fn update_visibility_enabled(config: &Config) -> bool {
@@ -378,6 +507,7 @@ struct ChannelLoopParams<'a> {
     max_tool_iterations: usize,
     dispatcher_mode: &'a str,
     delta_tx: Option<tokio::sync::mpsc::Sender<String>>,
+    images: &'a [media::StagedImage],
 }
 
 async fn run_unified_channel_tool_loop(
@@ -401,6 +531,7 @@ async fn run_unified_channel_tool_loop(
                     } else {
                         None
                     },
+                    images: params.images,
                 },
                 params.model,
                 params.temperature,
@@ -490,16 +621,32 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         truncate_with_ellipsis(&msg.content, 80)
     );
 
-    let memory_context =
-        build_memory_context(ctx.memory.as_ref(), &msg.content, ctx.min_relevance_score).await;
+    // Use text_projection for multimodal messages, fall back to
+    // legacy content field for text-only backward compatibility.
+    let user_text = if msg.parts.is_empty() {
+        msg.content.clone()
+    } else {
+        let projection = msg.text_projection();
+        if projection.is_empty() {
+            msg.content.clone()
+        } else {
+            projection
+        }
+    };
 
-    if ctx.auto_save_memory {
+    let memory_context = if user_text.trim().is_empty() {
+        String::new()
+    } else {
+        build_memory_context(ctx.memory.as_ref(), &user_text, ctx.min_relevance_score).await
+    };
+
+    if ctx.auto_save_memory && !user_text.trim().is_empty() {
         let autosave_key = conversation_memory_key(&msg);
         let _ = ctx
             .memory
             .store(
                 &autosave_key,
-                &msg.content,
+                &user_text,
                 crate::memory::MemoryCategory::Conversation,
                 None,
             )
@@ -507,9 +654,9 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
     }
 
     let enriched_message = if memory_context.is_empty() {
-        msg.content.clone()
+        user_text.clone()
     } else {
-        format!("{memory_context}{}", msg.content)
+        format!("{memory_context}{user_text}")
     };
 
     if update_visibility_enabled(ctx.config.as_ref()) {
@@ -528,12 +675,221 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         target_channel.as_ref(),
         &session_id,
         &msg.reply_target,
-        &msg.content,
+        &user_text,
     )
     .await
     .is_some()
     {
         return;
+    }
+
+    let mut image_route_metadata: Option<ResolvedImageRoute> = None;
+
+    // ── Multimodal config gating ────────────────────────────
+    if msg.has_image_parts() {
+        let mm = &ctx.config.multimodal;
+        let img_count = msg.image_parts().len();
+        if !mm.enabled {
+            emit_image_ingress(
+                ctx.observer.as_ref(),
+                &msg.channel,
+                None,
+                None,
+                crate::observability::ImageIngressOutcome::Rejected,
+                Some(media::ImageRejectionReason::Disabled),
+                img_count,
+                None,
+                None,
+            );
+            let rejection = format!(
+                "[session:{session_id}] ⚠️ Image input is \
+                 currently disabled."
+            );
+            if let Some(ch) = target_channel.as_ref() {
+                let _ = ch
+                    .send(&SendMessage::new(rejection, &msg.reply_target))
+                    .await;
+            }
+            return;
+        }
+        if !mm.allowed_channels.contains(&msg.channel) {
+            emit_image_ingress(
+                ctx.observer.as_ref(),
+                &msg.channel,
+                None,
+                None,
+                crate::observability::ImageIngressOutcome::Rejected,
+                Some(media::ImageRejectionReason::ChannelNotAllowed),
+                img_count,
+                None,
+                None,
+            );
+            let rejection = format!(
+                "[session:{session_id}] ⚠️ Image input is not \
+                 enabled for this channel."
+            );
+            if let Some(ch) = target_channel.as_ref() {
+                let _ = ch
+                    .send(&SendMessage::new(rejection, &msg.reply_target))
+                    .await;
+            }
+            return;
+        }
+
+        match resolve_image_route(ctx.config.as_ref()) {
+            Ok(route) => image_route_metadata = Some(route),
+            Err(reason) => {
+                emit_image_ingress(
+                    ctx.observer.as_ref(),
+                    &msg.channel,
+                    None,
+                    None,
+                    crate::observability::ImageIngressOutcome::Rejected,
+                    Some(reason.clone()),
+                    img_count,
+                    None,
+                    None,
+                );
+                let rejection = match reason {
+                    media::ImageRejectionReason::MissingVisionRoute => format!(
+                        "[session:{session_id}] ⚠️ Image input is not configured with a vision route."
+                    ),
+                    media::ImageRejectionReason::RouteNotImageCapable => format!(
+                        "[session:{session_id}] ⚠️ The configured vision route does not allow image input."
+                    ),
+                    _ => format!(
+                        "[session:{session_id}] ⚠️ Image input is not available for this request."
+                    ),
+                };
+                if let Some(ch) = target_channel.as_ref() {
+                    let _ = ch
+                        .send(&SendMessage::new(rejection, &msg.reply_target))
+                        .await;
+                }
+                return;
+            }
+        }
+    }
+
+    // ── Image turn gating (fail-closed) ──────────────────────
+    if msg.has_image_parts() {
+        let image_count = msg.image_parts().len();
+        if media::validate_image_count(image_count).is_err() {
+            emit_image_ingress(
+                ctx.observer.as_ref(),
+                &msg.channel,
+                image_route_metadata
+                    .as_ref()
+                    .map(|route| route.provider.clone()),
+                image_route_metadata
+                    .as_ref()
+                    .map(|route| route.model.clone()),
+                crate::observability::ImageIngressOutcome::Rejected,
+                Some(media::ImageRejectionReason::TooManyImages),
+                image_count,
+                None,
+                None,
+            );
+            let rejection = format!(
+                "[session:{session_id}] ⚠️ Too many images \
+                 ({image_count}). Maximum {} per message.",
+                media::MAX_IMAGES_PER_TURN,
+            );
+            if let Some(ch) = target_channel.as_ref() {
+                let _ = ch
+                    .send(&SendMessage::new(rejection, &msg.reply_target))
+                    .await;
+            }
+            return;
+        }
+    }
+
+    let staged = if msg.has_image_parts() {
+        match stage_channel_images(ctx.config.as_ref(), &msg).await {
+            Ok(staged) => staged,
+            Err(reason) => {
+                emit_image_ingress(
+                    ctx.observer.as_ref(),
+                    &msg.channel,
+                    image_route_metadata
+                        .as_ref()
+                        .map(|route| route.provider.clone()),
+                    image_route_metadata
+                        .as_ref()
+                        .map(|route| route.model.clone()),
+                    crate::observability::ImageIngressOutcome::Rejected,
+                    Some(reason.clone()),
+                    msg.image_parts().len(),
+                    None,
+                    None,
+                );
+                let rejection = match reason {
+                    media::ImageRejectionReason::FetchFailed => format!(
+                        "[session:{session_id}] ⚠️ I couldn't download that image safely. Please try again."
+                    ),
+                    media::ImageRejectionReason::MimeRejected => format!(
+                        "[session:{session_id}] ⚠️ That image format is not supported."
+                    ),
+                    media::ImageRejectionReason::Oversize => format!(
+                        "[session:{session_id}] ⚠️ That image is too large to process."
+                    ),
+                    _ => format!(
+                        "[session:{session_id}] ⚠️ Image input is not available for this request."
+                    ),
+                };
+                if let Some(ch) = target_channel.as_ref() {
+                    let _ = ch
+                        .send(&SendMessage::new(rejection, &msg.reply_target))
+                        .await;
+                }
+                return;
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    let staged_guard = StagedImageGuard(staged);
+
+    // Fail-closed: reject image turns on channels that have
+    // not yet implemented fetch/staging.
+    if msg.has_image_parts() && staged_guard.0.is_empty() {
+        emit_image_ingress(
+            ctx.observer.as_ref(),
+            &msg.channel,
+            image_route_metadata.as_ref().map(|r| r.provider.clone()),
+            image_route_metadata.as_ref().map(|r| r.model.clone()),
+            crate::observability::ImageIngressOutcome::Rejected,
+            Some(media::ImageRejectionReason::FetchFailed),
+            msg.image_parts().len(),
+            None,
+            None,
+        );
+        let rejection = format!(
+            "[session:{session_id}] ⚠️ Image input is not \
+             yet supported for this channel."
+        );
+        if let Some(ch) = target_channel.as_ref() {
+            let _ = ch
+                .send(&SendMessage::new(rejection, &msg.reply_target))
+                .await;
+        }
+        return;
+    }
+
+    if let Some(route) = image_route_metadata.as_ref() {
+        if let Some(first_image) = staged_guard.0.first() {
+            emit_image_ingress(
+                ctx.observer.as_ref(),
+                &msg.channel,
+                Some(route.provider.clone()),
+                Some(route.model.clone()),
+                crate::observability::ImageIngressOutcome::Admitted,
+                None,
+                staged_guard.0.len(),
+                Some(first_image.mime_type.as_str().to_string()),
+                Some(first_image.byte_len),
+            );
+        }
     }
 
     println!("  ⏳ Processing message...");
@@ -563,6 +919,9 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         _ => None,
     };
 
+    let effective_model =
+        execution_model_for_turn(ctx.model.as_str(), image_route_metadata.as_ref()).to_string();
+
     let llm_result = tokio::time::timeout(
         Duration::from_secs(CHANNEL_MESSAGE_TIMEOUT_SECS),
         run_unified_channel_tool_loop(
@@ -570,11 +929,12 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
             ctx.tools_registry.as_ref(),
             &mut history,
             ChannelLoopParams {
-                model: ctx.model.as_str(),
+                model: &effective_model,
                 temperature: ctx.temperature,
                 max_tool_iterations: ctx.max_tool_iterations,
                 dispatcher_mode: &ctx.tool_dispatcher_mode,
                 delta_tx,
+                images: staged_guard.0.as_slice(),
             },
         ),
     )
@@ -590,10 +950,26 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
 
     match llm_result {
         Ok(Ok(response)) => {
+            if let Some(route) = image_route_metadata.as_ref() {
+                if let Some(first_image) = staged_guard.0.first() {
+                    emit_image_ingress(
+                        ctx.observer.as_ref(),
+                        &msg.channel,
+                        Some(route.provider.clone()),
+                        Some(route.model.clone()),
+                        crate::observability::ImageIngressOutcome::ProviderSent,
+                        None,
+                        staged_guard.0.len(),
+                        Some(first_image.mime_type.as_str().to_string()),
+                        Some(first_image.byte_len),
+                    );
+                }
+            }
             handle_successful_response(
                 ctx.as_ref(),
                 &history_key,
                 &enriched_message,
+                &effective_model,
                 response,
                 started_at,
                 response_ctx,
@@ -601,12 +977,76 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
             .await;
         }
         Ok(Err(e)) => {
+            if let Some(route) = image_route_metadata.as_ref() {
+                emit_image_ingress(
+                    ctx.observer.as_ref(),
+                    &msg.channel,
+                    Some(route.provider.clone()),
+                    Some(route.model.clone()),
+                    crate::observability::ImageIngressOutcome::ProviderError,
+                    Some(media::ImageRejectionReason::ProviderError),
+                    msg.image_parts().len(),
+                    None,
+                    None,
+                );
+            }
             handle_llm_error(e, started_at, response_ctx).await;
         }
         Err(_) => {
+            if let Some(route) = image_route_metadata.as_ref() {
+                emit_image_ingress(
+                    ctx.observer.as_ref(),
+                    &msg.channel,
+                    Some(route.provider.clone()),
+                    Some(route.model.clone()),
+                    crate::observability::ImageIngressOutcome::ProviderError,
+                    Some(media::ImageRejectionReason::ProviderError),
+                    msg.image_parts().len(),
+                    None,
+                    None,
+                );
+            }
             handle_timeout(session_id, started_at, response_ctx).await;
         }
     }
+}
+
+async fn stage_channel_images(
+    config: &Config,
+    msg: &traits::ChannelMessage,
+) -> Result<Vec<media::StagedImage>, media::ImageRejectionReason> {
+    let mut staged = Vec::with_capacity(msg.image_parts().len());
+
+    for part in msg.image_parts() {
+        let traits::ContentPart::Image {
+            channel_handle,
+            declared_mime,
+            ..
+        } = part
+        else {
+            continue;
+        };
+
+        let image = match msg.channel.as_str() {
+            "telegram" => {
+                build_telegram_channel(config)
+                    .ok_or(media::ImageRejectionReason::FetchFailed)?
+                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref())
+                    .await?
+            }
+            "whatsapp" => {
+                build_whatsapp_channel(config)
+                    .ok_or(media::ImageRejectionReason::FetchFailed)?
+                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref())
+                    .await?
+            }
+            _ => return Ok(Vec::new()),
+        };
+
+        staged.push(image);
+    }
+
+    Ok(staged)
 }
 
 fn build_history(
@@ -740,6 +1180,7 @@ async fn handle_successful_response(
     ctx: &ChannelRuntimeContext,
     history_key: &str,
     enriched_message: &str,
+    effective_model: &str,
     mut response: String,
     started_at: Instant,
     response_ctx: ResponseContext<'_>,
@@ -747,7 +1188,7 @@ async fn handle_successful_response(
     response = enforce_strict_memory_validation(
         ctx.memory.as_ref(),
         ctx.provider.as_ref(),
-        ctx.model.as_str(),
+        effective_model,
         ctx.temperature,
         enriched_message,
         response,
@@ -1229,7 +1670,7 @@ struct ChannelRegistryEntry {
     build: ChannelBuilder,
 }
 
-fn build_telegram_channel(config: &Config) -> Option<Arc<TelegramChannel>> {
+pub(crate) fn build_telegram_channel(config: &Config) -> Option<Arc<TelegramChannel>> {
     config.channels_config.telegram.as_ref().map(|tg| {
         Arc::new(
             TelegramChannel::new(tg.bot_token.clone(), tg.allowed_users.clone())
@@ -1662,18 +2103,20 @@ pub async fn start_channels(config: Config) -> Result<()> {
 
     // Single message bus — all channels send messages here
     let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(100);
+    let runtime_handle = ChannelRuntimeHandle::new(tx);
 
     // Spawn a listener for each channel
     let mut handles = Vec::new();
     for ch in &channels {
         handles.push(spawn_supervised_listener(
             ch.clone(),
-            tx.clone(),
+            runtime_handle.sender(),
             initial_backoff_secs,
             max_backoff_secs,
         ));
     }
-    drop(tx); // Drop our copy so rx closes when all channels stop
+    // Drop our copy so rx closes when all channels stop
+    drop(runtime_handle);
 
     let channels_by_name = Arc::new(
         channels
@@ -1712,6 +2155,87 @@ pub async fn start_channels(config: Config) -> Result<()> {
     Ok(())
 }
 
+pub(crate) fn spawn_runtime_handle(config: &Config) -> Result<Option<ChannelRuntimeHandle>> {
+    let channels: Vec<Arc<dyn Channel>> = configured_channel_entries(config)
+        .into_iter()
+        .map(|(_, _, channel)| channel)
+        .collect();
+
+    if channels.is_empty() {
+        return Ok(None);
+    }
+
+    let workspace = config.workspace_dir.clone();
+    let model = config
+        .default_model
+        .clone()
+        .unwrap_or_else(|| bootstrap::DEFAULT_MODEL.into());
+    let provider: Arc<dyn Provider> = Arc::from(bootstrap::create_routed_provider(config, &model)?);
+    {
+        let p = Arc::clone(&provider);
+        tokio::spawn(async move {
+            if let Err(e) = p.warmup().await {
+                tracing::debug!("Channel provider warmup failed (non-fatal): {e}");
+            }
+        });
+    }
+    let bootstrap = bootstrap::BootstrapContext::from_config(config)?;
+    let tools_registry = Arc::new(bootstrap.tools);
+    let skills = crate::skills::load_skills(&workspace);
+    let tool_descs: Vec<(&str, &str)> = tools_registry
+        .iter()
+        .map(|tool| (tool.name(), tool.description()))
+        .collect();
+    let bootstrap_max_chars = if config.agent.compact_context {
+        Some(COMPACT_CONTEXT_BOOTSTRAP_MAX_CHARS)
+    } else {
+        None
+    };
+    let system_prompt = build_system_prompt(
+        &workspace,
+        &model,
+        &tool_descs,
+        &skills,
+        Some(&config.identity),
+        bootstrap_max_chars,
+    );
+
+    let channels_by_name = Arc::new(
+        channels
+            .iter()
+            .map(|ch| (ch.name().to_string(), Arc::clone(ch)))
+            .collect::<HashMap<_, _>>(),
+    );
+    let runtime_ctx = Arc::new(ChannelRuntimeContext {
+        config: Arc::new(config.clone()),
+        channels_by_name,
+        provider,
+        memory: bootstrap.memory,
+        tools_registry,
+        observer: bootstrap.observer,
+        system_prompt: Arc::new(system_prompt),
+        model: Arc::new(model),
+        temperature: config.default_temperature,
+        auto_save_memory: config.memory.auto_save,
+        tool_dispatcher_mode: Arc::<str>::from(config.agent.tool_dispatcher.as_str()),
+        max_tool_iterations: config.agent.max_tool_iterations,
+        min_relevance_score: config.memory.min_relevance_score,
+        conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+    });
+
+    let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(100);
+    let runtime_handle = ChannelRuntimeHandle::new(tx);
+    let max_in_flight_messages = compute_max_in_flight_messages(channels.len());
+
+    tokio::spawn(run_message_dispatch_loop(
+        rx,
+        runtime_ctx,
+        max_in_flight_messages,
+    ));
+
+    Ok(Some(runtime_handle))
+}
+
 #[cfg(test)]
 #[path = "tests/health.rs"]
 mod channel_health_tests;
@@ -1722,7 +2246,8 @@ mod tests {
     use crate::agent::prompt::DEFAULT_BOOTSTRAP_MAX_CHARS;
     use crate::config::{SlackConfig, StreamMode, TelegramConfig};
     use crate::memory::{Memory, MemoryCategory, SqliteMemory};
-    use crate::observability::NoopObserver;
+    use crate::observability::{ImageIngressEvent, ImageIngressOutcome, NoopObserver, Observer};
+    use crate::providers::traits::ProviderCapabilities;
     use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
     use crate::tools::{Tool, ToolResult};
     use std::collections::HashMap;
@@ -1843,6 +2368,51 @@ mod tests {
         async fn stop_typing(&self, _recipient: &str) -> anyhow::Result<()> {
             self.stop_typing_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct RecordingObserver {
+        image_events: std::sync::Mutex<Vec<ImageIngressEvent>>,
+    }
+
+    impl Observer for RecordingObserver {
+        fn record_event(&self, _event: &crate::observability::ObserverEvent) {}
+
+        fn record_metric(&self, _metric: &crate::observability::ObserverMetric) {}
+
+        fn on_image_ingress(&self, event: &ImageIngressEvent) {
+            self.image_events
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(event.clone());
+        }
+
+        fn name(&self) -> &str {
+            "recording-observer"
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
+    }
+
+    fn make_multimodal_test_config(channel: &str) -> Config {
+        Config {
+            multimodal: crate::config::MultimodalConfig {
+                enabled: true,
+                allowed_channels: vec![channel.to_string()],
+                vision_model_hint: Some("vision".into()),
+                max_image_bytes: None,
+            },
+            model_routes: vec![crate::config::ModelRouteConfig {
+                hint: "vision".into(),
+                provider: "test-provider".into(),
+                model: "test-vision-model".into(),
+                api_key: None,
+                allow_image_input: true,
+            }],
+            ..Config::default()
         }
     }
 
@@ -2016,6 +2586,83 @@ mod tests {
 
     struct MockPriceTool;
 
+    #[derive(Default)]
+    struct ImageAwareProvider {
+        calls: AtomicUsize,
+        image_counts: std::sync::Mutex<Vec<usize>>,
+        models: std::sync::Mutex<Vec<String>>,
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for ImageAwareProvider {
+        fn capabilities(&self) -> ProviderCapabilities {
+            ProviderCapabilities {
+                image_input: true,
+                image_transport_forms: vec![media::ImageTransportForm::InlineBytes],
+                ..Default::default()
+            }
+        }
+
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            Ok("unused".to_string())
+        }
+
+        async fn chat(
+            &self,
+            request: ChatRequest<'_>,
+            model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.image_counts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(request.images.len());
+            self.models
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push(model.to_string());
+            Ok(ChatResponse {
+                text: Some("image-ok".to_string()),
+                tool_calls: Vec::new(),
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Provider for Arc<ImageAwareProvider> {
+        fn capabilities(&self) -> ProviderCapabilities {
+            self.as_ref().capabilities()
+        }
+
+        async fn chat_with_system(
+            &self,
+            system_prompt: Option<&str>,
+            message: &str,
+            model: &str,
+            temperature: f64,
+        ) -> anyhow::Result<String> {
+            self.as_ref()
+                .chat_with_system(system_prompt, message, model, temperature)
+                .await
+        }
+
+        async fn chat(
+            &self,
+            request: ChatRequest<'_>,
+            model: &str,
+            temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            self.as_ref().chat(request, model, temperature).await
+        }
+    }
+
     #[async_trait::async_trait]
     impl Tool for MockPriceTool {
         fn name(&self) -> &str {
@@ -2065,7 +2712,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            config: Arc::new(Config::default()),
+            config: Arc::new(make_multimodal_test_config("test-channel")),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingProvider),
             memory: Arc::new(NoopMemory),
@@ -2090,6 +2737,7 @@ mod tests {
                 content: "What is the BTC price now?".to_string(),
                 channel: "test-channel".to_string(),
                 timestamp: 1,
+                parts: vec![],
             },
         )
         .await;
@@ -2111,7 +2759,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            config: Arc::new(Config::default()),
+            config: Arc::new(make_multimodal_test_config("test-channel")),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(ToolCallingAliasProvider),
             memory: Arc::new(NoopMemory),
@@ -2136,6 +2784,7 @@ mod tests {
                 content: "What is the BTC price now?".to_string(),
                 channel: "test-channel".to_string(),
                 timestamp: 2,
+                parts: vec![],
             },
         )
         .await;
@@ -2200,6 +2849,67 @@ mod tests {
         }
     }
 
+    /// Memory backend that records whether `store` or `recall` were called.
+    #[derive(Default)]
+    struct RecordingMemory {
+        store_count: std::sync::atomic::AtomicUsize,
+        recall_count: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl Memory for RecordingMemory {
+        fn name(&self) -> &str {
+            "recording"
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: crate::memory::MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            self.store_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            self.recall_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(Vec::new())
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&crate::memory::MemoryCategory>,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+    }
+
     #[tokio::test]
     async fn message_dispatch_processes_messages_in_parallel() {
         let channel_impl = Arc::new(RecordingChannel::default());
@@ -2209,7 +2919,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            config: Arc::new(Config::default()),
+            config: Arc::new(make_multimodal_test_config("test-channel")),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(250),
@@ -2235,6 +2945,7 @@ mod tests {
             content: "hello".to_string(),
             channel: "test-channel".to_string(),
             timestamp: 1,
+            parts: vec![],
         })
         .await
         .unwrap();
@@ -2245,6 +2956,7 @@ mod tests {
             content: "world".to_string(),
             channel: "test-channel".to_string(),
             timestamp: 2,
+            parts: vec![],
         })
         .await
         .unwrap();
@@ -2273,7 +2985,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            config: Arc::new(Config::default()),
+            config: Arc::new(make_multimodal_test_config("test-channel")),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(20),
@@ -2300,6 +3012,7 @@ mod tests {
                 content: "hello".to_string(),
                 channel: "test-channel".to_string(),
                 timestamp: 1,
+                parts: vec![],
             },
         )
         .await;
@@ -2554,6 +3267,7 @@ mod tests {
             content: "hello".into(),
             channel: "slack".into(),
             timestamp: 1,
+            parts: vec![],
         };
 
         assert_eq!(conversation_memory_key(&msg), "slack_U123_msg_abc123");
@@ -2568,6 +3282,7 @@ mod tests {
             content: "first".into(),
             channel: "slack".into(),
             timestamp: 1,
+            parts: vec![],
         };
         let msg2 = traits::ChannelMessage {
             id: "msg_2".into(),
@@ -2576,6 +3291,7 @@ mod tests {
             content: "second".into(),
             channel: "slack".into(),
             timestamp: 2,
+            parts: vec![],
         };
 
         assert_ne!(
@@ -2596,6 +3312,7 @@ mod tests {
             content: "I'm Paul".into(),
             channel: "slack".into(),
             timestamp: 1,
+            parts: vec![],
         };
         let msg2 = traits::ChannelMessage {
             id: "msg_2".into(),
@@ -2604,6 +3321,7 @@ mod tests {
             content: "I'm 45".into(),
             channel: "slack".into(),
             timestamp: 2,
+            parts: vec![],
         };
 
         mem.store(
@@ -2653,7 +3371,7 @@ mod tests {
         let provider_impl = Arc::new(HistoryCaptureProvider::default());
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            config: Arc::new(Config::default()),
+            config: Arc::new(make_multimodal_test_config("test-channel")),
             channels_by_name: Arc::new(channels_by_name),
             provider: provider_impl.clone(),
             memory: Arc::new(NoopMemory),
@@ -2678,6 +3396,7 @@ mod tests {
                 content: "hello".to_string(),
                 channel: "test-channel".to_string(),
                 timestamp: 1,
+                parts: vec![],
             },
         )
         .await;
@@ -2691,6 +3410,7 @@ mod tests {
                 content: "follow up".to_string(),
                 channel: "test-channel".to_string(),
                 timestamp: 2,
+                parts: vec![],
             },
         )
         .await;
@@ -2980,6 +3700,7 @@ mod tests {
                 max_tool_iterations: 2,
                 dispatcher_mode: "native",
                 delta_tx: None,
+                images: &[],
             },
         )
         .await
@@ -3034,7 +3755,7 @@ mod tests {
         channels_by_name.insert(channel.name().to_string(), channel);
 
         let runtime_ctx = Arc::new(ChannelRuntimeContext {
-            config: Arc::new(Config::default()),
+            config: Arc::new(make_multimodal_test_config("test-channel")),
             channels_by_name: Arc::new(channels_by_name),
             provider: Arc::new(SlowProvider {
                 delay: Duration::from_millis(1),
@@ -3061,6 +3782,7 @@ mod tests {
                 content: "needs-approval".to_string(),
                 channel: "test-channel".to_string(),
                 timestamp: 1,
+                parts: vec![],
             },
         )
         .await;
@@ -3118,6 +3840,7 @@ mod tests {
                 content: "needs-approval".to_string(),
                 channel: "test-channel".to_string(),
                 timestamp: 1,
+                parts: vec![],
             },
         )
         .await;
@@ -3141,5 +3864,838 @@ mod tests {
         config.updates.enabled = false;
         config.updates.channel_visibility_enabled = true;
         assert!(!update_visibility_enabled(&config));
+    }
+
+    // ── ChannelRuntimeHandle (Task 1.3) ──────────────────────
+
+    #[test]
+    fn channel_runtime_handle_is_clone_send_sync() {
+        fn assert_traits<T: Clone + Send + Sync>() {}
+        assert_traits::<ChannelRuntimeHandle>();
+    }
+
+    #[tokio::test]
+    async fn channel_runtime_handle_enqueue_delivers_message() {
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(4);
+        let handle = ChannelRuntimeHandle::new(tx);
+
+        let msg = traits::ChannelMessage {
+            id: "h-1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: "hello".into(),
+            channel: "test".into(),
+            timestamp: 1,
+            parts: vec![],
+        };
+
+        handle.enqueue(msg).unwrap();
+        let received = rx.recv().await.unwrap();
+        assert_eq!(received.id, "h-1");
+        assert_eq!(received.content, "hello");
+    }
+
+    #[tokio::test]
+    async fn channel_runtime_handle_enqueue_fails_when_closed() {
+        let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(1);
+        let handle = ChannelRuntimeHandle::new(tx);
+        drop(rx);
+
+        let msg = traits::ChannelMessage {
+            id: "h-2".into(),
+            sender: "bob".into(),
+            reply_target: "bob".into(),
+            content: "bye".into(),
+            channel: "test".into(),
+            timestamp: 2,
+            parts: vec![],
+        };
+
+        assert!(handle.enqueue(msg).is_err());
+    }
+
+    // ── Image turn gating (Task 1.4) ─────────────────────────
+
+    fn make_image_part(handle: &str) -> traits::ContentPart {
+        traits::ContentPart::Image {
+            channel_handle: handle.into(),
+            source_channel: "test".into(),
+            declared_mime: Some("image/jpeg".into()),
+            caption_text: None,
+            file_name: None,
+            declared_bytes: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn process_rejects_too_many_images() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(make_multimodal_test_config("test-channel")),
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-many".into(),
+                sender: "alice".into(),
+                reply_target: "chat-img".into(),
+                content: "two photos".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("f1"), make_image_part("f2")],
+            },
+        )
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(
+            sent[0].contains("Too many images"),
+            "expected too-many-images rejection, got: {}",
+            sent[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn process_rejects_unstaged_image_turn() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(make_multimodal_test_config("test-channel")),
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-one".into(),
+                sender: "bob".into(),
+                reply_target: "chat-img2".into(),
+                content: "one photo".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("f1")],
+            },
+        )
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(
+            sent[0].contains("not yet supported"),
+            "expected unsupported rejection, got: {}",
+            sent[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn process_rejects_when_multimodal_disabled() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let observer_impl = Arc::new(RecordingObserver::default());
+        let observer: Arc<dyn Observer> = observer_impl.clone();
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer,
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-disabled".into(),
+                sender: "alice".into(),
+                reply_target: "chat-disabled".into(),
+                content: "photo".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("f1")],
+            },
+        )
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("currently disabled"));
+
+        let events = observer_impl
+            .image_events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].outcome, ImageIngressOutcome::Rejected);
+        assert_eq!(
+            events[0].reason,
+            Some(crate::observability::ImageIngressReason::Disabled)
+        );
+    }
+
+    #[tokio::test]
+    async fn process_rejects_when_channel_not_allowed() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let observer_impl = Arc::new(RecordingObserver::default());
+        let observer: Arc<dyn Observer> = observer_impl.clone();
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(make_multimodal_test_config("telegram")),
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer,
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-channel-blocked".into(),
+                sender: "alice".into(),
+                reply_target: "chat-channel-blocked".into(),
+                content: "photo".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("f1")],
+            },
+        )
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("not enabled for this channel"));
+
+        let events = observer_impl
+            .image_events
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].outcome, ImageIngressOutcome::Rejected);
+        assert_eq!(
+            events[0].reason,
+            Some(crate::observability::ImageIngressReason::ChannelNotAllowed)
+        );
+    }
+
+    // ── resolve_image_route unit tests ────────────────────────
+
+    #[test]
+    fn resolve_image_route_succeeds_with_valid_config() {
+        let config = make_multimodal_test_config("telegram");
+        let route = resolve_image_route(&config).unwrap();
+        assert_eq!(route.selector, "hint:vision");
+        assert_eq!(route.provider, "test-provider");
+        assert_eq!(route.model, "test-vision-model");
+    }
+
+    #[test]
+    fn resolve_image_route_fails_when_hint_missing() {
+        let mut config = make_multimodal_test_config("telegram");
+        config.multimodal.vision_model_hint = None;
+        let err = resolve_image_route(&config).unwrap_err();
+        assert!(matches!(
+            err,
+            media::ImageRejectionReason::MissingVisionRoute
+        ));
+    }
+
+    #[test]
+    fn resolve_image_route_fails_when_hint_empty() {
+        let mut config = make_multimodal_test_config("telegram");
+        config.multimodal.vision_model_hint = Some("  ".into());
+        let err = resolve_image_route(&config).unwrap_err();
+        assert!(matches!(
+            err,
+            media::ImageRejectionReason::MissingVisionRoute
+        ));
+    }
+
+    #[test]
+    fn resolve_image_route_fails_when_no_matching_route() {
+        let mut config = make_multimodal_test_config("telegram");
+        config.multimodal.vision_model_hint = Some("nonexistent".into());
+        let err = resolve_image_route(&config).unwrap_err();
+        assert!(matches!(
+            err,
+            media::ImageRejectionReason::MissingVisionRoute
+        ));
+    }
+
+    #[test]
+    fn resolve_image_route_fails_when_route_not_image_capable() {
+        let mut config = make_multimodal_test_config("telegram");
+        config.model_routes[0].allow_image_input = false;
+        let err = resolve_image_route(&config).unwrap_err();
+        assert!(matches!(
+            err,
+            media::ImageRejectionReason::RouteNotImageCapable
+        ));
+    }
+
+    // ── rejection_to_ingress_reason mapping tests ───────────
+
+    #[test]
+    fn rejection_to_ingress_reason_maps_all_variants() {
+        use crate::observability::ImageIngressReason;
+        let cases = vec![
+            (
+                media::ImageRejectionReason::Disabled,
+                ImageIngressReason::Disabled,
+            ),
+            (
+                media::ImageRejectionReason::ChannelNotAllowed,
+                ImageIngressReason::ChannelNotAllowed,
+            ),
+            (
+                media::ImageRejectionReason::MissingVisionRoute,
+                ImageIngressReason::MissingVisionRoute,
+            ),
+            (
+                media::ImageRejectionReason::RouteNotImageCapable,
+                ImageIngressReason::RouteNotImageCapable,
+            ),
+            (
+                media::ImageRejectionReason::FetchFailed,
+                ImageIngressReason::FetchFailed,
+            ),
+            (
+                media::ImageRejectionReason::MimeRejected,
+                ImageIngressReason::MimeRejected,
+            ),
+            (
+                media::ImageRejectionReason::Oversize,
+                ImageIngressReason::Oversize,
+            ),
+            (
+                media::ImageRejectionReason::TooManyImages,
+                ImageIngressReason::TooManyImages,
+            ),
+            (
+                media::ImageRejectionReason::ProviderError,
+                ImageIngressReason::ProviderError,
+            ),
+        ];
+        for (rejection, expected) in cases {
+            assert_eq!(rejection_to_ingress_reason(&rejection), expected);
+        }
+    }
+
+    // ── channel_delivery_instructions tests ─────────────────
+
+    #[test]
+    fn delivery_instructions_telegram_returns_marker_guidance() {
+        let instructions = channel_delivery_instructions("telegram");
+        assert!(instructions.is_some());
+        assert!(instructions.unwrap().contains("[IMAGE:"));
+    }
+
+    #[test]
+    fn delivery_instructions_unknown_channel_returns_none() {
+        assert!(channel_delivery_instructions("discord").is_none());
+        assert!(channel_delivery_instructions("whatsapp").is_none());
+        assert!(channel_delivery_instructions("slack").is_none());
+    }
+
+    // ── StagedImageGuard (Task 1.5) ─────────────────────────
+
+    #[test]
+    fn staged_image_guard_cleanup_called_on_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let tmp = dir.path().join("guard_test.jpg");
+        std::fs::write(&tmp, b"fake-image").unwrap();
+        assert!(tmp.exists());
+
+        {
+            let _guard = StagedImageGuard(vec![media::StagedImage {
+                sha256: "abc".into(),
+                mime_type: media::AllowedImageMime::Jpeg,
+                byte_len: 10,
+                temp_path: tmp.clone(),
+                transport_form: media::ImageTransportForm::InlineBytes,
+                channel_origin: "test".into(),
+            }]);
+            // guard dropped here
+        }
+
+        assert!(!tmp.exists(), "temp file should be removed on guard drop");
+    }
+
+    #[tokio::test]
+    async fn process_text_only_unaffected_by_image_gating() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "text-only".into(),
+                sender: "carol".into(),
+                reply_target: "chat-text".into(),
+                content: "just text".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![],
+            },
+        )
+        .await;
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(
+            !sent[0].contains("not yet supported"),
+            "text-only should not be rejected"
+        );
+        assert!(
+            !sent[0].contains("Too many images"),
+            "text-only should not trigger image rejection"
+        );
+    }
+
+    #[tokio::test]
+    async fn image_only_message_skips_memory_recall_and_store() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let memory_impl = Arc::new(RecordingMemory::default());
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(make_multimodal_test_config("test-channel")),
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: memory_impl.clone(),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: true,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        // Image-only message: content is empty, text_projection is empty,
+        // parts has only an image (no text part).
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-only-mem".into(),
+                sender: "alice".into(),
+                reply_target: "chat-mem".into(),
+                content: String::new(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("f1")],
+            },
+        )
+        .await;
+
+        let stores = memory_impl
+            .store_count
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let recalls = memory_impl
+            .recall_count
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            stores, 0,
+            "image-only message should not autosave to memory"
+        );
+        assert_eq!(
+            recalls, 0,
+            "image-only message should not recall from memory"
+        );
+    }
+
+    #[tokio::test]
+    async fn run_unified_channel_tool_loop_forwards_staged_images_to_provider() {
+        let provider = ImageAwareProvider::default();
+        let history = &mut vec![ConversationMessage::Chat(ChatMessage::user(
+            "describe this",
+        ))];
+        let temp_dir = tempfile::tempdir().unwrap();
+        let image_path = temp_dir.path().join("image.jpg");
+        std::fs::write(&image_path, b"fake-image").unwrap();
+        let staged = vec![media::StagedImage {
+            sha256: "hash".into(),
+            mime_type: media::AllowedImageMime::Jpeg,
+            byte_len: 10,
+            temp_path: image_path,
+            transport_form: media::ImageTransportForm::InlineBytes,
+            channel_origin: "whatsapp:test".into(),
+        }];
+
+        let response = run_unified_channel_tool_loop(
+            &provider,
+            &[],
+            history,
+            ChannelLoopParams {
+                model: "test-model",
+                temperature: 0.0,
+                max_tool_iterations: 1,
+                dispatcher_mode: "xml",
+                delta_tx: None,
+                images: &staged,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response, "image-ok");
+        assert_eq!(provider.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            provider
+                .image_counts
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_slice(),
+            &[1]
+        );
+        assert_eq!(
+            provider
+                .models
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_slice(),
+            &["test-model".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn run_unified_channel_tool_loop_uses_hint_model_for_image_execution() {
+        let provider = ImageAwareProvider::default();
+        let history = &mut vec![ConversationMessage::Chat(ChatMessage::user(
+            "describe this",
+        ))];
+        let temp_dir = tempfile::tempdir().unwrap();
+        let image_path = temp_dir.path().join("image.jpg");
+        std::fs::write(&image_path, b"fake-image").unwrap();
+        let staged = vec![media::StagedImage {
+            sha256: "hash".into(),
+            mime_type: media::AllowedImageMime::Jpeg,
+            byte_len: 10,
+            temp_path: image_path,
+            transport_form: media::ImageTransportForm::InlineBytes,
+            channel_origin: "whatsapp:test".into(),
+        }];
+
+        let response = run_unified_channel_tool_loop(
+            &provider,
+            &[],
+            history,
+            ChannelLoopParams {
+                model: "hint:vision",
+                temperature: 0.0,
+                max_tool_iterations: 1,
+                dispatcher_mode: "xml",
+                delta_tx: None,
+                images: &staged,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(response, "image-ok");
+        assert_eq!(
+            provider
+                .models
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_slice(),
+            &["hint:vision".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn rejected_image_turn_skips_provider_dispatch() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let provider_impl = Arc::new(ImageAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(Config::default()),
+            channels_by_name: Arc::new(channels_by_name),
+            provider,
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-rejected".into(),
+                sender: "alice".into(),
+                reply_target: "chat-rejected".into(),
+                content: "photo".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("f1")],
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(sent[0].contains("currently disabled"));
+    }
+
+    #[test]
+    fn image_turn_prefers_vision_route_selector_for_provider_execution() {
+        let route = ResolvedImageRoute {
+            selector: "hint:vision".into(),
+            provider: "test-provider".into(),
+            model: "test-vision-model".into(),
+        };
+
+        assert_eq!(
+            execution_model_for_turn("default-text-model", Some(&route)),
+            "hint:vision"
+        );
+    }
+
+    #[tokio::test]
+    async fn process_text_only_turn_keeps_default_model_route() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let provider_impl = Arc::new(ImageAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(make_multimodal_test_config("test-channel")),
+            channels_by_name: Arc::new(channels_by_name),
+            provider,
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("default-text-model".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "text-default".into(),
+                sender: "alice".into(),
+                reply_target: "chat-default".into(),
+                content: "hello".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![traits::ContentPart::Text {
+                    text: "hello".into(),
+                }],
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            provider_impl
+                .models
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .as_slice(),
+            &["default-text-model".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn mime_rejection_skips_provider_dispatch() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let provider_impl = Arc::new(ImageAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(make_multimodal_test_config("test-channel")),
+            channels_by_name: Arc::new(channels_by_name),
+            provider,
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-mime-rejected".into(),
+                sender: "alice".into(),
+                reply_target: "chat-mime-rejected".into(),
+                content: "photo".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("__reject_mime__")],
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(!sent[0].is_empty());
+    }
+
+    #[tokio::test]
+    async fn oversize_rejection_skips_provider_dispatch() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let provider_impl = Arc::new(ImageAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(make_multimodal_test_config("test-channel")),
+            channels_by_name: Arc::new(channels_by_name),
+            provider,
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-oversize-rejected".into(),
+                sender: "alice".into(),
+                reply_target: "chat-oversize-rejected".into(),
+                content: "photo".into(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("__reject_oversize__")],
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        let sent = channel_impl.sent_messages.lock().await;
+        assert_eq!(sent.len(), 1);
+        assert!(!sent[0].is_empty());
     }
 }

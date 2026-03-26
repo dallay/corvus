@@ -1,5 +1,11 @@
 ---
 title: Development Procedures
+description: Canonical development workflow, Makefile entrypoints, and day-to-day verification steps for Corvus contributors.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: guide
 ---
 
 This guide outlines the standard procedures for developing and maintaining this project.

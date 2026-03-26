@@ -118,6 +118,9 @@ pub struct Config {
 
     #[serde(default)]
     pub skills: SkillsConfig,
+
+    #[serde(default)]
+    pub multimodal: MultimodalConfig,
 }
 
 // ── Delegate Agents ──────────────────────────────────────────────
@@ -263,6 +266,31 @@ impl Default for SkillsConfig {
             scan_threshold: default_scan_threshold(),
         }
     }
+}
+
+// ── Multimodal rollout controls ─────────────────────────────────
+
+/// Valid MVP channel names for multimodal image ingress.
+const MVP_VALID_MULTIMODAL_CHANNELS: &[&str] = &["telegram", "whatsapp"];
+
+/// Multimodal image ingress rollout controls.
+///
+/// Default-deny: `enabled = false` means no channel emits
+/// image parts in production.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MultimodalConfig {
+    /// Global kill switch for image ingress (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Channel allowlist; MVP-valid: "telegram", "whatsapp".
+    #[serde(default)]
+    pub allowed_channels: Vec<String>,
+    /// Existing route hint used only for image turns.
+    #[serde(default)]
+    pub vision_model_hint: Option<String>,
+    /// Operator override for the default 10 MiB limit.
+    #[serde(default)]
+    pub max_image_bytes: Option<u64>,
 }
 
 // ── Hardware Config (wizard-driven) ─────────────────────────────
@@ -1614,6 +1642,9 @@ pub struct ModelRouteConfig {
     /// Optional API key override for this route's provider
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Explicit opt-in for multimodal image routing.
+    #[serde(default)]
+    pub allow_image_input: bool,
 }
 
 // ── Query Classification ─────────────────────────────────────────
@@ -2222,6 +2253,7 @@ impl Default for Config {
             hardware: HardwareConfig::default(),
             query_classification: QueryClassificationConfig::default(),
             skills: SkillsConfig::default(),
+            multimodal: MultimodalConfig::default(),
         }
     }
 }
@@ -2961,7 +2993,8 @@ impl Config {
         self.validate_delegate_overrides()?;
         self.validate_code_session_config()?;
         self.validate_account_pools()?;
-        self.validate_skills_config()
+        self.validate_skills_config()?;
+        self.validate_multimodal_config()
     }
 
     fn validate_agent_profile(&self) -> Result<()> {
@@ -3083,6 +3116,48 @@ impl Config {
         }
         if self.skills.catalog_cache_ttl_hours == Some(0) {
             anyhow::bail!("catalog_cache_ttl_hours must be > 0 (got 0)");
+        }
+        Ok(())
+    }
+
+    fn validate_multimodal_config(&self) -> Result<()> {
+        let mm = &self.multimodal;
+        if !mm.enabled {
+            return Ok(());
+        }
+        let hint = match mm.vision_model_hint {
+            Some(ref h) => h,
+            None => {
+                anyhow::bail!(
+                    "multimodal.enabled=true requires multimodal.vision_model_hint to be set"
+                );
+            }
+        };
+        // Cross-reference: a matching model_route must exist with
+        // allow_image_input enabled.
+        let has_image_route = self
+            .model_routes
+            .iter()
+            .any(|r| r.hint == *hint && r.allow_image_input);
+        if !has_image_route {
+            anyhow::bail!(
+                "multimodal.vision_model_hint='{}' does not match any \
+                 [[model_routes]] entry with allow_image_input=true",
+                hint,
+            );
+        }
+        if mm.allowed_channels.is_empty() {
+            anyhow::bail!(
+                "multimodal.enabled=true requires multimodal.allowed_channels to be non-empty"
+            );
+        }
+        for ch in &mm.allowed_channels {
+            if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&ch.as_str()) {
+                anyhow::bail!(
+                    "multimodal.allowed_channels contains '{}' which is not a supported MVP channel (telegram, whatsapp)",
+                    ch,
+                );
+            }
         }
         Ok(())
     }
@@ -3644,6 +3719,7 @@ default_temperature = 0.7
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
             skills: SkillsConfig::default(),
+            multimodal: MultimodalConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -3968,6 +4044,7 @@ tool_dispatcher = "xml"
             agents: HashMap::new(),
             hardware: HardwareConfig::default(),
             skills: SkillsConfig::default(),
+            multimodal: MultimodalConfig::default(),
         };
 
         config.save().unwrap();
@@ -5709,6 +5786,7 @@ default_model = "legacy-model"
             provider: "openrouter".to_string(),
             model: "claude-opus-4".to_string(),
             api_key: Some("sk-override".to_string()),
+            allow_image_input: false,
         };
         assert_eq!(route.api_key, Some("sk-override".to_string()));
     }
@@ -5922,5 +6000,181 @@ default_model = "legacy-model"
             "cargo test"
         );
         assert!(cfg.code_session.validation_commands[0].required);
+    }
+
+    // ── Multimodal config (Task 4.4) ─────────────────────────
+
+    #[test]
+    fn multimodal_config_defaults_are_deny_all() {
+        let mm = MultimodalConfig::default();
+        assert!(!mm.enabled);
+        assert!(mm.allowed_channels.is_empty());
+        assert!(mm.vision_model_hint.is_none());
+        assert!(mm.max_image_bytes.is_none());
+    }
+
+    #[test]
+    fn config_defaults_multimodal_when_section_missing() {
+        let toml_str = r#"
+default_temperature = 0.7
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(!parsed.multimodal.enabled);
+        assert!(parsed.multimodal.allowed_channels.is_empty());
+        assert!(parsed.multimodal.vision_model_hint.is_none());
+        assert!(parsed.multimodal.max_image_bytes.is_none());
+    }
+
+    #[test]
+    fn multimodal_config_deserializes_full_section() {
+        let toml_str = r#"
+default_temperature = 0.7
+
+[multimodal]
+enabled = true
+allowed_channels = ["telegram", "whatsapp"]
+vision_model_hint = "vision"
+max_image_bytes = 5242880
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(parsed.multimodal.enabled);
+        assert_eq!(
+            parsed.multimodal.allowed_channels,
+            vec!["telegram", "whatsapp"]
+        );
+        assert_eq!(
+            parsed.multimodal.vision_model_hint.as_deref(),
+            Some("vision")
+        );
+        assert_eq!(parsed.multimodal.max_image_bytes, Some(5_242_880));
+    }
+
+    #[test]
+    fn multimodal_config_partial_section_uses_defaults() {
+        let toml_str = r#"
+default_temperature = 0.7
+
+[multimodal]
+enabled = true
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(parsed.multimodal.enabled);
+        assert!(parsed.multimodal.allowed_channels.is_empty());
+        assert!(parsed.multimodal.vision_model_hint.is_none());
+        assert!(parsed.multimodal.max_image_bytes.is_none());
+    }
+
+    #[test]
+    fn model_route_config_allow_image_input_defaults_false() {
+        let toml_str = r#"
+hint = "fast"
+provider = "openrouter"
+model = "gpt-4o"
+"#;
+        let parsed: ModelRouteConfig = toml::from_str(toml_str).unwrap();
+        assert!(!parsed.allow_image_input);
+    }
+
+    #[test]
+    fn model_route_config_allow_image_input_opt_in() {
+        let toml_str = r#"
+hint = "vision"
+provider = "openrouter"
+model = "gpt-4o"
+allow_image_input = true
+"#;
+        let parsed: ModelRouteConfig = toml::from_str(toml_str).unwrap();
+        assert!(parsed.allow_image_input);
+    }
+
+    #[test]
+    fn multimodal_validation_passes_when_disabled() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                ..MultimodalConfig::default()
+            },
+            ..Config::default()
+        };
+        assert!(config.validate_multimodal_config().is_ok());
+    }
+
+    fn make_vision_route() -> ModelRouteConfig {
+        ModelRouteConfig {
+            hint: "vision".into(),
+            provider: "test-provider".into(),
+            model: "test-model".into(),
+            api_key: None,
+            allow_image_input: true,
+        }
+    }
+
+    #[test]
+    fn multimodal_validation_passes_when_fully_configured() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: true,
+                allowed_channels: vec!["telegram".into()],
+                vision_model_hint: Some("vision".into()),
+                max_image_bytes: None,
+            },
+            model_routes: vec![make_vision_route()],
+            ..Config::default()
+        };
+        // Warnings emitted but no error
+        assert!(config.validate_multimodal_config().is_ok());
+    }
+
+    #[test]
+    fn multimodal_validation_rejects_empty_channels_when_enabled() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: true,
+                allowed_channels: Vec::new(),
+                vision_model_hint: Some("vision".into()),
+                max_image_bytes: None,
+            },
+            model_routes: vec![make_vision_route()],
+            ..Config::default()
+        };
+        let error = config
+            .validate_multimodal_config()
+            .expect_err("should fail");
+        assert!(error.to_string().contains("allowed_channels"));
+    }
+
+    #[test]
+    fn multimodal_validation_rejects_missing_vision_hint_when_enabled() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: true,
+                allowed_channels: vec!["telegram".into()],
+                vision_model_hint: None,
+                max_image_bytes: None,
+            },
+            ..Config::default()
+        };
+        let error = config
+            .validate_multimodal_config()
+            .expect_err("should fail");
+        assert!(error.to_string().contains("vision_model_hint"));
+    }
+
+    #[test]
+    fn multimodal_validation_rejects_unsupported_channels_when_enabled() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: true,
+                allowed_channels: vec!["discord".into()],
+                vision_model_hint: Some("vision".into()),
+                max_image_bytes: None,
+            },
+            model_routes: vec![make_vision_route()],
+            ..Config::default()
+        };
+        let error = config
+            .validate_multimodal_config()
+            .expect_err("should fail");
+        assert!(error.to_string().contains("discord"));
     }
 }

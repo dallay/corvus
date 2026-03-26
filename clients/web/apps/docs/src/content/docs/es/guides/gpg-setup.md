@@ -1,5 +1,11 @@
 ---
 title: Configuración de GPG para Publicar en Maven Central
+description: Guía paso a paso para crear, exportar y configurar claves GPG usadas en los flujos de publicación de Corvus.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: runbook
 ---
 
 Esta guía explica cómo configurar claves GPG para publicar artefactos en Maven Central usando GitHub

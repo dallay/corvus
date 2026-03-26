@@ -1,5 +1,11 @@
 ---
 title: Opciones de Configuración
+description: Superficies canónicas de configuración para propiedades de Gradle, catálogos de versiones, variables de entorno y rollout flags del runtime.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 El proyecto es altamente configurable a través de propiedades de Gradle y catálogos de versiones.

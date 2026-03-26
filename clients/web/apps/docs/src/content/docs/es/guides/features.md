@@ -1,5 +1,11 @@
 ---
 title: Lista de Funcionalidades
+description: Checklist de módulos, capacidades, features de build y superficies de integración soportadas en Corvus.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 Esta página proporciona una lista completa de todas las funcionalidades, módulos y opciones
@@ -45,7 +51,7 @@ disponibles en este repositorio.
 
 - [x] **Sitio Web Estático**: Construido con Astro y Starlight.
 - [x] **Documentación de API**: Generada con Dokka (Kotlin/Java).
-- [x] **README/AGENTS**: Documentación interna para desarrolladores y agentes.
+- [x] **README/CLAUDE**: Documentación interna para desarrolladores y agentes.
 
 ## Despliegue y Distribución
 

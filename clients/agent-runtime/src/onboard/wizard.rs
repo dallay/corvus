@@ -795,6 +795,7 @@ pub fn run_wizard() -> Result<Config> {
         hardware: hardware_config,
         query_classification: crate::config::QueryClassificationConfig::default(),
         skills: crate::config::SkillsConfig::default(),
+        multimodal: crate::config::MultimodalConfig::default(),
     };
 
     println!(
@@ -1031,6 +1032,7 @@ pub fn run_quick_setup(
         hardware: crate::config::HardwareConfig::default(),
         query_classification: crate::config::QueryClassificationConfig::default(),
         skills: crate::config::SkillsConfig::default(),
+        multimodal: crate::config::MultimodalConfig::default(),
     };
 
     config.save()?;

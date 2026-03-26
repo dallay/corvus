@@ -1,38 +1,43 @@
 ---
 title: AI Providers
 description: Supported AI providers and their configuration.
+owner: team-runtime
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 Corvus supports a wide range of AI providers, including both cloud-based and local options. You can configure your preferred provider during the onboarding process or by editing your `config.toml` file.
 
 ## Supported Providers
 
-| Provider | ID (for config) | Environment Variable | Notes |
-| :--- | :--- | :--- | :--- |
-| **OpenRouter** | `openrouter` | `OPENROUTER_API_KEY` | Recommended. Access to 200+ models. |
-| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY`, `ANTHROPIC_OAUTH_TOKEN` | Supports Claude models and setup-tokens. |
-| **OpenAI** | `openai` | `OPENAI_API_KEY` | Direct access to GPT models. |
-| **OpenAI Codex** | `openai-codex` | — | Access via OAuth. |
-| **Google Gemini** | `gemini` | `GEMINI_API_KEY`, `GOOGLE_API_KEY` | Supports `gemini-cli` OAuth tokens. |
-| **Ollama** | `ollama` | `OLLAMA_API_KEY` | Local models by default. |
-| **LM Studio** | `lmstudio` | — | Local models (default `http://localhost:1234`). |
-| **Venice AI** | `venice` | `VENICE_API_KEY` | Privacy-focused provider. |
-| **Groq** | `groq` | `GROQ_API_KEY` | High-speed inference. |
-| **Mistral** | `mistral` | `MISTRAL_API_KEY` | Direct access to Mistral models. |
-| **DeepSeek** | `deepseek` | `DEEPSEEK_API_KEY` | Affordable, high-quality models. |
-| **xAI (Grok)** | `xai` | `XAI_API_KEY` | Direct access to Grok models. |
-| **Together AI** | `together` | `TOGETHER_API_KEY` | Open-source model hosting. |
-| **Fireworks AI** | `fireworks` | `FIREWORKS_API_KEY` | Fast open-source inference. |
-| **Perplexity** | `perplexity` | `PERPLEXITY_API_KEY` | Search-augmented AI. |
-| **Cohere** | `cohere` | `COHERE_API_KEY` | Enterprise-grade models. |
-| **GitHub Copilot** | `copilot` | `GITHUB_TOKEN`, `GH_TOKEN` | Uses your GitHub subscription. |
-| **Amazon Bedrock** | `bedrock` | `API_KEY` | AWS Bedrock (OpenAI-compatible). |
-| **Synthetic** | `synthetic` | `SYNTHETIC_API_KEY` | |
-| **OpenCode Zen** | `opencode` | `OPENCODE_API_KEY` | |
-| **NVIDIA NIM** | `nvidia` | `NVIDIA_API_KEY` | High-performance inference. |
-| **Vercel AI** | `vercel` | `VERCEL_API_KEY` | AI gateway. |
-| **Cloudflare AI** | `cloudflare` | `CLOUDFLARE_API_KEY` | AI gateway. |
-| **Astrai** | `astrai` | `ASTRAI_API_KEY` | Compliant AI routing. |
+| Provider | ID (for config) | Environment Variable | Image Support | Notes |
+| :--- | :--- | :--- | :---: | :--- |
+| **OpenRouter** | `openrouter` | `OPENROUTER_API_KEY` | Yes | Recommended. Access to 200+ models. |
+| **Anthropic** | `anthropic` | `ANTHROPIC_API_KEY`, `ANTHROPIC_OAUTH_TOKEN` | Yes | Supports Claude models and setup-tokens. |
+| **OpenAI** | `openai` | `OPENAI_API_KEY` | Yes | Direct access to GPT models. |
+| **OpenAI Codex** | `openai-codex` | — | No | Access via OAuth. |
+| **Google Gemini** | `gemini` | `GEMINI_API_KEY`, `GOOGLE_API_KEY` | Yes | Supports `gemini-cli` OAuth tokens. |
+| **Ollama** | `ollama` | `OLLAMA_API_KEY` | No | Local models by default. |
+| **LM Studio** | `lmstudio` | — | No | Local models (default `http://localhost:1234`). |
+| **Venice AI** | `venice` | `VENICE_API_KEY` | No | Privacy-focused provider. |
+| **Groq** | `groq` | `GROQ_API_KEY` | No | High-speed inference. |
+| **Mistral** | `mistral` | `MISTRAL_API_KEY` | No | Direct access to Mistral models. |
+| **DeepSeek** | `deepseek` | `DEEPSEEK_API_KEY` | No | Affordable, high-quality models. |
+| **xAI (Grok)** | `xai` | `XAI_API_KEY` | No | Direct access to Grok models. |
+| **Together AI** | `together` | `TOGETHER_API_KEY` | No | Open-source model hosting. |
+| **Fireworks AI** | `fireworks` | `FIREWORKS_API_KEY` | No | Fast open-source inference. |
+| **Perplexity** | `perplexity` | `PERPLEXITY_API_KEY` | No | Search-augmented AI. |
+| **Cohere** | `cohere` | `COHERE_API_KEY` | No | Enterprise-grade models. |
+| **GitHub Copilot** | `copilot` | `GITHUB_TOKEN`, `GH_TOKEN` | No | Uses your GitHub subscription. |
+| **Amazon Bedrock** | `bedrock` | `API_KEY` | No | AWS Bedrock (OpenAI-compatible). |
+| **Synthetic** | `synthetic` | `SYNTHETIC_API_KEY` | No | |
+| **OpenCode Zen** | `opencode` | `OPENCODE_API_KEY` | No | |
+| **NVIDIA NIM** | `nvidia` | `NVIDIA_API_KEY` | No | High-performance inference. |
+| **Vercel AI** | `vercel` | `VERCEL_API_KEY` | No | AI gateway. |
+| **Cloudflare AI** | `cloudflare` | `CLOUDFLARE_API_KEY` | No | AI gateway. |
+| **Astrai** | `astrai` | `ASTRAI_API_KEY` | No | Compliant AI routing. |
 
 ## Advanced Authentication
 

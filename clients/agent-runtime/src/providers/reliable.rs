@@ -318,6 +318,21 @@ impl ReliableProvider {
 
 #[async_trait]
 impl Provider for ReliableProvider {
+    fn capabilities(&self) -> super::traits::ProviderCapabilities {
+        let mut merged = super::traits::ProviderCapabilities::default();
+        for (_, provider) in &self.providers {
+            let caps = provider.capabilities();
+            merged.native_tool_calling = merged.native_tool_calling || caps.native_tool_calling;
+            merged.image_input = merged.image_input || caps.image_input;
+            for form in caps.image_transport_forms {
+                if !merged.image_transport_forms.contains(&form) {
+                    merged.image_transport_forms.push(form);
+                }
+            }
+        }
+        merged
+    }
+
     async fn warmup(&self) -> anyhow::Result<()> {
         for (name, provider) in &self.providers {
             tracing::info!(provider = name, "Warming up provider connection pool");
@@ -371,6 +386,70 @@ impl Provider for ReliableProvider {
             provider.chat_with_tools(messages, tools, current_model, temperature)
         })
         .await
+    }
+
+    async fn chat(
+        &self,
+        request: super::traits::ChatRequest<'_>,
+        model: &str,
+        temperature: f64,
+    ) -> anyhow::Result<ChatResponse> {
+        if request.images.is_empty() {
+            // Text-only: normal retry/fallback behavior.
+            return self
+                .execute_with_fallback(model, |provider, current_model| {
+                    provider.chat(request, current_model, temperature)
+                })
+                .await;
+        }
+
+        // Image turn: only try image-capable providers with retry/backoff.
+        // Never silently fall back to a text-only provider for an image turn.
+        let models = self.model_chain(model);
+        let mut failures = Vec::new();
+
+        for current_model in &models {
+            for (name, provider) in &self.providers {
+                if !provider.capabilities().supports_image_input() {
+                    tracing::warn!(
+                        provider = name.as_str(),
+                        model = *current_model,
+                        "Skipping text-only provider for image turn"
+                    );
+                    continue;
+                }
+
+                let result = self
+                    .execute_single_provider(
+                        name.as_str(),
+                        provider.as_ref(),
+                        current_model,
+                        &mut |p, m| p.chat(request, m, temperature),
+                    )
+                    .await;
+
+                match result {
+                    Ok(resp) => return Ok(resp),
+                    Err(e) => {
+                        tracing::warn!(
+                            provider = name.as_str(),
+                            model = *current_model,
+                            "Image-capable provider exhausted retries"
+                        );
+                        failures.push(e);
+                    }
+                }
+            }
+        }
+
+        if failures.is_empty() {
+            anyhow::bail!("No image-capable provider available for image turn");
+        }
+
+        anyhow::bail!(
+            "All image-capable providers failed. Attempts:\n{}",
+            failures.join("\n")
+        )
     }
 
     fn supports_streaming(&self) -> bool {
@@ -1077,5 +1156,203 @@ mod tests {
                 .chat_with_system(system_prompt, message, model, temperature)
                 .await
         }
+    }
+
+    // ── §2.2 Image-safe fallback tests ───────────────────────
+
+    /// Mock that declares image capability.
+    struct ImageCapableMock {
+        calls: Arc<AtomicUsize>,
+        response: &'static str,
+    }
+
+    #[async_trait]
+    impl Provider for ImageCapableMock {
+        fn capabilities(&self) -> super::super::traits::ProviderCapabilities {
+            super::super::traits::ProviderCapabilities {
+                native_tool_calling: false,
+                image_input: true,
+                image_transport_forms: vec![
+                    crate::channels::media::ImageTransportForm::InlineBytes,
+                ],
+            }
+        }
+
+        async fn chat(
+            &self,
+            _request: super::super::traits::ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<super::super::traits::ChatResponse> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(super::super::traits::ChatResponse {
+                text: Some(self.response.to_string()),
+                tool_calls: Vec::new(),
+            })
+        }
+
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> anyhow::Result<String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(self.response.to_string())
+        }
+    }
+
+    fn make_staged_image() -> crate::channels::media::StagedImage {
+        use crate::channels::media::{AllowedImageMime, ImageTransportForm};
+        crate::channels::media::StagedImage {
+            sha256: "abc123".into(),
+            mime_type: AllowedImageMime::Jpeg,
+            byte_len: 100,
+            temp_path: std::path::PathBuf::from("/tmp/fake.jpg"),
+            transport_form: ImageTransportForm::InlineBytes,
+            channel_origin: "test".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn image_turn_skips_text_only_fallback() {
+        let text_calls = Arc::new(AtomicUsize::new(0));
+        let image_calls = Arc::new(AtomicUsize::new(0));
+
+        let provider = ReliableProvider::new(
+            vec![
+                (
+                    "text-only".into(),
+                    Box::new(MockProvider {
+                        calls: Arc::clone(&text_calls),
+                        fail_until_attempt: 0,
+                        response: "text-response",
+                        error: "",
+                    }) as Box<dyn Provider>,
+                ),
+                (
+                    "image-capable".into(),
+                    Box::new(ImageCapableMock {
+                        calls: Arc::clone(&image_calls),
+                        response: "image-response",
+                    }) as Box<dyn Provider>,
+                ),
+            ],
+            2,
+            1,
+        );
+
+        let images = [make_staged_image()];
+        let request = super::super::traits::ChatRequest {
+            messages: &[ChatMessage::user("describe this")],
+            tools: None,
+            images: &images,
+        };
+
+        let result = provider.chat(request, "model", 0.5).await.unwrap();
+
+        assert_eq!(result.text_or_empty(), "image-response");
+        // Text-only provider must not be called.
+        assert_eq!(
+            text_calls.load(Ordering::SeqCst),
+            0,
+            "text-only provider must not receive image turns"
+        );
+        // Image-capable provider must be called.
+        assert_eq!(image_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn image_turn_fails_when_no_image_capable_provider() {
+        let provider = ReliableProvider::new(
+            vec![(
+                "text-only".into(),
+                Box::new(MockProvider {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                    fail_until_attempt: 0,
+                    response: "ok",
+                    error: "",
+                }) as Box<dyn Provider>,
+            )],
+            2,
+            1,
+        );
+
+        let images = [make_staged_image()];
+        let request = super::super::traits::ChatRequest {
+            messages: &[ChatMessage::user("describe this")],
+            tools: None,
+            images: &images,
+        };
+
+        let err = provider
+            .chat(request, "model", 0.5)
+            .await
+            .expect_err("should fail for image turn");
+        assert!(
+            err.to_string().contains("No image-capable provider"),
+            "Error should mention no image-capable provider, \
+             got: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn text_turn_uses_normal_fallback_with_reliable() {
+        let primary_calls = Arc::new(AtomicUsize::new(0));
+        let fallback_calls = Arc::new(AtomicUsize::new(0));
+
+        let provider = ReliableProvider::new(
+            vec![
+                (
+                    "primary".into(),
+                    Box::new(MockProvider {
+                        calls: Arc::clone(&primary_calls),
+                        fail_until_attempt: usize::MAX,
+                        response: "never",
+                        error: "primary down",
+                    }) as Box<dyn Provider>,
+                ),
+                (
+                    "fallback".into(),
+                    Box::new(MockProvider {
+                        calls: Arc::clone(&fallback_calls),
+                        fail_until_attempt: 0,
+                        response: "from fallback",
+                        error: "",
+                    }) as Box<dyn Provider>,
+                ),
+            ],
+            1,
+            1,
+        );
+
+        let request = super::super::traits::ChatRequest {
+            messages: &[ChatMessage::user("hello")],
+            tools: None,
+            images: &[],
+        };
+
+        let result = provider.chat(request, "test", 0.0).await.unwrap();
+        assert_eq!(result.text_or_empty(), "from fallback");
+    }
+
+    #[test]
+    fn reliable_capabilities_merges_all_providers() {
+        let provider = ReliableProvider::new(
+            vec![(
+                "p".into(),
+                Box::new(MockProvider {
+                    calls: Arc::new(AtomicUsize::new(0)),
+                    fail_until_attempt: 0,
+                    response: "ok",
+                    error: "",
+                }) as Box<dyn Provider>,
+            )],
+            0,
+            1,
+        );
+        let caps = <ReliableProvider as Provider>::capabilities(&provider);
+        assert!(!caps.supports_image_input());
     }
 }
