@@ -2,9 +2,14 @@ use std::fmt;
 use std::path::PathBuf;
 
 use futures_util::StreamExt;
+use serde::{Deserialize, Serialize};
 
 /// Maximum image payload size (10 MiB).
 pub const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
+
+/// Hard ceiling for `max_image_bytes` config override (50 MiB).
+/// Prevents operator misconfiguration from accepting arbitrarily large images.
+pub const MAX_IMAGE_BYTES_CEILING: u64 = 52_428_800;
 
 /// Maximum images allowed per turn for MVP.
 pub const MAX_IMAGES_PER_TURN: usize = 1;
@@ -50,6 +55,7 @@ pub enum ImageRejectionReason {
     Oversize,
     TooManyImages,
     ProviderError,
+    ChannelNotSupported,
 }
 
 impl fmt::Display for ImageRejectionReason {
@@ -64,6 +70,7 @@ impl fmt::Display for ImageRejectionReason {
             Self::Oversize => "oversize",
             Self::TooManyImages => "too_many_images",
             Self::ProviderError => "provider_error",
+            Self::ChannelNotSupported => "channel_not_supported",
         };
         f.write_str(code)
     }
@@ -98,6 +105,74 @@ impl StagedImage {
                 );
             }
         }
+    }
+}
+
+/// Compact metadata for an image that appeared in a prior conversation turn.
+/// Stored in history instead of raw bytes to bound memory usage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageHistoryMeta {
+    /// MIME type string (e.g. "image/jpeg").
+    pub mime: String,
+    /// SHA-256 hex digest of the original image bytes.
+    pub sha256: String,
+    /// Original image size in bytes.
+    pub byte_len: u64,
+    /// Channel that originated the image.
+    pub channel_origin: String,
+    /// User-provided caption, if any.
+    pub caption: Option<String>,
+    /// Model-generated description of image content (populated post-response).
+    pub description: Option<String>,
+}
+
+impl ImageHistoryMeta {
+    /// Build from a `StagedImage` at ingestion time (description populated later).
+    pub fn from_staged(staged: &StagedImage, caption: Option<String>) -> Self {
+        Self {
+            mime: staged.mime_type.as_str().to_string(),
+            sha256: staged.sha256.clone(),
+            byte_len: staged.byte_len,
+            channel_origin: staged.channel_origin.clone(),
+            caption,
+            description: None,
+        }
+    }
+
+    /// Render as a synthetic context string for history injection.
+    pub fn to_context_string(&self) -> String {
+        let prefix_len = 16.min(self.sha256.len());
+        let mut s = format!(
+            "[Prior image: {}, {} bytes, sha256:{}",
+            self.mime,
+            self.byte_len,
+            &self.sha256[..prefix_len]
+        );
+        if let Some(desc) = &self.description {
+            use std::fmt::Write;
+            let sanitized: String = desc
+                .chars()
+                .filter(|c| *c != '\n' && *c != '\r')
+                .take(200)
+                .collect();
+            if !sanitized.is_empty() {
+                let _ = write!(s, ". Description: {sanitized}");
+            }
+        }
+        if let Some(cap) = &self.caption {
+            use std::fmt::Write;
+            // Sanitize: strip newlines, limit to 200 chars
+            let sanitized: String = cap
+                .chars()
+                .filter(|c| *c != '\n' && *c != '\r')
+                .take(200)
+                .collect();
+            if !sanitized.is_empty() {
+                let _ = write!(s, ". Caption: {sanitized}");
+            }
+        }
+        s.push(']');
+        s
     }
 }
 
@@ -180,6 +255,7 @@ pub async fn stream_validate_and_stage(
     declared_mime: Option<&str>,
     channel_prefix: &str,
     sanitize_url: &str,
+    max_bytes: u64,
 ) -> Result<StagedImage, ImageRejectionReason> {
     // 1. Check HTTP status
     if !response.status().is_success() {
@@ -189,7 +265,7 @@ pub async fn stream_validate_and_stage(
 
     // 2. Early reject via Content-Length
     if let Some(cl) = response.content_length() {
-        validate_size(cl, MAX_IMAGE_BYTES)?;
+        validate_size(cl, max_bytes)?;
     }
 
     // 3. Stream bytes with per-chunk size validation
@@ -202,7 +278,7 @@ pub async fn stream_validate_and_stage(
             ImageRejectionReason::FetchFailed
         })?;
         bytes.extend_from_slice(&chunk);
-        validate_size(bytes.len() as u64, MAX_IMAGE_BYTES)?;
+        validate_size(bytes.len() as u64, max_bytes)?;
     }
     let byte_len = bytes.len() as u64;
 
@@ -321,6 +397,10 @@ mod tests {
         assert_eq!(
             ImageRejectionReason::ProviderError.to_string(),
             "provider_error"
+        );
+        assert_eq!(
+            ImageRejectionReason::ChannelNotSupported.to_string(),
+            "channel_not_supported"
         );
     }
 
@@ -475,6 +555,7 @@ mod tests {
             Some("image/jpeg"),
             "test",
             "https://example.com/img.jpg",
+            MAX_IMAGE_BYTES,
         )
         .await;
 
@@ -503,7 +584,9 @@ mod tests {
         body.extend_from_slice(&[0u8; 50]);
 
         let resp = mock_response(200, &body, Some("image/png"));
-        let result = stream_validate_and_stage(resp, Some("image/png"), "ch", "http://x").await;
+        let result =
+            stream_validate_and_stage(resp, Some("image/png"), "ch", "http://x", MAX_IMAGE_BYTES)
+                .await;
 
         let staged = result.expect("should succeed for valid PNG");
         assert_eq!(staged.mime_type, AllowedImageMime::Png);
@@ -515,7 +598,8 @@ mod tests {
     #[tokio::test]
     async fn stage_rejects_non_success_status() {
         let resp = mock_response(404, b"not found", None);
-        let result = stream_validate_and_stage(resp, None, "test", "http://x").await;
+        let result =
+            stream_validate_and_stage(resp, None, "test", "http://x", MAX_IMAGE_BYTES).await;
         assert!(
             matches!(result, Err(ImageRejectionReason::FetchFailed)),
             "expected FetchFailed, got {result:?}"
@@ -527,7 +611,9 @@ mod tests {
         // GIF magic bytes — not in the allowed list
         let body = b"GIF89a\x00\x00\x00\x00";
         let resp = mock_response(200, body, Some("image/gif"));
-        let result = stream_validate_and_stage(resp, Some("image/gif"), "test", "http://x").await;
+        let result =
+            stream_validate_and_stage(resp, Some("image/gif"), "test", "http://x", MAX_IMAGE_BYTES)
+                .await;
         assert!(
             matches!(result, Err(ImageRejectionReason::MimeRejected)),
             "expected MimeRejected, got {result:?}"
@@ -543,7 +629,8 @@ mod tests {
         body.resize(MAX_IMAGE_BYTES as usize + 1, 0x00);
 
         let resp = mock_response(200, &body, Some("image/jpeg"));
-        let result = stream_validate_and_stage(resp, None, "test", "http://x").await;
+        let result =
+            stream_validate_and_stage(resp, None, "test", "http://x", MAX_IMAGE_BYTES).await;
         assert!(
             matches!(result, Err(ImageRejectionReason::Oversize)),
             "expected Oversize, got {result:?}"
@@ -556,7 +643,9 @@ mod tests {
         body.extend_from_slice(&[0u8; 20]);
 
         let resp = mock_response(200, &body, None);
-        let result = stream_validate_and_stage(resp, Some("image/jpeg"), "wa", "http://x").await;
+        let result =
+            stream_validate_and_stage(resp, Some("image/jpeg"), "wa", "http://x", MAX_IMAGE_BYTES)
+                .await;
 
         let staged = result.expect("should succeed");
         let fname = staged
@@ -571,5 +660,201 @@ mod tests {
             "filename should contain channel prefix: {fname}"
         );
         staged.cleanup();
+    }
+
+    // ── ImageHistoryMeta (task 2.7) ───────────────────────────
+
+    fn make_test_staged() -> StagedImage {
+        StagedImage {
+            sha256: "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2".into(),
+            mime_type: AllowedImageMime::Jpeg,
+            byte_len: 245_760,
+            temp_path: PathBuf::from("/tmp/test.jpg"),
+            transport_form: ImageTransportForm::InlineBytes,
+            channel_origin: "telegram".into(),
+        }
+    }
+
+    #[test]
+    fn image_history_meta_from_staged_maps_fields() {
+        let staged = make_test_staged();
+        let meta = ImageHistoryMeta::from_staged(&staged, Some("My garden".into()));
+
+        assert_eq!(meta.mime, "image/jpeg");
+        assert_eq!(meta.sha256, staged.sha256);
+        assert_eq!(meta.byte_len, 245_760);
+        assert_eq!(meta.channel_origin, "telegram");
+        assert_eq!(meta.caption, Some("My garden".into()));
+        assert!(meta.description.is_none());
+    }
+
+    #[test]
+    fn image_history_meta_from_staged_no_caption() {
+        let staged = make_test_staged();
+        let meta = ImageHistoryMeta::from_staged(&staged, None);
+
+        assert!(meta.caption.is_none());
+        assert!(meta.description.is_none());
+    }
+
+    #[test]
+    fn image_history_meta_to_context_string_with_description() {
+        let mut meta = ImageHistoryMeta::from_staged(&make_test_staged(), None);
+        meta.description = Some("A photo of a garden".into());
+
+        let ctx = meta.to_context_string();
+        assert!(ctx.starts_with("[Prior image: image/jpeg, 245760 bytes, sha256:a1b2c3d4e5f6a7b8"));
+        assert!(ctx.contains(". Description: A photo of a garden"));
+        assert!(ctx.ends_with(']'));
+    }
+
+    #[test]
+    fn image_history_meta_to_context_string_without_description() {
+        let meta = ImageHistoryMeta::from_staged(&make_test_staged(), None);
+
+        let ctx = meta.to_context_string();
+        assert!(ctx.starts_with("[Prior image: image/jpeg, 245760 bytes, sha256:a1b2c3d4e5f6a7b8"));
+        assert!(!ctx.contains("Description"));
+        assert!(ctx.ends_with(']'));
+    }
+
+    #[test]
+    fn image_history_meta_to_context_string_with_caption() {
+        let meta = ImageHistoryMeta::from_staged(&make_test_staged(), Some("Hello world".into()));
+
+        let ctx = meta.to_context_string();
+        assert!(ctx.contains(". Caption: Hello world"));
+        assert!(ctx.ends_with(']'));
+    }
+
+    #[test]
+    fn image_history_meta_to_context_string_with_caption_and_description() {
+        let mut meta =
+            ImageHistoryMeta::from_staged(&make_test_staged(), Some("My caption".into()));
+        meta.description = Some("A sunset photo".into());
+
+        let ctx = meta.to_context_string();
+        assert!(ctx.contains(". Description: A sunset photo"));
+        assert!(ctx.contains(". Caption: My caption"));
+        assert!(ctx.ends_with(']'));
+    }
+
+    #[test]
+    fn image_history_meta_to_context_string_short_sha256() {
+        let staged = StagedImage {
+            sha256: "abcd1234".into(),
+            mime_type: AllowedImageMime::Png,
+            byte_len: 100,
+            temp_path: PathBuf::from("/tmp/test.png"),
+            transport_form: ImageTransportForm::InlineBytes,
+            channel_origin: "test".into(),
+        };
+        let meta = ImageHistoryMeta::from_staged(&staged, None);
+
+        let ctx = meta.to_context_string();
+        assert!(ctx.contains("sha256:abcd1234"));
+    }
+
+    #[test]
+    fn image_history_meta_serde_roundtrip() {
+        let meta = ImageHistoryMeta::from_staged(&make_test_staged(), Some("caption".into()));
+        let json = serde_json::to_string(&meta).unwrap();
+        let deserialized: ImageHistoryMeta = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.mime, meta.mime);
+        assert_eq!(deserialized.sha256, meta.sha256);
+        assert_eq!(deserialized.byte_len, meta.byte_len);
+        assert_eq!(deserialized.channel_origin, meta.channel_origin);
+        assert_eq!(deserialized.caption, meta.caption);
+        assert_eq!(deserialized.description, meta.description);
+    }
+
+    // ── stream_validate_and_stage custom max_bytes (task 2.9) ─
+
+    #[tokio::test]
+    async fn stage_custom_max_bytes_accepts_within_custom_limit() {
+        // Body larger than default MAX_IMAGE_BYTES but within custom limit
+        let custom_limit: u64 = 20 * 1024 * 1024; // 20 MiB
+        let mut body = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        #[allow(clippy::cast_possible_truncation)]
+        body.resize(MAX_IMAGE_BYTES as usize + 100, 0x00); // slightly above default
+
+        let resp = mock_response(200, &body, Some("image/jpeg"));
+        let result =
+            stream_validate_and_stage(resp, Some("image/jpeg"), "test", "http://x", custom_limit)
+                .await;
+
+        let staged = result.expect("should succeed with custom higher limit");
+        assert_eq!(staged.byte_len, body.len() as u64);
+        staged.cleanup();
+    }
+
+    #[tokio::test]
+    async fn stage_custom_max_bytes_rejects_above_custom_limit() {
+        let custom_limit: u64 = 5 * 1024 * 1024; // 5 MiB
+        let mut body = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        #[allow(clippy::cast_possible_truncation)]
+        body.resize(custom_limit as usize + 1, 0x00);
+
+        let resp = mock_response(200, &body, Some("image/jpeg"));
+        let result =
+            stream_validate_and_stage(resp, Some("image/jpeg"), "test", "http://x", custom_limit)
+                .await;
+        assert!(
+            matches!(result, Err(ImageRejectionReason::Oversize)),
+            "expected Oversize, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_custom_max_bytes_lower_than_default_rejects() {
+        let custom_limit: u64 = 1024; // 1 KiB — very small
+        let mut body = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        body.extend_from_slice(&[0u8; 2048]); // 2 KiB+ total
+
+        let resp = mock_response(200, &body, Some("image/jpeg"));
+        let result =
+            stream_validate_and_stage(resp, Some("image/jpeg"), "test", "http://x", custom_limit)
+                .await;
+        assert!(
+            matches!(result, Err(ImageRejectionReason::Oversize)),
+            "expected Oversize, got {result:?}"
+        );
+    }
+
+    // ── Constants (task 2.4) ──────────────────────────────────
+
+    #[test]
+    fn max_image_bytes_ceiling_is_50_mib() {
+        assert_eq!(MAX_IMAGE_BYTES_CEILING, 52_428_800);
+        assert_eq!(MAX_IMAGE_BYTES_CEILING, 50 * 1024 * 1024);
+    }
+
+    #[test]
+    fn image_history_meta_description_sanitized_and_truncated() {
+        let mut meta = ImageHistoryMeta::from_staged(&make_test_staged(), None);
+        // Description with newlines and length > 200
+        let long_desc = format!("Line one\nLine two\r\nLine three {}", "x".repeat(250));
+        meta.description = Some(long_desc);
+
+        let ctx = meta.to_context_string();
+        // Must not contain newlines
+        assert!(!ctx.contains('\n'));
+        assert!(!ctx.contains('\r'));
+        // Description portion must be truncated to 200 chars
+        // Extract the description substring
+        let desc_start = ctx.find(". Description: ").unwrap() + ". Description: ".len();
+        let desc_end = ctx[desc_start..]
+            .find(']')
+            .map(|i| i + desc_start)
+            .or_else(|| ctx[desc_start..].find(". Caption:").map(|i| i + desc_start))
+            .unwrap();
+        let desc_text = &ctx[desc_start..desc_end];
+        assert!(
+            desc_text.len() <= 200,
+            "description should be at most 200 chars, got {}",
+            desc_text.len()
+        );
+        assert!(ctx.ends_with(']'));
     }
 }

@@ -1539,6 +1539,7 @@ impl TelegramChannel {
         &self,
         file_id: &str,
         declared_mime: Option<&str>,
+        max_bytes: u64,
     ) -> Result<media::StagedImage, media::ImageRejectionReason> {
         // 1. Call getFile to resolve file_path
         let get_file_body = serde_json::json!({
@@ -1588,7 +1589,7 @@ impl TelegramChannel {
 
         // Check Content-Length header for early reject
         if let Some(cl) = dl_resp.content_length() {
-            media::validate_size(cl, media::MAX_IMAGE_BYTES)?;
+            media::validate_size(cl, max_bytes)?;
         }
 
         // Stream body with per-chunk size validation
@@ -1603,7 +1604,7 @@ impl TelegramChannel {
                 media::ImageRejectionReason::FetchFailed
             })?;
             bytes.extend_from_slice(&chunk);
-            media::validate_size(bytes.len() as u64, media::MAX_IMAGE_BYTES)?;
+            media::validate_size(bytes.len() as u64, max_bytes)?;
         }
         let byte_len = bytes.len() as u64;
 

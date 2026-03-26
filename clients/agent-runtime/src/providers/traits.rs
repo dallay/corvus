@@ -1,4 +1,4 @@
-use crate::channels::media::{ImageTransportForm, StagedImage};
+use crate::channels::media::{ImageHistoryMeta, ImageTransportForm, StagedImage};
 use crate::tools::ToolSpec;
 use async_trait::async_trait;
 use futures_util::{stream, StreamExt};
@@ -10,6 +10,9 @@ use std::fmt::Write;
 pub struct ChatMessage {
     pub role: String,
     pub content: String,
+    /// Image metadata for history turns (None for text-only or non-history messages).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_metadata: Option<Vec<ImageHistoryMeta>>,
 }
 
 impl ChatMessage {
@@ -17,6 +20,7 @@ impl ChatMessage {
         Self {
             role: "system".into(),
             content: content.into(),
+            image_metadata: None,
         }
     }
 
@@ -24,6 +28,19 @@ impl ChatMessage {
         Self {
             role: "user".into(),
             content: content.into(),
+            image_metadata: None,
+        }
+    }
+
+    pub fn user_with_images(content: impl Into<String>, metadata: Vec<ImageHistoryMeta>) -> Self {
+        Self {
+            role: "user".into(),
+            content: content.into(),
+            image_metadata: if metadata.is_empty() {
+                None
+            } else {
+                Some(metadata)
+            },
         }
     }
 
@@ -31,6 +48,7 @@ impl ChatMessage {
         Self {
             role: "assistant".into(),
             content: content.into(),
+            image_metadata: None,
         }
     }
 
@@ -38,6 +56,7 @@ impl ChatMessage {
         Self {
             role: "tool".into(),
             content: content.into(),
+            image_metadata: None,
         }
     }
 }
@@ -1000,5 +1019,80 @@ mod tests {
             images: &[],
         };
         assert!(request.images.is_empty());
+    }
+
+    // ── ChatMessage::user_with_images (task 2.8) ─────────────
+
+    #[test]
+    fn user_with_images_non_empty_metadata() {
+        use crate::channels::media::ImageHistoryMeta;
+
+        let meta = vec![ImageHistoryMeta {
+            mime: "image/jpeg".into(),
+            sha256: "abc123".into(),
+            byte_len: 1024,
+            channel_origin: "telegram".into(),
+            caption: None,
+            description: None,
+        }];
+
+        let msg = ChatMessage::user_with_images("Hello", meta);
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content, "Hello");
+        assert!(msg.image_metadata.is_some());
+        assert_eq!(msg.image_metadata.as_ref().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn user_with_images_empty_metadata_yields_none() {
+        let msg = ChatMessage::user_with_images("Hello", vec![]);
+        assert_eq!(msg.role, "user");
+        assert!(msg.image_metadata.is_none());
+    }
+
+    #[test]
+    fn chat_message_serde_roundtrip_with_image_metadata() {
+        use crate::channels::media::ImageHistoryMeta;
+
+        let meta = vec![ImageHistoryMeta {
+            mime: "image/png".into(),
+            sha256: "deadbeef".into(),
+            byte_len: 2048,
+            channel_origin: "discord".into(),
+            caption: Some("test caption".into()),
+            description: Some("a test image".into()),
+        }];
+
+        let msg = ChatMessage::user_with_images("Describe this", meta);
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: ChatMessage = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.role, "user");
+        assert_eq!(deserialized.content, "Describe this");
+        assert!(deserialized.image_metadata.is_some());
+        let dm = deserialized.image_metadata.unwrap();
+        assert_eq!(dm.len(), 1);
+        assert_eq!(dm[0].mime, "image/png");
+        assert_eq!(dm[0].caption, Some("test caption".into()));
+    }
+
+    #[test]
+    fn chat_message_backward_compat_missing_image_metadata() {
+        // JSON without image_metadata field — should deserialize with None
+        let json = r#"{"role":"user","content":"Hello"}"#;
+        let msg: ChatMessage = serde_json::from_str(json).unwrap();
+
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content, "Hello");
+        assert!(msg.image_metadata.is_none());
+    }
+
+    #[test]
+    fn chat_message_skip_serializing_none_image_metadata() {
+        let msg = ChatMessage::user("Hello");
+        let json = serde_json::to_string(&msg).unwrap();
+
+        // image_metadata should not appear in JSON when None
+        assert!(!json.contains("image_metadata"));
     }
 }

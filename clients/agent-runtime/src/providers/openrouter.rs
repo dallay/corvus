@@ -534,10 +534,12 @@ mod tests {
             ChatMessage {
                 role: "system".into(),
                 content: "be concise".into(),
+                image_metadata: None,
             },
             ChatMessage {
                 role: "user".into(),
                 content: "hello".into(),
+                image_metadata: None,
             },
         ];
 
@@ -580,10 +582,12 @@ mod tests {
             ChatMessage {
                 role: "assistant".into(),
                 content: "Previous answer".into(),
+                image_metadata: None,
             },
             ChatMessage {
                 role: "user".into(),
                 content: "Follow-up".into(),
+                image_metadata: None,
             },
         ];
 
@@ -630,6 +634,7 @@ mod tests {
         let messages = vec![ChatMessage {
             role: "user".into(),
             content: "What is the date?".into(),
+            image_metadata: None,
         }];
         let tools = vec![serde_json::json!({
             "type": "function",
@@ -724,6 +729,7 @@ mod tests {
             role: "assistant".into(),
             content: r#"{"content":"Using tool","tool_calls":[{"id":"call_abc","name":"shell","arguments":"{\"command\":\"pwd\"}"}]}"#
                 .into(),
+            image_metadata: None,
         }];
 
         let converted = OpenRouterProvider::convert_messages(&messages);
@@ -743,6 +749,7 @@ mod tests {
         let messages = vec![ChatMessage {
             role: "tool".into(),
             content: r#"{"tool_call_id":"call_xyz","content":"done"}"#.into(),
+            image_metadata: None,
         }];
 
         let converted = OpenRouterProvider::convert_messages(&messages);

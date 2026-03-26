@@ -56,6 +56,7 @@ impl DiscordChannel {
         &self,
         attachment_url: &str,
         declared_mime: Option<&str>,
+        max_bytes: u64,
     ) -> Result<media::StagedImage, media::ImageRejectionReason> {
         let dl_resp = self.client.get(attachment_url).send().await.map_err(|e| {
             let sanitized = format!("{e}").replace(attachment_url, "[CDN_URL]");
@@ -63,7 +64,8 @@ impl DiscordChannel {
             media::ImageRejectionReason::FetchFailed
         })?;
 
-        media::stream_validate_and_stage(dl_resp, declared_mime, "dc", attachment_url).await
+        media::stream_validate_and_stage(dl_resp, declared_mime, "dc", attachment_url, max_bytes)
+            .await
     }
 }
 

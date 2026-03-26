@@ -130,7 +130,7 @@ async fn full_prompt_tool_response_cycle_with_dummy_provider() {
     assert!(history.iter().any(|item| {
     matches!(
       item,
-      corvus::providers::ConversationMessage::Chat(ChatMessage { role, content }) if role == "assistant" && content == "final integration response"
+      corvus::providers::ConversationMessage::Chat(ChatMessage { role, content, .. }) if role == "assistant" && content == "final integration response"
     )
   }));
 }

@@ -166,6 +166,7 @@ impl WhatsAppChannel {
         &self,
         media_id: &str,
         declared_mime: Option<&str>,
+        max_bytes: u64,
     ) -> Result<media::StagedImage, media::ImageRejectionReason> {
         // 1. Resolve media id → download URL
         let meta_url = format!("https://graph.facebook.com/v21.0/{media_id}");
@@ -214,7 +215,8 @@ impl WhatsAppChannel {
                 media::ImageRejectionReason::FetchFailed
             })?;
 
-        media::stream_validate_and_stage(dl_resp, declared_mime, "wa", download_url).await
+        media::stream_validate_and_stage(dl_resp, declared_mime, "wa", download_url, max_bytes)
+            .await
     }
 
     /// Parse an incoming webhook payload from Meta and extract messages

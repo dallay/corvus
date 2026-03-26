@@ -25,6 +25,7 @@ pub enum ImageIngressReason {
     Oversize,
     TooManyImages,
     ProviderError,
+    ChannelNotSupported,
 }
 
 impl std::fmt::Display for ImageIngressReason {
@@ -39,6 +40,7 @@ impl std::fmt::Display for ImageIngressReason {
             Self::Oversize => "oversize",
             Self::TooManyImages => "too_many_images",
             Self::ProviderError => "provider_error",
+            Self::ChannelNotSupported => "channel_not_supported",
         };
         f.write_str(code)
     }
