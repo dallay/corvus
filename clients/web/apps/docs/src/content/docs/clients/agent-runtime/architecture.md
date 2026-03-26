@@ -1,5 +1,11 @@
 ---
 title: Agent Runtime Architecture
+description: Architecture overview of the Rust agent runtime, including subsystem boundaries, design goals, and execution model.
+owner: team-runtime
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: architecture
 ---
 
 # Agent Runtime Architecture

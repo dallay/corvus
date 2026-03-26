@@ -1,5 +1,11 @@
 ---
 title: Personalización de la Plantilla
+description: Guía de referencia para adaptar la plantilla original de Gradle a la identidad, publicación y ajustes específicos de Corvus.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: guide
 ---
 
 Este repositorio fue creado desde una plantilla de Gradle y personalizado para **Corvus**.

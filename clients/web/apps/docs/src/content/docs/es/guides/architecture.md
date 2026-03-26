@@ -1,5 +1,11 @@
 ---
 title: Arquitectura
+description: Arquitectura de alto nivel del repositorio, incluyendo límites entre módulos, lógica centralizada de build y separación entre clientes y código compartido.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: architecture
 ---
 
 El proyecto sigue una arquitectura modular con un fuerte énfasis en la lógica de construcción

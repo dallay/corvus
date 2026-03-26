@@ -1,5 +1,11 @@
 ---
 title: Project Structure
+description: Reference map of the Corvus repository layout, including top-level directories, build files, and documentation location.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 A detailed look at the organization of the **Corvus** repository.

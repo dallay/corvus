@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+name: Docs Quality
+
+on:
+  pull_request:
+    branches:
+      - main
+      - minor
+      - fix/**
+      - feat/**
+      - patch/**
+    paths:
+      - "clients/web/apps/docs/**"
+      - "scripts/validate-docs-metadata.mjs"
+      - ".github/workflows/docs-quality.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "clients/web/apps/docs/**"
+      - "scripts/validate-docs-metadata.mjs"
+      - ".github/workflows/docs-quality.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  docs-quality:
+    name: Validate docs metadata and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: clients/web/apps/docs
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: clients/web/apps/docs/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate documentation metadata
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: node ../../../../scripts/validate-docs-metadata.mjs
+
+      - name: Run docs checks
+        run: pnpm run check
+
+      - name: Build docs site
+        run: pnpm run build

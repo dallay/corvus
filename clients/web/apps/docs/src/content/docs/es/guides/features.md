@@ -1,5 +1,11 @@
 ---
 title: Lista de Funcionalidades
+description: Checklist de módulos, capacidades, features de build y superficies de integración soportadas en Corvus.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 Esta página proporciona una lista completa de todas las funcionalidades, módulos y opciones

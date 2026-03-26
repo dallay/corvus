@@ -1,5 +1,11 @@
 ---
 title: GPG Key Setup for Maven Central Publishing
+description: Step-by-step setup for creating, exporting, and configuring GPG keys used in Corvus publishing workflows.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: runbook
 ---
 
 This guide explains how to configure GPG keys for publishing artifacts to Maven Central via GitHub

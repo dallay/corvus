@@ -1,5 +1,11 @@
 ---
 title: Estructura del Proyecto
+description: Mapa de referencia de la estructura del repositorio Corvus, incluyendo directorios principales, archivos de build y ubicación de la documentación.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 Una mirada detallada a la organización del repositorio **Corvus**.

@@ -11,4 +11,8 @@
 # *    @yacosta738
 
 # Project core
+/clients/web/apps/docs/     @yacosta738
+/scripts/validate-docs-metadata.mjs @yacosta738
 /.github/workflows     @yacosta738
+/.github/pull_request_template.md @yacosta738
+/.github/PULL_REQUEST_TEMPLATE/ @yacosta738

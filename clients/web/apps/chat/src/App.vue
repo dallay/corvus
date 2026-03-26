@@ -40,6 +40,7 @@ const canSend = computed(
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const showOnboardingGate = computed(() => !chat.isSessionReady.value);
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const combinedErrorMessage = computed(() => {
   const gw = gateway.errorMessage.value;
   const ch = chat.errorMessage.value;

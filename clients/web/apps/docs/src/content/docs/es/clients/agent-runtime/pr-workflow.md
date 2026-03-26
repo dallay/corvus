@@ -1,5 +1,11 @@
 ---
 title: PR Workflow
+description: Reglas de gobernanza para manejar pull requests de alto volumen, rutas protegidas, expectativas de review y disciplina de rollback.
+owner: team-runtime
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: runbook
 ---
 
 # Corvus PR Workflow (Colaboración de Alto Volumen)

@@ -8,9 +8,10 @@
     "build": "astro build",
     "preview": "portless run --name docs astro preview",
     "astro": "astro",
+    "validate:content": "node ../../../../scripts/validate-docs-metadata.mjs",
     "format": "biome format --write src astro.config.mjs package.json tsconfig.json",
     "lint": "biome lint src astro.config.mjs",
-    "check": "astro check && biome check src astro.config.mjs package.json tsconfig.json"
+    "check": "astro check && biome check src astro.config.mjs package.json tsconfig.json && pnpm run validate:content"
   },
   "dependencies": {
     "@astrojs/starlight": "catalog:",

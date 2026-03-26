@@ -43,6 +43,20 @@ body:
       placeholder: Steps, configurations, test environment, etc. Is there anything you'd like reviewers to focus on?
 
   - type: textarea
+    id: documentation-impact
+    attributes:
+      label: Documentation Impact
+      description: List updated doc paths, or explain why no doc update is needed.
+      placeholder: |
+        Docs updated in:
+        - clients/web/apps/docs/src/content/docs/...
+
+        Or:
+        No docs update required because...
+    validations:
+      required: true
+
+  - type: textarea
     id: breaking-changes
     attributes:
       label: Breaking Changes
@@ -56,9 +70,10 @@ body:
       options:
         - label: I have checked that there isn’t already a PR solving the same problem.
           required: true
-        - label: I have read the [Contributing Guidelines](blob/main/.github/CONTRIBUTING.md).
+        - label: I have read the [Contributing Guidelines](https://github.com/dallay/corvus/blob/main/.github/CONTRIBUTING.md).
         - label: I ensured my code follows the project's style guidelines.
         - label: I have added or updated tests that prove my fix is effective or that my feature works.
-        - label: I have updated the documentation if needed.
+        - label: I have updated the documentation, or I explained above why no documentation update is needed.
+        - label: I verified the documentation matches the current behavior.
         - label: I have documented any breaking changes in the Breaking Changes section.
         - label: I have linked the related issue (if any).

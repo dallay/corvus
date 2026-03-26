@@ -1,6 +1,11 @@
 ---
 title: Architecture Overview
 description: Collection of C4 diagrams for the Corvus project
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: architecture
 ---
 
 # Architecture Diagrams

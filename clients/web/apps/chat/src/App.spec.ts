@@ -102,7 +102,10 @@ describe("App", () => {
       .findAll("button")
       .find((button) => button.text() === translatedText("auth.pair"));
     expect(pairButton?.exists()).toBe(true);
-    await pairButton!.trigger("click");
+    if (!pairButton) {
+      throw new Error("Expected pairing button to exist");
+    }
+    await pairButton.trigger("click");
     await flushPromises();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
@@ -110,7 +113,10 @@ describe("App", () => {
       .findAll("button")
       .find((button) => button.text() === translatedText("chat.startSession"));
     expect(startSessionButton?.exists()).toBe(true);
-    await startSessionButton!.trigger("click");
+    if (!startSessionButton) {
+      throw new Error("Expected start session button to exist");
+    }
+    await startSessionButton.trigger("click");
     await flushPromises();
 
     const input = wrapper.get(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`);
@@ -166,7 +172,10 @@ describe("App", () => {
       .findAll("button")
       .find((button) => button.text() === translatedText("auth.connect"));
     expect(connectButton?.exists()).toBe(true);
-    await connectButton!.trigger("click");
+    if (!connectButton) {
+      throw new Error("Expected connect button to exist");
+    }
+    await connectButton.trigger("click");
     await flushPromises();
 
     await wrapper.get('[data-testid="toggle-config"]').trigger("click");
@@ -174,7 +183,10 @@ describe("App", () => {
       .findAll("button")
       .find((button) => button.text() === translatedText("chat.startSession"));
     expect(sessionButton?.exists()).toBe(true);
-    await sessionButton!.trigger("click");
+    if (!sessionButton) {
+      throw new Error("Expected session button to exist");
+    }
+    await sessionButton.trigger("click");
     await flushPromises();
 
     const input = wrapper.get(`input[placeholder="${translatedText("chat.inputPlaceholder")}"]`);

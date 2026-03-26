@@ -1,5 +1,11 @@
 ---
 title: "CI Workflow Map"
+description: Reference map of GitHub workflows, their responsibilities, trigger conditions, and whether they should block merges.
+owner: team-runtime
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 # CI Workflow Map

@@ -1,6 +1,11 @@
 ---
 title: Referencia de la CLI
 description: Guía completa de los comandos y opciones de la CLI del agente Corvus.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 La CLI de Corvus (`corvus`) es la interfaz principal para gestionar tus agentes, hardware y

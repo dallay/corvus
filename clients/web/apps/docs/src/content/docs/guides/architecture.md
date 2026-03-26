@@ -1,5 +1,11 @@
 ---
 title: Architecture
+description: High-level repository architecture covering module boundaries, centralized build logic, and client-to-shared separation.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: architecture
 ---
 
 The project follows a modular architecture with a strong emphasis on centralized build logic and

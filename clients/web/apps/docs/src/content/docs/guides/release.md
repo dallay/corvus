@@ -1,5 +1,11 @@
 ---
 title: Release Process
+description: Canonical release procedure for publishing Corvus artifacts through GitHub Actions, signing, and Maven Central workflows.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: runbook
 ---
 
 This guide explains how to publish a full Corvus release (KMP + Rust + web artifacts) using

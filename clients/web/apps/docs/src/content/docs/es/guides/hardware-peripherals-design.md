@@ -1,5 +1,11 @@
 ---
 title: Diseño de Periféricos de Hardware
+description: Notas de arquitectura y diseño para escenarios de control de hardware en Corvus sobre MCUs, SBCs y lógica de periféricos generada por el runtime.
+owner: team-platform
+status: draft
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: architecture
 ---
 
 Corvus permite que microcontroladores (MCU) y computadoras de placa única (SBC) interpreten

@@ -150,6 +150,20 @@ export default defineConfig({
               },
             },
             {
+              label: "SurrealDB Operations",
+              slug: "guides/surrealdb",
+              translations: {
+                es: "Operación de SurrealDB",
+              },
+            },
+            {
+              label: "Cerebro Migration",
+              slug: "guides/cerebro/migration-guide",
+              translations: {
+                es: "Migración a Cerebro",
+              },
+            },
+            {
               label: "CLI Reference",
               slug: "guides/cli-reference",
               translations: {
@@ -169,6 +183,13 @@ export default defineConfig({
               slug: "guides/architecture",
               translations: {
                 es: "Visión General",
+              },
+            },
+            {
+              label: "Architecture Diagrams",
+              slug: "guides/architecture/overview",
+              translations: {
+                es: "Diagramas de Arquitectura",
               },
             },
           ],

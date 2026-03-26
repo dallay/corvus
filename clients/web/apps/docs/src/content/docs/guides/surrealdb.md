@@ -1,5 +1,11 @@
 ---
 title: SurrealDB in Production with Docker Compose
+description: Operational guide for running SurrealDB with Docker Compose in production, including storage choices and runtime caveats.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: runbook
 ---
 
 Here are the steps to deploy **SurrealDB in production with Docker Compose** based on the official

@@ -1,5 +1,11 @@
 ---
 title: Arquitectura del Agent Runtime
+description: Visión general de la arquitectura del runtime Rust de agentes, con límites de subsistemas, metas de diseño y modelo de ejecución.
+owner: team-runtime
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: architecture
 ---
 
 # Arquitectura del Agent Runtime

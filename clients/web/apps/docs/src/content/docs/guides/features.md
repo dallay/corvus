@@ -1,5 +1,11 @@
 ---
 title: Features Checklist
+description: Repository-wide checklist of modules, capabilities, build features, and supported integration surfaces in Corvus.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
 ---
 
 This page provides a comprehensive checklist of all functionalities, modules, and options available

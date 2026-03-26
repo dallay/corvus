@@ -2,6 +2,11 @@
 title: Guía de Migración a Cerebro
 description: Mueve la memoria a largo plazo al servicio Cerebro basado en MCP.
 slug: es/guides/cerebro/migration-guide
+owner: team-platform
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: runbook
 ---
 
 Esta guía cubre la migración desde la memoria SurrealDB local del runtime al servicio Cerebro basado en MCP. Para contexto narrativo e intención de diseño, consulta la especificación de Cerebro en
