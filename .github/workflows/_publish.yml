@@ -33,6 +33,7 @@ jobs:
     outputs:
       changelog: ${{ steps.changelog.outputs.changelog }}
     runs-on: ubuntu-latest
+    timeout-minutes: 75
     permissions:
       contents: write
       packages: write
@@ -43,12 +44,8 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: 📦 Setup Node
-        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
-        with:
-          node-version: "24"
-
       - name: 🦀 Resolve Rust channel
+        if: ${{ inputs.release }}
         id: rust-channel
         shell: python
         run: |
@@ -70,6 +67,7 @@ jobs:
               output.write(f"channel={channel}\n")
 
       - name: 🦀 Setup Rust
+        if: ${{ inputs.release }}
         run: |
           rustup toolchain install "${{ steps.rust-channel.outputs.channel }}" --profile minimal
           rustup default "${{ steps.rust-channel.outputs.channel }}"
@@ -179,8 +177,7 @@ jobs:
           [[ -n "$NPM_TOKEN" ]] && echo "✅ NPM token configured" || echo "⚠️ NPM token not configured"
           [[ -n "$DOCKERHUB_USERNAME" ]] && echo "✅ DockerHub credentials configured" || echo "⚠️ DockerHub credentials not configured"
 
-      - name: 👻 Publish to Maven Central
-        if: ${{ inputs.release }}
+      - name: 👻 Publish Gradle/Maven artifacts
         continue-on-error: true
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
@@ -226,6 +223,7 @@ jobs:
     if: ${{ inputs.release }}
     needs: [publish, build-native-binaries]
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -295,6 +293,7 @@ jobs:
     if: ${{ inputs.release }}
     needs: build-native-binaries
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -395,6 +394,7 @@ jobs:
     if: ${{ inputs.release }}
     needs: publish-npm-platforms
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: ✈ Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -431,6 +431,7 @@ jobs:
     if: ${{ inputs.release }}
     needs: [publish, build-native-binaries]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
 

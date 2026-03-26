@@ -6,9 +6,14 @@ on:
   issue_comment:
     types: [created, edited]
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
 jobs:
   lock-update:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     permissions:
       contents: write
     if: >-
@@ -70,7 +75,7 @@ jobs:
       - name: ✈ Checkout PR commit
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          fetch-depth: 1
           repository: ${{ steps.get-pr-data.outputs.head_repo }}
           ref: ${{ steps.get-pr-data.outputs.head_sha }}
 
@@ -161,7 +166,7 @@ jobs:
       - name: 📝 Get Commit Message
         run: |
           COMMIT_MSG=$(git log --format=%s -n 1 "${{ steps.get-pr-data.outputs.head_sha }}")
-          echo "COMMIT_MSG=${COMMIT_MSG}" >> $GITHUB_ENV
+          echo "COMMIT_MSG=${COMMIT_MSG}" >> "$GITHUB_ENV"
 
       - name: 💾 Commit file changes (only for bots)
         env:
