@@ -317,10 +317,11 @@ MUST map to exactly one user-facing message and one observability event.
 | `FetchFailed`          | "I couldn't download that image safely. Please try again."               | Channel fetch fails (network error, auth error, timeout)                  |
 | `MimeRejected`         | "That image format is not supported."                                    | Magic-byte sniffing does not match JPEG, PNG, or WebP                     |
 | `Oversize`             | "That image is too large to process."                                    | Image bytes exceed effective size limit                                   |
+| `ChannelNotSupported`  | "Image input is not yet supported for this channel."                     | Channel has no `fetch_and_stage_image()` implementation                   |
 | `ProviderError`        | "Image processing failed — please try again."                            | Provider returned an error during image-bearing request                   |
 
-This taxonomy MUST be exhaustive for MVP — every image rejection MUST map to exactly one of these
-reasons.
+This taxonomy (10 variants) MUST be exhaustive for MVP — every image rejection MUST map to exactly
+one of these reasons.
 
 All rejection reasons MUST:
 - Be variants of `ImageRejectionReason` enum
@@ -372,7 +373,7 @@ messages.
 
 - GIVEN `allowed_channels` includes "slack" but Slack has no staging implementation
 - WHEN a Slack user sends an image
-- THEN the image is rejected with reason `FetchFailed` (channel staging returns empty Vec, caller rejects)
+- THEN the image is rejected with reason `ChannelNotSupported`
 - AND the user receives "Image input is not yet supported for this channel."
 
 ### REQ-8: Configuration Contract

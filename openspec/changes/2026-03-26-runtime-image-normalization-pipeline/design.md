@@ -103,11 +103,12 @@ compile time rather than parse time.
 3. **Image description from model only** — Relies on the LLM's vision response to describe the
    image. Good for model context continuity but not available until after the provider responds.
    Cannot be computed at ingestion time.
-4. **Compact metadata + model-generated description** (chosen) — At ingestion time, store
-   `ImageHistoryMeta { mime, sha256, byte_len, channel_origin, caption }`. After the provider
-   responds, extract a brief description from the model's response and attach it to the history
-   entry. On subsequent turns, inject a synthetic text block:
-   `[Prior image: {mime}, {byte_len} bytes, sha256:{sha256_prefix}. Description: {description}]`.
+4. **Compact metadata + optional description** (chosen) — At ingestion time, store
+   `ImageHistoryMeta { mime, sha256, byte_len, channel_origin, caption, description: None }`.
+   On subsequent turns, inject a synthetic text block:
+   `[Prior image: {mime}, {byte_len} bytes, sha256:{sha256_prefix}. Caption: {caption}]`.
+   Description extraction from model responses is deferred as follow-up work — when implemented,
+   it will be appended as `. Description: {description}` in the context string.
 
 **Rationale**: Option 4 gives the model enough context to reason about prior images without storing
 bytes. The compact metadata is cheap (~200 bytes per image turn), provides operator-queryable

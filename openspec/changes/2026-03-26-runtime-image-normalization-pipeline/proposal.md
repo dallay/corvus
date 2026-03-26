@@ -24,7 +24,7 @@ This creates three concrete problems:
 This proposal formalizes the existing patterns as the canonical runtime contract and addresses the
 gaps identified in the exploration phase.
 
-**Reference**: GitHub issue [#267](https://github.com/corvus/corvus/issues/267), channel ingestion
+**Reference**: GitHub issue [#267](https://github.com/dallay/corvus/issues/267), channel ingestion
 spec (#266, `openspec/specs/channel-image-ingestion/spec.md`).
 
 ## Scope
@@ -87,8 +87,8 @@ This is primarily a **spec + design change with targeted code changes**:
 | `openspec/specs/runtime-image-normalization/` | New | Runtime-layer spec formalizing the normalization pipeline |
 | `clients/agent-runtime/src/channels/mod.rs` | Modified | History storage in `handle_successful_response()` (~line 1210) |
 | `clients/agent-runtime/src/channels/media.rs` | Modified | Wire `max_image_bytes` config to `validate_size()` and `stream_validate_and_stage()` |
-| `clients/agent-runtime/src/config/schema.rs` | Unchanged | `MultimodalConfig.max_image_bytes` already exists; no schema change needed |
-| `clients/agent-runtime/src/providers/traits.rs` | Unchanged | `ChatRequest.images` interface documented but not modified |
+| `clients/agent-runtime/src/config/schema.rs` | Modified | `max_image_bytes` startup validation (bounds checking with 50 MiB ceiling) |
+| `clients/agent-runtime/src/providers/traits.rs` | Modified | `ChatMessage.image_metadata` field added; `user_with_images()` constructor |
 | `clients/agent-runtime/src/providers/compatible.rs` | Unchanged | Base64/data-URL encoding documented but not modified |
 | `openspec/specs/channel-image-ingestion/spec.md` | Unchanged | Cross-referenced; no modifications needed |
 

@@ -55,6 +55,7 @@ pub enum ImageRejectionReason {
     Oversize,
     TooManyImages,
     ProviderError,
+    ChannelNotSupported,
 }
 
 impl fmt::Display for ImageRejectionReason {
@@ -69,6 +70,7 @@ impl fmt::Display for ImageRejectionReason {
             Self::Oversize => "oversize",
             Self::TooManyImages => "too_many_images",
             Self::ProviderError => "provider_error",
+            Self::ChannelNotSupported => "channel_not_supported",
         };
         f.write_str(code)
     }
@@ -149,6 +151,18 @@ impl ImageHistoryMeta {
         if let Some(desc) = &self.description {
             use std::fmt::Write;
             let _ = write!(s, ". Description: {desc}");
+        }
+        if let Some(cap) = &self.caption {
+            use std::fmt::Write;
+            // Sanitize: strip newlines, limit to 200 chars
+            let sanitized: String = cap
+                .chars()
+                .filter(|c| *c != '\n' && *c != '\r')
+                .take(200)
+                .collect();
+            if !sanitized.is_empty() {
+                let _ = write!(s, ". Caption: {sanitized}");
+            }
         }
         s.push(']');
         s
@@ -376,6 +390,10 @@ mod tests {
         assert_eq!(
             ImageRejectionReason::ProviderError.to_string(),
             "provider_error"
+        );
+        assert_eq!(
+            ImageRejectionReason::ChannelNotSupported.to_string(),
+            "channel_not_supported"
         );
     }
 
@@ -690,6 +708,27 @@ mod tests {
         let ctx = meta.to_context_string();
         assert!(ctx.starts_with("[Prior image: image/jpeg, 245760 bytes, sha256:a1b2c3d4e5f6a7b8"));
         assert!(!ctx.contains("Description"));
+        assert!(ctx.ends_with(']'));
+    }
+
+    #[test]
+    fn image_history_meta_to_context_string_with_caption() {
+        let meta = ImageHistoryMeta::from_staged(&make_test_staged(), Some("Hello world".into()));
+
+        let ctx = meta.to_context_string();
+        assert!(ctx.contains(". Caption: Hello world"));
+        assert!(ctx.ends_with(']'));
+    }
+
+    #[test]
+    fn image_history_meta_to_context_string_with_caption_and_description() {
+        let mut meta =
+            ImageHistoryMeta::from_staged(&make_test_staged(), Some("My caption".into()));
+        meta.description = Some("A sunset photo".into());
+
+        let ctx = meta.to_context_string();
+        assert!(ctx.contains(". Description: A sunset photo"));
+        assert!(ctx.contains(". Caption: My caption"));
         assert!(ctx.ends_with(']'));
     }
 

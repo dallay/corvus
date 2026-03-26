@@ -207,6 +207,7 @@ fn rejection_to_ingress_reason(
         media::ImageRejectionReason::Oversize => ImageIngressReason::Oversize,
         media::ImageRejectionReason::TooManyImages => ImageIngressReason::TooManyImages,
         media::ImageRejectionReason::ProviderError => ImageIngressReason::ProviderError,
+        media::ImageRejectionReason::ChannelNotSupported => ImageIngressReason::ChannelNotSupported,
     }
 }
 
@@ -859,7 +860,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
             image_route_metadata.as_ref().map(|r| r.provider.clone()),
             image_route_metadata.as_ref().map(|r| r.model.clone()),
             crate::observability::ImageIngressOutcome::Rejected,
-            Some(media::ImageRejectionReason::FetchFailed),
+            Some(media::ImageRejectionReason::ChannelNotSupported),
             msg.image_parts().len(),
             None,
             None,
@@ -1017,6 +1018,10 @@ async fn stage_channel_images(
     config: &Config,
     msg: &traits::ChannelMessage,
 ) -> Result<Vec<media::StagedImage>, media::ImageRejectionReason> {
+    let max_bytes = config
+        .multimodal
+        .max_image_bytes
+        .unwrap_or(media::MAX_IMAGE_BYTES);
     let mut staged = Vec::with_capacity(msg.image_parts().len());
 
     for part in msg.image_parts() {
@@ -1033,19 +1038,19 @@ async fn stage_channel_images(
             "telegram" => {
                 build_telegram_channel(config)
                     .ok_or(media::ImageRejectionReason::FetchFailed)?
-                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref())
+                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
                     .await?
             }
             "whatsapp" => {
                 build_whatsapp_channel(config)
                     .ok_or(media::ImageRejectionReason::FetchFailed)?
-                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref())
+                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
                     .await?
             }
             "discord" => {
                 build_discord_channel(config)
                     .ok_or(media::ImageRejectionReason::FetchFailed)?
-                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref())
+                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref(), max_bytes)
                     .await?
             }
             _ => return Ok(Vec::new()),
@@ -4280,6 +4285,10 @@ mod tests {
             (
                 media::ImageRejectionReason::ProviderError,
                 ImageIngressReason::ProviderError,
+            ),
+            (
+                media::ImageRejectionReason::ChannelNotSupported,
+                ImageIngressReason::ChannelNotSupported,
             ),
         ];
         for (rejection, expected) in cases {

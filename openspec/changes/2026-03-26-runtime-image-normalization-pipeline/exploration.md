@@ -1,4 +1,4 @@
-## Exploration: Runtime Image Normalization Pipeline
+# Exploration: Runtime Image Normalization Pipeline
 
 **Change**: 2026-03-26-runtime-image-normalization-pipeline
 **Issue**: #267 — Define canonical runtime pipeline for multimodal image normalization and safety
