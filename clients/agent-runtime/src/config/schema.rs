@@ -271,7 +271,7 @@ impl Default for SkillsConfig {
 // ── Multimodal rollout controls ─────────────────────────────────
 
 /// Valid MVP channel names for multimodal image ingress.
-const MVP_VALID_MULTIMODAL_CHANNELS: &[&str] = &["telegram", "whatsapp"];
+const MVP_VALID_MULTIMODAL_CHANNELS: &[&str] = &["telegram", "whatsapp", "discord"];
 
 /// Multimodal image ingress rollout controls.
 ///
@@ -282,7 +282,7 @@ pub struct MultimodalConfig {
     /// Global kill switch for image ingress (default: false).
     #[serde(default)]
     pub enabled: bool,
-    /// Channel allowlist; MVP-valid: "telegram", "whatsapp".
+    /// Channel allowlist; MVP-valid: "telegram", "whatsapp", "discord".
     #[serde(default)]
     pub allowed_channels: Vec<String>,
     /// Existing route hint used only for image turns.
@@ -3154,7 +3154,7 @@ impl Config {
         for ch in &mm.allowed_channels {
             if !MVP_VALID_MULTIMODAL_CHANNELS.contains(&ch.as_str()) {
                 anyhow::bail!(
-                    "multimodal.allowed_channels contains '{}' which is not a supported MVP channel (telegram, whatsapp)",
+                    "multimodal.allowed_channels contains '{}' which is not a supported MVP channel (telegram, whatsapp, discord)",
                     ch,
                 );
             }
@@ -6032,7 +6032,7 @@ default_temperature = 0.7
 
 [multimodal]
 enabled = true
-allowed_channels = ["telegram", "whatsapp"]
+allowed_channels = ["telegram", "whatsapp", "discord"]
 vision_model_hint = "vision"
 max_image_bytes = 5242880
 "#;
@@ -6040,7 +6040,7 @@ max_image_bytes = 5242880
         assert!(parsed.multimodal.enabled);
         assert_eq!(
             parsed.multimodal.allowed_channels,
-            vec!["telegram", "whatsapp"]
+            vec!["telegram", "whatsapp", "discord"]
         );
         assert_eq!(
             parsed.multimodal.vision_model_hint.as_deref(),
@@ -6165,7 +6165,7 @@ allow_image_input = true
         let config = Config {
             multimodal: MultimodalConfig {
                 enabled: true,
-                allowed_channels: vec!["discord".into()],
+                allowed_channels: vec!["slack".into()],
                 vision_model_hint: Some("vision".into()),
                 max_image_bytes: None,
             },
@@ -6175,6 +6175,6 @@ allow_image_input = true
         let error = config
             .validate_multimodal_config()
             .expect_err("should fail");
-        assert!(error.to_string().contains("discord"));
+        assert!(error.to_string().contains("slack"));
     }
 }

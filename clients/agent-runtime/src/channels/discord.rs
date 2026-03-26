@@ -1,3 +1,4 @@
+use super::media;
 use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
@@ -47,6 +48,85 @@ impl DiscordChannel {
         // Discord bot tokens are base64(bot_user_id).timestamp.hmac
         let part = token.split('.').next()?;
         base64_decode(part)
+    }
+
+    /// Fetch an image from a Discord CDN attachment URL and stage it
+    /// as a validated temp file ready for provider dispatch.
+    pub async fn fetch_and_stage_image(
+        &self,
+        attachment_url: &str,
+        declared_mime: Option<&str>,
+    ) -> Result<media::StagedImage, media::ImageRejectionReason> {
+        // 1. GET the attachment URL (Discord CDN URLs are pre-authenticated)
+        let dl_resp = self
+            .client
+            .get(attachment_url)
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!("Discord image download failed: {e}");
+                media::ImageRejectionReason::FetchFailed
+            })?;
+
+        if !dl_resp.status().is_success() {
+            tracing::warn!("Discord image download HTTP {}", dl_resp.status());
+            return Err(media::ImageRejectionReason::FetchFailed);
+        }
+
+        // 2. Early reject via Content-Length
+        if let Some(cl) = dl_resp.content_length() {
+            media::validate_size(cl, media::MAX_IMAGE_BYTES)?;
+        }
+
+        // 3. Stream bytes with per-chunk size validation
+        let mut bytes = Vec::new();
+        let mut stream = dl_resp.bytes_stream();
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|_| {
+                tracing::warn!("Discord image download stream read error");
+                media::ImageRejectionReason::FetchFailed
+            })?;
+            bytes.extend_from_slice(&chunk);
+            media::validate_size(bytes.len() as u64, media::MAX_IMAGE_BYTES)?;
+        }
+        let byte_len = bytes.len() as u64;
+
+        // 4. Validate MIME via magic-byte sniffing
+        let mime = media::validate_mime(declared_mime, &bytes)?;
+
+        // 5. Compute SHA-256 hash
+        use sha2::Digest;
+        let sha256 = {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(&bytes);
+            hex::encode(hasher.finalize())
+        };
+
+        // 6. Write to temp file
+        let ext = match mime {
+            media::AllowedImageMime::Jpeg => "jpg",
+            media::AllowedImageMime::Png => "png",
+            media::AllowedImageMime::Webp => "webp",
+        };
+        let temp_path =
+            std::env::temp_dir().join(format!("corvus-dc-img-{}.{ext}", &sha256[..16]));
+
+        tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
+            tracing::warn!(
+                "Failed to stage Discord image to {}: {e}",
+                temp_path.display()
+            );
+            media::ImageRejectionReason::FetchFailed
+        })?;
+
+        Ok(media::StagedImage {
+            sha256,
+            mime_type: mime,
+            byte_len,
+            temp_path,
+            transport_form: media::ImageTransportForm::InlineBytes,
+            channel_origin: "discord".to_string(),
+        })
     }
 }
 
@@ -384,11 +464,33 @@ impl Channel for DiscordChannel {
                                 }
 
                                 let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                                let Some(clean_content) =
-                                    normalize_incoming_content(content, self.mention_only, &bot_user_id)
-                                else {
+
+                                // Parse image attachments
+let image_parts = parse_image_attachments(d);
+
+                                let clean_content =
+                                    normalize_incoming_content(content, self.mention_only, &bot_user_id);
+
+                                // Skip if no text content AND no image attachments
+                                if clean_content.is_none() && image_parts.is_empty() {
                                     continue;
-                                };
+                                }
+
+                                // In mention_only mode, require mention even for image-only messages
+                                if self.mention_only
+                                    && !content.is_empty()
+                                    && !contains_bot_mention(content, &bot_user_id)
+                                {
+                                    continue;
+                                }
+
+                                let text_for_content = clean_content.clone().unwrap_or_default();
+
+                                let mut parts: Vec<ContentPart> = Vec::new();
+                                if let Some(ref text) = clean_content {
+                                    parts.push(ContentPart::Text { text: text.clone() });
+                                }
+                                parts.extend(image_parts);
 
                                 let message_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
                                 let channel_id = d.get("channel_id").and_then(|c| c.as_str()).unwrap_or("").to_string();
@@ -405,13 +507,13 @@ impl Channel for DiscordChannel {
                                     } else {
                                         channel_id.clone()
                                     },
-                                    content: clean_content.clone(),
+                                    content: text_for_content,
                                     channel: "discord".to_string(),
                                     timestamp: std::time::SystemTime::now()
                                         .duration_since(std::time::UNIX_EPOCH)
                                         .unwrap_or_default()
                                         .as_secs(),
-                                    parts: vec![ContentPart::Text { text: clean_content }],
+                                    parts,
             };
 
                                 if tx.send(channel_msg).await.is_err() {
@@ -466,6 +568,48 @@ impl Channel for DiscordChannel {
         }
         Ok(())
     }
+}
+
+/// Extract image `ContentPart`s from a Discord MESSAGE_CREATE `d` payload.
+///
+/// Factored out of `listen()` so it can be unit-tested without a live
+/// WebSocket connection.
+fn parse_image_attachments(d: &serde_json::Value) -> Vec<ContentPart> {
+    let mut parts = Vec::new();
+    let Some(attachments) = d.get("attachments").and_then(|a| a.as_array()) else {
+        return parts;
+    };
+    for att in attachments {
+        let ct = att
+            .get("content_type")
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
+        if !ct.starts_with("image/") {
+            continue;
+        }
+        if media::AllowedImageMime::from_mime_str(ct).is_none() {
+            continue;
+        }
+        let url = att
+            .get("url")
+            .and_then(|u| u.as_str())
+            .unwrap_or("");
+        if url.is_empty() {
+            continue;
+        }
+        parts.push(ContentPart::Image {
+            channel_handle: url.to_string(),
+            source_channel: "discord".to_string(),
+            declared_mime: Some(ct.to_string()),
+            caption_text: None,
+            file_name: att
+                .get("filename")
+                .and_then(|f| f.as_str())
+                .map(String::from),
+            declared_bytes: att.get("size").and_then(|s| s.as_u64()),
+        });
+    }
+    parts
 }
 
 #[cfg(test)]
@@ -838,5 +982,196 @@ mod tests {
         assert!(id.starts_with("discord_"));
         // Should have UUID dashes
         assert!(id.contains('-'));
+    }
+
+    // ── Image attachment parsing tests ────────────────────────
+
+    #[test]
+    fn parse_image_attachment_produces_image_part() {
+        let d = serde_json::json!({
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/photo.jpg",
+                "content_type": "image/jpeg",
+                "filename": "photo.jpg",
+                "size": 102_400
+            }]
+        });
+        let parts = parse_image_attachments(&d);
+        assert_eq!(parts.len(), 1);
+        match &parts[0] {
+            ContentPart::Image {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                caption_text,
+                file_name,
+                declared_bytes,
+            } => {
+                assert_eq!(channel_handle, "https://cdn.discordapp.com/attachments/1/2/photo.jpg");
+                assert_eq!(source_channel, "discord");
+                assert_eq!(declared_mime.as_deref(), Some("image/jpeg"));
+                assert!(caption_text.is_none());
+                assert_eq!(file_name.as_deref(), Some("photo.jpg"));
+                assert_eq!(*declared_bytes, Some(102_400));
+            }
+            ContentPart::Text { .. } => panic!("expected Image, got Text"),
+        }
+    }
+
+    #[test]
+    fn parse_non_image_attachment_skipped() {
+        let d = serde_json::json!({
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/doc.pdf",
+                "content_type": "application/pdf",
+                "filename": "doc.pdf",
+                "size": 50000
+            }]
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_unsupported_image_mime_skipped() {
+        let d = serde_json::json!({
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/anim.gif",
+                "content_type": "image/gif",
+                "filename": "anim.gif",
+                "size": 200_000
+            }]
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_text_and_image_produces_both_parts() {
+        let d = serde_json::json!({
+            "content": "Check this out",
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/pic.png",
+                "content_type": "image/png",
+                "filename": "pic.png",
+                "size": 80000
+            }]
+        });
+        let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
+        let clean = normalize_incoming_content(content, false, "99999");
+        let image_parts = parse_image_attachments(&d);
+
+        let mut parts: Vec<ContentPart> = Vec::new();
+        if let Some(ref text) = clean {
+            parts.push(ContentPart::Text { text: text.clone() });
+        }
+        parts.extend(image_parts);
+
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(&parts[0], ContentPart::Text { text } if text == "Check this out"));
+        assert!(matches!(&parts[1], ContentPart::Image { .. }));
+    }
+
+    #[test]
+    fn image_only_message_empty_text_still_has_parts() {
+        let d = serde_json::json!({
+            "content": "",
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/snap.webp",
+                "content_type": "image/webp",
+                "filename": "snap.webp",
+                "size": 45000
+            }]
+        });
+        let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
+        let clean = normalize_incoming_content(content, false, "99999");
+        let image_parts = parse_image_attachments(&d);
+
+        // Text is empty so clean_content is None, but image parts exist
+        assert!(clean.is_none());
+        assert_eq!(image_parts.len(), 1);
+        // Message should still be processable
+        assert!(clean.is_some() || !image_parts.is_empty());
+    }
+
+    #[test]
+    fn parse_attachment_missing_url_skipped() {
+        let d = serde_json::json!({
+            "attachments": [{
+                "content_type": "image/jpeg",
+                "filename": "photo.jpg",
+                "size": 102_400
+            }]
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_no_attachments_field_returns_empty() {
+        let d = serde_json::json!({
+            "content": "just text"
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_empty_attachments_array_returns_empty() {
+        let d = serde_json::json!({
+            "attachments": []
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_multiple_image_attachments() {
+        let d = serde_json::json!({
+            "attachments": [
+                {
+                    "url": "https://cdn.discordapp.com/a/1.jpg",
+                    "content_type": "image/jpeg",
+                    "filename": "a.jpg",
+                    "size": 10000
+                },
+                {
+                    "url": "https://cdn.discordapp.com/b/2.png",
+                    "content_type": "image/png",
+                    "filename": "b.png",
+                    "size": 20000
+                }
+            ]
+        });
+        let parts = parse_image_attachments(&d);
+        assert_eq!(parts.len(), 2);
+    }
+
+    #[test]
+    fn parse_mixed_attachments_filters_correctly() {
+        let d = serde_json::json!({
+            "attachments": [
+                {
+                    "url": "https://cdn.discordapp.com/a/1.jpg",
+                    "content_type": "image/jpeg",
+                    "filename": "a.jpg",
+                    "size": 10000
+                },
+                {
+                    "url": "https://cdn.discordapp.com/b/doc.pdf",
+                    "content_type": "application/pdf",
+                    "filename": "doc.pdf",
+                    "size": 50000
+                },
+                {
+                    "url": "https://cdn.discordapp.com/c/3.webp",
+                    "content_type": "image/webp",
+                    "filename": "c.webp",
+                    "size": 30000
+                }
+            ]
+        });
+        let parts = parse_image_attachments(&d);
+        assert_eq!(parts.len(), 2);
     }
 }

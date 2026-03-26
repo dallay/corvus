@@ -155,6 +155,10 @@ Every image ingestion attempt MUST emit an `ImageIngressEvent` with:
 - `reason`: rejection reason (if rejected)
 - `image_count`, `mime_type`, `byte_len`: image metadata
 
+### REQ-10: Deduplication (out of scope for MVP)
+
+Image deduplication is explicitly **out of scope** for MVP. If a user sends the same image twice in separate messages, each occurrence is independently fetched, validated, staged, and dispatched. The SHA-256 hash in the staging filename enables future dedup without schema changes, but no dedup logic SHALL be implemented in the initial channel ingestion pipeline.
+
 ## Scenarios
 
 ### Scenario 1: Telegram photo accepted
