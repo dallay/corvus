@@ -1067,6 +1067,7 @@ mod tests {
         let messages = vec![ChatMessage {
             role: "assistant".to_string(),
             content: assistant_payload,
+            image_metadata: None,
         }];
 
         let converted = CopilotProvider::convert_messages(&messages);
@@ -1090,6 +1091,7 @@ mod tests {
         let messages = vec![ChatMessage {
             role: "tool".to_string(),
             content: tool_payload,
+            image_metadata: None,
         }];
 
         let converted = CopilotProvider::convert_messages(&messages);
@@ -1104,6 +1106,7 @@ mod tests {
         let messages = vec![ChatMessage {
             role: "assistant".to_string(),
             content: "not-json".to_string(),
+            image_metadata: None,
         }];
 
         let converted = CopilotProvider::convert_messages(&messages);

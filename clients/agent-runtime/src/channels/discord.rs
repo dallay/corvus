@@ -63,7 +63,14 @@ impl DiscordChannel {
             media::ImageRejectionReason::FetchFailed
         })?;
 
-        media::stream_validate_and_stage(dl_resp, declared_mime, "dc", attachment_url).await
+        media::stream_validate_and_stage(
+            dl_resp,
+            declared_mime,
+            "dc",
+            attachment_url,
+            media::MAX_IMAGE_BYTES,
+        )
+        .await
     }
 }
 

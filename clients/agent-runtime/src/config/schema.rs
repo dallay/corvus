@@ -3122,6 +3122,21 @@ impl Config {
 
     fn validate_multimodal_config(&self) -> Result<()> {
         let mm = &self.multimodal;
+
+        // Validate max_image_bytes bounds regardless of enabled state
+        if let Some(max_bytes) = mm.max_image_bytes {
+            if max_bytes == 0 {
+                anyhow::bail!("multimodal.max_image_bytes must be greater than 0");
+            }
+            if max_bytes > crate::channels::media::MAX_IMAGE_BYTES_CEILING {
+                anyhow::bail!(
+                    "multimodal.max_image_bytes={} exceeds the 50 MiB ceiling ({})",
+                    max_bytes,
+                    crate::channels::media::MAX_IMAGE_BYTES_CEILING,
+                );
+            }
+        }
+
         if !mm.enabled {
             return Ok(());
         }
@@ -3160,6 +3175,17 @@ impl Config {
                 );
             }
         }
+
+        // Log effective max_image_bytes
+        let effective = mm
+            .max_image_bytes
+            .unwrap_or(crate::channels::media::MAX_IMAGE_BYTES);
+        if mm.max_image_bytes.is_some() {
+            tracing::info!("Multimodal enabled: max_image_bytes={effective} (config override)");
+        } else {
+            tracing::info!("Multimodal enabled: max_image_bytes={effective} (default)");
+        }
+
         Ok(())
     }
 
@@ -6189,6 +6215,81 @@ allow_image_input = true
             ..Config::default()
         };
         // Non-MVP channels warn but don't reject (fail-closed at runtime per ADR-4)
+        assert!(config.validate_multimodal_config().is_ok());
+    }
+
+    // ── max_image_bytes config validation (task 2.10) ────────
+
+    #[test]
+    fn multimodal_max_image_bytes_zero_rejected() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                max_image_bytes: Some(0),
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_multimodal_config().unwrap_err();
+        assert!(
+            err.to_string().contains("greater than 0"),
+            "expected 'greater than 0' error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn multimodal_max_image_bytes_exceeds_ceiling_rejected() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                max_image_bytes: Some(104_857_600), // 100 MiB
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_multimodal_config().unwrap_err();
+        assert!(
+            err.to_string().contains("50 MiB ceiling"),
+            "expected '50 MiB ceiling' error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn multimodal_max_image_bytes_valid_value_accepted() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                max_image_bytes: Some(5_242_880), // 5 MiB
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        assert!(config.validate_multimodal_config().is_ok());
+    }
+
+    #[test]
+    fn multimodal_max_image_bytes_none_accepted() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                max_image_bytes: None,
+                ..Default::default()
+            },
+            ..Config::default()
+        };
+        assert!(config.validate_multimodal_config().is_ok());
+    }
+
+    #[test]
+    fn multimodal_max_image_bytes_at_ceiling_accepted() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: false,
+                max_image_bytes: Some(52_428_800), // exactly 50 MiB
+                ..Default::default()
+            },
+            ..Config::default()
+        };
         assert!(config.validate_multimodal_config().is_ok());
     }
 }

@@ -214,7 +214,14 @@ impl WhatsAppChannel {
                 media::ImageRejectionReason::FetchFailed
             })?;
 
-        media::stream_validate_and_stage(dl_resp, declared_mime, "wa", download_url).await
+        media::stream_validate_and_stage(
+            dl_resp,
+            declared_mime,
+            "wa",
+            download_url,
+            media::MAX_IMAGE_BYTES,
+        )
+        .await
     }
 
     /// Parse an incoming webhook payload from Meta and extract messages

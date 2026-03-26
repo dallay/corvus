@@ -973,6 +973,8 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
                 response,
                 started_at,
                 response_ctx,
+                &staged_guard.0,
+                &msg,
             )
             .await;
         }
@@ -1064,7 +1066,24 @@ fn build_history(
     let mut history = vec![ConversationMessage::Chat(ChatMessage::system(
         ctx.system_prompt.as_str(),
     ))];
-    history.extend(prior_turns.into_iter().map(ConversationMessage::Chat));
+
+    // Inject image context from prior turns into outbound messages
+    // without modifying stored history.
+    for turn in prior_turns {
+        if let Some(ref meta_list) = turn.image_metadata {
+            let mut augmented_content = String::new();
+            for meta in meta_list {
+                augmented_content.push_str(&meta.to_context_string());
+                augmented_content.push('\n');
+            }
+            augmented_content.push_str(&turn.content);
+            history.push(ConversationMessage::Chat(ChatMessage::user(
+                augmented_content,
+            )));
+        } else {
+            history.push(ConversationMessage::Chat(turn));
+        }
+    }
 
     if let Some(instructions) = channel_delivery_instructions(channel_name) {
         history.push(ConversationMessage::Chat(ChatMessage::system(instructions)));
@@ -1182,6 +1201,7 @@ async fn cleanup_async_tasks(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_successful_response(
     ctx: &ChannelRuntimeContext,
     history_key: &str,
@@ -1190,6 +1210,8 @@ async fn handle_successful_response(
     mut response: String,
     started_at: Instant,
     response_ctx: ResponseContext<'_>,
+    staged_images: &[media::StagedImage],
+    original_msg: &traits::ChannelMessage,
 ) {
     response = enforce_strict_memory_validation(
         ctx.memory.as_ref(),
@@ -1207,7 +1229,22 @@ async fn handle_successful_response(
             .lock()
             .unwrap_or_else(|e| e.into_inner());
         let turns = histories.entry(history_key.to_string()).or_default();
-        turns.push(ChatMessage::user(enriched_message));
+
+        // Build image metadata from staged images if present
+        if staged_images.is_empty() {
+            turns.push(ChatMessage::user(enriched_message));
+        } else {
+            let caption = original_msg.parts.iter().find_map(|p| match p {
+                traits::ContentPart::Image { caption_text, .. } => caption_text.clone(),
+                traits::ContentPart::Text { .. } => None,
+            });
+            let meta: Vec<media::ImageHistoryMeta> = staged_images
+                .iter()
+                .map(|img| media::ImageHistoryMeta::from_staged(img, caption.clone()))
+                .collect();
+            turns.push(ChatMessage::user_with_images(enriched_message, meta));
+        }
+
         turns.push(ChatMessage::assistant(&response));
         while turns.len() > MAX_CHANNEL_HISTORY {
             turns.remove(0);
