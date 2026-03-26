@@ -157,6 +157,7 @@ fn channel_delivery_instructions(channel_name: &str) -> Option<&'static str> {
     }
 }
 
+#[derive(Debug)]
 struct ResolvedImageRoute {
     selector: String,
     provider: String,
@@ -4050,6 +4051,116 @@ mod tests {
             events[0].reason,
             Some(crate::observability::ImageIngressReason::ChannelNotAllowed)
         );
+    }
+
+    // ── resolve_image_route unit tests ────────────────────────
+
+    #[test]
+    fn resolve_image_route_succeeds_with_valid_config() {
+        let config = make_multimodal_test_config("telegram");
+        let route = resolve_image_route(&config).unwrap();
+        assert_eq!(route.selector, "hint:vision");
+        assert_eq!(route.provider, "test-provider");
+        assert_eq!(route.model, "test-vision-model");
+    }
+
+    #[test]
+    fn resolve_image_route_fails_when_hint_missing() {
+        let mut config = make_multimodal_test_config("telegram");
+        config.multimodal.vision_model_hint = None;
+        let err = resolve_image_route(&config).unwrap_err();
+        assert!(matches!(err, media::ImageRejectionReason::MissingVisionRoute));
+    }
+
+    #[test]
+    fn resolve_image_route_fails_when_hint_empty() {
+        let mut config = make_multimodal_test_config("telegram");
+        config.multimodal.vision_model_hint = Some("  ".into());
+        let err = resolve_image_route(&config).unwrap_err();
+        assert!(matches!(err, media::ImageRejectionReason::MissingVisionRoute));
+    }
+
+    #[test]
+    fn resolve_image_route_fails_when_no_matching_route() {
+        let mut config = make_multimodal_test_config("telegram");
+        config.multimodal.vision_model_hint = Some("nonexistent".into());
+        let err = resolve_image_route(&config).unwrap_err();
+        assert!(matches!(err, media::ImageRejectionReason::MissingVisionRoute));
+    }
+
+    #[test]
+    fn resolve_image_route_fails_when_route_not_image_capable() {
+        let mut config = make_multimodal_test_config("telegram");
+        config.model_routes[0].allow_image_input = false;
+        let err = resolve_image_route(&config).unwrap_err();
+        assert!(matches!(
+            err,
+            media::ImageRejectionReason::RouteNotImageCapable
+        ));
+    }
+
+    // ── rejection_to_ingress_reason mapping tests ───────────
+
+    #[test]
+    fn rejection_to_ingress_reason_maps_all_variants() {
+        use crate::observability::ImageIngressReason;
+        let cases = vec![
+            (
+                media::ImageRejectionReason::Disabled,
+                ImageIngressReason::Disabled,
+            ),
+            (
+                media::ImageRejectionReason::ChannelNotAllowed,
+                ImageIngressReason::ChannelNotAllowed,
+            ),
+            (
+                media::ImageRejectionReason::MissingVisionRoute,
+                ImageIngressReason::MissingVisionRoute,
+            ),
+            (
+                media::ImageRejectionReason::RouteNotImageCapable,
+                ImageIngressReason::RouteNotImageCapable,
+            ),
+            (
+                media::ImageRejectionReason::FetchFailed,
+                ImageIngressReason::FetchFailed,
+            ),
+            (
+                media::ImageRejectionReason::MimeRejected,
+                ImageIngressReason::MimeRejected,
+            ),
+            (
+                media::ImageRejectionReason::Oversize,
+                ImageIngressReason::Oversize,
+            ),
+            (
+                media::ImageRejectionReason::TooManyImages,
+                ImageIngressReason::TooManyImages,
+            ),
+            (
+                media::ImageRejectionReason::ProviderError,
+                ImageIngressReason::ProviderError,
+            ),
+        ];
+        for (rejection, expected) in cases {
+            assert_eq!(rejection_to_ingress_reason(&rejection), expected);
+        }
+    }
+
+    // ── channel_delivery_instructions tests ─────────────────
+
+    #[test]
+    fn delivery_instructions_telegram_returns_marker_guidance() {
+        let instructions = channel_delivery_instructions("telegram");
+        assert!(instructions.is_some());
+        assert!(instructions.unwrap().contains("[IMAGE:"));
+    }
+
+    #[test]
+    fn delivery_instructions_unknown_channel_returns_none() {
+        assert!(channel_delivery_instructions("discord").is_none());
+        assert!(channel_delivery_instructions("whatsapp").is_none());
+        assert!(channel_delivery_instructions("slack").is_none());
     }
 
     // ── StagedImageGuard (Task 1.5) ─────────────────────────
