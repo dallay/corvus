@@ -3,7 +3,7 @@
 **Change**: channel-image-ingestion-strategy
 **Issue**: #266
 **Date**: 2026-03-26
-**Status**: proposed
+**Status**: archived
 
 ## Intent
 

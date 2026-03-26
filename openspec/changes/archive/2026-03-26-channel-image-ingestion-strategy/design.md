@@ -110,6 +110,40 @@ image staging. Channels are dispatched by `msg.channel` string match.
 staging support, and ensures consistent error handling. Adding a new channel requires exactly one
 new match arm.
 
+## Observability (REQ-9)
+
+Every image ingestion attempt emits an `ImageIngressEvent` through the `Observer` trait. Events are
+fired at the **single dispatch point** (`stage_channel_images()` in `mod.rs`) so that every path —
+success, validation failure, channel-not-allowed, provider error — is captured uniformly.
+
+### Event structure
+
+| Field          | Source                                       |
+|----------------|----------------------------------------------|
+| `channel`      | `msg.channel` string                         |
+| `provider`     | Resolved vision route name (if available)    |
+| `model`        | Resolved vision model (if available)         |
+| `outcome`      | `Admitted` · `Rejected` · `ProviderSent` · `ProviderError` |
+| `reason`       | Rejection reason (if rejected)               |
+| `image_count`  | Number of images in the turn                 |
+| `mime_type`    | Sniffed MIME (if fetch succeeded)            |
+| `byte_len`     | Payload size in bytes (if fetch succeeded)   |
+
+### Emission points
+
+1. **After staging succeeds** → `Admitted` (one event per image)
+2. **After provider dispatch succeeds** → `ProviderSent`
+3. **On validation failure** (MIME, size, count) → `Rejected` with reason
+4. **On channel-not-allowed** → `Rejected` with `ChannelNotAllowed`
+5. **On provider error** → `ProviderError`
+
+### Implementation note
+
+The `Observer` trait already supports structured event emission. `ImageIngressEvent` is a new event
+variant registered alongside existing observer events. No new infrastructure is required — channel
+implementors call `observer.emit(ImageIngressEvent { ... })` at the appropriate point in the
+pipeline.
+
 ## Staging File Naming Convention
 
 ```

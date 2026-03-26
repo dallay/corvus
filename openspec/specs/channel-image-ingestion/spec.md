@@ -1,7 +1,7 @@
 # Spec: Channel Image Ingestion Strategy
 
 **Domain**: channels / multimodal
-**Status**: draft
+**Status**: active
 **Issue**: #266
 **Date**: 2026-03-26
 
