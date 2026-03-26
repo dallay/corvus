@@ -1040,6 +1040,12 @@ async fn stage_channel_images(
                     .fetch_and_stage_image(channel_handle, declared_mime.as_deref())
                     .await?
             }
+            "discord" => {
+                build_discord_channel(config)
+                    .ok_or(media::ImageRejectionReason::FetchFailed)?
+                    .fetch_and_stage_image(channel_handle, declared_mime.as_deref())
+                    .await?
+            }
             _ => return Ok(Vec::new()),
         };
 

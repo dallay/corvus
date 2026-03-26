@@ -1,7 +1,6 @@
 use super::media;
 use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use uuid::Uuid;
 
 /// `WhatsApp` channel — uses `WhatsApp` Business Cloud API
@@ -215,64 +214,7 @@ impl WhatsAppChannel {
                 media::ImageRejectionReason::FetchFailed
             })?;
 
-        if !dl_resp.status().is_success() {
-            tracing::warn!("WhatsApp media download HTTP {}", dl_resp.status());
-            return Err(media::ImageRejectionReason::FetchFailed);
-        }
-
-        // Early reject via Content-Length
-        if let Some(cl) = dl_resp.content_length() {
-            media::validate_size(cl, media::MAX_IMAGE_BYTES)?;
-        }
-
-        // Stream body with per-chunk size validation
-        let mut bytes = Vec::new();
-        let mut stream = dl_resp.bytes_stream();
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|_| {
-                tracing::warn!("WhatsApp media download stream read error");
-                media::ImageRejectionReason::FetchFailed
-            })?;
-            bytes.extend_from_slice(&chunk);
-            media::validate_size(bytes.len() as u64, media::MAX_IMAGE_BYTES)?;
-        }
-        let byte_len = bytes.len() as u64;
-
-        // 3. Validate MIME via magic-byte sniffing
-        let mime = media::validate_mime(declared_mime, &bytes)?;
-
-        // 4. Stage to temp file and compute SHA-256
-        use sha2::Digest;
-        let sha256 = {
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(&bytes);
-            hex::encode(hasher.finalize())
-        };
-
-        let ext = match mime {
-            media::AllowedImageMime::Jpeg => "jpg",
-            media::AllowedImageMime::Png => "png",
-            media::AllowedImageMime::Webp => "webp",
-        };
-        let temp_path =
-            std::env::temp_dir().join(format!("corvus-wa-img-{}.{ext}", &sha256[..16],));
-
-        tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
-            tracing::warn!(
-                "Failed to stage WhatsApp image to {}: {e}",
-                temp_path.display()
-            );
-            media::ImageRejectionReason::FetchFailed
-        })?;
-
-        Ok(media::StagedImage {
-            sha256,
-            mime_type: mime,
-            byte_len,
-            temp_path,
-            transport_form: media::ImageTransportForm::InlineBytes,
-            channel_origin: "whatsapp".to_string(),
-        })
+        media::stream_validate_and_stage(dl_resp, declared_mime, "wa", download_url).await
     }
 
     /// Parse an incoming webhook payload from Meta and extract messages

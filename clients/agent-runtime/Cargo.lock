@@ -1145,6 +1145,7 @@ dependencies = [
  "hex",
  "hmac",
  "hostname",
+ "http 1.4.0",
  "http-body-util",
  "landlock",
  "lettre",

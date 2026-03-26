@@ -1,3 +1,4 @@
+use super::media;
 use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use async_trait::async_trait;
 use futures_util::{SinkExt, StreamExt};
@@ -47,6 +48,22 @@ impl DiscordChannel {
         // Discord bot tokens are base64(bot_user_id).timestamp.hmac
         let part = token.split('.').next()?;
         base64_decode(part)
+    }
+
+    /// Fetch an image from a Discord CDN attachment URL and stage it
+    /// as a validated temp file ready for provider dispatch.
+    pub async fn fetch_and_stage_image(
+        &self,
+        attachment_url: &str,
+        declared_mime: Option<&str>,
+    ) -> Result<media::StagedImage, media::ImageRejectionReason> {
+        let dl_resp = self.client.get(attachment_url).send().await.map_err(|e| {
+            let sanitized = format!("{e}").replace(attachment_url, "[CDN_URL]");
+            tracing::warn!("Discord image download failed: {sanitized}");
+            media::ImageRejectionReason::FetchFailed
+        })?;
+
+        media::stream_validate_and_stage(dl_resp, declared_mime, "dc", attachment_url).await
     }
 }
 
@@ -296,129 +313,150 @@ impl Channel for DiscordChannel {
 
         loop {
             tokio::select! {
-                            _ = hb_rx.recv() => {
-                                let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
-                                let hb = json!({"op": 1, "d": d});
-                                if write.send(Message::Text(hb.to_string())).await.is_err() {
-                                    break;
-                                }
-                            }
-                            msg = read.next() => {
-                                let msg = match msg {
-                                    Some(Ok(Message::Text(t))) => t,
-                                    Some(Ok(Message::Close(_))) | None => break,
-                                    _ => continue,
-                                };
-
-                                let event: serde_json::Value = match serde_json::from_str(&msg) {
-                                    Ok(e) => e,
-                                    Err(_) => continue,
-                                };
-
-                                // Track sequence number from all dispatch events
-                                if let Some(s) = event.get("s").and_then(serde_json::Value::as_i64) {
-                                    sequence = s;
-                                }
-
-                                let op = event.get("op").and_then(serde_json::Value::as_u64).unwrap_or(0);
-
-                                match op {
-                                    // Op 1: Server requests an immediate heartbeat
-                                    1 => {
-                                        let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
-                                        let hb = json!({"op": 1, "d": d});
-                                        if write.send(Message::Text(hb.to_string())).await.is_err() {
-                                            break;
+                                        _ = hb_rx.recv() => {
+                                            let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
+                                            let hb = json!({"op": 1, "d": d});
+                                            if write.send(Message::Text(hb.to_string())).await.is_err() {
+                                                break;
+                                            }
                                         }
-                                        continue;
-                                    }
-                                    // Op 7: Reconnect
-                                    7 => {
-                                        tracing::warn!("Discord: received Reconnect (op 7), closing for restart");
-                                        break;
-                                    }
-                                    // Op 9: Invalid Session
-                                    9 => {
-                                        tracing::warn!("Discord: received Invalid Session (op 9), closing for restart");
-                                        break;
-                                    }
-                                    _ => {}
-                                }
+                                        msg = read.next() => {
+                                            let msg = match msg {
+                                                Some(Ok(Message::Text(t))) => t,
+                                                Some(Ok(Message::Close(_))) | None => break,
+                                                _ => continue,
+                                            };
 
-                                // Only handle MESSAGE_CREATE (opcode 0, type "MESSAGE_CREATE")
-                                let event_type = event.get("t").and_then(|t| t.as_str()).unwrap_or("");
-                                if event_type != "MESSAGE_CREATE" {
-                                    continue;
-                                }
+                                            let event: serde_json::Value = match serde_json::from_str(&msg) {
+                                                Ok(e) => e,
+                                                Err(_) => continue,
+                                            };
 
-                                let Some(d) = event.get("d") else {
-                                    continue;
-                                };
+                                            // Track sequence number from all dispatch events
+                                            if let Some(s) = event.get("s").and_then(serde_json::Value::as_i64) {
+                                                sequence = s;
+                                            }
 
-                                // Skip messages from the bot itself
-                                let author_id = d.get("author").and_then(|a| a.get("id")).and_then(|i| i.as_str()).unwrap_or("");
-                                if author_id == bot_user_id {
-                                    continue;
-                                }
+                                            let op = event.get("op").and_then(serde_json::Value::as_u64).unwrap_or(0);
 
-                                // Skip bot messages (unless listen_to_bots is enabled)
-                                if !self.listen_to_bots && d.get("author").and_then(|a| a.get("bot")).and_then(serde_json::Value::as_bool).unwrap_or(false) {
-                                    continue;
-                                }
+                                            match op {
+                                                // Op 1: Server requests an immediate heartbeat
+                                                1 => {
+                                                    let d = if sequence >= 0 { json!(sequence) } else { json!(null) };
+                                                    let hb = json!({"op": 1, "d": d});
+                                                    if write.send(Message::Text(hb.to_string())).await.is_err() {
+                                                        break;
+                                                    }
+                                                    continue;
+                                                }
+                                                // Op 7: Reconnect
+                                                7 => {
+                                                    tracing::warn!("Discord: received Reconnect (op 7), closing for restart");
+                                                    break;
+                                                }
+                                                // Op 9: Invalid Session
+                                                9 => {
+                                                    tracing::warn!("Discord: received Invalid Session (op 9), closing for restart");
+                                                    break;
+                                                }
+                                                _ => {}
+                                            }
 
-                                // Sender validation
-                                if !self.is_user_allowed(author_id) {
-                                    tracing::warn!("Discord: ignoring message from unauthorized user: {author_id}");
-                                    continue;
-                                }
+                                            // Only handle MESSAGE_CREATE (opcode 0, type "MESSAGE_CREATE")
+                                            let event_type = event.get("t").and_then(|t| t.as_str()).unwrap_or("");
+                                            if event_type != "MESSAGE_CREATE" {
+                                                continue;
+                                            }
 
-                                // Guild filter
-                                if let Some(ref gid) = guild_filter {
-                                    let msg_guild = d.get("guild_id").and_then(serde_json::Value::as_str);
-                                    // DMs have no guild_id — let them through; for guild messages, enforce the filter
-                                    if let Some(g) = msg_guild {
-                                        if g != gid {
-                                            continue;
+                                            let Some(d) = event.get("d") else {
+                                                continue;
+                                            };
+
+                                            // Skip messages from the bot itself
+                                            let author_id = d.get("author").and_then(|a| a.get("id")).and_then(|i| i.as_str()).unwrap_or("");
+                                            if author_id == bot_user_id {
+                                                continue;
+                                            }
+
+                                            // Skip bot messages (unless listen_to_bots is enabled)
+                                            if !self.listen_to_bots && d.get("author").and_then(|a| a.get("bot")).and_then(serde_json::Value::as_bool).unwrap_or(false) {
+                                                continue;
+                                            }
+
+                                            // Sender validation
+                                            if !self.is_user_allowed(author_id) {
+                                                tracing::warn!("Discord: ignoring message from unauthorized user: {author_id}");
+                                                continue;
+                                            }
+
+                                            // Guild filter
+                                            if let Some(ref gid) = guild_filter {
+                                                let msg_guild = d.get("guild_id").and_then(serde_json::Value::as_str);
+                                                // DMs have no guild_id — let them through; for guild messages, enforce the filter
+                                                if let Some(g) = msg_guild {
+                                                    if g != gid {
+                                                        continue;
+                                                    }
+                                                }
+                                            }
+
+                                            let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
+
+                                            // Parse image attachments
+            let image_parts = parse_image_attachments(d);
+
+                                            let clean_content =
+                                                normalize_incoming_content(content, self.mention_only, &bot_user_id);
+
+                                            // Skip if no text content AND no image attachments
+                                            if clean_content.is_none() && image_parts.is_empty() {
+                                                continue;
+                                            }
+
+                                            // In mention_only mode, require mention even for image-only messages
+                                            if self.mention_only
+                                                && !contains_bot_mention(content, &bot_user_id)
+                                            {
+                                                continue;
+                                            }
+
+                                            let text_for_content = clean_content.clone().unwrap_or_default();
+
+                                            let mut parts: Vec<ContentPart> = Vec::new();
+                                            if let Some(ref text) = clean_content {
+                                                parts.push(ContentPart::Text { text: text.clone() });
+                                            }
+                                            parts.extend(image_parts);
+
+                                            let message_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
+                                            let channel_id = d.get("channel_id").and_then(|c| c.as_str()).unwrap_or("").to_string();
+
+                                            let channel_msg = ChannelMessage {
+                                                id: if message_id.is_empty() {
+                                                    format!("discord_{}", Uuid::new_v4())
+                                                } else {
+                                                    format!("discord_{message_id}")
+                                                },
+                                                sender: author_id.to_string(),
+                                                reply_target: if channel_id.is_empty() {
+                                                    author_id.to_string()
+                                                } else {
+                                                    channel_id.clone()
+                                                },
+                                                content: text_for_content,
+                                                channel: "discord".to_string(),
+                                                timestamp: std::time::SystemTime::now()
+                                                    .duration_since(std::time::UNIX_EPOCH)
+                                                    .unwrap_or_default()
+                                                    .as_secs(),
+                                                parts,
+                        };
+
+                                            if tx.send(channel_msg).await.is_err() {
+                                                break;
+                                            }
                                         }
                                     }
-                                }
-
-                                let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
-                                let Some(clean_content) =
-                                    normalize_incoming_content(content, self.mention_only, &bot_user_id)
-                                else {
-                                    continue;
-                                };
-
-                                let message_id = d.get("id").and_then(|i| i.as_str()).unwrap_or("");
-                                let channel_id = d.get("channel_id").and_then(|c| c.as_str()).unwrap_or("").to_string();
-
-                                let channel_msg = ChannelMessage {
-                                    id: if message_id.is_empty() {
-                                        format!("discord_{}", Uuid::new_v4())
-                                    } else {
-                                        format!("discord_{message_id}")
-                                    },
-                                    sender: author_id.to_string(),
-                                    reply_target: if channel_id.is_empty() {
-                                        author_id.to_string()
-                                    } else {
-                                        channel_id.clone()
-                                    },
-                                    content: clean_content.clone(),
-                                    channel: "discord".to_string(),
-                                    timestamp: std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_secs(),
-                                    parts: vec![ContentPart::Text { text: clean_content }],
-            };
-
-                                if tx.send(channel_msg).await.is_err() {
-                                    break;
-                                }
-                            }
-                        }
         }
 
         Ok(())
@@ -466,6 +504,45 @@ impl Channel for DiscordChannel {
         }
         Ok(())
     }
+}
+
+/// Extract image `ContentPart`s from a Discord MESSAGE_CREATE `d` payload.
+///
+/// Factored out of `listen()` so it can be unit-tested without a live
+/// WebSocket connection.
+fn parse_image_attachments(d: &serde_json::Value) -> Vec<ContentPart> {
+    let mut parts = Vec::new();
+    let Some(attachments) = d.get("attachments").and_then(|a| a.as_array()) else {
+        return parts;
+    };
+    for att in attachments {
+        let ct = att
+            .get("content_type")
+            .and_then(|c| c.as_str())
+            .unwrap_or("");
+        if !ct.starts_with("image/") {
+            continue;
+        }
+        if media::AllowedImageMime::from_mime_str(ct).is_none() {
+            continue;
+        }
+        let url = att.get("url").and_then(|u| u.as_str()).unwrap_or("");
+        if url.is_empty() {
+            continue;
+        }
+        parts.push(ContentPart::Image {
+            channel_handle: url.to_string(),
+            source_channel: "discord".to_string(),
+            declared_mime: Some(ct.to_string()),
+            caption_text: None,
+            file_name: att
+                .get("filename")
+                .and_then(|f| f.as_str())
+                .map(String::from),
+            declared_bytes: att.get("size").and_then(|s| s.as_u64()),
+        });
+    }
+    parts
 }
 
 #[cfg(test)]
@@ -838,5 +915,230 @@ mod tests {
         assert!(id.starts_with("discord_"));
         // Should have UUID dashes
         assert!(id.contains('-'));
+    }
+
+    // ── Image attachment parsing tests ────────────────────────
+
+    #[test]
+    fn parse_image_attachment_produces_image_part() {
+        let d = serde_json::json!({
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/photo.jpg",
+                "content_type": "image/jpeg",
+                "filename": "photo.jpg",
+                "size": 102_400
+            }]
+        });
+        let parts = parse_image_attachments(&d);
+        assert_eq!(parts.len(), 1);
+        match &parts[0] {
+            ContentPart::Image {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                caption_text,
+                file_name,
+                declared_bytes,
+            } => {
+                assert_eq!(
+                    channel_handle,
+                    "https://cdn.discordapp.com/attachments/1/2/photo.jpg"
+                );
+                assert_eq!(source_channel, "discord");
+                assert_eq!(declared_mime.as_deref(), Some("image/jpeg"));
+                assert!(caption_text.is_none());
+                assert_eq!(file_name.as_deref(), Some("photo.jpg"));
+                assert_eq!(*declared_bytes, Some(102_400));
+            }
+            ContentPart::Text { .. } => panic!("expected Image, got Text"),
+        }
+    }
+
+    #[test]
+    fn parse_non_image_attachment_skipped() {
+        let d = serde_json::json!({
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/doc.pdf",
+                "content_type": "application/pdf",
+                "filename": "doc.pdf",
+                "size": 50000
+            }]
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_unsupported_image_mime_skipped() {
+        let d = serde_json::json!({
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/anim.gif",
+                "content_type": "image/gif",
+                "filename": "anim.gif",
+                "size": 200_000
+            }]
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_text_and_image_produces_both_parts() {
+        let d = serde_json::json!({
+            "content": "Check this out",
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/pic.png",
+                "content_type": "image/png",
+                "filename": "pic.png",
+                "size": 80000
+            }]
+        });
+        let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
+        let clean = normalize_incoming_content(content, false, "99999");
+        let image_parts = parse_image_attachments(&d);
+
+        let mut parts: Vec<ContentPart> = Vec::new();
+        if let Some(ref text) = clean {
+            parts.push(ContentPart::Text { text: text.clone() });
+        }
+        parts.extend(image_parts);
+
+        assert_eq!(parts.len(), 2);
+        assert!(matches!(&parts[0], ContentPart::Text { text } if text == "Check this out"));
+        assert!(matches!(&parts[1], ContentPart::Image { .. }));
+    }
+
+    #[test]
+    fn image_only_message_empty_text_still_has_parts() {
+        let d = serde_json::json!({
+            "content": "",
+            "attachments": [{
+                "url": "https://cdn.discordapp.com/attachments/1/2/snap.webp",
+                "content_type": "image/webp",
+                "filename": "snap.webp",
+                "size": 45000
+            }]
+        });
+        let content = d.get("content").and_then(|c| c.as_str()).unwrap_or("");
+        let clean = normalize_incoming_content(content, false, "99999");
+        let image_parts = parse_image_attachments(&d);
+
+        // Text is empty so clean_content is None, but image parts exist
+        assert!(clean.is_none());
+        assert_eq!(image_parts.len(), 1);
+        // Message should still be processable
+        assert!(clean.is_some() || !image_parts.is_empty());
+    }
+
+    #[test]
+    fn parse_attachment_missing_url_skipped() {
+        let d = serde_json::json!({
+            "attachments": [{
+                "content_type": "image/jpeg",
+                "filename": "photo.jpg",
+                "size": 102_400
+            }]
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_no_attachments_field_returns_empty() {
+        let d = serde_json::json!({
+            "content": "just text"
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_empty_attachments_array_returns_empty() {
+        let d = serde_json::json!({
+            "attachments": []
+        });
+        let parts = parse_image_attachments(&d);
+        assert!(parts.is_empty());
+    }
+
+    #[test]
+    fn parse_multiple_image_attachments() {
+        let d = serde_json::json!({
+            "attachments": [
+                {
+                    "url": "https://cdn.discordapp.com/a/1.jpg",
+                    "content_type": "image/jpeg",
+                    "filename": "a.jpg",
+                    "size": 10000
+                },
+                {
+                    "url": "https://cdn.discordapp.com/b/2.png",
+                    "content_type": "image/png",
+                    "filename": "b.png",
+                    "size": 20000
+                }
+            ]
+        });
+        let parts = parse_image_attachments(&d);
+        assert_eq!(parts.len(), 2);
+    }
+
+    #[test]
+    fn parse_mixed_attachments_filters_correctly() {
+        let d = serde_json::json!({
+            "attachments": [
+                {
+                    "url": "https://cdn.discordapp.com/a/1.jpg",
+                    "content_type": "image/jpeg",
+                    "filename": "a.jpg",
+                    "size": 10000
+                },
+                {
+                    "url": "https://cdn.discordapp.com/b/doc.pdf",
+                    "content_type": "application/pdf",
+                    "filename": "doc.pdf",
+                    "size": 50000
+                },
+                {
+                    "url": "https://cdn.discordapp.com/c/3.webp",
+                    "content_type": "image/webp",
+                    "filename": "c.webp",
+                    "size": 30000
+                }
+            ]
+        });
+        let parts = parse_image_attachments(&d);
+        assert_eq!(parts.len(), 2);
+    }
+
+    #[test]
+    fn mention_only_rejects_image_only_message_without_mention() {
+        // Regression: attachment-only messages (empty content) must still be
+        // rejected when mention_only is true and no bot mention is present.
+        let content = "";
+        let bot_user_id = "123456";
+        let mention_only = true;
+
+        // Simulate the guard logic from the event loop
+        let should_skip = mention_only && !contains_bot_mention(content, bot_user_id);
+
+        assert!(
+            should_skip,
+            "image-only message without mention must be skipped in mention_only mode"
+        );
+    }
+
+    #[test]
+    fn mention_only_accepts_image_only_message_with_mention() {
+        let content = "<@123456> ";
+        let bot_user_id = "123456";
+        let mention_only = true;
+
+        let should_skip = mention_only && !contains_bot_mention(content, bot_user_id);
+
+        assert!(
+            !should_skip,
+            "image message with bot mention must NOT be skipped"
+        );
     }
 }
