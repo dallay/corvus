@@ -634,10 +634,13 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         }
     };
 
-    let memory_context =
-        build_memory_context(ctx.memory.as_ref(), &user_text, ctx.min_relevance_score).await;
+    let memory_context = if user_text.trim().is_empty() {
+        String::new()
+    } else {
+        build_memory_context(ctx.memory.as_ref(), &user_text, ctx.min_relevance_score).await
+    };
 
-    if ctx.auto_save_memory {
+    if ctx.auto_save_memory && !user_text.trim().is_empty() {
         let autosave_key = conversation_memory_key(&msg);
         let _ = ctx
             .memory
@@ -850,6 +853,17 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
     // Fail-closed: reject image turns on channels that have
     // not yet implemented fetch/staging.
     if msg.has_image_parts() && staged_guard.0.is_empty() {
+        emit_image_ingress(
+            ctx.observer.as_ref(),
+            &msg.channel,
+            image_route_metadata.as_ref().map(|r| r.provider.clone()),
+            image_route_metadata.as_ref().map(|r| r.model.clone()),
+            crate::observability::ImageIngressOutcome::Rejected,
+            Some(media::ImageRejectionReason::FetchFailed),
+            msg.image_parts().len(),
+            None,
+            None,
+        );
         let rejection = format!(
             "[session:{session_id}] ⚠️ Image input is not \
              yet supported for this channel."
@@ -905,6 +919,9 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         _ => None,
     };
 
+    let effective_model =
+        execution_model_for_turn(ctx.model.as_str(), image_route_metadata.as_ref()).to_string();
+
     let llm_result = tokio::time::timeout(
         Duration::from_secs(CHANNEL_MESSAGE_TIMEOUT_SECS),
         run_unified_channel_tool_loop(
@@ -912,7 +929,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
             ctx.tools_registry.as_ref(),
             &mut history,
             ChannelLoopParams {
-                model: execution_model_for_turn(ctx.model.as_str(), image_route_metadata.as_ref()),
+                model: &effective_model,
                 temperature: ctx.temperature,
                 max_tool_iterations: ctx.max_tool_iterations,
                 dispatcher_mode: &ctx.tool_dispatcher_mode,
@@ -952,6 +969,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
                 ctx.as_ref(),
                 &history_key,
                 &enriched_message,
+                &effective_model,
                 response,
                 started_at,
                 response_ctx,
@@ -1162,6 +1180,7 @@ async fn handle_successful_response(
     ctx: &ChannelRuntimeContext,
     history_key: &str,
     enriched_message: &str,
+    effective_model: &str,
     mut response: String,
     started_at: Instant,
     response_ctx: ResponseContext<'_>,
@@ -1169,7 +1188,7 @@ async fn handle_successful_response(
     response = enforce_strict_memory_validation(
         ctx.memory.as_ref(),
         ctx.provider.as_ref(),
-        ctx.model.as_str(),
+        effective_model,
         ctx.temperature,
         enriched_message,
         response,
@@ -2822,6 +2841,67 @@ mod tests {
         }
     }
 
+    /// Memory backend that records whether `store` or `recall` were called.
+    #[derive(Default)]
+    struct RecordingMemory {
+        store_count: std::sync::atomic::AtomicUsize,
+        recall_count: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait::async_trait]
+    impl Memory for RecordingMemory {
+        fn name(&self) -> &str {
+            "recording"
+        }
+
+        async fn store(
+            &self,
+            _key: &str,
+            _content: &str,
+            _category: crate::memory::MemoryCategory,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<()> {
+            self.store_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(())
+        }
+
+        async fn recall(
+            &self,
+            _query: &str,
+            _limit: usize,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            self.recall_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(Vec::new())
+        }
+
+        async fn get(&self, _key: &str) -> anyhow::Result<Option<crate::memory::MemoryEntry>> {
+            Ok(None)
+        }
+
+        async fn list(
+            &self,
+            _category: Option<&crate::memory::MemoryCategory>,
+            _session_id: Option<&str>,
+        ) -> anyhow::Result<Vec<crate::memory::MemoryEntry>> {
+            Ok(Vec::new())
+        }
+
+        async fn forget(&self, _key: &str) -> anyhow::Result<bool> {
+            Ok(false)
+        }
+
+        async fn count(&self) -> anyhow::Result<usize> {
+            Ok(0)
+        }
+
+        async fn health_check(&self) -> bool {
+            true
+        }
+    }
+
     #[tokio::test]
     async fn message_dispatch_processes_messages_in_parallel() {
         let channel_impl = Arc::new(RecordingChannel::default());
@@ -4245,6 +4325,65 @@ mod tests {
         assert!(
             !sent[0].contains("Too many images"),
             "text-only should not trigger image rejection"
+        );
+    }
+
+    #[tokio::test]
+    async fn image_only_message_skips_memory_recall_and_store() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let memory_impl = Arc::new(RecordingMemory::default());
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+
+        let runtime_ctx = Arc::new(ChannelRuntimeContext {
+            config: Arc::new(make_multimodal_test_config("test-channel")),
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: memory_impl.clone(),
+            tools_registry: Arc::new(vec![]),
+            observer: Arc::new(NoopObserver),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: true,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+        });
+
+        // Image-only message: content is empty, text_projection is empty,
+        // parts has only an image (no text part).
+        process_channel_message(
+            runtime_ctx,
+            traits::ChannelMessage {
+                id: "img-only-mem".into(),
+                sender: "alice".into(),
+                reply_target: "chat-mem".into(),
+                content: String::new(),
+                channel: "test-channel".into(),
+                timestamp: 1,
+                parts: vec![make_image_part("f1")],
+            },
+        )
+        .await;
+
+        let stores = memory_impl
+            .store_count
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let recalls = memory_impl
+            .recall_count
+            .load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(
+            stores, 0,
+            "image-only message should not autosave to memory"
+        );
+        assert_eq!(
+            recalls, 0,
+            "image-only message should not recall from memory"
         );
     }
 

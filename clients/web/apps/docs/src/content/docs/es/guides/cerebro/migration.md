@@ -41,19 +41,19 @@ backend = "sqlite"              # memoria local a corto plazo
 
 [memory.cerebro]
 endpoint = "https://cerebro.example.com/mcp"
-# el auth_token se lee de CEREBRO_AUTH_TOKEN
+# el auth_token se lee de CORVUS_CEREBRO_AUTH_TOKEN
 request_timeout_ms = 30000
 allow_insecure_loopback = false
 ```
 
-Configura `CEREBRO_AUTH_TOKEN` en tu entorno; evita incluir tokens en archivos de configuración.
+Configura `CORVUS_CEREBRO_AUTH_TOKEN` en tu entorno; evita incluir tokens en archivos de configuración.
 
 Ejemplo de desarrollo solo en loopback:
 
 ```toml
 [memory.cerebro]
 endpoint = "http://127.0.0.1:4040/mcp"
-# el auth_token se lee de CEREBRO_AUTH_TOKEN
+# el auth_token se lee de CORVUS_CEREBRO_AUTH_TOKEN
 allow_insecure_loopback = true
 ```
 

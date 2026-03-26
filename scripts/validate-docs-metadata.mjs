@@ -99,7 +99,8 @@ function getChangedDocsFiles() {
         .map((file) => file.trim())
         .filter(Boolean)
         .filter((file) => /\.(md|mdx)$/.test(file))
-        .map((file) => path.resolve(repoRoot, file));
+        .map((file) => path.resolve(repoRoot, file))
+        .filter((file) => existsSync(file));
     }
 
     const output = execFileSync("git", ["diff", "--name-only", diffRange, "--", docsRootRelative], {
@@ -112,7 +113,8 @@ function getChangedDocsFiles() {
       .map((file) => file.trim())
       .filter(Boolean)
       .filter((file) => /\.(md|mdx)$/.test(file))
-      .map((file) => path.resolve(repoRoot, file));
+      .map((file) => path.resolve(repoRoot, file))
+      .filter((file) => existsSync(file));
   } catch (error) {
     console.error("Failed to determine changed docs files via git, falling back to full walk:", error);
     return walk(docsRoot);

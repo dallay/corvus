@@ -114,12 +114,16 @@ pub fn validate_mime(
         return Ok(AllowedImageMime::Jpeg);
     }
 
-    // PNG: 89 50 4E 47
-    if sniffed_bytes.len() >= 4
+    // PNG: 89 50 4E 47 0D 0A 1A 0A (full 8-byte signature)
+    if sniffed_bytes.len() >= 8
         && sniffed_bytes[0] == 0x89
         && sniffed_bytes[1] == 0x50
         && sniffed_bytes[2] == 0x4E
         && sniffed_bytes[3] == 0x47
+        && sniffed_bytes[4] == 0x0D
+        && sniffed_bytes[5] == 0x0A
+        && sniffed_bytes[6] == 0x1A
+        && sniffed_bytes[7] == 0x0A
     {
         return Ok(AllowedImageMime::Png);
     }
@@ -243,7 +247,7 @@ mod tests {
 
     #[test]
     fn validate_mime_detects_png() {
-        let bytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A];
+        let bytes = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
         assert_eq!(validate_mime(None, &bytes), Ok(AllowedImageMime::Png));
     }
 
