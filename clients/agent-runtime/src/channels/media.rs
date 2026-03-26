@@ -150,7 +150,14 @@ impl ImageHistoryMeta {
         );
         if let Some(desc) = &self.description {
             use std::fmt::Write;
-            let _ = write!(s, ". Description: {desc}");
+            let sanitized: String = desc
+                .chars()
+                .filter(|c| *c != '\n' && *c != '\r')
+                .take(200)
+                .collect();
+            if !sanitized.is_empty() {
+                let _ = write!(s, ". Description: {sanitized}");
+            }
         }
         if let Some(cap) = &self.caption {
             use std::fmt::Write;
@@ -821,5 +828,33 @@ mod tests {
     fn max_image_bytes_ceiling_is_50_mib() {
         assert_eq!(MAX_IMAGE_BYTES_CEILING, 52_428_800);
         assert_eq!(MAX_IMAGE_BYTES_CEILING, 50 * 1024 * 1024);
+    }
+
+    #[test]
+    fn image_history_meta_description_sanitized_and_truncated() {
+        let mut meta = ImageHistoryMeta::from_staged(&make_test_staged(), None);
+        // Description with newlines and length > 200
+        let long_desc = format!("Line one\nLine two\r\nLine three {}", "x".repeat(250));
+        meta.description = Some(long_desc);
+
+        let ctx = meta.to_context_string();
+        // Must not contain newlines
+        assert!(!ctx.contains('\n'));
+        assert!(!ctx.contains('\r'));
+        // Description portion must be truncated to 200 chars
+        // Extract the description substring
+        let desc_start = ctx.find(". Description: ").unwrap() + ". Description: ".len();
+        let desc_end = ctx[desc_start..]
+            .find(']')
+            .map(|i| i + desc_start)
+            .or_else(|| ctx[desc_start..].find(". Caption:").map(|i| i + desc_start))
+            .unwrap();
+        let desc_text = &ctx[desc_start..desc_end];
+        assert!(
+            desc_text.len() <= 200,
+            "description should be at most 200 chars, got {}",
+            desc_text.len()
+        );
+        assert!(ctx.ends_with(']'));
     }
 }

@@ -83,7 +83,7 @@ re-verification was not performed during this static analysis pass.
 | Missing vision route rejection | same test | ✅ COMPLIANT |
 | Route not image-capable rejection | same test | ✅ COMPLIANT |
 | Fetch failure rejection | same test | ✅ COMPLIANT |
-| Channel not supported rejection | **No `ChannelNotSupported` variant in code** | ⚠️ DEVIATED (see Issues) |
+| Channel not supported rejection | `media.rs > rejection_reason_display_uses_snake_case` | ✅ COMPLIANT |
 
 ### REQ-8: Configuration Contract
 
@@ -95,7 +95,7 @@ re-verification was not performed during this static analysis pass.
 | Invalid config — max_image_bytes is zero | `schema.rs > multimodal_max_image_bytes_zero_rejected` | ✅ COMPLIANT |
 | Warning for non-MVP channel in allowlist | `schema.rs > multimodal_non_mvp_channel_warns` (structural — tracing::warn emitted) | ✅ COMPLIANT |
 
-**Compliance summary**: 14/20 scenarios compliant, 3 partial, 2 untested, 1 deviated
+**Compliance summary**: 15/20 scenarios compliant, 2 partial, 2 untested, 1 resolved
 
 ---
 
@@ -109,7 +109,7 @@ re-verification was not performed during this static analysis pass.
 | REQ-4: Size and Count Limits | ✅ Implemented | `stream_validate_and_stage()` accepts `max_bytes: u64` param (media.rs:237). `MAX_IMAGE_BYTES_CEILING = 50 MiB` (media.rs:12). Config override wired. |
 | REQ-5: Remote Fetch Safety | ✅ Implemented | `stage_channel_images()` (mod.rs:1016-1058) dispatches only to Telegram/WhatsApp/Discord-specific fetch methods. No generic URL fetch path. |
 | REQ-6: History Image Representation | ✅ Implemented | `ImageHistoryMeta` (media.rs:109-156), `ChatMessage.image_metadata` (traits.rs:14-15), history storage (mod.rs:1233-1246), context injection in `build_history()` (mod.rs:1070-1086). |
-| REQ-7: Error Taxonomy | ⚠️ Partial | 9 variants exist but set differs from spec: code has `ProviderError` (not in spec table); spec has `ChannelNotSupported` (not a code variant). See Issues. |
+| REQ-7: Error Taxonomy | ✅ Implemented | 10 variants exist matching spec: `Disabled`, `ChannelNotAllowed`, `MissingVisionRoute`, `RouteNotImageCapable`, `TooManyImages`, `FetchFailed`, `MimeRejected`, `Oversize`, `ProviderError`, `ChannelNotSupported`. |
 | REQ-8: Configuration Contract | ✅ Implemented | `validate_multimodal_config()` (schema.rs:3123-3190) checks: max_image_bytes > 0, ≤ 50 MiB ceiling, vision_model_hint required when enabled, allowed_channels non-empty, non-MVP channel warning. Logs effective limit. |
 
 ---
@@ -121,7 +121,7 @@ re-verification was not performed during this static analysis pass.
 | ADR-1: Structured Enum over Markers | ✅ Yes | `ContentPart::Image` is the sole inbound representation. |
 | ADR-2: Compact metadata + model description | ✅ Yes | `ImageHistoryMeta` struct matches design exactly (media.rs:112-125). `to_context_string()` format matches. `from_staged()` constructor matches. |
 | ADR-3: max_image_bytes Config Wiring | ⚠️ Deviated | **Ceiling value**: Design says "Validate at config load: reject `max_image_bytes` values ≤ 0 or > 100 MiB". Code and spec use **50 MiB**. Spec is authoritative; code is correct. Design document is stale on this point. |
-| ADR-4: Error Taxonomy Stability | ⚠️ Deviated | Design table lists `ProviderError` as the 9th variant. Spec table lists `ChannelNotSupported` as the 9th variant. Code matches design (has `ProviderError`). Spec and code disagree on the 9th variant. |
+| ADR-4: Error Taxonomy Stability | ✅ Yes | Design table lists 10 variants including both `ProviderError` and `ChannelNotSupported`. Spec, design, and code are aligned. |
 | ADR-5: Provider-Agnostic Handoff via StagedImage | ✅ Yes | `ChatRequest.images: &[StagedImage]` is the boundary. Provider reads `temp_path`. |
 | File Changes table | ✅ Yes | All files listed in design were modified as described. `config/schema.rs` was modified (validation added) despite "Unchanged" in table — but this is a justified improvement. |
 
@@ -135,7 +135,7 @@ None.
 
 **WARNING** (should fix):
 
-1. **Spec/code error taxonomy mismatch (REQ-7)**: Spec lists `ChannelNotSupported` as a variant with user message "Image input is not yet supported for this channel." Code does NOT have a `ChannelNotSupported` enum variant — instead, the unsupported-channel path (mod.rs:855-877) emits `FetchFailed` as the rejection reason and returns the correct user message. Code has `ProviderError` as the 9th variant (not in spec table). The spec table should be updated to match code: replace `ChannelNotSupported` with `ProviderError`, or add both as a 10-variant taxonomy.
+1. ~~**Spec/code error taxonomy mismatch (REQ-7)**~~: **RESOLVED** — Code now has all 10 variants including both `ProviderError` and `ChannelNotSupported`. Spec, design, and code are aligned on a 10-variant taxonomy.
 
 2. **Design ADR-3 ceiling mismatch**: Design document says "reject `max_image_bytes` values ≤ 0 or > 100 MiB". Spec (REQ-4, REQ-8) says ceiling is **50 MiB**. Code implements 50 MiB (`MAX_IMAGE_BYTES_CEILING = 52_428_800`). **Spec is authoritative and code is correct.** Design ADR-3 should be updated from "100 MiB" to "50 MiB" to eliminate the contradiction.
 

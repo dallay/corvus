@@ -132,8 +132,7 @@ If using Gradle directly for Rust tasks, include `-PenableRustTasks=true`.
 - `pnpm --dir clients/web --filter @corvus/chat test -- src/path/to/file.test.ts`
 - `pnpm --dir clients/web --filter @corvus/chat test -- src/path/to/file.test.ts -t "case name"`
 - `pnpm --dir clients/web --filter @corvus/dashboard test -- src/path/to/file.test.ts`
--
-`pnpm --dir clients/web --filter @corvus/dashboard exec playwright test e2e/file.spec.ts --grep "case name"`
+- `pnpm --dir clients/web --filter @corvus/dashboard exec playwright test e2e/file.spec.ts --grep "case name"`
 
 ### Formatting / lint / coverage
 

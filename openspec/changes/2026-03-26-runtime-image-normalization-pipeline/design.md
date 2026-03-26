@@ -107,14 +107,15 @@ compile time rather than parse time.
    `ImageHistoryMeta { mime, sha256, byte_len, channel_origin, caption, description: None }`.
    On subsequent turns, inject a synthetic text block:
    `[Prior image: {mime}, {byte_len} bytes, sha256:{sha256_prefix}. Caption: {caption}]`.
-   Description extraction from model responses is deferred as follow-up work — when implemented,
-   it will be appended as `. Description: {description}` in the context string.
+   The `description` field is reserved for future use (e.g., model-generated image descriptions).
+   When populated, it will be sanitized (newlines stripped, truncated to 200 chars) and appended
+   as `. Description: {description}` in the context string.
 
 **Rationale**: Option 4 gives the model enough context to reason about prior images without storing
 bytes. The compact metadata is cheap (~200 bytes per image turn), provides operator-queryable
-fields, and the model-generated description preserves semantic context across turns. If the model
-does not produce a usable description (e.g., tool-call-only response), the metadata alone is still
-sufficient for the model to know *that* an image was shared and its basic properties.
+fields, and the optional description field enables future semantic context across turns. If no
+description is available, the metadata alone is still sufficient for the model to know *that* an
+image was shared and its basic properties.
 
 **Data model** (see Interfaces section for full definition):
 
@@ -133,7 +134,7 @@ pub struct ImageHistoryMeta {
     pub channel_origin: String,
     /// User-provided caption, if any.
     pub caption: Option<String>,
-    /// Model-generated description of image content (populated post-response).
+    /// Optional description of image content (reserved for future use).
     pub description: Option<String>,
 }
 ```
@@ -162,14 +163,14 @@ resolved value. Validate at config load: reject `max_image_bytes` values ≤ 0 o
 
 ### ADR-4: Error Taxonomy Stability
 
-**Choice**: The 9 `ImageRejectionReason` variants and their snake_case `Display` strings are the
+**Choice**: The 10 `ImageRejectionReason` variants and their snake_case `Display` strings are the
 stable public contract. No numeric error codes for MVP.
 
 **Alternatives considered**:
-- **Numeric error codes** (`ERR_IMG_001` through `ERR_IMG_009`) — Adds a mapping layer with no
+- **Numeric error codes** (`ERR_IMG_001` through `ERR_IMG_010`) — Adds a mapping layer with no
   clear consumer. Operator dashboards and observability already use the snake_case strings. Numeric
   codes are harder to remember and require a lookup table. Rejected for MVP.
-- **Structured error type with code + message + details** — Over-engineered for the current 9
+- **Structured error type with code + message + details** — Over-engineered for the current 10
   variants. Can be introduced when the error taxonomy grows beyond ~20 variants.
 
 **Rationale**: The snake_case Display output is already used by `ImageIngressEvent` for
@@ -177,7 +178,7 @@ observability and is stable across the three implemented channels. Formalizing t
 contract (with a spec requirement that new variants must not rename existing strings) provides the
 stability guarantee without adding complexity.
 
-**The 9 stable variants**:
+**The 10 stable variants**:
 
 | Variant               | Display string           | Trigger                                    |
 |-----------------------|--------------------------|--------------------------------------------|
@@ -190,6 +191,7 @@ stability guarantee without adding complexity.
 | `MimeRejected`        | `mime_rejected`          | Magic-byte sniff rejects format            |
 | `Oversize`            | `oversize`               | Bytes exceed `max_image_bytes` limit       |
 | `ProviderError`       | `provider_error`         | Provider rejects or fails on image turn    |
+| `ChannelNotSupported` | `channel_not_supported`  | Channel has no `fetch_and_stage_image()` impl |
 
 ### ADR-5: Provider-Agnostic Handoff via StagedImage
 
@@ -336,7 +338,7 @@ pub struct ImageHistoryMeta {
 }
 
 impl ImageHistoryMeta {
-    /// Build from a StagedImage at ingestion time (description populated later).
+    /// Build from a StagedImage at ingestion time (description deferred).
     pub fn from_staged(staged: &StagedImage, caption: Option<String>) -> Self {
         Self {
             mime: staged.mime_type.as_str().to_string(),

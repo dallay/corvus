@@ -261,7 +261,10 @@ images.
 The history entry for an image turn MUST include:
 
 - The text content of the turn (caption or user message)
-- An image context marker that records: MIME type, byte length, SHA-256 hash, and channel origin
+- An image context marker that records: MIME type, byte length, SHA-256 hash, channel origin,
+  caption (if provided), and description (if available)
+- Caption and description values MUST be sanitized before storage and context injection: newlines
+  stripped and content truncated to 200 characters
 - The assistant's response to the image
 
 The history representation MUST NOT store raw image bytes in conversation history. Image bytes are

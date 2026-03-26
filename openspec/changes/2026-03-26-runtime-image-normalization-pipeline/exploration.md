@@ -4,7 +4,7 @@
 **Issue**: #267 — Define canonical runtime pipeline for multimodal image normalization and safety
 **Date**: 2026-03-26
 
-### Current State
+## Current State
 
 The Corvus runtime already has a substantial multimodal image ingestion pipeline implemented across
 the channel and provider layers. Here is what exists today:
@@ -47,7 +47,7 @@ switch, default false), `allowed_channels` (allowlist), `vision_model_hint` (rou
 **Existing spec** — `openspec/specs/channel-image-ingestion/spec.md` documents the full channel
 ingestion contract with 10 requirements and 9 scenarios.
 
-### Answers to Issue Questions
+## Answers to Issue Questions
 
 #### 1. What is the canonical runtime representation for image input?
 
@@ -124,7 +124,7 @@ security constraint.
 
 All rejections also emit `ImageIngressEvent` for operator observability.
 
-### Affected Areas
+## Affected Areas
 
 - `clients/agent-runtime/src/channels/traits.rs` — `ContentPart`, `ChannelMessage` (canonical types)
 - `clients/agent-runtime/src/channels/media.rs` — validation, staging, limits
@@ -134,7 +134,7 @@ All rejections also emit `ImageIngressEvent` for operator observability.
 - `clients/agent-runtime/src/providers/compatible.rs` — base64 encoding, content blocks
 - `openspec/specs/channel-image-ingestion/spec.md` — existing channel-layer spec
 
-### Gaps Identified
+## Gaps Identified
 
 1. **No runtime-layer spec exists** — The existing `channel-image-ingestion` spec covers the channel
    ingestion pipeline but does NOT cover the runtime normalization contract (provider dispatch format,
@@ -168,7 +168,7 @@ All rejections also emit `ImageIngressEvent` for operator observability.
    (`providers/traits.rs:327-329`). There is no runtime check that the resolved provider actually
    supports images before dispatching — the fail-closed default catches it, but the error is generic.
 
-### Approaches
+## Approaches
 
 1. **Formalize existing patterns as a runtime spec** — Document the current `ContentPart::Image` →
    `StagedImage` → `ChatRequest.images` pipeline as the canonical runtime contract. Add the missing
@@ -191,7 +191,7 @@ All rejections also emit `ImageIngressEvent` for operator observability.
    - Cons: Large refactor across providers and conversation management, high risk
    - Effort: High
 
-### Recommendation
+## Recommendation
 
 **Approach 1** (Formalize existing patterns) for the proposal phase. The current implementation is
 sound and well-tested. The primary deliverable should be:
@@ -205,7 +205,7 @@ sound and well-tested. The primary deliverable should be:
 Approach 2 elements (like `NormalizedImageMessage`) can be evaluated during design if the history
 gap requires a new type. Approach 3 is premature — defer until multi-modality expands beyond images.
 
-### Risks
+## Risks
 
 - **History gap is user-visible** — Multi-turn image conversations lose context after the first
   turn. Users asking follow-up questions about an image will get confused responses. This should be
@@ -218,7 +218,7 @@ gap requires a new type. Approach 3 is premature — defer until multi-modality 
   OpenAI-compatible APIs but may not work for all providers (e.g., Anthropic uses a different
   content block format). The runtime spec should acknowledge transport-form extensibility.
 
-### Ready for Proposal
+## Ready for Proposal
 
 **Yes** — The codebase investigation is complete. All six questions from the issue are answered with
 code references. The gaps are clearly identified, and the recommended approach (Approach 1) is low

@@ -120,8 +120,8 @@ cargo bench --manifest-path clients/agent-runtime/Cargo.toml
 
 ## Review Checklist
 
-- Is there a failing test first for the bug or changed behavior?
-- Is the test located at the right boundary level?
-- Is it deterministic and free from unnecessary sleeps or external dependencies?
-- Does it assert contract-level behavior instead of internals?
-- For performance work, is there both a correctness test and meaningful benchmark?
+- Does a failing test exist first for the bug or changed behavior?
+- Has the test been located at the right boundary level?
+- Are tests deterministic and free from unnecessary sleeps or external dependencies?
+- Do they assert contract-level behavior instead of internals?
+- For performance work, do both a correctness test and meaningful benchmark exist?

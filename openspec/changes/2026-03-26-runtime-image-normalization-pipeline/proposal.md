@@ -90,6 +90,9 @@ This is primarily a **spec + design change with targeted code changes**:
 | `clients/agent-runtime/src/config/schema.rs` | Modified | `max_image_bytes` startup validation (bounds checking with 50 MiB ceiling) |
 | `clients/agent-runtime/src/providers/traits.rs` | Modified | `ChatMessage.image_metadata` field added; `user_with_images()` constructor |
 | `clients/agent-runtime/src/providers/compatible.rs` | Unchanged | Base64/data-URL encoding documented but not modified |
+| `clients/agent-runtime/src/channels/discord.rs` | Modified | `max_bytes` parameter threading to `stream_validate_and_stage()` |
+| `clients/agent-runtime/src/channels/whatsapp.rs` | Modified | `max_bytes` parameter threading to `stream_validate_and_stage()` |
+| `clients/agent-runtime/src/channels/telegram.rs` | Modified | `max_bytes` parameter threading to `stream_validate_and_stage()` |
 | `openspec/specs/channel-image-ingestion/spec.md` | Unchanged | Cross-referenced; no modifications needed |
 
 ## Risks

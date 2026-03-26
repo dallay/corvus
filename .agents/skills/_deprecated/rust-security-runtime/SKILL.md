@@ -115,9 +115,10 @@ match load_secret("OPENAI_API_KEY") {
 
 ```rust
 pub fn validate_allowed_path(path: &Path, root: &Path) -> Result<PathBuf, SecurityError> {
+    let canonical_root = root.canonicalize().map_err(SecurityError::PathResolutionFailed)?;
     let canonical = path.canonicalize().map_err(SecurityError::PathResolutionFailed)?;
 
-    if canonical.starts_with(root) {
+    if canonical.starts_with(&canonical_root) {
         Ok(canonical)
     } else {
         Err(SecurityError::PathOutsideAllowedRoot)
@@ -129,6 +130,7 @@ pub fn validate_allowed_path(path: &Path, root: &Path) -> Result<PathBuf, Securi
 
 ```bash
 # lint and tests for security-sensitive runtime code
+cargo fmt --manifest-path clients/agent-runtime/Cargo.toml --all -- --check
 cargo clippy --manifest-path clients/agent-runtime/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path clients/agent-runtime/Cargo.toml
 
