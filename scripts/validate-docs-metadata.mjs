@@ -103,6 +103,28 @@ function getChangedDocsFiles() {
         .filter((file) => existsSync(file));
     }
 
+    // Check all changed files (not just docs) for config/sidebar/validator changes.
+    const allOutput = execFileSync("git", ["diff", "--name-only", diffRange], {
+      encoding: "utf8",
+      cwd: repoRoot,
+    });
+    const allChanged = allOutput.split("\n").map((f) => f.trim()).filter(Boolean);
+    const configPatterns = [
+      "astro.config.mjs",
+      "validate-docs-metadata",
+      "content.config",
+    ];
+    const hasConfigChange = allChanged.some(
+      (f) => !f.startsWith(docsRootRelative) || configPatterns.some((p) => f.includes(p)),
+    );
+    const hasDeletedDocs = allChanged
+      .filter((f) => f.startsWith(docsRootRelative) && /\.(md|mdx)$/.test(f))
+      .some((f) => !existsSync(path.resolve(repoRoot, f)));
+
+    if (hasConfigChange || hasDeletedDocs) {
+      return walk(docsRoot);
+    }
+
     const output = execFileSync("git", ["diff", "--name-only", diffRange, "--", docsRootRelative], {
       encoding: "utf8",
       cwd: repoRoot,
@@ -253,6 +275,14 @@ function validateParity(filePath, metadata) {
     }
   }
 
+  for (const field of ["description", "owner", "lastReviewed"]) {
+    if (!parityMetadata[field]) {
+      errors.push(
+        `${relativePath}: locale counterpart '${parityRelativePath}' is missing required field '${field}'`,
+      );
+    }
+  }
+
   return errors;
 }
 
@@ -339,6 +369,8 @@ function validateFile(filePath) {
 
     if (Number.isNaN(reviewedAt.getTime())) {
       errors.push(`${relativePath}: invalid lastReviewed '${lastReviewed}'`);
+    } else if (reviewedAt.getTime() > Date.now()) {
+      errors.push(`${relativePath}: lastReviewed '${lastReviewed}' is in the future`);
     } else if (status !== "deprecated") {
       const ageMs = Date.now() - reviewedAt.getTime();
       const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));

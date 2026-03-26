@@ -2171,6 +2171,14 @@ pub(crate) fn spawn_runtime_handle(config: &Config) -> Result<Option<ChannelRunt
         .clone()
         .unwrap_or_else(|| bootstrap::DEFAULT_MODEL.into());
     let provider: Arc<dyn Provider> = Arc::from(bootstrap::create_routed_provider(config, &model)?);
+    {
+        let p = Arc::clone(&provider);
+        tokio::spawn(async move {
+            if let Err(e) = p.warmup().await {
+                tracing::debug!("Channel provider warmup failed (non-fatal): {e}");
+            }
+        });
+    }
     let bootstrap = bootstrap::BootstrapContext::from_config(config)?;
     let tools_registry = Arc::new(bootstrap.tools);
     let skills = crate::skills::load_skills(&workspace);
