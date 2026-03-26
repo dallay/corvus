@@ -6161,6 +6161,21 @@ allow_image_input = true
     }
 
     #[test]
+    fn multimodal_validation_passes_with_discord_channel() {
+        let config = Config {
+            multimodal: MultimodalConfig {
+                enabled: true,
+                allowed_channels: vec!["discord".into()],
+                vision_model_hint: Some("vision".into()),
+                max_image_bytes: None,
+            },
+            model_routes: vec![make_vision_route()],
+            ..Config::default()
+        };
+        assert!(config.validate_multimodal_config().is_ok());
+    }
+
+    #[test]
     fn multimodal_validation_rejects_unsupported_channels_when_enabled() {
         let config = Config {
             multimodal: MultimodalConfig {

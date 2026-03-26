@@ -9,7 +9,7 @@
 The channel image ingestion system follows a **pipeline architecture** with clear separation between
 channel-specific parsing and channel-agnostic validation/staging.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Channel Layer (per-channel)                   │
 │                                                                 │
@@ -37,7 +37,7 @@ channel-specific parsing and channel-agnostic validation/staging.
 │  stage_channel_images() dispatches to:                          │
 │    "telegram" → TelegramChannel::fetch_and_stage_image()        │
 │    "whatsapp" → WhatsAppChannel::fetch_and_stage_image()        │
-│    "discord"  → DiscordChannel::fetch_and_stage_image() [Wave2] │
+│    "discord"  → DiscordChannel::fetch_and_stage_image()         │
 │    "slack"    → SlackChannel::fetch_and_stage_image()   [Wave2] │
 │    _          → Ok(Vec::new())  [fail-closed]                   │
 │                                                                 │
@@ -146,7 +146,7 @@ pipeline.
 
 ## Staging File Naming Convention
 
-```
+```text
 {temp_dir}/corvus-{channel_abbrev}-img-{sha256_prefix}.{ext}
 
 Examples:
@@ -165,7 +165,7 @@ Channel abbreviations:
 
 ## Sequence: Telegram Image Ingestion
 
-```
+```text
 User                Telegram API        TelegramChannel       media.rs        Provider
  │                      │                    │                   │               │
  │──send photo──────────▶                    │                   │               │

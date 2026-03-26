@@ -33,7 +33,7 @@ The following channels MUST support image ingestion for MVP:
 |----------|-------------|----------|
 | Telegram | Implemented | MVP      |
 | WhatsApp | Implemented | MVP      |
-| Discord  | Planned     | Wave 2   |
+| Discord  | Implemented | MVP      |
 | Slack    | Planned     | Wave 2   |
 
 All other channels (CLI, Matrix, Mattermost, Signal, IRC, Email, DingTalk, Lark, QQ, iMessage) are
@@ -88,7 +88,7 @@ GIF, BMP, TIFF, SVG, and all other formats MUST be rejected with
 - **Max images per turn**: 1 (`MAX_IMAGES_PER_TURN = 1`)
 - Channels SHOULD reject oversized images before fully downloading when `Content-Length` is
   available.
-- The `multimodal.max_image_bytes` config field MAY override `MAX_IMAGE_BYTES` in future.
+- The `multimodal.max_image_bytes` config field MAY override `MAX_IMAGE_BYTES` in the future.
 
 ### REQ-5: Config Gating
 
@@ -112,7 +112,7 @@ Config validation at startup MUST enforce:
 
 The runtime handoff MUST follow this chain:
 
-```
+```text
 ChannelMessage.parts: [ContentPart::Image { channel_handle, source_channel, ... }]
     ↓ stage_channel_images()
 Vec<StagedImage> { sha256, mime_type, byte_len, temp_path, transport_form, channel_origin }
@@ -215,8 +215,8 @@ Image deduplication is explicitly **out of scope** for MVP. If a user sends the 
 
 ### Scenario 7: Fail-closed for unimplemented channel
 
-**Given** multimodal is enabled with `allowed_channels: ["matrix"]`
-**When** a Matrix user sends an image
+**Given** multimodal is enabled with `allowed_channels: ["slack"]`
+**When** a Slack user sends an image
 **Then** `stage_channel_images()` returns an empty Vec
 **And** the caller rejects with "Image input is not yet supported for this channel"
 

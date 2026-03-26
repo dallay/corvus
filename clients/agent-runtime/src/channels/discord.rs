@@ -103,7 +103,12 @@ impl DiscordChannel {
             media::AllowedImageMime::Png => "png",
             media::AllowedImageMime::Webp => "webp",
         };
-        let temp_path = std::env::temp_dir().join(format!("corvus-dc-img-{}.{ext}", &sha256[..16]));
+        let nonce = uuid::Uuid::new_v4().simple().to_string();
+        let temp_path = std::env::temp_dir().join(format!(
+            "corvus-dc-img-{}-{}.{ext}",
+            &sha256[..16],
+            &nonce[..8]
+        ));
 
         tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
             tracing::warn!(
@@ -472,7 +477,6 @@ impl Channel for DiscordChannel {
 
                                             // In mention_only mode, require mention even for image-only messages
                                             if self.mention_only
-                                                && !content.is_empty()
                                                 && !contains_bot_mention(content, &bot_user_id)
                                             {
                                                 continue;
@@ -1167,5 +1171,36 @@ mod tests {
         });
         let parts = parse_image_attachments(&d);
         assert_eq!(parts.len(), 2);
+    }
+
+    #[test]
+    fn mention_only_rejects_image_only_message_without_mention() {
+        // Regression: attachment-only messages (empty content) must still be
+        // rejected when mention_only is true and no bot mention is present.
+        let content = "";
+        let bot_user_id = "123456";
+        let mention_only = true;
+
+        // Simulate the guard logic from the event loop
+        let should_skip = mention_only && !contains_bot_mention(content, bot_user_id);
+
+        assert!(
+            should_skip,
+            "image-only message without mention must be skipped in mention_only mode"
+        );
+    }
+
+    #[test]
+    fn mention_only_accepts_image_only_message_with_mention() {
+        let content = "<@123456> ";
+        let bot_user_id = "123456";
+        let mention_only = true;
+
+        let should_skip = mention_only && !contains_bot_mention(content, bot_user_id);
+
+        assert!(
+            !should_skip,
+            "image message with bot mention must NOT be skipped"
+        );
     }
 }

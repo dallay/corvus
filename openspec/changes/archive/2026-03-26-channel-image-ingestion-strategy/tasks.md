@@ -28,32 +28,32 @@ These are discrete implementation issues that can be created from this strategy:
 
 ### Issue: Slack image ingestion ([DALLAY-193](https://linear.app/dallay/issue/DALLAY-193/feat-slack-image-ingestion))
 
-- [x] 2.6 Parse Slack file_shared events / message files array into `ContentPart::Image`
-- [x] 2.7 Implement `SlackChannel::fetch_and_stage_image()` (bearer auth download)
-- [x] 2.8 Add `"slack"` match arm in `stage_channel_images()`
-- [x] 2.9 Add `"slack"` to valid MVP channel names in config validation
-- [x] 2.10 Add tests for Slack image parsing and staging
-- [x] 2.11 Ensure `files:read` OAuth scope is documented in Slack setup guide
+- [ ] 2.6 Parse Slack file_shared events / message files array into `ContentPart::Image`
+- [ ] 2.7 Implement `SlackChannel::fetch_and_stage_image()` (bearer auth download)
+- [ ] 2.8 Add `"slack"` match arm in `stage_channel_images()`
+- [ ] 2.9 Add `"slack"` to valid MVP channel names in config validation
+- [ ] 2.10 Add tests for Slack image parsing and staging
+- [ ] 2.11 Ensure `files:read` OAuth scope is documented in Slack setup guide
 
-> Tracked in Linear. Tasks listed here for traceability; implementation tracked in DALLAY-193.
+> Issue created in Linear. Implementation not yet started.
 
 ### Issue: Startup temp file reaper ([DALLAY-194](https://linear.app/dallay/issue/DALLAY-194/feat-startup-temp-file-reaper-for-staged-images))
 
-- [x] 2.12 On startup, glob `corvus-*-img-*` in `std::env::temp_dir()`
-- [x] 2.13 Delete files older than configurable threshold (default: 30 minutes)
-- [x] 2.14 Log count of cleaned files at info level
-- [x] 2.15 Add tests for reaper logic
+- [ ] 2.12 On startup, glob `corvus-*-img-*` in `std::env::temp_dir()`
+- [ ] 2.13 Delete files older than configurable threshold (default: 30 minutes)
+- [ ] 2.14 Log count of cleaned files at info level
+- [ ] 2.15 Add tests for reaper logic
 
-> Tracked in Linear. Tasks listed here for traceability; implementation tracked in DALLAY-194.
+> Issue created in Linear. Implementation not yet started.
 
 ### Issue: Multi-image per turn ([DALLAY-195](https://linear.app/dallay/issue/DALLAY-195/feat-multi-image-per-turn-support))
 
-- [x] 2.16 Increase `MAX_IMAGES_PER_TURN` (configurable, default: 4)
-- [x] 2.17 Update provider payloads to handle multiple images
-- [x] 2.18 Update observability events for multi-image turns
-- [x] 2.19 Add tests for multi-image scenarios
+- [ ] 2.16 Increase `MAX_IMAGES_PER_TURN` (configurable, default: 4)
+- [ ] 2.17 Update provider payloads to handle multiple images
+- [ ] 2.18 Update observability events for multi-image turns
+- [ ] 2.19 Add tests for multi-image scenarios
 
-> Tracked in Linear. Tasks listed here for traceability; implementation tracked in DALLAY-195.
+> Issue created in Linear. Implementation not yet started.
 
 ## Acceptance Criteria Mapping
 

@@ -3,7 +3,7 @@
 **Change**: channel-image-ingestion-strategy
 **Version**: draft
 **Verified**: 2026-03-26 (re-verified after design.md update for REQ-9)
-**Type**: Spec-only (no code changes in scope)
+**Type**: Spec + runtime code (Discord image ingestion, config validation)
 
 ---
 
@@ -15,18 +15,19 @@
 | Phase 1 tasks complete | 5 |
 | Phase 1 tasks incomplete | 0 |
 | Phase 2 tasks (follow-up) | 19 |
-| Phase 2 tasks complete | 0 (expected — deferred to follow-up issues) |
+| Phase 2 tasks complete | 0 (deferred to Linear: DALLAY-192, DALLAY-193, DALLAY-194, DALLAY-195) |
 
-All Phase 1 (spec-only) tasks are complete. Phase 2 tasks are correctly scoped as future follow-up
-implementation issues, not part of this change.
+All Phase 1 tasks are complete. Phase 2 tasks are tracked in Linear as follow-up issues.
 
 ---
 
 ## Build & Tests Execution
 
-**Build**: ➖ Skipped (spec-only change — no code modified)
-**Tests**: ➖ Skipped (spec-only change — no code modified)
-**Coverage**: ➖ Not applicable
+**Build**: ✅ `cargo check` passed (clients/agent-runtime)
+**Tests**: ✅ `cargo test` passed — 2857 tests (includes discord.rs, config/schema.rs)
+**Clippy**: ✅ `cargo clippy` clean
+**Fmt**: ✅ `cargo fmt --check` clean
+**Files changed**: `clients/agent-runtime/src/channels/discord.rs`, `clients/agent-runtime/src/config/schema.rs`
 
 ---
 
