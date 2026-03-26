@@ -191,7 +191,8 @@ impl Observer for OtelObserver {
             | ObserverEvent::MissionCheckpointProgress { .. }
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. } => {}
+            | ObserverEvent::MissionTerminated { .. }
+            | ObserverEvent::ImageIngress(_) => {}
             ObserverEvent::LlmResponse {
                 provider,
                 model,

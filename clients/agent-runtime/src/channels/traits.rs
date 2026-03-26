@@ -1,14 +1,77 @@
 use async_trait::async_trait;
 
-/// A message received from or sent to a channel
+/// An ordered content part within a multimodal channel message.
+#[derive(Debug, Clone)]
+pub enum ContentPart {
+    /// Plain text body or caption.
+    Text { text: String },
+    /// Image reference before fetch/staging.
+    Image {
+        channel_handle: String,
+        source_channel: String,
+        declared_mime: Option<String>,
+        caption_text: Option<String>,
+        file_name: Option<String>,
+        declared_bytes: Option<u64>,
+    },
+}
+
+/// A message received from or sent to a channel.
+///
+/// `content` is a legacy text-only projection kept for backward compatibility.
+/// `parts` is the canonical source of truth for multimodal turns.
 #[derive(Debug, Clone)]
 pub struct ChannelMessage {
     pub id: String,
     pub sender: String,
     pub reply_target: String,
+    /// Legacy text projection — populated by channel parsers for compat.
     pub content: String,
     pub channel: String,
     pub timestamp: u64,
+    /// Ordered multimodal parts (empty for text-only messages).
+    pub parts: Vec<ContentPart>,
+}
+
+impl ChannelMessage {
+    /// Join all text parts and image captions with double newlines.
+    ///
+    /// Caption text for image parts is emitted as a text block; no
+    /// synthetic placeholders like `[image]` are inserted.
+    pub fn text_projection(&self) -> String {
+        let blocks: Vec<&str> = self
+            .parts
+            .iter()
+            .filter_map(|p| match p {
+                ContentPart::Text { text } => {
+                    if text.is_empty() {
+                        None
+                    } else {
+                        Some(text.as_str())
+                    }
+                }
+                ContentPart::Image { caption_text, .. } => {
+                    caption_text.as_deref().filter(|c| !c.is_empty())
+                }
+            })
+            .collect();
+        blocks.join("\n\n")
+    }
+
+    /// Whether this message contains at least one image part.
+    pub fn has_image_parts(&self) -> bool {
+        self.parts
+            .iter()
+            .any(|p| matches!(p, ContentPart::Image { .. }))
+    }
+
+    /// Return only the image parts.
+    pub fn image_parts(&self) -> Vec<&ContentPart> {
+        self.parts
+            .iter()
+            .filter(|p| matches!(p, ContentPart::Image { .. }))
+            .collect()
+    }
 }
 
 /// Message to send through a channel
@@ -129,6 +192,7 @@ mod tests {
                 content: "hello".into(),
                 channel: "dummy".into(),
                 timestamp: 123,
+                parts: vec![],
             })
             .await
             .map_err(|e| anyhow::anyhow!(e.to_string()))
@@ -144,6 +208,7 @@ mod tests {
             content: "ping".into(),
             channel: "dummy".into(),
             timestamp: 999,
+            parts: vec![],
         };
 
         let cloned = message.clone();
@@ -196,5 +261,179 @@ mod tests {
         assert_eq!(received.sender, "tester");
         assert_eq!(received.content, "hello");
         assert_eq!(received.channel, "dummy");
+    }
+
+    // ── Multimodal projection tests (Task 1.5) ─────────────────
+
+    #[test]
+    fn text_projection_single_text_part() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![ContentPart::Text {
+                text: "solo".into(),
+            }],
+        };
+        assert_eq!(msg.text_projection(), "solo");
+    }
+
+    // ── Multimodal contract tests (Task 1.1) ──────────────────
+
+    #[test]
+    fn text_only_message_has_empty_parts() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: "hello".into(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![],
+        };
+        assert!(msg.parts.is_empty());
+        assert!(!msg.has_image_parts());
+        assert!(msg.image_parts().is_empty());
+    }
+
+    #[test]
+    fn text_projection_joins_text_parts() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![
+                ContentPart::Text {
+                    text: "Hello".into(),
+                },
+                ContentPart::Text {
+                    text: "World".into(),
+                },
+            ],
+        };
+        assert_eq!(msg.text_projection(), "Hello\n\nWorld");
+    }
+
+    #[test]
+    fn text_projection_includes_image_captions() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![
+                ContentPart::Text {
+                    text: "Look at this".into(),
+                },
+                ContentPart::Image {
+                    channel_handle: "file_123".into(),
+                    source_channel: "telegram".into(),
+                    declared_mime: Some("image/jpeg".into()),
+                    caption_text: Some("A nice photo".into()),
+                    file_name: None,
+                    declared_bytes: None,
+                },
+            ],
+        };
+        assert_eq!(msg.text_projection(), "Look at this\n\nA nice photo");
+    }
+
+    #[test]
+    fn text_projection_skips_empty_blocks() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![
+                ContentPart::Text {
+                    text: String::new(),
+                },
+                ContentPart::Text {
+                    text: "Only this".into(),
+                },
+                ContentPart::Image {
+                    channel_handle: "f".into(),
+                    source_channel: "tg".into(),
+                    declared_mime: None,
+                    caption_text: None,
+                    file_name: None,
+                    declared_bytes: None,
+                },
+            ],
+        };
+        assert_eq!(msg.text_projection(), "Only this");
+    }
+
+    #[test]
+    fn text_projection_empty_parts_returns_empty() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![],
+        };
+        assert_eq!(msg.text_projection(), "");
+    }
+
+    #[test]
+    fn has_image_parts_detects_images() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![
+                ContentPart::Text { text: "hi".into() },
+                ContentPart::Image {
+                    channel_handle: "f".into(),
+                    source_channel: "tg".into(),
+                    declared_mime: None,
+                    caption_text: None,
+                    file_name: None,
+                    declared_bytes: None,
+                },
+            ],
+        };
+        assert!(msg.has_image_parts());
+    }
+
+    #[test]
+    fn image_parts_returns_only_images() {
+        let img = ContentPart::Image {
+            channel_handle: "f".into(),
+            source_channel: "tg".into(),
+            declared_mime: None,
+            caption_text: None,
+            file_name: None,
+            declared_bytes: None,
+        };
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![ContentPart::Text { text: "hi".into() }, img.clone()],
+        };
+        let images = msg.image_parts();
+        assert_eq!(images.len(), 1);
+        assert!(matches!(images[0], ContentPart::Image { .. }));
     }
 }

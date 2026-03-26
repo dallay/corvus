@@ -779,6 +779,7 @@ mod tests {
             provider: "groq".into(),
             model: String::new(),
             api_key: None,
+            allow_image_input: false,
         }];
         let mut items = Vec::new();
         check_config_semantics(&config, &mut items);

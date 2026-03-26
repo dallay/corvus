@@ -1,3 +1,4 @@
+use crate::channels::media::{ImageTransportForm, StagedImage};
 use crate::tools::ToolSpec;
 use async_trait::async_trait;
 use futures_util::{stream, StreamExt};
@@ -75,6 +76,9 @@ impl ChatResponse {
 pub struct ChatRequest<'a> {
     pub messages: &'a [ChatMessage],
     pub tools: Option<&'a [ToolSpec]>,
+    /// Staged images for the current turn. Empty for text-only turns.
+    /// Adapters read bytes from each `StagedImage.temp_path`.
+    pub images: &'a [StagedImage],
 }
 
 /// A tool result to feed back to the LLM.
@@ -205,6 +209,26 @@ pub struct ProviderCapabilities {
     ///
     /// When `false`, tools must be injected via system prompt as text.
     pub native_tool_calling: bool,
+
+    /// Whether the provider/model accepts inbound image parts.
+    ///
+    /// When `false` (default), the provider is treated as text-only
+    /// for routing purposes and image turns must not be sent to it.
+    pub image_input: bool,
+
+    /// Which canonical image transport forms the adapter accepts.
+    ///
+    /// Empty means no image transport is supported. For MVP, only
+    /// `ImageTransportForm::InlineBytes` is used.
+    pub image_transport_forms: Vec<ImageTransportForm>,
+}
+
+impl ProviderCapabilities {
+    /// Returns `true` only when the provider declares image support
+    /// AND accepts at least one transport form.
+    pub fn supports_image_input(&self) -> bool {
+        self.image_input && !self.image_transport_forms.is_empty()
+    }
 }
 
 /// Provider-specific tool payload formats.
@@ -458,6 +482,7 @@ mod tests {
         fn capabilities(&self) -> ProviderCapabilities {
             ProviderCapabilities {
                 native_tool_calling: true,
+                ..Default::default()
             }
         }
 
@@ -545,12 +570,15 @@ mod tests {
     fn provider_capabilities_equality() {
         let caps1 = ProviderCapabilities {
             native_tool_calling: true,
+            ..Default::default()
         };
         let caps2 = ProviderCapabilities {
             native_tool_calling: true,
+            ..Default::default()
         };
         let caps3 = ProviderCapabilities {
             native_tool_calling: false,
+            ..Default::default()
         };
 
         assert_eq!(caps1, caps2);
@@ -708,6 +736,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: Some(&tools),
+            images: &[],
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -725,6 +754,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: None,
+            images: &[],
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -826,6 +856,7 @@ mod tests {
                 ChatMessage::system("BASE_SYSTEM_PROMPT"),
             ],
             tools: Some(&tools),
+            images: &[],
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -849,6 +880,7 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::system("BASE"), ChatMessage::user("Hello")],
             tools: Some(&tools),
+            images: &[],
         };
 
         let response = provider.chat(request, "model", 0.7).await.unwrap();
@@ -872,11 +904,95 @@ mod tests {
         let request = ChatRequest {
             messages: &[ChatMessage::user("Hello")],
             tools: Some(&tools),
+            images: &[],
         };
 
         let err = provider.chat(request, "model", 0.7).await.unwrap_err();
         let message = err.to_string();
 
         assert!(message.contains("non-prompt-guided"));
+    }
+
+    // ── §2.1 Image capability tests ──────────────────────────
+
+    #[test]
+    fn provider_capabilities_default_no_image_support() {
+        let caps = ProviderCapabilities::default();
+        assert!(!caps.image_input);
+        assert!(caps.image_transport_forms.is_empty());
+        assert!(!caps.supports_image_input());
+    }
+
+    #[test]
+    fn providers_without_capability_overrides_remain_text_only() {
+        let provider = CapabilityMockProvider;
+        let caps = provider.capabilities();
+
+        assert!(caps.native_tool_calling);
+        assert!(!caps.image_input);
+        assert!(caps.image_transport_forms.is_empty());
+        assert!(!caps.supports_image_input());
+    }
+
+    #[test]
+    fn supports_image_input_requires_both_flag_and_forms() {
+        use crate::channels::media::ImageTransportForm;
+
+        // Flag true but no transport forms → false.
+        let caps = ProviderCapabilities {
+            image_input: true,
+            ..Default::default()
+        };
+        assert!(!caps.supports_image_input());
+
+        // Flag false but transport forms present → false.
+        let caps = ProviderCapabilities {
+            image_input: false,
+            image_transport_forms: vec![ImageTransportForm::InlineBytes],
+            ..Default::default()
+        };
+        assert!(!caps.supports_image_input());
+
+        // Both present → true.
+        let caps = ProviderCapabilities {
+            image_input: true,
+            image_transport_forms: vec![ImageTransportForm::InlineBytes],
+            ..Default::default()
+        };
+        assert!(caps.supports_image_input());
+    }
+
+    #[test]
+    fn provider_capabilities_image_fields_in_equality() {
+        use crate::channels::media::ImageTransportForm;
+
+        let a = ProviderCapabilities {
+            native_tool_calling: true,
+            image_input: true,
+            image_transport_forms: vec![ImageTransportForm::InlineBytes],
+        };
+        let b = ProviderCapabilities {
+            native_tool_calling: true,
+            image_input: true,
+            image_transport_forms: vec![ImageTransportForm::InlineBytes],
+        };
+        let c = ProviderCapabilities {
+            native_tool_calling: true,
+            image_input: false,
+            image_transport_forms: vec![],
+        };
+
+        assert_eq!(a, b);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn chat_request_images_default_empty() {
+        let request = ChatRequest {
+            messages: &[],
+            tools: None,
+            images: &[],
+        };
+        assert!(request.images.is_empty());
     }
 }

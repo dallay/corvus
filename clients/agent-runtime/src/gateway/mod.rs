@@ -1128,6 +1128,10 @@ pub struct AppState {
     pub whatsapp: Option<Arc<WhatsAppChannel>>,
     /// `WhatsApp` app secret for webhook signature verification (`X-Hub-Signature-256`)
     pub whatsapp_app_secret: Option<Arc<str>>,
+    /// Shared channel runtime handle for canonical message processing.
+    /// When present, WhatsApp messages are enqueued here instead of
+    /// calling `provider.simple_chat()` directly.
+    pub channel_runtime_handle: Option<crate::channels::ChannelRuntimeHandle>,
     /// Observability backend for metrics scraping
     pub observer: Arc<dyn crate::observability::Observer>,
 }
@@ -1171,6 +1175,11 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
     // WhatsApp channel (if configured)
     let whatsapp_channel: Option<Arc<WhatsAppChannel>> =
         crate::channels::build_whatsapp_channel(&config);
+    let channel_runtime_handle = if whatsapp_channel.is_some() {
+        crate::channels::spawn_runtime_handle(&config)?
+    } else {
+        None
+    };
 
     // WhatsApp app secret for webhook signature verification
     // Priority: environment variable > config file
@@ -1302,6 +1311,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         idempotency_store,
         whatsapp: whatsapp_channel,
         whatsapp_app_secret,
+        channel_runtime_handle,
         observer,
     };
 
@@ -1978,6 +1988,11 @@ pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header
 }
 
 /// POST /whatsapp — incoming message webhook
+///
+/// Transport verification (signature, allowlist) stays here.
+/// Execution is delegated to the canonical channel runtime when
+/// a `channel_runtime_handle` is available; otherwise falls back
+/// to the legacy `simple_chat()` path.
 async fn handle_whatsapp_message(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1986,11 +2001,13 @@ async fn handle_whatsapp_message(
     let Some(ref wa) = state.whatsapp else {
         return (
             StatusCode::NOT_FOUND,
-            Json(serde_json::json!({"error": "WhatsApp not configured"})),
+            Json(serde_json::json!({
+                "error": "WhatsApp not configured"
+            })),
         );
     };
 
-    // ── Security: Verify X-Hub-Signature-256 if app_secret is configured ──
+    // ── Security: Verify X-Hub-Signature-256 ──────────────
     if let Some(ref app_secret) = state.whatsapp_app_secret {
         let signature = headers
             .get("X-Hub-Signature-256")
@@ -1999,7 +2016,8 @@ async fn handle_whatsapp_message(
 
         if !verify_whatsapp_signature(app_secret, &body, signature) {
             tracing::warn!(
-                "WhatsApp webhook signature verification failed (signature: {})",
+                "WhatsApp webhook signature verification \
+                 failed (signature: {})",
                 if signature.is_empty() {
                     "missing"
                 } else {
@@ -2008,7 +2026,9 @@ async fn handle_whatsapp_message(
             );
             return (
                 StatusCode::UNAUTHORIZED,
-                Json(serde_json::json!({"error": "Invalid signature"})),
+                Json(serde_json::json!({
+                    "error": "Invalid signature"
+                })),
             );
         }
     }
@@ -2017,19 +2037,42 @@ async fn handle_whatsapp_message(
     let Ok(payload) = serde_json::from_slice::<serde_json::Value>(&body) else {
         return (
             StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "Invalid JSON payload"})),
+            Json(serde_json::json!({
+                "error": "Invalid JSON payload"
+            })),
         );
     };
 
-    // Parse messages from the webhook payload
+    // Parse canonical messages from the webhook payload
     let messages = wa.parse_webhook_payload(&payload);
 
     if messages.is_empty() {
-        // Acknowledge the webhook even if no messages (could be status updates)
         return (StatusCode::OK, Json(serde_json::json!({"status": "ok"})));
     }
 
-    // Process each message
+    // ── Canonical runtime path ────────────────────────────
+    if let Some(ref handle) = state.channel_runtime_handle {
+        for msg in messages {
+            tracing::info!(
+                "WhatsApp → canonical runtime: {} from {}",
+                truncate_with_ellipsis(&msg.content, 50),
+                msg.sender,
+            );
+            if let Err(e) = handle.enqueue(msg) {
+                tracing::error!("Failed to enqueue WhatsApp message: {e}");
+            }
+        }
+        // 202 Accepted: processing is async through the
+        // canonical channel runtime pipeline.
+        return (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({
+                "status": "accepted"
+            })),
+        );
+    }
+
+    // ── Legacy fallback (no runtime handle) ───────────────
     for msg in &messages {
         tracing::info!(
             "WhatsApp message from {}: {}",
@@ -2037,7 +2080,6 @@ async fn handle_whatsapp_message(
             truncate_with_ellipsis(&msg.content, 50)
         );
 
-        // Auto-save to memory
         if state.auto_save {
             let key = whatsapp_memory_key(msg);
             let _ = state
@@ -2046,14 +2088,12 @@ async fn handle_whatsapp_message(
                 .await;
         }
 
-        // Call the LLM
         match state
             .provider
             .simple_chat(&msg.content, &state.model, state.temperature)
             .await
         {
             Ok(response) => {
-                // Send reply via WhatsApp
                 if let Err(e) = wa
                     .send(&SendMessage::new(response, &msg.reply_target))
                     .await
@@ -2065,7 +2105,8 @@ async fn handle_whatsapp_message(
                 tracing::error!("LLM error for WhatsApp message: {e:#}");
                 let _ = wa
                     .send(&SendMessage::new(
-                        "Sorry, I couldn't process your message right now.",
+                        "Sorry, I couldn't process your \
+                         message right now.",
                         &msg.reply_target,
                     ))
                     .await;
@@ -2073,7 +2114,6 @@ async fn handle_whatsapp_message(
         }
     }
 
-    // Acknowledge the webhook
     (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
 }
 
@@ -2429,6 +2469,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -2470,6 +2511,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer,
         };
 
@@ -2756,6 +2798,7 @@ mod tests {
             content: "hello".into(),
             channel: "whatsapp".into(),
             timestamp: 1,
+            parts: vec![],
         };
 
         let key = whatsapp_memory_key(&msg);
@@ -3110,6 +3153,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3139,6 +3183,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3178,6 +3223,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3330,6 +3376,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3376,6 +3423,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3424,6 +3472,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3462,6 +3511,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3507,6 +3557,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3565,6 +3616,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3609,6 +3661,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3642,6 +3695,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3672,6 +3726,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3703,6 +3758,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -3742,6 +3798,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
         let mut headers = HeaderMap::new();
@@ -3799,6 +3856,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
         let mut headers = HeaderMap::new();
@@ -3872,6 +3930,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
         let mut headers = HeaderMap::new();
@@ -3948,6 +4007,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4005,6 +4065,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4047,6 +4108,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4090,6 +4152,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4161,6 +4224,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4239,6 +4303,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4307,6 +4372,7 @@ mod tests {
                 idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
                 whatsapp: None,
                 whatsapp_app_secret: None,
+                channel_runtime_handle: None,
                 observer: Arc::new(crate::observability::NoopObserver),
             };
 
@@ -4390,6 +4456,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4438,6 +4505,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4483,6 +4551,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4492,6 +4561,47 @@ mod tests {
             HeaderMap::new(),
             Ok(Json(WebhookBody {
                 message: "hello legacy".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn generic_webhook_regression_remains_text_only() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "image:http://example.test/photo.jpg".into(),
             })),
         )
         .await
@@ -4522,6 +4632,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4573,6 +4684,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4633,6 +4745,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4702,6 +4815,7 @@ mod tests {
                 vec!["*".into()],
             ))),
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4744,6 +4858,7 @@ mod tests {
                 vec!["*".into()],
             ))),
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4764,6 +4879,145 @@ mod tests {
         assert_eq!(payload_on, payload_off);
         assert_eq!(provider_on_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_on_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn whatsapp_verified_image_turn_enqueues_canonical_message_when_runtime_handle_present() {
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ChannelMessage>(1);
+        let body = serde_json::to_vec(&serde_json::json!({
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "15551234567",
+                            "id": "wamid.image.1",
+                            "timestamp": "1700000000",
+                            "type": "image",
+                            "image": {
+                                "id": "media-123",
+                                "mime_type": "image/jpeg",
+                                "caption": "please inspect"
+                            }
+                        }]
+                    }
+                }]
+            }]
+        }))
+        .unwrap();
+        let signature = compute_whatsapp_signature_header("wa-secret", &body);
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: Some(Arc::new(WhatsAppChannel::new(
+                "token".into(),
+                "phone-id".into(),
+                "verify".into(),
+                vec!["*".into()],
+            ))),
+            whatsapp_app_secret: Some(Arc::from("wa-secret")),
+            channel_runtime_handle: Some(crate::channels::ChannelRuntimeHandle::new(tx)),
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Hub-Signature-256",
+            HeaderValue::from_str(&signature).unwrap(),
+        );
+
+        let response = handle_whatsapp_message(State(state), headers, Bytes::from(body))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(payload["status"], "accepted");
+
+        let queued = rx.recv().await.unwrap();
+        assert_eq!(queued.channel, "whatsapp");
+        assert_eq!(queued.sender, "+15551234567");
+        assert_eq!(queued.reply_target, "+15551234567");
+        assert_eq!(queued.content, "please inspect");
+        assert!(queued.has_image_parts());
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn whatsapp_rejected_transport_never_reaches_runtime() {
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<ChannelMessage>(1);
+        let body = serde_json::to_vec(&serde_json::json!({
+            "object": "whatsapp_business_account",
+            "entry": [{
+                "changes": [{
+                    "value": {
+                        "messages": [{
+                            "from": "15551234567",
+                            "id": "wamid.image.2",
+                            "timestamp": "1700000001",
+                            "type": "image",
+                            "image": {
+                                "id": "media-456",
+                                "mime_type": "image/png"
+                            }
+                        }]
+                    }
+                }]
+            }]
+        }))
+        .unwrap();
+        let state = AppState {
+            config: Arc::new(Mutex::new(temp_config())),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: Some(Arc::new(WhatsAppChannel::new(
+                "token".into(),
+                "phone-id".into(),
+                "verify".into(),
+                vec!["*".into()],
+            ))),
+            whatsapp_app_secret: Some(Arc::from("wa-secret")),
+            channel_runtime_handle: Some(crate::channels::ChannelRuntimeHandle::new(tx)),
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "X-Hub-Signature-256",
+            HeaderValue::from_static("sha256=deadbeef"),
+        );
+
+        let response = handle_whatsapp_message(State(state), headers, Bytes::from(body))
+            .await
+            .into_response();
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(rx.try_recv().is_err());
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]
@@ -4789,6 +5043,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4848,6 +5103,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4920,6 +5176,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -4959,6 +5216,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -5001,6 +5259,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 
@@ -5044,6 +5303,7 @@ mod tests {
             idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
             whatsapp: None,
             whatsapp_app_secret: None,
+            channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
         };
 

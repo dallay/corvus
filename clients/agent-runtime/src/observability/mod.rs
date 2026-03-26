@@ -13,7 +13,10 @@ pub use self::multi::MultiObserver;
 pub use noop::NoopObserver;
 pub use otel::OtelObserver;
 pub use prometheus::PrometheusObserver;
-pub use traits::{redact_observer_payload, Observer, ObserverEvent, ObserverMetric};
+pub use traits::{
+    redact_observer_payload, ImageIngressEvent, ImageIngressOutcome, Observer, ObserverEvent,
+    ObserverMetric,
+};
 #[allow(unused_imports)]
 pub use verbose::VerboseObserver;
 

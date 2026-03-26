@@ -1,4 +1,4 @@
-use super::traits::{Observer, ObserverEvent, ObserverMetric};
+use super::traits::{ImageIngressEvent, Observer, ObserverEvent, ObserverMetric};
 use std::any::Any;
 
 /// Combine multiple observers — fan-out events to all backends
@@ -22,6 +22,12 @@ impl Observer for MultiObserver {
     fn record_metric(&self, metric: &ObserverMetric) {
         for obs in &self.observers {
             obs.record_metric(metric);
+        }
+    }
+
+    fn on_image_ingress(&self, event: &ImageIngressEvent) {
+        for obs in &self.observers {
+            obs.on_image_ingress(event);
         }
     }
 

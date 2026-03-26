@@ -176,7 +176,24 @@ impl Observer for LogObserver {
                     "mission.terminated"
                 );
             }
+            ObserverEvent::ImageIngress(event) => {
+                info!(
+                    channel = %event.channel,
+                    provider = ?event.provider,
+                    model = ?event.model,
+                    outcome = ?event.outcome,
+                    reason = ?event.reason,
+                    image_count = event.image_count,
+                    mime_type = ?event.mime_type,
+                    byte_len = ?event.byte_len,
+                    "image.ingress"
+                );
+            }
         }
+    }
+
+    fn on_image_ingress(&self, event: &super::traits::ImageIngressEvent) {
+        self.record_event(&ObserverEvent::ImageIngress(event.clone()));
     }
 
     fn record_metric(&self, metric: &ObserverMetric) {

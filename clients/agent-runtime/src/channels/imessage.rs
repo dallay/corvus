@@ -81,6 +81,7 @@ fn create_channel_message(rowid: i64, sender: &str, text: String) -> ChannelMess
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs(),
+        parts: vec![],
     }
 }
 

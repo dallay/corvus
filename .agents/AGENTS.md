@@ -1,236 +1,208 @@
-# Agent Instructions
+# CLAUDE.md
 
-<!-- Agent metadata block -->
-<!--
-name: Corvus Agent Instructions
-description: Gradle-based multi-module project in Kotlin with Rust agent runtime
-purpose: Provide comprehensive coding guidance for Corvus project contributors
-capabilities: Code analysis, implementation, testing, documentation, security review
-version: 1.0.0
-compatibility: Claude Code, GitHub Copilot, OpenAI Codex, Gemini, OpenCode
--->
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-Gradle-based multi-module project in Kotlin. Emphasizes centralized build configurations, custom
-plugins, and version catalogs.
+## Project Overview
+
+Corvus is a multi-interface agentic platform — a Kotlin Multiplatform (KMP) monorepo with a
+high-performance Rust agent runtime, web surfaces (Astro/Vue 3), and Compose Multiplatform
+desktop/mobile apps.
 
 ## Core Principles
 
-**⚠️ CRITICAL: Security First, Performance Second**
+**Security First, Performance Second.** Every decision must prioritize security, then extreme
+performance. These override convenience and speed of development.
 
-Every decision, every line of code, every architecture choice MUST prioritize:
+- Never trust user input; parameterized queries only; principle of least privilege
+- Optimize for algorithmic complexity, avoid unnecessary allocations, profile before optimizing
+- **TDD by default**: Red → Green → Refactor for new behavior, bug fixes, risky refactors
+- **No `!!` operator** in Kotlin; use `?.`, `?:`, `requireNotNull`
+- **No `unwrap()` in production Rust**; use `?`, `anyhow`, or `thiserror`
 
-1. **Security First** - Always think about attacks, vulnerabilities, and safe defaults
-   - Never trust user input
-   - Use parameterized queries, never string concatenation for SQL
-   - Validate and sanitize all data
-   - Follow principle of least privilege
-   - Keep dependencies updated to patch security vulnerabilities
-
-2. **Extreme Performance Second** - Optimize for efficiency after security
-   - Think about algorithmic complexity (O(n) vs O(n²))
-   - Avoid unnecessary allocations
-   - Use lazy initialization when appropriate
-   - Profile before optimizing - measure don't guess
-   - Consider memory footprint and startup time
-
-These principles override convenience, speed of development, and "getting it done quickly."
-
-We develop using **TDD by default**: Red -> Green -> Refactor for new behavior, bug fixes, and
-risky refactors.
-
-## Quick Commands
+## Build & Run Commands
 
 ```bash
-# Build & Run
+# Build
 make build              # Full build with tests
 make build-fast         # Build without tests
 make run                # Run Compose desktop app
-./gradlew composeApp:run # Direct Gradle
 
-# Testing
-make test                    # All tests
-make test-app                # Single module
+# Testing — Kotlin
+make test               # All Gradle tests
+make test-app           # Desktop app tests only
+make test-core          # Core KMP module tests
 ./gradlew :composeApp:jvmTest --tests "ClassName.methodName"  # Single test
 ./gradlew :composeApp:jvmTest --tests "*Pattern*"             # Pattern match
-make test-coverage           # With Kover report
-make test-verbose            # --info output
+
+# Testing — Rust
+make rust-test          # cargo test via Gradle
+cargo test --manifest-path clients/agent-runtime/Cargo.toml   # Direct cargo
+cargo test --manifest-path clients/agent-runtime/Cargo.toml --lib test_name  # Single test
+
+# Testing — Web
+make chat-test          # Chat app tests
+make dashboard-test     # Dashboard tests
+make web-test-all       # All web tests
 
 # Code Quality
-make format             # Spotless apply
+make format             # Spotless apply (Kotlin/Gradle)
 make check-format       # Spotless check
-make lint-kotlin        # Detekt analysis
-make lint-java          # SpotBugs analysis
-make check              # All checks
+make lint-kotlin        # Detekt
+make rust-clippy        # Clippy
+make rust-fmt           # Rust format check
+make check              # All checks (includes Rust with -PenableRustTasks=true)
+make check-all          # Full quality gate (format + lint + all tests)
 
-# Maintenance
-make clean              # Clean build artifacts
-make clean-all          # Clean + Gradle cache
-make deps               # Show dependencies
-make tasks              # List all tasks
-make info               # Project info
+# Web Dev Servers
+make docs-dev           # Docs at localhost
+make chat-dev           # Chat app
+make dashboard-dev      # Dashboard
+make marketing-dev      # Marketing site
+
+# Docker Dev Environment
+make dev-up             # Start at corvus.localhost
+make dev-down           # Stop
+make dev-shell          # Enter sandbox container
 ```
+
+**Important**: Rust tasks require `-PenableRustTasks=true` when using Gradle directly. The Makefile
+handles this automatically.
+
+## Architecture
+
+### 3-Tier Client Surfaces
+
+```
+Tier 1: Runtime Core   → clients/agent-runtime (Rust CLI/daemon)
+Tier 2: Gateway Layer   → HTTP Gateway (web) + RustCliBridge (mobile)
+Tier 3: Client Surfaces → web/{chat,dashboard,docs,marketing}, composeApp
+```
+
+**Transport rules (mandatory)**:
+- Web clients → HTTP Gateway only
+- Mobile (composeApp) → RustCliBridge only
+- CLI operators → Direct runtime access
+
+### Rust Agent Runtime — Trait-Based Pluggability
+
+Every subsystem in `clients/agent-runtime/src/` is swappable via traits:
+
+| Directory        | Trait              | Purpose                         |
+|------------------|--------------------|---------------------------------|
+| `providers/`     | `Provider`         | LLM backends (OpenAI, Gemini…) |
+| `channels/`      | `Channel`          | Messaging (Slack, Discord, Telegram…) |
+| `observability/` | `Observer`         | Metrics/logging (Prometheus, OTLP) |
+| `tools/`         | `Tool`             | Agent tools (file, web, shell…) |
+| `memory/`        | `Memory`           | Persistence backends            |
+| `security/`      | `SecurityPolicy`   | Sandboxing                      |
+
+To add a new integration: implement the trait, register in the subsystem's `mod.rs`.
+
+### Rust Feature Flags
+
+Default features: `hardware`, `mcp-runtime`. Optional: `browser-native`, `sandbox-landlock`,
+`sandbox-bubblewrap`, `probe`, `rag-pdf`, `peripheral-rpi` (Linux only).
+
+### Cerebro Memory Module
+
+MCP-based memory service using SurrealDB (embedded). Agents interact via MCP JSON-RPC protocol
+(13 memory/session tools). Sync API for fast responses, async worker for background tasks
+(embeddings, entity extraction, graph edges).
+
+### Web Monorepo
+
+`clients/web/` is a pnpm workspace with four apps:
+- `apps/docs` — Astro Starlight documentation
+- `apps/chat` — Vue 3 chat UI
+- `apps/dashboard` — Vue 3 admin panel
+- `apps/marketing` — Astro landing pages
+- `packages/shared` — Shared utilities
+
+Formatting: Biome. Package manager: pnpm 10+.
+
+### KMP Modules
+
+- `modules/agent-core-kmp` — Core contracts library, Tier 2 bridge between mobile and runtime
+- `composeApp` — Shared Compose Multiplatform UI (Desktop + Android + iOS targets)
 
 ## Code Style
 
 ### Formatting (.editorconfig)
 
-- **Indent**: 2 spaces (no tabs)
-- **Max line**: 100 characters
-- **Trailing commas**: Required
-- **No wildcard imports**: Explicit only
-- **Charset**: UTF-8, trim whitespace, final newline
+- 2 spaces indent, 100 char max line, trailing commas required
+- No wildcard imports, UTF-8, trim whitespace, final newline
 
-### Kotlin Patterns
+### Kotlin Conventions
 
-```kotlin
-// Data classes with value classes
-data class User(
-    val id: UserId,
-    val name: String,
-    val createdAt: Instant = Instant.now(),
-)
+- Data classes with value classes for type safety (`@JvmInline value class UserId(val value: UUID)`)
+- Sealed interfaces for result/error hierarchies
+- Expression bodies for simple functions
+- Booleans: `is`/`has` prefix
+- Tests: backtick names `` `should do something` ``
 
-@JvmInline
-value class UserId(val value: UUID)
+### Rust Conventions
 
-// Sealed types for results
-sealed interface Result<out T> {
-    data class Success<T>(val data: T) : Result<T>
-    data class Failure(val error: Throwable) : Result<Nothing>
-}
-
-// Null safety - NO !! operator
-val name = user?.name ?: "Unknown"
-requireNotNull(value) { "Required" }
-
-// Expression bodies
-fun double(x: Int): Int = x * 2
-```
+- Minimal dependencies (binary size matters — release profile uses `opt-level = "z"`, `strip = true`)
+- Inline tests at bottom of each file: `#[cfg(test)] mod tests {}`
+- Trait-first design: define trait, then implement
+- Security by default: sandbox everything, allowlist over blocklist
 
 ### Naming
 
-- **Classes**: PascalCase (`UserService`)
-- **Functions**: camelCase (`findById`)
-- **Constants**: UPPER_SNAKE_CASE (`MAX_RETRY`)
-- **Tests**: Backticks `` `should work` ``
-- **Booleans**: `is`/`has` prefix (`isActive`)
-
-### Error Handling
-
-```kotlin
-// Result for recoverable
-fun find(id: UUID): Result<User> = runCatching {
-    repo.find(id) ?: throw NotFoundException(id)
-}
-
-// Sealed exceptions
-sealed class DomainError(msg: String) : RuntimeException(msg)
-class NotFoundException(id: UUID) : DomainError("Not found: $id")
-```
+- Classes/structs: `PascalCase`
+- Functions/methods: `camelCase` (Kotlin) / `snake_case` (Rust)
+- Constants: `UPPER_SNAKE_CASE`
+- Commit scopes: `provider`, `channel`, `memory`, `security`, `runtime`, `ci`, `docs`, `tests`
 
 ## Gradle Guidelines
 
-### Best Practices
-
-- Use `tasks.register` not `create` (lazy)
+- Use `tasks.register` not `create` (lazy registration)
 - Use `configureEach` not `all`
 - Never use `afterEvaluate`
-- Avoid `project` in task actions
-- Annotate task inputs/outputs for caching
+- All dependencies via version catalog (`gradle/libs.versions.toml`)
+- Custom plugins in `gradle/build-logic/`
+- Gradle wrapper invoked via `bash ./scripts/gradlew.sh`
 
-### Dependencies
+## Git Hooks & CI
 
-```kotlin
-// Version catalog
-implementation(libs.slf4j.api)
-testImplementation(libs.junit.jupiter)
-```
+Git hooks in `.githooks/` — enable with `git config core.hooksPath .githooks`:
+- **pre-commit**: runs `spotlessApply` on staged Kotlin/Gradle files, checks forbidden files,
+  validates local links with lychee
+- **pre-push**: Rust validations, `checkLocksAll`, Kover XML reports
 
-## Client Surfaces Architecture
+CI runs the same checks. Conventional Commits required. Squash merge preferred.
 
-Corvus uses a 3-tier architecture:
+## PR Guidelines
 
-```
-Tier 1: Runtime Core      → clients/agent-runtime (Rust, full capabilities)
-Tier 2: Gateway Layer      → HTTP Gateway (web) + RustCliBridge (mobile)
-Tier 3: Client Surfaces    → web/chat, web/dashboard, composeApp (mobile), docs, marketing
-```
+- One concern per PR, prefer small PRs (XS/S/M)
+- Template is mandatory (`.github/pull_request_template.md`)
+- Every PR must include a fast rollback path
+- Changes in `security/`, runtime, and CI need stricter validation
 
-**Transport rules** (mandatory):
+## Prerequisites
 
-- Web clients (`chat`, `dashboard`) → **HTTP Gateway** only
-- Mobile clients (`composeApp`) → **RustCliBridge** (process bridge) only
-- CLI operators → **Direct runtime** access
-- Supporting surfaces → **No runtime** communication
-
-Surface contracts and detailed specs live in the openspec workspace (external, volatile).
-Refer to those docs when available, but do not hardlink from this file.
+- JDK 21+, Rust 1.75+, Node.js 22+, pnpm 10+
+- Docker (optional, for sandbox environment)
+- Run `make setup` for initial project setup
+- Run `make doctor` to diagnose environment health
 
 ## Project Structure
+
 ```text
 ├── clients/
-│   ├── agent-runtime/       # Rust CLI/daemon (Tier 1 core)
-│   ├── web/
-│   │   ├── apps/
-│   │   │   ├── chat/        # Web chat UI (Tier 3, HTTP Gateway)
-│   │   │   ├── dashboard/   # Admin panel (Tier 3, HTTP Gateway)
-│   │   │   ├── docs/        # Documentation (Tier 3, static)
-│   │   │   └── marketing/   # Landing pages (Tier 3, static)
-│   │   └── packages/shared/ # Web shared utilities
-│   ├── composeApp/          # KMP Compose UI (Tier 3, CLI Bridge)
-│   ├── androidApp/          # Android host for composeApp
-│   └── iosApp/              # iOS host for composeApp
+│   ├── agent-runtime/       # Rust CLI/daemon (Tier 1)
+│   ├── web/                 # pnpm monorepo: docs, chat, dashboard, marketing
+│   ├── composeApp/          # KMP Compose UI (Desktop/Mobile)
+│   ├── androidApp/          # Android host
+│   └── iosApp/              # iOS host
 ├── modules/
-│   ├── agent-core-kmp/      # KMP contracts library (Tier 2 bridge)
-│   └── agent-core-rust/     # Embedded Rust AI core
+│   ├── agent-core-kmp/      # KMP contracts (Tier 2 bridge)
+│   ├── agent-core-rust/     # Embedded Rust AI core
+│   └── cerebro/             # MCP memory service
 ├── gradle/
-│   ├── build-logic/         # Custom plugins
+│   ├── build-logic/         # Custom Gradle plugins
 │   └── libs.versions.toml   # Version catalog
-└── settings.gradle.kts
+├── dev/                     # Docker dev environment
+├── openspec/                # External specs (volatile)
+└── .agents/skills/          # AI agent skill definitions
 ```
-
-## Cerebro Memory Module
-
-Cerebro is an agent-agnostic, high-performance memory system designed for use with any AI agent or
-LLM that supports the Model Context Protocol (MCP). It is implemented as a single Rust binary and
-uses SurrealDB (embedded) for multi-model storage (document, graph, vector search).
-
-- **Integration:** Agents interact with Cerebro via the MCP JSON-RPC protocol, using a set of 13
-  memory/session tools (see the cerebro spec in the openspec workspace for full API and business logic).
-- **Architecture:** Cerebro uses a sync API for fast agent responses and an async worker for
-  background tasks (e.g., vector embeddings, entity extraction, graph edges) if an LLM is
-  configured.
-- **Data Model:** Structured around `session`, `memory` (engram), and `prompt` nodes, with graph
-  edges for relations and chronology.
-- **Memory Hygiene:** Implements deduplication, topic upserts, and global filters for deleted
-  records.
-- **TUI:** Provides a terminal UI (ratatui + crossterm) for real-time observability, memory
-  browsing, and session timelines.
-
-**Note:** Cerebro is a separate module. Agents should use the documented MCP tools API for all
-memory/session operations. See the spec for details on the drill-in retrieval strategy, memory
-hygiene, and supported operations.
-
-## Available Skills
-
-Located in `.agents/skills/`. Reference for detailed patterns:
-
-| Skill                                                                | Description                                                                                         | Trigger                                                                   |
-|----------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------|
-| [gradle](./skills/gradle/SKILL.md)                             | Gradle best practices, custom tasks                                                                 | `build.gradle.kts`, build config                                          |
-| [kotlin](./skills/kotlin/SKILL.md)                             | Kotlin conventions, null safety                                                                     | `.kt` files                                                               |
-| [c4-diagrams](./skills/c4-diagrams/SKILL.md)                   | C4 architecture diagrams                                                                            | `docs/architecture/diagrams`                                              |
-| [pr-creator](./skills/pr-creator/SKILL.md)                     | PR creation workflow                                                                                | Creating PRs                                                              |
-| [pinned-tag](./skills/pinned-tag/SKILL.md)                     | Pin GitHub Actions                                                                                  | CI security                                                               |
-| [release](./skills/release/SKILL.md)                           | Release process, Maven Central publishing                                                           | Creating releases                                                         |
-| [android-expert](./skills/android-expert/SKILL.md)             | Android-specific patterns, best practices                                                           | Android development                                                       |
-| [compose-expert](./skills/compose-expert/SKILL.md)             | Jetpack Compose UI patterns                                                                         | Compose UI code                                                           |
-| [desktop-expert](./skills/desktop-expert/SKILL.md)             | Compose Desktop, desktop patterns                                                                   | Desktop app development                                                   |
-| [docker-expert](./skills/docker-expert/SKILL.md)               | Docker optimization, Compose, multi-stage                                                           | Dockerfile, docker-compose.yml                                            |
-| [gradle-expert](./skills/gradle-expert/SKILL.md)               | Advanced Gradle, custom plugins                                                                     | Complex Gradle configs                                                    |
-| [kotlin-coroutines](./skills/kotlin-coroutines/SKILL.md)       | Coroutines, async patterns                                                                          | Coroutines, Flow                                                          |
-| [kotlin-expert](./skills/kotlin-expert/SKILL.md)               | Advanced Kotlin features                                                                            | Advanced Kotlin                                                           |
-| [kotlin-multiplatform](./skills/kotlin-multiplatform/SKILL.md) | KMP patterns, expect/actual                                                                         | KMP modules                                                               |
-| [frontend-design](./skills/frontend-design/SKILL.md)           | Create production-grade frontend UI with strong visual direction while avoiding generic AI patterns | Building or refining web components, pages, dashboards, or application UI |
-| [conventional-commits](./skills/conventional-commits/SKILL.md) | Conventional Commits specification                                                                  | Creating commits, git messages                                            |
-| [github-actions](./skills/github-actions/SKILL.md)            | GitHub Actions CI/CD best practices, security, optimization                                         | `.github/workflows/*.yml`, CI/CD pipelines                                |

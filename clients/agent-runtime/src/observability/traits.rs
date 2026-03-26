@@ -2,6 +2,33 @@ use std::time::Duration;
 
 const SENSITIVE_PAYLOAD_MARKERS: [&str; 5] = ["password", "token", "secret", "api_key", "auth"];
 
+// ── Image ingress telemetry ──────────────────────────────────
+
+/// Outcome of an image ingress lifecycle event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ImageIngressOutcome {
+    Admitted,
+    Rejected,
+    ProviderSent,
+    ProviderError,
+}
+
+/// Metadata-only event for image ingress telemetry.
+///
+/// Never includes raw image bytes, channel URLs, tokens,
+/// or base64 payloads — only routing and sizing metadata.
+#[derive(Debug, Clone)]
+pub struct ImageIngressEvent {
+    pub channel: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub outcome: ImageIngressOutcome,
+    pub reason: Option<String>,
+    pub image_count: usize,
+    pub mime_type: Option<String>,
+    pub byte_len: Option<u64>,
+}
+
 pub fn redact_observer_payload(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -82,6 +109,8 @@ pub enum ObserverEvent {
         component: String,
         message: String,
     },
+    /// Image ingress lifecycle event (metadata only).
+    ImageIngress(ImageIngressEvent),
     /// Mission lifecycle started with deterministic mission id.
     MissionStarted {
         mission_id: String,
@@ -133,6 +162,9 @@ pub trait Observer: Send + Sync + 'static {
 
     /// Record a numeric metric
     fn record_metric(&self, metric: &ObserverMetric);
+
+    /// Record an image ingress lifecycle event (default: no-op).
+    fn on_image_ingress(&self, _event: &ImageIngressEvent) {}
 
     /// Flush any buffered data (no-op for most backends)
     fn flush(&self) {}
@@ -265,5 +297,105 @@ mod tests {
             redact_observer_payload("checkpoint timeout"),
             "checkpoint timeout"
         );
+    }
+
+    // ── Image ingress telemetry (Task 4.4) ───────────────────
+
+    #[test]
+    fn image_ingress_event_construction_and_field_access() {
+        let event = ImageIngressEvent {
+            channel: "telegram".into(),
+            provider: Some("gemini".into()),
+            model: Some("gemini-2.0-flash".into()),
+            outcome: ImageIngressOutcome::Admitted,
+            reason: None,
+            image_count: 1,
+            mime_type: Some("image/jpeg".into()),
+            byte_len: Some(204_800),
+        };
+        assert_eq!(event.channel, "telegram");
+        assert_eq!(event.provider.as_deref(), Some("gemini"));
+        assert_eq!(event.model.as_deref(), Some("gemini-2.0-flash"));
+        assert_eq!(event.outcome, ImageIngressOutcome::Admitted);
+        assert!(event.reason.is_none());
+        assert_eq!(event.image_count, 1);
+        assert_eq!(event.mime_type.as_deref(), Some("image/jpeg"));
+        assert_eq!(event.byte_len, Some(204_800));
+    }
+
+    #[test]
+    fn image_ingress_event_rejected_with_reason() {
+        let event = ImageIngressEvent {
+            channel: "whatsapp".into(),
+            provider: None,
+            model: None,
+            outcome: ImageIngressOutcome::Rejected,
+            reason: Some("disabled".into()),
+            image_count: 1,
+            mime_type: None,
+            byte_len: None,
+        };
+        assert_eq!(event.outcome, ImageIngressOutcome::Rejected);
+        assert_eq!(event.reason.as_deref(), Some("disabled"));
+    }
+
+    #[test]
+    fn image_ingress_outcome_variants_are_distinct() {
+        assert_ne!(ImageIngressOutcome::Admitted, ImageIngressOutcome::Rejected);
+        assert_ne!(
+            ImageIngressOutcome::ProviderSent,
+            ImageIngressOutcome::ProviderError
+        );
+    }
+
+    #[test]
+    fn image_ingress_event_is_cloneable() {
+        let event = ImageIngressEvent {
+            channel: "telegram".into(),
+            provider: None,
+            model: None,
+            outcome: ImageIngressOutcome::ProviderError,
+            reason: Some("provider_error".into()),
+            image_count: 1,
+            mime_type: None,
+            byte_len: None,
+        };
+        let cloned = event.clone();
+        assert_eq!(cloned.channel, "telegram");
+        assert_eq!(cloned.outcome, ImageIngressOutcome::ProviderError);
+    }
+
+    #[test]
+    fn observer_event_image_ingress_variant_exists() {
+        let event = ObserverEvent::ImageIngress(ImageIngressEvent {
+            channel: "telegram".into(),
+            provider: None,
+            model: None,
+            outcome: ImageIngressOutcome::Rejected,
+            reason: Some("channel_not_allowed".into()),
+            image_count: 1,
+            mime_type: None,
+            byte_len: None,
+        });
+        assert!(matches!(event, ObserverEvent::ImageIngress(_)));
+    }
+
+    #[test]
+    fn observer_default_on_image_ingress_is_noop() {
+        let observer = DummyObserver::default();
+        let event = ImageIngressEvent {
+            channel: "telegram".into(),
+            provider: None,
+            model: None,
+            outcome: ImageIngressOutcome::Rejected,
+            reason: Some("disabled".into()),
+            image_count: 1,
+            mime_type: None,
+            byte_len: None,
+        };
+        // Must not panic
+        observer.on_image_ingress(&event);
+        // Event count unchanged — on_image_ingress is separate
+        assert_eq!(*observer.events.lock(), 0);
     }
 }

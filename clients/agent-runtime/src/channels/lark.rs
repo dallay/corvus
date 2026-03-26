@@ -292,177 +292,178 @@ impl LarkChannel {
 
         loop {
             tokio::select! {
-                biased;
+                            biased;
 
-                _ = hb_interval.tick() => {
-                    seq = seq.wrapping_add(1);
-                    let ping = PbFrame {
-                        seq_id: seq, log_id: 0, service: service_id, method: 0,
-                        headers: vec![PbHeader { key: "type".into(), value: "ping".into() }],
-                        payload: None,
-                    };
-                    if write.send(WsMsg::Binary(ping.encode_to_vec())).await.is_err() {
-                        tracing::warn!("Lark: ping failed, reconnecting");
-                        break;
-                    }
-                    // GC stale fragments > 5 min
-                    let cutoff = Instant::now().checked_sub(Duration::from_secs(300)).unwrap_or(Instant::now());
-                    frag_cache.retain(|_, (_, ts)| *ts > cutoff);
-                }
+                            _ = hb_interval.tick() => {
+                                seq = seq.wrapping_add(1);
+                                let ping = PbFrame {
+                                    seq_id: seq, log_id: 0, service: service_id, method: 0,
+                                    headers: vec![PbHeader { key: "type".into(), value: "ping".into() }],
+                                    payload: None,
+                                };
+                                if write.send(WsMsg::Binary(ping.encode_to_vec())).await.is_err() {
+                                    tracing::warn!("Lark: ping failed, reconnecting");
+                                    break;
+                                }
+                                // GC stale fragments > 5 min
+                                let cutoff = Instant::now().checked_sub(Duration::from_secs(300)).unwrap_or(Instant::now());
+                                frag_cache.retain(|_, (_, ts)| *ts > cutoff);
+                            }
 
-                _ = timeout_check.tick() => {
-                    if last_recv.elapsed() > WS_HEARTBEAT_TIMEOUT {
-                        tracing::warn!("Lark: heartbeat timeout, reconnecting");
-                        break;
-                    }
-                }
-
-                msg = read.next() => {
-                    let raw = match msg {
-                        Some(Ok(WsMsg::Binary(b))) => { last_recv = Instant::now(); b }
-                        Some(Ok(WsMsg::Ping(d))) => { let _ = write.send(WsMsg::Pong(d)).await; continue; }
-                        Some(Ok(WsMsg::Close(_))) | None => { tracing::info!("Lark: WS closed — reconnecting"); break; }
-                        Some(Err(e)) => { tracing::error!("Lark: WS read error: {e}"); break; }
-                        _ => continue,
-                    };
-
-                    let frame = match PbFrame::decode(&raw[..]) {
-                        Ok(f) => f,
-                        Err(e) => { tracing::error!("Lark: proto decode: {e}"); continue; }
-                    };
-
-                    // CONTROL frame
-                    if frame.method == 0 {
-                        if frame.header_value("type") == "pong" {
-                            if let Some(p) = &frame.payload {
-                                if let Ok(cfg) = serde_json::from_slice::<WsClientConfig>(p) {
-                                    if let Some(secs) = cfg.ping_interval {
-                                        let secs = secs.max(10);
-                                        if secs != ping_secs {
-                                            ping_secs = secs;
-                                            hb_interval = tokio::time::interval(Duration::from_secs(ping_secs));
-                                            tracing::info!("Lark: ping_interval → {ping_secs}s");
-                                        }
-                                    }
+                            _ = timeout_check.tick() => {
+                                if last_recv.elapsed() > WS_HEARTBEAT_TIMEOUT {
+                                    tracing::warn!("Lark: heartbeat timeout, reconnecting");
+                                    break;
                                 }
                             }
-                        }
-                        continue;
-                    }
 
-                    // DATA frame
-                    let msg_type = frame.header_value("type").to_string();
-                    let msg_id   = frame.header_value("message_id").to_string();
-                    let sum      = frame.header_value("sum").parse::<usize>().unwrap_or(1);
-                    let seq_num  = frame.header_value("seq").parse::<usize>().unwrap_or(0);
+                            msg = read.next() => {
+                                let raw = match msg {
+                                    Some(Ok(WsMsg::Binary(b))) => { last_recv = Instant::now(); b }
+                                    Some(Ok(WsMsg::Ping(d))) => { let _ = write.send(WsMsg::Pong(d)).await; continue; }
+                                    Some(Ok(WsMsg::Close(_))) | None => { tracing::info!("Lark: WS closed — reconnecting"); break; }
+                                    Some(Err(e)) => { tracing::error!("Lark: WS read error: {e}"); break; }
+                                    _ => continue,
+                                };
 
-                    // ACK immediately (Feishu requires within 3 s)
-                    {
-                        let mut ack = frame.clone();
-                        ack.payload = Some(br#"{"code":200,"headers":{},"data":[]}"#.to_vec());
-                        ack.headers.push(PbHeader { key: "biz_rt".into(), value: "0".into() });
-                        let _ = write.send(WsMsg::Binary(ack.encode_to_vec())).await;
-                    }
+                                let frame = match PbFrame::decode(&raw[..]) {
+                                    Ok(f) => f,
+                                    Err(e) => { tracing::error!("Lark: proto decode: {e}"); continue; }
+                                };
 
-                    // Fragment reassembly
-                    let sum = if sum == 0 { 1 } else { sum };
-                    let payload: Vec<u8> = if sum == 1 || msg_id.is_empty() || seq_num >= sum {
-                        frame.payload.clone().unwrap_or_default()
-                    } else {
-                        let entry = frag_cache.entry(msg_id.clone())
-                            .or_insert_with(|| (vec![None; sum], Instant::now()));
-                        if entry.0.len() != sum { *entry = (vec![None; sum], Instant::now()); }
-                        entry.0[seq_num] = frame.payload.clone();
-                        if entry.0.iter().all(|s| s.is_some()) {
-                            let full: Vec<u8> = entry.0.iter()
-                                .flat_map(|s| s.as_deref().unwrap_or(&[]))
-                                .copied().collect();
-                            frag_cache.remove(&msg_id);
-                            full
-                        } else { continue; }
-                    };
+                                // CONTROL frame
+                                if frame.method == 0 {
+                                    if frame.header_value("type") == "pong" {
+                                        if let Some(p) = &frame.payload {
+                                            if let Ok(cfg) = serde_json::from_slice::<WsClientConfig>(p) {
+                                                if let Some(secs) = cfg.ping_interval {
+                                                    let secs = secs.max(10);
+                                                    if secs != ping_secs {
+                                                        ping_secs = secs;
+                                                        hb_interval = tokio::time::interval(Duration::from_secs(ping_secs));
+                                                        tracing::info!("Lark: ping_interval → {ping_secs}s");
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    continue;
+                                }
 
-                    if msg_type != "event" { continue; }
+                                // DATA frame
+                                let msg_type = frame.header_value("type").to_string();
+                                let msg_id   = frame.header_value("message_id").to_string();
+                                let sum      = frame.header_value("sum").parse::<usize>().unwrap_or(1);
+                                let seq_num  = frame.header_value("seq").parse::<usize>().unwrap_or(0);
 
-                    let event: LarkEvent = match serde_json::from_slice(&payload) {
-                        Ok(e) => e,
-                        Err(e) => { tracing::error!("Lark: event JSON: {e}"); continue; }
-                    };
-                    if event.header.event_type != "im.message.receive_v1" { continue; }
+                                // ACK immediately (Feishu requires within 3 s)
+                                {
+                                    let mut ack = frame.clone();
+                                    ack.payload = Some(br#"{"code":200,"headers":{},"data":[]}"#.to_vec());
+                                    ack.headers.push(PbHeader { key: "biz_rt".into(), value: "0".into() });
+                                    let _ = write.send(WsMsg::Binary(ack.encode_to_vec())).await;
+                                }
 
-                    let recv: MsgReceivePayload = match serde_json::from_value(event.event) {
-                        Ok(r) => r,
-                        Err(e) => { tracing::error!("Lark: payload parse: {e}"); continue; }
-                    };
+                                // Fragment reassembly
+                                let sum = if sum == 0 { 1 } else { sum };
+                                let payload: Vec<u8> = if sum == 1 || msg_id.is_empty() || seq_num >= sum {
+                                    frame.payload.clone().unwrap_or_default()
+                                } else {
+                                    let entry = frag_cache.entry(msg_id.clone())
+                                        .or_insert_with(|| (vec![None; sum], Instant::now()));
+                                    if entry.0.len() != sum { *entry = (vec![None; sum], Instant::now()); }
+                                    entry.0[seq_num] = frame.payload.clone();
+                                    if entry.0.iter().all(|s| s.is_some()) {
+                                        let full: Vec<u8> = entry.0.iter()
+                                            .flat_map(|s| s.as_deref().unwrap_or(&[]))
+                                            .copied().collect();
+                                        frag_cache.remove(&msg_id);
+                                        full
+                                    } else { continue; }
+                                };
 
-                    if recv.sender.sender_type == "app" || recv.sender.sender_type == "bot" { continue; }
+                                if msg_type != "event" { continue; }
 
-                    let sender_open_id = recv.sender.sender_id.open_id.as_deref().unwrap_or("");
-                    if !self.is_user_allowed(sender_open_id) {
-                        tracing::warn!("Lark WS: ignoring {sender_open_id} (not in allowed_users)");
-                        continue;
-                    }
+                                let event: LarkEvent = match serde_json::from_slice(&payload) {
+                                    Ok(e) => e,
+                                    Err(e) => { tracing::error!("Lark: event JSON: {e}"); continue; }
+                                };
+                                if event.header.event_type != "im.message.receive_v1" { continue; }
 
-                    let lark_msg = &recv.message;
+                                let recv: MsgReceivePayload = match serde_json::from_value(event.event) {
+                                    Ok(r) => r,
+                                    Err(e) => { tracing::error!("Lark: payload parse: {e}"); continue; }
+                                };
 
-                    // Dedup
-                    {
-                        let now = Instant::now();
-                        let mut seen = self.ws_seen_ids.write().await;
-                        // GC
-                        seen.retain(|_, t| now.duration_since(*t) < Duration::from_secs(30 * 60));
-                        if seen.contains_key(&lark_msg.message_id) {
-                            tracing::debug!("Lark WS: dup {}", lark_msg.message_id);
-                            continue;
-                        }
-                        seen.insert(lark_msg.message_id.clone(), now);
-                    }
+                                if recv.sender.sender_type == "app" || recv.sender.sender_type == "bot" { continue; }
 
-                    // Decode content by type (mirrors clawdbot-feishu parsing)
-                    let text = match lark_msg.message_type.as_str() {
-                        "text" => {
-                            let v: serde_json::Value = match serde_json::from_str(&lark_msg.content) {
-                                Ok(v) => v,
-                                Err(_) => continue,
-                            };
-                            match v.get("text").and_then(|t| t.as_str()).filter(|s| !s.is_empty()) {
-                                Some(t) => t.to_string(),
-                                None => continue,
+                                let sender_open_id = recv.sender.sender_id.open_id.as_deref().unwrap_or("");
+                                if !self.is_user_allowed(sender_open_id) {
+                                    tracing::warn!("Lark WS: ignoring {sender_open_id} (not in allowed_users)");
+                                    continue;
+                                }
+
+                                let lark_msg = &recv.message;
+
+                                // Dedup
+                                {
+                                    let now = Instant::now();
+                                    let mut seen = self.ws_seen_ids.write().await;
+                                    // GC
+                                    seen.retain(|_, t| now.duration_since(*t) < Duration::from_secs(30 * 60));
+                                    if seen.contains_key(&lark_msg.message_id) {
+                                        tracing::debug!("Lark WS: dup {}", lark_msg.message_id);
+                                        continue;
+                                    }
+                                    seen.insert(lark_msg.message_id.clone(), now);
+                                }
+
+                                // Decode content by type (mirrors clawdbot-feishu parsing)
+                                let text = match lark_msg.message_type.as_str() {
+                                    "text" => {
+                                        let v: serde_json::Value = match serde_json::from_str(&lark_msg.content) {
+                                            Ok(v) => v,
+                                            Err(_) => continue,
+                                        };
+                                        match v.get("text").and_then(|t| t.as_str()).filter(|s| !s.is_empty()) {
+                                            Some(t) => t.to_string(),
+                                            None => continue,
+                                        }
+                                    }
+                                    "post" => match parse_post_content(&lark_msg.content) {
+                                        Some(t) => t,
+                                        None => continue,
+                                    },
+                                    _ => { tracing::debug!("Lark WS: skipping unsupported type '{}'", lark_msg.message_type); continue; }
+                                };
+
+                                // Strip @_user_N placeholders
+                                let text = strip_at_placeholders(&text);
+                                let text = text.trim().to_string();
+                                if text.is_empty() { continue; }
+
+                                // Group-chat: only respond when explicitly @-mentioned
+                                if lark_msg.chat_type == "group" && !should_respond_in_group(&lark_msg.mentions) {
+                                    continue;
+                                }
+
+                                let channel_msg = ChannelMessage {
+                                    id: Uuid::new_v4().to_string(),
+                                    sender: lark_msg.chat_id.clone(),
+                                    reply_target: lark_msg.chat_id.clone(),
+                                    content: text,
+                                    channel: "lark".to_string(),
+                                    timestamp: std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs(),
+                                                        parts: vec![],
+            };
+
+                                tracing::debug!("Lark WS: message in {}", lark_msg.chat_id);
+                                if tx.send(channel_msg).await.is_err() { break; }
                             }
                         }
-                        "post" => match parse_post_content(&lark_msg.content) {
-                            Some(t) => t,
-                            None => continue,
-                        },
-                        _ => { tracing::debug!("Lark WS: skipping unsupported type '{}'", lark_msg.message_type); continue; }
-                    };
-
-                    // Strip @_user_N placeholders
-                    let text = strip_at_placeholders(&text);
-                    let text = text.trim().to_string();
-                    if text.is_empty() { continue; }
-
-                    // Group-chat: only respond when explicitly @-mentioned
-                    if lark_msg.chat_type == "group" && !should_respond_in_group(&lark_msg.mentions) {
-                        continue;
-                    }
-
-                    let channel_msg = ChannelMessage {
-                        id: Uuid::new_v4().to_string(),
-                        sender: lark_msg.chat_id.clone(),
-                        reply_target: lark_msg.chat_id.clone(),
-                        content: text,
-                        channel: "lark".to_string(),
-                        timestamp: std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs(),
-                    };
-
-                    tracing::debug!("Lark WS: message in {}", lark_msg.chat_id);
-                    if tx.send(channel_msg).await.is_err() { break; }
-                }
-            }
         }
         Ok(())
     }
@@ -618,6 +619,7 @@ impl LarkChannel {
             content: text,
             channel: "lark".to_string(),
             timestamp,
+            parts: vec![],
         });
 
         messages

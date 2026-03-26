@@ -173,7 +173,8 @@ impl Observer for PrometheusObserver {
             | ObserverEvent::MissionCheckpointProgress { .. }
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. } => {}
+            | ObserverEvent::MissionTerminated { .. }
+            | ObserverEvent::ImageIngress(_) => {}
             ObserverEvent::ToolCall {
                 tool,
                 duration,
