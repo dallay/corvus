@@ -4069,7 +4069,10 @@ mod tests {
         let mut config = make_multimodal_test_config("telegram");
         config.multimodal.vision_model_hint = None;
         let err = resolve_image_route(&config).unwrap_err();
-        assert!(matches!(err, media::ImageRejectionReason::MissingVisionRoute));
+        assert!(matches!(
+            err,
+            media::ImageRejectionReason::MissingVisionRoute
+        ));
     }
 
     #[test]
@@ -4077,7 +4080,10 @@ mod tests {
         let mut config = make_multimodal_test_config("telegram");
         config.multimodal.vision_model_hint = Some("  ".into());
         let err = resolve_image_route(&config).unwrap_err();
-        assert!(matches!(err, media::ImageRejectionReason::MissingVisionRoute));
+        assert!(matches!(
+            err,
+            media::ImageRejectionReason::MissingVisionRoute
+        ));
     }
 
     #[test]
@@ -4085,7 +4091,10 @@ mod tests {
         let mut config = make_multimodal_test_config("telegram");
         config.multimodal.vision_model_hint = Some("nonexistent".into());
         let err = resolve_image_route(&config).unwrap_err();
-        assert!(matches!(err, media::ImageRejectionReason::MissingVisionRoute));
+        assert!(matches!(
+            err,
+            media::ImageRejectionReason::MissingVisionRoute
+        ));
     }
 
     #[test]
