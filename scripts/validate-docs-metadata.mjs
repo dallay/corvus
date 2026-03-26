@@ -167,8 +167,8 @@ function collectReferencedSlugs() {
     const contents = readFileSync(filePath, "utf8");
     const fileDirectory = path.dirname(filePath);
 
-    for (const match of contents.matchAll(/\[[^\]]+\]\(([^)#]+)(?:#[^)]+)?\)/g)) {
-      const target = match[1].trim();
+    for (const match of contents.matchAll(/\[[^\]]*\]\(([^)]*)\)/g)) {
+      const target = match[1].split("#")[0].trim();
 
       if (!target || target.startsWith("http://") || target.startsWith("https://") || target.startsWith("mailto:")) {
         continue;
