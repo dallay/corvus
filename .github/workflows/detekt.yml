@@ -27,7 +27,7 @@ name: Scan with Detekt
       - "clients/androidApp/**"
       - "modules/agent-core-kmp/**"
       - "gradle/**"
-      - "*.gradle.kts"
+      - "**/*.gradle.kts"
       - "settings.gradle.kts"
       - ".github/workflows/detekt.yml"
   pull_request:
@@ -37,7 +37,7 @@ name: Scan with Detekt
       - "clients/androidApp/**"
       - "modules/agent-core-kmp/**"
       - "gradle/**"
-      - "*.gradle.kts"
+      - "**/*.gradle.kts"
       - "settings.gradle.kts"
       - ".github/workflows/detekt.yml"
   schedule:
