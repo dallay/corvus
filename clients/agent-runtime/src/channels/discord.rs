@@ -57,77 +57,13 @@ impl DiscordChannel {
         attachment_url: &str,
         declared_mime: Option<&str>,
     ) -> Result<media::StagedImage, media::ImageRejectionReason> {
-        // 1. GET the attachment URL (Discord CDN URLs are pre-authenticated)
         let dl_resp = self.client.get(attachment_url).send().await.map_err(|e| {
             let sanitized = format!("{e}").replace(attachment_url, "[CDN_URL]");
             tracing::warn!("Discord image download failed: {sanitized}");
             media::ImageRejectionReason::FetchFailed
         })?;
 
-        if !dl_resp.status().is_success() {
-            tracing::warn!("Discord image download HTTP {}", dl_resp.status());
-            return Err(media::ImageRejectionReason::FetchFailed);
-        }
-
-        // 2. Early reject via Content-Length
-        if let Some(cl) = dl_resp.content_length() {
-            media::validate_size(cl, media::MAX_IMAGE_BYTES)?;
-        }
-
-        // 3. Stream bytes with per-chunk size validation
-        let mut bytes = Vec::new();
-        let mut stream = dl_resp.bytes_stream();
-        while let Some(chunk_result) = stream.next().await {
-            let chunk = chunk_result.map_err(|e| {
-                let sanitized = format!("{e}").replace(attachment_url, "[CDN_URL]");
-                tracing::warn!("Discord image download stream read error: {sanitized}");
-                media::ImageRejectionReason::FetchFailed
-            })?;
-            bytes.extend_from_slice(&chunk);
-            media::validate_size(bytes.len() as u64, media::MAX_IMAGE_BYTES)?;
-        }
-        let byte_len = bytes.len() as u64;
-
-        // 4. Validate MIME via magic-byte sniffing
-        let mime = media::validate_mime(declared_mime, &bytes)?;
-
-        // 5. Compute SHA-256 hash
-        use sha2::Digest;
-        let sha256 = {
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(&bytes);
-            hex::encode(hasher.finalize())
-        };
-
-        // 6. Write to temp file
-        let ext = match mime {
-            media::AllowedImageMime::Jpeg => "jpg",
-            media::AllowedImageMime::Png => "png",
-            media::AllowedImageMime::Webp => "webp",
-        };
-        let nonce = uuid::Uuid::new_v4().simple().to_string();
-        let temp_path = std::env::temp_dir().join(format!(
-            "corvus-dc-img-{}-{}.{ext}",
-            &sha256[..16],
-            &nonce[..8]
-        ));
-
-        tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
-            tracing::warn!(
-                "Failed to stage Discord image to {}: {e}",
-                temp_path.display()
-            );
-            media::ImageRejectionReason::FetchFailed
-        })?;
-
-        Ok(media::StagedImage {
-            sha256,
-            mime_type: mime,
-            byte_len,
-            temp_path,
-            transport_form: media::ImageTransportForm::InlineBytes,
-            channel_origin: "discord".to_string(),
-        })
+        media::stream_validate_and_stage(dl_resp, declared_mime, "dc", attachment_url).await
     }
 }
 

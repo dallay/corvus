@@ -1,6 +1,8 @@
 use std::fmt;
 use std::path::PathBuf;
 
+use futures_util::StreamExt;
+
 /// Maximum image payload size (10 MiB).
 pub const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 
@@ -159,6 +161,91 @@ pub fn validate_image_count(count: usize) -> Result<(), ImageRejectionReason> {
     } else {
         Ok(())
     }
+}
+
+/// Shared post-HTTP-response flow for image staging.
+///
+/// Takes an already-sent `reqwest::Response` and:
+/// 1. Checks HTTP status
+/// 2. Early-rejects via Content-Length
+/// 3. Streams bytes with per-chunk size validation
+/// 4. Validates MIME via magic-byte sniffing
+/// 5. Computes SHA-256 hash
+/// 6. Writes to a temp file with `channel_prefix` and a UUID nonce
+///
+/// Each channel still performs its own HTTP request (different auth).
+/// This helper only consumes the `Response`.
+pub async fn stream_validate_and_stage(
+    response: reqwest::Response,
+    declared_mime: Option<&str>,
+    channel_prefix: &str,
+    sanitize_url: &str,
+) -> Result<StagedImage, ImageRejectionReason> {
+    // 1. Check HTTP status
+    if !response.status().is_success() {
+        tracing::warn!("{channel_prefix} image download HTTP {}", response.status());
+        return Err(ImageRejectionReason::FetchFailed);
+    }
+
+    // 2. Early reject via Content-Length
+    if let Some(cl) = response.content_length() {
+        validate_size(cl, MAX_IMAGE_BYTES)?;
+    }
+
+    // 3. Stream bytes with per-chunk size validation
+    let mut bytes = Vec::new();
+    let mut stream = response.bytes_stream();
+    while let Some(chunk_result) = stream.next().await {
+        let chunk = chunk_result.map_err(|e| {
+            let sanitized = format!("{e}").replace(sanitize_url, "[URL]");
+            tracing::warn!("{channel_prefix} image download stream read error: {sanitized}");
+            ImageRejectionReason::FetchFailed
+        })?;
+        bytes.extend_from_slice(&chunk);
+        validate_size(bytes.len() as u64, MAX_IMAGE_BYTES)?;
+    }
+    let byte_len = bytes.len() as u64;
+
+    // 4. Validate MIME via magic-byte sniffing
+    let mime = validate_mime(declared_mime, &bytes)?;
+
+    // 5. Compute SHA-256 hash
+    use sha2::Digest;
+    let sha256 = {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&bytes);
+        hex::encode(hasher.finalize())
+    };
+
+    // 6. Write to temp file with channel prefix and nonce
+    let ext = match mime {
+        AllowedImageMime::Jpeg => "jpg",
+        AllowedImageMime::Png => "png",
+        AllowedImageMime::Webp => "webp",
+    };
+    let nonce = uuid::Uuid::new_v4().simple().to_string();
+    let temp_path = std::env::temp_dir().join(format!(
+        "corvus-{channel_prefix}-img-{}-{}.{ext}",
+        &sha256[..16],
+        &nonce[..8]
+    ));
+
+    tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
+        tracing::warn!(
+            "Failed to stage {channel_prefix} image to {}: {e}",
+            temp_path.display()
+        );
+        ImageRejectionReason::FetchFailed
+    })?;
+
+    Ok(StagedImage {
+        sha256,
+        mime_type: mime,
+        byte_len,
+        temp_path,
+        transport_form: ImageTransportForm::InlineBytes,
+        channel_origin: channel_prefix.to_string(),
+    })
 }
 
 #[cfg(test)]
@@ -359,5 +446,130 @@ mod tests {
     fn constants_match_design() {
         assert_eq!(MAX_IMAGE_BYTES, 10 * 1024 * 1024);
         assert_eq!(MAX_IMAGES_PER_TURN, 1);
+    }
+
+    // ── stream_validate_and_stage ─────────────────────────────
+
+    /// Build a mock HTTP response with the given status, body, and
+    /// optional Content-Type header.
+    fn mock_response(status: u16, body: &[u8], content_type: Option<&str>) -> reqwest::Response {
+        let mut builder = http::Response::builder().status(status);
+        if let Some(ct) = content_type {
+            builder = builder.header("content-type", ct);
+        }
+        let resp = builder
+            .body(body.to_vec())
+            .expect("failed to build mock response");
+        reqwest::Response::from(resp)
+    }
+
+    #[tokio::test]
+    async fn stage_valid_jpeg_succeeds() {
+        // Minimal JPEG: FF D8 FF + padding to be a real-ish payload
+        let mut body = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        body.extend_from_slice(&[0u8; 100]);
+
+        let resp = mock_response(200, &body, Some("image/jpeg"));
+        let result = stream_validate_and_stage(
+            resp,
+            Some("image/jpeg"),
+            "test",
+            "https://example.com/img.jpg",
+        )
+        .await;
+
+        let staged = result.expect("should succeed for valid JPEG");
+        assert_eq!(staged.mime_type, AllowedImageMime::Jpeg);
+        assert_eq!(staged.byte_len, body.len() as u64);
+        assert_eq!(staged.channel_origin, "test");
+        assert!(staged.temp_path.exists());
+        assert!(staged
+            .temp_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("corvus-test-img-"));
+        assert!(staged.temp_path.extension().unwrap().to_str().unwrap() == "jpg");
+        // Verify SHA-256 is a 64-char hex string
+        assert_eq!(staged.sha256.len(), 64);
+        assert!(staged.sha256.chars().all(|c| c.is_ascii_hexdigit()));
+        staged.cleanup();
+    }
+
+    #[tokio::test]
+    async fn stage_valid_png_succeeds() {
+        let mut body = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        body.extend_from_slice(&[0u8; 50]);
+
+        let resp = mock_response(200, &body, Some("image/png"));
+        let result = stream_validate_and_stage(resp, Some("image/png"), "ch", "http://x").await;
+
+        let staged = result.expect("should succeed for valid PNG");
+        assert_eq!(staged.mime_type, AllowedImageMime::Png);
+        assert_eq!(staged.channel_origin, "ch");
+        assert!(staged.temp_path.extension().unwrap().to_str().unwrap() == "png");
+        staged.cleanup();
+    }
+
+    #[tokio::test]
+    async fn stage_rejects_non_success_status() {
+        let resp = mock_response(404, b"not found", None);
+        let result = stream_validate_and_stage(resp, None, "test", "http://x").await;
+        assert!(
+            matches!(result, Err(ImageRejectionReason::FetchFailed)),
+            "expected FetchFailed, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_rejects_unknown_mime() {
+        // GIF magic bytes — not in the allowed list
+        let body = b"GIF89a\x00\x00\x00\x00";
+        let resp = mock_response(200, body, Some("image/gif"));
+        let result = stream_validate_and_stage(resp, Some("image/gif"), "test", "http://x").await;
+        assert!(
+            matches!(result, Err(ImageRejectionReason::MimeRejected)),
+            "expected MimeRejected, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_rejects_oversize_body() {
+        // Body exceeds MAX_IMAGE_BYTES — streaming validation
+        // must catch it even without a Content-Length header.
+        let mut body = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        #[allow(clippy::cast_possible_truncation)]
+        body.resize(MAX_IMAGE_BYTES as usize + 1, 0x00);
+
+        let resp = mock_response(200, &body, Some("image/jpeg"));
+        let result = stream_validate_and_stage(resp, None, "test", "http://x").await;
+        assert!(
+            matches!(result, Err(ImageRejectionReason::Oversize)),
+            "expected Oversize, got {result:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn stage_channel_prefix_in_filename() {
+        let mut body = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        body.extend_from_slice(&[0u8; 20]);
+
+        let resp = mock_response(200, &body, None);
+        let result = stream_validate_and_stage(resp, Some("image/jpeg"), "wa", "http://x").await;
+
+        let staged = result.expect("should succeed");
+        let fname = staged
+            .temp_path
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            fname.starts_with("corvus-wa-img-"),
+            "filename should contain channel prefix: {fname}"
+        );
+        staged.cleanup();
     }
 }
