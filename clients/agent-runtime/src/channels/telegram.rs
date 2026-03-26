@@ -4,8 +4,8 @@ use crate::config::{Config, StreamMode};
 use crate::security::pairing::PairingGuard;
 use anyhow::Context;
 use async_trait::async_trait;
-use futures_util::StreamExt;
 use directories::UserDirs;
+use futures_util::StreamExt;
 use parking_lot::Mutex;
 use reqwest::multipart::{Form, Part};
 use std::fs;
@@ -1576,10 +1576,7 @@ impl TelegramChannel {
         // 2. Download bytes with streaming size limit
         let download_url = self.file_download_url(file_path);
         let dl_resp = self.client.get(&download_url).send().await.map_err(|e| {
-            tracing::warn!(
-                "Telegram file download failed: {}",
-                self.sanitize_error(&e)
-            );
+            tracing::warn!("Telegram file download failed: {}", self.sanitize_error(&e));
             media::ImageRejectionReason::FetchFailed
         })?;
 

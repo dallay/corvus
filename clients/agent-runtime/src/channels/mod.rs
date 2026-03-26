@@ -3988,7 +3988,10 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].outcome, ImageIngressOutcome::Rejected);
-        assert_eq!(events[0].reason, Some(crate::observability::ImageIngressReason::Disabled));
+        assert_eq!(
+            events[0].reason,
+            Some(crate::observability::ImageIngressReason::Disabled)
+        );
     }
 
     #[tokio::test]
@@ -4043,7 +4046,10 @@ mod tests {
             .unwrap_or_else(|e| e.into_inner());
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].outcome, ImageIngressOutcome::Rejected);
-        assert_eq!(events[0].reason, Some(crate::observability::ImageIngressReason::ChannelNotAllowed));
+        assert_eq!(
+            events[0].reason,
+            Some(crate::observability::ImageIngressReason::ChannelNotAllowed)
+        );
     }
 
     // ── StagedImageGuard (Task 1.5) ─────────────────────────

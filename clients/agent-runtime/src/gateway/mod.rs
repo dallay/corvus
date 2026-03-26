@@ -2010,9 +2010,7 @@ async fn handle_whatsapp_message(
     let app_secret = match state.whatsapp_app_secret {
         Some(ref s) => s,
         None => {
-            tracing::warn!(
-                "WhatsApp webhook rejected: app secret not configured"
-            );
+            tracing::warn!("WhatsApp webhook rejected: app secret not configured");
             return (
                 StatusCode::UNAUTHORIZED,
                 Json(serde_json::json!({

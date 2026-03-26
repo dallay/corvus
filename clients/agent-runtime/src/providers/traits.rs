@@ -327,9 +327,7 @@ pub trait Provider: Send + Sync {
         // Fail-closed: default implementation cannot handle images.
         // Providers that support images must override chat().
         if !request.images.is_empty() {
-            anyhow::bail!(
-                "Provider does not support image input (no chat() override)"
-            );
+            anyhow::bail!("Provider does not support image input (no chat() override)");
         }
 
         // If tools are provided but provider doesn't support native tools,
