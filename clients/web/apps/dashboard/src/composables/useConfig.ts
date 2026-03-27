@@ -660,8 +660,13 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
   initQuickPair();
 
   function buildSaveSectionPayload(section: ConfigSection): Record<string, unknown> | null {
+    const snapshot = initialConfig.value;
+    if (!snapshot) {
+      errorMessage.value = t("form.connectBeforeSave");
+      return null;
+    }
     try {
-      return buildPayloadForSection(section, form, initialConfig.value!) as Record<string, unknown>;
+      return buildPayloadForSection(section, form, snapshot) as Record<string, unknown>;
     } catch (error) {
       if (error instanceof Error && error.message === "empty_webhook_secret") {
         errorMessage.value = t("auth.emptyWebhookSecret");
