@@ -1,11 +1,18 @@
+use crate::channels::media::{ImageTransportForm, StagedImage};
 use crate::providers::traits::{
     ChatMessage, ChatRequest as ProviderChatRequest, ChatResponse as ProviderChatResponse,
-    Provider, ToolCall as ProviderToolCall,
+    Provider, ProviderCapabilities, ToolCall as ProviderToolCall,
 };
 use crate::tools::ToolSpec;
 use async_trait::async_trait;
+use base64::Engine;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+
+/// Encode bytes as standard base64.
+fn base64_encode(bytes: &[u8]) -> String {
+    base64::engine::general_purpose::STANDARD.encode(bytes)
+}
 
 pub struct AnthropicProvider {
     credential: Option<String>,
@@ -84,6 +91,16 @@ enum NativeContentOut {
         #[serde(skip_serializing_if = "Option::is_none")]
         cache_control: Option<CacheControl>,
     },
+    #[serde(rename = "image")]
+    Image { source: ImageSource },
+}
+
+#[derive(Debug, Serialize)]
+struct ImageSource {
+    #[serde(rename = "type")]
+    source_type: String,
+    media_type: String,
+    data: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -206,7 +223,7 @@ impl AnthropicProvider {
                     | NativeContentOut::ToolResult { cache_control, .. } => {
                         *cache_control = Some(CacheControl::ephemeral());
                     }
-                    NativeContentOut::ToolUse { .. } => {}
+                    NativeContentOut::ToolUse { .. } | NativeContentOut::Image { .. } => {}
                 }
             }
         }
@@ -379,6 +396,56 @@ impl AnthropicProvider {
             .ok_or_else(|| anyhow::anyhow!("No response from Anthropic"))
     }
 
+    async fn attach_images_to_last_user_message(
+        source_messages: &[ChatMessage],
+        native_messages: &mut [NativeMessage],
+        images: &[StagedImage],
+    ) -> anyhow::Result<()> {
+        if images.is_empty() {
+            return Ok(());
+        }
+
+        let last_source_message = source_messages
+            .iter()
+            .rfind(|message| message.role != "system")
+            .ok_or_else(|| {
+                anyhow::anyhow!("Anthropic image turns require at least one non-system message")
+            })?;
+
+        if last_source_message.role != "user" {
+            anyhow::bail!(
+                "Anthropic image turns require the last non-system message to be a user message"
+            );
+        }
+
+        let last_user = native_messages
+            .iter_mut()
+            .rfind(|message| {
+                message.role == "user"
+                    && matches!(
+                        message.content.first(),
+                        Some(NativeContentOut::Text { .. } | NativeContentOut::Image { .. })
+                    )
+            })
+            .ok_or_else(|| anyhow::anyhow!("Anthropic image turns require a user message block"))?;
+
+        for image in images {
+            let bytes = tokio::fs::read(&image.temp_path)
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
+            let b64 = base64_encode(&bytes);
+            last_user.content.push(NativeContentOut::Image {
+                source: ImageSource {
+                    source_type: "base64".to_string(),
+                    media_type: image.mime_type.as_str().to_string(),
+                    data: b64,
+                },
+            });
+        }
+
+        Ok(())
+    }
+
     fn parse_native_response(response: NativeChatResponse) -> ProviderChatResponse {
         let mut text_parts = Vec::new();
         let mut tool_calls = Vec::new();
@@ -480,6 +547,10 @@ impl Provider for AnthropicProvider {
 
         let (system_prompt, mut messages) = Self::convert_messages(request.messages);
 
+        // Inject image content blocks into the last user message when images are present.
+        Self::attach_images_to_last_user_message(request.messages, &mut messages, request.images)
+            .await?;
+
         // Auto-cache last message if conversation is long
         if Self::should_cache_conversation(request.messages) {
             Self::apply_cache_to_last_message(&mut messages);
@@ -508,6 +579,14 @@ impl Provider for AnthropicProvider {
 
         let native_response: NativeChatResponse = response.json().await?;
         Ok(Self::parse_native_response(native_response))
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        ProviderCapabilities {
+            native_tool_calling: true,
+            image_input: true,
+            image_transport_forms: vec![ImageTransportForm::InlineBytes],
+        }
     }
 
     fn supports_native_tools(&self) -> bool {
@@ -1127,5 +1206,220 @@ mod tests {
         let provider = AnthropicProvider::new(None);
         let result = provider.warmup().await;
         assert!(result.is_ok());
+    }
+
+    // --- Vision capability tests (Task 2.5) ---
+
+    #[test]
+    fn capabilities_declares_image_support() {
+        use crate::channels::media::ImageTransportForm;
+        let provider = AnthropicProvider::new(Some("test-key"));
+        let caps = provider.capabilities();
+        assert!(caps.image_input);
+        assert!(caps.native_tool_calling);
+        assert_eq!(
+            caps.image_transport_forms,
+            vec![ImageTransportForm::InlineBytes]
+        );
+    }
+
+    #[test]
+    fn supports_image_input_returns_true() {
+        let provider = AnthropicProvider::new(Some("test-key"));
+        assert!(provider.capabilities().supports_image_input());
+    }
+
+    #[test]
+    fn image_content_block_serializes_to_anthropic_format() {
+        let content = NativeContentOut::Image {
+            source: ImageSource {
+                source_type: "base64".to_string(),
+                media_type: "image/png".to_string(),
+                data: "aW1hZ2VkYXRh".to_string(),
+            },
+        };
+        let value = serde_json::to_value(&content).unwrap();
+        assert_eq!(value["type"], "image");
+        assert_eq!(value["source"]["type"], "base64");
+        assert_eq!(value["source"]["media_type"], "image/png");
+        assert_eq!(value["source"]["data"], "aW1hZ2VkYXRh");
+    }
+
+    #[test]
+    fn image_content_block_no_data_url_prefix() {
+        let content = NativeContentOut::Image {
+            source: ImageSource {
+                source_type: "base64".to_string(),
+                media_type: "image/jpeg".to_string(),
+                data: "/9j/4AAQ".to_string(),
+            },
+        };
+        let json = serde_json::to_string(&content).unwrap();
+        assert!(!json.contains("data:"));
+        assert!(!json.contains(";base64,"));
+    }
+
+    #[test]
+    fn empty_images_produces_no_image_blocks() {
+        let messages = vec![ChatMessage {
+            role: "user".to_string(),
+            content: "Hello".to_string(),
+            image_metadata: None,
+        }];
+        let (_, native) = AnthropicProvider::convert_messages(&messages);
+        assert_eq!(native.len(), 1);
+        assert_eq!(native[0].content.len(), 1);
+        match &native[0].content[0] {
+            NativeContentOut::Text { text, .. } => assert_eq!(text, "Hello"),
+            _ => panic!("Expected Text variant for text-only message"),
+        }
+    }
+
+    #[test]
+    fn apply_cache_to_last_message_handles_image_variant() {
+        let mut messages = vec![NativeMessage {
+            role: "user".to_string(),
+            content: vec![NativeContentOut::Image {
+                source: ImageSource {
+                    source_type: "base64".to_string(),
+                    media_type: "image/jpeg".to_string(),
+                    data: "abc123".to_string(),
+                },
+            }],
+        }];
+
+        // Should not panic — Image variant is a no-op for cache control.
+        AnthropicProvider::apply_cache_to_last_message(&mut messages);
+
+        match &messages[0].content[0] {
+            NativeContentOut::Image { source } => {
+                assert_eq!(source.media_type, "image/jpeg");
+            }
+            _ => panic!("Expected Image variant"),
+        }
+    }
+
+    // --- Integration-style test (Task 2.6) ---
+
+    #[tokio::test]
+    async fn image_blocks_attached_to_last_user_message() {
+        use crate::channels::media::{AllowedImageMime, ImageTransportForm, StagedImage};
+        use std::io::Write;
+
+        // Create a temp file with known bytes.
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let image_bytes = b"\x89PNG\r\n\x1a\nfake-png-data";
+        tmp.write_all(image_bytes).unwrap();
+        tmp.flush().unwrap();
+
+        let staged = StagedImage {
+            sha256: "abc123".to_string(),
+            mime_type: AllowedImageMime::Png,
+            byte_len: image_bytes.len() as u64,
+            temp_path: tmp.path().to_path_buf(),
+            transport_form: ImageTransportForm::InlineBytes,
+            channel_origin: "test".to_string(),
+        };
+
+        // Build multi-turn messages: two user messages.
+        let messages = vec![
+            ChatMessage {
+                role: "user".to_string(),
+                content: "First message".to_string(),
+                image_metadata: None,
+            },
+            ChatMessage {
+                role: "assistant".to_string(),
+                content: "Response".to_string(),
+                image_metadata: None,
+            },
+            ChatMessage {
+                role: "user".to_string(),
+                content: "Describe this image".to_string(),
+                image_metadata: None,
+            },
+        ];
+
+        let (_, mut native_messages) = AnthropicProvider::convert_messages(&messages);
+
+        let images = [staged];
+        AnthropicProvider::attach_images_to_last_user_message(
+            &messages,
+            &mut native_messages,
+            &images,
+        )
+        .await
+        .unwrap();
+
+        // First user message: text only.
+        assert_eq!(native_messages[0].content.len(), 1);
+        match &native_messages[0].content[0] {
+            NativeContentOut::Text { text, .. } => assert_eq!(text, "First message"),
+            _ => panic!("Expected Text in first user message"),
+        }
+
+        // Last user message (index 2): text + image.
+        assert_eq!(native_messages[2].role, "user");
+        assert_eq!(native_messages[2].content.len(), 2);
+        match &native_messages[2].content[0] {
+            NativeContentOut::Text { text, .. } => assert_eq!(text, "Describe this image"),
+            _ => panic!("Expected Text block first"),
+        }
+        match &native_messages[2].content[1] {
+            NativeContentOut::Image { source } => {
+                assert_eq!(source.source_type, "base64");
+                assert_eq!(source.media_type, "image/png");
+                // Verify the data is base64-encoded version of our known bytes.
+                let expected_b64 = base64_encode(image_bytes);
+                assert_eq!(source.data, expected_b64);
+                // Verify no data: URL prefix.
+                assert!(!source.data.starts_with("data:"));
+            }
+            _ => panic!("Expected Image block"),
+        }
+
+        // Verify full JSON structure matches Anthropic API schema.
+        let last_msg_json = serde_json::to_value(&native_messages[2]).unwrap();
+        let content = last_msg_json["content"].as_array().unwrap();
+        assert_eq!(content[1]["type"], "image");
+        assert_eq!(content[1]["source"]["type"], "base64");
+        assert_eq!(content[1]["source"]["media_type"], "image/png");
+    }
+
+    #[tokio::test]
+    async fn image_blocks_require_final_non_system_user_message() {
+        use crate::channels::media::{AllowedImageMime, ImageTransportForm, StagedImage};
+        use std::io::Write;
+
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(b"fake-png-data").unwrap();
+        tmp.flush().unwrap();
+
+        let staged = StagedImage {
+            sha256: "abc123".to_string(),
+            mime_type: AllowedImageMime::Png,
+            byte_len: 13,
+            temp_path: tmp.path().to_path_buf(),
+            transport_form: ImageTransportForm::InlineBytes,
+            channel_origin: "test".to_string(),
+        };
+
+        let messages = vec![
+            ChatMessage::user("First message"),
+            ChatMessage::assistant("Response"),
+            ChatMessage::tool("tool output"),
+        ];
+        let (_, mut native_messages) = AnthropicProvider::convert_messages(&messages);
+
+        let err = AnthropicProvider::attach_images_to_last_user_message(
+            &messages,
+            &mut native_messages,
+            &[staged],
+        )
+        .await
+        .unwrap_err()
+        .to_string();
+
+        assert!(err.contains("last non-system message to be a user message"));
     }
 }
