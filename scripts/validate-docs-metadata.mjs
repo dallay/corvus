@@ -149,9 +149,9 @@ function extractFrontmatter(contents) {
 }
 
 function getField(frontmatter, fieldName) {
-  const regex = new RegExp(`^${fieldName}:\\s*(.+)$`, "m");
+  const regex = new RegExp(String.raw`^${fieldName}:\s*(.+)$`, "m");
   const match = frontmatter.match(regex);
-  return match ? match[1].trim().replace(/^['\"]|['\"]$/g, "") : "";
+  return match ? match[1].trim().replaceAll(/^['"]|['"]$/g, "") : "";
 }
 
 function getMetadata(filePath) {
@@ -183,6 +183,47 @@ function getRouteSlug(filePath, metadata) {
   return withoutExtension.replace(/\/index$/, "").replaceAll(path.sep, "/");
 }
 
+function isExternalOrEmpty(target) {
+  return !target || target.startsWith("http://") || target.startsWith("https://") || target.startsWith("mailto:");
+}
+
+function collectMarkdownLinkSlugs(contents, fileDirectory, referenced) {
+  for (const match of contents.matchAll(/\[[^\]]{0,500}\]\(([^)]{0,500})\)/g)) {
+    const target = match[1].split("#")[0].trim();
+
+    if (isExternalOrEmpty(target)) {
+      continue;
+    }
+
+    if (target.startsWith("/")) {
+      referenced.add(target.replace(/^\//, "").replace(/\/$/, ""));
+      continue;
+    }
+
+    const resolved = path.resolve(fileDirectory, target);
+    const candidates = [resolved, `${resolved}.md`, `${resolved}.mdx`, path.join(resolved, "index.mdx"), path.join(resolved, "index.md")];
+    const existingCandidate = candidates.find(
+      (candidate) => existsSync(candidate) && statSync(candidate).isFile(),
+    );
+
+    if (existingCandidate) {
+      const metadata = getMetadata(existingCandidate);
+      if (metadata) {
+        referenced.add(getRouteSlug(existingCandidate, metadata));
+      }
+    }
+  }
+}
+
+function collectFrontmatterLinkSlugs(contents, referenced) {
+  for (const match of contents.matchAll(/\blink:\s*([^\s]+)/g)) {
+    const target = match[1].trim().replaceAll(/^['"]|['"]$/g, "").replace(/\/$/, "");
+    if (target && !target.startsWith("http://") && !target.startsWith("https://")) {
+      referenced.add(target.replace(/^\//, ""));
+    }
+  }
+}
+
 function collectReferencedSlugs() {
   const referenced = new Set();
   const files = walk(docsRoot).filter((filePath) => !isExempt(filePath));
@@ -190,42 +231,8 @@ function collectReferencedSlugs() {
   for (const filePath of files) {
     const contents = readFileSync(filePath, "utf8");
     const fileDirectory = path.dirname(filePath);
-
-    for (const match of contents.matchAll(/\[[^\]]{0,500}\]\(([^)]{0,500})\)/g)) {
-      const target = match[1].split("#")[0].trim();
-
-      if (!target || target.startsWith("http://") || target.startsWith("https://") || target.startsWith("mailto:")) {
-        continue;
-      }
-
-      if (target.startsWith("/")) {
-        referenced.add(target.replace(/^\//, "").replace(/\/$/, ""));
-        continue;
-      }
-
-      const resolved = path.resolve(fileDirectory, target);
-      const candidates = [resolved, `${resolved}.md`, `${resolved}.mdx`, path.join(resolved, "index.mdx"), path.join(resolved, "index.md")];
-      const existingCandidate = candidates.find(
-        (candidate) => existsSync(candidate) && statSync(candidate).isFile(),
-      );
-
-      if (!existingCandidate) {
-        continue;
-      }
-
-      const metadata = getMetadata(existingCandidate);
-      if (!metadata) {
-        continue;
-      }
-      referenced.add(getRouteSlug(existingCandidate, metadata));
-    }
-
-    for (const match of contents.matchAll(/\blink:\s*([^\s]+)/g)) {
-      const target = match[1].trim().replace(/^['"]|['"]$/g, "").replace(/\/$/, "");
-      if (target && !target.startsWith("http://") && !target.startsWith("https://")) {
-        referenced.add(target.replace(/^\//, ""));
-      }
-    }
+    collectMarkdownLinkSlugs(contents, fileDirectory, referenced);
+    collectFrontmatterLinkSlugs(contents, referenced);
   }
 
   return referenced;
@@ -326,6 +333,43 @@ function validateOrphanStatus(filePath, metadata) {
   ];
 }
 
+function validateReviewDate(relativePath, lastReviewed, status, docType) {
+  const reviewedAt = new Date(`${lastReviewed}T00:00:00Z`);
+
+  if (Number.isNaN(reviewedAt.getTime())) {
+    return [`${relativePath}: invalid lastReviewed '${lastReviewed}'`];
+  }
+
+  if (reviewedAt.getTime() > Date.now()) {
+    return [`${relativePath}: lastReviewed '${lastReviewed}' is in the future`];
+  }
+
+  if (status !== "deprecated") {
+    const ageMs = Date.now() - reviewedAt.getTime();
+    const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
+    const maxReviewAgeDays = maxReviewAgeDaysByDocType[docType] ?? 90;
+    if (ageDays > maxReviewAgeDays) {
+      return [
+        `${relativePath}: lastReviewed is ${ageDays} days old, must be <= ${maxReviewAgeDays} days for docType '${docType}'`,
+      ];
+    }
+  }
+
+  return [];
+}
+
+function validateLastReviewed(relativePath, lastReviewed, status, docType) {
+  if (!lastReviewed) {
+    return [`${relativePath}: missing required field 'lastReviewed'`];
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(lastReviewed)) {
+    return validateReviewDate(relativePath, lastReviewed, status, docType);
+  }
+
+  return [`${relativePath}: invalid lastReviewed '${lastReviewed}', expected YYYY-MM-DD`];
+}
+
 function validateFile(filePath) {
   const relativePath = path.relative(repoRoot, filePath);
   const errors = [];
@@ -360,28 +404,7 @@ function validateFile(filePath) {
     );
   }
 
-  if (!lastReviewed) {
-    errors.push(`${relativePath}: missing required field 'lastReviewed'`);
-  } else if (!/^\d{4}-\d{2}-\d{2}$/.test(lastReviewed)) {
-    errors.push(`${relativePath}: invalid lastReviewed '${lastReviewed}', expected YYYY-MM-DD`);
-  } else {
-    const reviewedAt = new Date(`${lastReviewed}T00:00:00Z`);
-
-    if (Number.isNaN(reviewedAt.getTime())) {
-      errors.push(`${relativePath}: invalid lastReviewed '${lastReviewed}'`);
-    } else if (reviewedAt.getTime() > Date.now()) {
-      errors.push(`${relativePath}: lastReviewed '${lastReviewed}' is in the future`);
-    } else if (status !== "deprecated") {
-      const ageMs = Date.now() - reviewedAt.getTime();
-      const ageDays = Math.floor(ageMs / (1000 * 60 * 60 * 24));
-      const maxReviewAgeDays = maxReviewAgeDaysByDocType[docType] ?? 90;
-      if (ageDays > maxReviewAgeDays) {
-        errors.push(
-          `${relativePath}: lastReviewed is ${ageDays} days old, must be <= ${maxReviewAgeDays} days for docType '${docType}'`,
-        );
-      }
-    }
-  }
+  errors.push(...validateLastReviewed(relativePath, lastReviewed, status, docType));
 
   if (!appliesTo) {
     errors.push(`${relativePath}: missing required field 'appliesTo'`);
@@ -395,8 +418,10 @@ function validateFile(filePath) {
     );
   }
 
-  errors.push(...validateParity(filePath, metadata));
-  errors.push(...validateOrphanStatus(filePath, metadata));
+  errors.push(
+    ...validateParity(filePath, metadata),
+    ...validateOrphanStatus(filePath, metadata),
+  );
 
   return errors;
 }
