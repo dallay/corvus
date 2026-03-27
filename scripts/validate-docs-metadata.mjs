@@ -184,7 +184,13 @@ function getRouteSlug(filePath, metadata) {
 }
 
 function isExternalOrEmpty(target) {
-  return !target || target.startsWith("http://") || target.startsWith("https://") || target.startsWith("mailto:");
+  return !target || /^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(target);
+}
+
+function isWithinDocsRoot(candidate) {
+  const resolvedCandidate = path.resolve(candidate);
+  const relative = path.relative(docsRoot, resolvedCandidate);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
 }
 
 function collectMarkdownLinkSlugs(contents, fileDirectory, referenced) {
@@ -201,7 +207,8 @@ function collectMarkdownLinkSlugs(contents, fileDirectory, referenced) {
     }
 
     const resolved = path.resolve(fileDirectory, target);
-    const candidates = [resolved, `${resolved}.md`, `${resolved}.mdx`, path.join(resolved, "index.mdx"), path.join(resolved, "index.md")];
+    const candidates = [resolved, `${resolved}.md`, `${resolved}.mdx`, path.join(resolved, "index.mdx"), path.join(resolved, "index.md")]
+      .filter((candidate) => isWithinDocsRoot(candidate));
     const existingCandidate = candidates.find(
       (candidate) => existsSync(candidate) && statSync(candidate).isFile(),
     );
@@ -218,7 +225,7 @@ function collectMarkdownLinkSlugs(contents, fileDirectory, referenced) {
 function collectFrontmatterLinkSlugs(contents, referenced) {
   for (const match of contents.matchAll(/\blink:\s*([^\s]+)/g)) {
     const target = match[1].trim().replaceAll(/^['"]|['"]$/g, "").replace(/\/$/, "");
-    if (target && !target.startsWith("http://") && !target.startsWith("https://")) {
+    if (!isExternalOrEmpty(target)) {
       referenced.add(target.replace(/^\//, ""));
     }
   }

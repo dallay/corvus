@@ -783,18 +783,18 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
     }
 }
 
-/// Extract the user-visible text from a channel message, using text_projection
-/// for multimodal messages with fallback to legacy content field.
+/// Extract the user-visible text from a channel message, preferring canonical
+/// content before recomputing projection from multimodal parts.
 fn extract_user_text(msg: &traits::ChannelMessage) -> String {
-    if msg.parts.is_empty() {
+    if !msg.content.is_empty() {
         return msg.content.clone();
     }
-    let projection = msg.text_projection();
-    if projection.is_empty() {
-        msg.content.clone()
-    } else {
-        projection
+
+    if msg.parts.is_empty() {
+        return String::new();
     }
+
+    msg.text_projection()
 }
 
 /// Build memory context, auto-save conversation, and return the enriched message.

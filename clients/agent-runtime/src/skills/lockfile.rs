@@ -198,25 +198,20 @@ fn reconcile_skill_entry(
     current: &mut SkillsLockfile,
     summary: &mut RepairSummary,
 ) {
-    let current_hash = std::fs::read(skill_md)
-        .ok()
-        .map(|c| compute_content_hash(&c));
+    let bytes_opt = std::fs::read(skill_md).ok();
+    let current_hash = bytes_opt.as_ref().map(|bytes| compute_content_hash(bytes));
 
     if let Some(existing) = current.skills.get_mut(name) {
-        match std::fs::read(skill_md) {
-            Ok(bytes) => {
-                let new_hash = Some(compute_content_hash(&bytes));
-                if existing.content_hash == new_hash {
-                    summary.unchanged += 1;
-                } else {
-                    existing.content_hash = new_hash;
-                    existing.installed_at = Some(chrono::Utc::now().to_rfc3339());
-                    summary.updated += 1;
-                }
-            }
-            Err(_) => {
+        if let Some(new_hash) = current_hash {
+            if existing.content_hash == Some(new_hash.clone()) {
                 summary.unchanged += 1;
+            } else {
+                existing.content_hash = Some(new_hash);
+                existing.installed_at = Some(chrono::Utc::now().to_rfc3339());
+                summary.updated += 1;
             }
+        } else {
+            summary.unchanged += 1;
         }
     } else {
         let entry = LockEntry {

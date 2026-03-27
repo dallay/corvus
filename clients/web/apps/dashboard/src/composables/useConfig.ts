@@ -687,8 +687,9 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
       return;
     }
     if (response.status === 409) {
-      const conflict = (await response.json()) as { fields?: string[] };
-      const fields = Array.isArray(conflict.fields) ? conflict.fields.join(", ") : "";
+      const conflict = (await readJsonPayload(response)) as { fields?: string[] } | null;
+      const conflictFields = conflict?.fields;
+      const fields = Array.isArray(conflictFields) ? conflictFields.join(", ") : "";
       errorMessage.value = t("form.restartRequired", { fields });
       return;
     }

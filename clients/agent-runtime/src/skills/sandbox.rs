@@ -1,6 +1,7 @@
 //! Tool sandboxing for third-party skill tools.
 //! Restricts filesystem access to the skill's own directory.
 
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 /// Sandbox violation types.
@@ -152,9 +153,10 @@ fn check_symlink_target(path: &Path, arg: &str, skill_dir: &Path) -> Result<(), 
 fn check_existing_path(path: &Path, arg: &str, skill_dir: &Path) -> Result<(), SandboxViolation> {
     let canonical_skill = canonical_skill(skill_dir);
     let Ok(canonical) = path.canonicalize() else {
+        let path_fingerprint = fingerprint_path(arg);
         tracing::warn!(
-            "cannot canonicalize existing path '{}' — denying access",
-            arg
+            path_fingerprint = %path_fingerprint,
+            "cannot canonicalize path — denying access"
         );
         return Err(SandboxViolation::PathEscape {
             path: arg.to_string(),
@@ -175,6 +177,12 @@ fn check_existing_path(path: &Path, arg: &str, skill_dir: &Path) -> Result<(), S
         path: arg.to_string(),
         skill_dir: canonical_skill,
     })
+}
+
+fn fingerprint_path(arg: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    arg.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }
 
 /// Validate a nonexistent path by walking ancestors and checking absolute bounds.
