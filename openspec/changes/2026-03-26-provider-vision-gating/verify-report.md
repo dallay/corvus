@@ -103,12 +103,12 @@ test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; finished in 0.03s
 
 | Requirement | Status | Notes |
 |------------|--------|-------|
-| REQ-1: Provider Vision Capability Matrix | ✅ Implemented | `capabilities()` at `anthropic.rs:548-554` declares `image_input: true`, `image_transport_forms: [InlineBytes]` |
+| REQ-1: Provider Vision Capability Matrix | ✅ Implemented | `AnthropicProvider::capabilities()` declares `image_input: true`, `image_transport_forms: [InlineBytes]` |
 | REQ-2: Capability Declaration Contract | ✅ Implemented | `capabilities()` override follows contract; `supports_image_input()` returns true |
 | REQ-3: Fail-Closed Gating | ✅ Existing | No code changes — three-layer gating already in `traits.rs`, `router.rs`, `reliable.rs` |
-| REQ-4: Anthropic Image Format | ✅ Implemented | `NativeContentOut::Image` variant at `anthropic.rs:94-96`, `ImageSource` struct at `anthropic.rs:98-104`, image injection in `chat()` at `anthropic.rs:501-516` |
+| REQ-4: Anthropic Image Format | ✅ Implemented | `NativeContentOut::Image` variant, `ImageSource` struct, image injection via `attach_images_to_last_user_message()` helper called from `chat()` |
 | REQ-4: OpenAI/Gemini Format | ✅ Existing | No code changes — already implemented in `compatible.rs` and `gemini.rs` |
-| REQ-5: Error Behavior | ✅ Existing | No code changes — router rejects at `router.rs:153-158` |
+| REQ-5: Error Behavior | ✅ Existing | No code changes — router rejects at `router.rs`; `attach_images_to_last_user_message()` fails closed if last non-system message is not a user turn |
 | REQ-6: Config Integration | ✅ Existing | No code changes — `vision_model_hint` routing already in place |
 
 ---
@@ -117,9 +117,9 @@ test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; finished in 0.03s
 
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
-| ADR-1: Trait-Level Capability Declaration | ✅ Yes | `capabilities()` override at `anthropic.rs:548-554` matches design exactly |
+| ADR-1: Trait-Level Capability Declaration | ✅ Yes | `AnthropicProvider::capabilities()` override matches design exactly |
 | ADR-2: Three-Layer Fail-Closed Gating | ✅ Yes | No changes to gating layers — existing behavior preserved |
-| ADR-3: Anthropic Image Adapter Design | ✅ Yes | `NativeContentOut::Image` variant, `ImageSource` struct, `chat()` image injection, `apply_cache_to_last_message` Image arm — all match design |
+| ADR-3: Anthropic Image Adapter Design | ✅ Yes | `NativeContentOut::Image` variant, `ImageSource` struct, `attach_images_to_last_user_message()` helper + `chat()` call-site, `apply_cache_to_last_message` Image arm — all match design |
 | ADR-4: Provider Format Translation | ✅ Yes | Anthropic format `{type:"image", source:{type:"base64", media_type, data}}` matches design and Anthropic API docs |
 | ADR-5: Ollama Deferral | ✅ Yes | Not implemented; correctly deferred to Phase 3 tasks |
 
@@ -127,11 +127,11 @@ test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; finished in 0.03s
 
 | Design Table Entry | Actual | Match? |
 |---|---|---|
-| `anthropic.rs` — Add `NativeContentOut::Image` + `ImageSource` | Lines 94-104 | ✅ |
-| `anthropic.rs` — Override `capabilities()` | Lines 548-554 | ✅ |
-| `anthropic.rs` — Extend `chat()` for image injection | Lines 501-516 | ✅ |
-| `anthropic.rs` — Update `apply_cache_to_last_message` | Line 226 | ✅ |
-| `anthropic.rs` (tests) — Unit + integration tests | Lines 1175-1358 | ✅ |
+| `anthropic.rs` — Add `NativeContentOut::Image` + `ImageSource` | `NativeContentOut::Image` variant + `ImageSource` struct (lines 94-104) | ✅ |
+| `anthropic.rs` — Override `capabilities()` | `AnthropicProvider::capabilities()` (line 586) | ✅ |
+| `anthropic.rs` — Extend `chat()` for image injection | `attach_images_to_last_user_message()` helper (line 399) + call-site in `chat()` (line 553) | ✅ |
+| `anthropic.rs` — Update `apply_cache_to_last_message` | `Image` match arm (line 226) | ✅ |
+| `anthropic.rs` (tests) — Unit + integration tests | Vision tests (lines 1213-1427) | ✅ |
 
 ---
 

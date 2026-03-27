@@ -409,9 +409,7 @@ impl AnthropicProvider {
             .iter()
             .rfind(|message| message.role != "system")
             .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "Anthropic image turns require the last non-system message to be a user message"
-                )
+                anyhow::anyhow!("Anthropic image turns require at least one non-system message")
             })?;
 
         if last_source_message.role != "user" {
