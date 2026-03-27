@@ -222,6 +222,43 @@ pub struct CerebroTools {
 const MAX_MEM_SEARCH_LIMIT: usize = 100;
 const MAX_TIMELINE_ITEMS: usize = 100;
 
+/// Merge `incoming` metadata into the `"metadata"` field of `observation`.
+///
+/// - If `observation` already has a `"metadata"` object **and** `incoming` is
+///   also an object, the keys are shallow-merged.
+/// - Otherwise `incoming` replaces the existing `"metadata"` value, or is
+///   inserted when absent.
+/// - Returns an error when `observation` itself is not an object (nowhere to
+///   attach metadata).
+fn merge_metadata(observation: &mut Value, incoming: Value) -> Result<(), CerebroError> {
+    let Some(obs_obj) = observation.as_object_mut() else {
+        return Err(CerebroError::Validation(
+            "cannot merge metadata: observation is not an object".to_string(),
+        ));
+    };
+
+    let Some(existing) = obs_obj.get_mut("metadata") else {
+        obs_obj.insert("metadata".to_string(), incoming);
+        return Ok(());
+    };
+
+    let Some(existing_obj) = existing.as_object_mut() else {
+        *existing = incoming;
+        return Ok(());
+    };
+
+    let Some(new_obj) = incoming.as_object() else {
+        *existing = incoming;
+        return Ok(());
+    };
+
+    for (key, value) in new_obj {
+        existing_obj.insert(key.clone(), value.clone());
+    }
+
+    Ok(())
+}
+
 impl CerebroTools {
     pub fn new(storage: Arc<dyn Storage>) -> Self {
         Self { storage }
@@ -571,25 +608,7 @@ impl CerebroTools {
         }
 
         if let Some(metadata) = input.input.metadata {
-            if let Some(current_metadata) = record.observation.get_mut("metadata") {
-                if let Some(current_obj) = current_metadata.as_object_mut() {
-                    if let Some(new_obj) = metadata.as_object() {
-                        for (key, value) in new_obj {
-                            current_obj.insert(key.clone(), value.clone());
-                        }
-                    } else {
-                        *current_metadata = metadata;
-                    }
-                } else {
-                    *current_metadata = metadata;
-                }
-            } else if let Some(observation_obj) = record.observation.as_object_mut() {
-                observation_obj.insert("metadata".to_string(), metadata);
-            } else {
-                return Err(CerebroError::Validation(
-                    "cannot merge metadata: observation is not an object".to_string(),
-                ));
-            }
+            merge_metadata(&mut record.observation, metadata)?;
         }
 
         self.storage.save(record).await?;

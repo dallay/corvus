@@ -53,31 +53,46 @@ fn main() -> anyhow::Result<()> {
     let mut line = Vec::new();
 
     loop {
-        match uart.read(&mut buf, 100) {
-            Ok(0) => continue,
-            Ok(n) => {
-                for &b in &buf[..n] {
-                    if b == b'\n' {
-                        if !line.is_empty() {
-                            if let Ok(line_str) = std::str::from_utf8(&line) {
-                                if let Ok(resp) = handle_request(line_str, &peripherals) {
-                                    let out = serde_json::to_string(&resp).unwrap_or_default();
-                                    let _ = uart.write(format!("{}\n", out).as_bytes());
-                                }
-                            }
-                            line.clear();
-                        }
-                    } else {
-                        line.push(b);
-                        if line.len() > 400 {
-                            line.clear();
-                        }
-                    }
-                }
+        let n = match uart.read(&mut buf, 100) {
+            Ok(n) if n > 0 => n,
+            _ => continue,
+        };
+
+        for &b in &buf[..n] {
+            if b != b'\n' {
+                append_byte(&mut line, b);
+                continue;
             }
-            Err(_) => {}
+
+            if let Some(resp) = try_process_line(&line, &peripherals) {
+                write_response(&mut uart, &resp);
+            }
+            line.clear();
         }
     }
+}
+
+fn append_byte(line: &mut Vec<u8>, b: u8) {
+    line.push(b);
+    if line.len() > 400 {
+        line.clear();
+    }
+}
+
+fn try_process_line(
+    line: &[u8],
+    peripherals: &esp_idf_svc::hal::peripherals::Peripherals,
+) -> Option<Response> {
+    if line.is_empty() {
+        return None;
+    }
+    let line_str = std::str::from_utf8(line).ok()?;
+    handle_request(line_str, peripherals).ok()
+}
+
+fn write_response(uart: &mut UartDriver<'_>, resp: &Response) {
+    let out = serde_json::to_string(resp).unwrap_or_default();
+    let _ = uart.write(format!("{}\n", out).as_bytes());
 }
 
 fn handle_request(
@@ -126,7 +141,10 @@ fn handle_request(
     }
 }
 
-fn gpio_read(_peripherals: &esp_idf_svc::hal::peripherals::Peripherals, _pin: i32) -> anyhow::Result<u8> {
+fn gpio_read(
+    _peripherals: &esp_idf_svc::hal::peripherals::Peripherals,
+    _pin: i32,
+) -> anyhow::Result<u8> {
     // Placeholder: input pin reads require persisting InputPin drivers by pin.
     Ok(0)
 }

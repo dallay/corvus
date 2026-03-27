@@ -16,6 +16,56 @@ fn base64_encode(bytes: &[u8]) -> String {
     base64::engine::general_purpose::STANDARD.encode(bytes)
 }
 
+/// Build Gemini `Content` entries from chat messages, attaching images to the
+/// last user message. System messages are skipped (handled separately as
+/// `system_instruction`).
+fn build_gemini_contents(
+    messages: &[crate::providers::traits::ChatMessage],
+    images: &[crate::channels::media::StagedImage],
+) -> anyhow::Result<Vec<Content>> {
+    let last_user_idx = messages.iter().rposition(|m| m.role == "user");
+    let mut contents: Vec<Content> = Vec::new();
+
+    for (idx, msg) in messages.iter().enumerate() {
+        if msg.role == "system" {
+            continue;
+        }
+
+        let mut parts = Vec::new();
+        if !msg.content.is_empty() {
+            parts.push(Part::Text {
+                text: msg.content.clone(),
+            });
+        }
+
+        if msg.role == "user" && Some(idx) == last_user_idx {
+            for image in images {
+                let bytes = std::fs::read(&image.temp_path)
+                    .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
+                let b64 = base64_encode(&bytes);
+                parts.push(Part::InlineData {
+                    inline_data: InlineData {
+                        mime_type: image.mime_type.as_str().to_string(),
+                        data: b64,
+                    },
+                });
+            }
+        }
+
+        let role = match msg.role.as_str() {
+            "assistant" => "model",
+            other => other,
+        };
+
+        contents.push(Content {
+            role: Some(role.to_string()),
+            parts,
+        });
+    }
+
+    Ok(contents)
+}
+
 /// Gemini provider supporting multiple authentication methods.
 pub struct GeminiProvider {
     auth: Option<GeminiAuth>,
@@ -367,46 +417,7 @@ impl Provider for GeminiProvider {
             .ok_or_else(|| anyhow::anyhow!("Gemini API key not found for image request"))?;
 
         // Build contents from all messages (excluding system).
-        let last_user_idx = request.messages.iter().rposition(|m| m.role == "user");
-        let mut contents: Vec<Content> = Vec::new();
-
-        for (idx, msg) in request.messages.iter().enumerate() {
-            if msg.role == "system" {
-                continue; // handled separately as system_instruction
-            }
-
-            let mut parts = Vec::new();
-            if !msg.content.is_empty() {
-                parts.push(Part::Text {
-                    text: msg.content.clone(),
-                });
-            }
-
-            // Attach images only to the last user message.
-            if msg.role == "user" && Some(idx) == last_user_idx {
-                for image in request.images {
-                    let bytes = std::fs::read(&image.temp_path)
-                        .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
-                    let b64 = base64_encode(&bytes);
-                    parts.push(Part::InlineData {
-                        inline_data: InlineData {
-                            mime_type: image.mime_type.as_str().to_string(),
-                            data: b64,
-                        },
-                    });
-                }
-            }
-
-            let role = match msg.role.as_str() {
-                "assistant" => "model",
-                other => other,
-            };
-
-            contents.push(Content {
-                role: Some(role.to_string()),
-                parts,
-            });
-        }
+        let contents = build_gemini_contents(request.messages, request.images)?;
 
         let system_instruction = request
             .messages

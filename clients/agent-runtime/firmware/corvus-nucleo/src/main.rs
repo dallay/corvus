@@ -20,43 +20,55 @@ use {defmt_rtt as _, panic_probe as _};
 /// Arduino-style pin 13 = PA5 (User LED LD2 on Nucleo-F401RE)
 const LED_PIN: u8 = 13;
 
-/// Parse integer from JSON: "pin":13 or "value":1
-fn parse_arg(line: &[u8], key: &[u8]) -> Option<i32> {
-    // key like b"pin" -> search for b"\"pin\":"
-    let mut suffix: [u8; 32] = [0; 32];
-    suffix[0] = b'"';
+/// Build the `"key":` needle into a fixed buffer and return its length.
+fn build_key_needle(key: &[u8], buf: &mut [u8; 32]) -> usize {
+    buf[0] = b'"';
     let mut len = 1;
     for (i, &k) in key.iter().enumerate() {
         if i >= 30 {
             break;
         }
-        suffix[len] = k;
+        buf[len] = k;
         len += 1;
     }
-    suffix[len] = b'"';
-    suffix[len + 1] = b':';
-    len += 2;
-    let suffix = &suffix[..len];
+    buf[len] = b'"';
+    buf[len + 1] = b':';
+    len + 2
+}
+
+/// Parse a (possibly negative) integer from the start of `rest`.
+fn parse_int_prefix(rest: &[u8]) -> i32 {
+    let mut num: i32 = 0;
+    let mut neg = false;
+    let mut j = 0;
+    if j < rest.len() && rest[j] == b'-' {
+        neg = true;
+        j += 1;
+    }
+    while j < rest.len() && rest[j].is_ascii_digit() {
+        num = num * 10 + (rest[j] - b'0') as i32;
+        j += 1;
+    }
+    if neg {
+        -num
+    } else {
+        num
+    }
+}
+
+/// Parse integer from JSON: "pin":13 or "value":1
+fn parse_arg(line: &[u8], key: &[u8]) -> Option<i32> {
+    let mut needle = [0u8; 32];
+    let len = build_key_needle(key, &mut needle);
+    let needle = &needle[..len];
 
     let line_len = line.len();
     if line_len < len {
         return None;
     }
     for i in 0..=line_len - len {
-        if line[i..].starts_with(suffix) {
-            let rest = &line[i + len..];
-            let mut num: i32 = 0;
-            let mut neg = false;
-            let mut j = 0;
-            if j < rest.len() && rest[j] == b'-' {
-                neg = true;
-                j += 1;
-            }
-            while j < rest.len() && rest[j].is_ascii_digit() {
-                num = num * 10 + (rest[j] - b'0') as i32;
-                j += 1;
-            }
-            return Some(if neg { -num } else { num });
+        if line[i..].starts_with(needle) {
+            return Some(parse_int_prefix(&line[i + len..]));
         }
     }
     None
@@ -221,26 +233,36 @@ async fn main(_spawner: Spawner) {
 
     loop {
         let mut byte = [0u8; 1];
-        if usart.blocking_read(&mut byte).is_ok() {
-            let b = byte[0];
-            if b == b'\n' || b == b'\r' {
-                if !line_buf.is_empty() {
-                    let id_len = copy_id(&line_buf, &mut id_buf);
-                    let id_str = str::from_utf8(&id_buf[..id_len]).unwrap_or("0");
+        if usart.blocking_read(&mut byte).is_err() {
+            continue;
+        }
 
-                    let (resp_buf, led_action) = process_command(&line_buf, id_str);
+        let b = byte[0];
 
-                    if let Some((_, value)) = led_action {
-                        led.set_level(if value != 0 { Level::High } else { Level::Low });
-                    }
-
-                    let _ = usart.blocking_write(resp_buf.as_bytes());
-                    let _ = usart.blocking_write(b"\n");
-                    line_buf.clear();
-                }
-            } else if line_buf.push(b).is_err() {
+        // Non-terminator: accumulate into line buffer (clear on overflow).
+        if b != b'\n' && b != b'\r' {
+            if line_buf.push(b).is_err() {
                 line_buf.clear();
             }
+            continue;
         }
+
+        // Line terminator on an empty buffer — ignore.
+        if line_buf.is_empty() {
+            continue;
+        }
+
+        let id_len = copy_id(&line_buf, &mut id_buf);
+        let id_str = str::from_utf8(&id_buf[..id_len]).unwrap_or("0");
+
+        let (resp_buf, led_action) = process_command(&line_buf, id_str);
+
+        if let Some((_, value)) = led_action {
+            led.set_level(if value != 0 { Level::High } else { Level::Low });
+        }
+
+        let _ = usart.blocking_write(resp_buf.as_bytes());
+        let _ = usart.blocking_write(b"\n");
+        line_buf.clear();
     }
 }

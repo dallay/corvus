@@ -138,6 +138,60 @@ pub struct EmailChannel {
     seen_messages: Mutex<HashSet<String>>,
 }
 
+/// Read a single CRLF-terminated line from an IMAP TLS stream.
+fn imap_read_line(
+    tls: &mut tokio_rustls::rustls::StreamOwned<tokio_rustls::rustls::ClientConnection, TcpStream>,
+) -> Result<String> {
+    let mut buf = Vec::new();
+    loop {
+        let mut byte = [0u8; 1];
+        let n = std::io::Read::read(tls, &mut byte)?;
+        if n == 0 {
+            return Err(anyhow!("IMAP connection closed"));
+        }
+        buf.push(byte[0]);
+        if buf.ends_with(b"\r\n") {
+            return Ok(String::from_utf8_lossy(&buf).to_string());
+        }
+    }
+}
+
+/// Send a tagged IMAP command and collect response lines until the tag echoes back.
+fn imap_send_cmd(
+    tls: &mut tokio_rustls::rustls::StreamOwned<tokio_rustls::rustls::ClientConnection, TcpStream>,
+    tag: &str,
+    cmd: &str,
+) -> Result<Vec<String>> {
+    let full = format!("{} {}\r\n", tag, cmd);
+    IoWrite::write_all(tls, full.as_bytes())?;
+    IoWrite::flush(tls)?;
+    let mut lines = Vec::new();
+    loop {
+        let line = imap_read_line(tls)?;
+        let done = line.starts_with(tag);
+        lines.push(line);
+        if done {
+            break;
+        }
+    }
+    Ok(lines)
+}
+
+/// Parse UIDs from an IMAP SEARCH response.
+fn parse_imap_search_uids(search_resp: &[String]) -> Vec<String> {
+    let mut uids = Vec::new();
+    for line in search_resp {
+        if !line.starts_with("* SEARCH") {
+            continue;
+        }
+        let parts: Vec<&str> = line.trim().split_whitespace().collect();
+        if parts.len() > 2 {
+            uids.extend(parts[2..].iter().map(|s| (*s).to_string()));
+        }
+    }
+    uids
+}
+
 impl EmailChannel {
     pub fn new(config: EmailConfig) -> Self {
         Self {
@@ -251,48 +305,11 @@ impl EmailChannel {
         let conn = rustls::ClientConnection::new(tls_config, server_name)?;
         let mut tls = rustls::StreamOwned::new(conn, tcp);
 
-        let read_line =
-            |tls: &mut rustls::StreamOwned<rustls::ClientConnection, TcpStream>| -> Result<String> {
-                let mut buf = Vec::new();
-                loop {
-                    let mut byte = [0u8; 1];
-                    match std::io::Read::read(tls, &mut byte) {
-                        Ok(0) => return Err(anyhow!("IMAP connection closed")),
-                        Ok(_) => {
-                            buf.push(byte[0]);
-                            if buf.ends_with(b"\r\n") {
-                                return Ok(String::from_utf8_lossy(&buf).to_string());
-                            }
-                        }
-                        Err(e) => return Err(e.into()),
-                    }
-                }
-            };
-
-        let send_cmd = |tls: &mut rustls::StreamOwned<rustls::ClientConnection, TcpStream>,
-                        tag: &str,
-                        cmd: &str|
-         -> Result<Vec<String>> {
-            let full = format!("{} {}\r\n", tag, cmd);
-            IoWrite::write_all(tls, full.as_bytes())?;
-            IoWrite::flush(tls)?;
-            let mut lines = Vec::new();
-            loop {
-                let line = read_line(tls)?;
-                let done = line.starts_with(tag);
-                lines.push(line);
-                if done {
-                    break;
-                }
-            }
-            Ok(lines)
-        };
-
         // Read greeting
-        let _greeting = read_line(&mut tls)?;
+        let _greeting = imap_read_line(&mut tls)?;
 
         // Login
-        let login_resp = send_cmd(
+        let login_resp = imap_send_cmd(
             &mut tls,
             "A1",
             &format!("LOGIN \"{}\" \"{}\"", config.username, config.password),
@@ -302,59 +319,62 @@ impl EmailChannel {
         }
 
         // Select folder
-        let _select = send_cmd(
+        let _select = imap_send_cmd(
             &mut tls,
             "A2",
             &format!("SELECT \"{}\"", config.imap_folder),
         )?;
 
         // Search unseen
-        let search_resp = send_cmd(&mut tls, "A3", "SEARCH UNSEEN")?;
-        let mut uids: Vec<&str> = Vec::new();
-        for line in &search_resp {
-            if line.starts_with("* SEARCH") {
-                let parts: Vec<&str> = line.trim().split_whitespace().collect();
-                if parts.len() > 2 {
-                    uids.extend_from_slice(&parts[2..]);
-                }
-            }
-        }
+        let search_resp = imap_send_cmd(&mut tls, "A3", "SEARCH UNSEEN")?;
+        let uids = parse_imap_search_uids(&search_resp);
 
         let mut results = Vec::new();
         let mut tag_counter = 4_u32; // Start after A1, A2, A3
 
         for uid in &uids {
-            let fetch_tag = format!("A{}", tag_counter);
-            tag_counter += 1;
-            let fetch_resp = send_cmd(&mut tls, &fetch_tag, &format!("FETCH {} RFC822", uid))?;
-            let raw: String = fetch_resp
-                .iter()
-                .skip(1)
-                .take(fetch_resp.len().saturating_sub(2))
-                .cloned()
-                .collect();
-
-            if let Some(parsed) = MessageParser::default().parse(raw.as_bytes()) {
-                if let Some(tuple) = Self::parsed_email_to_tuple(&parsed) {
-                    results.push(tuple);
-                }
-            }
-
-            // Mark as seen with unique tag
-            let store_tag = format!("A{tag_counter}");
-            tag_counter += 1;
-            let _ = send_cmd(
-                &mut tls,
-                &store_tag,
-                &format!("STORE {uid} +FLAGS (\\Seen)"),
-            );
+            tag_counter = Self::fetch_and_mark_email(&mut tls, uid, tag_counter, &mut results)?;
         }
 
         // Logout with unique tag
         let logout_tag = format!("A{tag_counter}");
-        let _ = send_cmd(&mut tls, &logout_tag, "LOGOUT");
+        let _ = imap_send_cmd(&mut tls, &logout_tag, "LOGOUT");
 
         Ok(results)
+    }
+
+    /// Fetch a single email by UID, parse it, mark as seen, and append to results.
+    /// Returns the updated tag counter.
+    fn fetch_and_mark_email(
+        tls: &mut tokio_rustls::rustls::StreamOwned<
+            tokio_rustls::rustls::ClientConnection,
+            TcpStream,
+        >,
+        uid: &str,
+        mut tag_counter: u32,
+        results: &mut Vec<(String, String, String, u64)>,
+    ) -> Result<u32> {
+        let fetch_tag = format!("A{}", tag_counter);
+        tag_counter += 1;
+        let fetch_resp = imap_send_cmd(tls, &fetch_tag, &format!("FETCH {} RFC822", uid))?;
+        let raw: String = fetch_resp
+            .iter()
+            .skip(1)
+            .take(fetch_resp.len().saturating_sub(2))
+            .cloned()
+            .collect();
+
+        let parsed = MessageParser::default().parse(raw.as_bytes());
+        if let Some(tuple) = parsed.as_ref().and_then(Self::parsed_email_to_tuple) {
+            results.push(tuple);
+        }
+
+        // Mark as seen with unique tag
+        let store_tag = format!("A{tag_counter}");
+        tag_counter += 1;
+        let _ = imap_send_cmd(tls, &store_tag, &format!("STORE {uid} +FLAGS (\\Seen)"));
+
+        Ok(tag_counter)
     }
 
     /// Extract (msg_id, sender, content, timestamp) from a parsed email.

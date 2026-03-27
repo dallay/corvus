@@ -159,6 +159,28 @@ impl MatrixChannel {
         Ok(resp.json().await?)
     }
 
+    /// Process room events from a sync response, forwarding messages to the
+    /// channel sender. Returns `true` when the sender is closed (listener
+    /// should stop).
+    async fn process_room_events(
+        &self,
+        sync: &SyncResponse,
+        my_user_id: &str,
+        tx: &mpsc::Sender<ChannelMessage>,
+    ) -> bool {
+        let Some(room) = sync.rooms.join.get(&self.room_id) else {
+            return false;
+        };
+        for event in &room.timeline.events {
+            if let Some(msg) = self.event_to_message(event, my_user_id) {
+                if tx.send(msg).await.is_err() {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
     /// Convert a single timeline event into a `ChannelMessage`, filtering out
     /// own messages, non-text types, and unauthorized senders.
     fn event_to_message(&self, event: &TimelineEvent, my_user_id: &str) -> Option<ChannelMessage> {
@@ -240,16 +262,10 @@ impl Channel for MatrixChannel {
                     continue;
                 }
             };
-            since = sync.next_batch;
+            since = sync.next_batch.clone();
 
-            if let Some(room) = sync.rooms.join.get(&self.room_id) {
-                for event in &room.timeline.events {
-                    if let Some(msg) = self.event_to_message(event, &my_user_id) {
-                        if tx.send(msg).await.is_err() {
-                            return Ok(());
-                        }
-                    }
-                }
+            if self.process_room_events(&sync, &my_user_id, &tx).await {
+                return Ok(());
             }
         }
     }

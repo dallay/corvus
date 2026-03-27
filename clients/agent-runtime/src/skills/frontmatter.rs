@@ -33,51 +33,57 @@ fn extract_frontmatter_block(content: &str) -> Option<&str> {
 /// Parse key-value pairs and list items from the frontmatter block.
 fn parse_frontmatter_block(block: &str) -> SkillFrontmatter {
     let mut fm = SkillFrontmatter::default();
-    let mut current_list: Option<&str> = None;
+    let mut current_list: Option<&'static str> = None;
 
     for line in block.lines() {
         let trimmed = line.trim();
 
-        // List item under current list key
-        if let Some(list_key) = current_list {
-            if let Some(item) = trimmed.strip_prefix("- ") {
-                let value = item.trim().trim_matches('"').trim_matches('\'');
-                match list_key {
-                    "allowed-tools" => fm.allowed_tools.push(value.to_string()),
-                    "tags" => fm.tags.push(value.to_string()),
-                    _ => {}
-                }
-                continue;
-            }
-            // No longer a list item — fall through to key-value parsing
-            current_list = None;
+        if try_push_list_item(trimmed, current_list, &mut fm) {
+            continue;
         }
 
-        // Key-value pair
-        if let Some((key, value)) = trimmed.split_once(':') {
-            let key = key.trim();
-            let value = value.trim().trim_matches('"').trim_matches('\'');
-            match key {
-                "name" => fm.name = Some(value.to_string()),
-                "description" => fm.description = Some(value.to_string()),
-                "version" => fm.version = Some(value.to_string()),
-                "author" => fm.author = Some(value.to_string()),
-                "allowed-tools" => {
-                    if value.is_empty() {
-                        current_list = Some("allowed-tools");
-                    }
-                }
-                "tags" => {
-                    if value.is_empty() {
-                        current_list = Some("tags");
-                    }
-                }
-                _ => {}
-            }
-        }
+        // Line is not a list continuation — reset list context
+        current_list = parse_scalar_or_list_key(trimmed, &mut fm);
     }
 
     fm
+}
+
+/// If we are inside a YAML list block and the line starts with `- `,
+/// push the value and return `true`. Returns `false` otherwise.
+fn try_push_list_item(trimmed: &str, list_key: Option<&str>, fm: &mut SkillFrontmatter) -> bool {
+    let Some(list_key) = list_key else {
+        return false;
+    };
+    let Some(item) = trimmed.strip_prefix("- ") else {
+        return false;
+    };
+    let value = item.trim().trim_matches('"').trim_matches('\'');
+    match list_key {
+        "allowed-tools" => fm.allowed_tools.push(value.to_string()),
+        "tags" => fm.tags.push(value.to_string()),
+        _ => {}
+    }
+    true
+}
+
+/// Parse a `key: value` line. Scalar keys set fields directly;
+/// list keys (`allowed-tools:`, `tags:`) with an empty value return
+/// the key name so the caller enters list-collection mode.
+fn parse_scalar_or_list_key(trimmed: &str, fm: &mut SkillFrontmatter) -> Option<&'static str> {
+    let (key, value) = trimmed.split_once(':')?;
+    let key = key.trim();
+    let value = value.trim().trim_matches('"').trim_matches('\'');
+    match key {
+        "name" => fm.name = Some(value.to_string()),
+        "description" => fm.description = Some(value.to_string()),
+        "version" => fm.version = Some(value.to_string()),
+        "author" => fm.author = Some(value.to_string()),
+        "allowed-tools" if value.is_empty() => return Some("allowed-tools"),
+        "tags" if value.is_empty() => return Some("tags"),
+        _ => {}
+    }
+    None
 }
 
 #[cfg(test)]

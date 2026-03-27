@@ -57,26 +57,13 @@ fn contains_sensitive_labels(normalized: &str) -> bool {
 }
 
 fn looks_like_api_key(lower: &str) -> bool {
-    let bytes = lower.as_bytes();
-    let mut idx = 0;
-    while idx + 3 < bytes.len() {
-        if bytes[idx] == b's' && bytes[idx + 1] == b'k' && bytes[idx + 2] == b'-' {
-            let mut count = 0;
-            for &byte in &bytes[idx + 3..] {
-                if byte.is_ascii_alphanumeric() {
-                    count += 1;
-                    if count >= 20 {
-                        return true;
-                    }
-                } else {
-                    break;
-                }
-            }
-        }
-        idx += 1;
-    }
-
-    false
+    lower.match_indices("sk-").any(|(pos, _)| {
+        lower.as_bytes()[pos + 3..]
+            .iter()
+            .take_while(|b| b.is_ascii_alphanumeric())
+            .count()
+            >= 20
+    })
 }
 
 fn sensitive_regex_set() -> &'static RegexSet {
