@@ -2906,66 +2906,7 @@ fn setup_hardware() -> Result<HardwareConfig> {
 
     // ── Serial: pick a port if multiple found ──
     if hw_config.transport_mode() == hardware::HardwareTransport::Serial {
-        let serial_devices: Vec<&hardware::DiscoveredDevice> = devices
-            .iter()
-            .filter(|d| d.transport == hardware::HardwareTransport::Serial)
-            .collect();
-
-        if serial_devices.len() > 1 {
-            let port_labels: Vec<String> = serial_devices
-                .iter()
-                .map(|d| {
-                    format!(
-                        "{} ({})",
-                        d.device_path.as_deref().unwrap_or("unknown"),
-                        d.name
-                    )
-                })
-                .collect();
-
-            let port_idx = Select::new()
-                .with_prompt("  Multiple serial devices found — select one")
-                .items(&port_labels)
-                .default(0)
-                .interact()?;
-
-            hw_config.serial_port = serial_devices[port_idx].device_path.clone();
-        } else if serial_devices.is_empty() {
-            // User chose serial but no device discovered — ask for manual path
-            let manual_port: String = Input::new()
-                .with_prompt("  Serial port path (e.g. /dev/ttyUSB0)")
-                .default("/dev/ttyUSB0".into())
-                .interact_text()?;
-            hw_config.serial_port = Some(manual_port);
-        }
-
-        // Baud rate
-        let baud_options = vec![
-            "115200 (default, recommended)",
-            "9600 (legacy Arduino)",
-            "57600",
-            "230400",
-            "Custom",
-        ];
-        let baud_idx = Select::new()
-            .with_prompt("  Serial baud rate")
-            .items(&baud_options)
-            .default(0)
-            .interact()?;
-
-        hw_config.baud_rate = match baud_idx {
-            1 => 9600,
-            2 => 57600,
-            3 => 230_400,
-            4 => {
-                let custom: String = Input::new()
-                    .with_prompt("  Custom baud rate")
-                    .default("115200".into())
-                    .interact_text()?;
-                custom.parse::<u32>().unwrap_or(115_200)
-            }
-            _ => 115_200,
-        };
+        configure_serial_transport(&mut hw_config, &devices)?;
     }
 
     // ── Probe: ask for target chip ──
@@ -2989,40 +2930,114 @@ fn setup_hardware() -> Result<HardwareConfig> {
     }
 
     // ── Summary ──
-    if hw_config.enabled {
-        let transport_label = match hw_config.transport_mode() {
-            hardware::HardwareTransport::Native => "Native GPIO".to_string(),
-            hardware::HardwareTransport::Serial => format!(
-                "Serial → {} @ {} baud",
-                hw_config.serial_port.as_deref().unwrap_or("?"),
-                hw_config.baud_rate
-            ),
-            hardware::HardwareTransport::Probe => format!(
-                "Probe (SWD/JTAG) → {}",
-                hw_config.probe_target.as_deref().unwrap_or("?")
-            ),
-            hardware::HardwareTransport::None => "Software Only".to_string(),
-        };
+    print_hardware_summary(&hw_config);
 
-        println!(
-            "  {} Hardware: {} | datasheets: {}",
-            style("✓").green().bold(),
-            style(&transport_label).green(),
-            if hw_config.workspace_datasheets {
-                style("on").green().to_string()
-            } else {
-                style("off").dim().to_string()
-            }
-        );
-    } else {
+    Ok(hw_config)
+}
+
+/// Interactive serial-port and baud-rate configuration.
+fn configure_serial_transport(
+    hw_config: &mut HardwareConfig,
+    devices: &[hardware::DiscoveredDevice],
+) -> Result<()> {
+    let serial_devices: Vec<&hardware::DiscoveredDevice> = devices
+        .iter()
+        .filter(|d| d.transport == hardware::HardwareTransport::Serial)
+        .collect();
+
+    if serial_devices.len() > 1 {
+        let port_labels: Vec<String> = serial_devices
+            .iter()
+            .map(|d| {
+                format!(
+                    "{} ({})",
+                    d.device_path.as_deref().unwrap_or("unknown"),
+                    d.name
+                )
+            })
+            .collect();
+
+        let port_idx = Select::new()
+            .with_prompt("  Multiple serial devices found — select one")
+            .items(&port_labels)
+            .default(0)
+            .interact()?;
+
+        hw_config.serial_port = serial_devices[port_idx].device_path.clone();
+    } else if serial_devices.is_empty() {
+        let manual_port: String = Input::new()
+            .with_prompt("  Serial port path (e.g. /dev/ttyUSB0)")
+            .default("/dev/ttyUSB0".into())
+            .interact_text()?;
+        hw_config.serial_port = Some(manual_port);
+    }
+
+    // Baud rate
+    let baud_options = vec![
+        "115200 (default, recommended)",
+        "9600 (legacy Arduino)",
+        "57600",
+        "230400",
+        "Custom",
+    ];
+    let baud_idx = Select::new()
+        .with_prompt("  Serial baud rate")
+        .items(&baud_options)
+        .default(0)
+        .interact()?;
+
+    hw_config.baud_rate = match baud_idx {
+        1 => 9600,
+        2 => 57600,
+        3 => 230_400,
+        4 => {
+            let custom: String = Input::new()
+                .with_prompt("  Custom baud rate")
+                .default("115200".into())
+                .interact_text()?;
+            custom.parse::<u32>().unwrap_or(115_200)
+        }
+        _ => 115_200,
+    };
+
+    Ok(())
+}
+
+/// Print the hardware configuration summary line.
+fn print_hardware_summary(hw_config: &HardwareConfig) {
+    if !hw_config.enabled {
         println!(
             "  {} Hardware: {}",
             style("✓").green().bold(),
             style("disabled (software only)").dim()
         );
+        return;
     }
 
-    Ok(hw_config)
+    let transport_label = match hw_config.transport_mode() {
+        hardware::HardwareTransport::Native => "Native GPIO".to_string(),
+        hardware::HardwareTransport::Serial => format!(
+            "Serial → {} @ {} baud",
+            hw_config.serial_port.as_deref().unwrap_or("?"),
+            hw_config.baud_rate
+        ),
+        hardware::HardwareTransport::Probe => format!(
+            "Probe (SWD/JTAG) → {}",
+            hw_config.probe_target.as_deref().unwrap_or("?")
+        ),
+        hardware::HardwareTransport::None => "Software Only".to_string(),
+    };
+
+    println!(
+        "  {} Hardware: {} | datasheets: {}",
+        style("✓").green().bold(),
+        style(&transport_label).green(),
+        if hw_config.workspace_datasheets {
+            style("on").green().to_string()
+        } else {
+            style("off").dim().to_string()
+        }
+    );
 }
 
 // ── Step 6: Project Context ─────────────────────────────────────
@@ -4529,28 +4544,24 @@ fn setup_tunnel() -> Result<crate::config::TunnelConfig> {
 
 // ── Step 6: Scaffold workspace files ─────────────────────────────
 
+/// Return `default` when `value` is empty, otherwise return `value`.
+fn non_empty_or<'a>(value: &'a str, default: &'a str) -> &'a str {
+    if value.is_empty() {
+        default
+    } else {
+        value
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Result<()> {
-    let agent = if ctx.agent_name.is_empty() {
-        "Corvus"
-    } else {
-        &ctx.agent_name
-    };
-    let user = if ctx.user_name.is_empty() {
-        "User"
-    } else {
-        &ctx.user_name
-    };
-    let tz = if ctx.timezone.is_empty() {
-        "UTC"
-    } else {
-        &ctx.timezone
-    };
-    let comm_style = if ctx.communication_style.is_empty() {
-        "Be warm, natural, and clear. Use occasional relevant emojis (1-2 max) and avoid robotic phrasing."
-    } else {
-        &ctx.communication_style
-    };
+    let agent = non_empty_or(&ctx.agent_name, "Corvus");
+    let user = non_empty_or(&ctx.user_name, "User");
+    let tz = non_empty_or(&ctx.timezone, "UTC");
+    let comm_style = non_empty_or(
+        &ctx.communication_style,
+        "Be warm, natural, and clear. Use occasional relevant emojis (1-2 max) and avoid robotic phrasing.",
+    );
 
     let identity = format!(
         "# IDENTITY.md — Who Am I?\n\n\
@@ -4762,18 +4773,7 @@ fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Result<()> 
         fs::create_dir_all(workspace_dir.join(dir))?;
     }
 
-    let mut created = 0;
-    let mut skipped = 0;
-
-    for (filename, content) in &files {
-        let path = workspace_dir.join(filename);
-        if path.exists() {
-            skipped += 1;
-        } else {
-            fs::write(&path, content)?;
-            created += 1;
-        }
-    }
+    let (created, skipped) = write_workspace_files(workspace_dir, &files)?;
 
     println!(
         "  {} Created {} files, skipped {} existing | {} subdirectories",
@@ -4783,26 +4783,44 @@ fn scaffold_workspace(workspace_dir: &Path, ctx: &ProjectContext) -> Result<()> 
         style(subdirs.len()).green()
     );
 
-    // Show workspace tree
+    print_workspace_tree(workspace_dir, &subdirs, &files);
+
+    Ok(())
+}
+
+/// Write workspace files, skipping those that already exist.
+/// Returns `(created, skipped)` counts.
+fn write_workspace_files(workspace_dir: &Path, files: &[(&str, String)]) -> Result<(usize, usize)> {
+    let mut created = 0;
+    let mut skipped = 0;
+    for (filename, content) in files {
+        let path = workspace_dir.join(filename);
+        if path.exists() {
+            skipped += 1;
+        } else {
+            fs::write(&path, content)?;
+            created += 1;
+        }
+    }
+    Ok((created, skipped))
+}
+
+/// Print a visual tree of the workspace layout.
+fn print_workspace_tree(workspace_dir: &Path, subdirs: &[&str], files: &[(&str, String)]) {
     println!();
     println!("  {}", style("Workspace layout:").dim());
     println!(
         "  {}",
         style(format!("  {}/", workspace_dir.display())).dim()
     );
-    for dir in &subdirs {
+    for dir in subdirs {
         println!("  {}", style(format!("  ├── {dir}/")).dim());
     }
+    let last = files.len().saturating_sub(1);
     for (i, (filename, _)) in files.iter().enumerate() {
-        let prefix = if i == files.len() - 1 {
-            "└──"
-        } else {
-            "├──"
-        };
+        let prefix = if i == last { "└──" } else { "├──" };
         println!("  {}", style(format!("  {prefix} {filename}")).dim());
     }
-
-    Ok(())
 }
 
 // ── Final summary ────────────────────────────────────────────────

@@ -269,6 +269,24 @@ pub enum ToolsPayload {
     PromptGuided { instructions: String },
 }
 
+/// Build a modified message list with tool instructions injected into
+/// the system message.  If no system message exists, one is prepended.
+fn build_tool_augmented_messages(
+    messages: &[ChatMessage],
+    tool_instructions: &str,
+) -> Vec<ChatMessage> {
+    let mut modified = messages.to_vec();
+    if let Some(sys) = modified.iter_mut().find(|m| m.role == "system") {
+        if !sys.content.is_empty() {
+            sys.content.push_str("\n\n");
+        }
+        sys.content.push_str(tool_instructions);
+    } else {
+        modified.insert(0, ChatMessage::system(tool_instructions.to_string()));
+    }
+    modified
+}
+
 #[async_trait]
 pub trait Provider: Send + Sync {
     /// Query provider capabilities.
@@ -361,20 +379,8 @@ pub trait Provider: Send + Sync {
                         )
                     }
                 };
-                let mut modified_messages = request.messages.to_vec();
-
-                // Inject tool instructions into an existing system message.
-                // If none exists, prepend one to the conversation.
-                if let Some(system_message) =
-                    modified_messages.iter_mut().find(|m| m.role == "system")
-                {
-                    if !system_message.content.is_empty() {
-                        system_message.content.push_str("\n\n");
-                    }
-                    system_message.content.push_str(&tool_instructions);
-                } else {
-                    modified_messages.insert(0, ChatMessage::system(tool_instructions));
-                }
+                let modified_messages =
+                    build_tool_augmented_messages(request.messages, &tool_instructions);
 
                 let text = self
                     .chat_with_history(&modified_messages, model, temperature)

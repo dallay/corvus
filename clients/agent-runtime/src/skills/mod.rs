@@ -654,73 +654,87 @@ fn discover_from_github() -> Result<Vec<DiscoveredSkill>> {
     let mut results = Vec::new();
 
     for query in &queries {
-        let url = format!(
-            "https://api.github.com/search/repositories\
-             ?q={query}&sort=stars&order=desc&per_page=30",
-        );
-
-        let resp = match client
-            .get(&url)
-            .header("Accept", "application/vnd.github+json")
-            .send()
-        {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(error = %e, "GitHub API request failed, skipping");
-                continue;
-            }
-        };
-
-        if !resp.status().is_success() {
-            tracing::warn!(status = %resp.status(), "GitHub search returned non-200");
-            continue;
-        }
-
-        let body: serde_json::Value = match resp.json() {
-            Ok(v) => v,
-            Err(e) => {
-                tracing::warn!(error = %e, "Failed to parse GitHub response");
-                continue;
-            }
-        };
-
-        let items = body
-            .get("items")
-            .and_then(|v| v.as_array())
-            .cloned()
-            .unwrap_or_default();
-
-        for item in &items {
-            let Some(name) = item.get("name").and_then(|v| v.as_str()) else {
-                continue;
-            };
-            let url = item
-                .get("html_url")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
-
-            if !seen.insert(url.clone()) {
-                continue;
-            }
-
-            results.push(DiscoveredSkill {
-                name: name.to_string(),
-                description: item
-                    .get("description")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("")
-                    .to_string(),
-                url,
-                stars: item
-                    .get("stargazers_count")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0),
-            });
-        }
+        collect_github_search_results(&client, query, &mut seen, &mut results);
     }
 
     Ok(results)
+}
+
+/// Fetch and collect results from a single GitHub search query.
+fn collect_github_search_results(
+    client: &reqwest::blocking::Client,
+    query: &str,
+    seen: &mut std::collections::HashSet<String>,
+    results: &mut Vec<DiscoveredSkill>,
+) {
+    let url = format!(
+        "https://api.github.com/search/repositories\
+         ?q={query}&sort=stars&order=desc&per_page=30",
+    );
+
+    let Some(items) = fetch_github_search_items(client, &url) else {
+        return;
+    };
+
+    for item in &items {
+        if let Some(skill) = parse_discovered_skill(item, seen) {
+            results.push(skill);
+        }
+    }
+}
+
+/// Perform a GitHub search API request and return the `items` array.
+fn fetch_github_search_items(
+    client: &reqwest::blocking::Client,
+    url: &str,
+) -> Option<Vec<serde_json::Value>> {
+    let resp = client
+        .get(url)
+        .header("Accept", "application/vnd.github+json")
+        .send()
+        .map_err(|e| tracing::warn!(error = %e, "GitHub API request failed, skipping"))
+        .ok()?;
+
+    if !resp.status().is_success() {
+        tracing::warn!(status = %resp.status(), "GitHub search returned non-200");
+        return None;
+    }
+
+    resp.json::<serde_json::Value>()
+        .map_err(|e| tracing::warn!(error = %e, "Failed to parse GitHub response"))
+        .ok()
+        .and_then(|body| body.get("items").and_then(|v| v.as_array()).cloned())
+}
+
+/// Parse a single GitHub search result item into a `DiscoveredSkill`.
+fn parse_discovered_skill(
+    item: &serde_json::Value,
+    seen: &mut std::collections::HashSet<String>,
+) -> Option<DiscoveredSkill> {
+    let name = item.get("name").and_then(|v| v.as_str())?;
+    let url = item
+        .get("html_url")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if !seen.insert(url.clone()) {
+        return None;
+    }
+
+    Some(DiscoveredSkill {
+        name: name.to_string(),
+        description: item
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string(),
+        url,
+        stars: item
+            .get("stargazers_count")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+    })
 }
 
 /// Install an official skill resolved from the catalog index.
@@ -731,31 +745,9 @@ fn handle_catalog_install(
     name: &str,
     config: &crate::config::SkillsConfig,
 ) -> Result<()> {
-    // 1. Resolve catalog index
     let index = catalog::resolve_index(workspace_dir, config)?;
+    let entry = lookup_catalog_entry(&index, name)?;
 
-    // 2. Look up skill in catalog
-    let entry = match index.skills.get(name) {
-        Some(e) => e,
-        None => {
-            let suggestions = catalog::search(&index, name);
-            if suggestions.is_empty() {
-                anyhow::bail!(
-                    "Skill '{name}' not found in the official catalog. \
-                     Try 'corvus skills search {name}' or install by URL."
-                );
-            }
-            let names: Vec<&str> = suggestions.iter().map(|s| s.name.as_str()).collect();
-            anyhow::bail!(
-                "Skill '{name}' not found in the official catalog. \
-                 Did you mean: {}? \
-                 Or install by URL with 'corvus skills install <url>'.",
-                names.join(", ")
-            );
-        }
-    };
-
-    // Defense in depth: validate catalog name even though catalog entries should be valid
     if let Err(err) = validation::validate_skill_name(name) {
         anyhow::bail!("Invalid skill name in catalog: {err}");
     }
@@ -767,7 +759,6 @@ fn handle_catalog_install(
         entry.version.as_deref().unwrap_or("latest"),
     );
 
-    // 3. Clone from official repo (shallow) and copy skill subdirectory
     let skills_path = skills_dir(workspace_dir);
     std::fs::create_dir_all(&skills_path)?;
     let skill_dir = skills_path.join(name);
@@ -779,56 +770,19 @@ fn handle_catalog_install(
         );
     }
 
-    let repo_url = catalog::OFFICIAL_REPO;
-    let temp_dir = std::env::temp_dir().join(format!("corvus-catalog-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    let clone_status = std::process::Command::new("git")
-        .args([
-            "clone",
-            "--depth",
-            "1",
-            repo_url,
-            temp_dir.to_str().unwrap_or("corvus-catalog-tmp"),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
+    clone_official_skill_subdir(catalog::OFFICIAL_REPO, &entry.path, &skill_dir)?;
 
-    match clone_status {
-        Ok(s) if s.success() => {}
-        _ => {
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            anyhow::bail!("Failed to clone official skills repository");
-        }
-    }
-
-    // Copy just the skill subdirectory
-    let source_path = temp_dir.join(&entry.path);
-    if !source_path.exists() {
-        let _ = std::fs::remove_dir_all(&temp_dir);
-        anyhow::bail!(
-            "Skill path '{}' not found in the official repository",
-            entry.path
-        );
-    }
-
-    let copy_result = copy_dir_recursive(&source_path, &skill_dir);
-    let _ = std::fs::remove_dir_all(&temp_dir);
-    copy_result?;
-
-    // 4. Validate SKILL.md exists
     let skill_md = skill_dir.join("SKILL.md");
     if !skill_md.exists() {
         let _ = std::fs::remove_dir_all(&skill_dir);
         anyhow::bail!("No SKILL.md found in official skill '{name}'");
     }
 
-    // 5. Compute hash and write lockfile — NO trust gate for Official
     let content = std::fs::read_to_string(&skill_md)?;
     let hash = lockfile::compute_content_hash(content.as_bytes());
     let source_str = format!(
         "official:{}",
-        repo_url.trim_start_matches("https://github.com/"),
+        catalog::OFFICIAL_REPO.trim_start_matches("https://github.com/"),
     );
     let lock_entry = lockfile::build_lock_entry(
         trust::SkillTrust::Official,
@@ -846,6 +800,74 @@ fn handle_catalog_install(
         name,
     );
     Ok(())
+}
+
+/// Look up a skill in the catalog index, returning a helpful error with
+/// suggestions when the skill is not found.
+fn lookup_catalog_entry<'a>(
+    index: &'a catalog::CatalogIndex,
+    name: &str,
+) -> Result<&'a catalog::CatalogEntry> {
+    if let Some(entry) = index.skills.get(name) {
+        return Ok(entry);
+    }
+
+    let suggestions = catalog::search(index, name);
+    if suggestions.is_empty() {
+        anyhow::bail!(
+            "Skill '{name}' not found in the official catalog. \
+             Try 'corvus skills search {name}' or install by URL."
+        );
+    }
+
+    let names: Vec<&str> = suggestions.iter().map(|s| s.name.as_str()).collect();
+    anyhow::bail!(
+        "Skill '{name}' not found in the official catalog. \
+         Did you mean: {}? \
+         Or install by URL with 'corvus skills install <url>'.",
+        names.join(", ")
+    );
+}
+
+/// Shallow-clone an official repo and copy a subdirectory to `dest`.
+fn clone_official_skill_subdir(repo_url: &str, subdir_path: &str, dest: &Path) -> Result<()> {
+    let temp_dir = std::env::temp_dir().join(format!("corvus-catalog-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    if !shallow_clone(repo_url, &temp_dir) {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        anyhow::bail!("Failed to clone official skills repository");
+    }
+
+    let source_path = temp_dir.join(subdir_path);
+    if !source_path.exists() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        anyhow::bail!(
+            "Skill path '{}' not found in the official repository",
+            subdir_path
+        );
+    }
+
+    let copy_result = copy_dir_recursive(&source_path, dest);
+    let _ = std::fs::remove_dir_all(&temp_dir);
+    copy_result
+}
+
+/// Run `git clone --depth 1` to a destination directory.
+fn shallow_clone(repo_url: &str, dest: &Path) -> bool {
+    let status = std::process::Command::new("git")
+        .args([
+            "clone",
+            "--depth",
+            "1",
+            repo_url,
+            dest.to_str().unwrap_or("corvus-tmp"),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+
+    matches!(status, Ok(s) if s.success())
 }
 
 fn handle_install_command(
@@ -1273,24 +1295,21 @@ fn update_official_skill(
     config: &crate::config::SkillsConfig,
 ) -> Result<()> {
     let index = catalog::resolve_index(workspace_dir, config)?;
-
     let catalog_entry = index
         .skills
         .get(name)
         .ok_or_else(|| anyhow::anyhow!("Skill '{name}' no longer in official catalog"))?;
 
-    // Compare content hashes
-    if let (Some(installed_hash), Some(catalog_hash)) =
-        (&entry.content_hash, &catalog_entry.content_hash)
-    {
-        if installed_hash == catalog_hash {
-            println!(
-                "  {} '{}' is up to date.",
-                console::style("✓").green().bold(),
-                name,
-            );
-            return Ok(());
-        }
+    if is_hash_up_to_date(
+        entry.content_hash.as_ref(),
+        catalog_entry.content_hash.as_ref(),
+    ) {
+        println!(
+            "  {} '{}' is up to date.",
+            console::style("✓").green().bold(),
+            name,
+        );
+        return Ok(());
     }
 
     println!(
@@ -1302,64 +1321,12 @@ fn update_official_skill(
     let skills_path = skills_dir(workspace_dir);
     let skill_dir = skills_path.join(name);
 
-    let repo_url = catalog::OFFICIAL_REPO;
-    // Clone to temp first (atomic update)
-    let temp_base = std::env::temp_dir().join(format!("corvus-update-{name}"));
-    let _ = std::fs::remove_dir_all(&temp_base);
+    clone_and_swap_official_subdir(catalog::OFFICIAL_REPO, &catalog_entry.path, &skill_dir)?;
 
-    let clone_status = std::process::Command::new("git")
-        .args([
-            "clone",
-            "--depth",
-            "1",
-            repo_url,
-            temp_base.to_str().unwrap_or("corvus-update-tmp"),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-
-    match clone_status {
-        Ok(s) if s.success() => {}
-        _ => {
-            let _ = std::fs::remove_dir_all(&temp_base);
-            anyhow::bail!("Failed to clone official skills repository for update",);
-        }
-    }
-
-    let source_path = temp_base.join(&catalog_entry.path);
-    if !source_path.exists() {
-        let _ = std::fs::remove_dir_all(&temp_base);
-        anyhow::bail!(
-            "Skill path '{}' not found in official repo",
-            catalog_entry.path,
-        );
-    }
-
-    // Copy skill subdirectory to staging
-    let staging_dir = skill_dir.with_extension("staging");
-    let _ = std::fs::remove_dir_all(&staging_dir);
-    copy_dir_recursive(&source_path, &staging_dir)?;
-    let _ = std::fs::remove_dir_all(&temp_base);
-
-    // Atomic swap
-    if skill_dir.exists() {
-        std::fs::remove_dir_all(&skill_dir)?;
-    }
-    std::fs::rename(&staging_dir, &skill_dir)?;
-
-    // Update lockfile
-    let skill_md = skill_dir.join("SKILL.md");
-    let hash = if skill_md.exists() {
-        let content = std::fs::read_to_string(&skill_md)?;
-        Some(lockfile::compute_content_hash(content.as_bytes()))
-    } else {
-        None
-    };
-
+    let hash = compute_skill_md_hash(&skill_dir);
     let source_str = format!(
         "official:{}",
-        repo_url.trim_start_matches("https://github.com/"),
+        catalog::OFFICIAL_REPO.trim_start_matches("https://github.com/"),
     );
     let new_entry = lockfile::build_lock_entry(
         trust::SkillTrust::Official,
@@ -1377,6 +1344,59 @@ fn update_official_skill(
         name,
     );
     Ok(())
+}
+
+/// Check whether the installed and catalog content hashes match.
+fn is_hash_up_to_date(installed: Option<&String>, catalog: Option<&String>) -> bool {
+    matches!((installed, catalog), (Some(a), Some(b)) if a == b)
+}
+
+/// Shallow-clone an official repo subdirectory and atomically swap it into place.
+fn clone_and_swap_official_subdir(
+    repo_url: &str,
+    subdir_path: &str,
+    skill_dir: &Path,
+) -> Result<()> {
+    let name = skill_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("skill");
+    let temp_base = std::env::temp_dir().join(format!("corvus-update-{name}"));
+    let _ = std::fs::remove_dir_all(&temp_base);
+
+    if !shallow_clone(repo_url, &temp_base) {
+        let _ = std::fs::remove_dir_all(&temp_base);
+        anyhow::bail!("Failed to clone official skills repository for update");
+    }
+
+    let source_path = temp_base.join(subdir_path);
+    if !source_path.exists() {
+        let _ = std::fs::remove_dir_all(&temp_base);
+        anyhow::bail!("Skill path '{}' not found in official repo", subdir_path,);
+    }
+
+    let staging_dir = skill_dir.with_extension("staging");
+    let _ = std::fs::remove_dir_all(&staging_dir);
+    copy_dir_recursive(&source_path, &staging_dir)?;
+    let _ = std::fs::remove_dir_all(&temp_base);
+
+    atomic_swap_dir(skill_dir, &staging_dir)
+}
+
+/// Atomically replace `target` with `staging` (remove old, rename new).
+fn atomic_swap_dir(target: &Path, staging: &Path) -> Result<()> {
+    if target.exists() {
+        std::fs::remove_dir_all(target)?;
+    }
+    std::fs::rename(staging, target)?;
+    Ok(())
+}
+
+/// Compute the content hash of a skill's SKILL.md file, if it exists.
+fn compute_skill_md_hash(skill_dir: &Path) -> Option<String> {
+    let skill_md = skill_dir.join("SKILL.md");
+    let content = std::fs::read_to_string(&skill_md).ok()?;
+    Some(lockfile::compute_content_hash(content.as_bytes()))
 }
 
 fn update_thirdparty_skill(
@@ -1399,69 +1419,10 @@ fn update_thirdparty_skill(
     let skills_path = skills_dir(workspace_dir);
     let skill_dir = skills_path.join(name);
 
-    // Clone to temp directory first (atomic update)
-    let temp_dir = skill_dir.with_extension("tmp");
-    let _ = std::fs::remove_dir_all(&temp_dir); // Clean any leftover temp
+    clone_and_swap_remote(&skill_dir, source_url)?;
+    warn_if_scan_exceeds_threshold(name, &skill_dir);
 
-    let clone_status = std::process::Command::new("git")
-        .args([
-            "clone",
-            "--depth",
-            "1",
-            source_url,
-            temp_dir.to_str().unwrap_or("corvus-skill-tmp"),
-        ])
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status();
-
-    match clone_status {
-        Ok(s) if s.success() => {
-            // Remove .git from temp
-            let git_dir = temp_dir.join(".git");
-            if git_dir.exists() {
-                let _ = std::fs::remove_dir_all(&git_dir);
-            }
-            // Atomic swap: remove old, rename temp
-            if skill_dir.exists() {
-                std::fs::remove_dir_all(&skill_dir)?;
-            }
-            std::fs::rename(&temp_dir, &skill_dir)?;
-        }
-        _ => {
-            let _ = std::fs::remove_dir_all(&temp_dir);
-            anyhow::bail!("Failed to clone '{source_url}' for update");
-        }
-    }
-
-    // Validate after update
-    let skill_md = skill_dir.join("SKILL.md");
-    if !skill_md.exists() {
-        tracing::warn!("updated skill '{name}' is missing SKILL.md");
-    }
-
-    // Run scanner on updated content
-    if let Ok(content) = std::fs::read_to_string(&skill_md) {
-        let scan = scanner::scan_skill_content(&content);
-        if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) {
-            tracing::warn!(
-                "updated skill '{}' scored {} in injection scan \
-                 (threshold: {}). Review the skill content.",
-                name,
-                scan.score,
-                scanner::DEFAULT_SCAN_THRESHOLD,
-            );
-        }
-    }
-
-    // Update lockfile
-    let hash = if skill_md.exists() {
-        let content = std::fs::read_to_string(&skill_md)?;
-        Some(lockfile::compute_content_hash(content.as_bytes()))
-    } else {
-        None
-    };
-
+    let hash = compute_skill_md_hash(&skill_dir);
     let new_entry = lockfile::build_lock_entry(
         trust::SkillTrust::ThirdParty,
         source_url,
@@ -1478,6 +1439,49 @@ fn update_thirdparty_skill(
         name,
     );
     Ok(())
+}
+
+/// Clone a remote repo and atomically swap it into the skill directory.
+fn clone_and_swap_remote(skill_dir: &Path, source_url: &str) -> Result<()> {
+    let temp_dir = skill_dir.with_extension("tmp");
+    let _ = std::fs::remove_dir_all(&temp_dir);
+
+    if !shallow_clone(source_url, &temp_dir) {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        anyhow::bail!("Failed to clone '{source_url}' for update");
+    }
+
+    // Remove .git from temp
+    let git_dir = temp_dir.join(".git");
+    if git_dir.exists() {
+        let _ = std::fs::remove_dir_all(&git_dir);
+    }
+
+    atomic_swap_dir(skill_dir, &temp_dir)
+}
+
+/// Warn if an updated skill's content exceeds the injection scan threshold.
+fn warn_if_scan_exceeds_threshold(name: &str, skill_dir: &Path) {
+    let skill_md = skill_dir.join("SKILL.md");
+    if !skill_md.exists() {
+        tracing::warn!("updated skill '{name}' is missing SKILL.md");
+        return;
+    }
+
+    let Ok(content) = std::fs::read_to_string(&skill_md) else {
+        return;
+    };
+
+    let scan = scanner::scan_skill_content(&content);
+    if scan.exceeds_threshold(scanner::DEFAULT_SCAN_THRESHOLD) {
+        tracing::warn!(
+            "updated skill '{}' scored {} in injection scan \
+             (threshold: {}). Review the skill content.",
+            name,
+            scan.score,
+            scanner::DEFAULT_SCAN_THRESHOLD,
+        );
+    }
 }
 
 fn handle_remove_command(workspace_dir: &Path, name: &str) -> Result<()> {

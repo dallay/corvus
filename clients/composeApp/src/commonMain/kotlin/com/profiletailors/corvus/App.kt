@@ -14,6 +14,7 @@ import com.profiletailors.corvus.ui.chat.MobileBridgeSnapshot
 import com.profiletailors.corvus.ui.chat.MobileOnboardingStatus
 import com.profiletailors.corvus.ui.onboarding.OnboardingDefaults
 import com.profiletailors.corvus.ui.onboarding.OnboardingScreen
+import com.profiletailors.corvus.ui.onboarding.OnboardingStep
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 import kotlin.random.Random
 
@@ -36,55 +37,79 @@ fun App(platformOverride: Platform? = null, initialBridgeSnapshot: MobileBridgeS
 
   CorvusTheme {
     if (shouldShowOnboarding) {
-      OnboardingScreen(
-        step = onboardingSteps[onboardingStepIndex],
-        currentStepIndex = onboardingStepIndex,
-        totalSteps = onboardingSteps.size,
-        isLastStep = onboardingStepIndex == onboardingSteps.lastIndex,
-        onSkip = { onboardingStepIndex = onboardingSteps.size },
-        onNext = {
-          onboardingStepIndex =
-            if (onboardingStepIndex < onboardingSteps.lastIndex) {
-              onboardingStepIndex + 1
-            } else {
-              onboardingSteps.size
-            }
-        },
+      AppOnboardingContent(
+        steps = onboardingSteps,
+        stepIndex = onboardingStepIndex,
+        onStepIndexChange = { onboardingStepIndex = it },
       )
     } else {
-      ChatWorkspace(
-        state = ChatWorkspaceDefaults.state(modelName = AGENT_NAME),
+      AppChatContent(
+        platform = platform,
         bridgeSnapshot = bridgeSnapshot,
-        platformName = platform.name,
-        onRetryBridge = {
-          if (bridgeSnapshot.environmentSupported) {
-            bridgeSnapshot = bridgeSnapshot.copy(runtimeAvailable = true, sessionCapable = true)
-          }
-        },
-        onLinkSurface = {
-          if (bridgeSnapshot.environmentSupported) {
-            bridgeSnapshot =
-              bridgeSnapshot.copy(
-                runtimeAvailable = true,
-                linkEstablished = true,
-                sessionCapable = true,
-              )
-          }
-        },
-        onStartSession = {
-          if (bridgeSnapshot.toOnboardingState().status == MobileOnboardingStatus.SESSION_PENDING) {
-            bridgeSnapshot = bridgeSnapshot.copy(sessionId = generateSessionId())
-          }
-        },
-        onClearSession = {
-          if (bridgeSnapshot.environmentSupported) {
-            bridgeSnapshot =
-              bridgeSnapshot.copy(linkEstablished = false, sessionCapable = false, sessionId = null)
-          }
-        },
+        onBridgeSnapshotChange = { bridgeSnapshot = it },
       )
     }
   }
+}
+
+@Composable
+private fun AppOnboardingContent(
+  steps: List<OnboardingStep>,
+  stepIndex: Int,
+  onStepIndexChange: (Int) -> Unit,
+) {
+  OnboardingScreen(
+    step = steps[stepIndex],
+    currentStepIndex = stepIndex,
+    totalSteps = steps.size,
+    isLastStep = stepIndex == steps.lastIndex,
+    onSkip = { onStepIndexChange(steps.size) },
+    onNext = {
+      val next = if (stepIndex < steps.lastIndex) stepIndex + 1 else steps.size
+      onStepIndexChange(next)
+    },
+  )
+}
+
+@Composable
+private fun AppChatContent(
+  platform: Platform,
+  bridgeSnapshot: MobileBridgeSnapshot,
+  onBridgeSnapshotChange: (MobileBridgeSnapshot) -> Unit,
+) {
+  ChatWorkspace(
+    state = ChatWorkspaceDefaults.state(modelName = AGENT_NAME),
+    bridgeSnapshot = bridgeSnapshot,
+    platformName = platform.name,
+    onRetryBridge = {
+      if (bridgeSnapshot.environmentSupported) {
+        onBridgeSnapshotChange(bridgeSnapshot.copy(runtimeAvailable = true, sessionCapable = true))
+      }
+    },
+    onLinkSurface = {
+      if (bridgeSnapshot.environmentSupported) {
+        onBridgeSnapshotChange(
+          bridgeSnapshot.copy(
+            runtimeAvailable = true,
+            linkEstablished = true,
+            sessionCapable = true,
+          )
+        )
+      }
+    },
+    onStartSession = {
+      if (bridgeSnapshot.toOnboardingState().status == MobileOnboardingStatus.SESSION_PENDING) {
+        onBridgeSnapshotChange(bridgeSnapshot.copy(sessionId = generateSessionId()))
+      }
+    },
+    onClearSession = {
+      if (bridgeSnapshot.environmentSupported) {
+        onBridgeSnapshotChange(
+          bridgeSnapshot.copy(linkEstablished = false, sessionCapable = false, sessionId = null)
+        )
+      }
+    },
+  )
 }
 
 internal fun defaultBridgeSnapshotFor(platform: Platform): MobileBridgeSnapshot =

@@ -749,40 +749,8 @@ impl TelegramChannel {
 
         match pairing.try_pair(code) {
             Ok(Some(_token)) => {
-                let bind_identity = get_bind_identity(normalized_user_id, normalized_username);
-
-                if let Some(identity) = bind_identity {
-                    self.add_allowed_identity_runtime(&identity);
-                    match self.persist_allowed_identity(&identity).await {
-                        Ok(()) => {
-                            let _ = self
-                                .send(&SendMessage::new(
-                                    "✅ Telegram account bound successfully. You can talk to Corvus now.",
-                                    chat_id,
-                                ))
-                                .await;
-                            tracing::info!("Telegram: paired and allowlisted identity={identity}");
-                        }
-                        Err(e) => {
-                            tracing::error!(
-                                "Telegram: failed to persist allowlist after bind: {e}"
-                            );
-                            let _ = self
-                                .send(&SendMessage::new(
-                                    "⚠️ Bound for this runtime, but failed to persist config. Access may be lost after restart; check config file permissions.",
-                                    chat_id,
-                                ))
-                                .await;
-                        }
-                    }
-                } else {
-                    let _ = self
-                        .send(&SendMessage::new(
-                            "❌ Could not identify your Telegram account. Ensure your account has a username or stable user ID, then retry.",
-                            chat_id,
-                        ))
-                        .await;
-                }
+                self.complete_bind(chat_id, normalized_username, normalized_user_id)
+                    .await;
             }
             Ok(None) => {
                 let _ = self
@@ -801,6 +769,44 @@ impl TelegramChannel {
                     .await;
             }
         }
+    }
+
+    async fn complete_bind(
+        &self,
+        chat_id: &str,
+        normalized_username: &str,
+        normalized_user_id: Option<&str>,
+    ) {
+        let Some(identity) = get_bind_identity(normalized_user_id, normalized_username) else {
+            let _ = self
+                .send(&SendMessage::new(
+                    "❌ Could not identify your Telegram account. Ensure your account has a username or stable user ID, then retry.",
+                    chat_id,
+                ))
+                .await;
+            return;
+        };
+
+        self.add_allowed_identity_runtime(&identity);
+
+        if let Err(e) = self.persist_allowed_identity(&identity).await {
+            tracing::error!("Telegram: failed to persist allowlist after bind: {e}");
+            let _ = self
+                .send(&SendMessage::new(
+                    "⚠️ Bound for this runtime, but failed to persist config. Access may be lost after restart; check config file permissions.",
+                    chat_id,
+                ))
+                .await;
+            return;
+        }
+
+        let _ = self
+            .send(&SendMessage::new(
+                "✅ Telegram account bound successfully. You can talk to Corvus now.",
+                chat_id,
+            ))
+            .await;
+        tracing::info!("Telegram: paired and allowlisted identity={identity}");
     }
 
     async fn send_unauthorized_notification(

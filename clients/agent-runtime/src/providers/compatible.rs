@@ -485,6 +485,57 @@ fn extract_responses_text(response: ResponsesResponse) -> Option<String> {
         .or_else(|| first_output_content_text(&response))
 }
 
+/// Build API messages with content-block format for multimodal chat requests.
+///
+/// User messages get an array of text + image blocks; non-user messages keep
+/// plain string content. Images are attached only to the last user message.
+fn build_multimodal_api_messages(
+    messages: &[ChatMessage],
+    images: &[crate::channels::media::StagedImage],
+) -> anyhow::Result<Vec<serde_json::Value>> {
+    let last_user_idx = messages.iter().rposition(|m| m.role == "user");
+    let mut api_messages = Vec::new();
+
+    for (idx, msg) in messages.iter().enumerate() {
+        if msg.role == "user" {
+            let mut blocks = Vec::new();
+
+            if !msg.content.is_empty() {
+                blocks.push(serde_json::json!({
+                    "type": "text",
+                    "text": msg.content,
+                }));
+            }
+
+            if Some(idx) == last_user_idx {
+                for image in images {
+                    let bytes = std::fs::read(&image.temp_path)
+                        .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
+                    let b64 = base64_encode(&bytes);
+                    let mime = image.mime_type.as_str();
+                    let data_url = format!("data:{mime};base64,{b64}");
+                    blocks.push(serde_json::json!({
+                        "type": "image_url",
+                        "image_url": { "url": data_url },
+                    }));
+                }
+            }
+
+            api_messages.push(serde_json::json!({
+                "role": "user",
+                "content": blocks,
+            }));
+        } else {
+            api_messages.push(serde_json::json!({
+                "role": msg.role,
+                "content": msg.content,
+            }));
+        }
+    }
+
+    Ok(api_messages)
+}
+
 impl OpenAiCompatibleProvider {
     /// Send a multimodal chat request using content-blocks format.
     ///
@@ -505,51 +556,7 @@ impl OpenAiCompatibleProvider {
             )
         })?;
 
-        // Find the index of the last user message for image attachment.
-        let last_user_idx = request.messages.iter().rposition(|m| m.role == "user");
-
-        // Build messages with content blocks for the user turn.
-        let mut api_messages = Vec::new();
-
-        for (idx, msg) in request.messages.iter().enumerate() {
-            if msg.role == "user" {
-                // Build content blocks: text + image parts.
-                let mut blocks = Vec::new();
-
-                if !msg.content.is_empty() {
-                    blocks.push(serde_json::json!({
-                        "type": "text",
-                        "text": msg.content,
-                    }));
-                }
-
-                // Only attach images to the last user message.
-                if Some(idx) == last_user_idx {
-                    for image in request.images {
-                        let bytes = std::fs::read(&image.temp_path)
-                            .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
-                        let b64 = base64_encode(&bytes);
-                        let mime = image.mime_type.as_str();
-                        let data_url = format!("data:{mime};base64,{b64}");
-                        blocks.push(serde_json::json!({
-                            "type": "image_url",
-                            "image_url": { "url": data_url },
-                        }));
-                    }
-                }
-
-                api_messages.push(serde_json::json!({
-                    "role": "user",
-                    "content": blocks,
-                }));
-            } else {
-                // Non-user messages: string content as-is.
-                api_messages.push(serde_json::json!({
-                    "role": msg.role,
-                    "content": msg.content,
-                }));
-            }
-        }
+        let api_messages = build_multimodal_api_messages(request.messages, request.images)?;
 
         // Include tools when present.
         let tools_json = request

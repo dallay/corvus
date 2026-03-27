@@ -1135,6 +1135,99 @@ pub struct AppState {
     pub observer: Arc<dyn crate::observability::Observer>,
 }
 
+/// Start a tunnel (if configured) and return its public URL on success.
+async fn start_tunnel(
+    tunnel: Option<&dyn crate::tunnel::Tunnel>,
+    host: &str,
+    port: u16,
+) -> Option<String> {
+    let tun = tunnel?;
+    println!("🔗 Starting {} tunnel...", tun.name());
+    match tun.start(host, port).await {
+        Ok(url) => {
+            println!("🌐 Tunnel active: {url}");
+            Some(url)
+        }
+        Err(e) => {
+            println!("⚠️  Tunnel failed to start: {e}");
+            println!("   Falling back to local-only mode.");
+            None
+        }
+    }
+}
+
+/// Print the startup banner including routes and pairing info.
+fn print_startup_banner(
+    display_addr: &str,
+    tunnel_url: Option<&String>,
+    config: &Config,
+    has_whatsapp: bool,
+    pairing: &PairingGuard,
+) {
+    println!("🦀 Corvus Gateway listening on http://{display_addr}");
+    if let Some(url) = tunnel_url {
+        println!("  🌐 Public URL: {url}");
+    }
+    println!("  POST /pair      — pair a new client (X-Pairing-Code header)");
+    println!("  POST /webhook   — {{\"message\": \"your prompt\"}}");
+    println!("  GET  /web/admin/config   — redacted admin config");
+    println!("  PUT  /web/admin/config   — update admin config");
+    println!("  GET  /web/admin/options  — admin options catalog");
+    if config.gateway.admin_expose_provider_pools {
+        println!("  GET  /web/admin/provider-pools   — provider account pools");
+        println!("  PUT  /web/admin/provider-pools   — update provider account pools");
+    }
+    if has_whatsapp {
+        println!("  GET  /whatsapp  — Meta webhook verification");
+        println!("  POST /whatsapp  — WhatsApp message webhook");
+    }
+    print_pairing_info(display_addr, tunnel_url, pairing);
+    println!("  Press Ctrl+C to stop.\n");
+}
+
+/// Print pairing guidance (code, magic link, or status line).
+fn print_pairing_info(display_addr: &str, tunnel_url: Option<&String>, pairing: &PairingGuard) {
+    let Some(code) = pairing.pairing_code() else {
+        if pairing.require_pairing() {
+            println!("  🔒 Pairing active — connect to gateway with a bearer token.");
+        } else {
+            println!("  ⚠️  Pairing: DISABLED (all requests accepted)");
+        }
+        return;
+    };
+
+    use std::io::IsTerminal;
+    if !should_emit_pairing_secrets(std::io::stdout().is_terminal()) {
+        tracing::info!("🔐 Pairing is required but terminal is non-interactive. Pairing code will not be printed to stdout.");
+        tracing::info!(
+            "To pair, run the agent interactively to get a pairing code and bearer token, or use an automated provisioning strategy."
+        );
+        return;
+    }
+
+    println!();
+    for line in pairing_code_guidance_lines(&code) {
+        println!("{line}");
+    }
+
+    let default_dash = "http://localhost:1355".to_string();
+    let dash_url = std::env::var("CORVUS_DASHBOARD_URL").unwrap_or(default_dash);
+    let gateway_url = tunnel_url
+        .cloned()
+        .unwrap_or_else(|| format!("http://{display_addr}"));
+
+    if let Some(magic_link) = build_magic_link(&dash_url, &code, &gateway_url) {
+        println!();
+        for line in quick_pair_magic_link_lines(&magic_link) {
+            println!("{line}");
+        }
+    } else {
+        tracing::warn!(
+            "CORVUS_DASHBOARD_URL is not a trusted local origin. Suppressing magic link."
+        );
+    }
+}
+
 /// Run the HTTP gateway using axum with proper HTTP/1.1 compliance.
 #[allow(clippy::too_many_lines)]
 pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
@@ -1224,75 +1317,15 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
 
     // ── Tunnel ────────────────────────────────────────────────
     let tunnel = crate::tunnel::create_tunnel(&config.tunnel)?;
-    let mut tunnel_url: Option<String> = None;
+    let tunnel_url = start_tunnel(tunnel.as_deref(), host, actual_port).await;
 
-    if let Some(ref tun) = tunnel {
-        println!("🔗 Starting {} tunnel...", tun.name());
-        match tun.start(host, actual_port).await {
-            Ok(url) => {
-                println!("🌐 Tunnel active: {url}");
-                tunnel_url = Some(url);
-            }
-            Err(e) => {
-                println!("⚠️  Tunnel failed to start: {e}");
-                println!("   Falling back to local-only mode.");
-            }
-        }
-    }
-
-    println!("🦀 Corvus Gateway listening on http://{display_addr}");
-    if let Some(ref url) = tunnel_url {
-        println!("  🌐 Public URL: {url}");
-    }
-    println!("  POST /pair      — pair a new client (X-Pairing-Code header)");
-    println!("  POST /webhook   — {{\"message\": \"your prompt\"}}");
-    println!("  GET  /web/admin/config   — redacted admin config");
-    println!("  PUT  /web/admin/config   — update admin config");
-    println!("  GET  /web/admin/options  — admin options catalog");
-    if config.gateway.admin_expose_provider_pools {
-        println!("  GET  /web/admin/provider-pools   — provider account pools");
-        println!("  PUT  /web/admin/provider-pools   — update provider account pools");
-    }
-    if whatsapp_channel.is_some() {
-        println!("  GET  /whatsapp  — Meta webhook verification");
-        println!("  POST /whatsapp  — WhatsApp message webhook");
-    }
-    if let Some(code) = pairing.pairing_code() {
-        use std::io::IsTerminal;
-        if should_emit_pairing_secrets(std::io::stdout().is_terminal()) {
-            println!();
-            for line in pairing_code_guidance_lines(&code) {
-                println!("{line}");
-            }
-
-            let default_dash = "http://localhost:1355".to_string();
-            let dash_url = std::env::var("CORVUS_DASHBOARD_URL").unwrap_or(default_dash);
-            let gateway_url = tunnel_url
-                .clone()
-                .unwrap_or_else(|| format!("http://{display_addr}"));
-
-            if let Some(magic_link) = build_magic_link(&dash_url, &code, &gateway_url) {
-                println!();
-                for line in quick_pair_magic_link_lines(&magic_link) {
-                    println!("{line}");
-                }
-            } else {
-                tracing::warn!(
-                    "CORVUS_DASHBOARD_URL is not a trusted local origin. Suppressing magic link."
-                );
-            }
-        } else {
-            tracing::info!("🔐 Pairing is required but terminal is non-interactive. Pairing code will not be printed to stdout.");
-            tracing::info!(
-                "To pair, run the agent interactively to get a pairing code and bearer token, or use an automated provisioning strategy."
-            );
-        }
-    } else if pairing.require_pairing() {
-        println!("  🔒 Pairing active — connect to gateway with a bearer token.");
-    } else {
-        println!("  ⚠️  Pairing: DISABLED (all requests accepted)");
-    }
-    println!("  Press Ctrl+C to stop.\n");
+    print_startup_banner(
+        &display_addr,
+        tunnel_url.as_ref(),
+        &config,
+        whatsapp_channel.is_some(),
+        &pairing,
+    );
 
     crate::health::mark_component_ok("gateway");
 
@@ -1986,6 +2019,95 @@ pub fn verify_whatsapp_signature(app_secret: &str, body: &[u8], signature_header
     mac.verify_slice(&expected).is_ok()
 }
 
+/// Enqueue parsed WhatsApp messages into the canonical channel runtime,
+/// deduplicating by message id.
+fn enqueue_whatsapp_messages(
+    messages: Vec<crate::channels::traits::ChannelMessage>,
+    handle: &crate::channels::ChannelRuntimeHandle,
+    idempotency_store: &IdempotencyStore,
+) -> (StatusCode, Json<serde_json::Value>) {
+    let mut enqueued = 0u32;
+    for msg in messages {
+        if !idempotency_store.record_if_new(&msg.id) {
+            tracing::debug!(msg.id = %msg.id, "WhatsApp duplicate skipped");
+            continue;
+        }
+
+        tracing::info!(
+            msg.id = %msg.id,
+            msg.sender = %msg.sender,
+            has_image = msg.has_image_parts(),
+            "WhatsApp → canonical runtime",
+        );
+
+        if let Err(e) = handle.enqueue(msg) {
+            tracing::error!("Failed to enqueue WhatsApp message: {e}");
+        } else {
+            enqueued += 1;
+        }
+    }
+
+    if enqueued > 0 {
+        (
+            StatusCode::ACCEPTED,
+            Json(serde_json::json!({"status": "accepted"})),
+        )
+    } else {
+        (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
+    }
+}
+
+/// Legacy WhatsApp processing: call `simple_chat()` and reply directly.
+async fn process_whatsapp_legacy(
+    state: &AppState,
+    wa: &WhatsAppChannel,
+    messages: &[crate::channels::traits::ChannelMessage],
+) -> (StatusCode, Json<serde_json::Value>) {
+    for msg in messages {
+        tracing::info!(
+            msg.id = %msg.id,
+            msg.sender = %msg.sender,
+            has_image = msg.has_image_parts(),
+            "WhatsApp → legacy path",
+        );
+
+        if state.auto_save {
+            let key = whatsapp_memory_key(msg);
+            let _ = state
+                .mem
+                .store(&key, &msg.content, MemoryCategory::Conversation, None)
+                .await;
+        }
+
+        match state
+            .provider
+            .simple_chat(&msg.content, &state.model, state.temperature)
+            .await
+        {
+            Ok(response) => {
+                if let Err(e) = wa
+                    .send(&SendMessage::new(response, &msg.reply_target))
+                    .await
+                {
+                    tracing::error!("Failed to send WhatsApp reply: {e}");
+                }
+            }
+            Err(e) => {
+                tracing::error!("LLM error for WhatsApp message: {e:#}");
+                let _ = wa
+                    .send(&SendMessage::new(
+                        "Sorry, I couldn't process your \
+                         message right now.",
+                        &msg.reply_target,
+                    ))
+                    .await;
+            }
+        }
+    }
+
+    (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
+}
+
 /// POST /whatsapp — incoming message webhook
 ///
 /// Transport verification (signature, allowlist) stays here.
@@ -2062,93 +2184,11 @@ async fn handle_whatsapp_message(
 
     // ── Canonical runtime path ────────────────────────────
     if let Some(ref handle) = state.channel_runtime_handle {
-        let mut enqueued = 0u32;
-        for msg in messages {
-            // Deduplicate: skip already-seen message ids.
-            if !state.idempotency_store.record_if_new(&msg.id) {
-                tracing::debug!(
-                    msg.id = %msg.id,
-                    "WhatsApp duplicate skipped",
-                );
-                continue;
-            }
-
-            tracing::info!(
-                msg.id = %msg.id,
-                msg.sender = %msg.sender,
-                has_image = msg.has_image_parts(),
-                "WhatsApp → canonical runtime",
-            );
-
-            if let Err(e) = handle.enqueue(msg) {
-                tracing::error!("Failed to enqueue WhatsApp message: {e}");
-                // Enqueue failed — don't count as accepted.
-            } else {
-                enqueued += 1;
-            }
-        }
-
-        if enqueued > 0 {
-            return (
-                StatusCode::ACCEPTED,
-                Json(serde_json::json!({
-                    "status": "accepted"
-                })),
-            );
-        }
-        // All messages were duplicates or failed to enqueue.
-        return (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "status": "ok"
-            })),
-        );
+        return enqueue_whatsapp_messages(messages, handle, &state.idempotency_store);
     }
 
     // ── Legacy fallback (no runtime handle) ───────────────
-    for msg in &messages {
-        tracing::info!(
-            msg.id = %msg.id,
-            msg.sender = %msg.sender,
-            has_image = msg.has_image_parts(),
-            "WhatsApp → legacy path",
-        );
-
-        if state.auto_save {
-            let key = whatsapp_memory_key(msg);
-            let _ = state
-                .mem
-                .store(&key, &msg.content, MemoryCategory::Conversation, None)
-                .await;
-        }
-
-        match state
-            .provider
-            .simple_chat(&msg.content, &state.model, state.temperature)
-            .await
-        {
-            Ok(response) => {
-                if let Err(e) = wa
-                    .send(&SendMessage::new(response, &msg.reply_target))
-                    .await
-                {
-                    tracing::error!("Failed to send WhatsApp reply: {e}");
-                }
-            }
-            Err(e) => {
-                tracing::error!("LLM error for WhatsApp message: {e:#}");
-                let _ = wa
-                    .send(&SendMessage::new(
-                        "Sorry, I couldn't process your \
-                         message right now.",
-                        &msg.reply_target,
-                    ))
-                    .await;
-            }
-        }
-    }
-
-    (StatusCode::OK, Json(serde_json::json!({"status": "ok"})))
+    process_whatsapp_legacy(&state, wa, &messages).await
 }
 
 fn is_trusted_local_host(host: &str) -> bool {
