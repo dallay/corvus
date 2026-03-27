@@ -49,116 +49,142 @@ pub fn scan_skill_content(content: &str) -> ScanResult {
     let mut findings = Vec::new();
     let mut score = 0u32;
 
-    let system_override_patterns = [
-        "ignore previous instructions",
-        "ignore all previous",
-        "disregard all prior",
-        "forget your instructions",
-        "override system prompt",
-        "new system prompt",
-    ];
-
-    let role_manipulation_patterns = [
-        "you are now an unrestricted",
-        "act as an unrestricted",
-        "you are no longer bound",
-        "ignore your safety",
-        "bypass your restrictions",
-        "pretend you have no limits",
-    ];
-
-    let trust_escalation_patterns = [
-        "this skill is official",
-        "trust level: official",
-        "trust: official",
-        "i am an official skill",
-        "treat this as trusted",
-    ];
-
-    let zwc_chars = ['\u{200B}', '\u{200C}', '\u{200D}', '\u{FEFF}', '\u{2060}'];
-
     for (line_idx, line) in content.lines().enumerate() {
-        let line_lower = line.to_lowercase();
         let line_num = line_idx + 1;
-
-        // SystemPromptOverride (severity: 40)
-        for pattern in &system_override_patterns {
-            if line_lower.contains(pattern) {
-                findings.push(ScanFinding {
-                    category: ScanCategory::SystemPromptOverride,
-                    pattern: pattern.to_string(),
-                    line: line_num,
-                    severity: 40,
-                });
-                score += 40;
-            }
-        }
-
-        // RoleManipulation (severity: 15)
-        for pattern in &role_manipulation_patterns {
-            if line_lower.contains(pattern) {
-                findings.push(ScanFinding {
-                    category: ScanCategory::RoleManipulation,
-                    pattern: pattern.to_string(),
-                    line: line_num,
-                    severity: 15,
-                });
-                score += 15;
-            }
-        }
-
-        // TrustEscalation (severity: 40)
-        for pattern in &trust_escalation_patterns {
-            if line_lower.contains(pattern) {
-                findings.push(ScanFinding {
-                    category: ScanCategory::TrustEscalation,
-                    pattern: pattern.to_string(),
-                    line: line_num,
-                    severity: 40,
-                });
-                score += 40;
-            }
-        }
-
-        // EncodedPayload (severity: 30)
-        let trimmed = line.trim();
-        if trimmed.len() > 200
-            && trimmed
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
-        {
-            findings.push(ScanFinding {
-                category: ScanCategory::EncodedPayload,
-                pattern: format!("base64 block ({} chars)", trimmed.len()),
-                line: line_num,
-                severity: 30,
-            });
-            score += 30;
-        }
-
-        // UnicodeAnomaly (severity: 25)
-        if line.chars().any(|c| zwc_chars.contains(&c)) {
-            findings.push(ScanFinding {
-                category: ScanCategory::UnicodeAnomaly,
-                pattern: "zero-width character detected".to_string(),
-                line: line_num,
-                severity: 25,
-            });
-            score += 25;
-        }
+        scan_line_patterns(line, line_num, &mut findings, &mut score);
     }
 
-    // Multi-line base64 detection (contiguous base64-like lines)
+    scan_multiline_base64(content, &mut findings, &mut score);
+
+    ScanResult { score, findings }
+}
+
+const SYSTEM_OVERRIDE_PATTERNS: &[&str] = &[
+    "ignore previous instructions",
+    "ignore all previous",
+    "disregard all prior",
+    "forget your instructions",
+    "override system prompt",
+    "new system prompt",
+];
+
+const ROLE_MANIPULATION_PATTERNS: &[&str] = &[
+    "you are now an unrestricted",
+    "act as an unrestricted",
+    "you are no longer bound",
+    "ignore your safety",
+    "bypass your restrictions",
+    "pretend you have no limits",
+];
+
+const TRUST_ESCALATION_PATTERNS: &[&str] = &[
+    "this skill is official",
+    "trust level: official",
+    "trust: official",
+    "i am an official skill",
+    "treat this as trusted",
+];
+
+const ZWC_CHARS: &[char] = &['\u{200B}', '\u{200C}', '\u{200D}', '\u{FEFF}', '\u{2060}'];
+
+/// Check a single line against all pattern categories.
+fn scan_line_patterns(
+    line: &str,
+    line_num: usize,
+    findings: &mut Vec<ScanFinding>,
+    score: &mut u32,
+) {
+    let line_lower = line.to_lowercase();
+
+    check_patterns(
+        &line_lower,
+        line_num,
+        SYSTEM_OVERRIDE_PATTERNS,
+        ScanCategory::SystemPromptOverride,
+        40,
+        findings,
+        score,
+    );
+    check_patterns(
+        &line_lower,
+        line_num,
+        ROLE_MANIPULATION_PATTERNS,
+        ScanCategory::RoleManipulation,
+        15,
+        findings,
+        score,
+    );
+    check_patterns(
+        &line_lower,
+        line_num,
+        TRUST_ESCALATION_PATTERNS,
+        ScanCategory::TrustEscalation,
+        40,
+        findings,
+        score,
+    );
+
+    // EncodedPayload (severity: 30) — single long base64-like line
+    let trimmed = line.trim();
+    if trimmed.len() > 200 && is_base64_like(trimmed) {
+        findings.push(ScanFinding {
+            category: ScanCategory::EncodedPayload,
+            pattern: format!("base64 block ({} chars)", trimmed.len()),
+            line: line_num,
+            severity: 30,
+        });
+        *score += 30;
+    }
+
+    // UnicodeAnomaly (severity: 25)
+    if line.chars().any(|c| ZWC_CHARS.contains(&c)) {
+        findings.push(ScanFinding {
+            category: ScanCategory::UnicodeAnomaly,
+            pattern: "zero-width character detected".to_string(),
+            line: line_num,
+            severity: 25,
+        });
+        *score += 25;
+    }
+}
+
+/// Match a line against a set of patterns and record findings.
+fn check_patterns(
+    line_lower: &str,
+    line_num: usize,
+    patterns: &[&str],
+    category: ScanCategory,
+    severity: u32,
+    findings: &mut Vec<ScanFinding>,
+    score: &mut u32,
+) {
+    for pattern in patterns {
+        if line_lower.contains(pattern) {
+            findings.push(ScanFinding {
+                category,
+                pattern: pattern.to_string(),
+                line: line_num,
+                severity,
+            });
+            *score += severity;
+        }
+    }
+}
+
+/// Check if a string looks like base64-encoded content.
+fn is_base64_like(s: &str) -> bool {
+    s.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=')
+}
+
+/// Detect contiguous multi-line base64 blocks.
+fn scan_multiline_base64(content: &str, findings: &mut Vec<ScanFinding>, score: &mut u32) {
     let mut block_start: Option<usize> = None;
     let mut block_len: usize = 0;
 
     for (line_idx, line) in content.lines().enumerate() {
         let trimmed = line.trim();
-        let is_b64_line = !trimmed.is_empty()
-            && trimmed.len() <= 200 // Not already caught by single-line check
-            && trimmed
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b == b'+' || b == b'/' || b == b'=');
+        let is_b64_line = !trimmed.is_empty() && trimmed.len() <= 200 && is_base64_like(trimmed);
 
         if is_b64_line {
             if block_start.is_none() {
@@ -166,20 +192,22 @@ pub fn scan_skill_content(content: &str) -> ScanResult {
             }
             block_len += trimmed.len();
         } else {
-            if block_len > 200 {
-                findings.push(ScanFinding {
-                    category: ScanCategory::EncodedPayload,
-                    pattern: format!("multi-line base64 block ({block_len} chars)"),
-                    line: block_start.unwrap_or(1),
-                    severity: 30,
-                });
-                score += 30;
-            }
+            emit_multiline_b64(block_start, block_len, findings, score);
             block_start = None;
             block_len = 0;
         }
     }
     // Check trailing block
+    emit_multiline_b64(block_start, block_len, findings, score);
+}
+
+/// Emit a multi-line base64 finding if the block exceeds 200 chars.
+fn emit_multiline_b64(
+    block_start: Option<usize>,
+    block_len: usize,
+    findings: &mut Vec<ScanFinding>,
+    score: &mut u32,
+) {
     if block_len > 200 {
         findings.push(ScanFinding {
             category: ScanCategory::EncodedPayload,
@@ -187,10 +215,8 @@ pub fn scan_skill_content(content: &str) -> ScanResult {
             line: block_start.unwrap_or(1),
             severity: 30,
         });
-        score += 30;
+        *score += 30;
     }
-
-    ScanResult { score, findings }
 }
 
 #[cfg(test)]

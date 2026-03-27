@@ -33,6 +33,9 @@ catalogs:
     '@vitest/coverage-v8':
       specifier: 4.0.18
       version: 4.0.18
+    '@vue/compiler-dom':
+      specifier: 3.5.30
+      version: 3.5.30
     '@vue/test-utils':
       specifier: 2.4.6
       version: 2.4.6
@@ -102,6 +105,9 @@ importers:
       '@biomejs/biome':
         specifier: 'catalog:'
         version: 2.4.9
+      '@vue/compiler-dom':
+        specifier: 'catalog:'
+        version: 3.5.30
       typescript:
         specifier: 'catalog:'
         version: 5.9.3
@@ -160,6 +166,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.0.18(vitest@4.0.18(@types/node@25.5.0)(happy-dom@20.8.8)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.3))
+      '@vue/compiler-dom':
+        specifier: 'catalog:'
+        version: 3.5.30
       '@vue/test-utils':
         specifier: 'catalog:'
         version: 2.4.6
@@ -242,6 +251,9 @@ importers:
       '@vitest/coverage-v8':
         specifier: 'catalog:'
         version: 4.0.18(vitest@4.0.18(@types/node@25.5.0)(happy-dom@20.8.8)(jiti@2.6.1)(lightningcss@1.32.0)(yaml@2.8.3))
+      '@vue/compiler-dom':
+        specifier: 'catalog:'
+        version: 3.5.30
       '@vue/test-utils':
         specifier: 'catalog:'
         version: 2.4.6

@@ -19,6 +19,7 @@ numeric_prefix() {
   else
     echo "$num"
   fi
+  return 0
 }
 
 echo "Checking required tools and versions..."

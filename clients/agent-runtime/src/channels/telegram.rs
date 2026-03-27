@@ -17,6 +17,119 @@ use std::time::Duration;
 const TELEGRAM_MAX_MESSAGE_LENGTH: usize = 4096;
 const TELEGRAM_BIND_COMMAND: &str = "/bind";
 
+/// Build canonical content parts from a Telegram message JSON object.
+fn build_telegram_content_parts(message: &serde_json::Value) -> Vec<ContentPart> {
+    let mut parts: Vec<ContentPart> = Vec::new();
+
+    let caption = message
+        .get("caption")
+        .and_then(serde_json::Value::as_str)
+        .map(String::from);
+
+    if let Some(ref cap) = caption {
+        parts.push(ContentPart::Text { text: cap.clone() });
+    }
+
+    // Text-only message
+    if let Some(text) = message.get("text").and_then(serde_json::Value::as_str) {
+        parts.push(ContentPart::Text {
+            text: text.to_string(),
+        });
+    }
+
+    // Photo → Image part (last element = largest variant)
+    if let Some(photos) = message.get("photo").and_then(serde_json::Value::as_array) {
+        if let Some(largest) = photos.last() {
+            let file_id = largest
+                .get("file_id")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default();
+            let file_size = largest.get("file_size").and_then(serde_json::Value::as_u64);
+            parts.push(ContentPart::Image {
+                channel_handle: file_id.to_string(),
+                source_channel: "telegram".to_string(),
+                declared_mime: Some("image/jpeg".to_string()),
+                caption_text: caption.clone(),
+                file_name: None,
+                declared_bytes: file_size,
+            });
+        }
+    }
+
+    // Document → Image part ONLY if MIME is allowed image
+    build_document_image_part(message, caption.as_ref(), &mut parts);
+
+    parts
+}
+
+/// Extract an image part from a Telegram document attachment if MIME is allowed.
+fn build_document_image_part(
+    message: &serde_json::Value,
+    caption: Option<&String>,
+    parts: &mut Vec<ContentPart>,
+) {
+    let Some(doc) = message.get("document") else {
+        return;
+    };
+    let mime = doc
+        .get("mime_type")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+
+    if media::AllowedImageMime::from_mime_str(mime).is_none() {
+        return;
+    }
+
+    let file_id = doc
+        .get("file_id")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default();
+    let file_size = doc.get("file_size").and_then(serde_json::Value::as_u64);
+    let file_name = doc
+        .get("file_name")
+        .and_then(serde_json::Value::as_str)
+        .map(String::from);
+
+    parts.push(ContentPart::Image {
+        channel_handle: file_id.to_string(),
+        source_channel: "telegram".to_string(),
+        declared_mime: Some(mime.to_string()),
+        caption_text: caption.cloned(),
+        file_name,
+        declared_bytes: file_size,
+    });
+}
+
+/// Derive text projection from content parts for backward compatibility.
+fn derive_text_projection(parts: &[ContentPart]) -> String {
+    let blocks: Vec<&str> = parts
+        .iter()
+        .filter_map(|p| match p {
+            ContentPart::Text { text } if !text.is_empty() => Some(text.as_str()),
+            _ => None,
+        })
+        .collect();
+    blocks.join("\n\n")
+}
+
+fn extract_message_text_for_command_handling(message: &serde_json::Value) -> Option<String> {
+    if let Some(text) = message.get("text").and_then(serde_json::Value::as_str) {
+        return Some(text.to_string());
+    }
+
+    let parts = build_telegram_content_parts(message);
+    if parts.is_empty() {
+        return None;
+    }
+
+    let projection = derive_text_projection(&parts);
+    if projection.is_empty() {
+        None
+    } else {
+        Some(projection)
+    }
+}
+
 /// Split a message into chunks that respect Telegram's 4096 character limit.
 /// Tries to split at word boundaries when possible, and handles continuation.
 fn split_message_for_telegram(message: &str) -> Vec<String> {
@@ -566,7 +679,7 @@ impl TelegramChannel {
             None => return,
         };
 
-        let text = match message.get("text").and_then(serde_json::Value::as_str) {
+        let text = match extract_message_text_for_command_handling(message) {
             Some(t) => t,
             None => return,
         };
@@ -592,7 +705,7 @@ impl TelegramChannel {
         }
 
         self.process_telegram_message(
-            text,
+            &text,
             &chat_id,
             &normalized_username,
             normalized_user_id.as_deref(),
@@ -763,102 +876,12 @@ impl TelegramChannel {
             return None;
         }
 
-        // ── Build canonical parts ────────────────────────────
-        let mut parts: Vec<ContentPart> = Vec::new();
-
-        let caption = message
-            .get("caption")
-            .and_then(serde_json::Value::as_str)
-            .map(String::from);
-
-        // Text-only message
-        if let Some(text) = message.get("text").and_then(serde_json::Value::as_str) {
-            parts.push(ContentPart::Text {
-                text: text.to_string(),
-            });
-        }
-
-        // Photo → Image part (last element = largest variant)
-        if let Some(photos) = message.get("photo").and_then(serde_json::Value::as_array) {
-            if let Some(largest) = photos.last() {
-                // Caption → Text part (only when image is accepted)
-                if let Some(ref cap) = caption {
-                    parts.push(ContentPart::Text { text: cap.clone() });
-                }
-                let file_id = largest
-                    .get("file_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
-                let file_size = largest.get("file_size").and_then(serde_json::Value::as_u64);
-
-                parts.push(ContentPart::Image {
-                    channel_handle: file_id.to_string(),
-                    source_channel: "telegram".to_string(),
-                    declared_mime: Some("image/jpeg".to_string()),
-                    caption_text: caption.clone(),
-                    file_name: None,
-                    declared_bytes: file_size,
-                });
-            }
-        }
-
-        // Document → Image part ONLY if MIME is allowed image
-        if let Some(doc) = message.get("document") {
-            let mime = doc
-                .get("mime_type")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or_default();
-
-            if media::AllowedImageMime::from_mime_str(mime).is_some() {
-                // Caption → Text part (only when MIME passes)
-                if let Some(ref cap) = caption {
-                    parts.push(ContentPart::Text { text: cap.clone() });
-                }
-                let file_id = doc
-                    .get("file_id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or_default();
-                let file_size = doc.get("file_size").and_then(serde_json::Value::as_u64);
-                let file_name = doc
-                    .get("file_name")
-                    .and_then(serde_json::Value::as_str)
-                    .map(String::from);
-
-                parts.push(ContentPart::Image {
-                    channel_handle: file_id.to_string(),
-                    source_channel: "telegram".to_string(),
-                    declared_mime: Some(mime.to_string()),
-                    caption_text: caption.clone(),
-                    file_name,
-                    declared_bytes: file_size,
-                });
-            }
-        }
-
-        // If no parts were produced, nothing to process
+        let parts = build_telegram_content_parts(message);
         if parts.is_empty() {
             return None;
         }
 
-        // ── Derive text projection for backward compat ───────
-        // Caption is already emitted as a Text part, so skip
-        // the Image's caption_text to avoid duplication.
-        let content = {
-            let blocks: Vec<&str> = parts
-                .iter()
-                .filter_map(|p| match p {
-                    ContentPart::Text { text } => {
-                        if text.is_empty() {
-                            None
-                        } else {
-                            Some(text.as_str())
-                        }
-                    }
-                    ContentPart::Image { .. } => None,
-                })
-                .collect();
-            blocks.join("\n\n")
-        };
+        let content = derive_text_projection(&parts);
 
         let chat_id = message
             .get("chat")
@@ -876,10 +899,9 @@ impl TelegramChannel {
             .and_then(serde_json::Value::as_i64)
             .map(|id| id.to_string());
 
-        let reply_target = if let Some(tid) = thread_id {
-            format!("{}:{}", chat_id, tid)
-        } else {
-            chat_id.clone()
+        let reply_target = match thread_id {
+            Some(tid) => format!("{}:{}", chat_id, tid),
+            None => chat_id.clone(),
         };
 
         Some(ChannelMessage {
@@ -3051,6 +3073,59 @@ mod tests {
         // there is no text and no admitted media).
         let msg = ch.parse_update_message(&update);
         assert!(msg.is_none());
+    }
+
+    #[test]
+    fn parse_update_document_non_image_caption_preserves_caption_text() {
+        let ch = TelegramChannel::new("token".into(), vec!["*".into()]);
+        let update = serde_json::json!({
+            "update_id": 51,
+            "message": {
+                "message_id": 14,
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 },
+                "caption": "Quarterly report attached",
+                "document": {
+                    "file_id": "pdf_id",
+                    "file_unique_id": "pd",
+                    "mime_type": "application/pdf",
+                    "file_name": "report.pdf",
+                    "file_size": 500_000
+                }
+            }
+        });
+
+        let msg = ch.parse_update_message(&update).unwrap();
+        assert_eq!(msg.content, "Quarterly report attached");
+        assert_eq!(msg.parts.len(), 1);
+        match &msg.parts[0] {
+            ContentPart::Text { text } => assert_eq!(text, "Quarterly report attached"),
+            ContentPart::Image { .. } => panic!("expected Text part"),
+        }
+    }
+
+    #[test]
+    fn unauthorized_command_text_uses_caption_for_non_image_media() {
+        let update = serde_json::json!({
+            "message": {
+                "message_id": 77,
+                "from": { "id": 555, "username": "alice" },
+                "chat": { "id": 100 },
+                "caption": "/bind 123456",
+                "document": {
+                    "file_id": "pdf_id",
+                    "file_unique_id": "pd",
+                    "mime_type": "application/pdf",
+                    "file_name": "report.pdf",
+                    "file_size": 500_000
+                }
+            }
+        });
+
+        let message = update.get("message").unwrap();
+        let text = extract_message_text_for_command_handling(message).unwrap();
+        assert_eq!(text, "/bind 123456");
+        assert_eq!(TelegramChannel::extract_bind_code(&text), Some("123456"));
     }
 
     #[test]

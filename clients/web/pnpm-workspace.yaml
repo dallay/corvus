@@ -12,6 +12,7 @@ catalog:
   '@types/node': 25.5.0
   '@vitejs/plugin-vue': 6.0.5
   '@vitest/coverage-v8': 4.0.18
+  '@vue/compiler-dom': 3.5.30
   '@vue/test-utils': 2.4.6
   '@vue/tsconfig': 0.9.1
   astro: 6.0.8

@@ -29,6 +29,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@vue/compiler-dom": "catalog:",
     "typescript": "catalog:"
   },
   "pnpm": {
