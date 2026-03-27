@@ -790,11 +790,11 @@ install_via_package_manager() {
   case "$INSTALL_METHOD" in
     pnpm)
       has_cmd pnpm || die "pnpm is not installed."
-      pnpm add --global "$CLI_PACKAGE"
+      pnpm add --global --ignore-scripts "$CLI_PACKAGE"
       ;;
     npm)
       has_cmd npm || die "npm is not installed."
-      npm install --global "$CLI_PACKAGE"
+      npm install --global --ignore-scripts "$CLI_PACKAGE"
       ;;
     yarn)
       has_cmd yarn || die "yarn is not installed."
