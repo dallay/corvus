@@ -22,6 +22,7 @@ Phase 3 tasks (3.1–3.4) are explicitly deferred and out of scope for this chan
 ## Build & Tests Execution
 
 **Build**: ✅ Passed
+
 ```shell
 cargo clippy --manifest-path clients/agent-runtime/Cargo.toml --all-targets -- -D warnings
 → 0 errors, 0 warnings
@@ -30,6 +31,7 @@ cargo fmt --manifest-path clients/agent-runtime/Cargo.toml --check
 ```
 
 **Tests**: ✅ 64 passed / ❌ 0 failed / ⚠️ 0 skipped
+
 ```shell
 cargo test --manifest-path clients/agent-runtime/Cargo.toml -- anthropic
 test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; finished in 0.03s
@@ -131,8 +133,6 @@ test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; finished in 0.03s
 | `anthropic.rs` — Update `apply_cache_to_last_message` | Line 226 | ✅ |
 | `anthropic.rs` (tests) — Unit + integration tests | Lines 1175-1358 | ✅ |
 
-**Deviation**: Design proposed `NativeContentOut::Image` be added to `traits.rs` (proposal line 69: "Modified | Add `NativeContentOut::Image` variant to the enum"), but implementation correctly added it to `anthropic.rs` (file-local enum) since `NativeContentOut` is defined per-provider, not in the shared traits. This is the correct location; the proposal's affected areas table was slightly misleading. The design document (ADR-3) correctly specifies `anthropic.rs:63-87` as the location. **No actual deviation from design.**
-
 ---
 
 ## Issues Found
@@ -142,7 +142,6 @@ None
 
 **WARNING** (should fix):
 1. **Coverage not measured**: `coverage_threshold: 60` is configured in `openspec/config.yaml`, but coverage instrumentation was not run. The targeted Anthropic tests (64 passed) provide strong behavioral evidence, but quantitative coverage data is missing. Recommend running `cargo llvm-cov` or equivalent before final archive.
-2. **Proposal affected areas table lists `traits.rs` as Modified**: Proposal says `traits.rs` needs `NativeContentOut::Image` variant, but the variant was correctly placed in `anthropic.rs` (file-local enum). The proposal table is slightly inaccurate. Not a code issue — a documentation imprecision.
 
 **SUGGESTION** (nice to have):
 1. **REQ-2 edge case test**: No dedicated test for "provider declares `image_input: true` but empty `image_transport_forms`" specific to Anthropic. The trait-level `supports_image_input()` logic handles this, but an explicit negative test would strengthen the spec compliance evidence.
@@ -156,11 +155,11 @@ None
 |---|---|
 | Anthropic declares `image_input: true` + `[InlineBytes]` | REQ-1, REQ-2 scenario 1 |
 | Anthropic `chat()` builds correct image content blocks | REQ-4 Anthropic scenario |
-| Existing tests pass (no regressions) | Verified: 64 tests passed |
+| Existing tests pass (no regressions) | PARTIAL — Anthropic-focused verification passed; full cross-provider regression suite was not re-run in this report |
 | Router/reliable route image turns to Anthropic | REQ-3 scenarios (existing behavior) |
 | Provider capability matrix documented | REQ-1 matrix table |
-| `cargo test` + `cargo clippy` pass | Verified: all pass, 0 warnings |
-| Fail-closed gating formalized | REQ-3 (4 scenarios), REQ-5 (2 scenarios) |
+| `cargo test` + `cargo clippy` pass | PARTIAL — `cargo clippy` passed and `cargo test -- anthropic` passed; full `cargo test` was not re-run in this report |
+| Fail-closed gating formalized | PARTIAL — formalized in REQ-3/REQ-5, but this report's targeted validation remained Anthropic-scoped |
 | Config integration documented | REQ-6 (4 scenarios) |
 
 All 7 proposal success criteria are traceable to spec requirements. ✅
@@ -198,4 +197,4 @@ All design elements are traceable to implementation tasks. ✅
 
 **PASS WITH WARNINGS**
 
-All new functionality (Anthropic image adapter) is correctly implemented, tested, and compliant with specs. All 12 tasks complete. All design decisions followed. Code compiles, clippy clean, fmt clean, 64 tests pass. Two minor warnings: coverage not quantitatively measured, and proposal affected-areas table has a minor inaccuracy regarding `traits.rs`. Neither blocks archive.
+All new functionality (Anthropic image adapter) is correctly implemented, tested, and compliant with specs. All 12 tasks complete. Design decisions were followed. Code compiles, clippy is clean, fmt is clean, and 64 Anthropic-focused tests pass. One minor warning remains: coverage was not quantitatively measured. This does not block archive.
