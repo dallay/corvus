@@ -16,6 +16,36 @@ pub struct McpToolManifest {
 }
 
 #[derive(Debug, Clone)]
+pub struct McpResourceManifest {
+    pub name: String,
+    pub uri: String,
+    pub description: String,
+    pub mime_type: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct McpPromptManifest {
+    pub name: String,
+    pub description: String,
+    pub arguments: Vec<PromptArgument>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct PromptArgument {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    #[serde(default)]
+    pub required: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PromptMessage {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct McpClient {
     server: McpServerConfig,
 }
@@ -30,6 +60,61 @@ impl McpClient {
             "__mcp_mock__" => self.list_tools_from_mock_payload(),
             "__mcp_mock_sleep__" => self.list_tools_from_mock_sleep(),
             _ => self.list_tools_from_command(),
+        }
+    }
+
+    pub fn list_resources(&self) -> anyhow::Result<Vec<McpResourceManifest>> {
+        match self.server.command.as_str() {
+            "__mcp_mock__" => self.list_resources_from_mock_payload(),
+            _ => {
+                tracing::debug!(server = %self.server.name, "list_resources not yet implemented for live servers");
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    pub fn read_resource(&self, uri: &str) -> anyhow::Result<String> {
+        tracing::debug!(
+            server = %self.server.name,
+            uri = %uri,
+            "MCP resource read started"
+        );
+        match self.server.command.as_str() {
+            "__mcp_mock__" => Ok(format!("mock-resource-content for {uri}")),
+            _ => {
+                anyhow::bail!("read_resource not yet implemented for live servers")
+            }
+        }
+    }
+
+    pub fn list_prompts(&self) -> anyhow::Result<Vec<McpPromptManifest>> {
+        match self.server.command.as_str() {
+            "__mcp_mock__" => self.list_prompts_from_mock_payload(),
+            _ => {
+                tracing::debug!(server = %self.server.name, "list_prompts not yet implemented for live servers");
+                Ok(Vec::new())
+            }
+        }
+    }
+
+    pub fn get_prompt(
+        &self,
+        name: &str,
+        _arguments: serde_json::Value,
+    ) -> anyhow::Result<Vec<PromptMessage>> {
+        tracing::debug!(
+            server = %self.server.name,
+            prompt = %name,
+            "MCP prompt get started"
+        );
+        match self.server.command.as_str() {
+            "__mcp_mock__" => Ok(vec![PromptMessage {
+                role: "user".to_string(),
+                content: format!("mock prompt content for {name}"),
+            }]),
+            _ => {
+                anyhow::bail!("get_prompt not yet implemented for live servers")
+            }
         }
     }
 
@@ -299,6 +384,24 @@ impl McpClient {
         parse_tool_manifest_payload(payload)
     }
 
+    fn list_resources_from_mock_payload(&self) -> anyhow::Result<Vec<McpResourceManifest>> {
+        let payload = self
+            .server
+            .args
+            .first()
+            .context("mock MCP server requires one JSON payload argument")?;
+        parse_resource_manifest_payload(payload)
+    }
+
+    fn list_prompts_from_mock_payload(&self) -> anyhow::Result<Vec<McpPromptManifest>> {
+        let payload = self
+            .server
+            .args
+            .first()
+            .context("mock MCP server requires one JSON payload argument")?;
+        parse_prompt_manifest_payload(payload)
+    }
+
     fn list_tools_from_mock_sleep(&self) -> anyhow::Result<Vec<McpToolManifest>> {
         let delay_ms = self
             .server
@@ -435,6 +538,27 @@ struct ToolWire {
     parameters: serde_json::Value,
 }
 
+#[derive(Debug, Deserialize)]
+struct ResourceWire {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    uri: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    mime_type: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PromptWire {
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    arguments: Vec<PromptArgument>,
+}
+
 fn parse_tool_manifest_payload(payload: &str) -> anyhow::Result<Vec<McpToolManifest>> {
     let value: serde_json::Value =
         serde_json::from_str(payload).context("invalid JSON tool manifest payload")?;
@@ -444,13 +568,6 @@ fn parse_tool_manifest_payload(payload: &str) -> anyhow::Result<Vec<McpToolManif
     } else if let Some(obj) = value.as_object() {
         let has_resources = obj.contains_key("resources");
         let has_prompts = obj.contains_key("prompts");
-        if has_resources || has_prompts {
-            tracing::warn!(
-                has_resources,
-                has_prompts,
-                "MCP payload advertised unsupported non-tool capabilities; ignoring for v1",
-            );
-        }
 
         match obj.get("tools") {
             Some(tools) => serde_json::from_value(tools.clone())
@@ -476,6 +593,65 @@ fn parse_tool_manifest_payload(payload: &str) -> anyhow::Result<Vec<McpToolManif
         .collect();
 
     Ok(manifests)
+}
+
+pub(crate) fn parse_resource_manifest_payload(
+    payload: &str,
+) -> anyhow::Result<Vec<McpResourceManifest>> {
+    let value: serde_json::Value =
+        serde_json::from_str(payload).context("invalid JSON manifest payload")?;
+
+    let resources_value = if let Some(obj) = value.as_object() {
+        obj.get("resources").cloned()
+    } else {
+        None
+    };
+
+    let Some(resources_value) = resources_value else {
+        return Ok(Vec::new());
+    };
+
+    let parsed: Vec<ResourceWire> =
+        serde_json::from_value(resources_value).context("failed to parse resources payload")?;
+
+    Ok(parsed
+        .into_iter()
+        .map(|r| McpResourceManifest {
+            name: r.name,
+            uri: r.uri,
+            description: r.description,
+            mime_type: r.mime_type,
+        })
+        .collect())
+}
+
+pub(crate) fn parse_prompt_manifest_payload(
+    payload: &str,
+) -> anyhow::Result<Vec<McpPromptManifest>> {
+    let value: serde_json::Value =
+        serde_json::from_str(payload).context("invalid JSON manifest payload")?;
+
+    let prompts_value = if let Some(obj) = value.as_object() {
+        obj.get("prompts").cloned()
+    } else {
+        None
+    };
+
+    let Some(prompts_value) = prompts_value else {
+        return Ok(Vec::new());
+    };
+
+    let parsed: Vec<PromptWire> =
+        serde_json::from_value(prompts_value).context("failed to parse prompts payload")?;
+
+    Ok(parsed
+        .into_iter()
+        .map(|p| McpPromptManifest {
+            name: p.name,
+            description: p.description,
+            arguments: p.arguments,
+        })
+        .collect())
 }
 
 #[cfg(test)]
@@ -504,5 +680,93 @@ mod tests {
 
         let tools = parse_tool_manifest_payload(payload).unwrap();
         assert!(tools.is_empty());
+    }
+
+    // ── Resource manifest parsing ────────────────────────────
+
+    #[test]
+    fn parse_resource_manifest_from_mixed_payload() {
+        let payload = r#"{
+          "tools": [{"name":"search","description":"Search docs"}],
+          "resources": [
+            {"name":"api-spec","uri":"docs://api-spec","description":"API specification","mime_type":"text/markdown"},
+            {"name":"changelog","uri":"docs://changelog","description":"Changelog"}
+          ]
+        }"#;
+
+        let resources = parse_resource_manifest_payload(payload).unwrap();
+        assert_eq!(resources.len(), 2);
+        assert_eq!(resources[0].name, "api-spec");
+        assert_eq!(resources[0].uri, "docs://api-spec");
+        assert_eq!(resources[0].mime_type.as_deref(), Some("text/markdown"));
+        assert_eq!(resources[1].name, "changelog");
+        assert!(resources[1].mime_type.is_none());
+    }
+
+    #[test]
+    fn parse_resource_manifest_returns_empty_when_no_resources_key() {
+        let payload = r#"{
+          "tools": [{"name":"search","description":"Search docs"}]
+        }"#;
+
+        let resources = parse_resource_manifest_payload(payload).unwrap();
+        assert!(resources.is_empty());
+    }
+
+    #[test]
+    fn parse_resource_manifest_returns_empty_for_plain_array() {
+        let payload = r#"[{"name":"search"}]"#;
+        let resources = parse_resource_manifest_payload(payload).unwrap();
+        assert!(resources.is_empty());
+    }
+
+    // ── Prompt manifest parsing ──────────────────────────────
+
+    #[test]
+    fn parse_prompt_manifest_from_mixed_payload() {
+        let payload = r#"{
+          "tools": [{"name":"search","description":"Search docs"}],
+          "prompts": [
+            {
+              "name":"code-review",
+              "description":"Code review template",
+              "arguments":[
+                {"name":"language","description":"Programming language","required":true},
+                {"name":"focus","description":"Review focus area","required":false}
+              ]
+            }
+          ]
+        }"#;
+
+        let prompts = parse_prompt_manifest_payload(payload).unwrap();
+        assert_eq!(prompts.len(), 1);
+        assert_eq!(prompts[0].name, "code-review");
+        assert_eq!(prompts[0].arguments.len(), 2);
+        assert!(prompts[0].arguments[0].required);
+        assert!(!prompts[0].arguments[1].required);
+    }
+
+    #[test]
+    fn parse_prompt_manifest_returns_empty_when_no_prompts_key() {
+        let payload = r#"{
+          "tools": [{"name":"search","description":"Search docs"}]
+        }"#;
+
+        let prompts = parse_prompt_manifest_payload(payload).unwrap();
+        assert!(prompts.is_empty());
+    }
+
+    #[test]
+    fn parse_payload_only_resources_no_tools_returns_empty_tools_valid_resources() {
+        let payload = r#"{
+          "resources": [{"name":"index","uri":"docs://index","description":"Index"}]
+        }"#;
+
+        let tools = parse_tool_manifest_payload(payload).unwrap();
+        assert!(tools.is_empty());
+
+        let resources = parse_resource_manifest_payload(payload).unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0].name, "index");
     }
 }

@@ -12,7 +12,7 @@ function isUrlSafeForSecrets(rawUrl: string): boolean {
   if (rawUrl.startsWith("//")) return false;
   let parsed: URL;
   try {
-    parsed = rawUrl.startsWith("/") ? new URL(rawUrl, window.location.origin) : new URL(rawUrl);
+    parsed = rawUrl.startsWith("/") ? new URL(rawUrl, globalThis.location.origin) : new URL(rawUrl);
   } catch {
     return false;
   }
@@ -138,6 +138,38 @@ function parseErrorMessage(payload: unknown): string {
   return "";
 }
 
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value.codePointAt(end - 1) === 47) {
+    end -= 1;
+  }
+  return end === value.length ? value : value.slice(0, end);
+}
+
+function trimLeadingSlashes(value: string): string {
+  let start = 0;
+  while (start < value.length && value.codePointAt(start) === 47) {
+    start += 1;
+  }
+  return start === 0 ? value : value.slice(start);
+}
+
+function createIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+async function readJsonPayload(response: Response): Promise<unknown> {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
 export function useGateway(t: (key: string, params?: Record<string, unknown>) => string) {
   const baseUrl = ref(DEFAULT_GATEWAY_BASE_URL);
   const pairingCode = ref("");
@@ -174,22 +206,6 @@ export function useGateway(t: (key: string, params?: Record<string, unknown>) =>
     ) as WebChatOnboardingStep[];
   });
 
-  function trimTrailingSlashes(value: string): string {
-    let end = value.length;
-    while (end > 0 && value.charCodeAt(end - 1) === 47) {
-      end -= 1;
-    }
-    return end === value.length ? value : value.slice(0, end);
-  }
-
-  function trimLeadingSlashes(value: string): string {
-    let start = 0;
-    while (start < value.length && value.charCodeAt(start) === 47) {
-      start += 1;
-    }
-    return start === 0 ? value : value.slice(start);
-  }
-
   function normalizeBaseUrl(): string {
     const normalized = trimTrailingSlashes(baseUrl.value.trim());
     return normalized || DEFAULT_GATEWAY_BASE_URL;
@@ -198,20 +214,12 @@ export function useGateway(t: (key: string, params?: Record<string, unknown>) =>
   function gatewayUrl(path: string): string {
     const normalizedBaseUrl = normalizeBaseUrl();
     if (normalizedBaseUrl.startsWith("/")) {
-      return new URL(`${normalizedBaseUrl}${path}`, window.location.origin).toString();
+      return new URL(`${normalizedBaseUrl}${path}`, globalThis.location.origin).toString();
     }
 
     const cleanPath = trimLeadingSlashes(path);
     const baseWithSlash = `${trimTrailingSlashes(normalizedBaseUrl)}/`;
     return new URL(cleanPath, baseWithSlash).toString();
-  }
-
-  function createIdempotencyKey(): string {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
-    }
-
-    return `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
 
   function authHeaders(includeJsonContentType = true): Record<string, string> {
@@ -297,14 +305,6 @@ export function useGateway(t: (key: string, params?: Record<string, unknown>) =>
       setBlockedOnboardingState("paired_but_not_connected", true, true);
     } else {
       setBlockedOnboardingState("runtime_unavailable", true, false);
-    }
-  }
-
-  async function readJsonPayload(response: Response): Promise<unknown> {
-    try {
-      return await response.json();
-    } catch {
-      return null;
     }
   }
 

@@ -35,6 +35,8 @@ pub enum ToolOperation {
 pub enum ToolSourceKind {
     Native,
     Mcp,
+    McpResource,
+    McpPrompt,
     Unknown,
 }
 
@@ -52,8 +54,14 @@ pub enum ExecutionOrigin {
 }
 
 pub fn source_kind_for_tool(tool_name: &str) -> ToolSourceKind {
-    if tool_name.starts_with("mcp.") {
-        ToolSourceKind::Mcp
+    if let Some(rest) = tool_name.strip_prefix("mcp.") {
+        if rest.contains(".resource.") {
+            ToolSourceKind::McpResource
+        } else if rest.contains(".prompt.") {
+            ToolSourceKind::McpPrompt
+        } else {
+            ToolSourceKind::Mcp
+        }
     } else if tool_name.is_empty() {
         ToolSourceKind::Unknown
     } else {
@@ -230,7 +238,10 @@ impl SecurityPolicy {
 
         match source_kind_for_tool(tool_name) {
             ToolSourceKind::Native => ToolPolicyDecision::Allow,
-            ToolSourceKind::Mcp | ToolSourceKind::Unknown => ToolPolicyDecision::ApprovalRequired,
+            ToolSourceKind::Mcp
+            | ToolSourceKind::McpResource
+            | ToolSourceKind::McpPrompt
+            | ToolSourceKind::Unknown => ToolPolicyDecision::ApprovalRequired,
         }
     }
 
@@ -1324,6 +1335,50 @@ mod tests {
         assert_eq!(source_kind_for_tool("mcp.docs.search"), ToolSourceKind::Mcp);
         assert_eq!(source_kind_for_tool("file_read"), ToolSourceKind::Native);
         assert_eq!(source_kind_for_tool(""), ToolSourceKind::Unknown);
+    }
+
+    #[test]
+    fn source_kind_detects_mcp_resource() {
+        assert_eq!(
+            source_kind_for_tool("mcp.docs.resource.api-spec"),
+            ToolSourceKind::McpResource
+        );
+    }
+
+    #[test]
+    fn source_kind_detects_mcp_prompt() {
+        assert_eq!(
+            source_kind_for_tool("mcp.workflows.prompt.code-review"),
+            ToolSourceKind::McpPrompt
+        );
+    }
+
+    #[test]
+    fn source_kind_mcp_tool_unchanged() {
+        // Regular MCP tool names without .resource. or .prompt. segments
+        assert_eq!(source_kind_for_tool("mcp.docs.search"), ToolSourceKind::Mcp);
+        assert_eq!(
+            source_kind_for_tool("mcp.server.tool-name"),
+            ToolSourceKind::Mcp
+        );
+    }
+
+    #[test]
+    fn evaluate_tool_policy_requires_approval_for_mcp_resource() {
+        let policy = default_policy();
+        assert_eq!(
+            policy.evaluate_tool_policy("mcp.docs.resource.api-spec"),
+            ToolPolicyDecision::ApprovalRequired
+        );
+    }
+
+    #[test]
+    fn evaluate_tool_policy_requires_approval_for_mcp_prompt() {
+        let policy = default_policy();
+        assert_eq!(
+            policy.evaluate_tool_policy("mcp.workflows.prompt.code-review"),
+            ToolPolicyDecision::ApprovalRequired
+        );
     }
 
     #[test]

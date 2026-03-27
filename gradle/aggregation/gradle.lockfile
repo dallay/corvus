@@ -1,8 +1,8 @@
 # This is a Gradle generated file for dependency locking.
 # Manual edits can break the build and are not advised.
 # This file is expected to be part of source control.
-com.google.protobuf:protobuf-bom:3.25.5=aggregateCodeCoverageReportResults,aggregateTestReportResults,annotationProcessor,compileClasspath,mainRuntimeClasspath,runtimeClasspath,testAnnotationProcessor,testCompileClasspath,testRuntimeClasspath
-io.netty:netty-bom:4.1.118.Final=aggregateCodeCoverageReportResults,aggregateTestReportResults,annotationProcessor,compileClasspath,mainRuntimeClasspath,runtimeClasspath,testAnnotationProcessor,testCompileClasspath,testRuntimeClasspath
+com.google.protobuf:protobuf-bom:3.25.9=aggregateCodeCoverageReportResults,aggregateTestReportResults,annotationProcessor,compileClasspath,mainRuntimeClasspath,runtimeClasspath,testAnnotationProcessor,testCompileClasspath,testRuntimeClasspath
+io.netty:netty-bom:4.1.132.Final=aggregateCodeCoverageReportResults,aggregateTestReportResults,annotationProcessor,compileClasspath,mainRuntimeClasspath,runtimeClasspath,testAnnotationProcessor,testCompileClasspath,testRuntimeClasspath
 org.jacoco:org.jacoco.agent:0.8.14=jacocoAgent,jacocoAnt,koverJvmAgent
 org.jacoco:org.jacoco.ant:0.8.14=jacocoAnt
 org.jacoco:org.jacoco.core:0.8.14=jacocoAnt,koverJvmReporter

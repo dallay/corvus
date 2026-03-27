@@ -1,6 +1,7 @@
 //! Tool sandboxing for third-party skill tools.
 //! Restricts filesystem access to the skill's own directory.
 
+use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 /// Sandbox violation types.
@@ -68,150 +69,205 @@ pub fn build_policy(trust: super::trust::SkillTrust, skill_dir: &Path) -> Sandbo
 /// Returns Ok(()) if all paths are safe, or Err with the first violation found.
 pub fn validate_tool_paths(args: &[&str], skill_dir: &Path) -> Result<(), SandboxViolation> {
     for arg in args {
-        // Check for traversal via path components
-        let check_path = std::path::Path::new(arg);
-        for component in check_path.components() {
-            if matches!(component, std::path::Component::ParentDir) {
-                return Err(SandboxViolation::TraversalSequence {
-                    path: arg.to_string(),
-                });
-            }
+        validate_single_path(arg, skill_dir)?;
+    }
+    Ok(())
+}
+
+/// Validate a single path argument against the sandbox boundary.
+fn validate_single_path(arg: &str, skill_dir: &Path) -> Result<(), SandboxViolation> {
+    check_traversal_components(arg)?;
+
+    let path = resolve_arg_path(arg, skill_dir);
+
+    // Check for symlinks (including dangling ones) before exists()
+    if is_symlink_entry(&path) {
+        return check_symlink_target(&path, arg, skill_dir);
+    }
+
+    if path.exists() {
+        check_existing_path(&path, arg, skill_dir)
+    } else {
+        check_nonexistent_path(&path, arg, skill_dir)
+    }
+}
+
+/// Reject paths containing `..` (parent directory) components.
+fn check_traversal_components(arg: &str) -> Result<(), SandboxViolation> {
+    for component in std::path::Path::new(arg).components() {
+        if matches!(component, std::path::Component::ParentDir) {
+            return Err(SandboxViolation::TraversalSequence {
+                path: arg.to_string(),
+            });
         }
+    }
+    Ok(())
+}
 
-        // Check if path resolves within skill directory
-        let path = if Path::new(arg).is_absolute() {
-            PathBuf::from(arg)
-        } else {
-            skill_dir.join(arg)
-        };
+/// Resolve an argument to an absolute path, joining with skill_dir if relative.
+fn resolve_arg_path(arg: &str, skill_dir: &Path) -> PathBuf {
+    if Path::new(arg).is_absolute() {
+        PathBuf::from(arg)
+    } else {
+        skill_dir.join(arg)
+    }
+}
 
-        // Check for symlinks (including dangling ones) before exists()
-        if let Ok(meta) = path.symlink_metadata() {
-            if meta.file_type().is_symlink() {
-                // It's a symlink — check where it points
-                match path.canonicalize() {
-                    Ok(canonical) => {
-                        let canonical_skill = skill_dir
-                            .canonicalize()
-                            .unwrap_or_else(|_| skill_dir.to_path_buf());
-                        if !canonical.starts_with(&canonical_skill) {
-                            return Err(SandboxViolation::SymlinkEscape {
-                                path: arg.to_string(),
-                                target: canonical,
-                                skill_dir: canonical_skill,
-                            });
-                        }
-                    }
-                    Err(_) => {
-                        // Dangling symlink — deny
-                        return Err(SandboxViolation::SymlinkEscape {
-                            path: arg.to_string(),
-                            target: PathBuf::from("(dangling)"),
-                            skill_dir: skill_dir
-                                .canonicalize()
-                                .unwrap_or_else(|_| skill_dir.to_path_buf()),
-                        });
-                    }
-                }
-                continue; // Already handled
-            }
-        }
+/// Canonicalize skill_dir, falling back to the original path on error.
+fn canonical_skill(skill_dir: &Path) -> PathBuf {
+    skill_dir
+        .canonicalize()
+        .unwrap_or_else(|_| skill_dir.to_path_buf())
+}
 
-        // Non-symlink path handling
-        if path.exists() {
-            if let Ok(canonical) = path.canonicalize() {
-                let canonical_skill = skill_dir
-                    .canonicalize()
-                    .unwrap_or_else(|_| skill_dir.to_path_buf());
-                if !canonical.starts_with(&canonical_skill) {
-                    // Check if it's a symlink specifically
-                    if path.is_symlink() {
-                        return Err(SandboxViolation::SymlinkEscape {
-                            path: arg.to_string(),
-                            target: canonical,
-                            skill_dir: canonical_skill,
-                        });
-                    }
-                    return Err(SandboxViolation::PathEscape {
-                        path: arg.to_string(),
-                        skill_dir: canonical_skill,
-                    });
-                }
-            } else {
-                // Existing path that can't be canonicalized — deny by default
-                tracing::warn!(
-                    "cannot canonicalize existing path '{}' — denying access",
-                    arg
-                );
-                return Err(SandboxViolation::PathEscape {
+/// Check whether the path entry itself is a symlink (without following it).
+fn is_symlink_entry(path: &Path) -> bool {
+    path.symlink_metadata()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false)
+}
+
+/// Validate a symlink target stays within the sandbox.
+fn check_symlink_target(path: &Path, arg: &str, skill_dir: &Path) -> Result<(), SandboxViolation> {
+    let canonical_skill = canonical_skill(skill_dir);
+    match path.canonicalize() {
+        Ok(canonical) => {
+            if !canonical.starts_with(&canonical_skill) {
+                return Err(SandboxViolation::SymlinkEscape {
                     path: arg.to_string(),
-                    skill_dir: skill_dir
-                        .canonicalize()
-                        .unwrap_or_else(|_| skill_dir.to_path_buf()),
-                });
-            }
-        } else {
-            // Path doesn't exist yet — walk existing ancestors to catch
-            // symlinked parent directories that escape the sandbox.
-            let canonical_skill = skill_dir
-                .canonicalize()
-                .unwrap_or_else(|_| skill_dir.to_path_buf());
-
-            // Check each existing ancestor between skill_dir and the leaf
-            let mut ancestor = path.clone();
-            while ancestor != *skill_dir && ancestor.parent().is_some() {
-                ancestor = match ancestor.parent() {
-                    Some(p) => p.to_path_buf(),
-                    None => break,
-                };
-                if !ancestor.exists() {
-                    continue;
-                }
-                // Check if this ancestor is a symlink escaping the sandbox
-                if let Ok(meta) = ancestor.symlink_metadata() {
-                    if meta.file_type().is_symlink() {
-                        match ancestor.canonicalize() {
-                            Ok(canonical) => {
-                                if !canonical.starts_with(&canonical_skill) {
-                                    return Err(SandboxViolation::SymlinkEscape {
-                                        path: arg.to_string(),
-                                        target: canonical,
-                                        skill_dir: canonical_skill,
-                                    });
-                                }
-                            }
-                            Err(_) => {
-                                return Err(SandboxViolation::SymlinkEscape {
-                                    path: arg.to_string(),
-                                    target: PathBuf::from("(dangling)"),
-                                    skill_dir: canonical_skill,
-                                });
-                            }
-                        }
-                    }
-                }
-                // Also verify the canonicalized ancestor stays in sandbox
-                if let Ok(canonical) = ancestor.canonicalize() {
-                    if !canonical.starts_with(&canonical_skill) {
-                        return Err(SandboxViolation::PathEscape {
-                            path: arg.to_string(),
-                            skill_dir: canonical_skill,
-                        });
-                    }
-                }
-                break; // Only need to check the nearest existing ancestor
-            }
-
-            // Also reject absolute paths outside sandbox
-            if path.is_absolute()
-                && !path.starts_with(&canonical_skill)
-                && !path.starts_with(skill_dir)
-            {
-                return Err(SandboxViolation::PathEscape {
-                    path: arg.to_string(),
+                    target: canonical,
                     skill_dir: canonical_skill,
                 });
             }
+            Ok(())
+        }
+        Err(_) => Err(SandboxViolation::SymlinkEscape {
+            path: arg.to_string(),
+            target: PathBuf::from("(dangling)"),
+            skill_dir: canonical_skill,
+        }),
+    }
+}
+
+/// Validate an existing (non-symlink) path stays within the sandbox.
+fn check_existing_path(path: &Path, arg: &str, skill_dir: &Path) -> Result<(), SandboxViolation> {
+    let canonical_skill = canonical_skill(skill_dir);
+    let Ok(canonical) = path.canonicalize() else {
+        let path_fingerprint = fingerprint_path(arg);
+        tracing::warn!(
+            path_fingerprint = %path_fingerprint,
+            "cannot canonicalize path — denying access"
+        );
+        return Err(SandboxViolation::PathEscape {
+            path: arg.to_string(),
+            skill_dir: canonical_skill,
+        });
+    };
+    if canonical.starts_with(&canonical_skill) {
+        return Ok(());
+    }
+    if path.is_symlink() {
+        return Err(SandboxViolation::SymlinkEscape {
+            path: arg.to_string(),
+            target: canonical,
+            skill_dir: canonical_skill,
+        });
+    }
+    Err(SandboxViolation::PathEscape {
+        path: arg.to_string(),
+        skill_dir: canonical_skill,
+    })
+}
+
+fn fingerprint_path(arg: &str) -> String {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    arg.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+/// Validate a nonexistent path by walking ancestors and checking absolute bounds.
+fn check_nonexistent_path(
+    path: &Path,
+    arg: &str,
+    skill_dir: &Path,
+) -> Result<(), SandboxViolation> {
+    let canonical_skill = canonical_skill(skill_dir);
+    check_nearest_ancestor(path, arg, skill_dir, &canonical_skill)?;
+
+    // Reject absolute paths outside sandbox
+    if path.is_absolute() && !path.starts_with(&canonical_skill) && !path.starts_with(skill_dir) {
+        return Err(SandboxViolation::PathEscape {
+            path: arg.to_string(),
+            skill_dir: canonical_skill,
+        });
+    }
+    Ok(())
+}
+
+/// Walk up from `path` to find the nearest existing ancestor and verify it
+/// stays within the sandbox (catches symlinked parent directories).
+fn check_nearest_ancestor(
+    path: &Path,
+    arg: &str,
+    skill_dir: &Path,
+    canonical_skill: &Path,
+) -> Result<(), SandboxViolation> {
+    let mut ancestor = path.to_path_buf();
+    while ancestor != *skill_dir && ancestor.parent().is_some() {
+        ancestor = match ancestor.parent() {
+            Some(p) => p.to_path_buf(),
+            None => break,
+        };
+        if !ancestor.exists() {
+            continue;
+        }
+        check_ancestor_symlink(&ancestor, arg, canonical_skill)?;
+        check_ancestor_escape(&ancestor, arg, canonical_skill)?;
+        break; // Only need to check the nearest existing ancestor
+    }
+    Ok(())
+}
+
+/// Check whether an ancestor is a symlink that escapes the sandbox.
+fn check_ancestor_symlink(
+    ancestor: &Path,
+    arg: &str,
+    canonical_skill: &Path,
+) -> Result<(), SandboxViolation> {
+    let is_symlink = ancestor
+        .symlink_metadata()
+        .map(|m| m.file_type().is_symlink())
+        .unwrap_or(false);
+    if !is_symlink {
+        return Ok(());
+    }
+    match ancestor.canonicalize() {
+        Ok(canonical) if canonical.starts_with(canonical_skill) => Ok(()),
+        Ok(canonical) => Err(SandboxViolation::SymlinkEscape {
+            path: arg.to_string(),
+            target: canonical,
+            skill_dir: canonical_skill.to_path_buf(),
+        }),
+        Err(_) => Err(SandboxViolation::SymlinkEscape {
+            path: arg.to_string(),
+            target: PathBuf::from("(dangling)"),
+            skill_dir: canonical_skill.to_path_buf(),
+        }),
+    }
+}
+
+/// Verify the canonicalized ancestor stays in the sandbox.
+fn check_ancestor_escape(
+    ancestor: &Path,
+    arg: &str,
+    canonical_skill: &Path,
+) -> Result<(), SandboxViolation> {
+    if let Ok(canonical) = ancestor.canonicalize() {
+        if !canonical.starts_with(canonical_skill) {
+            return Err(SandboxViolation::PathEscape {
+                path: arg.to_string(),
+                skill_dir: canonical_skill.to_path_buf(),
+            });
         }
     }
     Ok(())

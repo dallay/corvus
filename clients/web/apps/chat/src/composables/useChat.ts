@@ -43,6 +43,14 @@ function createSessionState(
   };
 }
 
+function createSessionId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 export function useChat(
   t: (key: string, params?: Record<string, unknown>) => string,
   gateway: ChatGateway
@@ -97,47 +105,39 @@ export function useChat(
   }
 
   function readStoredSessionId(): string {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
       return "";
     }
 
     try {
-      return window.sessionStorage.getItem(sessionStorageKey()) ?? "";
+      return globalThis.sessionStorage.getItem(sessionStorageKey()) ?? "";
     } catch {
       return "";
     }
   }
 
   function persistSessionId(sessionId: string): void {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
       return;
     }
 
     try {
-      window.sessionStorage.setItem(sessionStorageKey(), sessionId);
+      globalThis.sessionStorage.setItem(sessionStorageKey(), sessionId);
     } catch {
       // Ignore storage failures and continue in-memory.
     }
   }
 
   function clearStoredSessionId(): void {
-    if (typeof window === "undefined") {
+    if (typeof globalThis.window === "undefined") {
       return;
     }
 
     try {
-      window.sessionStorage.removeItem(sessionStorageKey());
+      globalThis.sessionStorage.removeItem(sessionStorageKey());
     } catch {
       // Ignore storage failures and continue in-memory.
     }
-  }
-
-  function createSessionId(): string {
-    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-      return crypto.randomUUID();
-    }
-
-    return `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
   }
 
   function updateSessionState(nextState: ChatSessionState): void {

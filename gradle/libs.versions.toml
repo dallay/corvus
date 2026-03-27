@@ -7,7 +7,7 @@
 latest = "latest.release"
 # https://services.gradle.org/versions
 gradle = "9.5.0-milestone-1"
-kotlin = "2.3.10"
+kotlin = "2.3.20"
 jdk = "21"
 node = "22.13.0"
 agp = "8.12.0"
@@ -19,10 +19,10 @@ androidx-lifecycle = "2.9.6"
 compose-hot-reload = "1.0.0"
 compose-multiplatform = "1.10.2"
 kotlinx-coroutines = "1.10.2"
-junit-jupiter = "5.10.1"
+junit-jupiter = "5.14.3"
 material3 = "1.10.0-alpha05"
-netty = "4.1.118.Final"
-protobuf = "3.25.5"
+netty = "4.1.132.Final"
+protobuf = "3.25.9"
 jackson-tools = "3.1.0"
 
 [libraries]
@@ -68,7 +68,7 @@ org-jetbrains-compose-hot-reload = { id = "org.jetbrains.compose.hot-reload", ve
 org-jetbrains-kotlin-plugin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 com-gradle-develocity = { id = "com.gradle.develocity", version = "4.3.2" }
 org-ec4j-editorconfig = { id = "org.ec4j.editorconfig", version = "0.1.0" }
-com-diffplug-spotless = { id = "com.diffplug.spotless", version = "8.2.1" }
+com-diffplug-spotless = { id = "com.diffplug.spotless", version = "8.4.0" }
 com-github-node-gradle-node = { id = "com.github.node-gradle.node", version = "7.1.0" }
 dev-detekt = { id = "dev.detekt", version = "2.0.0-alpha.2" }
 org-jetbrains-dokka = { id = "org.jetbrains.dokka", version = "2.2.0-Beta" }
@@ -84,7 +84,7 @@ com-autonomousapps-dependency-analysis = { id = "com.autonomousapps.dependency-a
 io-fuchs-gradle-classpath-collision-detector = { id = "io.fuchs.gradle.classpath-collision-detector", version = "1.0.0" }
 org-cyclonedx-bom = { id = "org.cyclonedx.bom", version = "3.1.0" }
 com-github-spotbugs = { id = "com.github.spotbugs", version = "6.4.8" }
-org-jetbrains-kotlinx-kover = { id = "org.jetbrains.kotlinx.kover", version = "0.9.7" }
+org-jetbrains-kotlinx-kover = { id = "org.jetbrains.kotlinx.kover", version = "0.9.8" }
 com-google-devtools-ksp = { id = "com.google.devtools.ksp", version = "2.3.5" }
 com-google-cloud-tools-jib = { id = "com.google.cloud.tools.jib", version = "3.5.3" }
 org-nosphere-apache-rat = { id = "org.nosphere.apache.rat", version = "0.8.1" }

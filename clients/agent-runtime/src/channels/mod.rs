@@ -622,43 +622,8 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         truncate_with_ellipsis(&msg.content, 80)
     );
 
-    // Use text_projection for multimodal messages, fall back to
-    // legacy content field for text-only backward compatibility.
-    let user_text = if msg.parts.is_empty() {
-        msg.content.clone()
-    } else {
-        let projection = msg.text_projection();
-        if projection.is_empty() {
-            msg.content.clone()
-        } else {
-            projection
-        }
-    };
-
-    let memory_context = if user_text.trim().is_empty() {
-        String::new()
-    } else {
-        build_memory_context(ctx.memory.as_ref(), &user_text, ctx.min_relevance_score).await
-    };
-
-    if ctx.auto_save_memory && !user_text.trim().is_empty() {
-        let autosave_key = conversation_memory_key(&msg);
-        let _ = ctx
-            .memory
-            .store(
-                &autosave_key,
-                &user_text,
-                crate::memory::MemoryCategory::Conversation,
-                None,
-            )
-            .await;
-    }
-
-    let enriched_message = if memory_context.is_empty() {
-        user_text.clone()
-    } else {
-        format!("{memory_context}{user_text}")
-    };
+    let user_text = extract_user_text(&msg);
+    let enriched_message = enrich_with_memory(&ctx, &msg, &user_text).await;
 
     if update_visibility_enabled(ctx.config.as_ref()) {
         let _ = crate::update::maybe_send_opportunistic_update_notice(
@@ -684,215 +649,36 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
         return;
     }
 
-    let mut image_route_metadata: Option<ResolvedImageRoute> = None;
+    // ── Image pipeline gating ────────────────────────────
+    let image_route_metadata =
+        match gate_multimodal_config(&ctx, &msg, &session_id, target_channel.as_ref()).await {
+            Ok(route) => route,
+            Err(()) => return,
+        };
 
-    // ── Multimodal config gating ────────────────────────────
-    if msg.has_image_parts() {
-        let mm = &ctx.config.multimodal;
-        let img_count = msg.image_parts().len();
-        if !mm.enabled {
-            emit_image_ingress(
-                ctx.observer.as_ref(),
-                &msg.channel,
-                None,
-                None,
-                crate::observability::ImageIngressOutcome::Rejected,
-                Some(media::ImageRejectionReason::Disabled),
-                img_count,
-                None,
-                None,
-            );
-            let rejection = format!(
-                "[session:{session_id}] ⚠️ Image input is \
-                 currently disabled."
-            );
-            if let Some(ch) = target_channel.as_ref() {
-                let _ = ch
-                    .send(&SendMessage::new(rejection, &msg.reply_target))
-                    .await;
-            }
-            return;
-        }
-        if !mm.allowed_channels.contains(&msg.channel) {
-            emit_image_ingress(
-                ctx.observer.as_ref(),
-                &msg.channel,
-                None,
-                None,
-                crate::observability::ImageIngressOutcome::Rejected,
-                Some(media::ImageRejectionReason::ChannelNotAllowed),
-                img_count,
-                None,
-                None,
-            );
-            let rejection = format!(
-                "[session:{session_id}] ⚠️ Image input is not \
-                 enabled for this channel."
-            );
-            if let Some(ch) = target_channel.as_ref() {
-                let _ = ch
-                    .send(&SendMessage::new(rejection, &msg.reply_target))
-                    .await;
-            }
-            return;
-        }
-
-        match resolve_image_route(ctx.config.as_ref()) {
-            Ok(route) => image_route_metadata = Some(route),
-            Err(reason) => {
-                emit_image_ingress(
-                    ctx.observer.as_ref(),
-                    &msg.channel,
-                    None,
-                    None,
-                    crate::observability::ImageIngressOutcome::Rejected,
-                    Some(reason.clone()),
-                    img_count,
-                    None,
-                    None,
-                );
-                let rejection = match reason {
-                    media::ImageRejectionReason::MissingVisionRoute => format!(
-                        "[session:{session_id}] ⚠️ Image input is not configured with a vision route."
-                    ),
-                    media::ImageRejectionReason::RouteNotImageCapable => format!(
-                        "[session:{session_id}] ⚠️ The configured vision route does not allow image input."
-                    ),
-                    _ => format!(
-                        "[session:{session_id}] ⚠️ Image input is not available for this request."
-                    ),
-                };
-                if let Some(ch) = target_channel.as_ref() {
-                    let _ = ch
-                        .send(&SendMessage::new(rejection, &msg.reply_target))
-                        .await;
-                }
-                return;
-            }
-        }
-    }
-
-    // ── Image turn gating (fail-closed) ──────────────────────
-    if msg.has_image_parts() {
-        let image_count = msg.image_parts().len();
-        if media::validate_image_count(image_count).is_err() {
-            emit_image_ingress(
-                ctx.observer.as_ref(),
-                &msg.channel,
-                image_route_metadata
-                    .as_ref()
-                    .map(|route| route.provider.clone()),
-                image_route_metadata
-                    .as_ref()
-                    .map(|route| route.model.clone()),
-                crate::observability::ImageIngressOutcome::Rejected,
-                Some(media::ImageRejectionReason::TooManyImages),
-                image_count,
-                None,
-                None,
-            );
-            let rejection = format!(
-                "[session:{session_id}] ⚠️ Too many images \
-                 ({image_count}). Maximum {} per message.",
-                media::MAX_IMAGES_PER_TURN,
-            );
-            if let Some(ch) = target_channel.as_ref() {
-                let _ = ch
-                    .send(&SendMessage::new(rejection, &msg.reply_target))
-                    .await;
-            }
-            return;
-        }
-    }
-
-    let staged = if msg.has_image_parts() {
-        match stage_channel_images(ctx.config.as_ref(), &msg).await {
-            Ok(staged) => staged,
-            Err(reason) => {
-                emit_image_ingress(
-                    ctx.observer.as_ref(),
-                    &msg.channel,
-                    image_route_metadata
-                        .as_ref()
-                        .map(|route| route.provider.clone()),
-                    image_route_metadata
-                        .as_ref()
-                        .map(|route| route.model.clone()),
-                    crate::observability::ImageIngressOutcome::Rejected,
-                    Some(reason.clone()),
-                    msg.image_parts().len(),
-                    None,
-                    None,
-                );
-                let rejection = match reason {
-                    media::ImageRejectionReason::FetchFailed => format!(
-                        "[session:{session_id}] ⚠️ I couldn't download that image safely. Please try again."
-                    ),
-                    media::ImageRejectionReason::MimeRejected => format!(
-                        "[session:{session_id}] ⚠️ That image format is not supported."
-                    ),
-                    media::ImageRejectionReason::Oversize => format!(
-                        "[session:{session_id}] ⚠️ That image is too large to process."
-                    ),
-                    _ => format!(
-                        "[session:{session_id}] ⚠️ Image input is not available for this request."
-                    ),
-                };
-                if let Some(ch) = target_channel.as_ref() {
-                    let _ = ch
-                        .send(&SendMessage::new(rejection, &msg.reply_target))
-                        .await;
-                }
-                return;
-            }
-        }
-    } else {
-        Vec::new()
+    let staged_guard = match gate_and_stage_images(
+        &ctx,
+        &msg,
+        &session_id,
+        target_channel.as_ref(),
+        image_route_metadata.as_ref(),
+    )
+    .await
+    {
+        Ok(guard) => guard,
+        Err(()) => return,
     };
-    let staged_guard = StagedImageGuard(staged);
 
-    // Fail-closed: reject image turns on channels that have
-    // not yet implemented fetch/staging.
-    if msg.has_image_parts() && staged_guard.0.is_empty() {
-        emit_image_ingress(
-            ctx.observer.as_ref(),
-            &msg.channel,
-            image_route_metadata.as_ref().map(|r| r.provider.clone()),
-            image_route_metadata.as_ref().map(|r| r.model.clone()),
-            crate::observability::ImageIngressOutcome::Rejected,
-            Some(media::ImageRejectionReason::ChannelNotSupported),
-            msg.image_parts().len(),
-            None,
-            None,
-        );
-        let rejection = format!(
-            "[session:{session_id}] ⚠️ Image input is not \
-             yet supported for this channel."
-        );
-        if let Some(ch) = target_channel.as_ref() {
-            let _ = ch
-                .send(&SendMessage::new(rejection, &msg.reply_target))
-                .await;
-        }
-        return;
-    }
+    emit_image_provider_outcome(
+        &ctx,
+        &msg,
+        image_route_metadata.as_ref(),
+        &staged_guard.0,
+        crate::observability::ImageIngressOutcome::Admitted,
+        None,
+    );
 
-    if let Some(route) = image_route_metadata.as_ref() {
-        if let Some(first_image) = staged_guard.0.first() {
-            emit_image_ingress(
-                ctx.observer.as_ref(),
-                &msg.channel,
-                Some(route.provider.clone()),
-                Some(route.model.clone()),
-                crate::observability::ImageIngressOutcome::Admitted,
-                None,
-                staged_guard.0.len(),
-                Some(first_image.mime_type.as_str().to_string()),
-                Some(first_image.byte_len),
-            );
-        }
-    }
-
+    // ── Provider dispatch ────────────────────────────────
     println!("  ⏳ Processing message...");
     let started_at = Instant::now();
 
@@ -951,21 +737,14 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
 
     match llm_result {
         Ok(Ok(response)) => {
-            if let Some(route) = image_route_metadata.as_ref() {
-                if let Some(first_image) = staged_guard.0.first() {
-                    emit_image_ingress(
-                        ctx.observer.as_ref(),
-                        &msg.channel,
-                        Some(route.provider.clone()),
-                        Some(route.model.clone()),
-                        crate::observability::ImageIngressOutcome::ProviderSent,
-                        None,
-                        staged_guard.0.len(),
-                        Some(first_image.mime_type.as_str().to_string()),
-                        Some(first_image.byte_len),
-                    );
-                }
-            }
+            emit_image_provider_outcome(
+                &ctx,
+                &msg,
+                image_route_metadata.as_ref(),
+                &staged_guard.0,
+                crate::observability::ImageIngressOutcome::ProviderSent,
+                None,
+            );
             handle_successful_response(
                 ctx.as_ref(),
                 &history_key,
@@ -980,38 +759,285 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, msg: traits::C
             .await;
         }
         Ok(Err(e)) => {
-            if let Some(route) = image_route_metadata.as_ref() {
-                emit_image_ingress(
-                    ctx.observer.as_ref(),
-                    &msg.channel,
-                    Some(route.provider.clone()),
-                    Some(route.model.clone()),
-                    crate::observability::ImageIngressOutcome::ProviderError,
-                    Some(media::ImageRejectionReason::ProviderError),
-                    msg.image_parts().len(),
-                    None,
-                    None,
-                );
-            }
+            emit_image_provider_outcome(
+                &ctx,
+                &msg,
+                image_route_metadata.as_ref(),
+                &staged_guard.0,
+                crate::observability::ImageIngressOutcome::ProviderError,
+                Some(media::ImageRejectionReason::ProviderError),
+            );
             handle_llm_error(e, started_at, response_ctx).await;
         }
         Err(_) => {
-            if let Some(route) = image_route_metadata.as_ref() {
-                emit_image_ingress(
-                    ctx.observer.as_ref(),
-                    &msg.channel,
-                    Some(route.provider.clone()),
-                    Some(route.model.clone()),
-                    crate::observability::ImageIngressOutcome::ProviderError,
-                    Some(media::ImageRejectionReason::ProviderError),
-                    msg.image_parts().len(),
-                    None,
-                    None,
-                );
-            }
+            emit_image_provider_outcome(
+                &ctx,
+                &msg,
+                image_route_metadata.as_ref(),
+                &staged_guard.0,
+                crate::observability::ImageIngressOutcome::ProviderError,
+                Some(media::ImageRejectionReason::ProviderError),
+            );
             handle_timeout(session_id, started_at, response_ctx).await;
         }
     }
+}
+
+/// Extract the user-visible text from a channel message, preferring canonical
+/// content before recomputing projection from multimodal parts.
+fn extract_user_text(msg: &traits::ChannelMessage) -> String {
+    if !msg.content.is_empty() {
+        return msg.content.clone();
+    }
+
+    if msg.parts.is_empty() {
+        return String::new();
+    }
+
+    msg.text_projection()
+}
+
+/// Build memory context, auto-save conversation, and return the enriched message.
+async fn enrich_with_memory(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    user_text: &str,
+) -> String {
+    let memory_context = if user_text.trim().is_empty() {
+        String::new()
+    } else {
+        build_memory_context(ctx.memory.as_ref(), user_text, ctx.min_relevance_score).await
+    };
+
+    if ctx.auto_save_memory && !user_text.trim().is_empty() {
+        let autosave_key = conversation_memory_key(msg);
+        let _ = ctx
+            .memory
+            .store(
+                &autosave_key,
+                user_text,
+                crate::memory::MemoryCategory::Conversation,
+                None,
+            )
+            .await;
+    }
+
+    if memory_context.is_empty() {
+        user_text.to_string()
+    } else {
+        format!("{memory_context}{user_text}")
+    }
+}
+
+/// Send an image rejection: emit observability event and notify user.
+async fn reject_image_turn(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    target_channel: Option<&Arc<dyn Channel>>,
+    route: Option<&ResolvedImageRoute>,
+    reason: media::ImageRejectionReason,
+    image_count: usize,
+    rejection_text: String,
+) {
+    emit_image_ingress(
+        ctx.observer.as_ref(),
+        &msg.channel,
+        route.map(|r| r.provider.clone()),
+        route.map(|r| r.model.clone()),
+        crate::observability::ImageIngressOutcome::Rejected,
+        Some(reason),
+        image_count,
+        None,
+        None,
+    );
+    if let Some(ch) = target_channel {
+        let _ = ch
+            .send(&SendMessage::new(rejection_text, &msg.reply_target))
+            .await;
+    }
+}
+
+/// Gate multimodal configuration: check enabled, allowed channels, vision route.
+/// Returns `Ok(Some(route))` if images are allowed, `Ok(None)` if no images,
+/// `Err(())` if rejected (response already sent to channel).
+async fn gate_multimodal_config(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    session_id: &str,
+    target_channel: Option<&Arc<dyn Channel>>,
+) -> Result<Option<ResolvedImageRoute>, ()> {
+    if !msg.has_image_parts() {
+        return Ok(None);
+    }
+
+    let mm = &ctx.config.multimodal;
+    let img_count = msg.image_parts().len();
+
+    if !mm.enabled {
+        reject_image_turn(
+            ctx,
+            msg,
+            target_channel,
+            None,
+            media::ImageRejectionReason::Disabled,
+            img_count,
+            format!("[session:{session_id}] ⚠️ Image input is currently disabled."),
+        )
+        .await;
+        return Err(());
+    }
+
+    if !mm.allowed_channels.contains(&msg.channel) {
+        reject_image_turn(
+            ctx,
+            msg,
+            target_channel,
+            None,
+            media::ImageRejectionReason::ChannelNotAllowed,
+            img_count,
+            format!("[session:{session_id}] ⚠️ Image input is not enabled for this channel."),
+        )
+        .await;
+        return Err(());
+    }
+
+    match resolve_image_route(ctx.config.as_ref()) {
+        Ok(route) => Ok(Some(route)),
+        Err(reason) => {
+            let text = image_route_rejection_text(session_id, &reason);
+            reject_image_turn(ctx, msg, target_channel, None, reason, img_count, text).await;
+            Err(())
+        }
+    }
+}
+
+/// Format rejection text for image route resolution failures.
+fn image_route_rejection_text(session_id: &str, reason: &media::ImageRejectionReason) -> String {
+    match reason {
+        media::ImageRejectionReason::MissingVisionRoute => {
+            format!("[session:{session_id}] ⚠️ Image input is not configured with a vision route.")
+        }
+        media::ImageRejectionReason::RouteNotImageCapable => format!(
+            "[session:{session_id}] ⚠️ The configured vision route does not allow image input."
+        ),
+        _ => format!("[session:{session_id}] ⚠️ Image input is not available for this request."),
+    }
+}
+
+/// Gate image count, stage images, and verify staging succeeded.
+/// Returns `Ok(guard)` on success, `Err(())` if rejected (response already sent).
+async fn gate_and_stage_images(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    session_id: &str,
+    target_channel: Option<&Arc<dyn Channel>>,
+    route: Option<&ResolvedImageRoute>,
+) -> Result<StagedImageGuard, ()> {
+    if !msg.has_image_parts() {
+        return Ok(StagedImageGuard(Vec::new()));
+    }
+
+    let image_count = msg.image_parts().len();
+
+    if media::validate_image_count(image_count).is_err() {
+        reject_image_turn(
+            ctx,
+            msg,
+            target_channel,
+            route,
+            media::ImageRejectionReason::TooManyImages,
+            image_count,
+            format!(
+                "[session:{session_id}] ⚠️ Too many images \
+                 ({image_count}). Maximum {} per message.",
+                media::MAX_IMAGES_PER_TURN,
+            ),
+        )
+        .await;
+        return Err(());
+    }
+
+    let staged = match stage_channel_images(ctx.config.as_ref(), msg).await {
+        Ok(s) => s,
+        Err(reason) => {
+            let text = staging_rejection_text(session_id, &reason);
+            reject_image_turn(ctx, msg, target_channel, route, reason, image_count, text).await;
+            return Err(());
+        }
+    };
+    let guard = StagedImageGuard(staged);
+
+    // Fail-closed: reject image turns on channels that have
+    // not yet implemented fetch/staging.
+    if guard.0.is_empty() {
+        reject_image_turn(
+            ctx,
+            msg,
+            target_channel,
+            route,
+            media::ImageRejectionReason::ChannelNotSupported,
+            image_count,
+            format!(
+                "[session:{session_id}] ⚠️ Image input is not \
+                 yet supported for this channel."
+            ),
+        )
+        .await;
+        return Err(());
+    }
+
+    Ok(guard)
+}
+
+/// Format rejection text for image staging failures.
+fn staging_rejection_text(session_id: &str, reason: &media::ImageRejectionReason) -> String {
+    match reason {
+        media::ImageRejectionReason::FetchFailed => format!(
+            "[session:{session_id}] ⚠️ I couldn't download that image safely. Please try again."
+        ),
+        media::ImageRejectionReason::MimeRejected => {
+            format!("[session:{session_id}] ⚠️ That image format is not supported.")
+        }
+        media::ImageRejectionReason::Oversize => {
+            format!("[session:{session_id}] ⚠️ That image is too large to process.")
+        }
+        _ => format!("[session:{session_id}] ⚠️ Image input is not available for this request."),
+    }
+}
+
+/// Emit image ingress event for provider-level outcomes (admitted, sent, error).
+fn emit_image_provider_outcome(
+    ctx: &ChannelRuntimeContext,
+    msg: &traits::ChannelMessage,
+    route: Option<&ResolvedImageRoute>,
+    staged: &[media::StagedImage],
+    outcome: crate::observability::ImageIngressOutcome,
+    reason: Option<media::ImageRejectionReason>,
+) {
+    let Some(route) = route else { return };
+    let (count, mime, bytes) = if reason.is_none() {
+        match staged.first() {
+            Some(first) => (
+                staged.len(),
+                Some(first.mime_type.as_str().to_string()),
+                Some(first.byte_len),
+            ),
+            None => return,
+        }
+    } else {
+        (msg.image_parts().len(), None, None)
+    };
+    emit_image_ingress(
+        ctx.observer.as_ref(),
+        &msg.channel,
+        Some(route.provider.clone()),
+        Some(route.model.clone()),
+        outcome,
+        reason,
+        count,
+        mime,
+        bytes,
+    );
 }
 
 async fn stage_channel_images(

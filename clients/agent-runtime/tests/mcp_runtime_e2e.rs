@@ -15,6 +15,9 @@ fn server(name: &str, command: &str, args: Vec<String>) -> McpServerConfig {
         startup_timeout_ms: 50,
         call_timeout_ms: 50,
         output_limit_bytes: 512,
+        capabilities: vec!["tools".to_string()],
+        resource_output_limit_bytes: None,
+        prompt_output_limit_bytes: None,
     }
 }
 

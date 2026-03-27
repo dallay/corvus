@@ -65,7 +65,9 @@ pub fn evaluate_tool_risk(tool_name: &str) -> DispatchAction {
 
 pub fn evaluate_tool_risk_for_origin(tool_name: &str, _origin: ExecutionOrigin) -> DispatchAction {
     match source_kind_for_tool(tool_name) {
-        crate::security::ToolSourceKind::Mcp => {
+        crate::security::ToolSourceKind::Mcp
+        | crate::security::ToolSourceKind::McpResource
+        | crate::security::ToolSourceKind::McpPrompt => {
             return DispatchAction::ApprovalRequired(format!(
                 "mcp tool '{tool_name}' requires explicit approval"
             ));

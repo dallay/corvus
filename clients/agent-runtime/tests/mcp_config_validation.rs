@@ -11,6 +11,9 @@ fn valid_server() -> McpServerConfig {
         startup_timeout_ms: 5_000,
         call_timeout_ms: 30_000,
         output_limit_bytes: 64 * 1024,
+        capabilities: vec!["tools".to_string()],
+        resource_output_limit_bytes: None,
+        prompt_output_limit_bytes: None,
     }
 }
 

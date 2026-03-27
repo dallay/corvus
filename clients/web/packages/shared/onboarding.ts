@@ -14,6 +14,17 @@ export interface OnboardingStepConfig {
   status: StepStatus;
 }
 
+function resolveStepStatus(
+  isComplete: boolean,
+  isPreviousStepComplete: boolean,
+  isBlocked: boolean
+): StepStatus {
+  if (isComplete) return "complete";
+  if (!isPreviousStepComplete) return "pending";
+  if (isBlocked) return "blocked";
+  return "current";
+}
+
 /**
  * Compute onboarding step statuses from progress and recovery state.
  */
@@ -29,48 +40,40 @@ export function computeOnboardingSteps(
       key: "runtime",
       titleKey: `${i18nPrefix}.runtime.title`,
       descriptionKey: `${i18nPrefix}.runtime.description`,
-      status: progress.runtimeConfirmed
-        ? "complete"
-        : blockedRecovery === "runtime_unavailable" || blockedRecovery === "transport_unavailable"
-          ? "blocked"
-          : "current",
+      status: resolveStepStatus(
+        progress.runtimeConfirmed,
+        true,
+        blockedRecovery === "runtime_unavailable" || blockedRecovery === "transport_unavailable"
+      ),
     },
     {
       key: "trust",
       titleKey: `${i18nPrefix}.trust.title`,
       descriptionKey: `${i18nPrefix}.trust.description`,
-      status: progress.trustEstablished
-        ? "complete"
-        : !progress.runtimeConfirmed
-          ? "pending"
-          : blockedRecovery === "trust_input_invalid" ||
-              blockedRecovery === "trust_input_expired" ||
-              blockedRecovery === "credential_missing" ||
-              blockedRecovery === "credential_invalid"
-            ? "blocked"
-            : "current",
+      status: resolveStepStatus(
+        progress.trustEstablished,
+        progress.runtimeConfirmed,
+        blockedRecovery === "trust_input_invalid" ||
+          blockedRecovery === "trust_input_expired" ||
+          blockedRecovery === "credential_missing" ||
+          blockedRecovery === "credential_invalid"
+      ),
     },
     {
       key: "connect",
       titleKey: `${i18nPrefix}.connect.title`,
       descriptionKey: `${i18nPrefix}.connect.description`,
-      status: progress.transportConnected
-        ? "complete"
-        : !progress.trustEstablished
-          ? "pending"
-          : blockedRecovery === "paired_but_not_connected"
-            ? "blocked"
-            : "current",
+      status: resolveStepStatus(
+        progress.transportConnected,
+        progress.trustEstablished,
+        blockedRecovery === "paired_but_not_connected"
+      ),
     },
     {
       key: finalStepKey,
       titleKey: `${i18nPrefix}.${finalStepKey}.title`,
       descriptionKey: `${i18nPrefix}.${finalStepKey}.description`,
-      status: progress[finalProgressKey]
-        ? "complete"
-        : !progress.transportConnected
-          ? "pending"
-          : "current",
+      status: resolveStepStatus(progress[finalProgressKey], progress.transportConnected, false),
     },
   ];
 }

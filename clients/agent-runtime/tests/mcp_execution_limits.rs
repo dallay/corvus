@@ -14,6 +14,9 @@ fn test_server() -> McpServerConfig {
         startup_timeout_ms: 100,
         call_timeout_ms: 25,
         output_limit_bytes: 64,
+        capabilities: vec!["tools".to_string()],
+        resource_output_limit_bytes: None,
+        prompt_output_limit_bytes: None,
     }
 }
 
