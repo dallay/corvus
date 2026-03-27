@@ -44,6 +44,9 @@ fn mock_server() -> McpServerConfig {
         startup_timeout_ms: 50,
         call_timeout_ms: 50,
         output_limit_bytes: 512,
+        capabilities: vec!["tools".to_string()],
+        resource_output_limit_bytes: None,
+        prompt_output_limit_bytes: None,
     }
 }
 
@@ -101,6 +104,9 @@ fn native_tools_remain_available_when_mcp_discovery_fails() {
                 startup_timeout_ms: 50,
                 call_timeout_ms: 50,
                 output_limit_bytes: 512,
+                capabilities: vec!["tools".to_string()],
+                resource_output_limit_bytes: None,
+                prompt_output_limit_bytes: None,
             }],
         },
         ..Config::default()

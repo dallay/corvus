@@ -46,5 +46,8 @@ fn build_cerebro_server(cerebro: &MemoryCerebroConfig) -> anyhow::Result<McpServ
         startup_timeout_ms: 5_000,
         call_timeout_ms: cerebro.request_timeout_ms,
         output_limit_bytes: 64 * 1024,
+        capabilities: crate::config::default_mcp_capabilities(),
+        resource_output_limit_bytes: None,
+        prompt_output_limit_bytes: None,
     })
 }

@@ -73,13 +73,46 @@ pub fn source_metadata(server: &str, tool_name: &str) -> ToolSourceMetadata {
     }
 }
 
+pub fn normalize_resource_name(server: &str, resource_name: &str) -> anyhow::Result<String> {
+    validate_identifier("server", server)?;
+    validate_identifier("resource", resource_name)?;
+    Ok(format!("mcp.{server}.resource.{resource_name}"))
+}
+
+pub fn normalize_prompt_name(server: &str, prompt_name: &str) -> anyhow::Result<String> {
+    validate_identifier("server", server)?;
+    validate_identifier("prompt", prompt_name)?;
+    Ok(format!("mcp.{server}.prompt.{prompt_name}"))
+}
+
+pub fn source_metadata_resource(server: &str, resource_name: &str) -> ToolSourceMetadata {
+    ToolSourceMetadata {
+        kind: "mcp_resource".to_string(),
+        provider: Some("mcp".to_string()),
+        server: Some(server.to_string()),
+        original_name: Some(resource_name.to_string()),
+    }
+}
+
+pub fn source_metadata_prompt(server: &str, prompt_name: &str) -> ToolSourceMetadata {
+    ToolSourceMetadata {
+        kind: "mcp_prompt".to_string(),
+        provider: Some("mcp".to_string()),
+        server: Some(server.to_string()),
+        original_name: Some(prompt_name.to_string()),
+    }
+}
+
 fn validate_identifier(kind: &str, value: &str) -> anyhow::Result<()> {
     if value.trim().is_empty() {
         anyhow::bail!("MCP {kind} identifier must be non-empty");
     }
 
-    if value.eq_ignore_ascii_case("mcp") {
-        anyhow::bail!("MCP {kind} identifier 'mcp' is reserved");
+    if value.eq_ignore_ascii_case("mcp")
+        || value.eq_ignore_ascii_case("resource")
+        || value.eq_ignore_ascii_case("prompt")
+    {
+        anyhow::bail!("MCP {kind} identifier '{value}' is reserved");
     }
 
     if !value
@@ -103,10 +136,98 @@ mod tests {
     }
 
     #[test]
-    fn reserved_identifier_is_rejected() {
+    fn reserved_identifier_mcp_is_rejected() {
         let err = normalize_tool_name("mcp", "search")
             .unwrap_err()
             .to_string();
         assert!(err.contains("reserved"));
+    }
+
+    // ── Resource normalization ───────────────────────────────
+
+    #[test]
+    fn normalize_resource_name_produces_canonical_format() {
+        let name = normalize_resource_name("docs", "api-spec").unwrap();
+        assert_eq!(name, "mcp.docs.resource.api-spec");
+    }
+
+    #[test]
+    fn normalize_resource_name_rejects_empty_server() {
+        assert!(normalize_resource_name("", "api-spec").is_err());
+    }
+
+    #[test]
+    fn normalize_resource_name_rejects_empty_resource() {
+        assert!(normalize_resource_name("docs", "").is_err());
+    }
+
+    // ── Prompt normalization ─────────────────────────────────
+
+    #[test]
+    fn normalize_prompt_name_produces_canonical_format() {
+        let name = normalize_prompt_name("workflows", "code-review").unwrap();
+        assert_eq!(name, "mcp.workflows.prompt.code-review");
+    }
+
+    #[test]
+    fn normalize_prompt_name_rejects_empty_server() {
+        assert!(normalize_prompt_name("", "code-review").is_err());
+    }
+
+    #[test]
+    fn normalize_prompt_name_rejects_empty_prompt() {
+        assert!(normalize_prompt_name("workflows", "").is_err());
+    }
+
+    // ── Reserved words ───────────────────────────────────────
+
+    #[test]
+    fn reserved_word_resource_rejected_as_server_name() {
+        let err = normalize_tool_name("resource", "search")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("reserved"));
+    }
+
+    #[test]
+    fn reserved_word_prompt_rejected_as_server_name() {
+        let err = normalize_tool_name("prompt", "search")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("reserved"));
+    }
+
+    #[test]
+    fn reserved_word_resource_rejected_as_tool_name() {
+        let err = normalize_tool_name("docs", "resource")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("reserved"));
+    }
+
+    #[test]
+    fn reserved_word_prompt_rejected_as_tool_name() {
+        let err = normalize_tool_name("docs", "prompt")
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("reserved"));
+    }
+
+    // ── Source metadata ──────────────────────────────────────
+
+    #[test]
+    fn source_metadata_resource_has_correct_kind() {
+        let meta = source_metadata_resource("docs", "api-spec");
+        assert_eq!(meta.kind, "mcp_resource");
+        assert_eq!(meta.server.as_deref(), Some("docs"));
+        assert_eq!(meta.original_name.as_deref(), Some("api-spec"));
+    }
+
+    #[test]
+    fn source_metadata_prompt_has_correct_kind() {
+        let meta = source_metadata_prompt("workflows", "code-review");
+        assert_eq!(meta.kind, "mcp_prompt");
+        assert_eq!(meta.server.as_deref(), Some("workflows"));
+        assert_eq!(meta.original_name.as_deref(), Some("code-review"));
     }
 }

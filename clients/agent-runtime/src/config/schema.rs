@@ -1030,6 +1030,17 @@ pub struct McpServerConfig {
     pub call_timeout_ms: u64,
     #[serde(default = "default_mcp_output_limit_bytes")]
     pub output_limit_bytes: usize,
+    /// Which MCP capability types to discover and register.
+    /// Default: `["tools"]` for backward compatibility.
+    /// Valid values: `"tools"`, `"resources"`, `"prompts"`
+    #[serde(default = "default_mcp_capabilities")]
+    pub capabilities: Vec<String>,
+    /// Optional per-capability output limit override for resources.
+    #[serde(default)]
+    pub resource_output_limit_bytes: Option<usize>,
+    /// Optional per-capability output limit override for prompts.
+    #[serde(default)]
+    pub prompt_output_limit_bytes: Option<usize>,
 }
 
 fn default_mcp_startup_timeout_ms() -> u64 {
@@ -1044,6 +1055,10 @@ fn default_mcp_output_limit_bytes() -> usize {
     64 * 1024
 }
 
+pub fn default_mcp_capabilities() -> Vec<String> {
+    vec!["tools".to_string()]
+}
+
 impl Default for McpServerConfig {
     fn default() -> Self {
         Self {
@@ -1055,6 +1070,9 @@ impl Default for McpServerConfig {
             startup_timeout_ms: default_mcp_startup_timeout_ms(),
             call_timeout_ms: default_mcp_call_timeout_ms(),
             output_limit_bytes: default_mcp_output_limit_bytes(),
+            capabilities: default_mcp_capabilities(),
+            resource_output_limit_bytes: None,
+            prompt_output_limit_bytes: None,
         }
     }
 }
@@ -3237,7 +3255,57 @@ impl Config {
             anyhow::bail!("{base}.output_limit_bytes exceeds maximum allowed (10MB)");
         }
 
+        Self::validate_mcp_capabilities(&server.capabilities, &base)?;
+        Self::validate_mcp_capability_limits(server, &base)?;
+
         Self::validate_mcp_env(&server.env, &base)
+    }
+
+    fn validate_mcp_capabilities(capabilities: &[String], base: &str) -> Result<()> {
+        const VALID_CAPABILITIES: &[&str] = &["tools", "resources", "prompts"];
+
+        if capabilities.is_empty() {
+            anyhow::bail!("{base}.capabilities must contain at least one capability type");
+        }
+
+        let mut seen = std::collections::HashSet::new();
+        for cap in capabilities {
+            if !VALID_CAPABILITIES.contains(&cap.as_str()) {
+                anyhow::bail!(
+                    "{base}.capabilities contains unrecognized capability type '{cap}'; \
+                     valid values are: tools, resources, prompts"
+                );
+            }
+            if !seen.insert(cap.as_str()) {
+                anyhow::bail!("{base}.capabilities contains duplicate entry '{cap}'");
+            }
+        }
+
+        Ok(())
+    }
+
+    fn validate_mcp_capability_limits(server: &McpServerConfig, base: &str) -> Result<()> {
+        let max_limit = 10 * 1024 * 1024; // 10MB
+
+        if let Some(limit) = server.resource_output_limit_bytes {
+            if limit == 0 {
+                anyhow::bail!("{base}.resource_output_limit_bytes must be greater than zero");
+            }
+            if limit > max_limit {
+                anyhow::bail!("{base}.resource_output_limit_bytes exceeds maximum allowed (10MB)");
+            }
+        }
+
+        if let Some(limit) = server.prompt_output_limit_bytes {
+            if limit == 0 {
+                anyhow::bail!("{base}.prompt_output_limit_bytes must be greater than zero");
+            }
+            if limit > max_limit {
+                anyhow::bail!("{base}.prompt_output_limit_bytes exceeds maximum allowed (10MB)");
+            }
+        }
+
+        Ok(())
     }
 
     fn validate_mcp_command(command: &str, base: &str) -> Result<()> {
@@ -6291,5 +6359,139 @@ allow_image_input = true
             ..Config::default()
         };
         assert!(config.validate_multimodal_config().is_ok());
+    }
+
+    // ── MCP capabilities config ─────────────────────────────
+
+    #[test]
+    fn default_mcp_capabilities_returns_tools() {
+        let caps = default_mcp_capabilities();
+        assert_eq!(caps, vec!["tools".to_string()]);
+    }
+
+    #[test]
+    fn mcp_server_config_default_has_capabilities_tools() {
+        let server = McpServerConfig::default();
+        assert_eq!(server.capabilities, vec!["tools".to_string()]);
+        assert!(server.resource_output_limit_bytes.is_none());
+        assert!(server.prompt_output_limit_bytes.is_none());
+    }
+
+    #[test]
+    fn mcp_config_deser_missing_capabilities_defaults_to_tools() {
+        let json = r#"{
+            "name": "docs",
+            "command": "__mcp_mock__"
+        }"#;
+        let server: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(server.capabilities, vec!["tools".to_string()]);
+    }
+
+    #[test]
+    fn mcp_config_deser_explicit_capabilities_preserved() {
+        let json = r#"{
+            "name": "docs",
+            "command": "__mcp_mock__",
+            "capabilities": ["tools", "resources"]
+        }"#;
+        let server: McpServerConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(server.capabilities, vec!["tools", "resources"]);
+    }
+
+    #[test]
+    fn mcp_validation_rejects_unknown_capability() {
+        let result = Config::validate_mcp_capabilities(
+            &["tools".to_string(), "subscriptions".to_string()],
+            "mcp.servers[0]",
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("subscriptions"));
+        assert!(err.contains("unrecognized"));
+    }
+
+    #[test]
+    fn mcp_validation_rejects_empty_capabilities() {
+        let result = Config::validate_mcp_capabilities(&[], "mcp.servers[0]");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("at least one"));
+    }
+
+    #[test]
+    fn mcp_validation_rejects_duplicate_capabilities() {
+        let result = Config::validate_mcp_capabilities(
+            &["tools".to_string(), "tools".to_string()],
+            "mcp.servers[0]",
+        );
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("duplicate"));
+    }
+
+    #[test]
+    fn mcp_validation_accepts_tools_only() {
+        let result = Config::validate_mcp_capabilities(&["tools".to_string()], "mcp.servers[0]");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mcp_validation_accepts_tools_and_resources() {
+        let result = Config::validate_mcp_capabilities(
+            &["tools".to_string(), "resources".to_string()],
+            "mcp.servers[0]",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mcp_validation_accepts_all_three_capabilities() {
+        let result = Config::validate_mcp_capabilities(
+            &[
+                "tools".to_string(),
+                "resources".to_string(),
+                "prompts".to_string(),
+            ],
+            "mcp.servers[0]",
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn mcp_validation_rejects_zero_resource_output_limit() {
+        let server = McpServerConfig {
+            name: "test".to_string(),
+            command: "__mcp_mock__".to_string(),
+            resource_output_limit_bytes: Some(0),
+            ..McpServerConfig::default()
+        };
+        let result = Config::validate_mcp_capability_limits(&server, "mcp.servers[0]");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("resource_output_limit_bytes"));
+        assert!(err.contains("greater than zero"));
+    }
+
+    #[test]
+    fn mcp_validation_rejects_excessive_prompt_output_limit() {
+        let server = McpServerConfig {
+            name: "test".to_string(),
+            command: "__mcp_mock__".to_string(),
+            prompt_output_limit_bytes: Some(20 * 1024 * 1024), // 20MB > 10MB max
+            ..McpServerConfig::default()
+        };
+        let result = Config::validate_mcp_capability_limits(&server, "mcp.servers[0]");
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("prompt_output_limit_bytes"));
+        assert!(err.contains("10MB"));
+    }
+
+    #[test]
+    fn mcp_validation_accepts_valid_capability_limits() {
+        let server = McpServerConfig {
+            name: "test".to_string(),
+            command: "__mcp_mock__".to_string(),
+            resource_output_limit_bytes: Some(128 * 1024),
+            prompt_output_limit_bytes: Some(64 * 1024),
+            ..McpServerConfig::default()
+        };
+        let result = Config::validate_mcp_capability_limits(&server, "mcp.servers[0]");
+        assert!(result.is_ok());
     }
 }

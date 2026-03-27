@@ -25,6 +25,9 @@ pub(crate) fn mock_mcp_server(name: &str, tool_name: &str) -> McpServerConfig {
         startup_timeout_ms: 100,
         call_timeout_ms: 500,
         output_limit_bytes: 1024,
+        capabilities: crate::config::default_mcp_capabilities(),
+        resource_output_limit_bytes: None,
+        prompt_output_limit_bytes: None,
     }
 }
 

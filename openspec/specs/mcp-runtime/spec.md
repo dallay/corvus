@@ -6,8 +6,10 @@ This delta specification defines secure v1 Model Context Protocol (MCP) integrat
 agent runtime. It covers startup-time MCP server discovery, tool registration into the existing
 tool pipeline, policy and approval enforcement, bounded execution, and failure behavior.
 
-This change is limited to config-defined MCP tools (stdio transport). It explicitly excludes MCP
-resources/prompts and hot reload behavior.
+The v1 scope covered config-defined MCP tools (stdio transport). Resources and prompts are defined
+in the MCP Platform Capabilities delta spec
+(`openspec/changes/2026-03-27-mcp-platform-capabilities/specs/mcp-platform-capabilities/spec.md`).
+Hot reload behavior remains excluded.
 
 ## Requirements
 
@@ -219,9 +221,14 @@ security posture, and operator diagnostics.
 - THEN the runtime MUST return a structured failure result to the agent loop
 - AND the runtime MUST NOT crash or deadlock the loop.
 
-#### Scenario: Out-of-scope MCP capabilities are rejected
+#### Scenario: Capabilities not listed in server config are ignored
 
-- GIVEN an MCP server advertising resources or prompts in addition to tools
-- WHEN v1 registration runs
-- THEN the runtime MUST ignore or reject non-tool capabilities
-- AND only MCP tools MAY be registered in this change scope.
+- GIVEN an MCP server whose `capabilities` config does not include a given capability type
+- AND the server advertises that capability during introspection
+- WHEN capability registration runs
+- THEN the runtime MUST ignore the undeclared capability advertisements
+- AND only capabilities listed in the server's `capabilities` config SHALL be registered.
+
+> **Cross-reference**: Per-server capability gating, resource/prompt discovery, and the full
+> three-tier capability model are defined in the MCP Platform Capabilities delta spec at
+> `openspec/changes/2026-03-27-mcp-platform-capabilities/specs/mcp-platform-capabilities/spec.md`.
