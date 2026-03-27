@@ -22,7 +22,7 @@ Phase 3 tasks (3.1–3.4) are explicitly deferred and out of scope for this chan
 ## Build & Tests Execution
 
 **Build**: ✅ Passed
-```
+```shell
 cargo clippy --manifest-path clients/agent-runtime/Cargo.toml --all-targets -- -D warnings
 → 0 errors, 0 warnings
 cargo fmt --manifest-path clients/agent-runtime/Cargo.toml --check
@@ -30,7 +30,7 @@ cargo fmt --manifest-path clients/agent-runtime/Cargo.toml --check
 ```
 
 **Tests**: ✅ 64 passed / ❌ 0 failed / ⚠️ 0 skipped
-```
+```shell
 cargo test --manifest-path clients/agent-runtime/Cargo.toml -- anthropic
 test result: ok. 64 passed; 0 failed; 0 ignored; 0 measured; finished in 0.03s
 (run across lib + main binary targets)

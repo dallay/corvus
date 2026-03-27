@@ -501,7 +501,8 @@ impl Provider for AnthropicProvider {
         if !request.images.is_empty() {
             if let Some(last_user) = messages.iter_mut().rfind(|m| m.role == "user") {
                 for image in request.images {
-                    let bytes = std::fs::read(&image.temp_path)
+                    let bytes = tokio::fs::read(&image.temp_path)
+                        .await
                         .map_err(|e| anyhow::anyhow!("Failed to read staged image: {e}"))?;
                     let b64 = base64_encode(&bytes);
                     last_user.content.push(NativeContentOut::Image {

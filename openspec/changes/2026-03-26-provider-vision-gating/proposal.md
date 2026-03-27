@@ -64,8 +64,7 @@ default, router, reliable provider). The work is primarily:
 
 | Area | Impact | Description |
 |------|--------|-------------|
-| `clients/agent-runtime/src/providers/anthropic.rs` | Modified | Add image adapter: `capabilities()` override + `chat()` image block injection |
-| `clients/agent-runtime/src/providers/traits.rs` | Modified | Add `NativeContentOut::Image` variant to the enum |
+| `clients/agent-runtime/src/providers/anthropic.rs` | Modified | Add image adapter: `capabilities()` override + `chat()` image block injection + local `NativeContentOut::Image` variant |
 | `openspec/specs/agent-runtime-providers/spec.md` | Modified | Delta spec: update MVP scope to include Anthropic, add image format contract requirements |
 | `clients/agent-runtime/src/providers/router.rs` | None | Gating already correct — documented in spec only |
 | `clients/agent-runtime/src/providers/reliable.rs` | None | Fallback already correct — documented in spec only |
