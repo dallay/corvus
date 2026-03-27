@@ -65,85 +65,14 @@ pub fn load_skills_with_config(
     workspace_dir: &Path,
     config: &crate::config::SkillsConfig,
 ) -> Vec<Skill> {
-    // Read lockfile for trust/origin enrichment
     let lockfile = lockfile::read_lockfile(workspace_dir);
     let skills_path = skills_dir(workspace_dir);
 
     let mut skills = load_workspace_skills(workspace_dir);
-    // Enrich workspace skills with lockfile data
     for skill in &mut skills {
-        if let Some(entry) = lockfile.skills.get(&skill.name) {
-            skill.origin = lockfile::lock_entry_to_origin(entry);
-            skill.trust = trust::SkillTrust::from(&skill.origin.source);
-            if let Some(ref tools) = entry.allowed_tools {
-                skill.allowed_tools = tools.clone();
-            }
-        }
-        // Skills without lockfile entry keep default Local trust
-
-        // Integrity verification
-        if config.verify_integrity {
-            let skill_md_path = skill
-                .location
-                .clone()
-                .unwrap_or_else(|| skills_path.join(&skill.name).join("SKILL.md"));
-
-            let result = lockfile::verify_integrity(
-                &skill_md_path,
-                skill.origin.content_hash.as_deref(),
-                true,
-            );
-
-            if let lockfile::IntegrityResult::Mismatch { expected, actual } = result {
-                match skill.trust {
-                    trust::SkillTrust::ThirdParty => {
-                        tracing::warn!(
-                            "integrity mismatch for third-party skill '{}': \
-                             expected {expected}, got {actual}. \
-                             Tools disabled — instruction-only mode.",
-                            skill.name,
-                        );
-                        skill.allowed_tools.clear();
-                    }
-                    trust::SkillTrust::Official => {
-                        tracing::warn!(
-                            "integrity mismatch for official skill '{}': \
-                             expected {expected}, got {actual}. \
-                             Content may have been updated locally.",
-                            skill.name,
-                        );
-                    }
-                    trust::SkillTrust::Local => {
-                        tracing::warn!(
-                            "integrity mismatch for local skill '{}': \
-                             expected {expected}, got {actual}.",
-                            skill.name,
-                        );
-                    }
-                }
-            }
-        }
-
-        // Scanner check (ThirdParty only)
-        if skill.trust == trust::SkillTrust::ThirdParty {
-            if let Some(threshold) = config.scan_threshold {
-                let all_content: String = skill.prompts.join("\n");
-                if !all_content.is_empty() {
-                    let scan = scanner::scan_skill_content(&all_content);
-                    if scan.exceeds_threshold(threshold) {
-                        tracing::warn!(
-                            "skill '{}' scored {} in injection scan \
-                             (threshold: {}). \
-                             Tools disabled — instruction-only mode.",
-                            skill.name,
-                            scan.score,
-                            threshold,
-                        );
-                        skill.allowed_tools.clear();
-                    }
-                }
-            }
-        }
+        enrich_skill_from_lockfile(skill, &lockfile);
+        verify_skill_integrity(skill, config, &skills_path);
+        scan_third_party_skill(skill, config);
 
         // Set sandboxed flag on all tools based on trust tier
         for tool in &mut skill.tools {
@@ -152,6 +81,99 @@ pub fn load_skills_with_config(
     }
 
     skills
+}
+
+/// Enrich a skill with trust/origin data from the lockfile.
+fn enrich_skill_from_lockfile(skill: &mut Skill, lockfile: &lockfile::SkillsLockfile) {
+    if let Some(entry) = lockfile.skills.get(&skill.name) {
+        skill.origin = lockfile::lock_entry_to_origin(entry);
+        skill.trust = trust::SkillTrust::from(&skill.origin.source);
+        if let Some(ref tools) = entry.allowed_tools {
+            skill.allowed_tools = tools.clone();
+        }
+    }
+    // Skills without lockfile entry keep default Local trust
+}
+
+/// Run integrity verification for a skill if enabled. Clears tools on
+/// third-party mismatch (instruction-only mode).
+fn verify_skill_integrity(
+    skill: &mut Skill,
+    config: &crate::config::SkillsConfig,
+    skills_path: &Path,
+) {
+    if !config.verify_integrity {
+        return;
+    }
+
+    let skill_md_path = skill
+        .location
+        .clone()
+        .unwrap_or_else(|| skills_path.join(&skill.name).join("SKILL.md"));
+
+    let result =
+        lockfile::verify_integrity(&skill_md_path, skill.origin.content_hash.as_deref(), true);
+
+    if let lockfile::IntegrityResult::Mismatch { expected, actual } = result {
+        log_integrity_mismatch(skill, &expected, &actual);
+    }
+}
+
+/// Log an integrity mismatch, disabling tools for third-party skills.
+fn log_integrity_mismatch(skill: &mut Skill, expected: &str, actual: &str) {
+    match skill.trust {
+        trust::SkillTrust::ThirdParty => {
+            tracing::warn!(
+                "integrity mismatch for third-party skill '{}': \
+                 expected {expected}, got {actual}. \
+                 Tools disabled — instruction-only mode.",
+                skill.name,
+            );
+            skill.allowed_tools.clear();
+        }
+        trust::SkillTrust::Official => {
+            tracing::warn!(
+                "integrity mismatch for official skill '{}': \
+                 expected {expected}, got {actual}. \
+                 Content may have been updated locally.",
+                skill.name,
+            );
+        }
+        trust::SkillTrust::Local => {
+            tracing::warn!(
+                "integrity mismatch for local skill '{}': \
+                 expected {expected}, got {actual}.",
+                skill.name,
+            );
+        }
+    }
+}
+
+/// Scan third-party skill content for prompt injection patterns.
+/// Disables tools if score exceeds threshold (instruction-only mode).
+fn scan_third_party_skill(skill: &mut Skill, config: &crate::config::SkillsConfig) {
+    if skill.trust != trust::SkillTrust::ThirdParty {
+        return;
+    }
+    let Some(threshold) = config.scan_threshold else {
+        return;
+    };
+    let all_content: String = skill.prompts.join("\n");
+    if all_content.is_empty() {
+        return;
+    }
+    let scan = scanner::scan_skill_content(&all_content);
+    if scan.exceeds_threshold(threshold) {
+        tracing::warn!(
+            "skill '{}' scored {} in injection scan \
+             (threshold: {}). \
+             Tools disabled — instruction-only mode.",
+            skill.name,
+            scan.score,
+            threshold,
+        );
+        skill.allowed_tools.clear();
+    }
 }
 
 fn load_workspace_skills(workspace_dir: &Path) -> Vec<Skill> {
@@ -858,34 +880,7 @@ fn handle_install_command(
     };
 
     // 3. Validate structure and parse frontmatter
-    let skill_md_path = skill_dir.join("SKILL.md");
-    let (fm, content_hash) = if skill_md_path.exists() {
-        let content = std::fs::read_to_string(&skill_md_path)?;
-        let fm = frontmatter::parse_frontmatter(&content);
-
-        // Abort if frontmatter name doesn't match directory name
-        let dir_name = skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
-        if let Some(ref fm_name) = fm.name {
-            if fm_name != dir_name {
-                let _ = std::fs::remove_dir_all(&skill_dir);
-                anyhow::bail!(
-                    "Skill name '{}' in SKILL.md does not match directory '{}'. \
-                     Rename the skill or directory to match.",
-                    fm_name,
-                    dir_name,
-                );
-            }
-        }
-
-        let hash = lockfile::compute_content_hash(content.as_bytes());
-        (fm, Some(hash))
-    } else {
-        let _ = std::fs::remove_dir_all(&skill_dir);
-        anyhow::bail!(
-            "No SKILL.md found in installed skill directory. \
-             Skills must contain a SKILL.md file."
-        );
-    };
+    let (fm, content_hash) = validate_and_parse_skill_md(&skill_dir)?;
 
     // 3b. Validate skill name per Agent Skills standard
     let dir_name_for_validation = skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -896,71 +891,159 @@ fn handle_install_command(
     }
 
     // 3c. Scan for prompt injection (ThirdParty only)
-    if skill_trust == trust::SkillTrust::ThirdParty {
-        if let Ok(content) = std::fs::read_to_string(skill_dir.join("SKILL.md")) {
-            let scan = scanner::scan_skill_content(&content);
-            let threshold = config
-                .scan_threshold
-                .unwrap_or(scanner::DEFAULT_SCAN_THRESHOLD);
-            if scan.exceeds_threshold(threshold) && !trust_flag {
-                // Report findings and abort
-                for finding in &scan.findings {
-                    println!(
-                        "  {} [line {}] {} (score: +{})",
-                        console::style("\u{26a0}").yellow().bold(),
-                        finding.line,
-                        finding.pattern,
-                        finding.severity,
-                    );
-                }
-                let _ = std::fs::remove_dir_all(&skill_dir);
-                anyhow::bail!(
-                    "Skill content scored {} (threshold: {}). \
-               Use --trust to install anyway.",
-                    scan.score,
-                    threshold,
-                );
-            } else if scan.exceeds_threshold(threshold) {
-                // --trust flag: warn but proceed
-                tracing::warn!(
-                    "skill content scored {} (threshold: {}) — proceeding with --trust",
-                    scan.score,
-                    threshold,
-                );
-            }
-        }
-    }
+    scan_and_gate_install(&skill_dir, skill_trust, config, trust_flag)?;
 
     // 4. Trust gate: ThirdParty skills with tools require explicit consent
-    if skill_trust == trust::SkillTrust::ThirdParty && !fm.allowed_tools.is_empty() && !trust_flag {
-        use std::io::IsTerminal;
-        if std::io::stdin().is_terminal() {
-            let skill_name = skill_dir
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("unknown");
-            if !confirm_trust_install(skill_name, &fm.allowed_tools) {
-                let _ = std::fs::remove_dir_all(&skill_dir);
-                anyhow::bail!("Installation declined by user.");
-            }
-        } else {
-            let _ = std::fs::remove_dir_all(&skill_dir);
+    gate_trust_consent(&skill_dir, skill_trust, &fm, trust_flag)?;
+
+    // 5. Build and write lock entry
+    write_install_lock_entry(workspace_dir, &skill_dir, &skill_source, fm, content_hash);
+
+    // 6. Print success with trust info
+    println!(
+        "  {} Skill installed successfully! (trust: {})",
+        console::style("✓").green().bold(),
+        skill_trust.as_str(),
+    );
+    println!("  Restart `corvus channel start` to activate.");
+    Ok(())
+}
+
+/// Parse and validate the SKILL.md file in the installed skill directory.
+/// Removes the directory on failure.
+fn validate_and_parse_skill_md(
+    skill_dir: &Path,
+) -> Result<(frontmatter::SkillFrontmatter, Option<String>)> {
+    let skill_md_path = skill_dir.join("SKILL.md");
+
+    if !skill_md_path.exists() {
+        let _ = std::fs::remove_dir_all(skill_dir);
+        anyhow::bail!(
+            "No SKILL.md found in installed skill directory. \
+             Skills must contain a SKILL.md file."
+        );
+    }
+
+    let content = std::fs::read_to_string(&skill_md_path)?;
+    let fm = frontmatter::parse_frontmatter(&content);
+
+    // Abort if frontmatter name doesn't match directory name
+    let dir_name = skill_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    if let Some(ref fm_name) = fm.name {
+        if fm_name != dir_name {
+            let _ = std::fs::remove_dir_all(skill_dir);
             anyhow::bail!(
-                "This third-party skill requests tools: {}. \
-                 Use --trust to allow installation in \
-                 non-interactive mode.",
-                fm.allowed_tools.join(", ")
+                "Skill name '{}' in SKILL.md does not match directory '{}'. \
+                 Rename the skill or directory to match.",
+                fm_name,
+                dir_name,
             );
         }
     }
 
-    // 5. Build and write lock entry
+    let hash = lockfile::compute_content_hash(content.as_bytes());
+    Ok((fm, Some(hash)))
+}
+
+/// Scan third-party skill content during install, aborting if injection score
+/// exceeds threshold (unless `--trust` flag is set).
+fn scan_and_gate_install(
+    skill_dir: &Path,
+    skill_trust: trust::SkillTrust,
+    config: &crate::config::SkillsConfig,
+    trust_flag: bool,
+) -> Result<()> {
+    if skill_trust != trust::SkillTrust::ThirdParty {
+        return Ok(());
+    }
+    let Ok(content) = std::fs::read_to_string(skill_dir.join("SKILL.md")) else {
+        return Ok(());
+    };
+    let scan = scanner::scan_skill_content(&content);
+    let threshold = config
+        .scan_threshold
+        .unwrap_or(scanner::DEFAULT_SCAN_THRESHOLD);
+
+    if !scan.exceeds_threshold(threshold) {
+        return Ok(());
+    }
+
+    if trust_flag {
+        tracing::warn!(
+            "skill content scored {} (threshold: {}) — proceeding with --trust",
+            scan.score,
+            threshold,
+        );
+        return Ok(());
+    }
+
+    // Report findings and abort
+    for finding in &scan.findings {
+        println!(
+            "  {} [line {}] {} (score: +{})",
+            console::style("\u{26a0}").yellow().bold(),
+            finding.line,
+            finding.pattern,
+            finding.severity,
+        );
+    }
+    let _ = std::fs::remove_dir_all(skill_dir);
+    anyhow::bail!(
+        "Skill content scored {} (threshold: {}). \
+   Use --trust to install anyway.",
+        scan.score,
+        threshold,
+    );
+}
+
+/// Gate third-party skill tool consent: require interactive approval or `--trust`.
+fn gate_trust_consent(
+    skill_dir: &Path,
+    skill_trust: trust::SkillTrust,
+    fm: &frontmatter::SkillFrontmatter,
+    trust_flag: bool,
+) -> Result<()> {
+    if skill_trust != trust::SkillTrust::ThirdParty || fm.allowed_tools.is_empty() || trust_flag {
+        return Ok(());
+    }
+
+    use std::io::IsTerminal;
+    if std::io::stdin().is_terminal() {
+        let skill_name = skill_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+        if !confirm_trust_install(skill_name, &fm.allowed_tools) {
+            let _ = std::fs::remove_dir_all(skill_dir);
+            anyhow::bail!("Installation declined by user.");
+        }
+    } else {
+        let _ = std::fs::remove_dir_all(skill_dir);
+        anyhow::bail!(
+            "This third-party skill requests tools: {}. \
+             Use --trust to allow installation in \
+             non-interactive mode.",
+            fm.allowed_tools.join(", ")
+        );
+    }
+    Ok(())
+}
+
+/// Build and write the lockfile entry for an installed skill.
+fn write_install_lock_entry(
+    workspace_dir: &Path,
+    skill_dir: &Path,
+    skill_source: &trust::SkillSource,
+    fm: frontmatter::SkillFrontmatter,
+    content_hash: Option<String>,
+) {
     let skill_name = skill_dir
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown")
         .to_string();
-    let source_str = match &skill_source {
+    let skill_trust = trust::SkillTrust::from(skill_source);
+    let source_str = match skill_source {
         trust::SkillSource::Local | trust::SkillSource::LinkedLocal { .. } => "local".to_string(),
         trust::SkillSource::GitRepo { url } => url.clone(),
         trust::SkillSource::Official { repo, .. } | trust::SkillSource::Discovered { repo, .. } => {
@@ -983,15 +1066,6 @@ fn handle_install_command(
     if let Err(err) = lockfile::write_lock_entry(workspace_dir, &skill_name, entry) {
         tracing::warn!("failed to write lockfile entry for '{skill_name}': {err}");
     }
-
-    // 6. Print success with trust info
-    println!(
-        "  {} Skill installed successfully! (trust: {})",
-        console::style("✓").green().bold(),
-        skill_trust.as_str(),
-    );
-    println!("  Restart `corvus channel start` to activate.");
-    Ok(())
 }
 
 /// Resolve the skill source type from the install source string.

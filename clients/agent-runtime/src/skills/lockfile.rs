@@ -147,65 +147,98 @@ pub fn repair_lockfile(workspace_dir: &Path) -> Result<RepairSummary> {
     let mut current = read_lockfile(workspace_dir);
     let mut summary = RepairSummary::default();
 
-    // Collect skills on disk
-    let mut on_disk: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    let on_disk = collect_disk_skills(&skills_path, &mut current, &mut summary)?;
+    remove_orphaned_entries(&on_disk, &mut current, &mut summary);
 
-    if skills_path.exists() {
-        for entry in std::fs::read_dir(&skills_path)? {
-            let entry = entry?;
-            if !entry.file_type()?.is_dir() {
-                continue;
-            }
-            let name = entry.file_name().to_string_lossy().to_string();
-            let skill_dir = entry.path();
-            let skill_md = skill_dir.join("SKILL.md");
+    // Write repaired lockfile (atomic)
+    let path = workspace_dir.join(LOCKFILE_NAME);
+    let content = toml::to_string_pretty(&current)?;
+    let temp_path = path.with_extension("lock.tmp");
+    std::fs::write(&temp_path, &content)?;
+    std::fs::rename(&temp_path, &path)?;
 
-            if !skill_md.exists() {
-                continue; // Not a valid skill directory
-            }
+    Ok(summary)
+}
 
-            on_disk.insert(name.clone());
+/// Scan the skills directory and reconcile each skill against the lockfile.
+fn collect_disk_skills(
+    skills_path: &Path,
+    current: &mut SkillsLockfile,
+    summary: &mut RepairSummary,
+) -> Result<std::collections::BTreeSet<String>> {
+    let mut on_disk = std::collections::BTreeSet::new();
 
-            // Compute current hash
-            let current_hash = std::fs::read(&skill_md)
-                .ok()
-                .map(|c| compute_content_hash(&c));
-
-            if let Some(existing) = current.skills.get_mut(&name) {
-                match std::fs::read(&skill_md) {
-                    Ok(bytes) => {
-                        let new_hash = Some(compute_content_hash(&bytes));
-                        if existing.content_hash == new_hash {
-                            summary.unchanged += 1;
-                        } else {
-                            existing.content_hash = new_hash;
-                            existing.installed_at = Some(chrono::Utc::now().to_rfc3339());
-                            summary.updated += 1;
-                        }
-                    }
-                    Err(_) => {
-                        // Can't read — preserve existing hash
-                        summary.unchanged += 1;
-                    }
-                }
-            } else {
-                // New entry — default to third-party trust (safer)
-                let entry = LockEntry {
-                    trust: "third-party".to_string(),
-                    source: "local".to_string(),
-                    path: None,
-                    pinned_ref: None,
-                    content_hash: current_hash,
-                    installed_at: Some(chrono::Utc::now().to_rfc3339()),
-                    allowed_tools: None,
-                };
-                current.skills.insert(name, entry);
-                summary.added += 1;
-            }
-        }
+    if !skills_path.exists() {
+        return Ok(on_disk);
     }
 
-    // Remove orphaned entries
+    for entry in std::fs::read_dir(skills_path)? {
+        let entry = entry?;
+        if !entry.file_type()?.is_dir() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let skill_md = entry.path().join("SKILL.md");
+
+        if !skill_md.exists() {
+            continue;
+        }
+
+        on_disk.insert(name.clone());
+        reconcile_skill_entry(&name, &skill_md, current, summary);
+    }
+
+    Ok(on_disk)
+}
+
+/// Reconcile a single on-disk skill against the lockfile: update hash or add new entry.
+fn reconcile_skill_entry(
+    name: &str,
+    skill_md: &Path,
+    current: &mut SkillsLockfile,
+    summary: &mut RepairSummary,
+) {
+    let current_hash = std::fs::read(skill_md)
+        .ok()
+        .map(|c| compute_content_hash(&c));
+
+    if let Some(existing) = current.skills.get_mut(name) {
+        match std::fs::read(skill_md) {
+            Ok(bytes) => {
+                let new_hash = Some(compute_content_hash(&bytes));
+                if existing.content_hash == new_hash {
+                    summary.unchanged += 1;
+                } else {
+                    existing.content_hash = new_hash;
+                    existing.installed_at = Some(chrono::Utc::now().to_rfc3339());
+                    summary.updated += 1;
+                }
+            }
+            Err(_) => {
+                summary.unchanged += 1;
+            }
+        }
+    } else {
+        let entry = LockEntry {
+            trust: "third-party".to_string(),
+            source: "local".to_string(),
+            path: None,
+            pinned_ref: None,
+            content_hash: current_hash,
+            installed_at: Some(chrono::Utc::now().to_rfc3339()),
+            allowed_tools: None,
+        };
+        current.skills.insert(name.to_string(), entry);
+        summary.added += 1;
+    }
+}
+
+/// Remove lockfile entries for skills no longer on disk.
+fn remove_orphaned_entries(
+    on_disk: &std::collections::BTreeSet<String>,
+    current: &mut SkillsLockfile,
+    summary: &mut RepairSummary,
+) {
     let orphaned: Vec<String> = current
         .skills
         .keys()
@@ -216,15 +249,6 @@ pub fn repair_lockfile(workspace_dir: &Path) -> Result<RepairSummary> {
         current.skills.remove(name);
         summary.removed += 1;
     }
-
-    // Write repaired lockfile (atomic)
-    let path = workspace_dir.join(LOCKFILE_NAME);
-    let content = toml::to_string_pretty(&current)?;
-    let temp_path = path.with_extension("lock.tmp");
-    std::fs::write(&temp_path, &content)?;
-    std::fs::rename(&temp_path, &path)?;
-
-    Ok(summary)
 }
 
 /// Result of content integrity verification.
