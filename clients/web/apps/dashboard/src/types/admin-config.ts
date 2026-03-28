@@ -132,6 +132,12 @@ export interface AdminAutonomyExtendedView {
   always_ask: string[];
 }
 
+export interface AdminChannelStatusView {
+  channel_type: string;
+  configured: boolean;
+  config_summary: Record<string, unknown>;
+}
+
 export interface AdminConfigView {
   default_provider?: string | null;
   default_model?: string | null;

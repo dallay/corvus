@@ -20,7 +20,8 @@
     "browser": "Navegador",
     "composio": "Composio",
     "memory": "Memoria",
-    "updates": "Actualizaciones"
+    "updates": "Actualizaciones",
+    "channels": "Canales"
   },
   "auth": {
     "baseUrl": "URL base del gateway",
@@ -278,6 +279,11 @@
     "cerebroAllowInsecureLoopback": "Permitir loopback inseguro",
     "cerebroAuthTokenMode": "Token de autenticación",
     "cerebroAuthTokenValue": "Nuevo token de autenticación"
+  },
+  "channels": {
+    "loading": "Cargando canales...",
+    "configured": "Configurado",
+    "notConfigured": "No configurado"
   },
   "updates": {
     "currentVersion": "Versión actual",

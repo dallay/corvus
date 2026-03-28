@@ -1173,6 +1173,7 @@ fn print_startup_banner(
     println!("  GET  /web/admin/config   — redacted admin config");
     println!("  PUT  /web/admin/config   — update admin config");
     println!("  GET  /web/admin/options  — admin options catalog");
+    println!("  GET  /web/admin/channels — channel configuration status");
     if config.gateway.admin_expose_provider_pools {
         println!("  GET  /web/admin/provider-pools   — provider account pools");
         println!("  PUT  /web/admin/provider-pools   — update provider account pools");
@@ -1362,6 +1363,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             get(handle_admin_get_provider_pools).put(handle_admin_update_provider_pools_wrapper),
         )
         .route("/web/admin/options", get(handle_admin_options))
+        .route("/web/admin/channels", get(handle_admin_channels))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
         .with_state(state)
@@ -1494,6 +1496,14 @@ async fn handle_admin_get_config(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     admin::handle_admin_get_config(State(state), headers).await
+}
+
+/// GET /web/admin/channels — channel configuration status.
+async fn handle_admin_channels(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    admin::handle_admin_channels(State(state), headers).await
 }
 
 /// GET /web/admin/options — return constrained enums/defaults for dashboard forms.

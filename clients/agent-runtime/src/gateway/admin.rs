@@ -180,6 +180,13 @@ pub struct AdminBrowserView {
     pub has_computer_use_api_key: bool,
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminChannelStatusView {
+    pub channel_type: String,
+    pub configured: bool,
+    pub config_summary: serde_json::Value,
+}
+
 #[derive(Debug, Clone, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AdminConfigUpdateRequest {
@@ -1607,6 +1614,73 @@ pub async fn handle_admin_options(
     }
 
     (StatusCode::OK, Json(admin_options_payload()))
+}
+
+#[allow(clippy::unused_async)]
+pub async fn handle_admin_channels(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let cfg = state.config.lock().clone();
+    let channels = admin_channels_view(&cfg);
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "channels": channels })),
+    )
+}
+
+pub fn admin_channels_view(cfg: &Config) -> Vec<AdminChannelStatusView> {
+    let mut channels = Vec::new();
+
+    channels.push(AdminChannelStatusView {
+        channel_type: "cli".to_string(),
+        configured: cfg.channels_config.cli,
+        config_summary: serde_json::json!({ "enabled": cfg.channels_config.cli }),
+    });
+
+    channels.push(AdminChannelStatusView {
+        channel_type: "webhook".to_string(),
+        configured: cfg.channels_config.webhook.is_some(),
+        config_summary: if let Some(ref wh) = cfg.channels_config.webhook {
+            serde_json::json!({ "port": wh.port, "has_secret": has_secret(wh.secret.as_deref()) })
+        } else {
+            serde_json::json!({})
+        },
+    });
+
+    macro_rules! push_channel {
+        ($name:expr, $field:expr) => {
+            channels.push(AdminChannelStatusView {
+                channel_type: $name.to_string(),
+                configured: $field.is_some(),
+                config_summary: serde_json::json!({ "configured": $field.is_some() }),
+            });
+        };
+    }
+
+    push_channel!("telegram", cfg.channels_config.telegram);
+    push_channel!("discord", cfg.channels_config.discord);
+    push_channel!("slack", cfg.channels_config.slack);
+    push_channel!("mattermost", cfg.channels_config.mattermost);
+    push_channel!("imessage", cfg.channels_config.imessage);
+    push_channel!("matrix", cfg.channels_config.matrix);
+    push_channel!("signal", cfg.channels_config.signal);
+    push_channel!("whatsapp", cfg.channels_config.whatsapp);
+    push_channel!("email", cfg.channels_config.email);
+    push_channel!("irc", cfg.channels_config.irc);
+    push_channel!("lark", cfg.channels_config.lark);
+    push_channel!("dingtalk", cfg.channels_config.dingtalk);
+    push_channel!("qq", cfg.channels_config.qq);
+
+    channels
 }
 
 #[allow(clippy::unused_async)]

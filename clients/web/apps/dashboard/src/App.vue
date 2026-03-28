@@ -24,6 +24,8 @@ import ComposioSettings from "@/components/config/ComposioSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import MemorySettings from "@/components/config/MemorySettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import ChannelsOverview from "@/components/config/ChannelsOverview.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import WebSearchSettings from "@/components/config/WebSearchSettings.vue";
 import { useConfig } from "@/composables/useConfig";
 
@@ -206,6 +208,11 @@ const config = useConfig(t);
       :saving="config.sectionSaving.memory"
       @update:model-value="Object.assign(config.form, $event)"
       @save="config.saveSection('memory')"
+    />
+
+    <ChannelsOverview
+      :gateway-url="config.baseUrl.value"
+      :bearer-token="config.bearerToken.value"
     />
 
     <!-- TODO: Wire UpdateSettings when raw AdminConfigView is exposed from useConfig
