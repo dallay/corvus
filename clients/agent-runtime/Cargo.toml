@@ -207,7 +207,7 @@ panic = "abort"
 tempfile = "=3.27.0"
 criterion = { version = "=0.8.2", features = ["async_tokio"] }
 wat = "=1.245.1"
-rcgen = "0.13"
+rcgen = "0.14"
 secrecy = "0.10"
 http = "1.4.0"
 
