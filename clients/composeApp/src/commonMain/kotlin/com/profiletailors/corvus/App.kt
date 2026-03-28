@@ -146,8 +146,10 @@ internal fun defaultBridgeSnapshotFor(platform: Platform): MobileBridgeSnapshot 
       )
   }
 
+private val UUID_SEGMENT_LENGTHS = listOf(8, 4, 4, 4, 12)
+
 private fun generateSessionId(): String =
-  listOf(8, 4, 4, 4, 12).joinToString("-") { segmentLength ->
+  UUID_SEGMENT_LENGTHS.joinToString("-") { segmentLength ->
     buildString(segmentLength) {
       repeat(segmentLength) { append(HEX_DIGITS[Random.nextInt(HEX_DIGITS.length)]) }
     }

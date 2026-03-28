@@ -144,6 +144,7 @@ fn discover_server_prompts(
     };
 
     for manifest in manifests {
+        // Validate prompt name before building adapter; canonical value used by register_with_collision_check.
         let _canonical = match normalize::normalize_prompt_name(&server.name, &manifest.name) {
             Ok(name) => name,
             Err(error) => {
@@ -748,6 +749,24 @@ mod tests {
 
     // ── Redact error message ─────────────────────────────────
 
+    /// RAII guard that sets an env var on creation and removes it on drop.
+    struct EnvVarGuard {
+        key: &'static str,
+    }
+
+    impl EnvVarGuard {
+        fn new(key: &'static str, value: &str) -> Self {
+            unsafe { std::env::set_var(key, value) };
+            Self { key }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            unsafe { std::env::remove_var(self.key) };
+        }
+    }
+
     #[test]
     fn redact_error_message_replaces_sensitive_env_values() {
         use std::sync::Mutex;
@@ -755,17 +774,14 @@ mod tests {
         static ENV_LOCK: Mutex<()> = Mutex::new(());
         let _guard = ENV_LOCK.lock().unwrap();
 
-        // Set a temporary env var with a known sensitive key
         let key = "CORVUS_TEST_SECRET_KEY_XYZ";
         let value = "super-secret-value-12345";
-        unsafe { std::env::set_var(key, value) };
+        let _env = EnvVarGuard::new(key, value);
 
         let raw = format!("Connection failed: {value} was rejected");
         let redacted = redact_error_message(&raw);
         assert!(!redacted.contains(value));
         assert!(redacted.contains("[REDACTED]"));
-
-        unsafe { std::env::remove_var(key) };
     }
 
     #[test]
