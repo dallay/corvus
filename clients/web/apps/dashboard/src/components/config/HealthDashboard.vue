@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { validateGatewayUrl } from "@corvus/shared";
+import { trimTrailingSlashes, validateGatewayUrl } from "@corvus/shared";
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminHealthSnapshot } from "@/types/admin-config";
@@ -44,7 +44,7 @@ async function fetchHealth() {
     if (!base) {
       throw new Error("Invalid gateway URL");
     }
-    const baseStr = base.toString().replace(/\/+$/, "");
+    const baseStr = trimTrailingSlashes(base.toString());
     const requestUrl = new URL("web/admin/health", `${baseStr}/`);
     const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },

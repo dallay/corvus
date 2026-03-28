@@ -127,6 +127,120 @@ describe("WebSearchSettings", () => {
     );
   });
 
+  it("clamps max_results above 10 down to 10", async () => {
+    const wrapper = mount(WebSearchSettings, {
+      props: {
+        modelValue: createAdminConfigForm({ web_search_max_results: "5" }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    await wrapper.get('[data-testid="web_search_max_results"]').setValue("15");
+
+    const updates = wrapper.emitted("update:modelValue");
+    expect(updates).toHaveLength(1);
+    expect(updates?.[0]?.[0]).toEqual(expect.objectContaining({ web_search_max_results: "10" }));
+  });
+
+  it("clamps max_results below 1 up to 1", async () => {
+    const wrapper = mount(WebSearchSettings, {
+      props: {
+        modelValue: createAdminConfigForm({ web_search_max_results: "5" }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    await wrapper.get('[data-testid="web_search_max_results"]').setValue("0");
+
+    const updates = wrapper.emitted("update:modelValue");
+    expect(updates).toHaveLength(1);
+    expect(updates?.[0]?.[0]).toEqual(expect.objectContaining({ web_search_max_results: "1" }));
+  });
+
+  it("clamps timeout_secs below 1 up to 1", async () => {
+    const wrapper = mount(WebSearchSettings, {
+      props: {
+        modelValue: createAdminConfigForm({ web_search_timeout_secs: "10" }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    await wrapper.get('[data-testid="web_search_timeout_secs"]').setValue("0");
+
+    const updates = wrapper.emitted("update:modelValue");
+    expect(updates).toHaveLength(1);
+    expect(updates?.[0]?.[0]).toEqual(expect.objectContaining({ web_search_timeout_secs: "1" }));
+  });
+
+  it("disables all inputs when disabled prop is true", () => {
+    const wrapper = mount(WebSearchSettings, {
+      props: {
+        modelValue: createAdminConfigForm(),
+        disabled: true,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    const checkbox = wrapper.get('[data-testid="web_search_enabled"]');
+    expect((checkbox.element as HTMLInputElement).disabled).toBe(true);
+
+    const provider = wrapper.get('[data-testid="web_search_provider"]');
+    expect((provider.element as HTMLInputElement).disabled).toBe(true);
+
+    const maxResults = wrapper.get('[data-testid="web_search_max_results"]');
+    expect((maxResults.element as HTMLInputElement).disabled).toBe(true);
+
+    const timeout = wrapper.get('[data-testid="web_search_timeout_secs"]');
+    expect((timeout.element as HTMLInputElement).disabled).toBe(true);
+
+    const select = wrapper.get('[data-testid="web_search_brave_api_key_mode"]');
+    expect((select.element as HTMLSelectElement).disabled).toBe(true);
+
+    const saveBtn = wrapper.get('button[data-testid="save"]');
+    expect((saveBtn.element as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("accepts input in password field when mode is replace", async () => {
+    const wrapper = mount(WebSearchSettings, {
+      props: {
+        modelValue: createAdminConfigForm({
+          web_search_brave_api_key_mode: "replace",
+          web_search_brave_api_key_value: "",
+        }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    const input = wrapper.get('[data-testid="web_search_brave_api_key_value"]');
+    expect(input.exists()).toBe(true);
+    await input.setValue("new-secret-key");
+
+    const updates = wrapper.emitted("update:modelValue");
+    expect(updates).toHaveLength(1);
+    expect(updates?.[0]?.[0]).toEqual(
+      expect.objectContaining({ web_search_brave_api_key_value: "new-secret-key" })
+    );
+  });
+
   it("ignores invalid secret mode values", async () => {
     const wrapper = mount(WebSearchSettings, {
       props: {
