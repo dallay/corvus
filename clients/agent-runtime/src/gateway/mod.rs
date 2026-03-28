@@ -1729,8 +1729,10 @@ async fn handle_chat_stream(
     ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     body: WebhookJsonBody,
-) -> Result<Sse<impl futures::stream::Stream<Item = Result<Event, std::convert::Infallible>>>, WebhookResponse>
-{
+) -> Result<
+    Sse<impl futures::stream::Stream<Item = Result<Event, std::convert::Infallible>>>,
+    WebhookResponse,
+> {
     // ── Auth (same as /webhook) ──────────────────────────
     if let Some(rejection) = webhook_auth_rejection(&state, peer_addr, &headers) {
         return Err(rejection);
@@ -1818,25 +1820,19 @@ async fn handle_chat_stream(
             "code": "processing_error",
             "message": response_text,
         });
-        vec![
-            Ok(Event::default()
-                .event("error")
-                .data(error_data.to_string())),
-        ]
+        vec![Ok(Event::default()
+            .event("error")
+            .data(error_data.to_string()))]
     } else {
         vec![
-            Ok(Event::default()
-                .event("chunk")
-                .data(&response_text)),
-            Ok(Event::default()
-                .event("done")
-                .data(
-                    serde_json::json!({
-                        "message_id": message_id,
-                        "session_id": sid,
-                    })
-                    .to_string(),
-                )),
+            Ok(Event::default().event("chunk").data(&response_text)),
+            Ok(Event::default().event("done").data(
+                serde_json::json!({
+                    "message_id": message_id,
+                    "session_id": sid,
+                })
+                .to_string(),
+            )),
         ]
     };
 
