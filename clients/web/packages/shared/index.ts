@@ -47,7 +47,7 @@ export function resolvePublicUrl(value: string | undefined, fallback: string): s
   }
 
   try {
-    return new URL(candidate).toString().replace(/\/$/, "");
+    return trimTrailingSlashes(new URL(candidate).toString());
   } catch {
     return fallback;
   }

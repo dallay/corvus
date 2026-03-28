@@ -28,15 +28,13 @@ function updateField<Key extends keyof AdminConfigForm>(
   let clamped = value;
   if (key === "web_search_max_results") {
     const n = Number(value);
-    if (Number.isFinite(n)) {
-      clamped = `${Math.max(1, Math.min(10, Math.round(n)))}` as AdminConfigForm[Key];
-    }
+    if (!Number.isFinite(n)) return;
+    clamped = `${Math.max(1, Math.min(10, Math.round(n)))}` as AdminConfigForm[Key];
   }
   if (key === "web_search_timeout_secs") {
     const n = Number(value);
-    if (Number.isFinite(n)) {
-      clamped = `${Math.max(1, Math.round(n))}` as AdminConfigForm[Key];
-    }
+    if (!Number.isFinite(n)) return;
+    clamped = `${Math.max(1, Math.round(n))}` as AdminConfigForm[Key];
   }
   emit("update:modelValue", {
     ...props.modelValue,

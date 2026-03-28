@@ -480,6 +480,25 @@ describe("buildPayloadForSection", () => {
     ).toThrowError("empty_secret");
   });
 
+  it("builds security payload with flipped boolean flags", () => {
+    const snapshot = createSnapshot();
+    const payload = buildPayloadForSection(
+      "security",
+      createForm({
+        autonomy_require_approval_for_medium_risk: false,
+        autonomy_block_high_risk_commands: false,
+      }),
+      snapshot
+    );
+
+    expect(payload).toEqual({
+      autonomy: {
+        require_approval_for_medium_risk: false,
+        block_high_risk_commands: false,
+      },
+    });
+  });
+
   it("builds security payload with auto_approve and always_ask list changes", () => {
     const snapshot = createSnapshot();
     const payload = buildPayloadForSection(

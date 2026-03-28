@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trimTrailingSlashes, validateGatewayUrl } from "@corvus/shared";
-import { ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminMcpView } from "@/types/admin-config";
 
@@ -16,7 +16,9 @@ const mcp = ref<AdminMcpView | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
-async function fetchMcp() {
+let abortController: AbortController | undefined;
+
+async function fetchMcp(signal?: AbortSignal) {
   loading.value = true;
   error.value = null;
   try {
@@ -31,6 +33,7 @@ async function fetchMcp() {
     const requestUrl = new URL("web/admin/config", `${baseStr}/`);
     const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
+      signal,
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
@@ -38,20 +41,34 @@ async function fetchMcp() {
     const data = await res.json();
     mcp.value = data.config?.mcp ?? null;
   } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     loading.value = false;
   }
 }
 
-watch(() => [props.gatewayUrl, props.bearerToken], fetchMcp, { immediate: true });
+watch(
+  () => [props.gatewayUrl, props.bearerToken],
+  () => {
+    if (abortController) {
+      abortController.abort();
+    }
+    abortController = new AbortController();
+    fetchMcp(abortController.signal);
+  },
+  { immediate: true }
+);
+onUnmounted(() => {
+  abortController?.abort();
+});
 </script>
 
 <template>
   <section class="card">
     <h2>{{ t("sections.mcp") }}</h2>
-    <p v-if="loading" class="helper">{{ t("mcp.loading") }}</p>
-    <p v-else-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("mcp.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
     <template v-else-if="mcp">
       <div class="status-grid">
         <div class="status-item">
@@ -59,6 +76,7 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchMcp, { immediate: true }
           <span
             class="status-indicator"
             :class="mcp.enabled ? 'configured' : 'not-configured'"
+            aria-hidden="true"
           />
           <span class="status-value">{{
             mcp.enabled ? t("mcp.yes") : t("mcp.no")
@@ -76,6 +94,7 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchMcp, { immediate: true }
             <span
               class="status-indicator"
               :class="server.enabled ? 'configured' : 'not-configured'"
+              aria-hidden="true"
             />
             <span class="server-name">{{ server.name }}</span>
           </div>

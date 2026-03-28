@@ -309,6 +309,7 @@
     "maxTasks": "Tareas máximas",
     "maxConcurrent": "Concurrencia máxima",
     "taskCount": "Tareas activas",
+    "notAvailable": "No disponible",
     "yes": "Sí",
     "no": "No"
   },
@@ -344,6 +345,7 @@
     "ngrokAuthToken": "Token de autenticación ngrok",
     "ngrokDomain": "Dominio ngrok",
     "customHealthUrl": "URL de salud personalizada",
+    "noData": "No hay datos de túnel disponibles.",
     "yes": "Sí",
     "no": "No"
   },
@@ -357,7 +359,11 @@
     "channelMaxBackoff": "Backoff máximo del canal",
     "schedulerPoll": "Intervalo de sondeo del scheduler",
     "schedulerRetries": "Reintentos del scheduler",
-    "none": "Ninguno"
+    "none": "Ninguno",
+    "unit": {
+      "ms": "ms",
+      "s": "s"
+    }
   },
   "heartbeat": {
     "loading": "Cargando heartbeat...",

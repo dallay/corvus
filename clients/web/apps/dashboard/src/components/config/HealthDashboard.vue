@@ -61,20 +61,34 @@ async function fetchHealth() {
   }
 }
 
-watch(() => [props.gatewayUrl, props.bearerToken], fetchHealth, { immediate: true });
+let pollInterval: ReturnType<typeof setInterval> | undefined;
 
-const pollInterval = setInterval(fetchHealth, 30_000);
-onUnmounted(() => clearInterval(pollInterval));
+watch(
+  () => [props.gatewayUrl, props.bearerToken],
+  () => {
+    if (pollInterval !== undefined) {
+      clearInterval(pollInterval);
+    }
+    fetchHealth();
+    pollInterval = setInterval(fetchHealth, 30_000);
+  },
+  { immediate: true }
+);
+onUnmounted(() => {
+  if (pollInterval !== undefined) {
+    clearInterval(pollInterval);
+  }
+});
 </script>
 
 <template>
   <section class="card">
     <h2>{{ t("sections.health") }}</h2>
-    <p v-if="loading" class="helper">{{ t("health.loading") }}</p>
-    <p v-else-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("health.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
     <template v-else-if="health">
       <div class="health-summary">
-        <span class="health-indicator" :class="overallStatus" />
+        <span class="health-indicator" :class="overallStatus" aria-hidden="true" />
         <span>{{ t("health.uptime") }}: {{ formatUptime(health.uptime_seconds) }}</span>
       </div>
       <div class="component-list">
@@ -87,6 +101,7 @@ onUnmounted(() => clearInterval(pollInterval));
           <span
             class="component-indicator"
             :class="comp.status === 'ok' ? 'ok' : 'error'"
+            aria-hidden="true"
           />
           <span class="component-name">{{ name }}</span>
           <span class="component-status">{{ comp.status }}</span>

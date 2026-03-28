@@ -43,7 +43,7 @@ describe("BrowserSettings", () => {
     expect(wrapper.emitted("save")).toHaveLength(1);
   });
 
-  it("shows password input when computer use api key mode is replace", async () => {
+  it("shows password input when computer use api key mode is replace", () => {
     const wrapper = mount(BrowserSettings, {
       props: {
         modelValue: createAdminConfigForm({
@@ -61,7 +61,7 @@ describe("BrowserSettings", () => {
     expect(wrapper.find('[data-testid="browser_computer_use_api_key_value"]').exists()).toBe(true);
   });
 
-  it("hides password input when computer use api key mode is clear", async () => {
+  it("hides password input when computer use api key mode is clear", () => {
     const wrapper = mount(BrowserSettings, {
       props: {
         modelValue: createAdminConfigForm({
@@ -105,7 +105,7 @@ describe("BrowserSettings", () => {
     );
   });
 
-  it("hides password input when computer use api key mode is unchanged", async () => {
+  it("hides password input when computer use api key mode is unchanged", () => {
     const wrapper = mount(BrowserSettings, {
       props: {
         modelValue: createAdminConfigForm({

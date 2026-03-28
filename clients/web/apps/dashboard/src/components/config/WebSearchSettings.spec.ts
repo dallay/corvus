@@ -127,6 +127,33 @@ describe("WebSearchSettings", () => {
     );
   });
 
+  it("clears brave api key value when switching from replace to unchanged", async () => {
+    const wrapper = mount(WebSearchSettings, {
+      props: {
+        modelValue: createAdminConfigForm({
+          web_search_brave_api_key_mode: "replace",
+          web_search_brave_api_key_value: "key123",
+        }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    await wrapper.get('[data-testid="web_search_brave_api_key_mode"]').setValue("unchanged");
+
+    const updates = wrapper.emitted("update:modelValue");
+    expect(updates).toHaveLength(1);
+    expect(updates?.[0]?.[0]).toEqual(
+      expect.objectContaining({
+        web_search_brave_api_key_mode: "unchanged",
+        web_search_brave_api_key_value: "",
+      })
+    );
+  });
+
   it("clamps max_results above 10 down to 10", async () => {
     const wrapper = mount(WebSearchSettings, {
       props: {

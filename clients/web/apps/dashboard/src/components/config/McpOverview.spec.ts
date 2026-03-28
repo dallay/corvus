@@ -84,9 +84,12 @@ describe("McpOverview", () => {
     await flushPromises();
 
     expect(fetchSpy).toHaveBeenCalledTimes(2);
-    expect(fetchSpy).toHaveBeenLastCalledWith("https://gateway.example.test/web/admin/config", {
-      headers: { Authorization: "Bearer next" },
-    });
+    expect(fetchSpy).toHaveBeenLastCalledWith(
+      "https://gateway.example.test/web/admin/config",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer next" },
+      })
+    );
 
     vi.unstubAllGlobals();
   });

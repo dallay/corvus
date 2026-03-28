@@ -47,8 +47,8 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchReliability, { immediate
 <template>
   <section class="card">
     <h2>{{ t("sections.reliability") }}</h2>
-    <p v-if="loading" class="helper">{{ t("reliability.loading") }}</p>
-    <p v-else-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("reliability.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
     <div v-else-if="reliability" class="status-grid" data-testid="reliability-overview">
       <div class="status-item">
         <span class="status-label">{{ t("reliability.providerRetries") }}</span>
@@ -56,7 +56,7 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchReliability, { immediate
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("reliability.providerBackoff") }}</span>
-        <span class="status-value">{{ reliability.provider_backoff_ms }}ms</span>
+        <span class="status-value">{{ reliability.provider_backoff_ms }}{{ t("reliability.unit.ms") }}</span>
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("reliability.fallbackProviders") }}</span>
@@ -76,15 +76,15 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchReliability, { immediate
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("reliability.channelInitialBackoff") }}</span>
-        <span class="status-value">{{ reliability.channel_initial_backoff_secs }}s</span>
+        <span class="status-value">{{ reliability.channel_initial_backoff_secs }}{{ t("reliability.unit.s") }}</span>
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("reliability.channelMaxBackoff") }}</span>
-        <span class="status-value">{{ reliability.channel_max_backoff_secs }}s</span>
+        <span class="status-value">{{ reliability.channel_max_backoff_secs }}{{ t("reliability.unit.s") }}</span>
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("reliability.schedulerPoll") }}</span>
-        <span class="status-value">{{ reliability.scheduler_poll_secs }}s</span>
+        <span class="status-value">{{ reliability.scheduler_poll_secs }}{{ t("reliability.unit.s") }}</span>
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("reliability.schedulerRetries") }}</span>

@@ -28,7 +28,7 @@ describe("ChannelsOverview", () => {
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
-        json: () => Promise.resolve(mockChannels),
+        json: () => Promise.resolve({ channels: mockChannels }),
       })
     );
 

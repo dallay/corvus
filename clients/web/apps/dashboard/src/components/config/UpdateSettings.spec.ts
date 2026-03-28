@@ -6,9 +6,18 @@ import UpdateSettings from "@/components/config/UpdateSettings.vue";
 import { i18nConfig } from "@/i18n";
 import type { AdminConfigView } from "@/types/admin-config";
 
+function mountUpdateSettings(config: AdminConfigView) {
+  return mount(UpdateSettings, {
+    props: { config },
+    global: {
+      plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+    },
+  });
+}
+
 describe("UpdateSettings", () => {
   it("renders update status", () => {
-    const config: AdminConfigView = {
+    const wrapper = mountUpdateSettings({
       updates: {
         enabled: true,
         auto_install_enabled: false,
@@ -23,31 +32,15 @@ describe("UpdateSettings", () => {
           install_method_source: "detected",
         },
       },
-    };
-
-    const wrapper = mount(UpdateSettings, {
-      props: {
-        config,
-      },
-      global: {
-        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
-      },
     });
 
-    expect(wrapper.text()).toContain("1.2.3");
-    expect(wrapper.text()).toContain("1.3.0");
+    expect(wrapper.get('[data-testid="updates_current_version"]').text()).toBe("1.2.3");
+    expect(wrapper.get('[data-testid="updates_latest_version"]').text()).toBe("1.3.0");
     expect(wrapper.find('button[data-testid="save"]').exists()).toBe(false);
   });
 
-  it("renders fallback values when updates data is null", () => {
-    const config: AdminConfigView = {};
-
-    const wrapper = mount(UpdateSettings, {
-      props: { config },
-      global: {
-        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
-      },
-    });
+  it("renders fallback values when updates data is missing", () => {
+    const wrapper = mountUpdateSettings({});
 
     expect(wrapper.get('[data-testid="updates_current_version"]').text()).toBe("—");
     expect(wrapper.get('[data-testid="updates_restart_policy"]').text()).toBe("—");
@@ -55,20 +48,13 @@ describe("UpdateSettings", () => {
   });
 
   it("renders fallback values when status is missing but updates exists", () => {
-    const config: AdminConfigView = {
+    const wrapper = mountUpdateSettings({
       updates: {
         enabled: true,
         auto_install_enabled: false,
         channel_visibility_enabled: false,
         cli_startup_notice_enabled: false,
         restart_policy: "immediate",
-      },
-    };
-
-    const wrapper = mount(UpdateSettings, {
-      props: { config },
-      global: {
-        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
       },
     });
 
@@ -77,7 +63,7 @@ describe("UpdateSettings", () => {
   });
 
   it("renders yes for update_available when true", () => {
-    const config: AdminConfigView = {
+    const wrapper = mountUpdateSettings({
       updates: {
         enabled: true,
         auto_install_enabled: false,
@@ -92,20 +78,13 @@ describe("UpdateSettings", () => {
           install_method_source: "detected",
         },
       },
-    };
-
-    const wrapper = mount(UpdateSettings, {
-      props: { config },
-      global: {
-        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
-      },
     });
 
     expect(wrapper.get('[data-testid="updates_update_available"]').text()).toContain("Yes");
   });
 
   it("renders no for update_available when false", () => {
-    const config: AdminConfigView = {
+    const wrapper = mountUpdateSettings({
       updates: {
         enabled: true,
         auto_install_enabled: true,
@@ -119,13 +98,6 @@ describe("UpdateSettings", () => {
           effective_install_method: "brew",
           install_method_source: "detected",
         },
-      },
-    };
-
-    const wrapper = mount(UpdateSettings, {
-      props: { config },
-      global: {
-        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
       },
     });
 

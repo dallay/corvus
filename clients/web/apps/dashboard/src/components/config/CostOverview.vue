@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trimTrailingSlashes, validateGatewayUrl } from "@corvus/shared";
-import { ref, watch } from "vue";
+import { computed, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminCostView } from "@/types/admin-config";
 
@@ -15,6 +15,20 @@ const { t } = useI18n();
 const cost = ref<AdminCostView | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
+
+const currencyFmt = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+});
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const formattedDaily = computed(() =>
+  cost.value != null ? currencyFmt.format(cost.value.daily_limit_usd) : ""
+);
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const formattedMonthly = computed(() =>
+  cost.value != null ? currencyFmt.format(cost.value.monthly_limit_usd) : ""
+);
 
 async function fetchCost() {
   loading.value = true;
@@ -62,11 +76,11 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchCost, { immediate: true 
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("cost.dailyLimit") }}</span>
-        <span class="status-value">${{ cost.daily_limit_usd }}</span>
+        <span class="status-value">{{ formattedDaily }}</span>
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("cost.monthlyLimit") }}</span>
-        <span class="status-value">${{ cost.monthly_limit_usd }}</span>
+        <span class="status-value">{{ formattedMonthly }}</span>
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("cost.warnAtPercent") }}</span>

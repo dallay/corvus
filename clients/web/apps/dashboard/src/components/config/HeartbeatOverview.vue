@@ -47,8 +47,8 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchHeartbeat, { immediate: 
 <template>
   <section class="card">
     <h2>{{ t("sections.heartbeat") }}</h2>
-    <p v-if="loading" class="helper">{{ t("heartbeat.loading") }}</p>
-    <p v-else-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("heartbeat.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
     <p v-else-if="!heartbeat" class="helper">{{ t("heartbeat.noData") }}</p>
     <div v-else class="status-grid" data-testid="heartbeat-overview">
       <div class="status-item">
@@ -56,6 +56,7 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchHeartbeat, { immediate: 
         <span
           class="status-indicator"
           :class="heartbeat.enabled ? 'configured' : 'not-configured'"
+          aria-hidden="true"
         />
         <span class="status-value">{{
           heartbeat.enabled ? t("heartbeat.yes") : t("heartbeat.no")

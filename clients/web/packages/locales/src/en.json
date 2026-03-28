@@ -309,6 +309,7 @@
     "maxTasks": "Max tasks",
     "maxConcurrent": "Max concurrent",
     "taskCount": "Active tasks",
+    "notAvailable": "Not available",
     "yes": "Yes",
     "no": "No"
   },
@@ -344,6 +345,7 @@
     "ngrokAuthToken": "ngrok auth token",
     "ngrokDomain": "ngrok domain",
     "customHealthUrl": "Custom health URL",
+    "noData": "No tunnel data available.",
     "yes": "Yes",
     "no": "No"
   },
@@ -357,7 +359,11 @@
     "channelMaxBackoff": "Channel max backoff",
     "schedulerPoll": "Scheduler poll interval",
     "schedulerRetries": "Scheduler retries",
-    "none": "None"
+    "none": "None",
+    "unit": {
+      "ms": "ms",
+      "s": "s"
+    }
   },
   "heartbeat": {
     "loading": "Loading heartbeat...",

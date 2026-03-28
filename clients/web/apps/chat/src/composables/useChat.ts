@@ -319,13 +319,18 @@ export function useChat(
       });
 
       if (response.status === 403) {
-        const errorData = await response.json().catch(() => null);
-        if (errorData?.error?.code === "approval_required") {
+        const errorData = await readJsonPayload(response);
+        const errorType = parseApprovalErrorType(errorData);
+        if (errorType === "approval_required" || errorType === "approval_contract") {
+          const payload = errorData as ApprovalErrorPayload;
+          const errorObj = typeof payload?.error === "object" ? payload.error : null;
           return {
             type: "approval_required" as const,
-            tool: errorData.error.tool ?? "",
-            reason: errorData.error.reason ?? "",
-            sessionId: errorData.session_id ?? currentSessionId.value,
+            tool: errorObj?.tool ?? "",
+            reason: errorObj?.reason ?? "",
+            sessionId:
+              (errorData as Record<string, unknown>)?.session_id?.toString() ??
+              currentSessionId.value,
           };
         }
         gateway.markCredentialInvalid();

@@ -47,14 +47,15 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchSchedulerStatus, { immed
 <template>
   <section class="card">
     <h2>{{ t("sections.schedulerStatus") }}</h2>
-    <p v-if="loading" class="helper">{{ t("scheduler.loading") }}</p>
-    <p v-else-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("scheduler.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
     <div v-else-if="scheduler" class="status-grid" data-testid="scheduler-status">
       <div class="status-item">
         <span class="status-label">{{ t("scheduler.enabled") }}</span>
         <span
           class="status-indicator"
           :class="scheduler.enabled ? 'configured' : 'not-configured'"
+          aria-hidden="true"
         />
         <span class="status-value">{{
           scheduler.enabled ? t("scheduler.yes") : t("scheduler.no")
@@ -70,7 +71,7 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchSchedulerStatus, { immed
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("scheduler.taskCount") }}</span>
-        <span class="status-value">{{ scheduler.task_count }}</span>
+        <span class="status-value">{{ scheduler.task_count === 0 ? t("scheduler.notAvailable") : scheduler.task_count }}</span>
       </div>
     </div>
   </section>

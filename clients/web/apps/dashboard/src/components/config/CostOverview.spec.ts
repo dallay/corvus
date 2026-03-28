@@ -43,8 +43,8 @@ describe("CostOverview", () => {
     await flushPromises();
 
     expect(wrapper.find('[data-testid="cost-overview"]').exists()).toBe(true);
-    expect(wrapper.text()).toContain("$50");
-    expect(wrapper.text()).toContain("$1000");
+    expect(wrapper.text()).toContain("$50.00");
+    expect(wrapper.text()).toContain("$1,000.00");
     expect(wrapper.text()).toContain("80%");
 
     vi.unstubAllGlobals();

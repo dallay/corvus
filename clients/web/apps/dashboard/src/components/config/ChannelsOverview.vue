@@ -33,7 +33,7 @@ async function fetchChannels() {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    channels.value = Array.isArray(data) ? data : (data.channels ?? []);
+    channels.value = data.channels ?? [];
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -47,8 +47,8 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchChannels, { immediate: t
 <template>
   <section class="card">
     <h2>{{ t("sections.channels") }}</h2>
-    <p v-if="loading" class="helper">{{ t("channels.loading") }}</p>
-    <p v-else-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("channels.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
     <div v-else class="channel-list">
       <div
         v-for="ch in channels"

@@ -150,20 +150,18 @@ async function sendMessage(): Promise<void> {
 
   try {
     // Try streaming first
+    let streamBuffer = "";
     updateAssistantMessage(assistantMessageId, "", "streaming");
     await chat.streamMessage(
       normalizedText,
       (chunk) => {
-        updateAssistantMessage(assistantMessageId, chunk, "streaming");
+        streamBuffer += chunk;
+        updateAssistantMessage(assistantMessageId, streamBuffer, "streaming");
         nextTick().then(scrollChatToBottom);
       },
       requestId
     );
-    updateAssistantMessage(
-      assistantMessageId,
-      messages.value.find((m) => m.id === assistantMessageId)?.content ?? "",
-      "complete"
-    );
+    updateAssistantMessage(assistantMessageId, streamBuffer, "complete");
   } catch (streamError: unknown) {
     // Rethrow auth/credential errors — do not mask with fallback.
     if (streamError instanceof Error && streamError.message === t("auth.credentialInvalid")) {

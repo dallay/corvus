@@ -40,7 +40,7 @@ describe("SchedulerStatus", () => {
     expect(wrapper.find('[data-testid="scheduler-status"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("64");
     expect(wrapper.text()).toContain("4");
-    expect(wrapper.text()).toContain("0");
+    expect(wrapper.text()).toContain("Not available");
     expect(wrapper.text()).toContain("Yes");
 
     vi.unstubAllGlobals();

@@ -85,7 +85,8 @@ describe("MemorySettings", () => {
     const wrapper = mount(MemorySettings, {
       props: {
         modelValue: createAdminConfigForm({
-          memory_cerebro_auth_token_mode: "unchanged",
+          memory_cerebro_auth_token_mode: "replace",
+          memory_cerebro_auth_token_value: "secret",
         }),
         disabled: false,
         saving: false,

@@ -111,7 +111,8 @@ describe("ComposioSettings", () => {
     const wrapper = mount(ComposioSettings, {
       props: {
         modelValue: createAdminConfigForm({
-          composio_api_key_mode: "unchanged",
+          composio_api_key_mode: "replace",
+          composio_api_key_value: "secret",
         }),
         disabled: false,
         saving: false,
@@ -131,5 +132,24 @@ describe("ComposioSettings", () => {
         composio_api_key_value: "",
       })
     );
+  });
+
+  it("hides password input when mode is unchanged even if secret value is present", () => {
+    const wrapper = mount(ComposioSettings, {
+      props: {
+        modelValue: createAdminConfigForm({
+          composio_api_key_mode: "unchanged",
+          composio_has_api_key: true,
+          composio_api_key_value: "my-secret",
+        }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    expect(wrapper.find('[data-testid="composio_api_key_value"]').exists()).toBe(false);
   });
 });
