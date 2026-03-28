@@ -1,5 +1,5 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createI18n } from "vue-i18n";
 
 import SchedulerStatus from "@/components/config/SchedulerStatus.vue";
@@ -18,6 +18,10 @@ function mountComponent() {
 }
 
 describe("SchedulerStatus", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders scheduler status on successful fetch", async () => {
     const mockScheduler = {
       enabled: true,
@@ -26,48 +30,27 @@ describe("SchedulerStatus", () => {
       task_count: 0,
     };
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ scheduler: mockScheduler }),
-      })
-    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ scheduler: mockScheduler }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
 
     const wrapper = mountComponent();
     await flushPromises();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/web/admin/scheduler"),
+      expect.objectContaining({
+        headers: { Authorization: "Bearer test-token" },
+      })
+    );
 
     expect(wrapper.find('[data-testid="scheduler-status"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("64");
     expect(wrapper.text()).toContain("4");
-    expect(wrapper.text()).not.toContain("Not available");
+    expect(wrapper.text()).toContain("0");
     expect(wrapper.text()).toContain("Yes");
-
-    vi.unstubAllGlobals();
-  });
-
-  it("shows not available when task_count is null", async () => {
-    const mockScheduler = {
-      enabled: true,
-      max_tasks: 64,
-      max_concurrent: 4,
-      task_count: null,
-    };
-
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ scheduler: mockScheduler }),
-      })
-    );
-
-    const wrapper = mountComponent();
-    await flushPromises();
-
-    expect(wrapper.text()).toContain("Not available");
-
-    vi.unstubAllGlobals();
   });
 
   it("shows error on fetch failure", async () => {
@@ -78,8 +61,6 @@ describe("SchedulerStatus", () => {
 
     expect(wrapper.find(".error").exists()).toBe(true);
     expect(wrapper.text()).toContain("Network error");
-
-    vi.unstubAllGlobals();
   });
 
   it("renders disabled state correctly", async () => {
@@ -103,7 +84,5 @@ describe("SchedulerStatus", () => {
 
     expect(wrapper.text()).toContain("No");
     expect(wrapper.find(".not-configured").exists()).toBe(true);
-
-    vi.unstubAllGlobals();
   });
 });

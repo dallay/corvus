@@ -1,5 +1,5 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createI18n } from "vue-i18n";
 
 import ChannelsOverview from "@/components/config/ChannelsOverview.vue";
@@ -18,6 +18,10 @@ function mountComponent() {
 }
 
 describe("ChannelsOverview", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders channel list on successful fetch", async () => {
     const mockChannels = [
       { channel_type: "webhook", configured: true, config_summary: {} },
@@ -50,8 +54,6 @@ describe("ChannelsOverview", () => {
     const slackItem = wrapper.find('[data-testid="channel-slack"]');
     expect(slackItem.find(".not-configured").exists()).toBe(true);
     expect(slackItem.text()).toContain("Not configured");
-
-    vi.unstubAllGlobals();
   });
 
   it("shows error on fetch failure", async () => {
@@ -62,7 +64,5 @@ describe("ChannelsOverview", () => {
 
     expect(wrapper.find(".error").exists()).toBe(true);
     expect(wrapper.text()).toContain("Network error");
-
-    vi.unstubAllGlobals();
   });
 });

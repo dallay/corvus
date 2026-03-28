@@ -1,5 +1,5 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createI18n } from "vue-i18n";
 
 import CostOverview from "@/components/config/CostOverview.vue";
@@ -18,6 +18,10 @@ function mountComponent() {
 }
 
 describe("CostOverview", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders cost data on successful fetch", async () => {
     const mockConfig = {
       config: {
@@ -51,8 +55,6 @@ describe("CostOverview", () => {
     expect(wrapper.text()).toContain("$50.00");
     expect(wrapper.text()).toContain("$1,000.00");
     expect(wrapper.text()).toContain("80%");
-
-    vi.unstubAllGlobals();
   });
 
   it("shows error on fetch failure", async () => {
@@ -63,7 +65,21 @@ describe("CostOverview", () => {
 
     expect(wrapper.find(".error").exists()).toBe(true);
     expect(wrapper.text()).toContain("Network error");
+  });
 
-    vi.unstubAllGlobals();
+  it("shows error when cost data is missing from response", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ config: {} }),
+      })
+    );
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    expect(wrapper.find(".error").exists()).toBe(true);
+    expect(wrapper.text()).toContain("Cost data not available");
   });
 });

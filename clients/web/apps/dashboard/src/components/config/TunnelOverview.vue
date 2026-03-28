@@ -9,7 +9,6 @@ const props = defineProps<{
   bearerToken: string;
 }>();
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 
 const tunnel = ref<AdminTunnelView | null>(null);
@@ -22,7 +21,7 @@ async function fetchTunnel() {
   try {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
-      throw new Error("Invalid gateway URL");
+      throw new Error(t("errors.invalidGatewayUrl"));
     }
     const baseStr = trimTrailingSlashes(base.toString());
     const requestUrl = new URL("web/admin/config", `${baseStr}/`);

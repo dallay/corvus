@@ -9,7 +9,6 @@ const props = defineProps<{
   bearerToken: string;
 }>();
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 
 const scheduler = ref<AdminSchedulerStatusView | null>(null);
@@ -17,15 +16,17 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 
 let abortController: AbortController | undefined;
+let fetchId = 0;
 
 async function fetchSchedulerStatus(signal?: AbortSignal) {
+  const myId = ++fetchId;
   loading.value = true;
   error.value = null;
   try {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
       scheduler.value = null;
-      error.value = "Invalid gateway URL";
+      error.value = t("errors.invalidGatewayUrl");
       return;
     }
     const baseStr = trimTrailingSlashes(base.toString());
@@ -43,7 +44,9 @@ async function fetchSchedulerStatus(signal?: AbortSignal) {
     if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
-    loading.value = false;
+    if (myId === fetchId) {
+      loading.value = false;
+    }
   }
 }
 
@@ -90,7 +93,7 @@ onUnmounted(() => {
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("scheduler.taskCount") }}</span>
-        <span class="status-value">{{ scheduler.task_count == null ? t("scheduler.notAvailable") : scheduler.task_count }}</span>
+        <span class="status-value">{{ scheduler.task_count }}</span>
       </div>
     </div>
   </section>

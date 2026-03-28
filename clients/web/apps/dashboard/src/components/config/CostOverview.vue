@@ -9,7 +9,6 @@ const props = defineProps<{
   bearerToken: string;
 }>();
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 
 const cost = ref<AdminCostView | null>(null);
@@ -31,15 +30,17 @@ const formattedMonthly = computed(() =>
 );
 
 let abortController: AbortController | undefined;
+let fetchId = 0;
 
 async function fetchCost(signal?: AbortSignal) {
+  const myId = ++fetchId;
   loading.value = true;
   error.value = null;
   try {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
       cost.value = null;
-      error.value = "Invalid gateway URL";
+      error.value = t("errors.invalidGatewayUrl");
       return;
     }
     const baseStr = trimTrailingSlashes(base.toString());
@@ -56,13 +57,15 @@ async function fetchCost(signal?: AbortSignal) {
       cost.value = data.config.cost;
     } else {
       cost.value = null;
-      error.value = "Cost data not available";
+      error.value = t("errors.costNotAvailable");
     }
   } catch (e: unknown) {
     if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
-    loading.value = false;
+    if (myId === fetchId) {
+      loading.value = false;
+    }
   }
 }
 

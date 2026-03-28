@@ -1,5 +1,5 @@
 import { flushPromises, mount } from "@vue/test-utils";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createI18n } from "vue-i18n";
 
 import McpOverview from "@/components/config/McpOverview.vue";
@@ -18,6 +18,10 @@ function mountComponent() {
 }
 
 describe("McpOverview", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("renders MCP servers on successful fetch", async () => {
     const mockConfig = {
       config: {
@@ -58,8 +62,6 @@ describe("McpOverview", () => {
     expect(wrapper.text()).toContain("test-server");
     expect(wrapper.text()).toContain("npx test-mcp");
     expect(wrapper.text()).toContain("tools, prompts");
-
-    vi.unstubAllGlobals();
   });
 
   it("shows error on fetch failure", async () => {
@@ -70,8 +72,6 @@ describe("McpOverview", () => {
 
     expect(wrapper.find(".error").exists()).toBe(true);
     expect(wrapper.text()).toContain("Network error");
-
-    vi.unstubAllGlobals();
   });
 
   it("refetches when gateway props change", async () => {
@@ -95,8 +95,6 @@ describe("McpOverview", () => {
         headers: { Authorization: "Bearer next" },
       })
     );
-
-    vi.unstubAllGlobals();
   });
 
   it("skips the request when gatewayUrl is invalid", async () => {
@@ -116,7 +114,5 @@ describe("McpOverview", () => {
 
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain("Invalid gateway URL");
-
-    vi.unstubAllGlobals();
   });
 });

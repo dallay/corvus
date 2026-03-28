@@ -241,7 +241,9 @@
     "placeholderCommands": "command1, command2"
   },
   "errors": {
-    "insecureUrlError": "Credentials cannot be sent over HTTP to a remote host. Use HTTPS or a local host."
+    "insecureUrlError": "Credentials cannot be sent over HTTP to a remote host. Use HTTPS or a local host.",
+    "invalidGatewayUrl": "Invalid gateway URL",
+    "costNotAvailable": "Cost data not available"
   },
   "chat": {
     "welcome": "Hello, I am {modelName}. How can I help you?",

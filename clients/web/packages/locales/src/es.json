@@ -241,7 +241,9 @@
     "placeholderCommands": "comando1, comando2"
   },
   "errors": {
-    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local."
+    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
+    "invalidGatewayUrl": "URL de gateway no válida",
+    "costNotAvailable": "Datos de costos no disponibles"
   },
   "chat": {
     "welcome": "Hola, soy {modelName}. ¿En qué puedo ayudarte?",

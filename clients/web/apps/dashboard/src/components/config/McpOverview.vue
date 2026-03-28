@@ -9,7 +9,6 @@ const props = defineProps<{
   bearerToken: string;
 }>();
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 
 const mcp = ref<AdminMcpView | null>(null);
@@ -25,7 +24,7 @@ async function fetchMcp(signal?: AbortSignal) {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
       mcp.value = null;
-      error.value = "Invalid gateway URL";
+      error.value = t("errors.invalidGatewayUrl");
       return;
     }
 

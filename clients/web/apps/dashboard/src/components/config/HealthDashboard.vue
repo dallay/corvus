@@ -9,7 +9,6 @@ const props = defineProps<{
   bearerToken: string;
 }>();
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 
 const health = ref<AdminHealthSnapshot | null>(null);
@@ -47,7 +46,7 @@ async function fetchHealth(signal?: AbortSignal) {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
       health.value = null;
-      error.value = "Invalid gateway URL";
+      error.value = t("errors.invalidGatewayUrl");
       return;
     }
     const baseStr = trimTrailingSlashes(base.toString());
@@ -64,7 +63,8 @@ async function fetchHealth(signal?: AbortSignal) {
       data.health &&
       typeof data.health === "object" &&
       typeof data.health.uptime_seconds === "number" &&
-      typeof data.health.components === "object"
+      typeof data.health.components === "object" &&
+      data.health.components !== null
     ) {
       health.value = data.health;
     } else {
