@@ -86,9 +86,7 @@ describe("App", () => {
         })
       )
       // Stream endpoint — rejected so fallback to /webhook fires
-      .mockResolvedValueOnce(
-        new Response("", { status: 500 })
-      )
+      .mockResolvedValueOnce(new Response("", { status: 500 }))
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify({

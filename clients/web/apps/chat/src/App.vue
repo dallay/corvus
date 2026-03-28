@@ -7,11 +7,11 @@ import { useI18n } from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ConfigPanel from "@/components/ConfigPanel.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import HealthIndicator from "@/components/HealthIndicator.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ChatMessage from "@/components/chat/ChatMessage.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ToolApprovalCard from "@/components/chat/ToolApprovalCard.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import HealthIndicator from "@/components/HealthIndicator.vue";
 import { useChat } from "@/composables/useChat";
 import { useGateway } from "@/composables/useGateway";
 
@@ -82,11 +82,7 @@ function scrollChatToBottom(): void {
   chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
 }
 
-function updateAssistantMessage(
-  messageId: number,
-  content: string,
-  status?: MessageStatus
-): void {
+function updateAssistantMessage(messageId: number, content: string, status?: MessageStatus): void {
   const messageIndex = messages.value.findIndex((item) => item.id === messageId);
   if (messageIndex >= 0) {
     messages.value[messageIndex] = {
@@ -168,7 +164,11 @@ async function sendMessage(): Promise<void> {
     try {
       updateAssistantMessage(
         assistantMessageId,
-        t("chat.processing", { text: normalizedText, modelName, gateway: gateway.normalizeBaseUrl() }),
+        t("chat.processing", {
+          text: normalizedText,
+          modelName,
+          gateway: gateway.normalizeBaseUrl(),
+        }),
         undefined
       );
       const result = await chat.sendMessage(normalizedText);

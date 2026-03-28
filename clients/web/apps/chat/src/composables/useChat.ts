@@ -403,7 +403,9 @@ export function useChat(
                 }
               } else if (currentEvent === "error") {
                 const errorEvt = JSON.parse(currentData) as StreamErrorEvent;
-                throw new Error(errorEvt.message || t("chat.requestError", { text: normalizedMessage }));
+                throw new Error(
+                  errorEvt.message || t("chat.requestError", { text: normalizedMessage })
+                );
               }
             }
             currentEvent = "";
