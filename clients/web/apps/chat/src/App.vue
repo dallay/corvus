@@ -164,7 +164,14 @@ async function sendMessage(): Promise<void> {
       messages.value.find((m) => m.id === assistantMessageId)?.content ?? "",
       "complete"
     );
-  } catch {
+  } catch (streamError: unknown) {
+    // Rethrow auth/credential errors — do not mask with fallback.
+    if (streamError instanceof Error && streamError.message === t("auth.credentialInvalid")) {
+      updateAssistantMessage(assistantMessageId, streamError.message, "error");
+      await nextTick();
+      scrollChatToBottom();
+      return;
+    }
     // Fall back to non-streaming sendMessage
     try {
       updateAssistantMessage(
@@ -276,14 +283,26 @@ function handleReject(approvalId: string): void {
   }
 }
 
+let persistDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+
 watch(
   () => messages.value,
-  () => persistMessages(),
+  () => {
+    if (persistDebounceTimer) clearTimeout(persistDebounceTimer);
+    persistDebounceTimer = setTimeout(persistMessages, 300);
+  },
   { deep: true }
 );
 
+watch(
+  () => chat.currentSessionId.value,
+  (sessionId) => {
+    if (sessionId) restoreMessages();
+  }
+);
+
 onMounted(() => {
-  restoreMessages();
+  if (chat.currentSessionId.value) restoreMessages();
 });
 
 onUnmounted(() => {

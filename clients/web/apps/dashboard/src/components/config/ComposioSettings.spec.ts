@@ -80,6 +80,33 @@ describe("ComposioSettings", () => {
     expect(wrapper.find('[data-testid="composio_api_key_value"]').exists()).toBe(false);
   });
 
+  it("clears non-empty api key value when mode changes from replace to clear", async () => {
+    const wrapper = mount(ComposioSettings, {
+      props: {
+        modelValue: createAdminConfigForm({
+          composio_api_key_mode: "replace",
+          composio_api_key_value: "existing-key-456",
+        }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    await wrapper.get('[data-testid="composio_api_key_mode"]').setValue("clear");
+
+    const updates = wrapper.emitted("update:modelValue");
+    expect(updates).toHaveLength(1);
+    expect(updates?.[0]?.[0]).toEqual(
+      expect.objectContaining({
+        composio_api_key_mode: "clear",
+        composio_api_key_value: "",
+      })
+    );
+  });
+
   it("clears api key value when mode changes to clear", async () => {
     const wrapper = mount(ComposioSettings, {
       props: {

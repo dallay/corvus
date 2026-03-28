@@ -441,6 +441,45 @@ describe("buildPayloadForSection", () => {
     expect(buildPayloadForSection("memory", createForm(), createSnapshot())).toEqual({});
   });
 
+  it("throws empty_secret for web-search when replacing with empty value", () => {
+    expect(() =>
+      buildPayloadForSection(
+        "web-search",
+        createForm({
+          web_search_brave_api_key_mode: "replace",
+          web_search_brave_api_key_value: "   ",
+        }),
+        createSnapshot()
+      )
+    ).toThrowError("empty_secret");
+  });
+
+  it("throws empty_secret for composio when replacing with empty value", () => {
+    expect(() =>
+      buildPayloadForSection(
+        "composio",
+        createForm({
+          composio_api_key_mode: "replace",
+          composio_api_key_value: "   ",
+        }),
+        createSnapshot()
+      )
+    ).toThrowError("empty_secret");
+  });
+
+  it("throws empty_secret for memory when replacing auth token with empty value", () => {
+    expect(() =>
+      buildPayloadForSection(
+        "memory",
+        createForm({
+          memory_cerebro_auth_token_mode: "replace",
+          memory_cerebro_auth_token_value: "   ",
+        }),
+        createSnapshot()
+      )
+    ).toThrowError("empty_secret");
+  });
+
   it("builds security payload with auto_approve and always_ask list changes", () => {
     const snapshot = createSnapshot();
     const payload = buildPayloadForSection(

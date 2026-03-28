@@ -78,6 +78,33 @@ describe("BrowserSettings", () => {
     expect(wrapper.find('[data-testid="browser_computer_use_api_key_value"]').exists()).toBe(false);
   });
 
+  it("clears api key value when switching from replace to clear", async () => {
+    const wrapper = mount(BrowserSettings, {
+      props: {
+        modelValue: createAdminConfigForm({
+          browser_computer_use_api_key_mode: "replace",
+          browser_computer_use_api_key_value: "secret-key-123",
+        }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    await wrapper.get('select[data-testid="browser_computer_use_api_key_mode"]').setValue("clear");
+
+    const updates = wrapper.emitted("update:modelValue");
+    expect(updates).toHaveLength(1);
+    expect(updates?.[0]?.[0]).toEqual(
+      expect.objectContaining({
+        browser_computer_use_api_key_mode: "clear",
+        browser_computer_use_api_key_value: "",
+      })
+    );
+  });
+
   it("hides password input when computer use api key mode is unchanged", async () => {
     const wrapper = mount(BrowserSettings, {
       props: {

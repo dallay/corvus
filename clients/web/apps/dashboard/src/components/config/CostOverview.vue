@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { trimTrailingSlashes } from "@corvus/shared";
-import { onMounted, ref } from "vue";
+import { validateGatewayUrl } from "@corvus/shared";
+import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminCostView } from "@/types/admin-config";
 
@@ -20,15 +20,20 @@ async function fetchCost() {
   loading.value = true;
   error.value = null;
   try {
-    const base = trimTrailingSlashes(props.gatewayUrl);
-    const res = await fetch(`${base}/web/admin/config`, {
+    const base = validateGatewayUrl(props.gatewayUrl);
+    if (!base) {
+      throw new Error("Invalid gateway URL");
+    }
+    const baseStr = base.toString().replace(/\/+$/, "");
+    const requestUrl = new URL("web/admin/config", `${baseStr}/`);
+    const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    cost.value = data.config?.cost ?? null;
+    cost.value = data?.config?.cost ?? null;
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -36,14 +41,14 @@ async function fetchCost() {
   }
 }
 
-onMounted(fetchCost);
+watch(() => [props.gatewayUrl, props.bearerToken], fetchCost, { immediate: true });
 </script>
 
 <template>
   <section class="card">
     <h2>{{ t("sections.cost") }}</h2>
-    <p v-if="loading" class="helper">{{ t("cost.loading") }}</p>
-    <p v-else-if="error" class="error">{{ error }}</p>
+    <p v-if="loading" class="helper" aria-live="polite" role="status">{{ t("cost.loading") }}</p>
+    <p v-else-if="error" class="error" aria-live="assertive" role="alert">{{ error }}</p>
     <div v-else-if="cost" class="status-grid" data-testid="cost-overview">
       <div class="status-item">
         <span class="status-label">{{ t("cost.enabled") }}</span>

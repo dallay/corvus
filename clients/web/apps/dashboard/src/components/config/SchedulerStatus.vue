@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { trimTrailingSlashes } from "@corvus/shared";
-import { onMounted, ref } from "vue";
+import { validateGatewayUrl } from "@corvus/shared";
+import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminSchedulerStatusView } from "@/types/admin-config";
 
@@ -20,8 +20,13 @@ async function fetchSchedulerStatus() {
   loading.value = true;
   error.value = null;
   try {
-    const base = trimTrailingSlashes(props.gatewayUrl);
-    const res = await fetch(`${base}/web/admin/scheduler`, {
+    const base = validateGatewayUrl(props.gatewayUrl);
+    if (!base) {
+      throw new Error("Invalid gateway URL");
+    }
+    const baseStr = base.toString().replace(/\/+$/, "");
+    const requestUrl = new URL("web/admin/scheduler", `${baseStr}/`);
+    const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
     });
     if (!res.ok) {
@@ -36,7 +41,7 @@ async function fetchSchedulerStatus() {
   }
 }
 
-onMounted(fetchSchedulerStatus);
+watch(() => [props.gatewayUrl, props.bearerToken], fetchSchedulerStatus, { immediate: true });
 </script>
 
 <template>

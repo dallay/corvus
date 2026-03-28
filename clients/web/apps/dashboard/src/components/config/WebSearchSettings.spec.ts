@@ -100,6 +100,33 @@ describe("WebSearchSettings", () => {
     expect(wrapper.find('[data-testid="web_search_brave_api_key_value"]').exists()).toBe(false);
   });
 
+  it("clears brave api key value when switching from replace to clear", async () => {
+    const wrapper = mount(WebSearchSettings, {
+      props: {
+        modelValue: createAdminConfigForm({
+          web_search_brave_api_key_mode: "replace",
+          web_search_brave_api_key_value: "brave-key-789",
+        }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    await wrapper.get('[data-testid="web_search_brave_api_key_mode"]').setValue("clear");
+
+    const updates = wrapper.emitted("update:modelValue");
+    expect(updates).toHaveLength(1);
+    expect(updates?.[0]?.[0]).toEqual(
+      expect.objectContaining({
+        web_search_brave_api_key_mode: "clear",
+        web_search_brave_api_key_value: "",
+      })
+    );
+  });
+
   it("ignores invalid secret mode values", async () => {
     const wrapper = mount(WebSearchSettings, {
       props: {

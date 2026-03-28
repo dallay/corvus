@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { trimTrailingSlashes } from "@corvus/shared";
-import { onMounted, ref, watch } from "vue";
+import { validateGatewayUrl } from "@corvus/shared";
+import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminMcpView } from "@/types/admin-config";
 
@@ -16,47 +16,22 @@ const mcp = ref<AdminMcpView | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
-function parseGatewayBaseUrl(rawUrl: string): URL | null {
-  const trimmed = rawUrl.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  let parsed: URL;
-  try {
-    parsed = new URL(trimmed);
-  } catch {
-    return null;
-  }
-
-  if (!["http:", "https:"].includes(parsed.protocol)) {
-    return null;
-  }
-
-  parsed.pathname = trimTrailingSlashes(parsed.pathname);
-  parsed.search = "";
-  parsed.hash = "";
-  return parsed;
-}
-
 async function fetchMcp() {
   loading.value = true;
   error.value = null;
   try {
-    const base = parseGatewayBaseUrl(props.gatewayUrl);
+    const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
       mcp.value = null;
       error.value = "Invalid gateway URL";
       return;
     }
 
-    const requestUrl = new URL("/web/admin/config", `${base.toString()}/`);
-    const headers: Record<string, string> = {};
-    if (props.bearerToken && requestUrl.host === base.host) {
-      headers.Authorization = `Bearer ${props.bearerToken}`;
-    }
-
-    const res = await fetch(requestUrl.toString(), { headers });
+    const baseStr = base.toString().replace(/\/+$/, "");
+    const requestUrl = new URL("web/admin/config", `${baseStr}/`);
+    const res = await fetch(requestUrl.toString(), {
+      headers: { Authorization: `Bearer ${props.bearerToken}` },
+    });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
@@ -69,8 +44,7 @@ async function fetchMcp() {
   }
 }
 
-onMounted(fetchMcp);
-watch(() => [props.gatewayUrl, props.bearerToken], fetchMcp);
+watch(() => [props.gatewayUrl, props.bearerToken], fetchMcp, { immediate: true });
 </script>
 
 <template>

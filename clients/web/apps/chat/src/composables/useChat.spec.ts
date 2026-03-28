@@ -229,7 +229,9 @@ describe("useChat", () => {
       start(controller) {
         controller.enqueue(encoder.encode("event: chunk\r\ndata: Hel"));
         controller.enqueue(encoder.encode('lo\r\n\r\nevent: done\r\ndata: {"session_id":"'));
-        controller.enqueue(encoder.encode('90909090-9090-4090-8090-909090909090"}\r\n\r\n'));
+        controller.enqueue(
+          encoder.encode('90909090-9090-4090-8090-909090909090","message_id":"msg-001"}\r\n\r\n')
+        );
         controller.close();
       },
     });
@@ -444,7 +446,9 @@ describe("useChat", () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(
-          encoder.encode('event: error\r\ndata: {"message":"provider_error"}\r\n\r\n')
+          encoder.encode(
+            'event: error\r\ndata: {"message":"provider_error","code":"provider_unavailable"}\r\n\r\n'
+          )
         );
         controller.close();
       },

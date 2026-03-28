@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { trimTrailingSlashes } from "@corvus/shared";
-import { computed, onMounted, ref } from "vue";
+import { validateGatewayUrl } from "@corvus/shared";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminHealthSnapshot } from "@/types/admin-config";
 
@@ -40,8 +40,13 @@ async function fetchHealth() {
   loading.value = true;
   error.value = null;
   try {
-    const base = trimTrailingSlashes(props.gatewayUrl);
-    const res = await fetch(`${base}/web/admin/health`, {
+    const base = validateGatewayUrl(props.gatewayUrl);
+    if (!base) {
+      throw new Error("Invalid gateway URL");
+    }
+    const baseStr = base.toString().replace(/\/+$/, "");
+    const requestUrl = new URL("web/admin/health", `${baseStr}/`);
+    const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
     });
     if (!res.ok) {
@@ -56,7 +61,10 @@ async function fetchHealth() {
   }
 }
 
-onMounted(fetchHealth);
+watch(() => [props.gatewayUrl, props.bearerToken], fetchHealth, { immediate: true });
+
+const pollInterval = setInterval(fetchHealth, 30_000);
+onUnmounted(() => clearInterval(pollInterval));
 </script>
 
 <template>

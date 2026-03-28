@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { trimTrailingSlashes } from "@corvus/shared";
-import { onMounted, ref } from "vue";
+import { validateGatewayUrl } from "@corvus/shared";
+import { ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminChannelStatusView } from "@/types/admin-config";
 
@@ -20,8 +20,13 @@ async function fetchChannels() {
   loading.value = true;
   error.value = null;
   try {
-    const base = trimTrailingSlashes(props.gatewayUrl);
-    const res = await fetch(`${base}/web/admin/channels`, {
+    const base = validateGatewayUrl(props.gatewayUrl);
+    if (!base) {
+      throw new Error("Invalid gateway URL");
+    }
+    const baseStr = base.toString().replace(/\/+$/, "");
+    const requestUrl = new URL("web/admin/channels", `${baseStr}/`);
+    const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
     });
     if (!res.ok) {
@@ -36,7 +41,7 @@ async function fetchChannels() {
   }
 }
 
-onMounted(fetchChannels);
+watch(() => [props.gatewayUrl, props.bearerToken], fetchChannels, { immediate: true });
 </script>
 
 <template>
@@ -54,6 +59,7 @@ onMounted(fetchChannels);
         <span
           class="channel-indicator"
           :class="ch.configured ? 'configured' : 'not-configured'"
+          aria-hidden="true"
         />
         <span class="channel-name">{{ ch.channel_type }}</span>
         <span class="channel-status">{{

@@ -25,9 +25,22 @@ function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
   value: AdminConfigForm[Key]
 ): void {
+  let clamped = value;
+  if (key === "web_search_max_results") {
+    const n = Number(value);
+    if (Number.isFinite(n)) {
+      clamped = `${Math.max(1, Math.min(10, Math.round(n)))}` as AdminConfigForm[Key];
+    }
+  }
+  if (key === "web_search_timeout_secs") {
+    const n = Number(value);
+    if (Number.isFinite(n)) {
+      clamped = `${Math.max(1, Math.round(n))}` as AdminConfigForm[Key];
+    }
+  }
   emit("update:modelValue", {
     ...props.modelValue,
-    [key]: value,
+    [key]: clamped,
   });
 }
 
@@ -59,6 +72,7 @@ function handleSecretModeChange(event: Event): void {
       <label class="switch-row">
         <input
           :checked="modelValue.web_search_enabled"
+          :disabled="disabled || saving"
           type="checkbox"
           data-testid="web_search_enabled"
           @change="
@@ -71,6 +85,7 @@ function handleSecretModeChange(event: Event): void {
         <span>{{ $t("webSearch.provider") }}</span>
         <Input
           :model-value="modelValue.web_search_provider"
+          :disabled="disabled || saving"
           data-testid="web_search_provider"
           @update:model-value="updateField('web_search_provider', $event)"
         />
@@ -79,6 +94,7 @@ function handleSecretModeChange(event: Event): void {
         <span>{{ $t("webSearch.maxResults") }}</span>
         <Input
           :model-value="modelValue.web_search_max_results"
+          :disabled="disabled || saving"
           type="number"
           min="1"
           max="10"
@@ -90,6 +106,7 @@ function handleSecretModeChange(event: Event): void {
         <span>{{ $t("webSearch.timeoutSecs") }}</span>
         <Input
           :model-value="modelValue.web_search_timeout_secs"
+          :disabled="disabled || saving"
           type="number"
           min="1"
           data-testid="web_search_timeout_secs"
@@ -100,6 +117,7 @@ function handleSecretModeChange(event: Event): void {
         <span>{{ $t("webSearch.braveApiKeyMode") }}</span>
         <select
           :value="modelValue.web_search_brave_api_key_mode"
+          :disabled="disabled || saving"
           class="select-input"
           data-testid="web_search_brave_api_key_mode"
           @change="handleSecretModeChange"
@@ -113,6 +131,7 @@ function handleSecretModeChange(event: Event): void {
         <span>{{ $t("webSearch.braveApiKeyValue") }}</span>
         <Input
           :model-value="modelValue.web_search_brave_api_key_value"
+          :disabled="disabled || saving"
           type="password"
           data-testid="web_search_brave_api_key_value"
           @update:model-value="updateField('web_search_brave_api_key_value', $event)"
