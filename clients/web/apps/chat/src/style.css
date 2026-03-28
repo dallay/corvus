@@ -1,5 +1,5 @@
-@import "@corvus/shared/tokens.css";
-@import "tailwindcss";
+@import url("@corvus/shared/tokens.css");
+@import url("tailwindcss");
 
 /* ── Base Reset ─────────────────────────────────────────────── */
 
@@ -52,6 +52,7 @@ svg {
     opacity: 0;
     transform: translateY(8px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -63,10 +64,11 @@ svg {
   100% {
     box-shadow: 0 0 12px var(--color-accent-glow);
   }
+
   50% {
     box-shadow:
       0 0 24px var(--color-accent-glow),
-      0 0 48px var(--corvus-accent-glow-subtle, rgba(129, 140, 248, 0.1));
+      0 0 48px var(--corvus-accent-glow-subtle, rgb(129 140 248 / 10%));
   }
 }
 
@@ -75,6 +77,7 @@ svg {
     opacity: 0;
     transform: translateY(16px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
