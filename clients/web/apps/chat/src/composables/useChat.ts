@@ -105,7 +105,7 @@ export function useChat(
   }
 
   function readStoredSessionId(): string {
-    if (typeof globalThis.window === "undefined") {
+    if (globalThis.window === undefined) {
       return "";
     }
 
@@ -117,7 +117,7 @@ export function useChat(
   }
 
   function persistSessionId(sessionId: string): void {
-    if (typeof globalThis.window === "undefined") {
+    if (globalThis.window === undefined) {
       return;
     }
 
@@ -129,7 +129,7 @@ export function useChat(
   }
 
   function clearStoredSessionId(): void {
-    if (typeof globalThis.window === "undefined") {
+    if (globalThis.window === undefined) {
       return;
     }
 

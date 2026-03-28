@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.tooling.preview.Preview
+import com.profiletailors.corvus.ui.chat.BridgeActions
 import com.profiletailors.corvus.ui.chat.ChatWorkspace
 import com.profiletailors.corvus.ui.chat.ChatWorkspaceDefaults
 import com.profiletailors.corvus.ui.chat.MobileBridgeSnapshot
@@ -81,34 +82,39 @@ private fun AppChatContent(
     state = ChatWorkspaceDefaults.state(modelName = AGENT_NAME),
     bridgeSnapshot = bridgeSnapshot,
     platformName = platform.name,
-    onRetryBridge = {
-      if (bridgeSnapshot.environmentSupported) {
-        onBridgeSnapshotChange(bridgeSnapshot.copy(runtimeAvailable = true, sessionCapable = true))
-      }
-    },
-    onLinkSurface = {
-      if (bridgeSnapshot.environmentSupported) {
-        onBridgeSnapshotChange(
-          bridgeSnapshot.copy(
-            runtimeAvailable = true,
-            linkEstablished = true,
-            sessionCapable = true,
-          )
-        )
-      }
-    },
-    onStartSession = {
-      if (bridgeSnapshot.toOnboardingState().status == MobileOnboardingStatus.SESSION_PENDING) {
-        onBridgeSnapshotChange(bridgeSnapshot.copy(sessionId = generateSessionId()))
-      }
-    },
-    onClearSession = {
-      if (bridgeSnapshot.environmentSupported) {
-        onBridgeSnapshotChange(
-          bridgeSnapshot.copy(linkEstablished = false, sessionCapable = false, sessionId = null)
-        )
-      }
-    },
+    bridgeActions =
+      BridgeActions(
+        onRetryBridge = {
+          if (bridgeSnapshot.environmentSupported) {
+            onBridgeSnapshotChange(
+              bridgeSnapshot.copy(runtimeAvailable = true, sessionCapable = true)
+            )
+          }
+        },
+        onLinkSurface = {
+          if (bridgeSnapshot.environmentSupported) {
+            onBridgeSnapshotChange(
+              bridgeSnapshot.copy(
+                runtimeAvailable = true,
+                linkEstablished = true,
+                sessionCapable = true,
+              )
+            )
+          }
+        },
+        onStartSession = {
+          if (bridgeSnapshot.toOnboardingState().status == MobileOnboardingStatus.SESSION_PENDING) {
+            onBridgeSnapshotChange(bridgeSnapshot.copy(sessionId = generateSessionId()))
+          }
+        },
+        onClearSession = {
+          if (bridgeSnapshot.environmentSupported) {
+            onBridgeSnapshotChange(
+              bridgeSnapshot.copy(linkEstablished = false, sessionCapable = false, sessionId = null)
+            )
+          }
+        },
+      ),
   )
 }
 

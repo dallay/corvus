@@ -290,4 +290,211 @@ mod tests {
         obs.record_metric(&ObserverMetric::ActiveSessions(1));
         obs.record_metric(&ObserverMetric::QueueDepth(999));
     }
+
+    #[test]
+    fn log_observer_tool_call_start_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::ToolCallStart {
+            tool: "browser".into(),
+        });
+    }
+
+    #[test]
+    fn log_observer_turn_complete_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::TurnComplete);
+    }
+
+    #[test]
+    fn log_observer_llm_request_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::LlmRequest {
+            provider: "anthropic".into(),
+            model: "claude-sonnet".into(),
+            messages_count: 5,
+        });
+    }
+
+    #[test]
+    fn log_observer_llm_response_success_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::LlmResponse {
+            provider: "openai".into(),
+            model: "gpt-4o".into(),
+            duration: Duration::from_millis(1200),
+            success: true,
+            error_message: None,
+        });
+    }
+
+    #[test]
+    fn log_observer_llm_response_failure_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::LlmResponse {
+            provider: "openai".into(),
+            model: "gpt-4o".into(),
+            duration: Duration::from_millis(500),
+            success: false,
+            error_message: Some("rate limited".into()),
+        });
+    }
+
+    #[test]
+    fn log_observer_mission_started_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::MissionStarted {
+            mission_id: "m-001".into(),
+            checkpoint_count: 3,
+            resume_from: None,
+        });
+    }
+
+    #[test]
+    fn log_observer_mission_started_with_resume_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::MissionStarted {
+            mission_id: "m-001".into(),
+            checkpoint_count: 5,
+            resume_from: Some(2),
+        });
+    }
+
+    #[test]
+    fn log_observer_mission_checkpoint_progress_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::MissionCheckpointProgress {
+            mission_id: "m-001".into(),
+            checkpoint_index: 1,
+            status: "running".into(),
+            duration: Duration::from_secs(10),
+        });
+    }
+
+    #[test]
+    fn log_observer_mission_guardrail_violation_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::MissionGuardrailViolation {
+            mission_id: "m-001".into(),
+            checkpoint_index: Some(2),
+            guardrail: "cost_limit".into(),
+            termination_reason: "exceeded budget".into(),
+            detail: "spent $5.00 of $3.00 limit".into(),
+        });
+    }
+
+    #[test]
+    fn log_observer_mission_guardrail_violation_no_checkpoint_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::MissionGuardrailViolation {
+            mission_id: "m-001".into(),
+            checkpoint_index: None,
+            guardrail: "time_limit".into(),
+            termination_reason: "timeout".into(),
+            detail: "exceeded 1h limit".into(),
+        });
+    }
+
+    #[test]
+    fn log_observer_mission_completed_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::MissionCompleted {
+            mission_id: "m-001".into(),
+            checkpoints_completed: 3,
+            duration: Duration::from_secs(120),
+        });
+    }
+
+    #[test]
+    fn log_observer_mission_terminated_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::MissionTerminated {
+            mission_id: "m-001".into(),
+            checkpoint_index: Some(1),
+            termination_reason: "guardrail".into(),
+            duration: Duration::from_secs(45),
+            rollback: true,
+        });
+    }
+
+    #[test]
+    fn log_observer_mission_terminated_no_checkpoint_no_panic() {
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::MissionTerminated {
+            mission_id: "m-001".into(),
+            checkpoint_index: None,
+            termination_reason: "user_cancel".into(),
+            duration: Duration::from_secs(5),
+            rollback: false,
+        });
+    }
+
+    #[test]
+    fn log_observer_image_ingress_no_panic() {
+        use super::super::traits::{ImageIngressEvent, ImageIngressOutcome};
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::ImageIngress(ImageIngressEvent {
+            channel: "telegram".into(),
+            provider: Some("gemini".into()),
+            model: Some("gemini-2.0-flash".into()),
+            outcome: ImageIngressOutcome::Admitted,
+            reason: None,
+            image_count: 2,
+            mime_type: Some("image/png".into()),
+            byte_len: Some(102_400),
+        }));
+    }
+
+    #[test]
+    fn log_observer_image_ingress_rejected_no_panic() {
+        use super::super::traits::{ImageIngressEvent, ImageIngressOutcome, ImageIngressReason};
+        let obs = LogObserver::new();
+        obs.record_event(&ObserverEvent::ImageIngress(ImageIngressEvent {
+            channel: "discord".into(),
+            provider: None,
+            model: None,
+            outcome: ImageIngressOutcome::Rejected,
+            reason: Some(ImageIngressReason::MimeRejected),
+            image_count: 1,
+            mime_type: Some("image/webp".into()),
+            byte_len: Some(500_000),
+        }));
+    }
+
+    #[test]
+    fn log_observer_on_image_ingress_delegates_to_record_event() {
+        use super::super::traits::{ImageIngressEvent, ImageIngressOutcome};
+        let obs = LogObserver::new();
+        let event = ImageIngressEvent {
+            channel: "slack".into(),
+            provider: None,
+            model: None,
+            outcome: ImageIngressOutcome::ProviderSent,
+            reason: None,
+            image_count: 1,
+            mime_type: None,
+            byte_len: None,
+        };
+        // Should not panic — exercises on_image_ingress path
+        obs.on_image_ingress(&event);
+    }
+
+    #[test]
+    fn log_observer_as_any_downcasts() {
+        let obs = LogObserver::new();
+        assert!(obs.as_any().downcast_ref::<LogObserver>().is_some());
+    }
+
+    #[test]
+    fn log_observer_extreme_duration_no_panic() {
+        let obs = LogObserver::new();
+        // Duration that overflows u64 millis conversion
+        obs.record_event(&ObserverEvent::AgentEnd {
+            provider: "test".into(),
+            model: "test".into(),
+            duration: Duration::MAX,
+            tokens_used: Some(u64::MAX),
+            cost_usd: Some(f64::MAX),
+        });
+        obs.record_metric(&ObserverMetric::RequestLatency(Duration::MAX));
+    }
 }

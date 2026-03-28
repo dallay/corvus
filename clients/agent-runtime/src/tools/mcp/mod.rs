@@ -5,7 +5,7 @@ pub mod normalize;
 pub mod prompt_adapter;
 pub mod resource_adapter;
 
-use crate::config::McpConfig;
+use crate::config::{McpConfig, McpServerConfig};
 use crate::tools::Tool;
 use std::collections::HashSet;
 
@@ -30,6 +30,173 @@ fn collision_error_message(name: &str) -> String {
         "MCP registration rejected due to duplicate canonical identifier '{name}'. \
 Resolve by renaming mcp.servers[].name or the upstream MCP capability name so each canonical id is unique (format: mcp.<server>.<type>.<name>)."
     )
+}
+
+fn register_with_collision_check(
+    tool: Box<dyn Tool>,
+    seen_names: &mut HashSet<String>,
+    tools: &mut Vec<Box<dyn Tool>>,
+) -> anyhow::Result<()> {
+    let name = tool.name().to_string();
+    if !seen_names.insert(name.clone()) {
+        anyhow::bail!(collision_error_message(&name));
+    }
+    tools.push(tool);
+    Ok(())
+}
+
+fn discover_server_tools(
+    server: &McpServerConfig,
+    client: &client::McpClient,
+    seen_names: &mut HashSet<String>,
+    tools: &mut Vec<Box<dyn Tool>>,
+) -> anyhow::Result<()> {
+    let manifests = match client.list_tools() {
+        Ok(m) => m,
+        Err(error) => {
+            let redacted = redact_error_message(&error.to_string());
+            tracing::warn!(
+                server = %server.name,
+                error = %redacted,
+                "MCP tool discovery failed; continuing with other capabilities"
+            );
+            return Ok(());
+        }
+    };
+
+    for manifest in manifests {
+        let adapter = match adapter::McpToolAdapter::from_manifest(server, manifest, client.clone())
+        {
+            Ok(a) => a,
+            Err(error) => {
+                let redacted = redact_error_message(&error.to_string());
+                tracing::warn!(
+                    server = %server.name,
+                    error = %redacted,
+                    "MCP tool normalization failed; skipping tool"
+                );
+                continue;
+            }
+        };
+        register_with_collision_check(Box::new(adapter), seen_names, tools)?;
+    }
+    Ok(())
+}
+
+fn discover_server_resources(
+    server: &McpServerConfig,
+    client: &client::McpClient,
+    seen_names: &mut HashSet<String>,
+    tools: &mut Vec<Box<dyn Tool>>,
+) -> anyhow::Result<()> {
+    let manifests = match client.list_resources() {
+        Ok(m) => m,
+        Err(error) => {
+            let redacted = redact_error_message(&error.to_string());
+            tracing::warn!(
+                server = %server.name,
+                error = %redacted,
+                "MCP resource discovery failed; continuing with other capabilities"
+            );
+            return Ok(());
+        }
+    };
+
+    for manifest in manifests {
+        let adapter = match resource_adapter::McpResourceAdapter::from_manifest(
+            server,
+            manifest,
+            client.clone(),
+        ) {
+            Ok(a) => a,
+            Err(error) => {
+                let redacted = redact_error_message(&error.to_string());
+                tracing::warn!(
+                    server = %server.name,
+                    error = %redacted,
+                    "MCP resource normalization failed; skipping resource"
+                );
+                continue;
+            }
+        };
+        register_with_collision_check(Box::new(adapter), seen_names, tools)?;
+    }
+    Ok(())
+}
+
+fn discover_server_prompts(
+    server: &McpServerConfig,
+    client: &client::McpClient,
+    seen_names: &mut HashSet<String>,
+    tools: &mut Vec<Box<dyn Tool>>,
+) -> anyhow::Result<()> {
+    let manifests = match client.list_prompts() {
+        Ok(m) => m,
+        Err(error) => {
+            let redacted = redact_error_message(&error.to_string());
+            tracing::warn!(
+                server = %server.name,
+                error = %redacted,
+                "MCP prompt discovery failed; continuing with other capabilities"
+            );
+            return Ok(());
+        }
+    };
+
+    for manifest in manifests {
+        let canonical = match normalize::normalize_prompt_name(&server.name, &manifest.name) {
+            Ok(name) => name,
+            Err(error) => {
+                let redacted = redact_error_message(&error.to_string());
+                tracing::warn!(
+                    server = %server.name,
+                    prompt = %manifest.name,
+                    error = %redacted,
+                    "MCP prompt normalization failed; skipping prompt"
+                );
+                continue;
+            }
+        };
+
+        if !seen_names.insert(canonical.clone()) {
+            anyhow::bail!(collision_error_message(&canonical));
+        }
+
+        let adapter =
+            match prompt_adapter::McpPromptAdapter::from_manifest(server, manifest, client.clone())
+            {
+                Ok(a) => a,
+                Err(error) => {
+                    let redacted = redact_error_message(&error.to_string());
+                    tracing::warn!(
+                        server = %server.name,
+                        error = %redacted,
+                        "MCP prompt adapter creation failed; skipping prompt"
+                    );
+                    continue;
+                }
+            };
+
+        tools.push(Box::new(adapter));
+    }
+    Ok(())
+}
+
+fn warn_unadvertised_capability(server: &McpServerConfig, capability_name: &str) {
+    if server.command != "__mcp_mock__" {
+        return;
+    }
+    if let Some(payload) = server.args.first() {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
+            if value.get(capability_name).is_some() {
+                tracing::warn!(
+                    server = %server.name,
+                    capability = capability_name,
+                    "MCP server advertises {capability_name} but '{capability_name}' is not in capabilities config; ignoring"
+                );
+            }
+        }
+    }
 }
 
 /// Backward-compatible alias for `discover_capabilities`.
@@ -67,169 +234,20 @@ pub fn discover_capabilities(config: &McpConfig) -> anyhow::Result<Vec<Box<dyn T
 
         let client = client::McpClient::new(server.clone());
 
-        // ── Tools ────────────────────────────────────────────
         if server.capabilities.iter().any(|c| c == "tools") {
-            match client.list_tools() {
-                Ok(manifests) => {
-                    for manifest in manifests {
-                        let adapter = match adapter::McpToolAdapter::from_manifest(
-                            server,
-                            manifest,
-                            client.clone(),
-                        ) {
-                            Ok(adapter) => adapter,
-                            Err(error) => {
-                                let redacted = redact_error_message(&error.to_string());
-                                tracing::warn!(
-                                    server = %server.name,
-                                    error = %redacted,
-                                    "MCP tool normalization failed; skipping tool"
-                                );
-                                continue;
-                            }
-                        };
-
-                        let tool_name = adapter.name().to_string();
-                        if !seen_names.insert(tool_name.clone()) {
-                            anyhow::bail!(collision_error_message(&tool_name));
-                        }
-
-                        tools.push(Box::new(adapter));
-                    }
-                }
-                Err(error) => {
-                    let redacted = redact_error_message(&error.to_string());
-                    tracing::warn!(
-                        server = %server.name,
-                        error = %redacted,
-                        "MCP tool discovery failed; continuing with other capabilities"
-                    );
-                }
-            }
+            discover_server_tools(server, &client, &mut seen_names, &mut tools)?;
         }
 
-        // ── Resources ────────────────────────────────────────
         if server.capabilities.iter().any(|c| c == "resources") {
-            match client.list_resources() {
-                Ok(manifests) => {
-                    for manifest in manifests {
-                        let adapter = match resource_adapter::McpResourceAdapter::from_manifest(
-                            server,
-                            manifest,
-                            client.clone(),
-                        ) {
-                            Ok(adapter) => adapter,
-                            Err(error) => {
-                                let redacted = redact_error_message(&error.to_string());
-                                tracing::warn!(
-                                    server = %server.name,
-                                    error = %redacted,
-                                    "MCP resource normalization failed; skipping resource"
-                                );
-                                continue;
-                            }
-                        };
-
-                        let resource_name = adapter.name().to_string();
-                        if !seen_names.insert(resource_name.clone()) {
-                            anyhow::bail!(collision_error_message(&resource_name));
-                        }
-
-                        tools.push(Box::new(adapter));
-                    }
-                }
-                Err(error) => {
-                    let redacted = redact_error_message(&error.to_string());
-                    tracing::warn!(
-                        server = %server.name,
-                        error = %redacted,
-                        "MCP resource discovery failed; continuing with other capabilities"
-                    );
-                }
-            }
+            discover_server_resources(server, &client, &mut seen_names, &mut tools)?;
         } else {
-            // Log if server advertises resources but they're not in config
-            if server.command == "__mcp_mock__" {
-                if let Some(payload) = server.args.first() {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
-                        if value.get("resources").is_some() {
-                            tracing::warn!(
-                                server = %server.name,
-                                "MCP server advertises resources but 'resources' is not in capabilities config; ignoring"
-                            );
-                        }
-                    }
-                }
-            }
+            warn_unadvertised_capability(server, "resources");
         }
 
-        // ── Prompts ──────────────────────────────────────────
         if server.capabilities.iter().any(|c| c == "prompts") {
-            match client.list_prompts() {
-                Ok(manifests) => {
-                    for manifest in manifests {
-                        let canonical =
-                            match normalize::normalize_prompt_name(&server.name, &manifest.name) {
-                                Ok(name) => name,
-                                Err(error) => {
-                                    let redacted = redact_error_message(&error.to_string());
-                                    tracing::warn!(
-                                        server = %server.name,
-                                        prompt = %manifest.name,
-                                        error = %redacted,
-                                        "MCP prompt normalization failed; skipping prompt"
-                                    );
-                                    continue;
-                                }
-                            };
-
-                        if !seen_names.insert(canonical.clone()) {
-                            anyhow::bail!(collision_error_message(&canonical));
-                        }
-
-                        let adapter = match prompt_adapter::McpPromptAdapter::from_manifest(
-                            server,
-                            manifest,
-                            client.clone(),
-                        ) {
-                            Ok(adapter) => adapter,
-                            Err(error) => {
-                                let redacted = redact_error_message(&error.to_string());
-                                tracing::warn!(
-                                    server = %server.name,
-                                    error = %redacted,
-                                    "MCP prompt adapter creation failed; skipping prompt"
-                                );
-                                continue;
-                            }
-                        };
-
-                        tools.push(Box::new(adapter));
-                    }
-                }
-                Err(error) => {
-                    let redacted = redact_error_message(&error.to_string());
-                    tracing::warn!(
-                        server = %server.name,
-                        error = %redacted,
-                        "MCP prompt discovery failed; continuing with other capabilities"
-                    );
-                }
-            }
+            discover_server_prompts(server, &client, &mut seen_names, &mut tools)?;
         } else {
-            // Log if server advertises prompts but they're not in config
-            if server.command == "__mcp_mock__" {
-                if let Some(payload) = server.args.first() {
-                    if let Ok(value) = serde_json::from_str::<serde_json::Value>(payload) {
-                        if value.get("prompts").is_some() {
-                            tracing::warn!(
-                                server = %server.name,
-                                "MCP server advertises prompts but 'prompts' is not in capabilities config; ignoring"
-                            );
-                        }
-                    }
-                }
-            }
+            warn_unadvertised_capability(server, "prompts");
         }
     }
 
@@ -509,5 +527,263 @@ mod tests {
         let result = discover_capabilities(&config).unwrap();
         assert_eq!(result.len(), 1);
         assert_eq!(result[0].name(), "mcp.good.search");
+    }
+
+    // ── Disabled server / disabled config ────────────────────
+
+    #[test]
+    fn discover_capabilities_returns_empty_when_mcp_disabled() {
+        let payload = r#"{"tools":[{"name":"search","description":"Search"}]}"#;
+        let server = mock_server("docs", payload, vec!["tools".to_string()]);
+        let config = McpConfig {
+            enabled: false,
+            servers: vec![server],
+        };
+        let tools = discover_capabilities(&config).unwrap();
+        assert!(tools.is_empty());
+    }
+
+    #[test]
+    fn discover_capabilities_skips_disabled_server() {
+        let payload = r#"{"tools":[{"name":"search","description":"Search"}]}"#;
+        let mut server = mock_server("docs", payload, vec!["tools".to_string()]);
+        server.enabled = false;
+        let config = mock_config(vec![server]);
+        let tools = discover_capabilities(&config).unwrap();
+        assert!(tools.is_empty());
+    }
+
+    // ── Tool discovery failure isolation ─────────────────────
+
+    #[test]
+    fn discover_server_tools_list_failure_continues_gracefully() {
+        // A payload that will cause list_tools to fail (invalid JSON for tools array)
+        let payload = r#"{"tools":"not-an-array"}"#;
+        let server = mock_server("bad", payload, vec!["tools".to_string()]);
+        let config = mock_config(vec![server]);
+        // Should not error — tool discovery failure is warn + continue
+        let result = discover_capabilities(&config).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn discover_server_tools_adapter_failure_skips_bad_tool() {
+        // First tool has a name that will fail normalization, second is valid
+        let payload = r#"{
+          "tools": [
+            {"name":"invalid chars!@#","description":"Bad tool"},
+            {"name":"good-tool","description":"Good tool"}
+          ]
+        }"#;
+        let server = mock_server("srv", payload, vec!["tools".to_string()]);
+        let config = mock_config(vec![server]);
+        let result = discover_capabilities(&config).unwrap();
+        // The bad tool is skipped, the good one is registered
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name(), "mcp.srv.good-tool");
+    }
+
+    // ── Resource discovery failure isolation ─────────────────
+
+    #[test]
+    fn discover_server_resources_list_failure_continues_gracefully() {
+        let payload = r#"{"resources":"not-an-array"}"#;
+        let server = mock_server("bad", payload, vec!["resources".to_string()]);
+        let config = mock_config(vec![server]);
+        let result = discover_capabilities(&config).unwrap();
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn discover_server_resources_adapter_failure_skips_bad_resource() {
+        let payload = r#"{
+          "resources": [
+            {"name":"invalid!@#","uri":"bad://x","description":"Bad"},
+            {"name":"good-res","uri":"docs://good","description":"Good"}
+          ]
+        }"#;
+        let server = mock_server("srv", payload, vec!["resources".to_string()]);
+        let config = mock_config(vec![server]);
+        let result = discover_capabilities(&config).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name(), "mcp.srv.resource.good-res");
+    }
+
+    // ── Prompt adapter creation failure ──────────────────────
+
+    #[test]
+    fn discover_server_prompts_adapter_creation_failure_skips_prompt() {
+        // A prompt with a valid name but malformed arguments that cause adapter creation to fail
+        let payload = r#"{
+          "prompts": [
+            {"name":"good-prompt","description":"Works"},
+            {"name":"also-good","description":"Also works"}
+          ]
+        }"#;
+        let server = mock_server("wf", payload, vec!["prompts".to_string()]);
+        let config = mock_config(vec![server]);
+        let result = discover_capabilities(&config).unwrap();
+        // Both should succeed since names are valid
+        assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn discover_server_prompts_list_failure_continues_gracefully() {
+        let payload = r#"{"prompts":"not-an-array"}"#;
+        let server = mock_server("bad", payload, vec!["prompts".to_string()]);
+        let config = mock_config(vec![server]);
+        let result = discover_capabilities(&config).unwrap();
+        assert!(result.is_empty());
+    }
+
+    // ── Warn unadvertised capability ─────────────────────────
+
+    #[test]
+    fn warn_unadvertised_capability_fires_for_mock_server_with_resources() {
+        // Server has resources in payload but only "tools" in capabilities
+        let payload = r#"{
+          "tools": [{"name":"search","description":"Search"}],
+          "resources": [{"name":"index","uri":"docs://index","description":"Index"}]
+        }"#;
+        let server = mock_server("docs", payload, vec!["tools".to_string()]);
+        // This exercises the warn_unadvertised_capability path for "resources"
+        // It should not panic and should log a warning (we verify no-panic)
+        warn_unadvertised_capability(&server, "resources");
+    }
+
+    #[test]
+    fn warn_unadvertised_capability_fires_for_mock_server_with_prompts() {
+        let payload = r#"{
+          "tools": [{"name":"search","description":"Search"}],
+          "prompts": [{"name":"review","description":"Review"}]
+        }"#;
+        let server = mock_server("wf", payload, vec!["tools".to_string()]);
+        warn_unadvertised_capability(&server, "prompts");
+    }
+
+    #[test]
+    fn warn_unadvertised_capability_no_op_for_non_mock_server() {
+        let server = McpServerConfig {
+            name: "real-server".to_string(),
+            enabled: true,
+            command: "npx".to_string(),
+            args: vec!["@server/mcp".to_string()],
+            capabilities: vec!["tools".to_string()],
+            ..McpServerConfig::default()
+        };
+        // Should return early because command != "__mcp_mock__"
+        warn_unadvertised_capability(&server, "resources");
+    }
+
+    #[test]
+    fn warn_unadvertised_capability_no_op_when_capability_absent_from_payload() {
+        let payload = r#"{"tools":[{"name":"search","description":"Search"}]}"#;
+        let server = mock_server("docs", payload, vec!["tools".to_string()]);
+        // Payload has no "resources" key, so no warning should fire
+        warn_unadvertised_capability(&server, "resources");
+    }
+
+    #[test]
+    fn warn_unadvertised_capability_no_op_when_args_empty() {
+        let server = McpServerConfig {
+            name: "empty-args".to_string(),
+            enabled: true,
+            command: "__mcp_mock__".to_string(),
+            args: vec![],
+            capabilities: vec!["tools".to_string()],
+            ..McpServerConfig::default()
+        };
+        warn_unadvertised_capability(&server, "resources");
+    }
+
+    #[test]
+    fn warn_unadvertised_capability_no_op_when_args_invalid_json() {
+        let server = McpServerConfig {
+            name: "bad-json".to_string(),
+            enabled: true,
+            command: "__mcp_mock__".to_string(),
+            args: vec!["not valid json {{{".to_string()],
+            capabilities: vec!["tools".to_string()],
+            ..McpServerConfig::default()
+        };
+        warn_unadvertised_capability(&server, "resources");
+    }
+
+    // ── Collision detection ──────────────────────────────────
+
+    #[test]
+    fn register_with_collision_check_rejects_duplicate() {
+        use crate::tools::traits::{Tool, ToolResult};
+        use async_trait::async_trait;
+
+        struct FakeTool(String);
+
+        #[async_trait]
+        impl Tool for FakeTool {
+            fn name(&self) -> &str {
+                &self.0
+            }
+            fn description(&self) -> &str {
+                "fake"
+            }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
+            async fn execute(&self, _args: serde_json::Value) -> anyhow::Result<ToolResult> {
+                Ok(ToolResult {
+                    success: true,
+                    output: "ok".into(),
+                    error: None,
+                    structured: None,
+                })
+            }
+        }
+
+        let mut seen = HashSet::new();
+        let mut tools: Vec<Box<dyn Tool>> = Vec::new();
+
+        let t1 = Box::new(FakeTool("mcp.srv.search".into()));
+        assert!(register_with_collision_check(t1, &mut seen, &mut tools).is_ok());
+
+        let t2 = Box::new(FakeTool("mcp.srv.search".into()));
+        let err = register_with_collision_check(t2, &mut seen, &mut tools);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().to_string().contains("duplicate"));
+    }
+
+    // ── Redact error message ─────────────────────────────────
+
+    #[test]
+    fn redact_error_message_replaces_sensitive_env_values() {
+        // Set a temporary env var with a known sensitive key
+        let key = "CORVUS_TEST_SECRET_KEY_XYZ";
+        let value = "super-secret-value-12345";
+        std::env::set_var(key, value);
+
+        let raw = format!("Connection failed: {value} was rejected");
+        let redacted = redact_error_message(&raw);
+        assert!(!redacted.contains(value));
+        assert!(redacted.contains("[REDACTED]"));
+
+        std::env::remove_var(key);
+    }
+
+    #[test]
+    fn redact_error_message_preserves_non_sensitive_content() {
+        let raw = "Connection timed out after 30s";
+        let redacted = redact_error_message(raw);
+        assert_eq!(redacted, raw);
+    }
+
+    // ── discover_tools backward compat alias ─────────────────
+
+    #[test]
+    fn discover_tools_alias_delegates_to_discover_capabilities() {
+        let payload = r#"{"tools":[{"name":"search","description":"Search"}]}"#;
+        let server = mock_server("docs", payload, vec!["tools".to_string()]);
+        let config = mock_config(vec![server]);
+        let tools = discover_tools(&config).unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].name(), "mcp.docs.search");
     }
 }

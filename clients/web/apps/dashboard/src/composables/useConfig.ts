@@ -608,7 +608,7 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
 
   function initQuickPair() {
     if (
-      typeof globalThis.window === "undefined" ||
+      globalThis.window === undefined ||
       !globalThis.location.hash.startsWith(QUICK_PAIR_HASH_PREFIX)
     ) {
       return;

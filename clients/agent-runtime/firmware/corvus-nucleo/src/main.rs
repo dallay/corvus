@@ -216,6 +216,20 @@ fn copy_id(line: &[u8], out: &mut [u8]) -> usize {
     1
 }
 
+/// Accumulate a byte into the line buffer.
+/// Returns `true` when a complete line is ready for processing.
+/// On overflow the buffer is silently cleared; line terminators on an empty
+/// buffer are ignored.
+fn accumulate_byte(line_buf: &mut heapless::Vec<u8, 256>, b: u8) -> bool {
+    if b != b'\n' && b != b'\r' {
+        if line_buf.push(b).is_err() {
+            line_buf.clear();
+        }
+        return false;
+    }
+    !line_buf.is_empty()
+}
+
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
@@ -237,18 +251,7 @@ async fn main(_spawner: Spawner) {
             continue;
         }
 
-        let b = byte[0];
-
-        // Non-terminator: accumulate into line buffer (clear on overflow).
-        if b != b'\n' && b != b'\r' {
-            if line_buf.push(b).is_err() {
-                line_buf.clear();
-            }
-            continue;
-        }
-
-        // Line terminator on an empty buffer — ignore.
-        if line_buf.is_empty() {
+        if !accumulate_byte(&mut line_buf, byte[0]) {
             continue;
         }
 

@@ -224,4 +224,164 @@ mod tests {
         let err = result.unwrap_err().to_string();
         assert!(err.contains("Unknown integration"));
     }
+
+    // ── IntegrationCategory label coverage ───────────────────
+
+    #[test]
+    fn integration_category_label_returns_expected_strings() {
+        assert_eq!(IntegrationCategory::Chat.label(), "Chat Providers");
+        assert_eq!(IntegrationCategory::AiModel.label(), "AI Models");
+        assert_eq!(IntegrationCategory::Productivity.label(), "Productivity");
+        assert_eq!(IntegrationCategory::MusicAudio.label(), "Music & Audio");
+        assert_eq!(IntegrationCategory::SmartHome.label(), "Smart Home");
+        assert_eq!(
+            IntegrationCategory::ToolsAutomation.label(),
+            "Tools & Automation"
+        );
+        assert_eq!(
+            IntegrationCategory::MediaCreative.label(),
+            "Media & Creative"
+        );
+        assert_eq!(IntegrationCategory::Social.label(), "Social");
+        assert_eq!(IntegrationCategory::Platform.label(), "Platforms");
+    }
+
+    // ── IntegrationStatus equality ───────────────────────────
+
+    #[test]
+    fn integration_status_variants_are_distinct() {
+        assert_ne!(IntegrationStatus::Available, IntegrationStatus::Active);
+        assert_ne!(IntegrationStatus::Active, IntegrationStatus::ComingSoon);
+        assert_ne!(IntegrationStatus::Available, IntegrationStatus::ComingSoon);
+    }
+
+    #[test]
+    fn integration_status_debug_is_non_empty() {
+        let statuses = [
+            IntegrationStatus::Available,
+            IntegrationStatus::Active,
+            IntegrationStatus::ComingSoon,
+        ];
+        for s in &statuses {
+            assert!(!format!("{s:?}").is_empty());
+        }
+    }
+
+    // ── show_integration_info output paths ───────────────────
+
+    #[test]
+    fn show_integration_info_telegram_prints_setup() {
+        let config = Config::default();
+        // Should succeed without panic and print Telegram setup hints
+        let result = show_integration_info(&config, "Telegram");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_discord_prints_setup() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "Discord");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_slack_prints_setup() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "Slack");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_openrouter_prints_setup() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "OpenRouter");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_ollama_prints_setup() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "Ollama");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_imessage_prints_setup() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "iMessage");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_github_prints_setup() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "GitHub");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_browser_prints_setup() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "Browser");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_cron_prints_setup() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "Cron");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_webhooks_prints_setup() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "Webhooks");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_coming_soon_prints_track_message() {
+        let config = Config::default();
+        // "Spotify" is ComingSoon — hits the default arm
+        let result = show_integration_info(&config, "Spotify");
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn show_integration_info_unknown_returns_error() {
+        let config = Config::default();
+        let result = show_integration_info(&config, "nonexistent");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unknown integration"));
+    }
+
+    #[test]
+    fn show_integration_info_case_insensitive() {
+        let config = Config::default();
+        assert!(show_integration_info(&config, "telegram").is_ok());
+        assert!(show_integration_info(&config, "TELEGRAM").is_ok());
+        assert!(show_integration_info(&config, "TeLegRaM").is_ok());
+    }
+
+    // ── IntegrationCategory all and PartialEq ────────────────
+
+    #[test]
+    fn integration_category_copy_and_clone() {
+        let cat = IntegrationCategory::Chat;
+        let copied = cat;
+        let cloned = cat;
+        assert_eq!(cat, copied);
+        assert_eq!(cat, cloned);
+    }
+
+    #[test]
+    fn integration_category_debug_is_non_empty() {
+        for cat in IntegrationCategory::all() {
+            assert!(!format!("{cat:?}").is_empty());
+        }
+    }
 }

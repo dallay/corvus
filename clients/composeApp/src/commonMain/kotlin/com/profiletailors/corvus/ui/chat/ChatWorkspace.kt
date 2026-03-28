@@ -81,14 +81,19 @@ data class ChatUiState(
 )
 
 @Stable
-data class ChatWorkspaceActions(
-  val onQueryChange: (String) -> Unit,
-  val onSend: () -> Unit,
-  val onToggleConfig: () -> Unit,
+data class BridgeActions(
   val onRetryBridge: () -> Unit,
   val onLinkSurface: () -> Unit,
   val onStartSession: () -> Unit,
   val onClearSession: () -> Unit,
+)
+
+@Stable
+data class ChatWorkspaceActions(
+  val onQueryChange: (String) -> Unit,
+  val onSend: () -> Unit,
+  val onToggleConfig: () -> Unit,
+  val bridge: BridgeActions,
 )
 
 object ChatWorkspaceDefaults {
@@ -107,10 +112,7 @@ object ChatWorkspaceDefaults {
 fun ChatWorkspace(
   bridgeSnapshot: MobileBridgeSnapshot,
   platformName: String,
-  onRetryBridge: () -> Unit,
-  onLinkSurface: () -> Unit,
-  onStartSession: () -> Unit,
-  onClearSession: () -> Unit,
+  bridgeActions: BridgeActions,
   modifier: Modifier = Modifier,
   state: ChatWorkspaceState = ChatWorkspaceDefaults.state(),
 ) {
@@ -151,15 +153,12 @@ fun ChatWorkspace(
   }
 
   val actions =
-    remember(onRetryBridge, onLinkSurface, onStartSession, onClearSession) {
+    remember(bridgeActions) {
       ChatWorkspaceActions(
         onQueryChange = { query = it },
         onSend = ::sendMessage,
         onToggleConfig = { showConfig = !showConfig },
-        onRetryBridge = onRetryBridge,
-        onLinkSurface = onLinkSurface,
-        onStartSession = onStartSession,
-        onClearSession = onClearSession,
+        bridge = bridgeActions,
       )
     }
 
