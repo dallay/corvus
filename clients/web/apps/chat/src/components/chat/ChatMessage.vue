@@ -30,8 +30,9 @@ defineProps<{
         role === 'user' ? 'bubble--user' : 'bubble--assistant',
         status === 'error' ? 'bubble--error' : '',
       ]"
+      :aria-live="role === 'assistant' && status === 'streaming' ? 'polite' : undefined"
     >
-      <p class="bubble-text">{{ content }}<span v-if="status === 'streaming'" class="streaming-cursor" aria-label="Streaming"></span></p>
+      <p class="bubble-text">{{ content }}<span v-if="status === 'streaming'" class="streaming-cursor" aria-hidden="true"></span></p>
     </div>
 
     <!-- User Avatar -->

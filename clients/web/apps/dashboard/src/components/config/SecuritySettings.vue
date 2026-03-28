@@ -103,7 +103,7 @@ function updateField<Key extends keyof AdminConfigForm>(
         <textarea
           data-testid="autonomy-auto-approve"
           :value="modelValue.autonomy_auto_approve"
-          placeholder="command1, command2"
+          :placeholder="$t('security.placeholderCommands')"
           @input="updateField('autonomy_auto_approve', ($event.target as HTMLTextAreaElement).value)"
         />
       </label>
@@ -112,7 +112,7 @@ function updateField<Key extends keyof AdminConfigForm>(
         <textarea
           data-testid="autonomy-always-ask"
           :value="modelValue.autonomy_always_ask"
-          placeholder="command1, command2"
+          :placeholder="$t('security.placeholderCommands')"
           @input="updateField('autonomy_always_ask', ($event.target as HTMLTextAreaElement).value)"
         />
       </label>

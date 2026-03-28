@@ -43,7 +43,8 @@ onMounted(fetchHeartbeat);
     <h2>{{ t("sections.heartbeat") }}</h2>
     <p v-if="loading" class="helper">{{ t("heartbeat.loading") }}</p>
     <p v-else-if="error" class="error">{{ error }}</p>
-    <div v-else-if="heartbeat" class="status-grid" data-testid="heartbeat-overview">
+    <p v-else-if="!heartbeat" class="helper">{{ t("heartbeat.noData") }}</p>
+    <div v-else class="status-grid" data-testid="heartbeat-overview">
       <div class="status-item">
         <span class="status-label">{{ t("heartbeat.enabled") }}</span>
         <span
@@ -56,7 +57,7 @@ onMounted(fetchHeartbeat);
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("heartbeat.interval") }}</span>
-        <span class="status-value">{{ heartbeat.interval_minutes }} min</span>
+        <span class="status-value">{{ heartbeat.interval_minutes }} {{ t("heartbeat.unit") }}</span>
       </div>
     </div>
   </section>

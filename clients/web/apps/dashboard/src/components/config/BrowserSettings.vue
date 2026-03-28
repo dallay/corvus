@@ -24,6 +24,15 @@ function updateField<Key extends keyof AdminConfigForm>(
     [key]: value,
   });
 }
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function updateSecretMode(mode: AdminConfigForm["browser_computer_use_api_key_mode"]): void {
+  const patch: Partial<AdminConfigForm> = { browser_computer_use_api_key_mode: mode };
+  if (mode !== "replace") {
+    patch.browser_computer_use_api_key_value = "";
+  }
+  emit("update:modelValue", { ...props.modelValue, ...patch });
+}
 </script>
 
 <template>
@@ -37,8 +46,7 @@ function updateField<Key extends keyof AdminConfigForm>(
           class="select-input"
           data-testid="browser_computer_use_api_key_mode"
           @change="
-            updateField(
-              'browser_computer_use_api_key_mode',
+            updateSecretMode(
               ($event.target as HTMLSelectElement).value as AdminConfigForm['browser_computer_use_api_key_mode']
             )
           "

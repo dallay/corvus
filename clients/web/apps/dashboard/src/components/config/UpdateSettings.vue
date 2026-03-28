@@ -25,13 +25,13 @@ defineProps<{
       <label>
         <span>{{ $t("updates.updateAvailable") }}</span>
         <p data-testid="updates_update_available">
-          {{ config.updates?.status?.update_available ? $t("updates.yes") : $t("updates.no") }}
+          {{ config.updates?.status?.update_available === true ? $t("updates.yes") : config.updates?.status?.update_available === false ? $t("updates.no") : $t("updates.unknown") }}
         </p>
       </label>
       <label>
         <span>{{ $t("updates.autoInstallEnabled") }}</span>
         <p data-testid="updates_auto_install_enabled">
-          {{ config.updates?.auto_install_enabled ? $t("updates.yes") : $t("updates.no") }}
+          {{ config.updates?.auto_install_enabled === true ? $t("updates.yes") : config.updates?.auto_install_enabled === false ? $t("updates.no") : $t("updates.unknown") }}
         </p>
       </label>
       <label>

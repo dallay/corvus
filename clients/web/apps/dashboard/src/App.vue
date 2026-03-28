@@ -224,41 +224,49 @@ const config = useConfig(t);
     />
 
     <ChannelsOverview
+      v-if="config.isOperatorReady.value"
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />
 
     <SchedulerStatus
+      v-if="config.isOperatorReady.value"
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />
 
     <CostOverview
+      v-if="config.isOperatorReady.value"
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />
 
     <McpOverview
+      v-if="config.isOperatorReady.value"
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />
 
     <TunnelOverview
+      v-if="config.isOperatorReady.value"
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />
 
     <ReliabilityOverview
+      v-if="config.isOperatorReady.value"
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />
 
     <HeartbeatOverview
+      v-if="config.isOperatorReady.value"
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />
 
     <HealthDashboard
+      v-if="config.isOperatorReady.value"
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />

@@ -24,6 +24,15 @@ function updateField<Key extends keyof AdminConfigForm>(
     [key]: value,
   });
 }
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function updateSecretMode(mode: AdminConfigForm["memory_cerebro_auth_token_mode"]): void {
+  const patch: Partial<AdminConfigForm> = { memory_cerebro_auth_token_mode: mode };
+  if (mode !== "replace") {
+    patch.memory_cerebro_auth_token_value = "";
+  }
+  emit("update:modelValue", { ...props.modelValue, ...patch });
+}
 </script>
 
 <template>
@@ -69,8 +78,7 @@ function updateField<Key extends keyof AdminConfigForm>(
           class="select-input"
           data-testid="memory_cerebro_auth_token_mode"
           @change="
-            updateField(
-              'memory_cerebro_auth_token_mode',
+            updateSecretMode(
               ($event.target as HTMLSelectElement).value as AdminConfigForm['memory_cerebro_auth_token_mode']
             )
           "

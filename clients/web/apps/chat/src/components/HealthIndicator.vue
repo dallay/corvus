@@ -18,7 +18,8 @@ async function checkHealth(): Promise<void> {
       headers.Authorization = `Bearer ${props.bearerToken}`;
     }
 
-    const response = await fetch(`${props.gatewayUrl}/health`, {
+    const base = props.gatewayUrl.replace(/\/+$/, "");
+    const response = await fetch(`${base}/health`, {
       method: "GET",
       headers,
     });

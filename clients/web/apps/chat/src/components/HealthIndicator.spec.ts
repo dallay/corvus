@@ -50,4 +50,29 @@ describe("HealthIndicator", () => {
 
     expect(wrapper.get('[data-testid="health-status"]').classes()).toContain("disconnected");
   });
+
+  it("shows disconnected on non-OK HTTP response", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: "error" }), { status: 500 })
+    );
+
+    const wrapper = mountIndicator();
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="health-status"]').classes()).toContain("disconnected");
+  });
+
+  it("strips trailing slashes from gateway URL", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ status: "ok" }), { status: 200 })
+    );
+
+    mountIndicator({ gatewayUrl: "http://localhost:3000/" });
+    await flushPromises();
+
+    expect(fetchMock).toHaveBeenCalledWith("http://localhost:3000/health", {
+      method: "GET",
+      headers: { Authorization: "Bearer test-token" },
+    });
+  });
 });

@@ -397,12 +397,21 @@ export function useChat(
               if (currentEvent === "chunk") {
                 onChunk(currentData);
               } else if (currentEvent === "done") {
-                doneEvent = JSON.parse(currentData) as StreamDoneEvent;
+                try {
+                  doneEvent = JSON.parse(currentData) as StreamDoneEvent;
+                } catch {
+                  throw new Error(t("chat.requestError", { text: normalizedMessage }));
+                }
                 if (doneEvent.session_id && !isSessionReady.value) {
                   setSessionReady(doneEvent.session_id);
                 }
               } else if (currentEvent === "error") {
-                const errorEvt = JSON.parse(currentData) as StreamErrorEvent;
+                let errorEvt: StreamErrorEvent;
+                try {
+                  errorEvt = JSON.parse(currentData) as StreamErrorEvent;
+                } catch {
+                  throw new Error(t("chat.requestError", { text: normalizedMessage }));
+                }
                 throw new Error(
                   errorEvt.message || t("chat.requestError", { text: normalizedMessage })
                 );
@@ -423,6 +432,9 @@ export function useChat(
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error(t("chat.timeoutError"));
+      }
+      if (error instanceof Error && error.message === t("auth.credentialInvalid")) {
+        throw error;
       }
       if (error instanceof Error && error.message) {
         throw error;

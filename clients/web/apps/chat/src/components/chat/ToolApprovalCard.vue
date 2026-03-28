@@ -1,14 +1,32 @@
 <script setup lang="ts">
+import { ref } from "vue";
+
 defineProps<{
   toolName: string;
   reason: string;
   approvalId: string;
 }>();
 
-defineEmits<{
+const emit = defineEmits<{
   approve: [approvalId: string];
   reject: [approvalId: string];
 }>();
+
+const isSubmitting = ref(false);
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function handleApprove(id: string): void {
+  if (isSubmitting.value) return;
+  isSubmitting.value = true;
+  emit("approve", id);
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function handleReject(id: string): void {
+  if (isSubmitting.value) return;
+  isSubmitting.value = true;
+  emit("reject", id);
+}
 </script>
 
 <template>
@@ -19,10 +37,10 @@ defineEmits<{
     </div>
     <p class="tool-reason" data-testid="tool-reason">{{ reason }}</p>
     <div class="tool-approval-actions">
-      <button class="btn-approve" data-testid="btn-approve" @click="$emit('approve', approvalId)">
+      <button type="button" class="btn-approve" data-testid="btn-approve" :disabled="isSubmitting" @click="handleApprove(approvalId)">
         {{ $t("chat.approve") }}
       </button>
-      <button class="btn-reject" data-testid="btn-reject" @click="$emit('reject', approvalId)">
+      <button type="button" class="btn-reject" data-testid="btn-reject" :disabled="isSubmitting" @click="handleReject(approvalId)">
         {{ $t("chat.reject") }}
       </button>
     </div>

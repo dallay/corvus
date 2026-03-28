@@ -237,7 +237,8 @@
     "requireApprovalMediumRisk": "Require approval for medium risk",
     "blockHighRiskCommands": "Block high risk commands",
     "autoApprove": "Auto-approve commands (comma-separated)",
-    "alwaysAsk": "Always ask commands (comma-separated)"
+    "alwaysAsk": "Always ask commands (comma-separated)",
+    "placeholderCommands": "command1, command2"
   },
   "errors": {
     "insecureUrlError": "Credentials cannot be sent over HTTP to a remote host. Use HTTPS or a local host."
@@ -362,6 +363,8 @@
     "loading": "Loading heartbeat...",
     "enabled": "Enabled",
     "interval": "Interval (minutes)",
+    "unit": "min",
+    "noData": "No heartbeat data available.",
     "yes": "Yes",
     "no": "No"
   },

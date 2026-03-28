@@ -56,7 +56,7 @@ onMounted(fetchMcp);
           }}</span>
         </div>
       </div>
-      <div v-if="mcp.servers.length > 0" class="server-list">
+      <div v-if="Array.isArray(mcp.servers) && mcp.servers.length > 0" class="server-list">
         <div
           v-for="server in mcp.servers"
           :key="server.name"
@@ -74,7 +74,7 @@ onMounted(fetchMcp);
             <span class="detail-label">{{ t("mcp.command") }}:</span>
             <code class="detail-value">{{ server.command }}</code>
           </div>
-          <div v-if="server.capabilities.length > 0" class="server-details">
+          <div v-if="Array.isArray(server.capabilities) && server.capabilities.length > 0" class="server-details">
             <span class="detail-label">{{ t("mcp.capabilities") }}:</span>
             <span class="detail-value">{{ server.capabilities.join(", ") }}</span>
           </div>
