@@ -15,7 +15,25 @@
     "autonomy": "Autonomy",
     "scheduler": "Scheduler",
     "gateway": "Gateway",
-    "webhook": "Webhook"
+    "webhook": "Webhook",
+    "webSearch": "Web search",
+    "browser": "Browser",
+    "composio": "Composio",
+    "memory": "Memory",
+    "updates": "Updates",
+    "channels": "Channels",
+    "schedulerStatus": "Scheduler Status",
+    "health": "System Health",
+    "cost": "Cost Tracking",
+    "mcp": "MCP Servers",
+    "tunnel": "Tunnel",
+    "reliability": "Reliability",
+    "heartbeat": "Heartbeat"
+  },
+  "health": {
+    "loading": "Loading health...",
+    "uptime": "Uptime",
+    "restarts": "Restarts"
   },
   "auth": {
     "baseUrl": "Gateway base URL",
@@ -215,10 +233,17 @@
   },
   "security": {
     "identity_format": "Identity format",
-    "identity_aieos_path": "Identity AIEOS path"
+    "identity_aieos_path": "Identity AIEOS path",
+    "requireApprovalMediumRisk": "Require approval for medium risk",
+    "blockHighRiskCommands": "Block high risk commands",
+    "autoApprove": "Auto-approve commands (comma-separated)",
+    "alwaysAsk": "Always ask commands (comma-separated)",
+    "placeholderCommands": "command1, command2"
   },
   "errors": {
-    "insecureUrlError": "Credentials cannot be sent over HTTP to a remote host. Use HTTPS or a local host."
+    "insecureUrlError": "Credentials cannot be sent over HTTP to a remote host. Use HTTPS or a local host.",
+    "invalidGatewayUrl": "Invalid gateway URL",
+    "costNotAvailable": "Cost data not available"
   },
   "chat": {
     "welcome": "Hello, I am {modelName}. How can I help you?",
@@ -227,6 +252,7 @@
     "unauthorizedError": "Unauthorized. Pair with /pair and use the bearer token.",
     "rateLimitError": "Too many requests. Please wait a moment and try again.",
     "timeoutError": "The gateway took too long to respond.",
+    "streamUnavailable": "Streaming is not available. Falling back to standard request.",
     "emptyResponse": "The gateway returned no content.",
     "inputPlaceholder": "Type a message...",
     "send": "Send",
@@ -241,6 +267,11 @@
     "sessionActive": "Session: {sessionId}",
     "connectBeforeChat": "Complete gateway onboarding before starting chat.",
     "emptyMessageError": "Enter a message before sending.",
+    "approve": "Approve",
+    "reject": "Reject",
+    "connected": "Connected",
+    "disconnected": "Disconnected",
+    "toolApprovalTitle": "Tool requires approval",
     "disclaimer": "Corvus Agent can make mistakes. Check important information."
   },
   "webhook": {
@@ -248,5 +279,114 @@
     "secretStatus": "Current secret: {status}",
     "statusConfigured": "configured",
     "statusNotConfigured": "not configured"
+  },
+  "webSearch": {
+    "enabled": "Enabled",
+    "provider": "Provider",
+    "maxResults": "Max results",
+    "timeoutSecs": "Timeout (seconds)",
+    "braveApiKeyMode": "Brave API key",
+    "braveApiKeyValue": "New Brave API key"
+  },
+  "browser": {
+    "computerUseApiKeyMode": "Computer use API key",
+    "computerUseApiKeyValue": "New computer use API key"
+  },
+  "composio": {
+    "enabled": "Enabled",
+    "entityId": "Entity ID",
+    "apiKeyMode": "API key",
+    "apiKeyValue": "New API key"
+  },
+  "memory": {
+    "cerebroEndpoint": "Cerebro endpoint",
+    "cerebroTimeoutMs": "Cerebro timeout (ms)",
+    "cerebroAllowInsecureLoopback": "Allow insecure loopback",
+    "cerebroAuthTokenMode": "Auth token",
+    "cerebroAuthTokenValue": "New auth token"
+  },
+  "scheduler": {
+    "loading": "Loading scheduler status...",
+    "enabled": "Enabled",
+    "maxTasks": "Max tasks",
+    "maxConcurrent": "Max concurrent",
+    "taskCount": "Active tasks",
+    "notAvailable": "Not available",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "channels": {
+    "loading": "Loading channels...",
+    "configured": "Configured",
+    "notConfigured": "Not configured"
+  },
+  "cost": {
+    "loading": "Loading cost tracking...",
+    "enabled": "Enabled",
+    "dailyLimit": "Daily limit (USD)",
+    "monthlyLimit": "Monthly limit (USD)",
+    "warnAtPercent": "Warn at percent",
+    "allowOverride": "Allow override",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "mcp": {
+    "loading": "Loading MCP servers...",
+    "enabled": "Enabled",
+    "command": "Command",
+    "capabilities": "Capabilities",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "tunnel": {
+    "loading": "Loading tunnel...",
+    "provider": "Provider",
+    "cloudflareToken": "Cloudflare token",
+    "tailscaleFunnel": "Tailscale funnel",
+    "tailscaleHostname": "Tailscale hostname",
+    "ngrokAuthToken": "ngrok auth token",
+    "ngrokDomain": "ngrok domain",
+    "customHealthUrl": "Custom health URL",
+    "noData": "No tunnel data available.",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "reliability": {
+    "loading": "Loading reliability...",
+    "providerRetries": "Provider retries",
+    "providerBackoff": "Provider backoff",
+    "fallbackProviders": "Fallback providers",
+    "modelFallbacks": "Model fallbacks",
+    "channelInitialBackoff": "Channel initial backoff",
+    "channelMaxBackoff": "Channel max backoff",
+    "schedulerPoll": "Scheduler poll interval",
+    "schedulerRetries": "Scheduler retries",
+    "none": "None",
+    "unit": {
+      "ms": "ms",
+      "s": "s"
+    }
+  },
+  "heartbeat": {
+    "loading": "Loading heartbeat...",
+    "enabled": "Enabled",
+    "interval": "Interval (minutes)",
+    "unit": "min",
+    "noData": "No heartbeat data available.",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "updates": {
+    "currentVersion": "Current version",
+    "latestVersion": "Latest version",
+    "updateAvailable": "Update available",
+    "autoInstallEnabled": "Auto-install enabled",
+    "restartPolicy": "Restart policy",
+    "lastCheckOutcome": "Last check outcome",
+    "effectiveInstallMethod": "Effective install method",
+    "yes": "Yes",
+    "no": "No",
+    "unknown": "Unknown",
+    "never": "Never"
   }
 }

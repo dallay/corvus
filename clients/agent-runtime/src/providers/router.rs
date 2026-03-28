@@ -1,5 +1,6 @@
 use super::traits::{ChatMessage, ChatRequest, ChatResponse};
 use super::Provider;
+use crate::channels::media::ImageRejectionReason;
 use async_trait::async_trait;
 use std::collections::HashMap;
 
@@ -152,11 +153,12 @@ impl Provider for RouterProvider {
 
         // Fail-closed: reject image turns to text-only providers.
         if !request.images.is_empty() && !provider.capabilities().supports_image_input() {
-            anyhow::bail!(
-                "Image turn cannot be routed to provider \
-                 '{provider_name}' (model '{resolved_model}'): \
-                 provider does not support image input"
+            tracing::warn!(
+                provider = provider_name.as_str(),
+                model = resolved_model.as_str(),
+                "Rejected image turn for non-image-capable route"
             );
+            return Err(ImageRejectionReason::RouteNotImageCapable.into());
         }
 
         provider.chat(request, &resolved_model, temperature).await
@@ -202,6 +204,7 @@ mod tests {
 
     struct MockProvider {
         calls: Arc<AtomicUsize>,
+        chat_calls: Arc<AtomicUsize>,
         response: &'static str,
         last_model: parking_lot::Mutex<String>,
     }
@@ -210,6 +213,7 @@ mod tests {
         fn new(response: &'static str) -> Self {
             Self {
                 calls: Arc::new(AtomicUsize::new(0)),
+                chat_calls: Arc::new(AtomicUsize::new(0)),
                 response,
                 last_model: parking_lot::Mutex::new(String::new()),
             }
@@ -217,6 +221,10 @@ mod tests {
 
         fn call_count(&self) -> usize {
             self.calls.load(Ordering::SeqCst)
+        }
+
+        fn chat_call_count(&self) -> usize {
+            self.chat_calls.load(Ordering::SeqCst)
         }
 
         fn last_model(&self) -> String {
@@ -236,6 +244,22 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             *self.last_model.lock() = model.to_string();
             Ok(self.response.to_string())
+        }
+
+        async fn chat(
+            &self,
+            request: ChatRequest<'_>,
+            model: &str,
+            temperature: f64,
+        ) -> anyhow::Result<ChatResponse> {
+            self.chat_calls.fetch_add(1, Ordering::SeqCst);
+            let text = self
+                .chat_with_history(request.messages, model, temperature)
+                .await?;
+            Ok(ChatResponse {
+                text: Some(text),
+                tool_calls: Vec::new(),
+            })
         }
     }
 
@@ -512,10 +536,11 @@ mod tests {
             .chat(request, "model", 0.5)
             .await
             .expect_err("should reject image turn");
-        assert!(
-            err.to_string().contains("does not support image input"),
-            "Error should mention image support, got: {err}"
-        );
+        let rejection = err
+            .downcast_ref::<ImageRejectionReason>()
+            .expect("expected structured image rejection");
+        assert_eq!(rejection, &ImageRejectionReason::RouteNotImageCapable);
+        assert_eq!(_mocks[0].chat_call_count(), 0);
     }
 
     #[tokio::test]

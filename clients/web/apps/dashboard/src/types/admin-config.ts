@@ -57,6 +57,158 @@ export interface AdminOptionsResponse {
   autonomy_levels?: string[];
 }
 
+export interface AdminWebSearchView {
+  enabled: boolean;
+  provider: string;
+  max_results: number;
+  timeout_secs: number;
+  has_brave_api_key: boolean;
+}
+
+export interface AdminBrowserView {
+  has_computer_use_api_key: boolean;
+}
+
+export interface AdminComposioView {
+  enabled: boolean;
+  entity_id: string;
+  has_api_key: boolean;
+}
+
+export interface AdminMemoryView {
+  backend: string;
+  cerebro: AdminCerebroMemoryView;
+}
+
+export interface AdminCerebroMemoryView {
+  endpoint?: string | null;
+  has_auth_token: boolean;
+  request_timeout_ms: number;
+  allow_insecure_loopback: boolean;
+}
+
+export interface AdminUpdatesView {
+  enabled: boolean;
+  auto_install_enabled: boolean;
+  channel_visibility_enabled: boolean;
+  cli_startup_notice_enabled: boolean;
+  install_method_override?: string | null;
+  restart_policy: string;
+  status: AdminUpdateStatusView;
+}
+
+export interface AdminUpdateStatusView {
+  current_version: string;
+  latest_version?: string | null;
+  update_available: boolean;
+  last_check_at_unix?: number | null;
+  last_check_outcome?: string | null;
+  effective_install_method: string;
+  install_method_source: string;
+}
+
+export interface AdminProviderView {
+  has_api_key: boolean;
+}
+
+export interface AdminIdentityView {
+  format: string;
+  aieos_path?: string | null;
+  has_aieos_inline: boolean;
+}
+
+export interface AdminGatewayExtendedView {
+  trust_forwarded_headers: boolean;
+  rate_limit_max_keys: number;
+  idempotency_ttl_secs: number;
+  idempotency_max_keys: number;
+  paired_tokens_count: number;
+}
+
+export interface AdminAutonomyExtendedView {
+  require_approval_for_medium_risk: boolean;
+  block_high_risk_commands: boolean;
+  auto_approve: string[];
+  always_ask: string[];
+}
+
+export interface AdminHealthSnapshot {
+  pid: number;
+  updated_at: string;
+  uptime_seconds: number;
+  components: Record<string, AdminComponentHealth>;
+}
+
+export interface AdminComponentHealth {
+  status: string;
+  updated_at: string;
+  last_ok?: string | null;
+  last_error?: string | null;
+  restart_count: number;
+}
+
+export interface AdminSchedulerStatusView {
+  enabled: boolean;
+  max_tasks: number;
+  max_concurrent: number;
+  task_count: number;
+}
+
+export interface AdminChannelStatusView {
+  channel_type: string;
+  configured: boolean;
+  config_summary: Record<string, unknown>;
+}
+
+export interface AdminCostView {
+  enabled: boolean;
+  daily_limit_usd: number;
+  monthly_limit_usd: number;
+  warn_at_percent: number;
+  allow_override: boolean;
+}
+
+export interface AdminMcpView {
+  enabled: boolean;
+  servers: AdminMcpServerView[];
+}
+
+export interface AdminMcpServerView {
+  name: string;
+  enabled: boolean;
+  command: string;
+  capabilities: string[];
+  startup_timeout_ms: number;
+  call_timeout_ms: number;
+  output_limit_bytes: number;
+}
+
+export interface AdminTunnelView {
+  provider: string;
+  has_cloudflare_token: boolean;
+  tailscale_funnel?: boolean | null;
+  tailscale_hostname?: string | null;
+  has_ngrok_auth_token: boolean;
+  ngrok_domain?: string | null;
+  custom_health_url?: string | null;
+}
+
+export interface AdminReliabilityView {
+  provider_retries: number;
+  provider_backoff_ms: number;
+  fallback_providers: string[];
+  model_fallbacks: Record<string, string[]>;
+  channel_initial_backoff_secs: number;
+  channel_max_backoff_secs: number;
+  scheduler_poll_secs: number;
+  scheduler_retries: number;
+}
+
+export interface AdminHeartbeatView {
+  enabled: boolean;
+  interval_minutes: number;
+}
+
 export interface AdminConfigView {
   default_provider?: string | null;
   default_model?: string | null;
@@ -79,6 +231,10 @@ export interface AdminConfigView {
     workspace_only?: boolean;
     max_actions_per_hour?: number;
     max_cost_per_day_cents?: number;
+    require_approval_for_medium_risk?: boolean;
+    block_high_risk_commands?: boolean;
+    auto_approve?: string[];
+    always_ask?: string[];
   };
   identity?: {
     format?: string;
@@ -122,6 +278,15 @@ export interface AdminConfigView {
       install_method_source?: string;
     };
   };
+  composio?: AdminComposioView;
+  web_search?: AdminWebSearchView;
+  memory?: AdminMemoryView;
+  browser?: AdminBrowserView;
+  cost?: AdminCostView;
+  mcp?: AdminMcpView;
+  tunnel?: AdminTunnelView;
+  reliability?: AdminReliabilityView;
+  heartbeat?: AdminHeartbeatView;
 }
 
 export interface AdminConfigResponse {
@@ -142,6 +307,10 @@ export interface AdminConfigForm {
   autonomy_workspace_only: boolean;
   autonomy_max_actions_per_hour: string;
   autonomy_max_cost_per_day_cents: string;
+  autonomy_require_approval_for_medium_risk: boolean;
+  autonomy_block_high_risk_commands: boolean;
+  autonomy_auto_approve: string;
+  autonomy_always_ask: string;
   identity_format: string;
   identity_aieos_path: string;
   scheduler_enabled: boolean;
@@ -158,6 +327,31 @@ export interface AdminConfigForm {
   webhook_secret_mode: SecretMode;
   webhook_secret_value: string;
   webhook_secret_exists: boolean;
+  // Web Search
+  web_search_enabled: boolean;
+  web_search_provider: string;
+  web_search_max_results: string;
+  web_search_timeout_secs: string;
+  web_search_brave_api_key_mode: SecretMode;
+  web_search_brave_api_key_value: string;
+  web_search_has_brave_api_key: boolean;
+  // Browser
+  browser_computer_use_api_key_mode: SecretMode;
+  browser_computer_use_api_key_value: string;
+  browser_has_computer_use_api_key: boolean;
+  // Composio
+  composio_enabled: boolean;
+  composio_entity_id: string;
+  composio_api_key_mode: SecretMode;
+  composio_api_key_value: string;
+  composio_has_api_key: boolean;
+  // Memory (extended)
+  memory_cerebro_endpoint: string;
+  memory_cerebro_timeout_ms: string;
+  memory_cerebro_allow_insecure_loopback: boolean;
+  memory_cerebro_auth_token_mode: SecretMode;
+  memory_cerebro_auth_token_value: string;
+  memory_cerebro_has_auth_token: boolean;
 }
 
 export interface AdminConfigSnapshot {
@@ -174,6 +368,10 @@ export interface AdminConfigSnapshot {
   autonomy_workspace_only: boolean;
   autonomy_max_actions_per_hour: number;
   autonomy_max_cost_per_day_cents: number;
+  autonomy_require_approval_for_medium_risk: boolean;
+  autonomy_block_high_risk_commands: boolean;
+  autonomy_auto_approve: string;
+  autonomy_always_ask: string;
   identity_format: string;
   identity_aieos_path: string;
   scheduler_enabled: boolean;
@@ -188,6 +386,53 @@ export interface AdminConfigSnapshot {
   webhook_enabled: boolean;
   webhook_port: number;
   webhook_secret_exists: boolean;
+  // Web Search
+  web_search_enabled: boolean;
+  web_search_provider: string;
+  web_search_max_results: number;
+  web_search_timeout_secs: number;
+  web_search_has_brave_api_key: boolean;
+  // Browser
+  browser_has_computer_use_api_key: boolean;
+  // Composio
+  composio_enabled: boolean;
+  composio_entity_id: string;
+  composio_has_api_key: boolean;
+  // Memory (extended)
+  memory_cerebro_endpoint: string;
+  memory_cerebro_timeout_ms: number;
+  memory_cerebro_allow_insecure_loopback: boolean;
+  memory_cerebro_has_auth_token: boolean;
+}
+
+export interface AdminComposioPatch {
+  enabled?: boolean;
+  entity_id?: string;
+  api_key?: SecretUpdate;
+}
+
+export interface AdminWebSearchPatch {
+  enabled?: boolean;
+  provider?: string;
+  max_results?: number;
+  timeout_secs?: number;
+  brave_api_key?: SecretUpdate;
+}
+
+export interface AdminBrowserPatch {
+  computer_use_api_key?: SecretUpdate;
+}
+
+export interface AdminMemoryPatch {
+  backend?: string;
+  cerebro?: AdminCerebroMemoryPatch;
+}
+
+export interface AdminCerebroMemoryPatch {
+  endpoint?: string;
+  request_timeout_ms?: number;
+  allow_insecure_loopback?: boolean;
+  auth_token?: SecretUpdate;
 }
 
 export interface AdminConfigUpdateRequest {
@@ -212,6 +457,10 @@ export interface AdminConfigUpdateRequest {
     workspace_only?: boolean;
     max_actions_per_hour?: number;
     max_cost_per_day_cents?: number;
+    require_approval_for_medium_risk?: boolean;
+    block_high_risk_commands?: boolean;
+    auto_approve?: string[];
+    always_ask?: string[];
   };
   identity?: {
     format?: string;
@@ -237,6 +486,10 @@ export interface AdminConfigUpdateRequest {
       secret?: SecretUpdate;
     };
   };
+  composio?: AdminComposioPatch;
+  web_search?: AdminWebSearchPatch;
+  browser?: AdminBrowserPatch;
+  memory?: AdminMemoryPatch;
 }
 
 export type ConfigSection =
@@ -246,4 +499,15 @@ export type ConfigSection =
   | "runtime"
   | "scheduler"
   | "gateway"
-  | "webhook";
+  | "webhook"
+  | "web-search"
+  | "browser"
+  | "composio"
+  | "memory"
+  | "provider-pools"
+  | "updates"
+  | "cost"
+  | "mcp"
+  | "tunnel"
+  | "reliability"
+  | "heartbeat";

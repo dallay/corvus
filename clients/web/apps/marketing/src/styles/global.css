@@ -1,46 +1,19 @@
-@import "@corvus/shared/tokens.css";
+@import url("@corvus/shared/theme.css");
+@import url("@corvus/shared/base.css");
 
 :root {
-  --surface: rgba(10, 15, 25, 0.84);
-  --surface-strong: rgba(6, 10, 18, 0.92);
-  --surface-soft: rgba(16, 24, 39, 0.78);
-  --surface-highlight: rgba(56, 189, 248, 0.1);
-  --border: rgba(148, 163, 184, 0.16);
-  --border-strong: rgba(56, 189, 248, 0.32);
+  --surface: rgb(10 15 25 / 84%);
+  --surface-strong: rgb(6 10 18 / 92%);
+  --surface-soft: rgb(16 24 39 / 78%);
+  --surface-highlight: rgb(56 189 248 / 10%);
+  --border: rgb(148 163 184 / 16%);
+  --border-strong: rgb(56 189 248 / 32%);
   --text-soft: #cbd5e1;
   --text-dim: #9aa7ba;
   --accent: #38bdf8;
   --accent-strong: #0ea5e9;
-  --accent-soft: rgba(56, 189, 248, 0.16);
-  --shadow: 0 24px 80px rgba(2, 6, 23, 0.4);
-}
-
-* {
-  box-sizing: border-box;
-}
-
-html {
-  scroll-behavior: smooth;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  html {
-    scroll-behavior: auto;
-  }
-
-  *,
-  *::before,
-  *::after {
-    animation-duration: 0.01ms;
-    animation-iteration-count: 1;
-    transition-duration: 0.01ms;
-  }
-}
-
-html,
-body {
-  margin: 0;
-  min-height: 100%;
+  --accent-soft: rgb(56 189 248 / 16%);
+  --shadow: 0 24px 80px rgb(2 6 23 / 40%);
 }
 
 body {
@@ -48,21 +21,6 @@ body {
   color: var(--corvus-text);
   font-family: var(--corvus-font-sans);
   line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-a {
-  color: inherit;
-}
-
-img {
-  display: block;
-}
-
-code,
-pre {
-  font-family: var(--corvus-font-mono);
 }
 
 h1,
@@ -83,7 +41,7 @@ dt {
   z-index: 10;
   padding: 0.75rem 1rem;
   border-radius: 999px;
-  background: #ffffff;
+  background: #fff;
   color: #020617;
   text-decoration: none;
   transform: translateY(-140%);
@@ -100,10 +58,10 @@ dt {
   z-index: -1;
   pointer-events: none;
   background:
-    radial-gradient(circle at top left, rgba(56, 189, 248, 0.18), transparent 32%),
-    radial-gradient(circle at 85% 14%, rgba(14, 165, 233, 0.12), transparent 26%),
-    radial-gradient(circle at bottom center, rgba(99, 102, 241, 0.12), transparent 38%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 24%), var(--corvus-bg);
+    radial-gradient(circle at top left, rgb(56 189 248 / 18%), transparent 32%),
+    radial-gradient(circle at 85% 14%, rgb(14 165 233 / 12%), transparent 26%),
+    radial-gradient(circle at bottom center, rgb(99 102 241 / 12%), transparent 38%),
+    linear-gradient(180deg, rgb(255 255 255 / 2%), transparent 24%), var(--corvus-bg);
 }
 
 .site-backdrop::after {
@@ -111,10 +69,10 @@ dt {
   position: absolute;
   inset: 0;
   background-image:
-    linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+    linear-gradient(rgb(148 163 184 / 5%) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(148 163 184 / 5%) 1px, transparent 1px);
   background-size: 28px 28px;
-  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.8), transparent 90%);
+  mask-image: linear-gradient(180deg, rgb(0 0 0 / 80%), transparent 90%);
 }
 
 .shell {
@@ -168,11 +126,6 @@ dt {
     background-color 160ms ease,
     border-color 160ms ease,
     transform 160ms ease;
-}
-
-.topbar-nav > a:not(.btn):hover {
-  background: rgba(148, 163, 184, 0.08);
-  color: var(--corvus-text);
 }
 
 .hero {
@@ -251,7 +204,7 @@ h3 {
 .cta-band,
 .stat-card {
   border: 1px solid var(--border);
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.84), rgba(6, 10, 18, 0.94));
+  background: linear-gradient(180deg, rgb(15 23 42 / 84%), rgb(6 10 18 / 94%));
   box-shadow: var(--shadow);
 }
 
@@ -267,7 +220,7 @@ h3 {
   inset: -30% auto auto -40%;
   width: 55%;
   height: 180%;
-  background: linear-gradient(90deg, transparent, rgba(125, 211, 252, 0.12), transparent);
+  background: linear-gradient(90deg, transparent, rgb(125 211 252 / 12%), transparent);
   transform: rotate(12deg);
   pointer-events: none;
   opacity: 0;
@@ -279,8 +232,8 @@ h3 {
   gap: 0.5rem;
   align-items: center;
   padding: 0.95rem 1.1rem;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.14);
-  background: rgba(15, 23, 42, 0.7);
+  border-bottom: 1px solid rgb(148 163 184 / 14%);
+  background: rgb(15 23 42 / 70%);
 }
 
 .terminal-head span {
@@ -309,9 +262,9 @@ h3 {
 }
 
 .copy-button {
-  border: 1px solid rgba(56, 189, 248, 0.24);
+  border: 1px solid rgb(56 189 248 / 24%);
   border-radius: 999px;
-  background: rgba(8, 47, 73, 0.92);
+  background: rgb(8 47 73 / 92%);
   color: #e0f2fe;
   padding: 0.38rem 0.72rem;
   font-family: var(--corvus-font-mono);
@@ -326,15 +279,15 @@ h3 {
 }
 
 .copy-button:hover {
-  background: rgba(12, 74, 110, 0.96);
-  border-color: rgba(125, 211, 252, 0.4);
+  background: rgb(12 74 110 / 96%);
+  border-color: rgb(125 211 252 / 40%);
   color: #f0f9ff;
   transform: translateY(-1px);
 }
 
 .copy-button.is-copied {
-  background: rgba(6, 78, 59, 0.92);
-  border-color: rgba(52, 211, 153, 0.4);
+  background: rgb(6 78 59 / 92%);
+  border-color: rgb(52 211 153 / 40%);
   color: #ecfdf5;
 }
 
@@ -343,7 +296,7 @@ h3 {
   overflow-x: hidden;
   padding: 1rem 1.1rem;
   border-radius: 18px;
-  background: rgba(2, 6, 23, 0.88);
+  background: rgb(2 6 23 / 88%);
   color: #d9f99d;
   font-size: 0.9rem;
   line-height: 1.7;
@@ -370,7 +323,8 @@ h3 {
 
 .terminal-actions a,
 .inline-link,
-.faq-list a {
+.faq-list a,
+.footer-links a {
   color: #7dd3fc;
   text-decoration: none;
   font-family: var(--corvus-font-mono);
@@ -380,7 +334,8 @@ h3 {
 
 .terminal-actions a:hover,
 .inline-link:hover,
-.faq-list a:hover {
+.faq-list a:hover,
+.footer-links a:hover {
   color: #bae6fd;
 }
 
@@ -455,8 +410,8 @@ h3 {
 .btn-primary {
   background: linear-gradient(135deg, #0369a1, #4338ca);
   color: #f8fafc;
-  box-shadow: 0 12px 40px rgba(14, 165, 233, 0.28);
-  text-shadow: 0 1px 1px rgba(2, 6, 23, 0.28);
+  box-shadow: 0 12px 40px rgb(14 165 233 / 28%);
+  text-shadow: 0 1px 1px rgb(2 6 23 / 28%);
 }
 
 .topbar-nav > a.btn-primary {
@@ -465,7 +420,7 @@ h3 {
 
 .btn-ghost {
   border-color: var(--border);
-  background: rgba(15, 23, 42, 0.42);
+  background: rgb(15 23 42 / 42%);
   color: var(--text-soft);
 }
 
@@ -486,7 +441,7 @@ h3 {
   left: 0;
   right: 0;
   height: 1px;
-  background: linear-gradient(90deg, transparent, rgba(56, 189, 248, 0.3), transparent);
+  background: linear-gradient(90deg, transparent, rgb(56 189 248 / 30%), transparent);
 }
 
 .section-head {
@@ -574,8 +529,8 @@ h3 {
 .command-list li {
   padding: 0.9rem 1rem;
   border-radius: 16px;
-  background: rgba(2, 6, 23, 0.82);
-  border: 1px solid rgba(148, 163, 184, 0.12);
+  background: rgb(2 6 23 / 82%);
+  border: 1px solid rgb(148 163 184 / 12%);
 }
 
 .feature-card h3,
@@ -605,14 +560,14 @@ h3 {
 }
 
 .faq-list details {
-  border: 1px solid rgba(148, 163, 184, 0.14);
+  border: 1px solid rgb(148 163 184 / 14%);
   border-radius: 18px;
-  background: rgba(2, 6, 23, 0.4);
+  background: rgb(2 6 23 / 40%);
 }
 
 .faq-list details[open] {
-  background: rgba(14, 165, 233, 0.08);
-  border-color: rgba(56, 189, 248, 0.28);
+  background: rgb(14 165 233 / 8%);
+  border-color: rgb(56 189 248 / 28%);
 }
 
 .faq-list summary {
@@ -638,7 +593,7 @@ h3 {
   width: 1.4rem;
   height: 1.4rem;
   border-radius: 999px;
-  background: rgba(56, 189, 248, 0.12);
+  background: rgb(56 189 248 / 12%);
   color: var(--accent);
   font-family: var(--corvus-font-mono);
   font-weight: 700;
@@ -695,17 +650,13 @@ h3 {
   gap: 1rem;
 }
 
-.footer a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.footer a:hover {
+.topbar-nav > a:not(.btn):hover {
+  background: rgb(148 163 184 / 8%);
   color: var(--corvus-text);
 }
 
 :focus-visible {
-  outline: 2px solid #ffffff;
+  outline: 2px solid #fff;
   outline-offset: 3px;
 }
 
@@ -745,7 +696,7 @@ h3 {
   .stat-card:hover,
   .cta-band:hover {
     transform: translateY(-2px);
-    border-color: rgba(56, 189, 248, 0.32);
+    border-color: rgb(56 189 248 / 32%);
   }
 }
 
@@ -754,6 +705,7 @@ h3 {
   100% {
     translate: 0 0;
   }
+
   50% {
     translate: 0 -4px;
   }
@@ -765,13 +717,16 @@ h3 {
     opacity: 0;
     transform: translateX(-20%) rotate(12deg);
   }
+
   40% {
     opacity: 1;
   }
+
   60% {
     opacity: 0;
     transform: translateX(220%) rotate(12deg);
   }
+
   100% {
     opacity: 0;
     transform: translateX(220%) rotate(12deg);
@@ -782,15 +737,17 @@ h3 {
   0% {
     transform: scale(0.96);
   }
+
   60% {
     transform: scale(1.04);
   }
+
   100% {
     transform: scale(1);
   }
 }
 
-@media (max-width: 960px) {
+@media (width <= 960px) {
   .shell {
     width: min(1120px, calc(100% - 1.25rem));
   }
@@ -824,7 +781,7 @@ h3 {
   }
 }
 
-@media (max-width: 640px) {
+@media (width <= 640px) {
   .hero {
     padding-top: 3.25rem;
   }

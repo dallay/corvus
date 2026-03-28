@@ -1,0 +1,38 @@
+@import url("./theme.css");
+@import url("./base.css");
+
+/* Shared dark application shell for the Vue apps.
+   App-specific layout and visuals should live in each app stylesheet. */
+
+html {
+  height: 100%;
+  color-scheme: dark;
+}
+
+body,
+#app {
+  min-height: 100dvh;
+}
+
+body {
+  font-family: var(--font-sans);
+  color: var(--color-text-primary);
+  background: var(--color-bg-primary);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-bg-hover);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
