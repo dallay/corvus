@@ -80,6 +80,16 @@ describe("App", () => {
         })
       )
       .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      // Stream endpoint — rejected so fallback to /webhook fires
+      .mockResolvedValueOnce(
+        new Response("", { status: 500 })
+      )
+      .mockResolvedValueOnce(
         new Response(
           JSON.stringify({
             response: "Respuesta <b>ok</b>",
@@ -124,12 +134,15 @@ describe("App", () => {
     await wrapper.get("form").trigger("submit.prevent");
     await flushPromises();
 
-    expect(fetchMock).toHaveBeenCalledTimes(4);
+    expect(fetchMock).toHaveBeenCalledTimes(6);
     const [pairUrl, pairInit] = fetchMock.mock.calls[1] ?? [];
     expect(String(pairUrl)).toContain("/pair");
     expect((pairInit?.headers as Record<string, string>)["X-Pairing-Code"]).toBe("123456");
 
-    const [webhookUrl, webhookInit] = fetchMock.mock.calls[3] ?? [];
+    const [streamUrl] = fetchMock.mock.calls[4] ?? [];
+    expect(String(streamUrl)).toContain("/web/chat/stream");
+
+    const [webhookUrl, webhookInit] = fetchMock.mock.calls[5] ?? [];
     expect(String(webhookUrl)).toContain("/webhook");
     expect((webhookInit?.headers as Record<string, string>).Authorization).toBe(
       "Bearer zc_test_token"
@@ -152,6 +165,12 @@ describe("App", () => {
     fetchMock
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ status: "ok", paired: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok" }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         })

@@ -1,22 +1,31 @@
 <script setup lang="ts">
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import { Button } from "@corvus/ui";
-import { computed, nextTick, onUnmounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ConfigPanel from "@/components/ConfigPanel.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import HealthIndicator from "@/components/HealthIndicator.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ChatMessage from "@/components/chat/ChatMessage.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import ToolApprovalCard from "@/components/chat/ToolApprovalCard.vue";
 import { useChat } from "@/composables/useChat";
 import { useGateway } from "@/composables/useGateway";
 
 type Role = "assistant" | "user";
+type MessageStatus = "streaming" | "complete" | "error";
 
 interface Message {
   id: number;
   role: Role;
   content: string;
+  status?: MessageStatus;
+  approvalId?: string;
+  toolName?: string;
+  reason?: string;
 }
 
 const MAX_PROMPT_LENGTH = 500;
@@ -73,13 +82,17 @@ function scrollChatToBottom(): void {
   chatContainer.value.scrollTop = chatContainer.value.scrollHeight;
 }
 
-function updateAssistantMessage(messageId: number, content: string): void {
+function updateAssistantMessage(
+  messageId: number,
+  content: string,
+  status?: MessageStatus
+): void {
   const messageIndex = messages.value.findIndex((item) => item.id === messageId);
   if (messageIndex >= 0) {
     messages.value[messageIndex] = {
-      id: messageId,
-      role: "assistant",
+      ...messages.value[messageIndex],
       content,
+      status,
     };
   }
 }
@@ -139,11 +152,44 @@ async function sendMessage(): Promise<void> {
   scrollChatToBottom();
 
   try {
-    const reply = await chat.sendMessage(normalizedText);
-    updateAssistantMessage(assistantMessageId, reply);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : t("chat.requestError", { text });
-    updateAssistantMessage(assistantMessageId, message);
+    // Try streaming first
+    updateAssistantMessage(assistantMessageId, "", "streaming");
+    await chat.streamMessage(normalizedText, (chunk) => {
+      updateAssistantMessage(assistantMessageId, chunk, "streaming");
+      nextTick().then(scrollChatToBottom);
+    });
+    updateAssistantMessage(
+      assistantMessageId,
+      messages.value.find((m) => m.id === assistantMessageId)?.content ?? "",
+      "complete"
+    );
+  } catch {
+    // Fall back to non-streaming sendMessage
+    try {
+      updateAssistantMessage(
+        assistantMessageId,
+        t("chat.processing", { text: normalizedText, modelName, gateway: gateway.normalizeBaseUrl() }),
+        undefined
+      );
+      const result = await chat.sendMessage(normalizedText);
+      if (result.type === "approval_required") {
+        updateAssistantMessage(assistantMessageId, t("chat.toolApprovalTitle"));
+        messages.value.push({
+          id: nextMessageId(),
+          role: "assistant",
+          content: "",
+          approvalId: result.sessionId,
+          toolName: result.tool,
+          reason: result.reason,
+        });
+      } else {
+        updateAssistantMessage(assistantMessageId, result.content, "complete");
+      }
+    } catch (fallbackError) {
+      const message =
+        fallbackError instanceof Error ? fallbackError.message : t("chat.requestError", { text });
+      updateAssistantMessage(assistantMessageId, message, "error");
+    }
   }
 
   await nextTick();
@@ -158,6 +204,82 @@ watch(
     }
   }
 );
+
+function messagesStorageKey(): string {
+  return `corvus-chat-messages-${chat.currentSessionId.value}`;
+}
+
+function persistMessages(): void {
+  if (!chat.currentSessionId.value) return;
+  try {
+    const serializable = messages.value.map((m) => ({
+      id: m.id,
+      role: m.role,
+      content: m.content,
+      approvalId: m.approvalId,
+      toolName: m.toolName,
+      reason: m.reason,
+    }));
+    sessionStorage.setItem(messagesStorageKey(), JSON.stringify(serializable));
+  } catch {
+    // Ignore storage failures.
+  }
+}
+
+function restoreMessages(): void {
+  if (!chat.currentSessionId.value) return;
+  try {
+    const raw = sessionStorage.getItem(messagesStorageKey());
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as Message[];
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      messages.value = parsed;
+      messageIdCounter = Math.max(...parsed.map((m) => m.id)) + 1;
+    }
+  } catch {
+    // Ignore parse failures.
+  }
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function handleApprove(approvalId: string): void {
+  // Phase 5B stub: full round-trip will be wired in a follow-up.
+  const idx = messages.value.findIndex((m) => m.approvalId === approvalId);
+  if (idx >= 0) {
+    messages.value[idx] = {
+      ...messages.value[idx],
+      content: t("chat.approve"),
+      approvalId: undefined,
+      toolName: undefined,
+      reason: undefined,
+    };
+  }
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function handleReject(approvalId: string): void {
+  // Phase 5B stub: full round-trip will be wired in a follow-up.
+  const idx = messages.value.findIndex((m) => m.approvalId === approvalId);
+  if (idx >= 0) {
+    messages.value[idx] = {
+      ...messages.value[idx],
+      content: t("chat.reject"),
+      approvalId: undefined,
+      toolName: undefined,
+      reason: undefined,
+    };
+  }
+}
+
+watch(
+  () => messages.value,
+  () => persistMessages(),
+  { deep: true }
+);
+
+onMounted(() => {
+  restoreMessages();
+});
 
 onUnmounted(() => {
   prompt.value = "";
@@ -345,19 +467,35 @@ onUnmounted(() => {
       <template v-else>
         <div ref="chatContainer" class="chat-messages">
           <div class="chat-messages-inner">
-            <ChatMessage
-              v-for="message in messages"
-              :key="message.id"
-              :role="message.role"
-              :content="message.content"
-            />
+            <template v-for="message in messages" :key="message.id">
+              <ToolApprovalCard
+                v-if="message.approvalId"
+                :tool-name="message.toolName ?? ''"
+                :reason="message.reason ?? ''"
+                :approval-id="message.approvalId"
+                @approve="handleApprove"
+                @reject="handleReject"
+              />
+              <ChatMessage
+                v-else
+                :role="message.role"
+                :content="message.content"
+                :status="message.status"
+              />
+            </template>
           </div>
         </div>
 
         <div class="chat-toolbar">
-          <p class="session-pill">
-            {{ t("chat.sessionActive", { sessionId: chat.currentSessionId.value }) }}
-          </p>
+          <div class="chat-toolbar-left">
+            <p class="session-pill">
+              {{ t("chat.sessionActive", { sessionId: chat.currentSessionId.value }) }}
+            </p>
+            <HealthIndicator
+              :gateway-url="gateway.normalizeBaseUrl()"
+              :bearer-token="gateway.bearerToken.value"
+            />
+          </div>
           <Button variant="outline" @click="startNewSession">{{ t("chat.newSession") }}</Button>
         </div>
 
@@ -739,6 +877,13 @@ onUnmounted(() => {
   .chat-toolbar {
     padding: 0 64px 16px;
   }
+}
+
+.chat-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
 }
 
 .session-pill {

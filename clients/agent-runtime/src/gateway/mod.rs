@@ -24,7 +24,10 @@ use axum::{
     body::Bytes,
     extract::{ConnectInfo, Query, State},
     http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Json},
+    response::{
+        sse::{Event, Sse},
+        IntoResponse, Json,
+    },
     routing::{get, post},
     Router,
 };
@@ -1031,6 +1034,7 @@ fn print_startup_banner(
     println!("  GET  /web/admin/channels  — channel configuration status");
     println!("  GET  /web/admin/scheduler — scheduler configuration status");
     println!("  GET  /web/admin/health    — runtime health snapshot");
+    println!("  POST /web/chat/stream     — SSE streaming chat");
     if config.gateway.admin_expose_provider_pools {
         println!("  GET  /web/admin/provider-pools   — provider account pools");
         println!("  PUT  /web/admin/provider-pools   — update provider account pools");
@@ -1223,6 +1227,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/web/admin/channels", get(handle_admin_channels))
         .route("/web/admin/scheduler", get(handle_admin_scheduler_status))
         .route("/web/admin/health", get(handle_admin_health))
+        .route("/web/chat/stream", post(handle_chat_stream))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
         .with_state(state)
@@ -1707,6 +1712,135 @@ async fn handle_webhook(
     release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
 
     response
+}
+
+/// POST /web/chat/stream — SSE streaming chat endpoint
+///
+/// Accepts the same auth and body format as `/webhook`. Processes the message
+/// synchronously via the existing dispatch path, then streams the result back
+/// as Server-Sent Events so the frontend can consume an SSE contract.
+///
+/// Event types:
+/// - `chunk`  — partial response text
+/// - `done`   — final metadata (message_id, session_id)
+/// - `error`  — structured error
+async fn handle_chat_stream(
+    State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: WebhookJsonBody,
+) -> Result<Sse<impl futures::stream::Stream<Item = Result<Event, std::convert::Infallible>>>, WebhookResponse>
+{
+    // ── Auth (same as /webhook) ──────────────────────────
+    if let Some(rejection) = webhook_auth_rejection(&state, peer_addr, &headers) {
+        return Err(rejection);
+    }
+
+    let webhook_body = parse_webhook_body(body)?;
+    let message = &webhook_body.message;
+    let scrubbed_message = scrub_sensitive_boundary_text(message);
+    let (session_id, session_source) = resolve_session_id(&headers)?;
+
+    let config = state.config.lock().clone();
+    let dispatcher_enabled = webhook_dispatcher_enabled(&config);
+
+    // ── Process message via existing dispatch ────────────
+    let (response_text, is_error) = if dispatcher_enabled {
+        log_webhook_runtime_path(&session_id, true, "stream_dispatcher");
+        let result = webhook_dispatch::execute(
+            &config,
+            Arc::clone(&state.provider),
+            Arc::clone(&state.mem),
+            Arc::clone(&state.observer),
+            &state.model,
+            webhook_dispatch::WebhookTurnRequest {
+                session_id: session_id.clone(),
+                session_source,
+                message: message.clone(),
+                include_sse_frames: true,
+            },
+        )
+        .await;
+        log_webhook_terminal_outcome(
+            &session_id,
+            "stream_dispatcher",
+            webhook_outcome_label(&result.outcome),
+        );
+        match result.outcome {
+            webhook_dispatch::WebhookTerminalOutcome::Completed
+            | webhook_dispatch::WebhookTerminalOutcome::Fallback => {
+                let text = result
+                    .response_text
+                    .map(|t| scrub_sensitive_boundary_text(&t))
+                    .unwrap_or_default();
+                (text, false)
+            }
+            webhook_dispatch::WebhookTerminalOutcome::Error => {
+                ("LLM request failed".to_string(), true)
+            }
+            webhook_dispatch::WebhookTerminalOutcome::Timeout => {
+                ("Request timed out".to_string(), true)
+            }
+            webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { tool, reason } => {
+                let msg = format!("Approval required for tool `{tool}`: {reason}");
+                (msg, true)
+            }
+        }
+    } else {
+        log_webhook_runtime_path(&session_id, false, "stream_legacy");
+        if state.auto_save {
+            let key = webhook_memory_key();
+            let _ = state
+                .mem
+                .store(&key, &scrubbed_message, MemoryCategory::Conversation, None)
+                .await;
+        }
+        match state
+            .provider
+            .simple_chat(message, &state.model, state.temperature)
+            .await
+        {
+            Ok(response) => (scrub_sensitive_boundary_text(&response), false),
+            Err(e) => {
+                let sanitized = providers::sanitize_api_error(&e.to_string());
+                tracing::error!("Stream provider error: {sanitized}");
+                ("LLM request failed".to_string(), true)
+            }
+        }
+    };
+
+    // ── Build SSE event stream ───────────────────────────
+    let message_id = Uuid::new_v4().to_string();
+    let sid = session_id.clone();
+
+    let events: Vec<Result<Event, std::convert::Infallible>> = if is_error {
+        let error_data = serde_json::json!({
+            "code": "processing_error",
+            "message": response_text,
+        });
+        vec![
+            Ok(Event::default()
+                .event("error")
+                .data(error_data.to_string())),
+        ]
+    } else {
+        vec![
+            Ok(Event::default()
+                .event("chunk")
+                .data(&response_text)),
+            Ok(Event::default()
+                .event("done")
+                .data(
+                    serde_json::json!({
+                        "message_id": message_id,
+                        "session_id": sid,
+                    })
+                    .to_string(),
+                )),
+        ]
+    };
+
+    Ok(Sse::new(futures::stream::iter(events)))
 }
 
 fn release_idempotency_key(state: &AppState, reserved_key: Option<&str>, persist: bool) {

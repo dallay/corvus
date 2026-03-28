@@ -117,7 +117,7 @@ describe("useChat", () => {
 
     const reply = await chat.sendMessage("hola");
 
-    expect(reply).toBe("ok");
+    expect(reply).toEqual({ type: "message", content: "ok" });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     const [, init] = fetchMock.mock.calls[1] ?? [];
     expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer token-123");
@@ -266,7 +266,7 @@ describe("useChat", () => {
 
     const reply = await chat.sendMessage("hello");
 
-    expect(reply).toBe("hi");
+    expect(reply).toEqual({ type: "message", content: "hi" });
     expect(chat.currentSessionId.value).toBe("77777777-7777-4777-8777-777777777777");
   });
 });

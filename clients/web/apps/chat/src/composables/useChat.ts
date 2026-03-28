@@ -1,6 +1,7 @@
 import { computed, ref, watch } from "vue";
 
 import type { useGateway } from "@/composables/useGateway";
+import type { StreamDoneEvent, StreamErrorEvent } from "@/types/chat";
 
 export type ChatSessionRecoveryKind = "session_unavailable";
 export type ChatSessionStatus = "idle" | "session_pending" | "session_ready" | "blocked";
@@ -28,6 +29,20 @@ type ChatResponse = {
   session_id?: string;
   text?: string;
 };
+
+export type ChatMessageResult = {
+  type: "message";
+  content: string;
+};
+
+export type ChatApprovalResult = {
+  type: "approval_required";
+  tool: string;
+  reason: string;
+  sessionId: string;
+};
+
+export type ChatSendResult = ChatMessageResult | ChatApprovalResult;
 
 function createSessionState(
   state: ChatSessionStatus,
@@ -60,6 +75,7 @@ export function useChat(
   const statusMessage = ref("");
   const errorMessage = ref("");
   const sending = ref(false);
+  const streaming = ref(false);
   const lastTransitionLabel = ref<string | null>(null);
   const currentRecoveryLabel = computed(() =>
     sessionState.value.recoveryKind
@@ -219,7 +235,7 @@ export function useChat(
     errorMessage.value = "";
   }
 
-  async function sendMessage(message: string): Promise<string> {
+  async function sendMessage(message: string): Promise<ChatSendResult> {
     if (!gateway.isGatewayReady.value) {
       throw new Error(t("chat.connectBeforeChat"));
     }
@@ -254,7 +270,22 @@ export function useChat(
         signal: controller.signal,
       });
 
-      if (response.status === 401 || response.status === 403) {
+      if (response.status === 403) {
+        const errorData = await response.json().catch(() => null);
+        if (errorData?.error?.code === "approval_required") {
+          return {
+            type: "approval_required" as const,
+            tool: errorData.error.tool ?? "",
+            reason: errorData.error.reason ?? "",
+            sessionId: errorData.session_id ?? currentSessionId.value,
+          };
+        }
+        gateway.markCredentialInvalid();
+        clearSession();
+        throw new Error(t("auth.credentialInvalid"));
+      }
+
+      if (response.status === 401) {
         gateway.markCredentialInvalid();
         clearSession();
         throw new Error(t("auth.credentialInvalid"));
@@ -272,7 +303,7 @@ export function useChat(
 
       const assistantText = data.response ?? data.message ?? data.text ?? t("chat.emptyResponse");
       statusMessage.value = t("chat.sessionActive", { sessionId: currentSessionId.value });
-      return assistantText;
+      return { type: "message" as const, content: assistantText };
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         throw new Error(t("chat.timeoutError"));
@@ -289,12 +320,126 @@ export function useChat(
     }
   }
 
+  async function streamMessage(
+    message: string,
+    onChunk: (text: string) => void
+  ): Promise<StreamDoneEvent> {
+    if (!gateway.isGatewayReady.value) {
+      throw new Error(t("chat.connectBeforeChat"));
+    }
+
+    if (!isSessionReady.value && !startSession(true)) {
+      throw new Error(errorMessage.value || t("chat.sessionUnavailable"));
+    }
+
+    const normalizedMessage = message.trim();
+    if (!normalizedMessage) {
+      throw new Error(t("chat.emptyMessageError"));
+    }
+
+    sending.value = true;
+    streaming.value = true;
+    statusMessage.value = "";
+    errorMessage.value = "";
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
+
+    try {
+      const response = await fetch(gateway.gatewayUrl("/web/chat/stream"), {
+        method: "POST",
+        headers: {
+          ...gateway.authHeaders(),
+          "X-Session-Id": currentSessionId.value,
+        },
+        body: JSON.stringify({ message: normalizedMessage }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        // For auth errors, mark credential invalid so recovery UI triggers.
+        // For other errors, just throw to allow fallback to /webhook.
+        if (response.status === 401 || response.status === 403) {
+          gateway.markCredentialInvalid();
+          clearSession();
+          throw new Error(t("auth.credentialInvalid"));
+        }
+        throw new Error(t("chat.streamUnavailable"));
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error(t("chat.streamUnavailable"));
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let doneEvent: StreamDoneEvent | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        let currentEvent = "";
+        let currentData = "";
+
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ")) {
+            currentData += (currentData ? "\n" : "") + line.slice(6);
+          } else if (line === "") {
+            if (currentEvent && currentData) {
+              if (currentEvent === "chunk") {
+                onChunk(currentData);
+              } else if (currentEvent === "done") {
+                doneEvent = JSON.parse(currentData) as StreamDoneEvent;
+                if (doneEvent.session_id && !isSessionReady.value) {
+                  setSessionReady(doneEvent.session_id);
+                }
+              } else if (currentEvent === "error") {
+                const errorEvt = JSON.parse(currentData) as StreamErrorEvent;
+                throw new Error(errorEvt.message || t("chat.requestError", { text: normalizedMessage }));
+              }
+            }
+            currentEvent = "";
+            currentData = "";
+          }
+        }
+      }
+
+      if (!doneEvent) {
+        throw new Error(t("chat.requestError", { text: normalizedMessage }));
+      }
+
+      statusMessage.value = t("chat.sessionActive", { sessionId: currentSessionId.value });
+      return doneEvent;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error(t("chat.timeoutError"));
+      }
+      if (error instanceof Error && error.message) {
+        throw error;
+      }
+      throw new Error(t("chat.requestError", { text: normalizedMessage }));
+    } finally {
+      clearTimeout(timeoutId);
+      sending.value = false;
+      streaming.value = false;
+    }
+  }
+
   return {
     sessionState,
     currentSessionId,
     statusMessage,
     errorMessage,
     sending,
+    streaming,
     lastTransitionLabel,
     currentRecoveryLabel,
     isSessionReady,
@@ -304,5 +449,6 @@ export function useChat(
     startSession,
     clearSession,
     sendMessage,
+    streamMessage,
   };
 }

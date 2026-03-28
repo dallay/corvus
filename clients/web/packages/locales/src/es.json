@@ -249,6 +249,7 @@
     "unauthorizedError": "No autorizado. Realiza el emparejamiento con /pair y usa el token bearer.",
     "rateLimitError": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
     "timeoutError": "El gateway tardó demasiado en responder.",
+    "streamUnavailable": "El streaming no está disponible. Se usará una solicitud estándar.",
     "emptyResponse": "El gateway no devolvió contenido.",
     "inputPlaceholder": "Escribe un mensaje...",
     "send": "Enviar",
@@ -263,6 +264,11 @@
     "sessionActive": "Sesión: {sessionId}",
     "connectBeforeChat": "Completa el onboarding del gateway antes de iniciar el chat.",
     "emptyMessageError": "Escribe un mensaje antes de enviarlo.",
+    "approve": "Aprobar",
+    "reject": "Rechazar",
+    "connected": "Conectado",
+    "disconnected": "Desconectado",
+    "toolApprovalTitle": "La herramienta requiere aprobación",
     "disclaimer": "Corvus Agent puede cometer errores. Verifica la información importante."
   },
   "webhook": {

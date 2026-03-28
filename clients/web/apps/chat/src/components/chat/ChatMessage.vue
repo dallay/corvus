@@ -2,6 +2,7 @@
 defineProps<{
   role: "assistant" | "user";
   content: string;
+  status?: "streaming" | "complete" | "error";
 }>();
 </script>
 
@@ -9,6 +10,7 @@ defineProps<{
   <div
     data-testid="chat-message"
     :data-role="role"
+    :data-status="status"
     :class="['message-row', role === 'user' ? 'message-row--user' : 'message-row--assistant']"
   >
     <!-- Assistant Avatar -->
@@ -22,8 +24,14 @@ defineProps<{
     </div>
 
     <!-- Bubble -->
-    <div :class="['bubble', role === 'user' ? 'bubble--user' : 'bubble--assistant']">
-      <p class="bubble-text">{{ content }}</p>
+    <div
+      :class="[
+        'bubble',
+        role === 'user' ? 'bubble--user' : 'bubble--assistant',
+        status === 'error' ? 'bubble--error' : '',
+      ]"
+    >
+      <p class="bubble-text">{{ content }}<span v-if="status === 'streaming'" class="streaming-cursor" aria-label="Streaming"></span></p>
     </div>
 
     <!-- User Avatar -->
@@ -95,8 +103,34 @@ defineProps<{
   border: 1px solid var(--color-border);
 }
 
+.bubble--error {
+  border-color: color-mix(in srgb, #ef4444 45%, var(--color-border));
+  background: color-mix(in srgb, #ef4444 10%, var(--color-assistant-bubble));
+}
+
 .bubble-text {
   margin: 0;
   white-space: pre-wrap;
+}
+
+.streaming-cursor {
+  display: inline-block;
+  width: 6px;
+  height: 14px;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: var(--color-accent);
+  border-radius: 1px;
+  animation: cursor-blink 0.8s step-end infinite;
+}
+
+@keyframes cursor-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0;
+  }
 }
 </style>
