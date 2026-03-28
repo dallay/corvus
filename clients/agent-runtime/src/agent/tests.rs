@@ -415,6 +415,27 @@ fn xml_tool_response(name: &str, args: &str) -> ChatResponse {
     }
 }
 
+/// Check whether the agent's conversation history contains a structured denial
+/// payload matching the given `code` and `tool` fields.
+fn history_contains_structured_denial(
+    history: &[ConversationMessage],
+    expected_code: &str,
+    expected_tool: &str,
+) -> bool {
+    history.iter().any(|msg| match msg {
+        ConversationMessage::ToolResults(results) => results.iter().any(|r| {
+            serde_json::from_str::<serde_json::Value>(&r.content)
+                .ok()
+                .map_or(false, |parsed| {
+                    parsed.get("code") == Some(&serde_json::Value::String(expected_code.into()))
+                        && parsed.get("tool")
+                            == Some(&serde_json::Value::String(expected_tool.into()))
+                })
+        }),
+        _ => false,
+    })
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // 1. Simple text response (no tools)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -601,25 +622,8 @@ async fn turn_blocks_mcp_tool_by_default_with_structured_denial_payload() {
 
     let _ = agent.turn("use mcp").await.unwrap();
 
-    let mut has_structured_denial = false;
-    for message in agent.history() {
-        if let ConversationMessage::ToolResults(results) = message {
-            for result in results {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&result.content) {
-                    if parsed.get("code")
-                        == Some(&serde_json::Value::String("approval_required".into()))
-                        && parsed.get("tool")
-                            == Some(&serde_json::Value::String("mcp.docs.search".into()))
-                    {
-                        has_structured_denial = true;
-                    }
-                }
-            }
-        }
-    }
-
     assert!(
-        has_structured_denial,
+        history_contains_structured_denial(agent.history(), "approval_required", "mcp.docs.search"),
         "Expected structured denial payload for blocked MCP call"
     );
 }

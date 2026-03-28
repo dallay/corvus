@@ -104,7 +104,7 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
       Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         if (onboardingState.canRetry) {
           OutlinedButton(
-            onClick = actions.onRetryBridge,
+            onClick = actions.bridge.onRetryBridge,
             modifier = Modifier.weight(1f),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.outlinedButtonColors(contentColor = corvusColors.glowCyan),
@@ -117,7 +117,7 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
           MobileOnboardingStatus.TRUST_PENDING -> {
             GradientButton(
               text = "Link app",
-              onClick = actions.onLinkSurface,
+              onClick = actions.bridge.onLinkSurface,
               modifier = Modifier.weight(1f),
             )
           }
@@ -125,7 +125,7 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
           MobileOnboardingStatus.SESSION_PENDING -> {
             GradientButton(
               text = "Start session",
-              onClick = actions.onStartSession,
+              onClick = actions.bridge.onStartSession,
               modifier = Modifier.weight(1f),
             )
           }
@@ -133,7 +133,7 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
           MobileOnboardingStatus.SESSION_READY -> {
             GradientButton(
               text = "Relink",
-              onClick = actions.onClearSession,
+              onClick = actions.bridge.onClearSession,
               modifier = Modifier.weight(1f),
             )
           }
@@ -142,7 +142,7 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
             if (bridgeState.snapshot.environmentSupported) {
               GradientButton(
                 text = "Relink",
-                onClick = actions.onClearSession,
+                onClick = actions.bridge.onClearSession,
                 modifier = Modifier.weight(1f),
               )
             }

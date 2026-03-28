@@ -154,4 +154,133 @@ mod tests {
         // Should return some sandbox (at least NoopSandbox)
         assert!(sandbox.is_available());
     }
+
+    #[test]
+    fn explicit_disabled_returns_noop_regardless_of_backend() {
+        // Even if a specific backend is set, enabled=false should override
+        let config = SecurityConfig {
+            sandbox: SandboxConfig {
+                enabled: Some(false),
+                backend: SandboxBackend::Docker,
+                firejail_args: Vec::new(),
+            },
+            ..Default::default()
+        };
+        let sandbox = create_sandbox(&config);
+        assert_eq!(sandbox.name(), "none");
+    }
+
+    #[test]
+    fn none_backend_returns_noop() {
+        let config = SecurityConfig {
+            sandbox: SandboxConfig {
+                enabled: Some(true),
+                backend: SandboxBackend::None,
+                firejail_args: Vec::new(),
+            },
+            ..Default::default()
+        };
+        let sandbox = create_sandbox(&config);
+        assert_eq!(sandbox.name(), "none");
+    }
+
+    #[test]
+    #[cfg(not(target_os = "linux"))]
+    fn landlock_backend_falls_back_on_non_linux() {
+        let config = SecurityConfig {
+            sandbox: SandboxConfig {
+                enabled: Some(true),
+                backend: SandboxBackend::Landlock,
+                firejail_args: Vec::new(),
+            },
+            ..Default::default()
+        };
+        let sandbox = create_sandbox(&config);
+        // On macOS / non-Linux, Landlock is unavailable — falls back to noop
+        assert_eq!(sandbox.name(), "none");
+    }
+
+    #[test]
+    fn firejail_backend_falls_back_gracefully() {
+        let config = SecurityConfig {
+            sandbox: SandboxConfig {
+                enabled: Some(true),
+                backend: SandboxBackend::Firejail,
+                firejail_args: Vec::new(),
+            },
+            ..Default::default()
+        };
+        let sandbox = create_sandbox(&config);
+        // On most CI/test environments, firejail is not installed — falls back to noop
+        let name = sandbox.name();
+        assert!(
+            name == "firejail" || name == "none",
+            "expected 'firejail' or 'none', got '{name}'"
+        );
+    }
+
+    #[test]
+    fn bubblewrap_backend_falls_back_gracefully() {
+        let config = SecurityConfig {
+            sandbox: SandboxConfig {
+                enabled: Some(true),
+                backend: SandboxBackend::Bubblewrap,
+                firejail_args: Vec::new(),
+            },
+            ..Default::default()
+        };
+        let sandbox = create_sandbox(&config);
+        let name = sandbox.name();
+        assert!(
+            name == "bubblewrap" || name == "none",
+            "expected 'bubblewrap' or 'none', got '{name}'"
+        );
+    }
+
+    #[test]
+    fn docker_backend_falls_back_gracefully() {
+        let config = SecurityConfig {
+            sandbox: SandboxConfig {
+                enabled: Some(true),
+                backend: SandboxBackend::Docker,
+                firejail_args: Vec::new(),
+            },
+            ..Default::default()
+        };
+        let sandbox = create_sandbox(&config);
+        // Docker may or may not be available — either way no panic
+        let name = sandbox.name();
+        assert!(
+            name == "docker" || name == "none",
+            "expected 'docker' or 'none', got '{name}'"
+        );
+    }
+
+    #[test]
+    fn auto_backend_with_enabled_true_detects_something() {
+        let config = SecurityConfig {
+            sandbox: SandboxConfig {
+                enabled: Some(true),
+                backend: SandboxBackend::Auto,
+                firejail_args: Vec::new(),
+            },
+            ..Default::default()
+        };
+        let sandbox = create_sandbox(&config);
+        assert!(sandbox.is_available());
+    }
+
+    #[test]
+    fn detect_best_sandbox_name_is_non_empty() {
+        let sandbox = detect_best_sandbox();
+        assert!(!sandbox.name().is_empty());
+    }
+
+    #[test]
+    fn default_security_config_produces_working_sandbox() {
+        let config = SecurityConfig::default();
+        let sandbox = create_sandbox(&config);
+        assert!(sandbox.is_available());
+        assert!(!sandbox.name().is_empty());
+    }
 }
