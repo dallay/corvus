@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trimTrailingSlashes, validateGatewayUrl } from "@corvus/shared";
-import { ref, watch } from "vue";
+import { onBeforeUnmount, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminTunnelView } from "@/types/admin-config";
 
@@ -14,8 +14,13 @@ const { t } = useI18n();
 const tunnel = ref<AdminTunnelView | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
+let abortController: AbortController | undefined;
+let fetchId = 0;
 
 async function fetchTunnel() {
+  abortController?.abort();
+  abortController = new AbortController();
+  const myId = ++fetchId;
   loading.value = true;
   error.value = null;
   try {
@@ -27,20 +32,29 @@ async function fetchTunnel() {
     const requestUrl = new URL("web/admin/config", `${baseStr}/`);
     const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
+      signal: abortController.signal,
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    tunnel.value = data.config?.tunnel ?? null;
+    if (myId === fetchId) {
+      tunnel.value = data.config?.tunnel ?? null;
+    }
   } catch (e: unknown) {
-    error.value = e instanceof Error ? e.message : String(e);
+    if (e instanceof DOMException && e.name === "AbortError") return;
+    if (myId === fetchId) {
+      error.value = e instanceof Error ? e.message : String(e);
+    }
   } finally {
-    loading.value = false;
+    if (myId === fetchId) {
+      loading.value = false;
+    }
   }
 }
 
 watch(() => [props.gatewayUrl, props.bearerToken], fetchTunnel, { immediate: true });
+onBeforeUnmount(() => abortController?.abort());
 </script>
 
 <template>

@@ -96,6 +96,7 @@ onUnmounted(() => {
         <span
           class="status-indicator"
           :class="cost.enabled ? 'configured' : 'not-configured'"
+          aria-hidden="true"
         />
         <span class="status-value">{{
           cost.enabled ? t("cost.yes") : t("cost.no")
