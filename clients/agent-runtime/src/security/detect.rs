@@ -185,6 +185,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "linux"))]
     fn landlock_backend_falls_back_on_non_linux() {
         let config = SecurityConfig {
             sandbox: SandboxConfig {
@@ -196,7 +197,7 @@ mod tests {
         };
         let sandbox = create_sandbox(&config);
         // On macOS / non-Linux, Landlock is unavailable — falls back to noop
-        assert!(sandbox.is_available());
+        assert_eq!(sandbox.name(), "none");
     }
 
     #[test]
@@ -210,8 +211,12 @@ mod tests {
             ..Default::default()
         };
         let sandbox = create_sandbox(&config);
-        // On most CI/test environments, firejail is not installed
-        assert!(sandbox.is_available());
+        // On most CI/test environments, firejail is not installed — falls back to noop
+        let name = sandbox.name();
+        assert!(
+            name == "firejail" || name == "none",
+            "expected 'firejail' or 'none', got '{name}'"
+        );
     }
 
     #[test]
@@ -225,7 +230,11 @@ mod tests {
             ..Default::default()
         };
         let sandbox = create_sandbox(&config);
-        assert!(sandbox.is_available());
+        let name = sandbox.name();
+        assert!(
+            name == "bubblewrap" || name == "none",
+            "expected 'bubblewrap' or 'none', got '{name}'"
+        );
     }
 
     #[test]
@@ -240,7 +249,11 @@ mod tests {
         };
         let sandbox = create_sandbox(&config);
         // Docker may or may not be available — either way no panic
-        assert!(sandbox.is_available());
+        let name = sandbox.name();
+        assert!(
+            name == "docker" || name == "none",
+            "expected 'docker' or 'none', got '{name}'"
+        );
     }
 
     #[test]

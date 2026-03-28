@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.tooling.preview.Preview
@@ -78,43 +79,46 @@ private fun AppChatContent(
   bridgeSnapshot: MobileBridgeSnapshot,
   onBridgeSnapshotChange: (MobileBridgeSnapshot) -> Unit,
 ) {
+  val currentSnapshot by rememberUpdatedState(bridgeSnapshot)
+  val currentOnChange by rememberUpdatedState(onBridgeSnapshotChange)
+  val bridgeActions = remember {
+    BridgeActions(
+      onRetryBridge = {
+        if (currentSnapshot.environmentSupported) {
+          currentOnChange(currentSnapshot.copy(runtimeAvailable = true, sessionCapable = true))
+        }
+      },
+      onLinkSurface = {
+        if (currentSnapshot.environmentSupported) {
+          currentOnChange(
+            currentSnapshot.copy(
+              runtimeAvailable = true,
+              linkEstablished = true,
+              sessionCapable = true,
+            )
+          )
+        }
+      },
+      onStartSession = {
+        if (currentSnapshot.toOnboardingState().status == MobileOnboardingStatus.SESSION_PENDING) {
+          currentOnChange(currentSnapshot.copy(sessionId = generateSessionId()))
+        }
+      },
+      onClearSession = {
+        if (currentSnapshot.environmentSupported) {
+          currentOnChange(
+            currentSnapshot.copy(linkEstablished = false, sessionCapable = false, sessionId = null)
+          )
+        }
+      },
+    )
+  }
+
   ChatWorkspace(
     state = ChatWorkspaceDefaults.state(modelName = AGENT_NAME),
     bridgeSnapshot = bridgeSnapshot,
     platformName = platform.name,
-    bridgeActions =
-      BridgeActions(
-        onRetryBridge = {
-          if (bridgeSnapshot.environmentSupported) {
-            onBridgeSnapshotChange(
-              bridgeSnapshot.copy(runtimeAvailable = true, sessionCapable = true)
-            )
-          }
-        },
-        onLinkSurface = {
-          if (bridgeSnapshot.environmentSupported) {
-            onBridgeSnapshotChange(
-              bridgeSnapshot.copy(
-                runtimeAvailable = true,
-                linkEstablished = true,
-                sessionCapable = true,
-              )
-            )
-          }
-        },
-        onStartSession = {
-          if (bridgeSnapshot.toOnboardingState().status == MobileOnboardingStatus.SESSION_PENDING) {
-            onBridgeSnapshotChange(bridgeSnapshot.copy(sessionId = generateSessionId()))
-          }
-        },
-        onClearSession = {
-          if (bridgeSnapshot.environmentSupported) {
-            onBridgeSnapshotChange(
-              bridgeSnapshot.copy(linkEstablished = false, sessionCapable = false, sessionId = null)
-            )
-          }
-        },
-      ),
+    bridgeActions = bridgeActions,
   )
 }
 

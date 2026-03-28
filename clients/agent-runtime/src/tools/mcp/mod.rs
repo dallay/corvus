@@ -144,7 +144,7 @@ fn discover_server_prompts(
     };
 
     for manifest in manifests {
-        let canonical = match normalize::normalize_prompt_name(&server.name, &manifest.name) {
+        let _canonical = match normalize::normalize_prompt_name(&server.name, &manifest.name) {
             Ok(name) => name,
             Err(error) => {
                 let redacted = redact_error_message(&error.to_string());
@@ -157,10 +157,6 @@ fn discover_server_prompts(
                 continue;
             }
         };
-
-        if !seen_names.insert(canonical.clone()) {
-            anyhow::bail!(collision_error_message(&canonical));
-        }
 
         let adapter =
             match prompt_adapter::McpPromptAdapter::from_manifest(server, manifest, client.clone())
@@ -177,7 +173,7 @@ fn discover_server_prompts(
                 }
             };
 
-        tools.push(Box::new(adapter));
+        register_with_collision_check(Box::new(adapter), seen_names, tools)?;
     }
     Ok(())
 }
@@ -612,8 +608,7 @@ mod tests {
     // ── Prompt adapter creation failure ──────────────────────
 
     #[test]
-    fn discover_server_prompts_adapter_creation_failure_skips_prompt() {
-        // A prompt with a valid name but malformed arguments that cause adapter creation to fail
+    fn discover_server_prompts_registers_multiple_valid_prompts() {
         let payload = r#"{
           "prompts": [
             {"name":"good-prompt","description":"Works"},

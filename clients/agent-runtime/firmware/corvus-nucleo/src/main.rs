@@ -218,11 +218,23 @@ fn copy_id(line: &[u8], out: &mut [u8]) -> usize {
 
 /// Accumulate a byte into the line buffer.
 /// Returns `true` when a complete line is ready for processing.
-/// On overflow the buffer is silently cleared; line terminators on an empty
-/// buffer are ignored.
-fn accumulate_byte(line_buf: &mut heapless::Vec<u8, 256>, b: u8) -> bool {
-    if b != b'\n' && b != b'\r' {
+/// On overflow the buffer is cleared and the `discarding` flag is set so that
+/// the remainder of the oversized frame is silently dropped — preventing a
+/// truncated tail from being mistaken for a valid command.
+fn accumulate_byte(line_buf: &mut heapless::Vec<u8, 256>, b: u8, discarding: &mut bool) -> bool {
+    let is_terminator = b == b'\n' || b == b'\r';
+
+    if *discarding {
+        if is_terminator {
+            *discarding = false;
+            line_buf.clear();
+        }
+        return false;
+    }
+
+    if !is_terminator {
         if line_buf.push(b).is_err() {
+            *discarding = true;
             line_buf.clear();
         }
         return false;
@@ -244,6 +256,7 @@ async fn main(_spawner: Spawner) {
 
     let mut line_buf: heapless::Vec<u8, 256> = heapless::Vec::new();
     let mut id_buf = [0u8; 16];
+    let mut discarding = false;
 
     loop {
         let mut byte = [0u8; 1];
@@ -251,7 +264,7 @@ async fn main(_spawner: Spawner) {
             continue;
         }
 
-        if !accumulate_byte(&mut line_buf, byte[0]) {
+        if !accumulate_byte(&mut line_buf, byte[0], &mut discarding) {
             continue;
         }
 

@@ -373,7 +373,8 @@ mod tests {
     fn integration_category_copy_and_clone() {
         let cat = IntegrationCategory::Chat;
         let copied = cat;
-        let cloned = cat;
+        #[allow(clippy::clone_on_copy)]
+        let cloned = cat.clone();
         assert_eq!(cat, copied);
         assert_eq!(cat, cloned);
     }
