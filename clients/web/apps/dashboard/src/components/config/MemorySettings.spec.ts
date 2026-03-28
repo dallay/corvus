@@ -30,9 +30,7 @@ describe("MemorySettings", () => {
 
     expect(wrapper.text()).toContain("Memory");
 
-    await wrapper
-      .get('[data-testid="memory_cerebro_endpoint"]')
-      .setValue("http://localhost:9090");
+    await wrapper.get('[data-testid="memory_cerebro_endpoint"]').setValue("http://localhost:9090");
 
     const updates = wrapper.emitted("update:modelValue");
     expect(updates).toHaveLength(1);

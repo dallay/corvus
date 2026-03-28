@@ -1,4 +1,4 @@
-import { mount, flushPromises } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import { describe, expect, it, vi } from "vitest";
 import { createI18n } from "vue-i18n";
 
@@ -50,10 +50,7 @@ describe("ChannelsOverview", () => {
   });
 
   it("shows error on fetch failure", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockRejectedValue(new Error("Network error"))
-    );
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("Network error")));
 
     const wrapper = mountComponent();
     await flushPromises();

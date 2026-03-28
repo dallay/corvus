@@ -101,6 +101,40 @@ function buildSecurityPayload(
     parseIntSafe(form.autonomy_max_cost_per_day_cents),
     snapshot.autonomy_max_cost_per_day_cents
   );
+  setIfChanged(
+    autonomy,
+    "require_approval_for_medium_risk",
+    form.autonomy_require_approval_for_medium_risk,
+    snapshot.autonomy_require_approval_for_medium_risk
+  );
+  setIfChanged(
+    autonomy,
+    "block_high_risk_commands",
+    form.autonomy_block_high_risk_commands,
+    snapshot.autonomy_block_high_risk_commands
+  );
+  const autoApprove = form.autonomy_auto_approve
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const prevAutoApprove = snapshot.autonomy_auto_approve
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (JSON.stringify(autoApprove) !== JSON.stringify(prevAutoApprove)) {
+    autonomy.auto_approve = autoApprove;
+  }
+  const alwaysAsk = form.autonomy_always_ask
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const prevAlwaysAsk = snapshot.autonomy_always_ask
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (JSON.stringify(alwaysAsk) !== JSON.stringify(prevAlwaysAsk)) {
+    autonomy.always_ask = alwaysAsk;
+  }
 
   const identity: Record<string, unknown> = {};
   setIfChanged(identity, "format", form.identity_format, snapshot.identity_format);
@@ -280,12 +314,7 @@ function buildMemoryPayload(
   snapshot: AdminConfigSnapshot
 ): AdminConfigUpdateRequest {
   const cerebro: Record<string, unknown> = {};
-  setIfChanged(
-    cerebro,
-    "endpoint",
-    form.memory_cerebro_endpoint,
-    snapshot.memory_cerebro_endpoint
-  );
+  setIfChanged(cerebro, "endpoint", form.memory_cerebro_endpoint, snapshot.memory_cerebro_endpoint);
   setIfChanged(
     cerebro,
     "request_timeout_ms",

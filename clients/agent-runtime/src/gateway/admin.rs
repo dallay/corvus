@@ -1637,6 +1637,60 @@ pub async fn handle_admin_channels(
     )
 }
 
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminSchedulerStatusView {
+    pub enabled: bool,
+    pub max_tasks: usize,
+    pub max_concurrent: usize,
+    pub task_count: usize,
+}
+
+#[allow(clippy::unused_async)]
+pub async fn handle_admin_scheduler_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let cfg = state.config.lock().clone();
+    let status = AdminSchedulerStatusView {
+        enabled: cfg.scheduler.enabled,
+        max_tasks: cfg.scheduler.max_tasks,
+        max_concurrent: cfg.scheduler.max_concurrent,
+        task_count: 0, // Runtime task enumeration not yet available
+    };
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "scheduler": status })),
+    )
+}
+
+#[allow(clippy::unused_async)]
+pub async fn handle_admin_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let snapshot = crate::health::snapshot();
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "health": snapshot })),
+    )
+}
+
 pub fn admin_channels_view(cfg: &Config) -> Vec<AdminChannelStatusView> {
     let mut channels = Vec::new();
 

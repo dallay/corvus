@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
-import type { AdminChannelStatusView } from "@/types/admin-config";
+import type { AdminSchedulerStatusView } from "@/types/admin-config";
 
 const props = defineProps<{
   gatewayUrl: string;
@@ -11,23 +11,23 @@ const props = defineProps<{
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 
-const channels = ref<AdminChannelStatusView[]>([]);
+const scheduler = ref<AdminSchedulerStatusView | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
-async function fetchChannels() {
+async function fetchSchedulerStatus() {
   loading.value = true;
   error.value = null;
   try {
     const base = props.gatewayUrl.replace(/\/+$/, "");
-    const res = await fetch(`${base}/web/admin/channels`, {
+    const res = await fetch(`${base}/web/admin/scheduler`, {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    channels.value = Array.isArray(data) ? data : (data.channels ?? []);
+    scheduler.value = data.scheduler ?? null;
   } catch (e: unknown) {
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
@@ -35,41 +35,48 @@ async function fetchChannels() {
   }
 }
 
-onMounted(fetchChannels);
+onMounted(fetchSchedulerStatus);
 </script>
 
 <template>
   <section class="card">
-    <h2>{{ t("sections.channels") }}</h2>
-    <p v-if="loading" class="helper">{{ t("channels.loading") }}</p>
+    <h2>{{ t("sections.schedulerStatus") }}</h2>
+    <p v-if="loading" class="helper">{{ t("scheduler.loading") }}</p>
     <p v-else-if="error" class="error">{{ error }}</p>
-    <div v-else class="channel-list">
-      <div
-        v-for="ch in channels"
-        :key="ch.channel_type"
-        class="channel-item"
-        :data-testid="'channel-' + ch.channel_type"
-      >
+    <div v-else-if="scheduler" class="status-grid" data-testid="scheduler-status">
+      <div class="status-item">
+        <span class="status-label">{{ t("scheduler.enabled") }}</span>
         <span
-          class="channel-indicator"
-          :class="ch.configured ? 'configured' : 'not-configured'"
+          class="status-indicator"
+          :class="scheduler.enabled ? 'configured' : 'not-configured'"
         />
-        <span class="channel-name">{{ ch.channel_type }}</span>
-        <span class="channel-status">{{
-          ch.configured ? t("channels.configured") : t("channels.notConfigured")
+        <span class="status-value">{{
+          scheduler.enabled ? t("scheduler.yes") : t("scheduler.no")
         }}</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">{{ t("scheduler.maxTasks") }}</span>
+        <span class="status-value">{{ scheduler.max_tasks }}</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">{{ t("scheduler.maxConcurrent") }}</span>
+        <span class="status-value">{{ scheduler.max_concurrent }}</span>
+      </div>
+      <div class="status-item">
+        <span class="status-label">{{ t("scheduler.taskCount") }}</span>
+        <span class="status-value">{{ scheduler.task_count }}</span>
       </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-.channel-list {
+.status-grid {
   display: grid;
   gap: 8px;
 }
 
-.channel-item {
+.status-item {
   display: flex;
   align-items: center;
   gap: 10px;
@@ -79,7 +86,7 @@ onMounted(fetchChannels);
   background: color-mix(in srgb, var(--color-bg-secondary) 82%, transparent);
 }
 
-.channel-indicator {
+.status-indicator {
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -94,12 +101,12 @@ onMounted(fetchChannels);
   background: #9ca3af;
 }
 
-.channel-name {
+.status-label {
   font-weight: 500;
   flex: 1;
 }
 
-.channel-status {
+.status-value {
   font-size: 12px;
   color: var(--color-text-secondary);
 }

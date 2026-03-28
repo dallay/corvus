@@ -21,7 +21,14 @@
     "composio": "Composio",
     "memory": "Memory",
     "updates": "Updates",
-    "channels": "Channels"
+    "channels": "Channels",
+    "schedulerStatus": "Scheduler Status",
+    "health": "System Health"
+  },
+  "health": {
+    "loading": "Loading health...",
+    "uptime": "Uptime",
+    "restarts": "Restarts"
   },
   "auth": {
     "baseUrl": "Gateway base URL",
@@ -221,7 +228,11 @@
   },
   "security": {
     "identity_format": "Identity format",
-    "identity_aieos_path": "Identity AIEOS path"
+    "identity_aieos_path": "Identity AIEOS path",
+    "requireApprovalMediumRisk": "Require approval for medium risk",
+    "blockHighRiskCommands": "Block high risk commands",
+    "autoApprove": "Auto-approve commands (comma-separated)",
+    "alwaysAsk": "Always ask commands (comma-separated)"
   },
   "errors": {
     "insecureUrlError": "Credentials cannot be sent over HTTP to a remote host. Use HTTPS or a local host."
@@ -279,6 +290,15 @@
     "cerebroAllowInsecureLoopback": "Allow insecure loopback",
     "cerebroAuthTokenMode": "Auth token",
     "cerebroAuthTokenValue": "New auth token"
+  },
+  "scheduler": {
+    "loading": "Loading scheduler status...",
+    "enabled": "Enabled",
+    "maxTasks": "Max tasks",
+    "maxConcurrent": "Max concurrent",
+    "taskCount": "Active tasks",
+    "yes": "Yes",
+    "no": "No"
   },
   "channels": {
     "loading": "Loading channels...",

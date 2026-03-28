@@ -2,11 +2,20 @@
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import { Button, Input } from "@corvus/ui";
 import { useI18n } from "vue-i18n";
-
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import BrowserSettings from "@/components/config/BrowserSettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import ChannelsOverview from "@/components/config/ChannelsOverview.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import ComposioSettings from "@/components/config/ComposioSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import GatewaySettings from "@/components/config/GatewaySettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import GeneralSettings from "@/components/config/GeneralSettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import HealthDashboard from "@/components/config/HealthDashboard.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import MemorySettings from "@/components/config/MemorySettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import ObservabilitySettings from "@/components/config/ObservabilitySettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
@@ -14,17 +23,11 @@ import RuntimeSettings from "@/components/config/RuntimeSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import SchedulerStatus from "@/components/config/SchedulerStatus.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SecuritySettings from "@/components/config/SecuritySettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import WebhookSettings from "@/components/config/WebhookSettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import BrowserSettings from "@/components/config/BrowserSettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import ComposioSettings from "@/components/config/ComposioSettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import MemorySettings from "@/components/config/MemorySettings.vue";
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-import ChannelsOverview from "@/components/config/ChannelsOverview.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import WebSearchSettings from "@/components/config/WebSearchSettings.vue";
 import { useConfig } from "@/composables/useConfig";
@@ -211,6 +214,16 @@ const config = useConfig(t);
     />
 
     <ChannelsOverview
+      :gateway-url="config.baseUrl.value"
+      :bearer-token="config.bearerToken.value"
+    />
+
+    <SchedulerStatus
+      :gateway-url="config.baseUrl.value"
+      :bearer-token="config.bearerToken.value"
+    />
+
+    <HealthDashboard
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />

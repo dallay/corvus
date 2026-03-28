@@ -80,6 +80,42 @@ function updateField<Key extends keyof AdminConfigForm>(
         />
         <span>{{ $t("form.workspaceOnly") }}</span>
       </label>
+      <label class="switch-row">
+        <input
+          data-testid="autonomy-require-approval-medium-risk"
+          :checked="modelValue.autonomy_require_approval_for_medium_risk"
+          type="checkbox"
+          @change="updateField('autonomy_require_approval_for_medium_risk', ($event.target as HTMLInputElement).checked)"
+        />
+        <span>{{ $t("security.requireApprovalMediumRisk") }}</span>
+      </label>
+      <label class="switch-row">
+        <input
+          data-testid="autonomy-block-high-risk-commands"
+          :checked="modelValue.autonomy_block_high_risk_commands"
+          type="checkbox"
+          @change="updateField('autonomy_block_high_risk_commands', ($event.target as HTMLInputElement).checked)"
+        />
+        <span>{{ $t("security.blockHighRiskCommands") }}</span>
+      </label>
+      <label>
+        <span>{{ $t("security.autoApprove") }}</span>
+        <textarea
+          data-testid="autonomy-auto-approve"
+          :value="modelValue.autonomy_auto_approve"
+          placeholder="command1, command2"
+          @input="updateField('autonomy_auto_approve', ($event.target as HTMLTextAreaElement).value)"
+        />
+      </label>
+      <label>
+        <span>{{ $t("security.alwaysAsk") }}</span>
+        <textarea
+          data-testid="autonomy-always-ask"
+          :value="modelValue.autonomy_always_ask"
+          placeholder="command1, command2"
+          @input="updateField('autonomy_always_ask', ($event.target as HTMLTextAreaElement).value)"
+        />
+      </label>
     </div>
     <div class="actions">
       <Button :disabled="disabled || saving" @click="emit('save')">{{ $t("form.save") }}</Button>

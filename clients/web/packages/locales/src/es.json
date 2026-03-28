@@ -21,7 +21,14 @@
     "composio": "Composio",
     "memory": "Memoria",
     "updates": "Actualizaciones",
-    "channels": "Canales"
+    "channels": "Canales",
+    "schedulerStatus": "Estado del Scheduler",
+    "health": "Estado del sistema"
+  },
+  "health": {
+    "loading": "Cargando estado...",
+    "uptime": "Tiempo activo",
+    "restarts": "Reinicios"
   },
   "auth": {
     "baseUrl": "URL base del gateway",
@@ -221,7 +228,11 @@
   },
   "security": {
     "identity_format": "Formato de identidad",
-    "identity_aieos_path": "Ruta AIEOS de identidad"
+    "identity_aieos_path": "Ruta AIEOS de identidad",
+    "requireApprovalMediumRisk": "Requerir aprobación para riesgo medio",
+    "blockHighRiskCommands": "Bloquear comandos de alto riesgo",
+    "autoApprove": "Comandos auto-aprobados (separados por coma)",
+    "alwaysAsk": "Comandos que siempre preguntan (separados por coma)"
   },
   "errors": {
     "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local."
@@ -279,6 +290,15 @@
     "cerebroAllowInsecureLoopback": "Permitir loopback inseguro",
     "cerebroAuthTokenMode": "Token de autenticación",
     "cerebroAuthTokenValue": "Nuevo token de autenticación"
+  },
+  "scheduler": {
+    "loading": "Cargando estado del scheduler...",
+    "enabled": "Habilitado",
+    "maxTasks": "Tareas máximas",
+    "maxConcurrent": "Concurrencia máxima",
+    "taskCount": "Tareas activas",
+    "yes": "Sí",
+    "no": "No"
   },
   "channels": {
     "loading": "Cargando canales...",

@@ -1173,7 +1173,9 @@ fn print_startup_banner(
     println!("  GET  /web/admin/config   — redacted admin config");
     println!("  PUT  /web/admin/config   — update admin config");
     println!("  GET  /web/admin/options  — admin options catalog");
-    println!("  GET  /web/admin/channels — channel configuration status");
+    println!("  GET  /web/admin/channels  — channel configuration status");
+    println!("  GET  /web/admin/scheduler — scheduler configuration status");
+    println!("  GET  /web/admin/health    — runtime health snapshot");
     if config.gateway.admin_expose_provider_pools {
         println!("  GET  /web/admin/provider-pools   — provider account pools");
         println!("  PUT  /web/admin/provider-pools   — update provider account pools");
@@ -1364,6 +1366,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         )
         .route("/web/admin/options", get(handle_admin_options))
         .route("/web/admin/channels", get(handle_admin_channels))
+        .route("/web/admin/scheduler", get(handle_admin_scheduler_status))
+        .route("/web/admin/health", get(handle_admin_health))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
         .with_state(state)
@@ -1504,6 +1508,22 @@ async fn handle_admin_channels(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     admin::handle_admin_channels(State(state), headers).await
+}
+
+/// GET /web/admin/scheduler — scheduler configuration status.
+async fn handle_admin_scheduler_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    admin::handle_admin_scheduler_status(State(state), headers).await
+}
+
+/// GET /web/admin/health — runtime health snapshot.
+async fn handle_admin_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    admin::handle_admin_health(State(state), headers).await
 }
 
 /// GET /web/admin/options — return constrained enums/defaults for dashboard forms.

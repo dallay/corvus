@@ -132,6 +132,28 @@ export interface AdminAutonomyExtendedView {
   always_ask: string[];
 }
 
+export interface AdminHealthSnapshot {
+  pid: number;
+  updated_at: string;
+  uptime_seconds: number;
+  components: Record<string, AdminComponentHealth>;
+}
+
+export interface AdminComponentHealth {
+  status: string;
+  updated_at: string;
+  last_ok?: string | null;
+  last_error?: string | null;
+  restart_count: number;
+}
+
+export interface AdminSchedulerStatusView {
+  enabled: boolean;
+  max_tasks: number;
+  max_concurrent: number;
+  task_count: number;
+}
+
 export interface AdminChannelStatusView {
   channel_type: string;
   configured: boolean;
@@ -160,6 +182,10 @@ export interface AdminConfigView {
     workspace_only?: boolean;
     max_actions_per_hour?: number;
     max_cost_per_day_cents?: number;
+    require_approval_for_medium_risk?: boolean;
+    block_high_risk_commands?: boolean;
+    auto_approve?: string[];
+    always_ask?: string[];
   };
   identity?: {
     format?: string;
@@ -227,6 +253,10 @@ export interface AdminConfigForm {
   autonomy_workspace_only: boolean;
   autonomy_max_actions_per_hour: string;
   autonomy_max_cost_per_day_cents: string;
+  autonomy_require_approval_for_medium_risk: boolean;
+  autonomy_block_high_risk_commands: boolean;
+  autonomy_auto_approve: string;
+  autonomy_always_ask: string;
   identity_format: string;
   identity_aieos_path: string;
   scheduler_enabled: boolean;
@@ -284,6 +314,10 @@ export interface AdminConfigSnapshot {
   autonomy_workspace_only: boolean;
   autonomy_max_actions_per_hour: number;
   autonomy_max_cost_per_day_cents: number;
+  autonomy_require_approval_for_medium_risk: boolean;
+  autonomy_block_high_risk_commands: boolean;
+  autonomy_auto_approve: string;
+  autonomy_always_ask: string;
   identity_format: string;
   identity_aieos_path: string;
   scheduler_enabled: boolean;
@@ -369,6 +403,10 @@ export interface AdminConfigUpdateRequest {
     workspace_only?: boolean;
     max_actions_per_hour?: number;
     max_cost_per_day_cents?: number;
+    require_approval_for_medium_risk?: boolean;
+    block_high_risk_commands?: boolean;
+    auto_approve?: string[];
+    always_ask?: string[];
   };
   identity?: {
     format?: string;
