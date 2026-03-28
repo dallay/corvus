@@ -1647,8 +1647,8 @@ mod tests {
             "URL-encoded parent dir traversal must be blocked"
         );
         assert!(
-            !policy.is_path_allowed("%2e%2e%2f%2e%2e%2fetc%2fpasswd"),
-            "Double URL-encoded dots path traversal must be blocked"
+            !policy.is_path_allowed("%252e%252e%252f%252e%252e%252fetc%252fpasswd"),
+            "Double URL-encoded traversal must be blocked"
         );
     }
 
