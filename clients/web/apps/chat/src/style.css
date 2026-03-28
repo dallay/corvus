@@ -1,49 +1,5 @@
-@import url("@corvus/shared/tokens.css");
+@import url("@corvus/shared/app-shell.css");
 @import url("tailwindcss");
-
-/* ── Base Reset ─────────────────────────────────────────────── */
-
-* {
-  box-sizing: border-box;
-}
-
-html {
-  color-scheme: dark;
-}
-
-body {
-  margin: 0;
-  font-family: var(--font-sans);
-  background: var(--color-bg-primary);
-  color: var(--color-text-primary);
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-/* ── SVG defaults ───────────────────────────────────────────── */
-
-svg {
-  flex-shrink: 0;
-}
-
-/* ── Scrollbar ──────────────────────────────────────────────── */
-
-::-webkit-scrollbar {
-  width: 6px;
-}
-
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  background: var(--color-bg-hover);
-  border-radius: 3px;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background: var(--color-text-muted);
-}
 
 /* ── Animations ─────────────────────────────────────────────── */
 

@@ -1,23 +1,7 @@
-@import url("@corvus/shared/tokens.css");
+@import url("@corvus/shared/app-shell.css");
 @import url("tailwindcss");
 
-* {
-  box-sizing: border-box;
-}
-
-html {
-  height: 100%;
-}
-
-body,
-#app {
-  margin: 0;
-  min-height: 100dvh;
-}
-
 body {
-  font-family: var(--font-sans);
-  color: var(--color-text-primary);
   background:
     radial-gradient(circle at 0 0, rgb(129 140 248 / 12%), transparent 40%),
     radial-gradient(circle at 100% 100%, rgb(192 132 252 / 8%), transparent 45%),

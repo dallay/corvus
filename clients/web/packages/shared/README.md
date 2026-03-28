@@ -2,6 +2,16 @@
 
 Shared components, utilities, and styles for Corvus web applications.
 
+## Shared CSS
+
+The shared package exposes the common CSS layers used across the web monorepo:
+
+- `@corvus/shared/theme.css`: design tokens and semantic aliases
+- `@corvus/shared/base.css`: low-specificity reset and baseline element rules
+- `@corvus/shared/app-shell.css`: shared shell styles for the Vue applications
+
+`@corvus/shared/tokens.css` is kept as a compatibility alias to `theme.css` during the rename.
+
 ## Env Utilities
 
 This package exposes environment helpers under `@corvus/shared/env`.
