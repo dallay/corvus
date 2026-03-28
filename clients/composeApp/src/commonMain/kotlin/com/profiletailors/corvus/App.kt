@@ -1,3 +1,5 @@
+@file:Suppress("FunctionNaming")
+
 package com.profiletailors.corvus
 
 import androidx.compose.runtime.Composable

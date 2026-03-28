@@ -750,17 +750,22 @@ mod tests {
 
     #[test]
     fn redact_error_message_replaces_sensitive_env_values() {
+        use std::sync::Mutex;
+
+        static ENV_LOCK: Mutex<()> = Mutex::new(());
+        let _guard = ENV_LOCK.lock().unwrap();
+
         // Set a temporary env var with a known sensitive key
         let key = "CORVUS_TEST_SECRET_KEY_XYZ";
         let value = "super-secret-value-12345";
-        std::env::set_var(key, value);
+        unsafe { std::env::set_var(key, value) };
 
         let raw = format!("Connection failed: {value} was rejected");
         let redacted = redact_error_message(&raw);
         assert!(!redacted.contains(value));
         assert!(redacted.contains("[REDACTED]"));
 
-        std::env::remove_var(key);
+        unsafe { std::env::remove_var(key) };
     }
 
     #[test]
