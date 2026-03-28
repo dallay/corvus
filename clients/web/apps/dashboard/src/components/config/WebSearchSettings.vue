@@ -14,6 +14,12 @@ const emit = defineEmits<{
   save: [];
 }>();
 
+const WEB_SEARCH_BRAVE_API_KEY_MODES: AdminConfigForm["web_search_brave_api_key_mode"][] = [
+  "unchanged",
+  "replace",
+  "clear",
+];
+
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function updateField<Key extends keyof AdminConfigForm>(
   key: Key,
@@ -32,6 +38,17 @@ function updateSecretMode(mode: AdminConfigForm["web_search_brave_api_key_mode"]
     patch.web_search_brave_api_key_value = "";
   }
   emit("update:modelValue", { ...props.modelValue, ...patch });
+}
+
+function handleSecretModeChange(event: Event): void {
+  const value = (event.target as HTMLSelectElement).value;
+  if (
+    WEB_SEARCH_BRAVE_API_KEY_MODES.includes(
+      value as AdminConfigForm["web_search_brave_api_key_mode"]
+    )
+  ) {
+    updateSecretMode(value as AdminConfigForm["web_search_brave_api_key_mode"]);
+  }
 }
 </script>
 
@@ -85,11 +102,7 @@ function updateSecretMode(mode: AdminConfigForm["web_search_brave_api_key_mode"]
           :value="modelValue.web_search_brave_api_key_mode"
           class="select-input"
           data-testid="web_search_brave_api_key_mode"
-          @change="
-            updateSecretMode(
-              ($event.target as HTMLSelectElement).value as AdminConfigForm['web_search_brave_api_key_mode']
-            )
-          "
+          @change="handleSecretModeChange"
         >
           <option value="unchanged">{{ $t("form.secretUnchanged") }}</option>
           <option value="replace">{{ $t("form.secretReplace") }}</option>

@@ -5,6 +5,9 @@
 **Date**: 2026-03-26
 **Depends on**: #266 (channel-image-ingestion), #267 (runtime-image-normalization-pipeline)
 **Cross-references**: `runtime-image-pipeline` spec, `agent-runtime-providers` spec
+**Translation parity**: Spanish translation pending for "Provider Vision Gating", including
+`Provider Vision Capability Matrix (REQ-1)` and `Fail-Closed Gating (REQ-3)`. Track EN/ES parity
+work in ticket/owner: TBD.
 
 ## MODIFIED Requirements
 
@@ -124,7 +127,7 @@ image-capable provider is available in the fallback chain, it MUST fail with a s
 indicating no image-capable provider is available. The reliable wrapper MUST NOT silently strip
 images to fit a text-only provider.
 
-#### Scenario: Trait default rejects image turn on unoverridden provider
+#### Scenario: Trait default rejects image turn on provider without an override
 
 - GIVEN a provider has not overridden the default `chat()` implementation
 - WHEN the provider receives a `ChatRequest` with a non-empty `images` slice
@@ -216,7 +219,7 @@ backend. The rejection MUST occur at the router layer (REQ-3, Layer 2).
 The system MUST NOT:
 - Silently strip image parts and send a text-only request
 - Queue the image for later processing
-- Attempt to transcoded the image into a text description as a fallback
+- Attempt to transcode the image into a text description as a fallback
 
 The user MUST receive the error message defined in the `runtime-image-pipeline` spec REQ-7 error
 taxonomy: "The configured vision route does not allow image input."

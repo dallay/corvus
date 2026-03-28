@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminMcpView } from "@/types/admin-config";
 
@@ -15,14 +15,47 @@ const mcp = ref<AdminMcpView | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
+function parseGatewayBaseUrl(rawUrl: string): URL | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    return null;
+  }
+
+  parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+  parsed.search = "";
+  parsed.hash = "";
+  return parsed;
+}
+
 async function fetchMcp() {
   loading.value = true;
   error.value = null;
   try {
-    const base = props.gatewayUrl.replace(/\/+$/, "");
-    const res = await fetch(`${base}/web/admin/config`, {
-      headers: { Authorization: `Bearer ${props.bearerToken}` },
-    });
+    const base = parseGatewayBaseUrl(props.gatewayUrl);
+    if (!base) {
+      mcp.value = null;
+      error.value = "Invalid gateway URL";
+      return;
+    }
+
+    const requestUrl = new URL("/web/admin/config", `${base.toString()}/`);
+    const headers: Record<string, string> = {};
+    if (props.bearerToken && requestUrl.host === base.host) {
+      headers.Authorization = `Bearer ${props.bearerToken}`;
+    }
+
+    const res = await fetch(requestUrl.toString(), { headers });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
@@ -36,6 +69,7 @@ async function fetchMcp() {
 }
 
 onMounted(fetchMcp);
+watch(() => [props.gatewayUrl, props.bearerToken], fetchMcp);
 </script>
 
 <template>

@@ -68,4 +68,49 @@ describe("McpOverview", () => {
 
     vi.unstubAllGlobals();
   });
+
+  it("refetches when gateway props change", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(JSON.stringify({ config: { mcp: { enabled: false, servers: [] } } }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const wrapper = mountComponent();
+    await flushPromises();
+    await wrapper.setProps({ gatewayUrl: "https://gateway.example.test", bearerToken: "next" });
+    await flushPromises();
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy).toHaveBeenLastCalledWith("https://gateway.example.test/web/admin/config", {
+      headers: { Authorization: "Bearer next" },
+    });
+
+    vi.unstubAllGlobals();
+  });
+
+  it("skips the request when gatewayUrl is invalid", async () => {
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const wrapper = mount(McpOverview, {
+      props: {
+        gatewayUrl: "",
+        bearerToken: "test-token",
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+    await flushPromises();
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain("Invalid gateway URL");
+
+    vi.unstubAllGlobals();
+  });
 });

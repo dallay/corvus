@@ -11,6 +11,7 @@ const fetchMock = vi.fn<(input: RequestInfo | URL, init?: RequestInit) => Promis
 beforeEach(() => {
   fetchMock.mockReset();
   vi.stubGlobal("fetch", fetchMock as unknown as typeof fetch);
+  vi.useRealTimers();
 });
 
 function mountIndicator(props = {}) {
@@ -73,6 +74,26 @@ describe("HealthIndicator", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:3000/health", {
       method: "GET",
       headers: { Authorization: "Bearer test-token" },
+      signal: expect.any(AbortSignal),
     });
+  });
+
+  it("does not stack a second health request while the first is in flight", async () => {
+    vi.useFakeTimers();
+    let resolveFetch: ((value: Response) => void) | null = null;
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+
+    mountIndicator();
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveFetch?.(new Response(JSON.stringify({ status: "ok" }), { status: 200 }));
+    await flushPromises();
   });
 });

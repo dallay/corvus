@@ -126,6 +126,28 @@ describe("useChat", () => {
     );
   });
 
+  it("sends the provided request id through the webhook path", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("12121212-1212-4212-8212-121212121212");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ response: "ok", session_id: chat.currentSessionId.value }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await chat.sendMessage("hola", "shared-request-id");
+
+    const [, init] = fetchMock.mock.calls[1] ?? [];
+    expect((init?.headers as Record<string, string>)["X-Idempotency-Key"]).toBe(
+      "shared-request-id"
+    );
+    expect(init?.body).toBe(JSON.stringify({ message: "hola", request_id: "shared-request-id" }));
+  });
+
   it("sendMessage throws connectBeforeChat when gateway is not ready", async () => {
     const gateway = useGateway((key: string) => key);
     const chat = useChat((key: string) => key, gateway);
@@ -194,6 +216,59 @@ describe("useChat", () => {
     fetchMock.mockRejectedValueOnce(new Error("network failure"));
 
     await expect(chat.sendMessage("hello")).rejects.toThrow("network failure");
+  });
+
+  it("streamMessage preserves SSE frames split across transport chunks", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("90909090-9090-4090-8090-909090909090");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: chunk\r\ndata: Hel"));
+        controller.enqueue(encoder.encode("lo\r\n\r\nevent: done\r\ndata: {\"session_id\":\""));
+        controller.enqueue(encoder.encode("90909090-9090-4090-8090-909090909090\"}\r\n\r\n"));
+        controller.close();
+      },
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })
+    );
+
+    const chunks: string[] = [];
+    const doneEvent = await chat.streamMessage("hello", (chunk) => chunks.push(chunk), "req-1");
+
+    expect(chunks).toEqual(["Hello"]);
+    expect(doneEvent.session_id).toBe("90909090-9090-4090-8090-909090909090");
+    const [, init] = fetchMock.mock.calls[1] ?? [];
+    expect((init?.headers as Record<string, string>)["X-Request-Id"]).toBe("req-1");
+    expect(init?.body).toBe(JSON.stringify({ message: "hello", request_id: "req-1" }));
+  });
+
+  it("streamMessage keeps approval responses eligible for webhook fallback", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("34343434-3434-4434-8434-343434343434");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: { code: "approval_required" } }), {
+        status: 403,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
+      "chat.streamUnavailable"
+    );
+    expect(chat.currentSessionId.value).toBe("34343434-3434-4434-8434-343434343434");
+    expect(gateway.onboardingState.value.state).toBe("ready");
   });
 
   it("clearSession clears sessionId, removes from storage, and sets correct state", async () => {

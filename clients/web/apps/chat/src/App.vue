@@ -126,6 +126,7 @@ async function sendMessage(): Promise<void> {
   }
 
   const normalizedText = text.slice(0, MAX_PROMPT_LENGTH);
+  const requestId = gateway.createIdempotencyKey();
   messages.value.push({
     id: nextMessageId(),
     role: "user",
@@ -153,7 +154,7 @@ async function sendMessage(): Promise<void> {
     await chat.streamMessage(normalizedText, (chunk) => {
       updateAssistantMessage(assistantMessageId, chunk, "streaming");
       nextTick().then(scrollChatToBottom);
-    });
+    }, requestId);
     updateAssistantMessage(
       assistantMessageId,
       messages.value.find((m) => m.id === assistantMessageId)?.content ?? "",
@@ -171,7 +172,7 @@ async function sendMessage(): Promise<void> {
         }),
         undefined
       );
-      const result = await chat.sendMessage(normalizedText);
+      const result = await chat.sendMessage(normalizedText, requestId);
       if (result.type === "approval_required") {
         updateAssistantMessage(assistantMessageId, t("chat.toolApprovalTitle"));
         messages.value.push({

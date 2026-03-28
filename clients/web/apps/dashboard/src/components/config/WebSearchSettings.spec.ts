@@ -47,4 +47,23 @@ describe("WebSearchSettings", () => {
     await wrapper.get('button[data-testid="save"]').trigger("click");
     expect(wrapper.emitted("save")).toHaveLength(1);
   });
+
+  it("ignores invalid secret mode values", async () => {
+    const wrapper = mount(WebSearchSettings, {
+      props: {
+        modelValue: createAdminConfigForm(),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    const select = wrapper.get('[data-testid="web_search_brave_api_key_mode"]');
+    (select.element as HTMLSelectElement).value = "bogus";
+    await select.trigger("change");
+
+    expect(wrapper.emitted("update:modelValue")).toBeUndefined();
+  });
 });

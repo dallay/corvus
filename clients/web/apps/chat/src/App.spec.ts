@@ -139,6 +139,7 @@ describe("App", () => {
 
     const [streamUrl] = fetchMock.mock.calls[4] ?? [];
     expect(String(streamUrl)).toContain("/web/chat/stream");
+    const [, streamInit] = fetchMock.mock.calls[4] ?? [];
 
     const [webhookUrl, webhookInit] = fetchMock.mock.calls[5] ?? [];
     expect(String(webhookUrl)).toContain("/webhook");
@@ -147,6 +148,12 @@ describe("App", () => {
     );
     expect((webhookInit?.headers as Record<string, string>)["X-Session-Id"]).toBe(
       "11111111-1111-4111-8111-111111111111"
+    );
+    expect((streamInit?.headers as Record<string, string>)["X-Request-Id"]).toBe(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    );
+    expect((webhookInit?.headers as Record<string, string>)["X-Idempotency-Key"]).toBe(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     );
 
     const chatMessages = wrapper.findAll('[data-testid="chat-message"]');

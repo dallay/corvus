@@ -7,11 +7,32 @@ const props = defineProps<{
 }>();
 
 const POLL_INTERVAL_MS = 30_000;
+const REQUEST_TIMEOUT_MS = 5_000;
 
 const status = ref<"connected" | "disconnected">("disconnected");
 let intervalId: ReturnType<typeof setInterval> | null = null;
+let isChecking = false;
+let activeController: AbortController | null = null;
+let activeTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
+function clearActiveRequest(): void {
+  if (activeTimeoutId !== null) {
+    clearTimeout(activeTimeoutId);
+    activeTimeoutId = null;
+  }
+  activeController = null;
+}
 
 async function checkHealth(): Promise<void> {
+  if (isChecking) {
+    return;
+  }
+
+  isChecking = true;
+  const controller = new AbortController();
+  activeController = controller;
+  activeTimeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
   try {
     const headers: Record<string, string> = {};
     if (props.bearerToken) {
@@ -22,10 +43,14 @@ async function checkHealth(): Promise<void> {
     const response = await fetch(`${base}/health`, {
       method: "GET",
       headers,
+      signal: controller.signal,
     });
     status.value = response.ok ? "connected" : "disconnected";
   } catch {
     status.value = "disconnected";
+  } finally {
+    clearActiveRequest();
+    isChecking = false;
   }
 }
 
@@ -39,6 +64,10 @@ onUnmounted(() => {
     clearInterval(intervalId);
     intervalId = null;
   }
+  if (activeController) {
+    activeController.abort();
+  }
+  clearActiveRequest();
 });
 </script>
 
