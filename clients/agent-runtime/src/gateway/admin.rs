@@ -1,12 +1,14 @@
 use crate::config::{AccountPoolStrategy, Config, ProviderAccountPoolConfig};
 use crate::gateway::{self, AppState};
+use crate::memory::{MemoryCategory, SessionEntry, SessionStatus};
 use crate::security::AutonomyLevel;
 use crate::update;
 use axum::{
-    extract::State,
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Json},
 };
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AdminConfigView {
@@ -122,11 +124,13 @@ pub struct AdminSchedulerView {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+#[allow(clippy::struct_excessive_bools)]
 pub struct AdminGatewayView {
     pub port: u16,
     pub host: String,
     pub require_pairing: bool,
     pub allow_public_bind: bool,
+    pub allow_unpaired_session_scopes: bool,
     pub pair_rate_limit_per_minute: u32,
     pub webhook_rate_limit_per_minute: u32,
     pub trust_forwarded_headers: bool,
@@ -313,6 +317,8 @@ pub struct AdminGatewayPatch {
     #[serde(default)]
     pub allow_public_bind: Option<bool>,
     #[serde(default)]
+    pub allow_unpaired_session_scopes: Option<bool>,
+    #[serde(default)]
     pub pair_rate_limit_per_minute: Option<u32>,
     #[serde(default)]
     pub webhook_rate_limit_per_minute: Option<u32>,
@@ -468,6 +474,62 @@ pub enum AdminSecretUpdate {
     Replace { value: String },
 }
 
+// ── Session & Memory admin response types ────────────────────────
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminSessionListResponse {
+    pub sessions: Vec<SessionEntry>,
+    pub total: u64,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminSessionDetailResponse {
+    pub session: SessionEntry,
+    pub memory_summary: HashMap<String, u64>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminMemoryListResponse {
+    pub entries: Vec<crate::memory::MemoryEntry>,
+    pub total: u64,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminMemoryStatsResponse {
+    pub total_entries: u64,
+    pub by_category: HashMap<String, u64>,
+    pub total_sessions: u64,
+    pub active_sessions: u64,
+    pub backend: String,
+    pub cerebro_configured: bool,
+}
+
+// ── Session & Memory admin query param types ─────────────────────
+
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub struct AdminSessionListParams {
+    pub status: Option<String>,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub sort: Option<String>,
+    pub order: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, Default)]
+pub struct AdminMemoryListParams {
+    pub category: Option<String>,
+    pub session_id: Option<String>,
+    pub q: Option<String>,
+    pub limit: Option<u32>,
+    pub offset: Option<u32>,
+    pub sort: Option<String>,
+    pub order: Option<String>,
+}
+
 type AdminResponse = (StatusCode, Json<serde_json::Value>);
 
 fn bad_request(message: &str) -> AdminResponse {
@@ -475,6 +537,26 @@ fn bad_request(message: &str) -> AdminResponse {
         StatusCode::BAD_REQUEST,
         Json(serde_json::json!({ "error": message })),
     )
+}
+
+fn serialize_admin_response<T: serde::Serialize>(
+    response: &T,
+    failure_message: &'static str,
+) -> AdminResponse {
+    match serde_json::to_value(response) {
+        Ok(value) => (StatusCode::OK, Json(value)),
+        Err(error) => {
+            tracing::error!("{failure_message}: {error:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": failure_message })),
+            )
+        }
+    }
+}
+
+fn category_matches_filter(category: &MemoryCategory, filter: &str) -> bool {
+    category.to_string().eq_ignore_ascii_case(filter.trim())
 }
 
 fn normalize_optional_string(raw: &str) -> Option<String> {
@@ -592,6 +674,7 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
             host: cfg.gateway.host.clone(),
             require_pairing: cfg.gateway.require_pairing,
             allow_public_bind: cfg.gateway.allow_public_bind,
+            allow_unpaired_session_scopes: cfg.gateway.allow_unpaired_session_scopes,
             pair_rate_limit_per_minute: cfg.gateway.pair_rate_limit_per_minute,
             webhook_rate_limit_per_minute: cfg.gateway.webhook_rate_limit_per_minute,
             trust_forwarded_headers: cfg.gateway.trust_forwarded_headers,
@@ -1297,6 +1380,9 @@ fn apply_gateway_security_patch(cfg: &mut Config, gateway: &AdminGatewayPatch) {
     if let Some(allow_public_bind) = gateway.allow_public_bind {
         cfg.gateway.allow_public_bind = allow_public_bind;
     }
+    if let Some(allow_unpaired_session_scopes) = gateway.allow_unpaired_session_scopes {
+        cfg.gateway.allow_unpaired_session_scopes = allow_unpaired_session_scopes;
+    }
     if let Some(trust_forwarded_headers) = gateway.trust_forwarded_headers {
         cfg.gateway.trust_forwarded_headers = trust_forwarded_headers;
     }
@@ -1993,11 +2079,924 @@ pub async fn handle_admin_update_provider_pools(
     }
 }
 
+// ══════════════════════════════════════════════════════════════════
+// SESSION & MEMORY ADMIN HANDLERS
+// ══════════════════════════════════════════════════════════════════
+
+/// GET /web/admin/sessions — paginated session list with filters.
+pub async fn handle_admin_list_sessions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<AdminSessionListParams>,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let limit = params.limit.unwrap_or(50).min(200);
+    let offset = params.offset.unwrap_or(0);
+    let sort = params.sort.as_deref().unwrap_or("last_activity");
+    let order = params.order.as_deref().unwrap_or("desc");
+    let status = match params.status.as_deref().filter(|s| *s != "all") {
+        Some(s) => match s.parse::<SessionStatus>() {
+            Ok(st) => Some(st),
+            Err(_) => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({
+                        "error": "Invalid status filter. Use 'active', 'ended', or 'all'"
+                    })),
+                );
+            }
+        },
+        None => None,
+    };
+
+    match state
+        .mem
+        .list_sessions(status, limit, offset, sort, order)
+        .await
+    {
+        Ok((sessions, total)) => {
+            let response = AdminSessionListResponse {
+                sessions,
+                total,
+                limit,
+                offset,
+            };
+            serialize_admin_response(&response, "Failed to serialize session list")
+        }
+        Err(e) => {
+            tracing::error!("admin list sessions failed: {e:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to list sessions"})),
+            )
+        }
+    }
+}
+
+/// GET /web/admin/sessions/:id — session detail with memory summary.
+pub async fn handle_admin_get_session(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(session_id): Path<String>,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let session = match state.mem.get_session(&session_id).await {
+        Ok(Some(s)) => s,
+        Ok(None) => {
+            return (
+                StatusCode::NOT_FOUND,
+                Json(serde_json::json!({"error": "Session not found"})),
+            );
+        }
+        Err(e) => {
+            tracing::error!("admin get session failed: {e:#}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to get session"})),
+            );
+        }
+    };
+
+    // Build memory summary: count entries by category for this session
+    let memory_summary = match state.mem.list(None, Some(&session_id)).await {
+        Ok(entries) => {
+            let mut summary: HashMap<String, u64> = HashMap::new();
+            for entry in &entries {
+                *summary.entry(entry.category.to_string()).or_insert(0) += 1;
+            }
+            summary
+        }
+        Err(e) => {
+            tracing::error!("admin memory list for session {session_id} failed: {e:#}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to list session memory"})),
+            );
+        }
+    };
+
+    let response = AdminSessionDetailResponse {
+        session,
+        memory_summary,
+    };
+    serialize_admin_response(&response, "Failed to serialize session detail")
+}
+
+/// GET /web/admin/memory — paginated memory entry list with search.
+pub async fn handle_admin_list_memory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(params): Query<AdminMemoryListParams>,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    let limit = params.limit.unwrap_or(50).min(200);
+    let offset = params.offset.unwrap_or(0);
+
+    // If full-text search query is provided, use recall() for FTS5-backed search
+    if let Some(ref q) = params.q {
+        if !q.trim().is_empty() {
+            let session_filter = params.session_id.as_deref();
+            // NOTE: recall() caps results at 200 entries, so `total` below may
+            // undercount when more than 200 entries match the search query.
+            match state.mem.recall(q, 200, session_filter).await {
+                Ok(mut entries) => {
+                    // Apply category filter on top if provided
+                    if let Some(ref cat) = params.category {
+                        entries.retain(|e| category_matches_filter(&e.category, cat));
+                    }
+                    let total = entries.len() as u64;
+                    let offset_usize = offset as usize;
+                    let limit_usize = limit as usize;
+                    let paged: Vec<_> = entries
+                        .into_iter()
+                        .skip(offset_usize)
+                        .take(limit_usize)
+                        .collect();
+                    let response = AdminMemoryListResponse {
+                        entries: paged,
+                        total,
+                        limit,
+                        offset,
+                    };
+                    return serialize_admin_response(&response, "Failed to serialize memory list");
+                }
+                Err(e) => {
+                    tracing::error!("admin memory search failed: {e:#}");
+                    return (
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(serde_json::json!({"error": "Failed to search memory"})),
+                    );
+                }
+            }
+        }
+    }
+
+    // Non-search: list with optional category and session_id filters.
+    // NOTE: list() returns all matching entries (no server-side limit), so total
+    // from entries.len() is accurate. Pagination is applied client-side below.
+    match state.mem.list(None, params.session_id.as_deref()).await {
+        Ok(mut entries) => {
+            if let Some(ref cat) = params.category {
+                entries.retain(|entry| category_matches_filter(&entry.category, cat));
+            }
+            let total = entries.len() as u64;
+            let offset_usize = offset as usize;
+            let limit_usize = limit as usize;
+            let paged: Vec<_> = entries
+                .into_iter()
+                .skip(offset_usize)
+                .take(limit_usize)
+                .collect();
+            let response = AdminMemoryListResponse {
+                entries: paged,
+                total,
+                limit,
+                offset,
+            };
+            serialize_admin_response(&response, "Failed to serialize memory list")
+        }
+        Err(e) => {
+            tracing::error!("admin list memory failed: {e:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to list memory"})),
+            )
+        }
+    }
+}
+
+/// GET /web/admin/memory/stats — aggregated memory statistics.
+pub async fn handle_admin_memory_stats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    match state.mem.memory_stats().await {
+        Ok(stats) => {
+            let cfg = state.config.lock();
+            let response = AdminMemoryStatsResponse {
+                total_entries: stats.total_entries,
+                by_category: stats.by_category,
+                total_sessions: stats.total_sessions,
+                active_sessions: stats.active_sessions,
+                backend: stats.backend,
+                cerebro_configured: crate::memory::cerebro_configured(&cfg.memory),
+            };
+            (
+                StatusCode::OK,
+                Json(serde_json::to_value(response).unwrap_or_default()),
+            )
+        }
+        Err(e) => {
+            tracing::error!("admin memory stats failed: {e:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to get memory stats"})),
+            )
+        }
+    }
+}
+
+/// DELETE /web/admin/memory/:key — delete a memory entry by key.
+pub async fn handle_admin_delete_memory(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(key): Path<String>,
+) -> impl IntoResponse {
+    if let Some(rejection) = gateway::utils::admin_origin_guard(&headers) {
+        return rejection;
+    }
+    if let Some(rejection) = gateway::utils::admin_requires_auth(&state, &headers) {
+        return rejection;
+    }
+
+    match state.mem.forget(&key).await {
+        Ok(true) => (
+            StatusCode::OK,
+            Json(serde_json::json!({"deleted": true, "key": key})),
+        ),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "Memory entry not found", "key": key})),
+        ),
+        Err(e) => {
+            tracing::error!("admin delete memory failed: {e:#}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Failed to delete memory entry"})),
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::security::AutonomyLevel;
     use std::collections::BTreeSet;
+
+    // ── Shared test helpers for gateway integration tests ─────────
+    use crate::config::Config;
+    use crate::gateway::{AppState, GatewayRateLimiter, IdempotencyStore};
+    use crate::memory::traits::Memory as MemoryTrait;
+    use crate::memory::{MemoryCategory, SqliteMemory};
+    use crate::security::pairing::PairingGuard;
+    use axum::extract::{Path, Query, State};
+    use axum::http::{HeaderMap, HeaderName, HeaderValue, StatusCode};
+    use axum::response::IntoResponse;
+    use http_body_util::BodyExt;
+    use parking_lot::Mutex;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tempfile::TempDir;
+
+    /// Build an AppState backed by real SqliteMemory for integration tests.
+    /// `require_pairing`: if true, creates a pairing guard with the given token.
+    fn test_state_with_sqlite(
+        tmp: &TempDir,
+        paired_token: Option<&str>,
+    ) -> (AppState, Arc<SqliteMemory>) {
+        let mem = Arc::new(SqliteMemory::new(tmp.path()).unwrap());
+        let tokens: Vec<String> = paired_token.iter().map(|t| t.to_string()).collect();
+        let require_pairing = paired_token.is_some();
+        let pairing = Arc::new(PairingGuard::new(require_pairing, &tokens));
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(crate::gateway::tests::MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: mem.clone() as Arc<dyn crate::memory::Memory>,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing,
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+        };
+        (state, mem)
+    }
+
+    fn admin_headers(token: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            HeaderName::from_static("authorization"),
+            HeaderValue::from_str(&format!("Bearer {token}")).unwrap(),
+        );
+        headers
+    }
+
+    fn no_auth_headers() -> HeaderMap {
+        HeaderMap::new()
+    }
+
+    async fn response_json(response: impl IntoResponse) -> (StatusCode, serde_json::Value) {
+        let response = response.into_response();
+        let status = response.status();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap_or_default();
+        (status, json)
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 5.3: Gateway session endpoint integration tests
+    // ══════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_admin_list_sessions_requires_auth() {
+        let tmp = TempDir::new().unwrap();
+        let (state, _mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        let (status, _) = response_json(
+            handle_admin_list_sessions(
+                State(state),
+                no_auth_headers(),
+                Query(AdminSessionListParams::default()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_admin_list_sessions_returns_paginated() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        for i in 0..5 {
+            mem.upsert_session(&format!("sess-{i}"), None)
+                .await
+                .unwrap();
+        }
+
+        let (status, json) = response_json(
+            handle_admin_list_sessions(
+                State(state.clone()),
+                admin_headers("valid-token"),
+                Query(AdminSessionListParams {
+                    limit: Some(2),
+                    offset: Some(0),
+                    ..Default::default()
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["total"], 5);
+        assert_eq!(json["sessions"].as_array().unwrap().len(), 2);
+        assert_eq!(json["limit"], 2);
+        assert_eq!(json["offset"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_admin_list_sessions_status_filter() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.upsert_session("active-1", None).await.unwrap();
+        mem.upsert_session("active-2", None).await.unwrap();
+        mem.upsert_session("ended-1", None).await.unwrap();
+        mem.end_session("ended-1").await.unwrap();
+
+        // Filter active only
+        let (status, json) = response_json(
+            handle_admin_list_sessions(
+                State(state.clone()),
+                admin_headers("valid-token"),
+                Query(AdminSessionListParams {
+                    status: Some("active".into()),
+                    ..Default::default()
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["sessions"].as_array().unwrap().len(), 2);
+
+        // Filter ended only
+        let (status, json) = response_json(
+            handle_admin_list_sessions(
+                State(state),
+                admin_headers("valid-token"),
+                Query(AdminSessionListParams {
+                    status: Some("ended".into()),
+                    ..Default::default()
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["sessions"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_admin_get_session_found() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.upsert_session("sess-detail", None).await.unwrap();
+        // Store a memory entry associated with this session
+        mem.store(
+            "k1",
+            "core content",
+            MemoryCategory::Core,
+            Some("sess-detail"),
+        )
+        .await
+        .unwrap();
+        mem.store(
+            "k2",
+            "conv content",
+            MemoryCategory::Conversation,
+            Some("sess-detail"),
+        )
+        .await
+        .unwrap();
+
+        let (status, json) = response_json(
+            handle_admin_get_session(
+                State(state),
+                admin_headers("valid-token"),
+                Path("sess-detail".to_string()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["session"]["id"], "sess-detail");
+        // Memory summary should include counts by category
+        let summary = &json["memory_summary"];
+        assert!(summary.is_object());
+    }
+
+    #[tokio::test]
+    async fn test_admin_get_session_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let (state, _mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        let (status, json) = response_json(
+            handle_admin_get_session(
+                State(state),
+                admin_headers("valid-token"),
+                Path("nonexistent".to_string()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(json["error"].as_str().unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_session_list_end_user_scoped() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("user-token"));
+
+        let token_hash = crate::gateway::compute_token_hash("user-token");
+        mem.upsert_session("user-sess-1", Some(&token_hash))
+            .await
+            .unwrap();
+        mem.upsert_session("user-sess-2", Some(&token_hash))
+            .await
+            .unwrap();
+        mem.upsert_session("other-sess", Some("other-hash"))
+            .await
+            .unwrap();
+
+        let (status, json) = response_json(
+            crate::gateway::sessions::handle_session_list(
+                State(state),
+                admin_headers("user-token"),
+                Query(crate::gateway::sessions::SessionListParams::default()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["total"], 2);
+        assert_eq!(json["sessions"].as_array().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_session_list_end_user_no_cross_leakage() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("token-a"));
+
+        let hash_a = crate::gateway::compute_token_hash("token-a");
+        let hash_b = crate::gateway::compute_token_hash("token-b");
+        mem.upsert_session("a-sess", Some(&hash_a)).await.unwrap();
+        mem.upsert_session("b-sess", Some(&hash_b)).await.unwrap();
+
+        // Token A should only see its own sessions
+        let (status, json) = response_json(
+            crate::gateway::sessions::handle_session_list(
+                State(state),
+                admin_headers("token-a"),
+                Query(crate::gateway::sessions::SessionListParams::default()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["total"], 1);
+        assert_eq!(json["sessions"][0]["id"], "a-sess");
+    }
+
+    #[tokio::test]
+    async fn test_session_list_unauthenticated() {
+        let tmp = TempDir::new().unwrap();
+        let (state, _mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        let (status, _) = response_json(
+            crate::gateway::sessions::handle_session_list(
+                State(state),
+                no_auth_headers(),
+                Query(crate::gateway::sessions::SessionListParams::default()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // 5.4: Gateway memory endpoint integration tests
+    // ══════════════════════════════════════════════════════════════
+
+    #[tokio::test]
+    async fn test_admin_list_memory_requires_auth() {
+        let tmp = TempDir::new().unwrap();
+        let (state, _mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        let (status, _) = response_json(
+            handle_admin_list_memory(
+                State(state),
+                no_auth_headers(),
+                Query(AdminMemoryListParams::default()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+    }
+
+    #[tokio::test]
+    async fn test_admin_list_memory_category_filter() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.store("k1", "core content", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store("k2", "conv content", MemoryCategory::Conversation, None)
+            .await
+            .unwrap();
+        mem.store("k3", "core content 2", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+
+        let (status, json) = response_json(
+            handle_admin_list_memory(
+                State(state),
+                admin_headers("valid-token"),
+                Query(AdminMemoryListParams {
+                    category: Some("core".into()),
+                    ..Default::default()
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["total"], 2);
+        let entries = json["entries"].as_array().unwrap();
+        assert!(entries.iter().all(|e| e["category"] == "core"));
+    }
+
+    #[tokio::test]
+    async fn test_admin_list_memory_category_filter_is_case_insensitive() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.store("k1", "core content", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store("k2", "conv content", MemoryCategory::Conversation, None)
+            .await
+            .unwrap();
+
+        let (status, json) = response_json(
+            handle_admin_list_memory(
+                State(state),
+                admin_headers("valid-token"),
+                Query(AdminMemoryListParams {
+                    category: Some("CORE".into()),
+                    ..Default::default()
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["total"], 1);
+        assert_eq!(json["entries"][0]["category"], "core");
+    }
+
+    #[tokio::test]
+    async fn test_session_list_rejects_unpaired_scope_by_default() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, None);
+        state.config.lock().gateway.allow_unpaired_session_scopes = false;
+
+        let token_hash = crate::gateway::compute_token_hash("user-token");
+        mem.upsert_session("user-sess-1", Some(&token_hash))
+            .await
+            .unwrap();
+
+        let (status, json) = response_json(
+            crate::gateway::sessions::handle_session_list(
+                State(state),
+                admin_headers("user-token"),
+                Query(crate::gateway::sessions::SessionListParams::default()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+        assert!(json["error"]
+            .as_str()
+            .unwrap()
+            .contains("unpaired session scopes are disabled"));
+    }
+
+    #[tokio::test]
+    async fn test_session_list_allows_unpaired_scope_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, None);
+        state.config.lock().gateway.allow_unpaired_session_scopes = true;
+
+        let token_hash = crate::gateway::compute_token_hash("user-token");
+        mem.upsert_session("user-sess-1", Some(&token_hash))
+            .await
+            .unwrap();
+
+        let (status, json) = response_json(
+            crate::gateway::sessions::handle_session_list(
+                State(state),
+                admin_headers("user-token"),
+                Query(crate::gateway::sessions::SessionListParams::default()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["total"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_admin_list_memory_session_filter() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.store("k1", "sess-A content", MemoryCategory::Core, Some("sess-A"))
+            .await
+            .unwrap();
+        mem.store("k2", "sess-B content", MemoryCategory::Core, Some("sess-B"))
+            .await
+            .unwrap();
+
+        let (status, json) = response_json(
+            handle_admin_list_memory(
+                State(state),
+                admin_headers("valid-token"),
+                Query(AdminMemoryListParams {
+                    session_id: Some("sess-A".into()),
+                    ..Default::default()
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["total"], 1);
+        assert_eq!(json["entries"][0]["session_id"], "sess-A");
+    }
+
+    #[tokio::test]
+    async fn test_admin_list_memory_search() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.store(
+            "k1",
+            "deployment to kubernetes cluster",
+            MemoryCategory::Core,
+            None,
+        )
+        .await
+        .unwrap();
+        mem.store("k2", "user prefers dark mode", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store(
+            "k3",
+            "kubernetes pod scaling policy",
+            MemoryCategory::Core,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let (status, json) = response_json(
+            handle_admin_list_memory(
+                State(state),
+                admin_headers("valid-token"),
+                Query(AdminMemoryListParams {
+                    q: Some("kubernetes".into()),
+                    ..Default::default()
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        let entries = json["entries"].as_array().unwrap();
+        assert_eq!(entries.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_admin_list_memory_combined_filters() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.store(
+            "k1",
+            "conv in sess-A",
+            MemoryCategory::Conversation,
+            Some("sess-A"),
+        )
+        .await
+        .unwrap();
+        mem.store("k2", "core in sess-A", MemoryCategory::Core, Some("sess-A"))
+            .await
+            .unwrap();
+        mem.store(
+            "k3",
+            "conv in sess-B",
+            MemoryCategory::Conversation,
+            Some("sess-B"),
+        )
+        .await
+        .unwrap();
+
+        let (status, json) = response_json(
+            handle_admin_list_memory(
+                State(state),
+                admin_headers("valid-token"),
+                Query(AdminMemoryListParams {
+                    category: Some("conversation".into()),
+                    session_id: Some("sess-A".into()),
+                    ..Default::default()
+                }),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["total"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_admin_memory_stats() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.store("k1", "core1", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store("k2", "daily1", MemoryCategory::Daily, None)
+            .await
+            .unwrap();
+        mem.upsert_session("s1", None).await.unwrap();
+        mem.upsert_session("s2", None).await.unwrap();
+        mem.end_session("s2").await.unwrap();
+
+        let (status, json) = response_json(
+            handle_admin_memory_stats(State(state), admin_headers("valid-token")).await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["total_entries"], 2);
+        assert_eq!(json["total_sessions"], 2);
+        assert_eq!(json["active_sessions"], 1);
+        assert_eq!(json["backend"], "sqlite");
+        assert_eq!(json["by_category"]["core"], 1);
+        assert_eq!(json["by_category"]["daily"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_admin_delete_memory() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.store("delete-me", "to be deleted", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+
+        let (status, json) = response_json(
+            handle_admin_delete_memory(
+                State(state.clone()),
+                admin_headers("valid-token"),
+                Path("delete-me".to_string()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["deleted"], true);
+
+        // Verify entry is gone
+        let entry = mem.get("delete-me").await.unwrap();
+        assert!(entry.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_admin_delete_memory_not_found() {
+        let tmp = TempDir::new().unwrap();
+        let (state, _mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        let (status, json) = response_json(
+            handle_admin_delete_memory(
+                State(state),
+                admin_headers("valid-token"),
+                Path("nonexistent-key".to_string()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::NOT_FOUND);
+        assert!(json["error"].as_str().unwrap().contains("not found"));
+    }
+
+    #[tokio::test]
+    async fn test_admin_delete_memory_requires_admin() {
+        let tmp = TempDir::new().unwrap();
+        let (state, mem) = test_state_with_sqlite(&tmp, Some("valid-token"));
+
+        mem.store("protected", "important data", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+
+        let (status, _) = response_json(
+            handle_admin_delete_memory(
+                State(state),
+                no_auth_headers(),
+                Path("protected".to_string()),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNAUTHORIZED);
+
+        // Verify entry was NOT deleted
+        let entry = mem.get("protected").await.unwrap();
+        assert!(entry.is_some());
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    // Original admin config tests
+    // ══════════════════════════════════════════════════════════════
 
     fn empty_patch() -> AdminConfigUpdateRequest {
         AdminConfigUpdateRequest {

@@ -18,3 +18,16 @@ export interface StreamErrorEvent {
   code: string;
   message: string;
 }
+
+export interface SessionListItem {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  message_count: number;
+  last_activity: string;
+}
+
+export interface SessionListResponse {
+  sessions: SessionListItem[];
+  total: number;
+}

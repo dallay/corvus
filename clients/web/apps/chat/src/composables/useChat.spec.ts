@@ -118,8 +118,9 @@ describe("useChat", () => {
     const reply = await chat.sendMessage("hola");
 
     expect(reply).toEqual({ type: "message", content: "ok" });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
-    const [, init] = fetchMock.mock.calls[1] ?? [];
+    const webhookCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/webhook"));
+    expect(webhookCall).toBeDefined();
+    const init = webhookCall?.[1];
     expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer token-123");
     expect((init?.headers as Record<string, string>)["X-Session-Id"]).toBe(
       "22222222-2222-4222-8222-222222222222"
@@ -141,7 +142,9 @@ describe("useChat", () => {
 
     await chat.sendMessage("hola", "shared-request-id");
 
-    const [, init] = fetchMock.mock.calls[1] ?? [];
+    const webhookCall = fetchMock.mock.calls.find(([url]) => String(url).includes("/webhook"));
+    expect(webhookCall).toBeDefined();
+    const init = webhookCall?.[1];
     expect((init?.headers as Record<string, string>)["X-Idempotency-Key"]).toBe(
       "shared-request-id"
     );
@@ -507,5 +510,154 @@ describe("useChat", () => {
 
     expect(reply).toEqual({ type: "message", content: "hi" });
     expect(chat.currentSessionId.value).toBe("77777777-7777-4777-8777-777777777777");
+  });
+
+  describe("session list and switching", () => {
+    it("fetchSessionList calls gateway and populates sessionList ref", async () => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue("aaa11111-1111-4111-8111-111111111111");
+      const gateway = await connectReadyGateway();
+      const chat = useChat((key: string) => key, gateway);
+
+      const sessionListPayload = {
+        sessions: [
+          {
+            id: "s1",
+            started_at: "2026-01-01",
+            ended_at: null,
+            message_count: 5,
+            last_activity: "2026-01-02",
+          },
+          {
+            id: "s2",
+            started_at: "2026-01-02",
+            ended_at: "2026-01-03",
+            message_count: 3,
+            last_activity: "2026-01-03",
+          },
+        ],
+        total: 2,
+      };
+
+      // createSession triggers one watcher-driven fetch, and the explicit call triggers another.
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify(sessionListPayload),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify(sessionListPayload),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      chat.createSession();
+      await chat.fetchSessionList();
+
+      expect(chat.sessionList.value).toHaveLength(2);
+      expect(chat.sessionList.value[0]?.id).toBe("s1");
+      expect(chat.sessionList.value[1]?.id).toBe("s2");
+    });
+
+    it("clears stale sessionList when gateway auth context changes", async () => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue("fff66666-6666-4666-8666-666666666666");
+      const gateway = await connectReadyGateway();
+      const chat = useChat((key: string) => key, gateway);
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessions: [
+              {
+                id: "s1",
+                started_at: "2026-01-01",
+                ended_at: null,
+                message_count: 5,
+                last_activity: "2026-01-02",
+              },
+            ],
+            total: 1,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      chat.createSession();
+      await vi.waitFor(() => expect(chat.sessionList.value).toHaveLength(1));
+
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ sessions: [], total: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      gateway.bearerToken.value = "token-456";
+
+      await vi.waitFor(() => expect(chat.sessionList.value).toEqual([]));
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+    });
+
+    it("fetchSessionList handles 404 gracefully with empty list", async () => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue("bbb22222-2222-4222-8222-222222222222");
+      const gateway = await connectReadyGateway();
+      const chat = useChat((key: string) => key, gateway);
+      chat.createSession();
+
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
+
+      await chat.fetchSessionList();
+
+      expect(chat.sessionList.value).toEqual([]);
+    });
+
+    it("switchSession sets new session ID and persists it", async () => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue("ccc33333-3333-4333-8333-333333333333");
+      const gateway = await connectReadyGateway();
+      const chat = useChat((key: string) => key, gateway);
+      chat.createSession();
+
+      expect(chat.currentSessionId.value).toBe("ccc33333-3333-4333-8333-333333333333");
+
+      chat.switchSession("target-session-id");
+
+      expect(chat.currentSessionId.value).toBe("target-session-id");
+      expect(chat.sessionState.value.state).toBe("session_ready");
+      expect(window.sessionStorage.getItem("corvus.chat.session:%2Fapi")).toBe("target-session-id");
+    });
+
+    it("switchSession ignores switch to same session", async () => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue("ddd44444-4444-4444-8444-444444444444");
+      const gateway = await connectReadyGateway();
+      const chat = useChat((key: string) => key, gateway);
+      chat.createSession();
+
+      chat.switchSession("ddd44444-4444-4444-8444-444444444444");
+
+      expect(chat.currentSessionId.value).toBe("ddd44444-4444-4444-8444-444444444444");
+    });
+
+    it("switchSession ignores empty target", async () => {
+      vi.spyOn(crypto, "randomUUID").mockReturnValue("eee55555-5555-4555-8555-555555555555");
+      const gateway = await connectReadyGateway();
+      const chat = useChat((key: string) => key, gateway);
+      chat.createSession();
+
+      chat.switchSession("");
+
+      expect(chat.currentSessionId.value).toBe("eee55555-5555-4555-8555-555555555555");
+    });
+
+    it("fetchSessionList does nothing when gateway is not ready", async () => {
+      const gateway = useGateway((key: string) => key);
+      const chat = useChat((key: string) => key, gateway);
+
+      await chat.fetchSessionList();
+
+      expect(chat.sessionList.value).toEqual([]);
+      // Only the connectReadyGateway call from other tests uses fetch; here no fetch calls
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 });

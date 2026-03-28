@@ -23,7 +23,9 @@ pub use response_cache::ResponseCache;
 pub use sqlite::SqliteMemory;
 pub use traits::Memory;
 #[allow(unused_imports)]
-pub use traits::{MemoryCategory, MemoryEntry, MemoryValidationResult};
+pub use traits::{
+    MemoryCategory, MemoryEntry, MemoryStats, MemoryValidationResult, SessionEntry, SessionStatus,
+};
 
 use crate::config::MemoryConfig;
 use std::path::Path;

@@ -698,6 +698,10 @@ pub struct GatewayConfig {
     /// Allow binding to non-localhost without a tunnel (default: false)
     #[serde(default)]
     pub allow_public_bind: bool,
+    /// Allow `/session/list` token scoping without paired-token validation when pairing is disabled.
+    /// Disabled by default to preserve deny-by-default session access.
+    #[serde(default)]
+    pub allow_unpaired_session_scopes: bool,
     /// Paired bearer tokens (managed automatically, not user-edited)
     #[serde(default)]
     pub paired_tokens: Vec<String>,
@@ -777,6 +781,7 @@ impl Default for GatewayConfig {
             admin_expose_provider_pools: false,
             require_pairing: true,
             allow_public_bind: false,
+            allow_unpaired_session_scopes: false,
             paired_tokens: Vec::new(),
             pair_rate_limit_per_minute: default_pair_rate_limit(),
             webhook_rate_limit_per_minute: default_webhook_rate_limit(),
@@ -4726,6 +4731,7 @@ channel_id = "C123"
             g.paired_tokens.is_empty(),
             "No pre-paired tokens by default"
         );
+        assert!(!g.allow_unpaired_session_scopes);
         assert_eq!(g.pair_rate_limit_per_minute, 10);
         assert_eq!(g.webhook_rate_limit_per_minute, 60);
         assert!(!g.trust_forwarded_headers);
@@ -4757,6 +4763,7 @@ channel_id = "C123"
             admin_expose_provider_pools: false,
             require_pairing: true,
             allow_public_bind: false,
+            allow_unpaired_session_scopes: true,
             paired_tokens: vec!["zc_test_token".into()],
             pair_rate_limit_per_minute: 12,
             webhook_rate_limit_per_minute: 80,
@@ -4770,6 +4777,7 @@ channel_id = "C123"
         let parsed: GatewayConfig = toml::from_str(&toml_str).unwrap();
         assert!(parsed.require_pairing);
         assert!(!parsed.allow_public_bind);
+        assert!(parsed.allow_unpaired_session_scopes);
         assert_eq!(parsed.paired_tokens, vec!["zc_test_token"]);
         assert_eq!(parsed.pair_rate_limit_per_minute, 12);
         assert_eq!(parsed.webhook_rate_limit_per_minute, 80);
