@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trimTrailingSlashes, validateGatewayUrl } from "@corvus/shared";
-import { ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminChannelStatusView } from "@/types/admin-config";
 
@@ -16,32 +16,61 @@ const channels = ref<AdminChannelStatusView[]>([]);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
-async function fetchChannels() {
+let abortController: AbortController | undefined;
+
+async function fetchChannels(signal?: AbortSignal) {
   loading.value = true;
   error.value = null;
   try {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
-      throw new Error("Invalid gateway URL");
+      channels.value = [];
+      error.value = "Invalid gateway URL";
+      return;
     }
     const baseStr = trimTrailingSlashes(base.toString());
     const requestUrl = new URL("web/admin/channels", `${baseStr}/`);
     const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
+      signal,
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    channels.value = data.channels ?? [];
+    if (
+      Array.isArray(data?.channels) &&
+      data.channels.every(
+        (c: unknown) =>
+          typeof c === "object" && c !== null && "channel_type" in c && "configured" in c
+      )
+    ) {
+      channels.value = data.channels;
+    } else {
+      channels.value = [];
+    }
   } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     loading.value = false;
   }
 }
 
-watch(() => [props.gatewayUrl, props.bearerToken], fetchChannels, { immediate: true });
+watch(
+  () => [props.gatewayUrl, props.bearerToken],
+  () => {
+    if (abortController) {
+      abortController.abort();
+    }
+    abortController = new AbortController();
+    fetchChannels(abortController.signal);
+  },
+  { immediate: true }
+);
+onUnmounted(() => {
+  abortController?.abort();
+});
 </script>
 
 <template>

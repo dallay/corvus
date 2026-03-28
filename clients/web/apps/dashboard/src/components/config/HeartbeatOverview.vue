@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trimTrailingSlashes, validateGatewayUrl } from "@corvus/shared";
-import { ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminHeartbeatView } from "@/types/admin-config";
 
@@ -16,18 +16,23 @@ const heartbeat = ref<AdminHeartbeatView | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
-async function fetchHeartbeat() {
+let abortController: AbortController | undefined;
+
+async function fetchHeartbeat(signal?: AbortSignal) {
   loading.value = true;
   error.value = null;
   try {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
-      throw new Error("Invalid gateway URL");
+      heartbeat.value = null;
+      error.value = "Invalid gateway URL";
+      return;
     }
     const baseStr = trimTrailingSlashes(base.toString());
     const requestUrl = new URL("web/admin/config", `${baseStr}/`);
     const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
+      signal,
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
@@ -35,13 +40,27 @@ async function fetchHeartbeat() {
     const data = await res.json();
     heartbeat.value = data.config?.heartbeat ?? null;
   } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     loading.value = false;
   }
 }
 
-watch(() => [props.gatewayUrl, props.bearerToken], fetchHeartbeat, { immediate: true });
+watch(
+  () => [props.gatewayUrl, props.bearerToken],
+  () => {
+    if (abortController) {
+      abortController.abort();
+    }
+    abortController = new AbortController();
+    fetchHeartbeat(abortController.signal);
+  },
+  { immediate: true }
+);
+onUnmounted(() => {
+  abortController?.abort();
+});
 </script>
 
 <template>

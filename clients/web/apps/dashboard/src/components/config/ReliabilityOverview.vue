@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trimTrailingSlashes, validateGatewayUrl } from "@corvus/shared";
-import { ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminReliabilityView } from "@/types/admin-config";
 
@@ -16,18 +16,23 @@ const reliability = ref<AdminReliabilityView | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
-async function fetchReliability() {
+let abortController: AbortController | undefined;
+
+async function fetchReliability(signal?: AbortSignal) {
   loading.value = true;
   error.value = null;
   try {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
-      throw new Error("Invalid gateway URL");
+      reliability.value = null;
+      error.value = "Invalid gateway URL";
+      return;
     }
     const baseStr = trimTrailingSlashes(base.toString());
     const requestUrl = new URL("web/admin/config", `${baseStr}/`);
     const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
+      signal,
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
@@ -35,13 +40,27 @@ async function fetchReliability() {
     const data = await res.json();
     reliability.value = data.config?.reliability ?? null;
   } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     loading.value = false;
   }
 }
 
-watch(() => [props.gatewayUrl, props.bearerToken], fetchReliability, { immediate: true });
+watch(
+  () => [props.gatewayUrl, props.bearerToken],
+  () => {
+    if (abortController) {
+      abortController.abort();
+    }
+    abortController = new AbortController();
+    fetchReliability(abortController.signal);
+  },
+  { immediate: true }
+);
+onUnmounted(() => {
+  abortController?.abort();
+});
 </script>
 
 <template>

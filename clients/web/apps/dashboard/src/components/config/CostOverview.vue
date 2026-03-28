@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trimTrailingSlashes, validateGatewayUrl } from "@corvus/shared";
-import { computed, ref, watch } from "vue";
+import { computed, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminCostView } from "@/types/admin-config";
 
@@ -30,32 +30,56 @@ const formattedMonthly = computed(() =>
   cost.value != null ? currencyFmt.format(cost.value.monthly_limit_usd) : ""
 );
 
-async function fetchCost() {
+let abortController: AbortController | undefined;
+
+async function fetchCost(signal?: AbortSignal) {
   loading.value = true;
   error.value = null;
   try {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
-      throw new Error("Invalid gateway URL");
+      cost.value = null;
+      error.value = "Invalid gateway URL";
+      return;
     }
     const baseStr = trimTrailingSlashes(base.toString());
     const requestUrl = new URL("web/admin/config", `${baseStr}/`);
     const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
+      signal,
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    cost.value = data?.config?.cost ?? null;
+    if (data?.config?.cost) {
+      cost.value = data.config.cost;
+    } else {
+      cost.value = null;
+      error.value = "Cost data not available";
+    }
   } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     loading.value = false;
   }
 }
 
-watch(() => [props.gatewayUrl, props.bearerToken], fetchCost, { immediate: true });
+watch(
+  () => [props.gatewayUrl, props.bearerToken],
+  () => {
+    if (abortController) {
+      abortController.abort();
+    }
+    abortController = new AbortController();
+    fetchCost(abortController.signal);
+  },
+  { immediate: true }
+);
+onUnmounted(() => {
+  abortController?.abort();
+});
 </script>
 
 <template>

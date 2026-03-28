@@ -137,9 +137,14 @@ describe("App", () => {
     expect(String(pairUrl)).toContain("/pair");
     expect((pairInit?.headers as Record<string, string>)["X-Pairing-Code"]).toBe("123456");
 
-    const [streamUrl] = fetchMock.mock.calls[4] ?? [];
+    const [streamUrl, streamInit] = fetchMock.mock.calls[4] ?? [];
     expect(String(streamUrl)).toContain("/web/chat/stream");
-    const [, streamInit] = fetchMock.mock.calls[4] ?? [];
+    expect((streamInit?.headers as Record<string, string>).Authorization).toBe(
+      "Bearer zc_test_token"
+    );
+    expect((streamInit?.headers as Record<string, string>)["X-Session-Id"]).toBe(
+      "11111111-1111-4111-8111-111111111111"
+    );
 
     const [webhookUrl, webhookInit] = fetchMock.mock.calls[5] ?? [];
     expect(String(webhookUrl)).toContain("/webhook");

@@ -24,16 +24,21 @@ describe("ChannelsOverview", () => {
       { channel_type: "slack", configured: false, config_summary: {} },
     ];
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({ channels: mockChannels }),
-      })
-    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ channels: mockChannels }),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
 
     const wrapper = mountComponent();
     await flushPromises();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/web/admin/channels"),
+      expect.objectContaining({
+        headers: { Authorization: "Bearer test-token" },
+      })
+    );
 
     expect(wrapper.find('[data-testid="channel-webhook"]').exists()).toBe(true);
     expect(wrapper.find('[data-testid="channel-slack"]').exists()).toBe(true);

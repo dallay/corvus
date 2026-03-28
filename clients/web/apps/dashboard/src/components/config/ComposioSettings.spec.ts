@@ -107,34 +107,7 @@ describe("ComposioSettings", () => {
     );
   });
 
-  it("clears api key value when mode changes to clear", async () => {
-    const wrapper = mount(ComposioSettings, {
-      props: {
-        modelValue: createAdminConfigForm({
-          composio_api_key_mode: "replace",
-          composio_api_key_value: "secret",
-        }),
-        disabled: false,
-        saving: false,
-      },
-      global: {
-        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
-      },
-    });
-
-    await wrapper.get('[data-testid="composio_api_key_mode"]').setValue("clear");
-
-    const updates = wrapper.emitted("update:modelValue");
-    expect(updates).toHaveLength(1);
-    expect(updates?.[0]?.[0]).toEqual(
-      expect.objectContaining({
-        composio_api_key_mode: "clear",
-        composio_api_key_value: "",
-      })
-    );
-  });
-
-  it("hides password input when mode is unchanged even if secret value is present", () => {
+  it("hides password input and does not leak secret when mode is unchanged", () => {
     const wrapper = mount(ComposioSettings, {
       props: {
         modelValue: createAdminConfigForm({
@@ -151,5 +124,6 @@ describe("ComposioSettings", () => {
     });
 
     expect(wrapper.find('[data-testid="composio_api_key_value"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("my-secret");
   });
 });

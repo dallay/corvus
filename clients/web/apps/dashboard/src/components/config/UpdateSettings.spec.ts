@@ -104,4 +104,25 @@ describe("UpdateSettings", () => {
     expect(wrapper.get('[data-testid="updates_update_available"]').text()).toContain("No");
     expect(wrapper.get('[data-testid="updates_auto_install_enabled"]').text()).toContain("Yes");
   });
+
+  it("renders no for auto_install_enabled when false", () => {
+    const wrapper = mountUpdateSettings({
+      updates: {
+        enabled: true,
+        auto_install_enabled: false,
+        channel_visibility_enabled: true,
+        cli_startup_notice_enabled: true,
+        restart_policy: "graceful",
+        status: {
+          current_version: "2.0.0",
+          latest_version: "2.0.0",
+          update_available: false,
+          effective_install_method: "brew",
+          install_method_source: "detected",
+        },
+      },
+    });
+
+    expect(wrapper.get('[data-testid="updates_auto_install_enabled"]').text()).toContain("No");
+  });
 });

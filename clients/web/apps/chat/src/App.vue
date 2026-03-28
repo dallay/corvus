@@ -226,6 +226,7 @@ function persistMessages(): void {
       id: m.id,
       role: m.role,
       content: m.content,
+      status: m.status,
       approvalId: m.approvalId,
       toolName: m.toolName,
       reason: m.reason,

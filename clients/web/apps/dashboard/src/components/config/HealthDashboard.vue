@@ -36,25 +36,42 @@ function formatUptime(seconds: number): string {
   return parts.join(" ");
 }
 
-async function fetchHealth() {
-  loading.value = true;
+let abortController: AbortController | undefined;
+
+async function fetchHealth(signal?: AbortSignal) {
+  if (health.value === null) {
+    loading.value = true;
+  }
   error.value = null;
   try {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
-      throw new Error("Invalid gateway URL");
+      health.value = null;
+      error.value = "Invalid gateway URL";
+      return;
     }
     const baseStr = trimTrailingSlashes(base.toString());
     const requestUrl = new URL("web/admin/health", `${baseStr}/`);
     const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
+      signal,
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     }
     const data = await res.json();
-    health.value = data.health ?? null;
+    if (
+      data.health &&
+      typeof data.health === "object" &&
+      typeof data.health.uptime_seconds === "number" &&
+      typeof data.health.components === "object"
+    ) {
+      health.value = data.health;
+    } else {
+      health.value = null;
+    }
   } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     loading.value = false;
@@ -69,8 +86,18 @@ watch(
     if (pollInterval !== undefined) {
       clearInterval(pollInterval);
     }
-    fetchHealth();
-    pollInterval = setInterval(fetchHealth, 30_000);
+    if (abortController) {
+      abortController.abort();
+    }
+    abortController = new AbortController();
+    fetchHealth(abortController.signal);
+    pollInterval = setInterval(() => {
+      if (abortController) {
+        abortController.abort();
+      }
+      abortController = new AbortController();
+      fetchHealth(abortController.signal);
+    }, 30_000);
   },
   { immediate: true }
 );
@@ -78,6 +105,7 @@ onUnmounted(() => {
   if (pollInterval !== undefined) {
     clearInterval(pollInterval);
   }
+  abortController?.abort();
 });
 </script>
 

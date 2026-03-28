@@ -40,8 +40,32 @@ describe("SchedulerStatus", () => {
     expect(wrapper.find('[data-testid="scheduler-status"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("64");
     expect(wrapper.text()).toContain("4");
-    expect(wrapper.text()).toContain("Not available");
+    expect(wrapper.text()).not.toContain("Not available");
     expect(wrapper.text()).toContain("Yes");
+
+    vi.unstubAllGlobals();
+  });
+
+  it("shows not available when task_count is null", async () => {
+    const mockScheduler = {
+      enabled: true,
+      max_tasks: 64,
+      max_concurrent: 4,
+      task_count: null,
+    };
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ scheduler: mockScheduler }),
+      })
+    );
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Not available");
 
     vi.unstubAllGlobals();
   });

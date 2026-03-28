@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { trimTrailingSlashes, validateGatewayUrl } from "@corvus/shared";
-import { ref, watch } from "vue";
+import { onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminSchedulerStatusView } from "@/types/admin-config";
 
@@ -16,18 +16,23 @@ const scheduler = ref<AdminSchedulerStatusView | null>(null);
 const loading = ref(true);
 const error = ref<string | null>(null);
 
-async function fetchSchedulerStatus() {
+let abortController: AbortController | undefined;
+
+async function fetchSchedulerStatus(signal?: AbortSignal) {
   loading.value = true;
   error.value = null;
   try {
     const base = validateGatewayUrl(props.gatewayUrl);
     if (!base) {
-      throw new Error("Invalid gateway URL");
+      scheduler.value = null;
+      error.value = "Invalid gateway URL";
+      return;
     }
     const baseStr = trimTrailingSlashes(base.toString());
     const requestUrl = new URL("web/admin/scheduler", `${baseStr}/`);
     const res = await fetch(requestUrl.toString(), {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
+      signal,
     });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
@@ -35,13 +40,27 @@ async function fetchSchedulerStatus() {
     const data = await res.json();
     scheduler.value = data.scheduler ?? null;
   } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") return;
     error.value = e instanceof Error ? e.message : String(e);
   } finally {
     loading.value = false;
   }
 }
 
-watch(() => [props.gatewayUrl, props.bearerToken], fetchSchedulerStatus, { immediate: true });
+watch(
+  () => [props.gatewayUrl, props.bearerToken],
+  () => {
+    if (abortController) {
+      abortController.abort();
+    }
+    abortController = new AbortController();
+    fetchSchedulerStatus(abortController.signal);
+  },
+  { immediate: true }
+);
+onUnmounted(() => {
+  abortController?.abort();
+});
 </script>
 
 <template>
@@ -71,7 +90,7 @@ watch(() => [props.gatewayUrl, props.bearerToken], fetchSchedulerStatus, { immed
       </div>
       <div class="status-item">
         <span class="status-label">{{ t("scheduler.taskCount") }}</span>
-        <span class="status-value">{{ scheduler.task_count === 0 ? t("scheduler.notAvailable") : scheduler.task_count }}</span>
+        <span class="status-value">{{ scheduler.task_count == null ? t("scheduler.notAvailable") : scheduler.task_count }}</span>
       </div>
     </div>
   </section>

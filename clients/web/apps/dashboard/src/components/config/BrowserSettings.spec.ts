@@ -105,11 +105,13 @@ describe("BrowserSettings", () => {
     );
   });
 
-  it("hides password input when computer use api key mode is unchanged", () => {
+  it("hides password input and does not leak secret when mode is unchanged", () => {
     const wrapper = mount(BrowserSettings, {
       props: {
         modelValue: createAdminConfigForm({
           browser_computer_use_api_key_mode: "unchanged",
+          browser_has_computer_use_api_key: true,
+          browser_computer_use_api_key_value: "supersecret",
         }),
         disabled: false,
         saving: false,
@@ -120,5 +122,6 @@ describe("BrowserSettings", () => {
     });
 
     expect(wrapper.find('[data-testid="browser_computer_use_api_key_value"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("supersecret");
   });
 });

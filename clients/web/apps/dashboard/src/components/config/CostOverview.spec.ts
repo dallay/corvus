@@ -31,16 +31,21 @@ describe("CostOverview", () => {
       },
     };
 
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve(mockConfig),
-      })
-    );
+    const fetchSpy = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve(mockConfig),
+    });
+    vi.stubGlobal("fetch", fetchSpy);
 
     const wrapper = mountComponent();
     await flushPromises();
+
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/web/admin/config"),
+      expect.objectContaining({
+        headers: { Authorization: "Bearer test-token" },
+      })
+    );
 
     expect(wrapper.find('[data-testid="cost-overview"]').exists()).toBe(true);
     expect(wrapper.text()).toContain("$50.00");
