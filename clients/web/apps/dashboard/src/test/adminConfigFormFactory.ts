@@ -30,6 +30,31 @@ const defaultAdminConfigForm: AdminConfigForm = {
   webhook_secret_mode: "unchanged",
   webhook_secret_value: "",
   webhook_secret_exists: false,
+  // Web Search
+  web_search_enabled: false,
+  web_search_provider: "duckduckgo",
+  web_search_max_results: "5",
+  web_search_timeout_secs: "10",
+  web_search_brave_api_key_mode: "unchanged",
+  web_search_brave_api_key_value: "",
+  web_search_has_brave_api_key: false,
+  // Browser
+  browser_computer_use_api_key_mode: "unchanged",
+  browser_computer_use_api_key_value: "",
+  browser_has_computer_use_api_key: false,
+  // Composio
+  composio_enabled: false,
+  composio_entity_id: "default",
+  composio_api_key_mode: "unchanged",
+  composio_api_key_value: "",
+  composio_has_api_key: false,
+  // Memory (extended)
+  memory_cerebro_endpoint: "",
+  memory_cerebro_timeout_ms: "5000",
+  memory_cerebro_allow_insecure_loopback: false,
+  memory_cerebro_auth_token_mode: "unchanged",
+  memory_cerebro_auth_token_value: "",
+  memory_cerebro_has_auth_token: false,
 };
 
 export function createAdminConfigForm(overrides: Partial<AdminConfigForm> = {}): AdminConfigForm {

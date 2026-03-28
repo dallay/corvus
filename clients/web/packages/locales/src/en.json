@@ -15,7 +15,12 @@
     "autonomy": "Autonomy",
     "scheduler": "Scheduler",
     "gateway": "Gateway",
-    "webhook": "Webhook"
+    "webhook": "Webhook",
+    "webSearch": "Web search",
+    "browser": "Browser",
+    "composio": "Composio",
+    "memory": "Memory",
+    "updates": "Updates"
   },
   "auth": {
     "baseUrl": "Gateway base URL",
@@ -248,5 +253,43 @@
     "secretStatus": "Current secret: {status}",
     "statusConfigured": "configured",
     "statusNotConfigured": "not configured"
+  },
+  "webSearch": {
+    "enabled": "Enabled",
+    "provider": "Provider",
+    "maxResults": "Max results",
+    "timeoutSecs": "Timeout (seconds)",
+    "braveApiKeyMode": "Brave API key",
+    "braveApiKeyValue": "New Brave API key"
+  },
+  "browser": {
+    "computerUseApiKeyMode": "Computer use API key",
+    "computerUseApiKeyValue": "New computer use API key"
+  },
+  "composio": {
+    "enabled": "Enabled",
+    "entityId": "Entity ID",
+    "apiKeyMode": "API key",
+    "apiKeyValue": "New API key"
+  },
+  "memory": {
+    "cerebroEndpoint": "Cerebro endpoint",
+    "cerebroTimeoutMs": "Cerebro timeout (ms)",
+    "cerebroAllowInsecureLoopback": "Allow insecure loopback",
+    "cerebroAuthTokenMode": "Auth token",
+    "cerebroAuthTokenValue": "New auth token"
+  },
+  "updates": {
+    "currentVersion": "Current version",
+    "latestVersion": "Latest version",
+    "updateAvailable": "Update available",
+    "autoInstallEnabled": "Auto-install enabled",
+    "restartPolicy": "Restart policy",
+    "lastCheckOutcome": "Last check outcome",
+    "effectiveInstallMethod": "Effective install method",
+    "yes": "Yes",
+    "no": "No",
+    "unknown": "Unknown",
+    "never": "Never"
   }
 }

@@ -190,6 +190,12 @@ function createMockConfig(
       scheduler: false,
       gateway: false,
       webhook: false,
+      "web-search": false,
+      browser: false,
+      composio: false,
+      memory: false,
+      "provider-pools": false,
+      updates: false,
       ...overrides.sectionSaving,
     }),
     memoryBackendOptions: ref(["sqlite", "none"]),
@@ -231,7 +237,7 @@ describe("Dashboard App", () => {
     expect(wrapper.text()).toContain("Onboarding del dashboard");
     expect(wrapper.text()).toContain("Runtime disponible");
     expect(wrapper.text()).toContain("Secret actual: configurado");
-    expect(wrapper.findAll("input")).toHaveLength(3);
+    expect(wrapper.findAll("input")).toHaveLength(12);
     expect(wrapper.findAll("[data-section]")).toHaveLength(7);
     expect(wrapper.findAll(".onboarding-step")).toHaveLength(4);
   });
@@ -240,13 +246,13 @@ describe("Dashboard App", () => {
     const { wrapper, config } = mountApp(createMockConfig({ quickPairState: "validating" }));
 
     expect(wrapper.text()).toContain("Enlace detectado, validando");
-    expect(wrapper.findAll("input")).toHaveLength(0);
+    expect(wrapper.findAll("input")).toHaveLength(9);
 
     config.quickPairState.value = "connecting";
     await nextTick();
 
     expect(wrapper.text()).toContain("Conectando al gateway");
-    expect(wrapper.findAll("input")).toHaveLength(0);
+    expect(wrapper.findAll("input")).toHaveLength(9);
   });
 
   it("shows quick-pair failures and delegates auth actions", async () => {

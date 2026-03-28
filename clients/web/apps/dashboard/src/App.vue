@@ -17,6 +17,14 @@ import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
 import SecuritySettings from "@/components/config/SecuritySettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import WebhookSettings from "@/components/config/WebhookSettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import BrowserSettings from "@/components/config/BrowserSettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import ComposioSettings from "@/components/config/ComposioSettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import MemorySettings from "@/components/config/MemorySettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import WebSearchSettings from "@/components/config/WebSearchSettings.vue";
 import { useConfig } from "@/composables/useConfig";
 
 const { t } = useI18n();
@@ -167,6 +175,41 @@ const config = useConfig(t);
       @update:model-value="Object.assign(config.form, $event)"
       @save="config.saveSection('webhook')"
     />
+
+    <WebSearchSettings
+      :model-value="config.form"
+      :disabled="!config.canSave.value"
+      :saving="config.sectionSaving['web-search']"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('web-search')"
+    />
+
+    <BrowserSettings
+      :model-value="config.form"
+      :disabled="!config.canSave.value"
+      :saving="config.sectionSaving.browser"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('browser')"
+    />
+
+    <ComposioSettings
+      :model-value="config.form"
+      :disabled="!config.canSave.value"
+      :saving="config.sectionSaving.composio"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('composio')"
+    />
+
+    <MemorySettings
+      :model-value="config.form"
+      :disabled="!config.canSave.value"
+      :saving="config.sectionSaving.memory"
+      @update:model-value="Object.assign(config.form, $event)"
+      @save="config.saveSection('memory')"
+    />
+
+    <!-- TODO: Wire UpdateSettings when raw AdminConfigView is exposed from useConfig
+         (UpdateSettings expects AdminConfigView, not AdminConfigForm) -->
 
     <section class="card">
       <p class="helper">

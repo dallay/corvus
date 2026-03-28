@@ -15,7 +15,12 @@
     "autonomy": "Autonomía",
     "scheduler": "Scheduler",
     "gateway": "Gateway",
-    "webhook": "Webhook"
+    "webhook": "Webhook",
+    "webSearch": "Búsqueda web",
+    "browser": "Navegador",
+    "composio": "Composio",
+    "memory": "Memoria",
+    "updates": "Actualizaciones"
   },
   "auth": {
     "baseUrl": "URL base del gateway",
@@ -248,5 +253,43 @@
     "secretStatus": "Secret actual: {status}",
     "statusConfigured": "configurado",
     "statusNotConfigured": "no configurado"
+  },
+  "webSearch": {
+    "enabled": "Habilitado",
+    "provider": "Proveedor",
+    "maxResults": "Máx resultados",
+    "timeoutSecs": "Tiempo de espera (segundos)",
+    "braveApiKeyMode": "Clave API de Brave",
+    "braveApiKeyValue": "Nueva clave API de Brave"
+  },
+  "browser": {
+    "computerUseApiKeyMode": "Clave API de Computer Use",
+    "computerUseApiKeyValue": "Nueva clave API de Computer Use"
+  },
+  "composio": {
+    "enabled": "Habilitado",
+    "entityId": "ID de entidad",
+    "apiKeyMode": "Clave API",
+    "apiKeyValue": "Nueva clave API"
+  },
+  "memory": {
+    "cerebroEndpoint": "Endpoint de Cerebro",
+    "cerebroTimeoutMs": "Timeout de Cerebro (ms)",
+    "cerebroAllowInsecureLoopback": "Permitir loopback inseguro",
+    "cerebroAuthTokenMode": "Token de autenticación",
+    "cerebroAuthTokenValue": "Nuevo token de autenticación"
+  },
+  "updates": {
+    "currentVersion": "Versión actual",
+    "latestVersion": "Última versión",
+    "updateAvailable": "Actualización disponible",
+    "autoInstallEnabled": "Auto-instalación habilitada",
+    "restartPolicy": "Política de reinicio",
+    "lastCheckOutcome": "Resultado de última verificación",
+    "effectiveInstallMethod": "Método de instalación efectivo",
+    "yes": "Sí",
+    "no": "No",
+    "unknown": "Desconocido",
+    "never": "Nunca"
   }
 }

@@ -62,6 +62,31 @@ function defaultForm(): AdminConfigForm {
     webhook_secret_mode: "unchanged",
     webhook_secret_value: "",
     webhook_secret_exists: false,
+    // Web Search
+    web_search_enabled: false,
+    web_search_provider: "duckduckgo",
+    web_search_max_results: "5",
+    web_search_timeout_secs: "10",
+    web_search_brave_api_key_mode: "unchanged",
+    web_search_brave_api_key_value: "",
+    web_search_has_brave_api_key: false,
+    // Browser
+    browser_computer_use_api_key_mode: "unchanged",
+    browser_computer_use_api_key_value: "",
+    browser_has_computer_use_api_key: false,
+    // Composio
+    composio_enabled: false,
+    composio_entity_id: "default",
+    composio_api_key_mode: "unchanged",
+    composio_api_key_value: "",
+    composio_has_api_key: false,
+    // Memory (extended)
+    memory_cerebro_endpoint: "",
+    memory_cerebro_timeout_ms: "5000",
+    memory_cerebro_allow_insecure_loopback: false,
+    memory_cerebro_auth_token_mode: "unchanged",
+    memory_cerebro_auth_token_value: "",
+    memory_cerebro_has_auth_token: false,
   };
 }
 
@@ -96,6 +121,32 @@ function mapViewToForm(config: NonNullable<AdminConfigResponse["config"]>): Admi
     webhook_secret_mode: "unchanged",
     webhook_secret_value: "",
     webhook_secret_exists: config.channels?.webhook?.has_secret ?? false,
+    // Web Search
+    web_search_enabled: config.web_search?.enabled ?? false,
+    web_search_provider: config.web_search?.provider ?? "duckduckgo",
+    web_search_max_results: `${config.web_search?.max_results ?? 5}`,
+    web_search_timeout_secs: `${config.web_search?.timeout_secs ?? 10}`,
+    web_search_brave_api_key_mode: "unchanged",
+    web_search_brave_api_key_value: "",
+    web_search_has_brave_api_key: config.web_search?.has_brave_api_key ?? false,
+    // Browser
+    browser_computer_use_api_key_mode: "unchanged",
+    browser_computer_use_api_key_value: "",
+    browser_has_computer_use_api_key: config.browser?.has_computer_use_api_key ?? false,
+    // Composio
+    composio_enabled: config.composio?.enabled ?? false,
+    composio_entity_id: config.composio?.entity_id ?? "default",
+    composio_api_key_mode: "unchanged",
+    composio_api_key_value: "",
+    composio_has_api_key: config.composio?.has_api_key ?? false,
+    // Memory (extended)
+    memory_cerebro_endpoint: config.memory?.cerebro?.endpoint ?? "",
+    memory_cerebro_timeout_ms: `${config.memory?.cerebro?.request_timeout_ms ?? 5000}`,
+    memory_cerebro_allow_insecure_loopback:
+      config.memory?.cerebro?.allow_insecure_loopback ?? false,
+    memory_cerebro_auth_token_mode: "unchanged",
+    memory_cerebro_auth_token_value: "",
+    memory_cerebro_has_auth_token: config.memory?.cerebro?.has_auth_token ?? false,
   };
 }
 
@@ -131,6 +182,23 @@ function mapFormToSnapshot(form: AdminConfigForm): AdminConfigSnapshot {
     webhook_enabled: form.webhook_enabled,
     webhook_port: Number.parseInt(form.webhook_port, 10) || 3001,
     webhook_secret_exists: form.webhook_secret_exists,
+    // Web Search
+    web_search_enabled: form.web_search_enabled,
+    web_search_provider: form.web_search_provider,
+    web_search_max_results: Number.parseInt(form.web_search_max_results, 10) || 5,
+    web_search_timeout_secs: Number.parseInt(form.web_search_timeout_secs, 10) || 10,
+    web_search_has_brave_api_key: form.web_search_has_brave_api_key,
+    // Browser
+    browser_has_computer_use_api_key: form.browser_has_computer_use_api_key,
+    // Composio
+    composio_enabled: form.composio_enabled,
+    composio_entity_id: form.composio_entity_id,
+    composio_has_api_key: form.composio_has_api_key,
+    // Memory (extended)
+    memory_cerebro_endpoint: form.memory_cerebro_endpoint,
+    memory_cerebro_timeout_ms: Number.parseInt(form.memory_cerebro_timeout_ms, 10) || 5000,
+    memory_cerebro_allow_insecure_loopback: form.memory_cerebro_allow_insecure_loopback,
+    memory_cerebro_has_auth_token: form.memory_cerebro_has_auth_token,
   };
 }
 
@@ -324,6 +392,12 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     scheduler: false,
     gateway: false,
     webhook: false,
+    "web-search": false,
+    browser: false,
+    composio: false,
+    memory: false,
+    "provider-pools": false,
+    updates: false,
   });
 
   const canSave = computed(
@@ -699,6 +773,22 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     if (section === "webhook") {
       form.webhook_secret_mode = "unchanged";
       form.webhook_secret_value = "";
+    }
+    if (section === "web-search") {
+      form.web_search_brave_api_key_mode = "unchanged";
+      form.web_search_brave_api_key_value = "";
+    }
+    if (section === "browser") {
+      form.browser_computer_use_api_key_mode = "unchanged";
+      form.browser_computer_use_api_key_value = "";
+    }
+    if (section === "composio") {
+      form.composio_api_key_mode = "unchanged";
+      form.composio_api_key_value = "";
+    }
+    if (section === "memory") {
+      form.memory_cerebro_auth_token_mode = "unchanged";
+      form.memory_cerebro_auth_token_value = "";
     }
     const connected = await connectGateway();
     if (pendingWebhookSecret) {

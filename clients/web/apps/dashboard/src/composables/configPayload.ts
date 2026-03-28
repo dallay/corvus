@@ -216,6 +216,98 @@ function buildWebhookPayload(
   return Object.keys(webhook).length > 0 ? { channels: { webhook } } : {};
 }
 
+function buildSecretUpdate(
+  mode: AdminConfigForm["webhook_secret_mode"],
+  value: string
+): SecretUpdate | undefined {
+  if (mode === "unchanged") return undefined;
+  if (mode === "clear") return { mode: "clear" };
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error("empty_secret");
+  return { mode: "replace", value: trimmed };
+}
+
+function buildWebSearchPayload(
+  form: AdminConfigForm,
+  snapshot: AdminConfigSnapshot
+): AdminConfigUpdateRequest {
+  const web_search: Record<string, unknown> = {};
+  setIfChanged(web_search, "enabled", form.web_search_enabled, snapshot.web_search_enabled);
+  setIfChanged(web_search, "provider", form.web_search_provider, snapshot.web_search_provider);
+  setIfChanged(
+    web_search,
+    "max_results",
+    parseIntSafe(form.web_search_max_results),
+    snapshot.web_search_max_results
+  );
+  setIfChanged(
+    web_search,
+    "timeout_secs",
+    parseIntSafe(form.web_search_timeout_secs),
+    snapshot.web_search_timeout_secs
+  );
+  const braveKey = buildSecretUpdate(
+    form.web_search_brave_api_key_mode,
+    form.web_search_brave_api_key_value
+  );
+  if (braveKey) web_search.brave_api_key = braveKey;
+  return Object.keys(web_search).length > 0 ? { web_search } : {};
+}
+
+function buildBrowserPayload(form: AdminConfigForm): AdminConfigUpdateRequest {
+  const computerUseKey = buildSecretUpdate(
+    form.browser_computer_use_api_key_mode,
+    form.browser_computer_use_api_key_value
+  );
+  if (!computerUseKey) return {};
+  return { browser: { computer_use_api_key: computerUseKey } };
+}
+
+function buildComposioPayload(
+  form: AdminConfigForm,
+  snapshot: AdminConfigSnapshot
+): AdminConfigUpdateRequest {
+  const composio: Record<string, unknown> = {};
+  setIfChanged(composio, "enabled", form.composio_enabled, snapshot.composio_enabled);
+  setIfChanged(composio, "entity_id", form.composio_entity_id, snapshot.composio_entity_id);
+  const apiKey = buildSecretUpdate(form.composio_api_key_mode, form.composio_api_key_value);
+  if (apiKey) composio.api_key = apiKey;
+  return Object.keys(composio).length > 0 ? { composio } : {};
+}
+
+function buildMemoryPayload(
+  form: AdminConfigForm,
+  snapshot: AdminConfigSnapshot
+): AdminConfigUpdateRequest {
+  const cerebro: Record<string, unknown> = {};
+  setIfChanged(
+    cerebro,
+    "endpoint",
+    form.memory_cerebro_endpoint,
+    snapshot.memory_cerebro_endpoint
+  );
+  setIfChanged(
+    cerebro,
+    "request_timeout_ms",
+    parseIntSafe(form.memory_cerebro_timeout_ms),
+    snapshot.memory_cerebro_timeout_ms
+  );
+  setIfChanged(
+    cerebro,
+    "allow_insecure_loopback",
+    form.memory_cerebro_allow_insecure_loopback,
+    snapshot.memory_cerebro_allow_insecure_loopback
+  );
+  const authToken = buildSecretUpdate(
+    form.memory_cerebro_auth_token_mode,
+    form.memory_cerebro_auth_token_value
+  );
+  if (authToken) cerebro.auth_token = authToken;
+  const memory: Record<string, unknown> = {};
+  if (Object.keys(cerebro).length > 0) memory.cerebro = cerebro;
+  return Object.keys(memory).length > 0 ? { memory } : {};
+}
+
 export function buildPayloadForSection(
   section: ConfigSection,
   form: AdminConfigForm,
@@ -239,5 +331,11 @@ export function buildPayloadForSection(
   if (section === "gateway") {
     return buildGatewayPayload(form, snapshot);
   }
+  if (section === "web-search") return buildWebSearchPayload(form, snapshot);
+  if (section === "browser") return buildBrowserPayload(form);
+  if (section === "composio") return buildComposioPayload(form, snapshot);
+  if (section === "memory") return buildMemoryPayload(form, snapshot);
+  if (section === "provider-pools") return {};
+  if (section === "updates") return {};
   return buildWebhookPayload(form, snapshot);
 }
