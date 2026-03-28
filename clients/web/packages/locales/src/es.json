@@ -15,7 +15,25 @@
     "autonomy": "Autonomía",
     "scheduler": "Scheduler",
     "gateway": "Gateway",
-    "webhook": "Webhook"
+    "webhook": "Webhook",
+    "webSearch": "Búsqueda web",
+    "browser": "Navegador",
+    "composio": "Composio",
+    "memory": "Memoria",
+    "updates": "Actualizaciones",
+    "channels": "Canales",
+    "schedulerStatus": "Estado del Scheduler",
+    "health": "Estado del sistema",
+    "cost": "Seguimiento de costos",
+    "mcp": "Servidores MCP",
+    "tunnel": "Túnel",
+    "reliability": "Fiabilidad",
+    "heartbeat": "Heartbeat"
+  },
+  "health": {
+    "loading": "Cargando estado...",
+    "uptime": "Tiempo activo",
+    "restarts": "Reinicios"
   },
   "auth": {
     "baseUrl": "URL base del gateway",
@@ -215,10 +233,17 @@
   },
   "security": {
     "identity_format": "Formato de identidad",
-    "identity_aieos_path": "Ruta AIEOS de identidad"
+    "identity_aieos_path": "Ruta AIEOS de identidad",
+    "requireApprovalMediumRisk": "Requerir aprobación para riesgo medio",
+    "blockHighRiskCommands": "Bloquear comandos de alto riesgo",
+    "autoApprove": "Comandos auto-aprobados (separados por coma)",
+    "alwaysAsk": "Comandos que siempre preguntan (separados por coma)",
+    "placeholderCommands": "comando1, comando2"
   },
   "errors": {
-    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local."
+    "insecureUrlError": "No se pueden enviar credenciales por HTTP a un host remoto. Usa HTTPS o un host local.",
+    "invalidGatewayUrl": "URL de gateway no válida",
+    "costNotAvailable": "Datos de costos no disponibles"
   },
   "chat": {
     "welcome": "Hola, soy {modelName}. ¿En qué puedo ayudarte?",
@@ -227,6 +252,7 @@
     "unauthorizedError": "No autorizado. Realiza el emparejamiento con /pair y usa el token bearer.",
     "rateLimitError": "Demasiadas solicitudes. Espera un momento e inténtalo de nuevo.",
     "timeoutError": "El gateway tardó demasiado en responder.",
+    "streamUnavailable": "El streaming no está disponible. Se usará una solicitud estándar.",
     "emptyResponse": "El gateway no devolvió contenido.",
     "inputPlaceholder": "Escribe un mensaje...",
     "send": "Enviar",
@@ -241,6 +267,11 @@
     "sessionActive": "Sesión: {sessionId}",
     "connectBeforeChat": "Completa el onboarding del gateway antes de iniciar el chat.",
     "emptyMessageError": "Escribe un mensaje antes de enviarlo.",
+    "approve": "Aprobar",
+    "reject": "Rechazar",
+    "connected": "Conectado",
+    "disconnected": "Desconectado",
+    "toolApprovalTitle": "La herramienta requiere aprobación",
     "disclaimer": "Corvus Agent puede cometer errores. Verifica la información importante."
   },
   "webhook": {
@@ -248,5 +279,114 @@
     "secretStatus": "Secret actual: {status}",
     "statusConfigured": "configurado",
     "statusNotConfigured": "no configurado"
+  },
+  "webSearch": {
+    "enabled": "Habilitado",
+    "provider": "Proveedor",
+    "maxResults": "Máx resultados",
+    "timeoutSecs": "Tiempo de espera (segundos)",
+    "braveApiKeyMode": "Clave API de Brave",
+    "braveApiKeyValue": "Nueva clave API de Brave"
+  },
+  "browser": {
+    "computerUseApiKeyMode": "Clave API de Computer Use",
+    "computerUseApiKeyValue": "Nueva clave API de Computer Use"
+  },
+  "composio": {
+    "enabled": "Habilitado",
+    "entityId": "ID de entidad",
+    "apiKeyMode": "Clave API",
+    "apiKeyValue": "Nueva clave API"
+  },
+  "memory": {
+    "cerebroEndpoint": "Endpoint de Cerebro",
+    "cerebroTimeoutMs": "Timeout de Cerebro (ms)",
+    "cerebroAllowInsecureLoopback": "Permitir loopback inseguro",
+    "cerebroAuthTokenMode": "Token de autenticación",
+    "cerebroAuthTokenValue": "Nuevo token de autenticación"
+  },
+  "scheduler": {
+    "loading": "Cargando estado del scheduler...",
+    "enabled": "Habilitado",
+    "maxTasks": "Tareas máximas",
+    "maxConcurrent": "Concurrencia máxima",
+    "taskCount": "Tareas activas",
+    "notAvailable": "No disponible",
+    "yes": "Sí",
+    "no": "No"
+  },
+  "channels": {
+    "loading": "Cargando canales...",
+    "configured": "Configurado",
+    "notConfigured": "No configurado"
+  },
+  "cost": {
+    "loading": "Cargando seguimiento de costos...",
+    "enabled": "Habilitado",
+    "dailyLimit": "Límite diario (USD)",
+    "monthlyLimit": "Límite mensual (USD)",
+    "warnAtPercent": "Alertar en porcentaje",
+    "allowOverride": "Permitir anulación",
+    "yes": "Sí",
+    "no": "No"
+  },
+  "mcp": {
+    "loading": "Cargando servidores MCP...",
+    "enabled": "Habilitado",
+    "command": "Comando",
+    "capabilities": "Capacidades",
+    "yes": "Sí",
+    "no": "No"
+  },
+  "tunnel": {
+    "loading": "Cargando túnel...",
+    "provider": "Proveedor",
+    "cloudflareToken": "Token de Cloudflare",
+    "tailscaleFunnel": "Funnel de Tailscale",
+    "tailscaleHostname": "Hostname de Tailscale",
+    "ngrokAuthToken": "Token de autenticación ngrok",
+    "ngrokDomain": "Dominio ngrok",
+    "customHealthUrl": "URL de salud personalizada",
+    "noData": "No hay datos de túnel disponibles.",
+    "yes": "Sí",
+    "no": "No"
+  },
+  "reliability": {
+    "loading": "Cargando fiabilidad...",
+    "providerRetries": "Reintentos del proveedor",
+    "providerBackoff": "Backoff del proveedor",
+    "fallbackProviders": "Proveedores de respaldo",
+    "modelFallbacks": "Fallbacks de modelo",
+    "channelInitialBackoff": "Backoff inicial del canal",
+    "channelMaxBackoff": "Backoff máximo del canal",
+    "schedulerPoll": "Intervalo de sondeo del scheduler",
+    "schedulerRetries": "Reintentos del scheduler",
+    "none": "Ninguno",
+    "unit": {
+      "ms": "ms",
+      "s": "s"
+    }
+  },
+  "heartbeat": {
+    "loading": "Cargando heartbeat...",
+    "enabled": "Habilitado",
+    "interval": "Intervalo (minutos)",
+    "unit": "min",
+    "noData": "No hay datos de heartbeat disponibles.",
+    "yes": "Sí",
+    "no": "No"
+  },
+  "updates": {
+    "currentVersion": "Versión actual",
+    "latestVersion": "Última versión",
+    "updateAvailable": "Actualización disponible",
+    "autoInstallEnabled": "Auto-instalación habilitada",
+    "restartPolicy": "Política de reinicio",
+    "lastCheckOutcome": "Resultado de última verificación",
+    "effectiveInstallMethod": "Método de instalación efectivo",
+    "yes": "Sí",
+    "no": "No",
+    "unknown": "Desconocido",
+    "never": "Nunca"
   }
 }

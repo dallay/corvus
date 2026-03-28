@@ -24,7 +24,10 @@ use axum::{
     body::Bytes,
     extract::{ConnectInfo, Query, State},
     http::{header, HeaderMap, StatusCode},
-    response::{IntoResponse, Json},
+    response::{
+        sse::{Event, Sse},
+        IntoResponse, Json,
+    },
     routing::{get, post},
     Router,
 };
@@ -50,86 +53,6 @@ static SENSITIVE_GATEWAY_REGEX: LazyLock<Regex> = LazyLock::new(|| {
     )
     .expect("valid sensitive gateway regex")
 });
-
-#[derive(Debug, Clone, serde::Serialize)]
-struct AdminConfigView {
-    default_provider: Option<String>,
-    default_model: Option<String>,
-    default_temperature: f64,
-    memory_backend: String,
-    observability: AdminObservabilityView,
-    runtime: AdminRuntimeView,
-    autonomy: AdminAutonomyView,
-    scheduler: AdminSchedulerView,
-    gateway: AdminGatewayView,
-    channels: AdminChannelsView,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-struct AdminObservabilityView {
-    backend: String,
-    otel_endpoint: Option<String>,
-    otel_service_name: Option<String>,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-struct AdminRuntimeView {
-    kind: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-struct AdminAutonomyView {
-    level: crate::security::AutonomyLevel,
-    workspace_only: bool,
-    max_actions_per_hour: u32,
-    max_cost_per_day_cents: u32,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-struct AdminSchedulerView {
-    enabled: bool,
-    max_tasks: usize,
-    max_concurrent: usize,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[allow(clippy::struct_excessive_bools)]
-struct AdminGatewayView {
-    port: u16,
-    host: String,
-    require_pairing: bool,
-    allow_public_bind: bool,
-    webhook_dispatcher_enabled: bool,
-    pair_rate_limit_per_minute: u32,
-    webhook_rate_limit_per_minute: u32,
-    trust_forwarded_headers: bool,
-    rate_limit_max_keys: usize,
-    idempotency_ttl_secs: u64,
-    idempotency_max_keys: usize,
-    paired_tokens_count: usize,
-}
-
-#[derive(Debug, Clone, serde::Serialize)]
-#[allow(clippy::struct_excessive_bools)]
-struct AdminChannelsView {
-    cli: bool,
-    has_telegram: bool,
-    has_discord: bool,
-    has_slack: bool,
-    has_mattermost: bool,
-    has_webhook: bool,
-    has_imessage: bool,
-    has_matrix: bool,
-    has_signal: bool,
-    has_whatsapp: bool,
-    has_email: bool,
-    has_irc: bool,
-    has_lark: bool,
-    has_dingtalk: bool,
-    has_qq: bool,
-    webhook_port: Option<u16>,
-    webhook_has_secret: bool,
-}
 
 #[derive(Debug, Clone, serde::Deserialize, Default)]
 struct AdminConfigUpdateRequest {
@@ -231,71 +154,6 @@ enum AdminSecretUpdate {
     Unchanged,
     Clear,
     Replace { value: String },
-}
-
-fn admin_config_view(cfg: &Config) -> AdminConfigView {
-    let webhook = cfg.channels_config.webhook.as_ref();
-    AdminConfigView {
-        default_provider: cfg.default_provider.clone(),
-        default_model: cfg.default_model.clone(),
-        default_temperature: cfg.default_temperature,
-        memory_backend: cfg.memory.backend.clone(),
-        observability: AdminObservabilityView {
-            backend: cfg.observability.backend.clone(),
-            otel_endpoint: cfg.observability.otel_endpoint.clone(),
-            otel_service_name: cfg.observability.otel_service_name.clone(),
-        },
-        runtime: AdminRuntimeView {
-            kind: cfg.runtime.kind.clone(),
-        },
-        autonomy: AdminAutonomyView {
-            level: cfg.autonomy.level,
-            workspace_only: cfg.autonomy.workspace_only,
-            max_actions_per_hour: cfg.autonomy.max_actions_per_hour,
-            max_cost_per_day_cents: cfg.autonomy.max_cost_per_day_cents,
-        },
-        scheduler: AdminSchedulerView {
-            enabled: cfg.scheduler.enabled,
-            max_tasks: cfg.scheduler.max_tasks,
-            max_concurrent: cfg.scheduler.max_concurrent,
-        },
-        gateway: AdminGatewayView {
-            port: cfg.gateway.port,
-            host: cfg.gateway.host.clone(),
-            require_pairing: cfg.gateway.require_pairing,
-            allow_public_bind: cfg.gateway.allow_public_bind,
-            webhook_dispatcher_enabled: cfg.gateway.webhook_dispatcher_enabled,
-            pair_rate_limit_per_minute: cfg.gateway.pair_rate_limit_per_minute,
-            webhook_rate_limit_per_minute: cfg.gateway.webhook_rate_limit_per_minute,
-            trust_forwarded_headers: cfg.gateway.trust_forwarded_headers,
-            rate_limit_max_keys: cfg.gateway.rate_limit_max_keys,
-            idempotency_ttl_secs: cfg.gateway.idempotency_ttl_secs,
-            idempotency_max_keys: cfg.gateway.idempotency_max_keys,
-            paired_tokens_count: cfg.gateway.paired_tokens.len(),
-        },
-        channels: AdminChannelsView {
-            cli: cfg.channels_config.cli,
-            has_telegram: cfg.channels_config.telegram.is_some(),
-            has_discord: cfg.channels_config.discord.is_some(),
-            has_slack: cfg.channels_config.slack.is_some(),
-            has_mattermost: cfg.channels_config.mattermost.is_some(),
-            has_webhook: webhook.is_some(),
-            has_imessage: cfg.channels_config.imessage.is_some(),
-            has_matrix: cfg.channels_config.matrix.is_some(),
-            has_signal: cfg.channels_config.signal.is_some(),
-            has_whatsapp: cfg.channels_config.whatsapp.is_some(),
-            has_email: cfg.channels_config.email.is_some(),
-            has_irc: cfg.channels_config.irc.is_some(),
-            has_lark: cfg.channels_config.lark.is_some(),
-            has_dingtalk: cfg.channels_config.dingtalk.is_some(),
-            has_qq: cfg.channels_config.qq.is_some(),
-            webhook_port: webhook.map(|w| w.port),
-            webhook_has_secret: webhook
-                .and_then(|w| w.secret.as_ref())
-                .map(|value| !value.trim().is_empty())
-                .unwrap_or(false),
-        },
-    }
 }
 
 fn validate_memory_backend(value: &str) -> bool {
@@ -1173,6 +1031,10 @@ fn print_startup_banner(
     println!("  GET  /web/admin/config   — redacted admin config");
     println!("  PUT  /web/admin/config   — update admin config");
     println!("  GET  /web/admin/options  — admin options catalog");
+    println!("  GET  /web/admin/channels  — channel configuration status");
+    println!("  GET  /web/admin/scheduler — scheduler configuration status");
+    println!("  GET  /web/admin/health    — runtime health snapshot");
+    println!("  POST /web/chat/stream     — SSE streaming chat");
     if config.gateway.admin_expose_provider_pools {
         println!("  GET  /web/admin/provider-pools   — provider account pools");
         println!("  PUT  /web/admin/provider-pools   — update provider account pools");
@@ -1362,6 +1224,10 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
             get(handle_admin_get_provider_pools).put(handle_admin_update_provider_pools_wrapper),
         )
         .route("/web/admin/options", get(handle_admin_options))
+        .route("/web/admin/channels", get(handle_admin_channels))
+        .route("/web/admin/scheduler", get(handle_admin_scheduler_status))
+        .route("/web/admin/health", get(handle_admin_health))
+        .route("/web/chat/stream", post(handle_chat_stream))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
         .with_state(state)
@@ -1494,6 +1360,30 @@ async fn handle_admin_get_config(
     headers: HeaderMap,
 ) -> impl IntoResponse {
     admin::handle_admin_get_config(State(state), headers).await
+}
+
+/// GET /web/admin/channels — channel configuration status.
+async fn handle_admin_channels(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    admin::handle_admin_channels(State(state), headers).await
+}
+
+/// GET /web/admin/scheduler — scheduler configuration status.
+async fn handle_admin_scheduler_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    admin::handle_admin_scheduler_status(State(state), headers).await
+}
+
+/// GET /web/admin/health — runtime health snapshot.
+async fn handle_admin_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    admin::handle_admin_health(State(state), headers).await
 }
 
 /// GET /web/admin/options — return constrained enums/defaults for dashboard forms.
@@ -1822,6 +1712,131 @@ async fn handle_webhook(
     release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
 
     response
+}
+
+/// POST /web/chat/stream — SSE streaming chat endpoint
+///
+/// Accepts the same auth and body format as `/webhook`. Processes the message
+/// synchronously via the existing dispatch path, then streams the result back
+/// as Server-Sent Events so the frontend can consume an SSE contract.
+///
+/// Event types:
+/// - `chunk`  — partial response text
+/// - `done`   — final metadata (message_id, session_id)
+/// - `error`  — structured error
+async fn handle_chat_stream(
+    State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    body: WebhookJsonBody,
+) -> Result<
+    Sse<impl futures::stream::Stream<Item = Result<Event, std::convert::Infallible>>>,
+    WebhookResponse,
+> {
+    // ── Auth (same as /webhook) ──────────────────────────
+    if let Some(rejection) = webhook_auth_rejection(&state, peer_addr, &headers) {
+        return Err(rejection);
+    }
+
+    let webhook_body = parse_webhook_body(body)?;
+    let message = &webhook_body.message;
+    let scrubbed_message = scrub_sensitive_boundary_text(message);
+    let (session_id, session_source) = resolve_session_id(&headers)?;
+
+    let config = state.config.lock().clone();
+    let dispatcher_enabled = webhook_dispatcher_enabled(&config);
+
+    // ── Process message via existing dispatch ────────────
+    let (response_text, is_error) = if dispatcher_enabled {
+        log_webhook_runtime_path(&session_id, true, "stream_dispatcher");
+        let result = webhook_dispatch::execute(
+            &config,
+            Arc::clone(&state.provider),
+            Arc::clone(&state.mem),
+            Arc::clone(&state.observer),
+            &state.model,
+            webhook_dispatch::WebhookTurnRequest {
+                session_id: session_id.clone(),
+                session_source,
+                message: message.clone(),
+                include_sse_frames: true,
+            },
+        )
+        .await;
+        log_webhook_terminal_outcome(
+            &session_id,
+            "stream_dispatcher",
+            webhook_outcome_label(&result.outcome),
+        );
+        match result.outcome {
+            webhook_dispatch::WebhookTerminalOutcome::Completed
+            | webhook_dispatch::WebhookTerminalOutcome::Fallback => {
+                let text = result
+                    .response_text
+                    .map(|t| scrub_sensitive_boundary_text(&t))
+                    .unwrap_or_default();
+                (text, false)
+            }
+            webhook_dispatch::WebhookTerminalOutcome::Error => {
+                ("LLM request failed".to_string(), true)
+            }
+            webhook_dispatch::WebhookTerminalOutcome::Timeout => {
+                ("Request timed out".to_string(), true)
+            }
+            webhook_dispatch::WebhookTerminalOutcome::ApprovalRequired { tool, reason } => {
+                let msg = format!("Approval required for tool `{tool}`: {reason}");
+                (msg, true)
+            }
+        }
+    } else {
+        log_webhook_runtime_path(&session_id, false, "stream_legacy");
+        if state.auto_save {
+            let key = webhook_memory_key();
+            let _ = state
+                .mem
+                .store(&key, &scrubbed_message, MemoryCategory::Conversation, None)
+                .await;
+        }
+        match state
+            .provider
+            .simple_chat(message, &state.model, state.temperature)
+            .await
+        {
+            Ok(response) => (scrub_sensitive_boundary_text(&response), false),
+            Err(e) => {
+                let sanitized = providers::sanitize_api_error(&e.to_string());
+                tracing::error!("Stream provider error: {sanitized}");
+                ("LLM request failed".to_string(), true)
+            }
+        }
+    };
+
+    // ── Build SSE event stream ───────────────────────────
+    let message_id = Uuid::new_v4().to_string();
+    let sid = session_id.clone();
+
+    let events: Vec<Result<Event, std::convert::Infallible>> = if is_error {
+        let error_data = serde_json::json!({
+            "code": "processing_error",
+            "message": response_text,
+        });
+        vec![Ok(Event::default()
+            .event("error")
+            .data(error_data.to_string()))]
+    } else {
+        vec![
+            Ok(Event::default().event("chunk").data(&response_text)),
+            Ok(Event::default().event("done").data(
+                serde_json::json!({
+                    "message_id": message_id,
+                    "session_id": sid,
+                })
+                .to_string(),
+            )),
+        ]
+    };
+
+    Ok(Sse::new(futures::stream::iter(events)))
 }
 
 fn release_idempotency_key(state: &AppState, reserved_key: Option<&str>, persist: bool) {

@@ -4,7 +4,8 @@
    ───────────────────────────────────────────── */
 
 /* ── Shared Brand Tokens ── */
-@import "@corvus/shared/tokens.css";
+@import url("@corvus/shared/base.css");
+@import url("@corvus/shared/theme.css");
 
 /* ── Root Theme Tokens ── */
 :root {
@@ -42,24 +43,24 @@
   --gradient-brand: linear-gradient(135deg, #38bdf8 0%, #818cf8 50%, #c084fc 100%);
   --gradient-brand-subtle: linear-gradient(
     135deg,
-    rgba(56, 189, 248, 0.15) 0%,
-    rgba(129, 140, 248, 0.15) 50%,
-    rgba(192, 132, 252, 0.15) 100%
+    rgb(56 189 248 / 15%) 0%,
+    rgb(129 140 248 / 15%) 50%,
+    rgb(192 132 252 / 15%) 100%
   );
   --gradient-hero: linear-gradient(160deg, #0c1222 0%, #0f172a 40%, #1a1044 100%);
-  --glass-bg: rgba(15, 23, 42, 0.6);
-  --glass-border: rgba(56, 189, 248, 0.12);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-  --card-glow: 0 0 40px rgba(56, 189, 248, 0.06);
+  --glass-bg: rgb(15 23 42 / 60%);
+  --glass-border: rgb(56 189 248 / 12%);
+  --glass-shadow: 0 8px 32px rgb(0 0 0 / 30%);
+  --card-glow: 0 0 40px rgb(56 189 248 / 6%);
 }
 
 /* Dark theme overrides */
 :root[data-theme="dark"] {
   --sl-color-bg: #0a0f1e;
-  --sl-color-bg-nav: rgba(10, 15, 30, 0.85);
-  --sl-color-bg-sidebar: rgba(10, 15, 30, 0.95);
-  --sl-color-hairline-shade: rgba(56, 189, 248, 0.08);
-  --sl-color-hairline-light: rgba(56, 189, 248, 0.05);
+  --sl-color-bg-nav: rgb(10 15 30 / 85%);
+  --sl-color-bg-sidebar: rgb(10 15 30 / 95%);
+  --sl-color-hairline-shade: rgb(56 189 248 / 8%);
+  --sl-color-hairline-light: rgb(56 189 248 / 5%);
   --sl-color-white: #f1f5f9;
   --sl-color-gray-1: #cbd5e1;
   --sl-color-gray-2: #94a3b8;
@@ -76,20 +77,20 @@
   --sl-color-accent: #0284c7;
   --sl-color-accent-high: #0c4a6e;
   --sl-color-bg: #f8fafc;
-  --sl-color-bg-nav: rgba(248, 250, 252, 0.9);
-  --sl-color-bg-sidebar: rgba(248, 250, 252, 0.98);
+  --sl-color-bg-nav: rgb(248 250 252 / 90%);
+  --sl-color-bg-sidebar: rgb(248 250 252 / 98%);
   --gradient-brand: linear-gradient(135deg, #0284c7 0%, #6366f1 50%, #9333ea 100%);
   --gradient-brand-subtle: linear-gradient(
     135deg,
-    rgba(2, 132, 199, 0.08) 0%,
-    rgba(99, 102, 241, 0.08) 50%,
-    rgba(147, 51, 234, 0.08) 100%
+    rgb(2 132 199 / 8%) 0%,
+    rgb(99 102 241 / 8%) 50%,
+    rgb(147 51 234 / 8%) 100%
   );
   --gradient-hero: linear-gradient(160deg, #f0f9ff 0%, #f8fafc 40%, #f5f3ff 100%);
-  --glass-bg: rgba(248, 250, 252, 0.7);
-  --glass-border: rgba(2, 132, 199, 0.12);
-  --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.06);
-  --card-glow: 0 0 40px rgba(2, 132, 199, 0.04);
+  --glass-bg: rgb(248 250 252 / 70%);
+  --glass-border: rgb(2 132 199 / 12%);
+  --glass-shadow: 0 8px 32px rgb(0 0 0 / 6%);
+  --card-glow: 0 0 40px rgb(2 132 199 / 4%);
 }
 
 /* ── Global Resets & Enhancements ── */
@@ -100,7 +101,6 @@ body {
 /* ── Header / Navbar ── */
 header.header {
   backdrop-filter: blur(16px) saturate(180%);
-  -webkit-backdrop-filter: blur(16px) saturate(180%);
   border-bottom: 1px solid var(--glass-border);
 }
 
@@ -112,15 +112,13 @@ header.header {
 
 [data-theme="dark"] .site-title {
   background: var(--gradient-brand);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
   background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* ── Sidebar ── */
 nav.sidebar {
   backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
 }
 
 nav.sidebar a[aria-current="page"] {
@@ -151,7 +149,7 @@ nav.sidebar a[aria-current="page"] {
   left: -20%;
   width: 80%;
   height: 200%;
-  background: radial-gradient(ellipse, rgba(56, 189, 248, 0.08) 0%, transparent 70%);
+  background: radial-gradient(ellipse, rgb(56 189 248 / 8%) 0%, transparent 70%);
   pointer-events: none;
   animation: hero-glow 8s ease-in-out infinite alternate;
 }
@@ -163,7 +161,7 @@ nav.sidebar a[aria-current="page"] {
   right: -10%;
   width: 60%;
   height: 150%;
-  background: radial-gradient(ellipse, rgba(192, 132, 252, 0.06) 0%, transparent 70%);
+  background: radial-gradient(ellipse, rgb(192 132 252 / 6%) 0%, transparent 70%);
   pointer-events: none;
   animation: hero-glow 10s ease-in-out infinite alternate-reverse;
 }
@@ -173,6 +171,7 @@ nav.sidebar a[aria-current="page"] {
     opacity: 0.5;
     transform: translate(0, 0) scale(1);
   }
+
   100% {
     opacity: 1;
     transform: translate(3%, -2%) scale(1.05);
@@ -197,13 +196,6 @@ nav.sidebar a[aria-current="page"] {
   line-height: 1.1;
   position: relative;
   z-index: 1;
-}
-
-[data-theme="dark"] .hero h1 {
-  background: linear-gradient(135deg, #ffffff 0%, #e2e8f0 40%, #38bdf8 100%);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
 .hero .tagline {
@@ -238,15 +230,15 @@ nav.sidebar a[aria-current="page"] {
   letter-spacing: -0.01em;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow:
-    0 4px 20px rgba(56, 189, 248, 0.25),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 4px 20px rgb(56 189 248 / 25%),
+    inset 0 1px 0 rgb(255 255 255 / 10%);
 }
 
 .hero a.primary:hover {
   transform: translateY(-2px);
   box-shadow:
-    0 8px 30px rgba(56, 189, 248, 0.35),
-    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    0 8px 30px rgb(56 189 248 / 35%),
+    inset 0 1px 0 rgb(255 255 255 / 15%);
 }
 
 .hero a.minimal {
@@ -264,7 +256,7 @@ nav.sidebar a[aria-current="page"] {
 
 .hero a.minimal:hover {
   border-color: var(--sl-color-accent);
-  background: rgba(56, 189, 248, 0.08);
+  background: rgb(56 189 248 / 8%);
   transform: translateY(-2px);
 }
 
@@ -279,7 +271,6 @@ nav.sidebar a[aria-current="page"] {
   border-radius: 16px;
   padding: 1.75rem;
   backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   box-shadow: var(--glass-shadow), var(--card-glow);
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -299,10 +290,10 @@ nav.sidebar a[aria-current="page"] {
 
 .card:hover {
   transform: translateY(-4px);
-  border-color: rgba(56, 189, 248, 0.25);
+  border-color: rgb(56 189 248 / 25%);
   box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.35),
-    0 0 60px rgba(56, 189, 248, 0.08);
+    0 12px 40px rgb(0 0 0 / 35%),
+    0 0 60px rgb(56 189 248 / 8%);
 }
 
 .card:hover::before {
@@ -356,12 +347,22 @@ nav.sidebar a[aria-current="page"] {
   border-bottom: 1px solid var(--glass-border);
 }
 
+.features-section h2 {
+  text-align: center;
+  margin-bottom: 2.5rem;
+}
+
 [data-theme="dark"] .sl-markdown-content h2 {
   background: linear-gradient(90deg, #f1f5f9, #94a3b8);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
   background-clip: text;
+  -webkit-text-fill-color: transparent;
   border-image: var(--gradient-brand) 1;
+}
+
+[data-theme="dark"] .hero h1 {
+  background: linear-gradient(135deg, #fff 0%, #e2e8f0 40%, #38bdf8 100%);
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* ── Inline Code ── */
@@ -386,11 +387,12 @@ nav.sidebar a[aria-current="page"] {
 }
 
 /* ── Smooth Transitions ── */
+
 /* Applies broadly to common elements; third-party components may inherit these transitions. */
+
 /* Components can override or opt out via their own transition rules. */
 a,
 button,
-.card,
 input,
 summary {
   transition-property: color, background-color, border-color, opacity, box-shadow;
@@ -441,7 +443,7 @@ starlight-toc a[aria-current="true"] {
 .pagination-links a:hover {
   border-color: var(--sl-color-accent);
   transform: translateY(-2px);
-  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 8px 25px rgb(0 0 0 / 20%);
 }
 
 /* ── Asides / Callouts ── */
@@ -478,7 +480,7 @@ dialog {
 }
 
 [data-theme="dark"] dialog {
-  background: rgba(15, 23, 42, 0.95);
+  background: rgb(15 23 42 / 95%);
 }
 
 /* ── Splash page content width ── */
@@ -489,11 +491,6 @@ dialog {
 /* ── Custom Feature Section below hero ── */
 .features-section {
   padding: 4rem 0;
-}
-
-.features-section h2 {
-  text-align: center;
-  margin-bottom: 2.5rem;
 }
 
 /* ── Footer Enhancements ── */
@@ -509,7 +506,7 @@ footer {
 }
 
 /* ── Responsive Touch-ups ── */
-@media (max-width: 50rem) {
+@media (width <= 50rem) {
   .hero {
     padding: 2.5rem 0;
   }
@@ -539,6 +536,7 @@ footer {
       opacity: 1;
       filter: blur(0);
     }
+
     to {
       opacity: 0;
       filter: blur(2px);
@@ -550,6 +548,7 @@ footer {
       opacity: 0;
       filter: blur(2px);
     }
+
     to {
       opacity: 1;
       filter: blur(0);

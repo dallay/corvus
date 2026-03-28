@@ -19,7 +19,9 @@
     "dev:chat": "pnpm --filter @corvus/chat run dev",
     "dev:dashboard": "pnpm --filter @corvus/dashboard run dev",
     "format": "pnpm -r run format",
-    "check": "pnpm -r run check",
+    "format:styles": "stylelint \"apps/*/src/**/*.css\" \"packages/**/*.css\" --fix",
+    "check": "pnpm run check:styles && pnpm -r run check",
+    "check:styles": "stylelint \"apps/*/src/**/*.css\" \"packages/**/*.css\"",
     "clean": "pnpm -r run clean",
     "test": "pnpm -r run test",
     "test:chat": "pnpm --filter @corvus/chat run test",
@@ -30,6 +32,8 @@
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@vue/compiler-dom": "catalog:",
+    "stylelint": "^17.6.0",
+    "stylelint-config-standard": "^40.0.0",
     "typescript": "catalog:"
   },
   "pnpm": {

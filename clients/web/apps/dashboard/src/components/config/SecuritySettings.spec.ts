@@ -29,6 +29,17 @@ describe("SecuritySettings", () => {
 
     expect(wrapper.text()).toContain("Identity format");
     expect(wrapper.text()).toContain("Identity AIEOS path");
+    expect(wrapper.text()).toContain("Require approval for medium risk");
+    expect(wrapper.text()).toContain("Block high risk commands");
+    expect(wrapper.text()).toContain("Auto-approve commands (comma-separated)");
+    expect(wrapper.text()).toContain("Always ask commands (comma-separated)");
+
+    expect(wrapper.find('[data-testid="autonomy-require-approval-medium-risk"]').exists()).toBe(
+      true
+    );
+    expect(wrapper.find('[data-testid="autonomy-block-high-risk-commands"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="autonomy-auto-approve"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="autonomy-always-ask"]').exists()).toBe(true);
 
     await wrapper.get("select").setValue("full");
 

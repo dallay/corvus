@@ -1,4 +1,3 @@
-use std::fmt;
 use std::path::PathBuf;
 
 use futures_util::StreamExt;
@@ -44,36 +43,28 @@ impl AllowedImageMime {
 }
 
 /// Reason an image turn was rejected.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ImageRejectionReason {
+    #[error("disabled")]
     Disabled,
+    #[error("channel_not_allowed")]
     ChannelNotAllowed,
+    #[error("missing_vision_route")]
     MissingVisionRoute,
+    #[error("route_not_image_capable")]
     RouteNotImageCapable,
+    #[error("fetch_failed")]
     FetchFailed,
+    #[error("mime_rejected")]
     MimeRejected,
+    #[error("oversize")]
     Oversize,
+    #[error("too_many_images")]
     TooManyImages,
+    #[error("provider_error")]
     ProviderError,
+    #[error("channel_not_supported")]
     ChannelNotSupported,
-}
-
-impl fmt::Display for ImageRejectionReason {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let code = match self {
-            Self::Disabled => "disabled",
-            Self::ChannelNotAllowed => "channel_not_allowed",
-            Self::MissingVisionRoute => "missing_vision_route",
-            Self::RouteNotImageCapable => "route_not_image_capable",
-            Self::FetchFailed => "fetch_failed",
-            Self::MimeRejected => "mime_rejected",
-            Self::Oversize => "oversize",
-            Self::TooManyImages => "too_many_images",
-            Self::ProviderError => "provider_error",
-            Self::ChannelNotSupported => "channel_not_supported",
-        };
-        f.write_str(code)
-    }
 }
 
 /// Transport encoding for the image payload sent to the provider.
