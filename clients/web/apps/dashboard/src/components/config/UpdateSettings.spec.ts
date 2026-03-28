@@ -38,4 +38,70 @@ describe("UpdateSettings", () => {
     expect(wrapper.text()).toContain("1.3.0");
     expect(wrapper.find('button[data-testid="save"]').exists()).toBe(false);
   });
+
+  it("renders fallback values when updates data is null", () => {
+    const config: AdminConfigView = {};
+
+    const wrapper = mount(UpdateSettings, {
+      props: { config },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    expect(wrapper.get('[data-testid="updates_current_version"]').text()).toBe("—");
+    expect(wrapper.get('[data-testid="updates_restart_policy"]').text()).toBe("—");
+    expect(wrapper.get('[data-testid="updates_effective_install_method"]').text()).toBe("—");
+  });
+
+  it("renders fallback values when status is missing but updates exists", () => {
+    const config: AdminConfigView = {
+      updates: {
+        enabled: true,
+        auto_install_enabled: false,
+        channel_visibility_enabled: false,
+        cli_startup_notice_enabled: false,
+        restart_policy: "immediate",
+      },
+    };
+
+    const wrapper = mount(UpdateSettings, {
+      props: { config },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    expect(wrapper.get('[data-testid="updates_current_version"]').text()).toBe("—");
+    expect(wrapper.get('[data-testid="updates_restart_policy"]').text()).toBe("immediate");
+  });
+
+  it("renders no for update_available when false", () => {
+    const config: AdminConfigView = {
+      updates: {
+        enabled: true,
+        auto_install_enabled: true,
+        channel_visibility_enabled: true,
+        cli_startup_notice_enabled: true,
+        restart_policy: "graceful",
+        status: {
+          current_version: "2.0.0",
+          latest_version: "2.0.0",
+          update_available: false,
+          effective_install_method: "brew",
+          install_method_source: "detected",
+        },
+      },
+    };
+
+    const wrapper = mount(UpdateSettings, {
+      props: { config },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    expect(wrapper.get('[data-testid="updates_update_available"]').text()).toContain("No");
+    expect(wrapper.get('[data-testid="updates_auto_install_enabled"]').text()).toContain("Yes");
+  });
 });

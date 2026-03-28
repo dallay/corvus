@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { trimTrailingSlashes } from "@corvus/shared";
 import { onMounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminMcpView } from "@/types/admin-config";
@@ -32,7 +33,7 @@ function parseGatewayBaseUrl(rawUrl: string): URL | null {
     return null;
   }
 
-  parsed.pathname = parsed.pathname.replace(/\/+$/, "");
+  parsed.pathname = trimTrailingSlashes(parsed.pathname);
   parsed.search = "";
   parsed.hash = "";
   return parsed;

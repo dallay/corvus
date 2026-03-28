@@ -228,8 +228,8 @@ describe("useChat", () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(encoder.encode("event: chunk\r\ndata: Hel"));
-        controller.enqueue(encoder.encode("lo\r\n\r\nevent: done\r\ndata: {\"session_id\":\""));
-        controller.enqueue(encoder.encode("90909090-9090-4090-8090-909090909090\"}\r\n\r\n"));
+        controller.enqueue(encoder.encode('lo\r\n\r\nevent: done\r\ndata: {"session_id":"'));
+        controller.enqueue(encoder.encode('90909090-9090-4090-8090-909090909090"}\r\n\r\n'));
         controller.close();
       },
     });
@@ -322,6 +322,166 @@ describe("useChat", () => {
     await vi.dynamicImportSettled();
 
     expect(chat.currentSessionId.value).toBe("");
+  });
+
+  it("sendMessage returns approval_required on 403 with approval_required code", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("88888888-8888-4888-8888-888888888888");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          error: { code: "approval_required", tool: "shell_exec", reason: "dangerous" },
+          session_id: "88888888-8888-4888-8888-888888888888",
+        }),
+        { status: 403, headers: { "Content-Type": "application/json" } }
+      )
+    );
+
+    const result = await chat.sendMessage("run rm -rf");
+
+    expect(result).toEqual({
+      type: "approval_required",
+      tool: "shell_exec",
+      reason: "dangerous",
+      sessionId: "88888888-8888-4888-8888-888888888888",
+    });
+    expect(chat.currentSessionId.value).toBe("88888888-8888-4888-8888-888888888888");
+    expect(gateway.onboardingState.value.state).toBe("ready");
+  });
+
+  it("streamMessage throws streamUnavailable on non-ok non-auth response", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
+      "chat.streamUnavailable"
+    );
+  });
+
+  it("streamMessage throws connectBeforeChat when gateway is not ready", async () => {
+    const gateway = useGateway((key: string) => key);
+    const chat = useChat((key: string) => key, gateway);
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
+      "chat.connectBeforeChat"
+    );
+  });
+
+  it("streamMessage throws emptyMessageError for blank message", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("b2b2b2b2-b2b2-4b2b-8b2b-b2b2b2b2b2b2");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    await expect(chat.streamMessage("   ", () => undefined)).rejects.toThrow(
+      "chat.emptyMessageError"
+    );
+  });
+
+  it("streamMessage throws timeoutError on abort", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    const abortError = new DOMException("The operation was aborted.", "AbortError");
+    fetchMock.mockRejectedValueOnce(abortError);
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow("chat.timeoutError");
+  });
+
+  it("streamMessage handles 401 without approval code as credential invalid", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("d4d4d4d4-d4d4-4d4d-8d4d-d4d4d4d4d4d4");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ error: "unauthorized" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
+      "auth.credentialInvalid"
+    );
+    expect(chat.currentSessionId.value).toBe("");
+  });
+
+  it("streamMessage throws when body reader is null", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("e5e5e5e5-e5e5-4e5e-8e5e-e5e5e5e5e5e5");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    const response = new Response(null, {
+      status: 200,
+      headers: { "Content-Type": "text/event-stream" },
+    });
+    Object.defineProperty(response, "body", { value: null });
+    fetchMock.mockResolvedValueOnce(response);
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow(
+      "chat.streamUnavailable"
+    );
+  });
+
+  it("streamMessage throws on SSE error event", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("f6f6f6f6-f6f6-4f6f-8f6f-f6f6f6f6f6f6");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode('event: error\r\ndata: {"message":"provider_error"}\r\n\r\n')
+        );
+        controller.close();
+      },
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })
+    );
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow("provider_error");
+  });
+
+  it("streamMessage throws when stream ends without done event", async () => {
+    vi.spyOn(crypto, "randomUUID").mockReturnValue("17171717-1717-4717-8717-171717171717");
+    const gateway = await connectReadyGateway();
+    const chat = useChat((key: string) => key, gateway);
+    chat.createSession();
+
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(encoder.encode("event: chunk\r\ndata: partial\r\n\r\n"));
+        controller.close();
+      },
+    });
+
+    fetchMock.mockResolvedValueOnce(
+      new Response(stream, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      })
+    );
+
+    await expect(chat.streamMessage("hello", () => undefined)).rejects.toThrow("chat.requestError");
   });
 
   it("sendMessage does not overwrite session_id when session is already ready", async () => {

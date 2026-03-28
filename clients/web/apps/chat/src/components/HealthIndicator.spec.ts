@@ -40,6 +40,7 @@ describe("HealthIndicator", () => {
     expect(fetchMock).toHaveBeenCalledWith("http://localhost:3000/health", {
       method: "GET",
       headers: { Authorization: "Bearer test-token" },
+      signal: expect.any(AbortSignal),
     });
   });
 

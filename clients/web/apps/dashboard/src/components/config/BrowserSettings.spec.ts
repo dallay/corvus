@@ -42,4 +42,56 @@ describe("BrowserSettings", () => {
     await wrapper.get('button[data-testid="save"]').trigger("click");
     expect(wrapper.emitted("save")).toHaveLength(1);
   });
+
+  it("shows password input when computer use api key mode is replace", async () => {
+    const wrapper = mount(BrowserSettings, {
+      props: {
+        modelValue: createAdminConfigForm({
+          browser_computer_use_api_key_mode: "replace",
+          browser_computer_use_api_key_value: "",
+        }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    expect(wrapper.find('[data-testid="browser_computer_use_api_key_value"]').exists()).toBe(true);
+  });
+
+  it("hides password input when computer use api key mode is clear", async () => {
+    const wrapper = mount(BrowserSettings, {
+      props: {
+        modelValue: createAdminConfigForm({
+          browser_computer_use_api_key_mode: "clear",
+        }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    expect(wrapper.find('[data-testid="browser_computer_use_api_key_value"]').exists()).toBe(false);
+  });
+
+  it("hides password input when computer use api key mode is unchanged", async () => {
+    const wrapper = mount(BrowserSettings, {
+      props: {
+        modelValue: createAdminConfigForm({
+          browser_computer_use_api_key_mode: "unchanged",
+        }),
+        disabled: false,
+        saving: false,
+      },
+      global: {
+        plugins: [createI18n({ ...i18nConfig, locale: "en" })],
+      },
+    });
+
+    expect(wrapper.find('[data-testid="browser_computer_use_api_key_value"]').exists()).toBe(false);
+  });
 });

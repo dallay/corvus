@@ -70,14 +70,12 @@ describe("McpOverview", () => {
   });
 
   it("refetches when gateway props change", async () => {
-    const fetchSpy = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(JSON.stringify({ config: { mcp: { enabled: false, servers: [] } } }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        })
-      );
+    const fetchSpy = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ config: { mcp: { enabled: false, servers: [] } } }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })
+    );
     vi.stubGlobal("fetch", fetchSpy);
 
     const wrapper = mountComponent();

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { trimTrailingSlashes } from "@corvus/shared";
 import { computed, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminHealthSnapshot } from "@/types/admin-config";
@@ -39,7 +40,7 @@ async function fetchHealth() {
   loading.value = true;
   error.value = null;
   try {
-    const base = props.gatewayUrl.replace(/\/+$/, "");
+    const base = trimTrailingSlashes(props.gatewayUrl);
     const res = await fetch(`${base}/web/admin/health`, {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
     });

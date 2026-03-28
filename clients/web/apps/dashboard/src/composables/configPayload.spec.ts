@@ -36,6 +36,19 @@ function createSnapshot(): AdminConfigSnapshot {
     webhook_enabled: false,
     webhook_port: 3001,
     webhook_secret_exists: false,
+    web_search_enabled: false,
+    web_search_provider: "duckduckgo",
+    web_search_max_results: 5,
+    web_search_timeout_secs: 10,
+    web_search_has_brave_api_key: false,
+    browser_has_computer_use_api_key: false,
+    composio_enabled: false,
+    composio_entity_id: "default",
+    composio_has_api_key: false,
+    memory_cerebro_endpoint: "",
+    memory_cerebro_timeout_ms: 5000,
+    memory_cerebro_allow_insecure_loopback: false,
+    memory_cerebro_has_auth_token: false,
   };
 }
 
@@ -75,6 +88,27 @@ function createForm(overrides: Partial<AdminConfigForm> = {}): AdminConfigForm {
     webhook_secret_mode: "unchanged",
     webhook_secret_value: "",
     webhook_secret_exists: snapshot.webhook_secret_exists,
+    web_search_enabled: snapshot.web_search_enabled,
+    web_search_provider: snapshot.web_search_provider,
+    web_search_max_results: `${snapshot.web_search_max_results}`,
+    web_search_timeout_secs: `${snapshot.web_search_timeout_secs}`,
+    web_search_brave_api_key_mode: "unchanged",
+    web_search_brave_api_key_value: "",
+    web_search_has_brave_api_key: snapshot.web_search_has_brave_api_key,
+    browser_computer_use_api_key_mode: "unchanged",
+    browser_computer_use_api_key_value: "",
+    browser_has_computer_use_api_key: snapshot.browser_has_computer_use_api_key,
+    composio_enabled: snapshot.composio_enabled,
+    composio_entity_id: snapshot.composio_entity_id,
+    composio_api_key_mode: "unchanged",
+    composio_api_key_value: "",
+    composio_has_api_key: snapshot.composio_has_api_key,
+    memory_cerebro_endpoint: snapshot.memory_cerebro_endpoint,
+    memory_cerebro_timeout_ms: `${snapshot.memory_cerebro_timeout_ms}`,
+    memory_cerebro_allow_insecure_loopback: snapshot.memory_cerebro_allow_insecure_loopback,
+    memory_cerebro_auth_token_mode: "unchanged",
+    memory_cerebro_auth_token_value: "",
+    memory_cerebro_has_auth_token: snapshot.memory_cerebro_has_auth_token,
     ...overrides,
   };
 }
@@ -225,5 +259,210 @@ describe("buildPayloadForSection", () => {
         createSnapshot()
       )
     ).toThrowError("empty_webhook_secret");
+  });
+
+  it("builds web-search payload with changed fields and brave api key replace", () => {
+    const snapshot = createSnapshot();
+    const payload = buildPayloadForSection(
+      "web-search",
+      createForm({
+        web_search_enabled: true,
+        web_search_provider: "brave",
+        web_search_max_results: "10",
+        web_search_brave_api_key_mode: "replace",
+        web_search_brave_api_key_value: "  brave-key-123  ",
+      }),
+      snapshot
+    );
+
+    expect(payload).toEqual({
+      web_search: {
+        enabled: true,
+        provider: "brave",
+        max_results: 10,
+        brave_api_key: { mode: "replace", value: "brave-key-123" },
+      },
+    });
+  });
+
+  it("builds web-search payload with brave api key clear", () => {
+    const snapshot = createSnapshot();
+    const payload = buildPayloadForSection(
+      "web-search",
+      createForm({
+        web_search_brave_api_key_mode: "clear",
+      }),
+      snapshot
+    );
+
+    expect(payload).toEqual({
+      web_search: {
+        brave_api_key: { mode: "clear" },
+      },
+    });
+  });
+
+  it("returns empty payload for web-search when nothing changed", () => {
+    const snapshot = createSnapshot();
+    expect(buildPayloadForSection("web-search", createForm(), snapshot)).toEqual({});
+  });
+
+  it("builds browser payload with computer_use_api_key replace", () => {
+    const payload = buildPayloadForSection(
+      "browser",
+      createForm({
+        browser_computer_use_api_key_mode: "replace",
+        browser_computer_use_api_key_value: "  cu-key  ",
+      }),
+      createSnapshot()
+    );
+
+    expect(payload).toEqual({
+      browser: {
+        computer_use_api_key: { mode: "replace", value: "cu-key" },
+      },
+    });
+  });
+
+  it("builds browser payload with computer_use_api_key clear", () => {
+    const payload = buildPayloadForSection(
+      "browser",
+      createForm({
+        browser_computer_use_api_key_mode: "clear",
+      }),
+      createSnapshot()
+    );
+
+    expect(payload).toEqual({
+      browser: {
+        computer_use_api_key: { mode: "clear" },
+      },
+    });
+  });
+
+  it("returns empty payload for browser when mode is unchanged", () => {
+    expect(buildPayloadForSection("browser", createForm(), createSnapshot())).toEqual({});
+  });
+
+  it("throws for browser when replacing with empty value", () => {
+    expect(() =>
+      buildPayloadForSection(
+        "browser",
+        createForm({
+          browser_computer_use_api_key_mode: "replace",
+          browser_computer_use_api_key_value: "   ",
+        }),
+        createSnapshot()
+      )
+    ).toThrowError("empty_secret");
+  });
+
+  it("builds composio payload with changed fields and api key replace", () => {
+    const snapshot = createSnapshot();
+    const payload = buildPayloadForSection(
+      "composio",
+      createForm({
+        composio_enabled: true,
+        composio_entity_id: "custom",
+        composio_api_key_mode: "replace",
+        composio_api_key_value: "  composio-key  ",
+      }),
+      snapshot
+    );
+
+    expect(payload).toEqual({
+      composio: {
+        enabled: true,
+        entity_id: "custom",
+        api_key: { mode: "replace", value: "composio-key" },
+      },
+    });
+  });
+
+  it("builds composio payload with api key clear", () => {
+    const payload = buildPayloadForSection(
+      "composio",
+      createForm({ composio_api_key_mode: "clear" }),
+      createSnapshot()
+    );
+
+    expect(payload).toEqual({
+      composio: {
+        api_key: { mode: "clear" },
+      },
+    });
+  });
+
+  it("returns empty payload for composio when nothing changed", () => {
+    expect(buildPayloadForSection("composio", createForm(), createSnapshot())).toEqual({});
+  });
+
+  it("builds memory payload with changed cerebro fields and auth token replace", () => {
+    const snapshot = createSnapshot();
+    const payload = buildPayloadForSection(
+      "memory",
+      createForm({
+        memory_cerebro_endpoint: "http://cerebro:9090",
+        memory_cerebro_timeout_ms: "10000",
+        memory_cerebro_auth_token_mode: "replace",
+        memory_cerebro_auth_token_value: "  token-abc  ",
+      }),
+      snapshot
+    );
+
+    expect(payload).toEqual({
+      memory: {
+        cerebro: {
+          endpoint: "http://cerebro:9090",
+          request_timeout_ms: 10000,
+          auth_token: { mode: "replace", value: "token-abc" },
+        },
+      },
+    });
+  });
+
+  it("builds memory payload with auth token clear", () => {
+    const payload = buildPayloadForSection(
+      "memory",
+      createForm({ memory_cerebro_auth_token_mode: "clear" }),
+      createSnapshot()
+    );
+
+    expect(payload).toEqual({
+      memory: {
+        cerebro: {
+          auth_token: { mode: "clear" },
+        },
+      },
+    });
+  });
+
+  it("returns empty payload for memory when nothing changed", () => {
+    expect(buildPayloadForSection("memory", createForm(), createSnapshot())).toEqual({});
+  });
+
+  it("builds security payload with auto_approve and always_ask list changes", () => {
+    const snapshot = createSnapshot();
+    const payload = buildPayloadForSection(
+      "security",
+      createForm({
+        autonomy_auto_approve: "file_read, file_write",
+        autonomy_always_ask: "shell_exec",
+      }),
+      snapshot
+    );
+
+    expect(payload).toEqual({
+      autonomy: {
+        auto_approve: ["file_read", "file_write"],
+        always_ask: ["shell_exec"],
+      },
+    });
+  });
+
+  it("returns empty for provider-pools and updates sections", () => {
+    const snapshot = createSnapshot();
+    expect(buildPayloadForSection("provider-pools", createForm(), snapshot)).toEqual({});
+    expect(buildPayloadForSection("updates", createForm(), snapshot)).toEqual({});
   });
 });

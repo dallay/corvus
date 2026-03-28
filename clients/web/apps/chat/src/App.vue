@@ -151,10 +151,14 @@ async function sendMessage(): Promise<void> {
   try {
     // Try streaming first
     updateAssistantMessage(assistantMessageId, "", "streaming");
-    await chat.streamMessage(normalizedText, (chunk) => {
-      updateAssistantMessage(assistantMessageId, chunk, "streaming");
-      nextTick().then(scrollChatToBottom);
-    }, requestId);
+    await chat.streamMessage(
+      normalizedText,
+      (chunk) => {
+        updateAssistantMessage(assistantMessageId, chunk, "streaming");
+        nextTick().then(scrollChatToBottom);
+      },
+      requestId
+    );
     updateAssistantMessage(
       assistantMessageId,
       messages.value.find((m) => m.id === assistantMessageId)?.content ?? "",

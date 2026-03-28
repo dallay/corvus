@@ -467,7 +467,9 @@ export function useChat(
             } catch {
               throw new Error(t("chat.requestError", { text: normalizedMessage }));
             }
-            throw new Error(errorEvt.message || t("chat.requestError", { text: normalizedMessage }));
+            throw new Error(
+              errorEvt.message || t("chat.requestError", { text: normalizedMessage })
+            );
           }
         }
 

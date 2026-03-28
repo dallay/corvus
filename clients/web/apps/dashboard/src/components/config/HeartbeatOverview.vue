@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { trimTrailingSlashes } from "@corvus/shared";
 import { onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { AdminHeartbeatView } from "@/types/admin-config";
@@ -19,7 +20,7 @@ async function fetchHeartbeat() {
   loading.value = true;
   error.value = null;
   try {
-    const base = props.gatewayUrl.replace(/\/+$/, "");
+    const base = trimTrailingSlashes(props.gatewayUrl);
     const res = await fetch(`${base}/web/admin/config`, {
       headers: { Authorization: `Bearer ${props.bearerToken}` },
     });

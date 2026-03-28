@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { trimTrailingSlashes } from "@corvus/shared";
 import { onMounted, onUnmounted, ref } from "vue";
 
 const props = defineProps<{
@@ -39,7 +40,7 @@ async function checkHealth(): Promise<void> {
       headers.Authorization = `Bearer ${props.bearerToken}`;
     }
 
-    const base = props.gatewayUrl.replace(/\/+$/, "");
+    const base = trimTrailingSlashes(props.gatewayUrl);
     const response = await fetch(`${base}/health`, {
       method: "GET",
       headers,
