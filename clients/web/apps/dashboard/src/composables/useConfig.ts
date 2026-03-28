@@ -411,6 +411,11 @@ export function useConfig(t: (key: string, params?: Record<string, unknown>) => 
     memory: false,
     "provider-pools": false,
     updates: false,
+    cost: false,
+    mcp: false,
+    tunnel: false,
+    reliability: false,
+    heartbeat: false,
   });
 
   const canSave = computed(

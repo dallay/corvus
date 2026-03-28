@@ -160,6 +160,55 @@ export interface AdminChannelStatusView {
   config_summary: Record<string, unknown>;
 }
 
+export interface AdminCostView {
+  enabled: boolean;
+  daily_limit_usd: number;
+  monthly_limit_usd: number;
+  warn_at_percent: number;
+  allow_override: boolean;
+}
+
+export interface AdminMcpView {
+  enabled: boolean;
+  servers: AdminMcpServerView[];
+}
+
+export interface AdminMcpServerView {
+  name: string;
+  enabled: boolean;
+  command: string;
+  capabilities: string[];
+  startup_timeout_ms: number;
+  call_timeout_ms: number;
+  output_limit_bytes: number;
+}
+
+export interface AdminTunnelView {
+  provider: string;
+  has_cloudflare_token: boolean;
+  tailscale_funnel?: boolean | null;
+  tailscale_hostname?: string | null;
+  has_ngrok_auth_token: boolean;
+  ngrok_domain?: string | null;
+  custom_health_url?: string | null;
+}
+
+export interface AdminReliabilityView {
+  provider_retries: number;
+  provider_backoff_ms: number;
+  fallback_providers: string[];
+  model_fallbacks: Record<string, string[]>;
+  channel_initial_backoff_secs: number;
+  channel_max_backoff_secs: number;
+  scheduler_poll_secs: number;
+  scheduler_retries: number;
+}
+
+export interface AdminHeartbeatView {
+  enabled: boolean;
+  interval_minutes: number;
+}
+
 export interface AdminConfigView {
   default_provider?: string | null;
   default_model?: string | null;
@@ -233,6 +282,11 @@ export interface AdminConfigView {
   web_search?: AdminWebSearchView;
   memory?: AdminMemoryView;
   browser?: AdminBrowserView;
+  cost?: AdminCostView;
+  mcp?: AdminMcpView;
+  tunnel?: AdminTunnelView;
+  reliability?: AdminReliabilityView;
+  heartbeat?: AdminHeartbeatView;
 }
 
 export interface AdminConfigResponse {
@@ -451,4 +505,9 @@ export type ConfigSection =
   | "composio"
   | "memory"
   | "provider-pools"
-  | "updates";
+  | "updates"
+  | "cost"
+  | "mcp"
+  | "tunnel"
+  | "reliability"
+  | "heartbeat";

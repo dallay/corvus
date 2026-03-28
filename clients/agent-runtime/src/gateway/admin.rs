@@ -28,6 +28,11 @@ pub struct AdminConfigView {
     pub memory: AdminMemoryView,
     pub browser: AdminBrowserView,
     pub updates: AdminUpdatesView,
+    pub cost: AdminCostView,
+    pub mcp: AdminMcpView,
+    pub tunnel: AdminTunnelView,
+    pub reliability: AdminReliabilityView,
+    pub heartbeat: AdminHeartbeatView,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -185,6 +190,61 @@ pub struct AdminChannelStatusView {
     pub channel_type: String,
     pub configured: bool,
     pub config_summary: serde_json::Value,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminCostView {
+    pub enabled: bool,
+    pub daily_limit_usd: f64,
+    pub monthly_limit_usd: f64,
+    pub warn_at_percent: u8,
+    pub allow_override: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminMcpView {
+    pub enabled: bool,
+    pub servers: Vec<AdminMcpServerView>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminMcpServerView {
+    pub name: String,
+    pub enabled: bool,
+    pub command: String,
+    pub capabilities: Vec<String>,
+    pub startup_timeout_ms: u64,
+    pub call_timeout_ms: u64,
+    pub output_limit_bytes: usize,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminTunnelView {
+    pub provider: String,
+    pub has_cloudflare_token: bool,
+    pub tailscale_funnel: Option<bool>,
+    pub tailscale_hostname: Option<String>,
+    pub has_ngrok_auth_token: bool,
+    pub ngrok_domain: Option<String>,
+    pub custom_health_url: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminReliabilityView {
+    pub provider_retries: u32,
+    pub provider_backoff_ms: u64,
+    pub fallback_providers: Vec<String>,
+    pub model_fallbacks: std::collections::HashMap<String, Vec<String>>,
+    pub channel_initial_backoff_secs: u64,
+    pub channel_max_backoff_secs: u64,
+    pub scheduler_poll_secs: u64,
+    pub scheduler_retries: u32,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct AdminHeartbeatView {
+    pub enabled: bool,
+    pub interval_minutes: u32,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -602,6 +662,69 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
                         .unwrap_or_else(|| "unknown".to_string()),
                 },
             }
+        },
+        cost: AdminCostView {
+            enabled: cfg.cost.enabled,
+            daily_limit_usd: cfg.cost.daily_limit_usd,
+            monthly_limit_usd: cfg.cost.monthly_limit_usd,
+            warn_at_percent: cfg.cost.warn_at_percent,
+            allow_override: cfg.cost.allow_override,
+        },
+        mcp: AdminMcpView {
+            enabled: cfg.mcp.enabled,
+            servers: cfg
+                .mcp
+                .servers
+                .iter()
+                .map(|s| AdminMcpServerView {
+                    name: s.name.clone(),
+                    enabled: s.enabled,
+                    command: s.command.clone(),
+                    capabilities: s.capabilities.clone(),
+                    startup_timeout_ms: s.startup_timeout_ms,
+                    call_timeout_ms: s.call_timeout_ms,
+                    output_limit_bytes: s.output_limit_bytes,
+                })
+                .collect(),
+        },
+        tunnel: AdminTunnelView {
+            provider: cfg.tunnel.provider.clone(),
+            has_cloudflare_token: cfg
+                .tunnel
+                .cloudflare
+                .as_ref()
+                .is_some_and(|cf| has_secret(Some(cf.token.as_str()))),
+            tailscale_funnel: cfg.tunnel.tailscale.as_ref().map(|ts| ts.funnel),
+            tailscale_hostname: cfg
+                .tunnel
+                .tailscale
+                .as_ref()
+                .and_then(|ts| ts.hostname.clone()),
+            has_ngrok_auth_token: cfg
+                .tunnel
+                .ngrok
+                .as_ref()
+                .is_some_and(|ng| has_secret(Some(ng.auth_token.as_str()))),
+            ngrok_domain: cfg.tunnel.ngrok.as_ref().and_then(|ng| ng.domain.clone()),
+            custom_health_url: cfg
+                .tunnel
+                .custom
+                .as_ref()
+                .and_then(|c| c.health_url.clone()),
+        },
+        reliability: AdminReliabilityView {
+            provider_retries: cfg.reliability.provider_retries,
+            provider_backoff_ms: cfg.reliability.provider_backoff_ms,
+            fallback_providers: cfg.reliability.fallback_providers.clone(),
+            model_fallbacks: cfg.reliability.model_fallbacks.clone(),
+            channel_initial_backoff_secs: cfg.reliability.channel_initial_backoff_secs,
+            channel_max_backoff_secs: cfg.reliability.channel_max_backoff_secs,
+            scheduler_poll_secs: cfg.reliability.scheduler_poll_secs,
+            scheduler_retries: cfg.reliability.scheduler_retries,
+        },
+        heartbeat: AdminHeartbeatView {
+            enabled: cfg.heartbeat.enabled,
+            interval_minutes: cfg.heartbeat.interval_minutes,
         },
     }
 }

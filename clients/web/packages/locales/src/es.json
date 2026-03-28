@@ -23,7 +23,12 @@
     "updates": "Actualizaciones",
     "channels": "Canales",
     "schedulerStatus": "Estado del Scheduler",
-    "health": "Estado del sistema"
+    "health": "Estado del sistema",
+    "cost": "Seguimiento de costos",
+    "mcp": "Servidores MCP",
+    "tunnel": "Túnel",
+    "reliability": "Fiabilidad",
+    "heartbeat": "Heartbeat"
   },
   "health": {
     "loading": "Cargando estado...",
@@ -304,6 +309,55 @@
     "loading": "Cargando canales...",
     "configured": "Configurado",
     "notConfigured": "No configurado"
+  },
+  "cost": {
+    "loading": "Cargando seguimiento de costos...",
+    "enabled": "Habilitado",
+    "dailyLimit": "Límite diario (USD)",
+    "monthlyLimit": "Límite mensual (USD)",
+    "warnAtPercent": "Alertar en porcentaje",
+    "allowOverride": "Permitir anulación",
+    "yes": "Sí",
+    "no": "No"
+  },
+  "mcp": {
+    "loading": "Cargando servidores MCP...",
+    "enabled": "Habilitado",
+    "command": "Comando",
+    "capabilities": "Capacidades",
+    "yes": "Sí",
+    "no": "No"
+  },
+  "tunnel": {
+    "loading": "Cargando túnel...",
+    "provider": "Proveedor",
+    "cloudflareToken": "Token de Cloudflare",
+    "tailscaleFunnel": "Funnel de Tailscale",
+    "tailscaleHostname": "Hostname de Tailscale",
+    "ngrokAuthToken": "Token de autenticación ngrok",
+    "ngrokDomain": "Dominio ngrok",
+    "customHealthUrl": "URL de salud personalizada",
+    "yes": "Sí",
+    "no": "No"
+  },
+  "reliability": {
+    "loading": "Cargando fiabilidad...",
+    "providerRetries": "Reintentos del proveedor",
+    "providerBackoff": "Backoff del proveedor",
+    "fallbackProviders": "Proveedores de respaldo",
+    "modelFallbacks": "Fallbacks de modelo",
+    "channelInitialBackoff": "Backoff inicial del canal",
+    "channelMaxBackoff": "Backoff máximo del canal",
+    "schedulerPoll": "Intervalo de sondeo del scheduler",
+    "schedulerRetries": "Reintentos del scheduler",
+    "none": "Ninguno"
+  },
+  "heartbeat": {
+    "loading": "Cargando heartbeat...",
+    "enabled": "Habilitado",
+    "interval": "Intervalo (minutos)",
+    "yes": "Sí",
+    "no": "No"
   },
   "updates": {
     "currentVersion": "Versión actual",

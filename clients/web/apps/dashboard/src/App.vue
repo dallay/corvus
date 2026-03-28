@@ -25,6 +25,16 @@ import SchedulerSettings from "@/components/config/SchedulerSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SchedulerStatus from "@/components/config/SchedulerStatus.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import CostOverview from "@/components/config/CostOverview.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import McpOverview from "@/components/config/McpOverview.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import TunnelOverview from "@/components/config/TunnelOverview.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import ReliabilityOverview from "@/components/config/ReliabilityOverview.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import HeartbeatOverview from "@/components/config/HeartbeatOverview.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import SecuritySettings from "@/components/config/SecuritySettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import WebhookSettings from "@/components/config/WebhookSettings.vue";
@@ -219,6 +229,31 @@ const config = useConfig(t);
     />
 
     <SchedulerStatus
+      :gateway-url="config.baseUrl.value"
+      :bearer-token="config.bearerToken.value"
+    />
+
+    <CostOverview
+      :gateway-url="config.baseUrl.value"
+      :bearer-token="config.bearerToken.value"
+    />
+
+    <McpOverview
+      :gateway-url="config.baseUrl.value"
+      :bearer-token="config.bearerToken.value"
+    />
+
+    <TunnelOverview
+      :gateway-url="config.baseUrl.value"
+      :bearer-token="config.bearerToken.value"
+    />
+
+    <ReliabilityOverview
+      :gateway-url="config.baseUrl.value"
+      :bearer-token="config.bearerToken.value"
+    />
+
+    <HeartbeatOverview
       :gateway-url="config.baseUrl.value"
       :bearer-token="config.bearerToken.value"
     />

@@ -23,7 +23,12 @@
     "updates": "Updates",
     "channels": "Channels",
     "schedulerStatus": "Scheduler Status",
-    "health": "System Health"
+    "health": "System Health",
+    "cost": "Cost Tracking",
+    "mcp": "MCP Servers",
+    "tunnel": "Tunnel",
+    "reliability": "Reliability",
+    "heartbeat": "Heartbeat"
   },
   "health": {
     "loading": "Loading health...",
@@ -304,6 +309,55 @@
     "loading": "Loading channels...",
     "configured": "Configured",
     "notConfigured": "Not configured"
+  },
+  "cost": {
+    "loading": "Loading cost tracking...",
+    "enabled": "Enabled",
+    "dailyLimit": "Daily limit (USD)",
+    "monthlyLimit": "Monthly limit (USD)",
+    "warnAtPercent": "Warn at percent",
+    "allowOverride": "Allow override",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "mcp": {
+    "loading": "Loading MCP servers...",
+    "enabled": "Enabled",
+    "command": "Command",
+    "capabilities": "Capabilities",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "tunnel": {
+    "loading": "Loading tunnel...",
+    "provider": "Provider",
+    "cloudflareToken": "Cloudflare token",
+    "tailscaleFunnel": "Tailscale funnel",
+    "tailscaleHostname": "Tailscale hostname",
+    "ngrokAuthToken": "ngrok auth token",
+    "ngrokDomain": "ngrok domain",
+    "customHealthUrl": "Custom health URL",
+    "yes": "Yes",
+    "no": "No"
+  },
+  "reliability": {
+    "loading": "Loading reliability...",
+    "providerRetries": "Provider retries",
+    "providerBackoff": "Provider backoff",
+    "fallbackProviders": "Fallback providers",
+    "modelFallbacks": "Model fallbacks",
+    "channelInitialBackoff": "Channel initial backoff",
+    "channelMaxBackoff": "Channel max backoff",
+    "schedulerPoll": "Scheduler poll interval",
+    "schedulerRetries": "Scheduler retries",
+    "none": "None"
+  },
+  "heartbeat": {
+    "loading": "Loading heartbeat...",
+    "enabled": "Enabled",
+    "interval": "Interval (minutes)",
+    "yes": "Yes",
+    "no": "No"
   },
   "updates": {
     "currentVersion": "Current version",
