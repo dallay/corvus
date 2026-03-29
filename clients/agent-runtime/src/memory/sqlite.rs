@@ -1,5 +1,7 @@
 use super::embeddings::EmbeddingProvider;
-use super::traits::{Memory, MemoryCategory, MemoryEntry};
+use super::traits::{
+    Memory, MemoryCategory, MemoryEntry, MemoryStats, SessionEntry, SessionStatus,
+};
 use super::vector;
 use anyhow::Context;
 use async_trait::async_trait;
@@ -15,6 +17,7 @@ use uuid::Uuid;
 
 /// Maximum allowed open timeout (seconds) to avoid unreasonable waits.
 const SQLITE_OPEN_TIMEOUT_CAP_SECS: u64 = 300;
+const MAX_LIST_LIMIT: u32 = 1_000;
 
 /// SQLite-backed persistent memory — the brain
 ///
@@ -181,6 +184,24 @@ impl SqliteMemory {
                  CREATE INDEX IF NOT EXISTS idx_memories_session ON memories(session_id);",
             )?;
         }
+
+        // Migration: sessions table for session lifecycle tracking
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS sessions (
+                id            TEXT PRIMARY KEY,
+                started_at    TEXT NOT NULL,
+                ended_at      TEXT,
+                status        TEXT NOT NULL DEFAULT 'active',
+                message_count INTEGER NOT NULL DEFAULT 0,
+                last_activity TEXT NOT NULL,
+                token_hash    TEXT,
+                metadata      TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+            CREATE INDEX IF NOT EXISTS idx_sessions_started ON sessions(started_at);
+            CREATE INDEX IF NOT EXISTS idx_sessions_last_activity ON sessions(last_activity);
+            CREATE INDEX IF NOT EXISTS idx_sessions_token ON sessions(token_hash);",
+        )?;
 
         Ok(())
     }
@@ -598,6 +619,10 @@ impl SqliteMemory {
         let entries: Vec<MemoryEntry> = rows.filter_map(|r| r.ok()).collect();
         Ok(Self::filter_by_session(entries, session_filter))
     }
+
+    fn capped_list_limit(limit: u32) -> i64 {
+        i64::from(limit.min(MAX_LIST_LIMIT))
+    }
 }
 
 #[async_trait]
@@ -821,6 +846,291 @@ impl Memory for SqliteMemory {
         tokio::task::spawn_blocking(move || conn.lock().execute_batch("SELECT 1").is_ok())
             .await
             .unwrap_or(false)
+    }
+
+    async fn upsert_session(
+        &self,
+        session_id: &str,
+        token_hash: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        let token_hash = token_hash.map(String::from);
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let conn = conn.lock();
+            let now = chrono::Utc::now().to_rfc3339();
+            let affected = conn.execute(
+                "INSERT INTO sessions (id, started_at, status, message_count, last_activity, token_hash)
+                 VALUES (?1, ?2, 'active', 0, ?3, ?4)
+                 ON CONFLICT(id) DO UPDATE SET
+                    last_activity = excluded.last_activity,
+                    status = 'active',
+                    ended_at = NULL
+                 WHERE sessions.token_hash IS excluded.token_hash",
+                params![session_id, now, now, token_hash],
+            )?;
+            if affected == 0 {
+                anyhow::bail!("session ownership mismatch for {session_id}");
+            }
+            Ok(())
+        })
+        .await?
+    }
+
+    async fn end_session(&self, session_id: &str) -> anyhow::Result<()> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let conn = conn.lock();
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "UPDATE sessions SET status = 'ended', ended_at = ?1
+                 WHERE id = ?2 AND ended_at IS NULL",
+                params![now, session_id],
+            )?;
+            Ok(())
+        })
+        .await?
+    }
+
+    async fn update_session_activity(
+        &self,
+        session_id: &str,
+        token_hash: Option<&str>,
+    ) -> anyhow::Result<()> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+        let token_hash = token_hash.map(String::from);
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let conn = conn.lock();
+            let now = chrono::Utc::now().to_rfc3339();
+            conn.execute(
+                "UPDATE sessions SET message_count = message_count + 1, last_activity = ?1
+                 WHERE id = ?2 AND ended_at IS NULL AND token_hash IS ?3",
+                params![now, session_id, token_hash],
+            )?;
+            Ok(())
+        })
+        .await?
+    }
+
+    async fn list_sessions(
+        &self,
+        status: Option<SessionStatus>,
+        limit: u32,
+        offset: u32,
+        sort: &str,
+        order: &str,
+    ) -> anyhow::Result<(Vec<SessionEntry>, u64)> {
+        let conn = self.conn.clone();
+        let status = status.map(|s| s.as_str().to_string());
+        let limit = Self::capped_list_limit(limit);
+        let offset = i64::from(offset);
+        let sort_col = match sort {
+            "started_at" => "started_at",
+            _ => "last_activity",
+        };
+        let order_dir = if order == "asc" { "ASC" } else { "DESC" };
+        let sql_query = format!(
+            "SELECT id, started_at, ended_at, status, message_count, last_activity, metadata
+             FROM sessions {} ORDER BY {sort_col} {order_dir}, id {order_dir} LIMIT ?1 OFFSET ?2",
+            if status.is_some() {
+                "WHERE status = ?3"
+            } else {
+                ""
+            }
+        );
+        let count_query = format!(
+            "SELECT COUNT(*) FROM sessions {}",
+            if status.is_some() {
+                "WHERE status = ?1"
+            } else {
+                ""
+            }
+        );
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<SessionEntry>, u64)> {
+            let conn = conn.lock();
+
+            #[allow(clippy::cast_sign_loss)]
+            let total: u64 = if let Some(ref s) = status {
+                conn.query_row(&count_query, params![s], |row| row.get::<_, i64>(0))? as u64
+            } else {
+                conn.query_row(&count_query, [], |row| row.get::<_, i64>(0))? as u64
+            };
+
+            let mut stmt = conn.prepare(&sql_query)?;
+            let row_mapper = |row: &rusqlite::Row| -> rusqlite::Result<SessionEntry> {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(SessionEntry {
+                    id: row.get(0)?,
+                    started_at: row.get(1)?,
+                    ended_at: row.get(2)?,
+                    status: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or(SessionStatus::Active),
+                    message_count: row.get::<_, i32>(4)? as u32,
+                    last_activity: row.get(5)?,
+                    metadata: row
+                        .get::<_, Option<String>>(6)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
+                })
+            };
+
+            let rows: Vec<SessionEntry> = if let Some(ref s) = status {
+                stmt.query_map(params![limit, offset, s], row_mapper)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+            } else {
+                stmt.query_map(params![limit, offset], row_mapper)?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+            };
+
+            Ok((rows, total))
+        })
+        .await?
+    }
+
+    async fn get_session(&self, session_id: &str) -> anyhow::Result<Option<SessionEntry>> {
+        let conn = self.conn.clone();
+        let session_id = session_id.to_string();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<Option<SessionEntry>> {
+            let conn = conn.lock();
+            let mut stmt = conn.prepare(
+                "SELECT id, started_at, ended_at, status, message_count, last_activity, metadata
+                 FROM sessions WHERE id = ?1",
+            )?;
+
+            let mut rows = stmt.query_map(params![session_id], |row| {
+                #[allow(clippy::cast_sign_loss)]
+                Ok(SessionEntry {
+                    id: row.get(0)?,
+                    started_at: row.get(1)?,
+                    ended_at: row.get(2)?,
+                    status: row
+                        .get::<_, String>(3)?
+                        .parse()
+                        .unwrap_or(SessionStatus::Active),
+                    message_count: row.get::<_, i32>(4)? as u32,
+                    last_activity: row.get(5)?,
+                    metadata: row
+                        .get::<_, Option<String>>(6)?
+                        .and_then(|s| serde_json::from_str(&s).ok()),
+                })
+            })?;
+
+            match rows.next() {
+                Some(Ok(entry)) => Ok(Some(entry)),
+                _ => Ok(None),
+            }
+        })
+        .await?
+    }
+
+    async fn list_sessions_for_token(
+        &self,
+        token_hash: &str,
+        limit: u32,
+        offset: u32,
+    ) -> anyhow::Result<(Vec<SessionEntry>, u64)> {
+        let conn = self.conn.clone();
+        let token_hash = token_hash.to_string();
+        let limit = Self::capped_list_limit(limit);
+        let offset = i64::from(offset);
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<(Vec<SessionEntry>, u64)> {
+            let conn = conn.lock();
+
+            #[allow(clippy::cast_sign_loss)]
+            let total: u64 = conn.query_row(
+                "SELECT COUNT(*) FROM sessions WHERE token_hash = ?1",
+                params![token_hash],
+                |row| row.get::<_, i64>(0),
+            )? as u64;
+
+            let mut stmt = conn.prepare(
+                "SELECT id, started_at, ended_at, status, message_count, last_activity, metadata
+                 FROM sessions WHERE token_hash = ?1
+                 ORDER BY last_activity DESC, id DESC LIMIT ?2 OFFSET ?3",
+            )?;
+
+            let rows: Vec<SessionEntry> = stmt
+                .query_map(params![token_hash, limit, offset], |row| {
+                    #[allow(clippy::cast_sign_loss)]
+                    Ok(SessionEntry {
+                        id: row.get(0)?,
+                        started_at: row.get(1)?,
+                        ended_at: row.get(2)?,
+                        status: row
+                            .get::<_, String>(3)?
+                            .parse()
+                            .unwrap_or(SessionStatus::Active),
+                        message_count: row.get::<_, i32>(4)? as u32,
+                        last_activity: row.get(5)?,
+                        metadata: row
+                            .get::<_, Option<String>>(6)?
+                            .and_then(|s| serde_json::from_str(&s).ok()),
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+
+            Ok((rows, total))
+        })
+        .await?
+    }
+
+    async fn memory_stats(&self) -> anyhow::Result<MemoryStats> {
+        let conn = self.conn.clone();
+
+        tokio::task::spawn_blocking(move || -> anyhow::Result<MemoryStats> {
+            let conn = conn.lock();
+
+            #[allow(clippy::cast_sign_loss)]
+            let total_entries: u64 = conn.query_row("SELECT COUNT(*) FROM memories", [], |row| {
+                row.get::<_, i64>(0)
+            })? as u64;
+
+            let mut by_category = std::collections::HashMap::new();
+            {
+                let mut stmt =
+                    conn.prepare("SELECT category, COUNT(*) FROM memories GROUP BY category")?;
+                let rows = stmt.query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+                })?;
+                for row in rows {
+                    let (cat, count) = row?;
+                    #[allow(clippy::cast_sign_loss)]
+                    by_category.insert(cat, count as u64);
+                }
+            }
+
+            #[allow(clippy::cast_sign_loss)]
+            let total_sessions: u64 =
+                conn.query_row("SELECT COUNT(*) FROM sessions", [], |row| {
+                    row.get::<_, i64>(0)
+                })? as u64;
+
+            #[allow(clippy::cast_sign_loss)]
+            let active_sessions: u64 = conn.query_row(
+                "SELECT COUNT(*) FROM sessions WHERE status = 'active'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )? as u64;
+
+            Ok(MemoryStats {
+                total_entries,
+                by_category,
+                total_sessions,
+                active_sessions,
+                backend: "sqlite".to_string(),
+                cerebro_configured: false,
+            })
+        })
+        .await?
     }
 }
 
@@ -1939,5 +2249,315 @@ mod tests {
         mem.reindex().await.unwrap();
 
         assert_eq!(mem.count().await.unwrap(), 1);
+    }
+
+    // ── Session CRUD tests ───────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_sessions_table_migration() {
+        let tmp = TempDir::new().unwrap();
+        let _mem = SqliteMemory::new(tmp.path()).unwrap();
+        // Reopen — migration must be idempotent
+        let mem2 = SqliteMemory::new(tmp.path()).unwrap();
+        let conn = mem2.conn.lock();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_upsert_session_new() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("sess-new", None).await.unwrap();
+
+        let session = mem.get_session("sess-new").await.unwrap();
+        assert!(session.is_some());
+        let s = session.unwrap();
+        assert_eq!(s.id, "sess-new");
+        assert_eq!(s.status, SessionStatus::Active);
+        assert_eq!(s.message_count, 0);
+        assert!(s.ended_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_upsert_session_existing() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("sess-dup", None).await.unwrap();
+        let first = mem.get_session("sess-dup").await.unwrap().unwrap();
+        let first_started = first.started_at.clone();
+
+        // Small delay then upsert again
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        mem.upsert_session("sess-dup", None).await.unwrap();
+
+        let second = mem.get_session("sess-dup").await.unwrap().unwrap();
+        // started_at must not change
+        assert_eq!(second.started_at, first_started);
+        // message_count must not change
+        assert_eq!(second.message_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_update_session_activity() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("sess-act", None).await.unwrap();
+
+        mem.update_session_activity("sess-act", None).await.unwrap();
+        mem.update_session_activity("sess-act", None).await.unwrap();
+
+        let s = mem.get_session("sess-act").await.unwrap().unwrap();
+        assert_eq!(s.message_count, 2);
+    }
+
+    #[tokio::test]
+    async fn test_end_session() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("sess-end", None).await.unwrap();
+
+        mem.end_session("sess-end").await.unwrap();
+        let s = mem.get_session("sess-end").await.unwrap().unwrap();
+        assert_eq!(s.status, SessionStatus::Ended);
+        assert!(s.ended_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_end_session_idempotent() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("sess-idem", None).await.unwrap();
+
+        mem.end_session("sess-idem").await.unwrap();
+        let first_ended = mem
+            .get_session("sess-idem")
+            .await
+            .unwrap()
+            .unwrap()
+            .ended_at
+            .clone();
+
+        // End again — should not change ended_at
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        mem.end_session("sess-idem").await.unwrap();
+        let second_ended = mem
+            .get_session("sess-idem")
+            .await
+            .unwrap()
+            .unwrap()
+            .ended_at;
+
+        assert_eq!(first_ended, second_ended);
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_pagination() {
+        let (_tmp, mem) = temp_sqlite();
+        for i in 0..10 {
+            mem.upsert_session(&format!("sess-page-{i}"), None)
+                .await
+                .unwrap();
+        }
+
+        let (sessions, total) = mem
+            .list_sessions(None, 3, 0, "last_activity", "desc")
+            .await
+            .unwrap();
+        assert_eq!(sessions.len(), 3);
+        assert_eq!(total, 10);
+
+        let (sessions, _) = mem
+            .list_sessions(None, 3, 9, "last_activity", "desc")
+            .await
+            .unwrap();
+        assert_eq!(sessions.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_status_filter() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("active-1", None).await.unwrap();
+        mem.upsert_session("active-2", None).await.unwrap();
+        mem.upsert_session("ended-1", None).await.unwrap();
+        mem.end_session("ended-1").await.unwrap();
+
+        let (active, _) = mem
+            .list_sessions(Some(SessionStatus::Active), 50, 0, "last_activity", "desc")
+            .await
+            .unwrap();
+        assert_eq!(active.len(), 2);
+
+        let (ended, _) = mem
+            .list_sessions(Some(SessionStatus::Ended), 50, 0, "last_activity", "desc")
+            .await
+            .unwrap();
+        assert_eq!(ended.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_get_session_found() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("found-me", None).await.unwrap();
+
+        let s = mem.get_session("found-me").await.unwrap();
+        assert!(s.is_some());
+        assert_eq!(s.unwrap().id, "found-me");
+    }
+
+    #[tokio::test]
+    async fn test_get_session_not_found() {
+        let (_tmp, mem) = temp_sqlite();
+        let s = mem.get_session("nonexistent").await.unwrap();
+        assert!(s.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_for_token() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("tok-a-1", Some("hash_a")).await.unwrap();
+        mem.upsert_session("tok-a-2", Some("hash_a")).await.unwrap();
+        mem.upsert_session("tok-b-1", Some("hash_b")).await.unwrap();
+
+        let (a_sessions, a_total) = mem.list_sessions_for_token("hash_a", 50, 0).await.unwrap();
+        assert_eq!(a_sessions.len(), 2);
+        assert_eq!(a_total, 2);
+
+        let (b_sessions, b_total) = mem.list_sessions_for_token("hash_b", 50, 0).await.unwrap();
+        assert_eq!(b_sessions.len(), 1);
+        assert_eq!(b_total, 1);
+
+        // No cross-token leakage
+        let (c_sessions, c_total) = mem.list_sessions_for_token("hash_c", 50, 0).await.unwrap();
+        assert!(c_sessions.is_empty());
+        assert_eq!(c_total, 0);
+    }
+
+    #[tokio::test]
+    async fn test_memory_stats() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.store("k1", "core1", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store("k2", "core2", MemoryCategory::Core, None)
+            .await
+            .unwrap();
+        mem.store("k3", "daily1", MemoryCategory::Daily, None)
+            .await
+            .unwrap();
+        mem.upsert_session("s1", None).await.unwrap();
+        mem.upsert_session("s2", None).await.unwrap();
+        mem.end_session("s2").await.unwrap();
+
+        let stats = mem.memory_stats().await.unwrap();
+        assert_eq!(stats.total_entries, 3);
+        assert_eq!(stats.by_category.get("core"), Some(&2));
+        assert_eq!(stats.by_category.get("daily"), Some(&1));
+        assert_eq!(stats.total_sessions, 2);
+        assert_eq!(stats.active_sessions, 1);
+        assert_eq!(stats.backend, "sqlite");
+    }
+
+    #[tokio::test]
+    async fn test_activity_update_on_ended_session_is_noop() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("sess-ended-act", None).await.unwrap();
+        mem.update_session_activity("sess-ended-act", None)
+            .await
+            .unwrap();
+        mem.end_session("sess-ended-act").await.unwrap();
+
+        // Activity update after end should be a no-op
+        mem.update_session_activity("sess-ended-act", None)
+            .await
+            .unwrap();
+        let s = mem.get_session("sess-ended-act").await.unwrap().unwrap();
+        assert_eq!(s.message_count, 1); // Only the one before end
+    }
+
+    #[tokio::test]
+    async fn test_upsert_session_rejects_token_ownership_mismatch() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("sess-owned", Some("hash-a"))
+            .await
+            .unwrap();
+
+        let err = mem
+            .upsert_session("sess-owned", Some("hash-b"))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("ownership mismatch"));
+    }
+
+    #[tokio::test]
+    async fn test_update_session_activity_respects_token_ownership() {
+        let (_tmp, mem) = temp_sqlite();
+        mem.upsert_session("sess-owned", Some("hash-a"))
+            .await
+            .unwrap();
+
+        mem.update_session_activity("sess-owned", Some("hash-b"))
+            .await
+            .unwrap();
+
+        let s = mem.get_session("sess-owned").await.unwrap().unwrap();
+        assert_eq!(s.message_count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_uses_stable_secondary_sort_and_capped_limit() {
+        let (_tmp, mem) = temp_sqlite();
+        for session_id in ["b", "a", "c"] {
+            mem.upsert_session(session_id, None).await.unwrap();
+        }
+
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "UPDATE sessions SET last_activity = ?1",
+                params!["2026-03-29T00:00:00Z"],
+            )
+            .unwrap();
+        }
+
+        let (sessions, total) = mem
+            .list_sessions(None, MAX_LIST_LIMIT + 500, 0, "last_activity", "asc")
+            .await
+            .unwrap();
+
+        assert_eq!(total, 3);
+        assert_eq!(sessions.len(), 3);
+        let ids: Vec<_> = sessions.into_iter().map(|session| session.id).collect();
+        assert_eq!(ids, vec!["a", "b", "c"]);
+    }
+
+    #[tokio::test]
+    async fn test_list_sessions_for_token_uses_stable_secondary_sort_and_capped_limit() {
+        let (_tmp, mem) = temp_sqlite();
+        for session_id in ["b", "a", "c"] {
+            mem.upsert_session(session_id, Some("hash-a"))
+                .await
+                .unwrap();
+        }
+
+        {
+            let conn = mem.conn.lock();
+            conn.execute(
+                "UPDATE sessions SET last_activity = ?1 WHERE token_hash = ?2",
+                params!["2026-03-29T00:00:00Z", "hash-a"],
+            )
+            .unwrap();
+        }
+
+        let (sessions, total) = mem
+            .list_sessions_for_token("hash-a", MAX_LIST_LIMIT + 500, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(total, 3);
+        assert_eq!(sessions.len(), 3);
+        let ids: Vec<_> = sessions.into_iter().map(|session| session.id).collect();
+        assert_eq!(ids, vec!["c", "b", "a"]);
     }
 }

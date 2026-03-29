@@ -457,6 +457,85 @@ describe("useGateway", () => {
     expect(url).toBe("https://remote.example.com/api/health");
   });
 
+  describe("getSessionList", () => {
+    it("calls correct URL with auth headers and parses response", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            sessions: [
+              {
+                id: "s1",
+                started_at: "2026-01-01",
+                ended_at: null,
+                message_count: 5,
+                last_activity: "2026-01-02",
+              },
+              {
+                id: "s2",
+                started_at: "2026-01-02",
+                ended_at: "2026-01-03",
+                message_count: 3,
+                last_activity: "2026-01-03",
+              },
+            ],
+            total: 2,
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        )
+      );
+
+      const gateway = useGateway((key: string) => key);
+      gateway.bearerToken.value = "my-token";
+      const result = await gateway.getSessionList();
+
+      expect(result.sessions).toHaveLength(2);
+      expect(result.sessions[0]?.id).toBe("s1");
+      expect(result.total).toBe(2);
+
+      const [url, init] = fetchMock.mock.calls[0] ?? [];
+      expect(url).toContain("/session/list");
+      expect(url).toContain("limit=20");
+      expect(url).toContain("offset=0");
+      expect((init?.headers as Record<string, string>).Authorization).toBe("Bearer my-token");
+    });
+
+    it("returns empty sessions on 404", async () => {
+      fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
+
+      const gateway = useGateway((key: string) => key);
+      const result = await gateway.getSessionList();
+
+      expect(result.sessions).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it("returns empty sessions on network error", async () => {
+      fetchMock.mockRejectedValueOnce(new Error("network failure"));
+
+      const gateway = useGateway((key: string) => key);
+      const result = await gateway.getSessionList();
+
+      expect(result.sessions).toEqual([]);
+      expect(result.total).toBe(0);
+    });
+
+    it("passes limit and offset params through to the gateway", async () => {
+      fetchMock.mockResolvedValueOnce(
+        new Response(JSON.stringify({ sessions: [], total: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+      const gateway = useGateway((key: string) => key);
+      await gateway.getSessionList(10, 20);
+
+      const [url] = fetchMock.mock.calls[0] ?? [];
+      expect(url).toContain("limit=10");
+      expect(url).toContain("offset=20");
+    });
+  });
+
   it("authHeaders includes webhook secret when set", () => {
     const gateway = useGateway((key: string) => key);
     gateway.bearerToken.value = "my-token";

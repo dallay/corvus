@@ -44,6 +44,7 @@ use tower_http::timeout::TimeoutLayer;
 use uuid::Uuid;
 
 pub mod admin;
+pub mod sessions;
 pub mod utils;
 pub mod webhook_dispatch;
 
@@ -603,6 +604,14 @@ fn quick_pair_magic_link_lines(magic_link: &str) -> Vec<String> {
 
 fn webhook_memory_key() -> String {
     format!("webhook_msg_{}", Uuid::new_v4())
+}
+
+/// Compute a SHA-256 hash from a bearer token for session scoping.
+/// Returns the full 64 hex-char digest to avoid collision risk.
+fn compute_token_hash(token: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(token.as_bytes());
+    hex::encode(digest)
 }
 
 fn whatsapp_memory_key(msg: &crate::channels::traits::ChannelMessage) -> String {
@@ -1227,6 +1236,24 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/web/admin/channels", get(handle_admin_channels))
         .route("/web/admin/scheduler", get(handle_admin_scheduler_status))
         .route("/web/admin/health", get(handle_admin_health))
+        .route(
+            "/web/admin/sessions",
+            get(admin::handle_admin_list_sessions),
+        )
+        .route(
+            "/web/admin/sessions/:id",
+            get(admin::handle_admin_get_session),
+        )
+        .route("/web/admin/memory", get(admin::handle_admin_list_memory))
+        .route(
+            "/web/admin/memory/stats",
+            get(admin::handle_admin_memory_stats),
+        )
+        .route(
+            "/web/admin/memory/:key",
+            axum::routing::delete(admin::handle_admin_delete_memory),
+        )
+        .route("/session/list", get(sessions::handle_session_list))
         .route("/web/chat/stream", post(handle_chat_stream))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
@@ -1432,6 +1459,25 @@ fn webhook_idempotency_key(headers: &HeaderMap) -> Option<&str> {
         .and_then(|v| v.to_str().ok())
         .map(str::trim)
         .filter(|value| !value.is_empty())
+}
+
+async fn update_session_activity_if_persisted(
+    state: &AppState,
+    session_id: &str,
+    token_hash: Option<&str>,
+    persist_idempotency: bool,
+) {
+    if !persist_idempotency {
+        return;
+    }
+
+    if let Err(e) = state
+        .mem
+        .update_session_activity(session_id, token_hash)
+        .await
+    {
+        tracing::debug!("session activity update best-effort failed: {e}");
+    }
 }
 
 fn webhook_duplicate_response(idempotency_key: &str) -> WebhookResponse {
@@ -1649,9 +1695,8 @@ async fn handle_webhook(
         Ok(resolved) => resolved,
         Err(response) => return response,
     };
-    let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
-    let config = state.config.lock().clone();
-    let dispatcher_enabled = webhook_dispatcher_enabled(&config);
+
+    // Idempotency guard: reject duplicates before any side-effects.
     let reserved_idempotency_key = if let Some(idempotency_key) = webhook_idempotency_key(&headers)
     {
         if !state.idempotency_store.record_if_new(idempotency_key) {
@@ -1661,6 +1706,31 @@ async fn handle_webhook(
     } else {
         None
     };
+
+    // Track session lifecycle: create or touch session record.
+    // When a bearer token is present, session tracking is required for
+    // token-scoped ownership — fail the request if upsert fails.
+    // Without a token, tracking is best-effort/observational.
+    let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
+    if let Err(e) = state
+        .mem
+        .upsert_session(&session_id, token_hash.as_deref())
+        .await
+    {
+        if token_hash.is_some() {
+            tracing::error!("session upsert failed for token-scoped request: {e:#}");
+            release_idempotency_key(&state, reserved_idempotency_key, false);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Session tracking failed"})),
+            );
+        }
+        tracing::debug!("session upsert best-effort failed: {e}");
+    }
+
+    let is_preview = std::env::var("CORVUS_GATEWAY_UNIFIED_LOOP_PREVIEW").as_deref() == Ok("1");
+    let config = state.config.lock().clone();
+    let dispatcher_enabled = webhook_dispatcher_enabled(&config);
     if dispatcher_enabled {
         log_webhook_runtime_path(&session_id, true, "dispatcher_flag_enabled");
         let dispatch_result = webhook_dispatch::execute(
@@ -1685,6 +1755,13 @@ async fn handle_webhook(
         let (response, persist_idempotency) =
             webhook_response_from_dispatch_result(dispatch_result);
         release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+        update_session_activity_if_persisted(
+            &state,
+            &session_id,
+            token_hash.as_deref(),
+            persist_idempotency,
+        )
+        .await;
         return response;
     }
 
@@ -1695,6 +1772,13 @@ async fn handle_webhook(
             canonical_outcome_early_response(&state, &session_id, &scrubbed_message).await
         {
             release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+            update_session_activity_if_persisted(
+                &state,
+                &session_id,
+                token_hash.as_deref(),
+                persist_idempotency,
+            )
+            .await;
             return response;
         }
     }
@@ -1710,6 +1794,14 @@ async fn handle_webhook(
     let (response, persist_idempotency) = legacy_simple_chat(&state, message, &session_id).await;
 
     release_idempotency_key(&state, reserved_idempotency_key, persist_idempotency);
+
+    update_session_activity_if_persisted(
+        &state,
+        &session_id,
+        token_hash.as_deref(),
+        persist_idempotency,
+    )
+    .await;
 
     response
 }
@@ -1742,6 +1834,26 @@ async fn handle_chat_stream(
     let message = &webhook_body.message;
     let scrubbed_message = scrub_sensitive_boundary_text(message);
     let (session_id, session_source) = resolve_session_id(&headers)?;
+
+    // Track session lifecycle: create or touch session record.
+    // When a bearer token is present, session tracking is required for
+    // token-scoped ownership — fail the request if upsert fails.
+    // Without a token, tracking is best-effort/observational.
+    let token_hash = utils::extract_bearer_token(&headers).map(|t| compute_token_hash(&t));
+    if let Err(e) = state
+        .mem
+        .upsert_session(&session_id, token_hash.as_deref())
+        .await
+    {
+        if token_hash.is_some() {
+            tracing::error!("session upsert failed for token-scoped request: {e:#}");
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Session tracking failed"})),
+            ));
+        }
+        tracing::debug!("session upsert best-effort failed: {e}");
+    }
 
     let config = state.config.lock().clone();
     let dispatcher_enabled = webhook_dispatcher_enabled(&config);
@@ -1810,6 +1922,15 @@ async fn handle_chat_stream(
             }
         }
     };
+
+    // Update session activity after message processing
+    if let Err(e) = state
+        .mem
+        .update_session_activity(&session_id, token_hash.as_deref())
+        .await
+    {
+        tracing::debug!("session activity update best-effort failed: {e}");
+    }
 
     // ── Build SSE event stream ───────────────────────────
     let message_id = Uuid::new_v4().to_string();

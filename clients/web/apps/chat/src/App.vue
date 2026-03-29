@@ -12,6 +12,8 @@ import ChatMessage from "@/components/chat/ChatMessage.vue";
 import ToolApprovalCard from "@/components/chat/ToolApprovalCard.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import HealthIndicator from "@/components/HealthIndicator.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import SessionSidebar from "@/components/SessionSidebar.vue";
 import { useChat } from "@/composables/useChat";
 import { useGateway } from "@/composables/useGateway";
 
@@ -33,6 +35,7 @@ const modelName = "Corvus Agent";
 const { t } = useI18n();
 
 const showConfig = ref(false);
+const sidebarCollapsed = ref(true);
 const prompt = ref("");
 const chatContainer = ref<HTMLDivElement | null>(null);
 const gateway = useGateway(t);
@@ -116,6 +119,19 @@ async function startNewSession(): Promise<void> {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function resumeSession(): Promise<void> {
   await beginSession(true);
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+async function handleSidebarNewChat(): Promise<void> {
+  persistMessages();
+  chat.clearSession();
+  await beginSession(false);
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function handleSwitchSession(targetSessionId: string): void {
+  persistMessages();
+  chat.switchSession(targetSessionId);
 }
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
@@ -241,14 +257,45 @@ function restoreMessages(): void {
   if (!chat.currentSessionId.value) return;
   try {
     const raw = sessionStorage.getItem(messagesStorageKey());
-    if (!raw) return;
-    const parsed = JSON.parse(raw) as Message[];
-    if (Array.isArray(parsed) && parsed.length > 0) {
+    if (!raw) {
+      resetMessagesForSession();
+      return;
+    }
+    const parsed = JSON.parse(raw) as unknown[];
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      resetMessagesForSession();
+      return;
+    }
+    const validStatuses: MessageStatus[] = ["streaming", "complete", "error"];
+    const validRoles: Role[] = ["assistant", "user"];
+    const isValidMessage = (value: unknown): value is Message => {
+      if (value === null || typeof value !== "object") {
+        return false;
+      }
+
+      const message = value as Record<string, unknown>;
+      const id = message.id;
+      return (
+        typeof id === "number" &&
+        Number.isInteger(id) &&
+        Number.isFinite(id) &&
+        validRoles.includes(message.role as Role) &&
+        typeof message.content === "string" &&
+        (message.status === undefined || validStatuses.includes(message.status as MessageStatus)) &&
+        (message.approvalId === undefined || typeof message.approvalId === "string") &&
+        (message.toolName === undefined || typeof message.toolName === "string") &&
+        (message.reason === undefined || typeof message.reason === "string")
+      );
+    };
+
+    if (parsed.every(isValidMessage)) {
       messages.value = parsed;
       messageIdCounter = Math.max(...parsed.map((m) => m.id)) + 1;
+    } else {
+      resetMessagesForSession();
     }
   } catch {
-    // Ignore parse failures.
+    resetMessagesForSession();
   }
 }
 
@@ -306,6 +353,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   prompt.value = "";
+  chat.stopSessionPolling();
 });
 </script>
 
@@ -488,59 +536,71 @@ onUnmounted(() => {
       </template>
 
       <template v-else>
-        <div ref="chatContainer" class="chat-messages">
-          <div class="chat-messages-inner">
-            <template v-for="message in messages" :key="message.id">
-              <ToolApprovalCard
-                v-if="message.approvalId"
-                :tool-name="message.toolName ?? ''"
-                :reason="message.reason ?? ''"
-                :approval-id="message.approvalId"
-                @approve="handleApprove"
-                @reject="handleReject"
-              />
-              <ChatMessage
-                v-else
-                :role="message.role"
-                :content="message.content"
-                :status="message.status"
-              />
-            </template>
-          </div>
-        </div>
-
-        <div class="chat-toolbar">
-          <div class="chat-toolbar-left">
-            <p class="session-pill">
-              {{ t("chat.sessionActive", { sessionId: chat.currentSessionId.value }) }}
-            </p>
-            <HealthIndicator
-              :gateway-url="gateway.normalizeBaseUrl()"
-              :bearer-token="gateway.bearerToken.value"
-            />
-          </div>
-          <Button variant="outline" @click="startNewSession">{{ t("chat.newSession") }}</Button>
-        </div>
-
-        <div class="input-bar">
-          <form class="input-bar-inner" @submit.prevent="sendMessage">
-            <div class="input-wrapper">
-              <input
-                id="chat-prompt-input"
-                v-model="prompt"
-                :aria-label="t('chat.inputPlaceholder')"
-                :placeholder="t('chat.inputPlaceholder')"
-                class="chat-input"
-              />
+        <div class="chat-with-sidebar">
+          <SessionSidebar
+            :sessions="chat.sessionList.value"
+            :current-session-id="chat.currentSessionId.value"
+            :collapsed="sidebarCollapsed"
+            @switch-session="handleSwitchSession"
+            @new-chat="handleSidebarNewChat"
+            @toggle-collapse="sidebarCollapsed = !sidebarCollapsed"
+          />
+          <div class="chat-viewport">
+            <div ref="chatContainer" class="chat-messages">
+              <div class="chat-messages-inner">
+                <template v-for="message in messages" :key="message.id">
+                  <ToolApprovalCard
+                    v-if="message.approvalId"
+                    :tool-name="message.toolName ?? ''"
+                    :reason="message.reason ?? ''"
+                    :approval-id="message.approvalId"
+                    @approve="handleApprove"
+                    @reject="handleReject"
+                  />
+                  <ChatMessage
+                    v-else
+                    :role="message.role"
+                    :content="message.content"
+                    :status="message.status"
+                  />
+                </template>
+              </div>
             </div>
-            <button type="submit" :disabled="!canSend" class="send-btn" :aria-label="t('chat.send')">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
-          </form>
-          <p class="input-disclaimer">{{ t("chat.disclaimer") }}</p>
+
+            <div class="chat-toolbar">
+              <div class="chat-toolbar-left">
+                <p class="session-pill">
+                  {{ t("chat.sessionActive", { sessionId: chat.currentSessionId.value }) }}
+                </p>
+                <HealthIndicator
+                  :gateway-url="gateway.normalizeBaseUrl()"
+                  :bearer-token="gateway.bearerToken.value"
+                />
+              </div>
+              <Button variant="outline" @click="startNewSession">{{ t("chat.newSession") }}</Button>
+            </div>
+
+            <div class="input-bar">
+              <form class="input-bar-inner" @submit.prevent="sendMessage">
+                <div class="input-wrapper">
+                  <input
+                    id="chat-prompt-input"
+                    v-model="prompt"
+                    :aria-label="t('chat.inputPlaceholder')"
+                    :placeholder="t('chat.inputPlaceholder')"
+                    class="chat-input"
+                  />
+                </div>
+                <button type="submit" :disabled="!canSend" class="send-btn" :aria-label="t('chat.send')">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                </button>
+              </form>
+              <p class="input-disclaimer">{{ t("chat.disclaimer") }}</p>
+            </div>
+          </div>
         </div>
       </template>
     </main>
@@ -854,6 +914,19 @@ onUnmounted(() => {
 
 .gate-status-error {
   color: #ef4444;
+}
+
+.chat-with-sidebar {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.chat-viewport {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .chat-messages {

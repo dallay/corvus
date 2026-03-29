@@ -1,6 +1,6 @@
 ---
 doc_id: client-surfaces-capability-matrix
-version: 1.2.0
+version: 1.3.0
 created: 2026-03-21
 status: active
 owner: architecture
@@ -62,15 +62,13 @@ Each surface uses exactly one transport mechanism for all runtime communication:
 
 ### HTTP Gateway Endpoints
 
-The gateway exposes a **client-safe subset** of runtime capabilities:
+The gateway exposes a **client-safe subset** of runtime capabilities. Route groups below use the implemented HTTP prefixes rather than shorthand aliases:
 
 | Endpoint Group | Capabilities | Access |
 |----------------|--------------|--------|
-| `/chat/*` | Message sending, streaming | All authenticated clients |
+| `/web/chat/*` | Message sending, streaming | All authenticated clients |
 | `/session/*` | Session lifecycle, history | All authenticated clients |
-| `/memory/*` | Memory queries (policy-gated) | All authenticated clients |
-| `/tool/*` | Tool invocation, approval | Chat surface |
-| `/admin/*` | Configuration, audit | Dashboard only |
+| `/web/admin/*` | Configuration, session monitoring, memory administration, audit | Dashboard only |
 | `/health`, `/metrics` | Health, observability | Public |
 
 ### Runtime-Only Capabilities (Never Exposed)
@@ -290,6 +288,199 @@ The `modules/agent-core-kmp` module has a two-tier structure:
 
 **Migration**: Current `RustCliBridge` implementation in `jvmMain` is compliant with this spec. No changes required.
 
+### Requirement: Dashboard Session List View (CS-1)
+
+The dashboard MUST include a session monitoring page that displays a paginated table of sessions.
+
+- The page MUST be accessible from the dashboard navigation.
+- The table MUST display columns: Session ID, Started, Last Activity, Messages, Status (Active/Ended).
+- The table MUST support filtering by status (`active`, `ended`, `all`).
+- The table MUST support sorting by `started_at` and `last_activity`.
+- The table MUST support pagination (page size selector, next/previous navigation).
+- Active sessions SHOULD be visually distinguished from ended sessions (e.g., badge or row highlight).
+- The view MUST consume `GET /web/admin/sessions` from the gateway.
+
+#### Scenario: Dashboard displays session list
+- GIVEN the admin user is authenticated in the dashboard
+- AND 5 active and 3 ended sessions exist
+- WHEN the admin navigates to the session monitoring page
+- THEN a table MUST display 8 rows
+- AND each row MUST show: session ID, started timestamp, last activity, message count, status
+- AND active sessions MUST be visually distinct from ended sessions.
+
+#### Scenario: Filter sessions by active status
+- GIVEN the admin is on the session monitoring page
+- AND 5 active and 3 ended sessions exist
+- WHEN the admin selects the "Active" status filter
+- THEN the table MUST display only the 5 active sessions
+- AND ended sessions MUST NOT appear.
+
+### Requirement: Dashboard Session Detail View (CS-2)
+
+The dashboard MUST provide a session detail panel accessible by clicking a session row.
+
+- The detail view MUST display: session ID, started_at, ended_at (or "Active"), message_count, last_activity, metadata (if present).
+- The detail view MUST display a memory summary: count of memory entries by category for that session.
+- The detail view SHOULD provide a link/button to view the session's memory entries in the memory browser (pre-filtered by session_id).
+- The detail view MUST consume `GET /web/admin/sessions/:id` from the gateway.
+
+#### Scenario: Admin views session detail
+- GIVEN session "abc-123" is active with 15 messages and 6 memory entries (4 Conversation, 2 Core)
+- WHEN the admin clicks session "abc-123" in the session list
+- THEN the session detail panel MUST open
+- AND it MUST show: id "abc-123", message count 15, status "Active"
+- AND it MUST show memory summary: Conversation 4, Core 2.
+
+### Requirement: Dashboard Memory Browser (CS-3)
+
+The dashboard MUST include a memory administration page with a searchable, filterable list of memory entries.
+
+- The page MUST be accessible from the dashboard navigation.
+- The page MUST display a table/list of memory entries with columns: Key, Category, Timestamp, Session ID, Content (truncated preview).
+- The page MUST support filtering by category (Core, Daily, Conversation, Custom).
+- The page MUST support filtering by session ID (dropdown or text input).
+- The page MUST support full-text search via a search input field.
+- The page MUST support pagination.
+- Each entry MUST have a "Delete" action (with confirmation dialog).
+- The page MUST consume `GET /web/admin/memory` and `DELETE /web/admin/memory/:key`.
+
+#### Scenario: Admin deletes a memory entry
+- GIVEN a memory entry with key "outdated-fact" exists in the browser
+- WHEN the admin clicks "Delete" on that entry
+- THEN a confirmation dialog MUST appear
+- WHEN the admin confirms deletion
+- THEN the entry MUST be removed from the list
+- AND a DELETE request MUST be sent to /web/admin/memory/outdated-fact.
+
+### Requirement: Dashboard Memory Stats Summary (CS-4)
+
+The dashboard memory browser page MUST display a stats summary panel.
+
+- The panel MUST show: total entry count, entries by category, total sessions, active sessions, backend name, Cerebro status.
+- The panel MUST consume `GET /web/admin/memory/stats`.
+- The panel SHOULD be displayed above or alongside the memory entry list.
+
+#### Scenario: Memory stats panel displays correctly
+- GIVEN 50 memory entries (20 Core, 15 Conversation, 10 Daily, 5 Custom)
+- AND 8 total sessions, 3 active
+- AND backend is "sqlite", Cerebro is not configured
+- WHEN the admin views the memory browser page
+- THEN the stats panel MUST show: 50 total entries
+- AND the panel MUST show category breakdown
+- AND the panel MUST show 8 total sessions, 3 active
+- AND the panel MUST show backend "sqlite"
+- AND the panel MUST show Cerebro as "Not configured".
+
+### Requirement: Chat Session History Sidebar (CS-5)
+
+The chat app MUST include a collapsible session history sidebar.
+
+- The sidebar MUST list past sessions from `GET /session/list`.
+- Each session entry MUST display: session start time (relative or absolute) and message count.
+- The current active session MUST be visually highlighted.
+- Clicking a past session MUST switch the chat to that session's context.
+- The sidebar MUST include a "New Chat" action that creates a new session.
+- The sidebar MUST be collapsible to preserve chat viewport space.
+- The sidebar MUST NOT display memory contents, keys, or categories.
+
+#### Scenario: Chat sidebar lists past sessions
+- GIVEN the user is authenticated in the chat app
+- AND the user has 4 past sessions and 1 current active session
+- WHEN the chat app loads
+- THEN the sidebar MUST display 5 session entries
+- AND the current session MUST be visually highlighted
+- AND each entry MUST show start time and message count.
+
+#### Scenario: User switches to a past session
+- GIVEN the sidebar shows sessions including "sess-old" with 12 messages
+- WHEN the user clicks "sess-old" in the sidebar
+- THEN the chat MUST load the context for session "sess-old"
+- AND the X-Session-Id header MUST be set to "sess-old" for subsequent requests
+- AND "sess-old" MUST become the highlighted session.
+
+### Requirement: Chat Session Data Persistence (CS-6)
+
+Chat session context MUST be persisted across page reloads.
+
+- The current session ID MUST be stored in `sessionStorage` (existing behavior).
+- The session list MUST be fetched from the server via `GET /session/list` on load.
+- Messages for the current session MUST continue to use `sessionStorage` persistence (existing behavior).
+- When switching sessions, the current session's messages MUST be saved to `sessionStorage` before loading the new session.
+
+#### Scenario: Session list loads from server on mount
+- GIVEN the user is authenticated
+- AND the user has 3 past sessions on the server
+- WHEN the chat app mounts
+- THEN useChat MUST call GET /session/list
+- AND the sidebar MUST populate with the 3 sessions plus the current session.
+
+### Requirement: Chat No Memory Visibility (CS-7)
+
+The chat app MUST NOT expose raw memory contents to end users.
+
+- The chat MUST NOT display memory keys, categories, or raw content.
+- The chat MAY display subtle "context used" indicators as a future enhancement — this is NOT required for Phase 1.
+- The chat MUST NOT call any `/web/admin/memory*` endpoint.
+
+#### Scenario: Chat does not expose memory data
+- GIVEN session "abc-123" has 10 associated memory entries
+- WHEN the user is chatting in session "abc-123"
+- THEN no memory entries, keys, or categories MUST be visible in the chat UI
+- AND no requests to /web/admin/memory endpoints MUST be made.
+
+### Requirement: Dashboard Admin TypeScript Types (CS-8)
+
+The dashboard MUST define TypeScript types for all new API responses.
+
+- `AdminSessionView`: session list item (id, started_at, ended_at, message_count, last_activity).
+- `AdminSessionDetail`: extends `AdminSessionView` with metadata and memory_summary.
+- `AdminMemoryEntry`: memory entry (id, key, content, category, timestamp, session_id).
+- `AdminMemoryStats`: stats response (total_entries, by_category, total_sessions, active_sessions, backend, cerebro_configured).
+- Types MUST be defined in the existing `admin-config.ts` or a co-located types file.
+
+#### Scenario: TypeScript types match API response shape
+- GIVEN the dashboard makes a request to GET /web/admin/sessions
+- WHEN the response is received
+- THEN the response MUST be parseable as PaginatedResponse<AdminSessionView>
+- AND all fields defined in AdminSessionView MUST be present.
+
+### Requirement: KMP/Mobile Session Visibility Deferred (CS-9)
+
+KMP and mobile clients (composeApp, androidApp) are OUT OF SCOPE for Phase 1.
+
+- Session history and memory visibility for KMP clients MUST NOT be implemented in this change.
+- The KMP `CoreContracts.kt` MAY be updated with session history type stubs if convenient, but this is NOT required.
+- The mobile bridge is not wired — session history depends on bridge completion (tracked separately).
+
+#### Scenario: KMP contracts remain unchanged
+- GIVEN the KMP module CoreContracts.kt
+- WHEN this change is implemented
+- THEN CoreContracts.kt MUST NOT be modified unless adding optional type stubs
+- AND existing KMP functionality MUST NOT be affected.
+
+### Requirement: Visibility Rules (CS-10)
+
+| Capability | Dashboard (Admin) | Chat (End-User) | KMP/Mobile |
+|------------|-------------------|------------------|------------|
+| Session list (all) | MUST | - | Deferred |
+| Session list (own) | - | MUST | Deferred |
+| Session detail | MUST | - | Deferred |
+| Memory browser | MUST | MUST NOT | Deferred |
+| Memory stats | MUST | MUST NOT | Deferred |
+| Memory delete | MUST | MUST NOT | Deferred |
+| Memory search | MUST | MUST NOT | Deferred |
+| Session switching | - | MUST | Deferred |
+| New chat / session | - | MUST | Deferred |
+
+#### Scenario: Admin has full visibility
+- GIVEN an admin user authenticated in the dashboard
+- THEN the user MUST have access to: session list, session detail, memory browser, memory stats, memory delete.
+
+#### Scenario: End-user has scoped visibility
+- GIVEN an end user authenticated in the chat app
+- THEN the user MUST have access to: own session list, session switching, new chat
+- AND the user MUST NOT have access to: memory browser, memory stats, memory delete, all-sessions list.
+
 ## Matrix Immutability Rules
 
 1. **Adding a new surface**: Requires a new change (proposal → spec → design → tasks)
@@ -312,6 +503,7 @@ The `modules/agent-core-kmp` module has a two-tier structure:
 
 | Version | Date | Changes |
 |---------|------|---------|
+| 1.3.0 | 2026-03-28 | Added session monitoring (CS-1, CS-2), memory browser (CS-3, CS-4), chat session sidebar (CS-5, CS-6, CS-7), admin types (CS-8), KMP deferred (CS-9), and visibility rules (CS-10) from session-memory-visibility change |
 | 1.2.0 | 2026-03-24 | Added i18n Tier column to capability matrix; cross-references to i18n governance and design token specs |
 | 1.1.0 | 2026-03-24 | Added onboarding alignment and recovery coverage requirements; clarified transport validation during onboarding |
 | 1.0.0 | 2026-03-21 | Initial specification — canonical matrix, transport rules, parity requirements |

@@ -454,6 +454,65 @@ export function useGateway(t: (key: string, params?: Record<string, unknown>) =>
     }
   }
 
+  async function getSessionList(
+    limit = 20,
+    offset = 0
+  ): Promise<{
+    sessions: Array<{
+      id: string;
+      started_at: string;
+      ended_at: string | null;
+      message_count: number;
+      last_activity: string;
+    }>;
+    total: number;
+  }> {
+    const clampedLimit = Math.max(1, Math.min(100, Math.floor(limit)));
+    const clampedOffset = Math.max(0, Math.floor(offset));
+
+    try {
+      const response = await fetch(
+        gatewayUrl(`/session/list?limit=${clampedLimit}&offset=${clampedOffset}`),
+        {
+          method: "GET",
+          headers: authHeaders(false),
+        }
+      );
+
+      if (response.status === 401 || response.status === 403) {
+        throw new Error(t("auth.credentialInvalid"));
+      }
+
+      if (response.status === 404) {
+        return { sessions: [], total: 0 };
+      }
+
+      if (!response.ok) {
+        return { sessions: [], total: 0 };
+      }
+
+      const data = (await response.json()) as {
+        sessions: Array<{
+          id: string;
+          started_at: string;
+          ended_at: string | null;
+          message_count: number;
+          last_activity: string;
+        }>;
+        total: number;
+      };
+      return {
+        sessions: Array.isArray(data.sessions) ? data.sessions : [],
+        total: typeof data.total === "number" ? data.total : 0,
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message === t("auth.credentialInvalid")) {
+        throw error;
+      }
+      return { sessions: [], total: 0 };
+    }
+  }
+
   function markCredentialInvalid(): void {
     clearCredentialState("credential_invalid");
     errorMessage.value = t("auth.credentialInvalid");
@@ -494,5 +553,6 @@ export function useGateway(t: (key: string, params?: Record<string, unknown>) =>
     markCredentialInvalid,
     markPairedButNotConnected,
     resetMessages,
+    getSessionList,
   };
 }

@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 /// A single memory entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,6 +30,64 @@ impl Default for MemoryValidationResult {
     }
 }
 
+/// Session lifecycle status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SessionStatus {
+    Active,
+    Ended,
+}
+
+impl SessionStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Ended => "ended",
+        }
+    }
+}
+
+impl std::fmt::Display for SessionStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for SessionStatus {
+    type Err = anyhow::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(Self::Active),
+            "ended" => Ok(Self::Ended),
+            other => Err(anyhow::anyhow!("unknown session status: {other}")),
+        }
+    }
+}
+
+/// A tracked session entry
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionEntry {
+    pub id: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub status: SessionStatus,
+    pub message_count: u32,
+    pub last_activity: String,
+    pub metadata: Option<serde_json::Value>,
+}
+
+/// Aggregated memory statistics
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct MemoryStats {
+    pub total_entries: u64,
+    pub by_category: HashMap<String, u64>,
+    pub total_sessions: u64,
+    pub active_sessions: u64,
+    pub backend: String,
+    pub cerebro_configured: bool,
+}
+
 /// Memory categories for organization
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -56,6 +115,9 @@ impl std::fmt::Display for MemoryCategory {
 
 /// Core memory trait — local short-term memory backends only.
 /// Long-term memory is routed through Cerebro MCP tools.
+///
+/// Default implementations return `Ok(empty)` so that non-SQLite backends
+/// (e.g. markdown-only) work without overriding every session method.
 #[async_trait]
 pub trait Memory: Send + Sync {
     /// Backend name
@@ -109,6 +171,62 @@ pub trait Memory: Send + Sync {
     ) -> anyhow::Result<MemoryValidationResult> {
         Ok(MemoryValidationResult::default())
     }
+
+    /// Create or touch a session record (idempotent).
+    async fn upsert_session(
+        &self,
+        _session_id: &str,
+        _token_hash: Option<&str>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Mark a session as ended (idempotent — no-op if already ended).
+    async fn end_session(&self, _session_id: &str) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// Increment message count and update last_activity for an active session.
+    /// When a token hash is present, implementations should preserve token-scoped ownership.
+    async fn update_session_activity(
+        &self,
+        _session_id: &str,
+        _token_hash: Option<&str>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+
+    /// List sessions with optional status filter, pagination, sort, and order.
+    async fn list_sessions(
+        &self,
+        _status: Option<SessionStatus>,
+        _limit: u32,
+        _offset: u32,
+        _sort: &str,
+        _order: &str,
+    ) -> anyhow::Result<(Vec<SessionEntry>, u64)> {
+        Ok((vec![], 0))
+    }
+
+    /// Get a single session by ID.
+    async fn get_session(&self, _session_id: &str) -> anyhow::Result<Option<SessionEntry>> {
+        Ok(None)
+    }
+
+    /// List sessions scoped to a specific token hash, with pagination.
+    async fn list_sessions_for_token(
+        &self,
+        _token_hash: &str,
+        _limit: u32,
+        _offset: u32,
+    ) -> anyhow::Result<(Vec<SessionEntry>, u64)> {
+        Ok((vec![], 0))
+    }
+
+    /// Return aggregated memory and session statistics.
+    async fn memory_stats(&self) -> anyhow::Result<MemoryStats> {
+        Ok(MemoryStats::default())
+    }
 }
 
 #[cfg(test)]
@@ -135,6 +253,85 @@ mod tests {
         assert_eq!(core, "\"core\"");
         assert_eq!(daily, "\"daily\"");
         assert_eq!(conversation, "\"conversation\"");
+    }
+
+    #[test]
+    fn session_entry_serde_roundtrip() {
+        let entry = SessionEntry {
+            id: "sess-1".into(),
+            started_at: "2026-03-28T10:00:00Z".into(),
+            ended_at: None,
+            status: SessionStatus::Active,
+            message_count: 5,
+            last_activity: "2026-03-28T10:05:00Z".into(),
+            metadata: None,
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: SessionEntry = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.id, "sess-1");
+        assert_eq!(parsed.status, SessionStatus::Active);
+        assert_eq!(parsed.message_count, 5);
+        assert!(parsed.ended_at.is_none());
+        assert!(parsed.metadata.is_none());
+    }
+
+    #[test]
+    fn session_entry_with_ended_at_and_metadata() {
+        let entry = SessionEntry {
+            id: "sess-2".into(),
+            started_at: "2026-03-28T10:00:00Z".into(),
+            ended_at: Some("2026-03-28T11:00:00Z".into()),
+            status: SessionStatus::Ended,
+            message_count: 10,
+            last_activity: "2026-03-28T10:55:00Z".into(),
+            metadata: Some(serde_json::json!({"source": "web"})),
+        };
+
+        let json = serde_json::to_string(&entry).unwrap();
+        let parsed: SessionEntry = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.ended_at.as_deref(), Some("2026-03-28T11:00:00Z"));
+        assert_eq!(parsed.status, SessionStatus::Ended);
+        assert!(parsed.metadata.is_some());
+    }
+
+    #[test]
+    fn memory_stats_default_is_empty() {
+        let stats = MemoryStats::default();
+        assert_eq!(stats.total_entries, 0);
+        assert!(stats.by_category.is_empty());
+        assert_eq!(stats.total_sessions, 0);
+        assert_eq!(stats.active_sessions, 0);
+        assert!(stats.backend.is_empty());
+        assert!(!stats.cerebro_configured);
+    }
+
+    #[test]
+    fn memory_stats_serde_roundtrip() {
+        let mut by_cat = HashMap::new();
+        by_cat.insert("core".to_string(), 10);
+        by_cat.insert("daily".to_string(), 5);
+
+        let stats = MemoryStats {
+            total_entries: 15,
+            by_category: by_cat,
+            total_sessions: 3,
+            active_sessions: 1,
+            backend: "sqlite".into(),
+            cerebro_configured: true,
+        };
+
+        let json = serde_json::to_string(&stats).unwrap();
+        let parsed: MemoryStats = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(parsed.total_entries, 15);
+        assert_eq!(parsed.by_category.get("core"), Some(&10));
+        assert_eq!(parsed.total_sessions, 3);
+        assert_eq!(parsed.active_sessions, 1);
+        assert_eq!(parsed.backend, "sqlite");
+        assert!(parsed.cerebro_configured);
     }
 
     #[test]

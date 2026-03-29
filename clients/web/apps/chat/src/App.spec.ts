@@ -85,6 +85,13 @@ describe("App", () => {
           headers: { "Content-Type": "application/json" },
         })
       )
+      // fetchSessionList triggered by watcher when session becomes ready
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sessions: [], total: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
       // Stream endpoint — rejected so fallback to /webhook fires
       .mockResolvedValueOnce(new Response("", { status: 500 }))
       .mockResolvedValueOnce(
@@ -132,30 +139,34 @@ describe("App", () => {
     await wrapper.get("form").trigger("submit.prevent");
     await flushPromises();
 
-    expect(fetchMock).toHaveBeenCalledTimes(6);
-    const [pairUrl, pairInit] = fetchMock.mock.calls[1] ?? [];
-    expect(String(pairUrl)).toContain("/pair");
+    expect(fetchMock).toHaveBeenCalledTimes(7);
+
+    function findCall(urlFragment: string): [RequestInfo | URL, RequestInit | undefined] {
+      const match = fetchMock.mock.calls.find(([url]) => String(url).includes(urlFragment));
+      if (!match) throw new Error(`No fetch call matching "${urlFragment}"`);
+      return match as [RequestInfo | URL, RequestInit | undefined];
+    }
+
+    const [, pairInit] = findCall("/pair");
     expect((pairInit?.headers as Record<string, string>)["X-Pairing-Code"]).toBe("123456");
 
-    const [streamUrl, streamInit] = fetchMock.mock.calls[4] ?? [];
-    expect(String(streamUrl)).toContain("/web/chat/stream");
+    const [, streamInit] = findCall("/web/chat/stream");
     expect((streamInit?.headers as Record<string, string>).Authorization).toBe(
       "Bearer zc_test_token"
     );
     expect((streamInit?.headers as Record<string, string>)["X-Session-Id"]).toBe(
       "11111111-1111-4111-8111-111111111111"
     );
+    expect((streamInit?.headers as Record<string, string>)["X-Request-Id"]).toBe(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    );
 
-    const [webhookUrl, webhookInit] = fetchMock.mock.calls[5] ?? [];
-    expect(String(webhookUrl)).toContain("/webhook");
+    const [, webhookInit] = findCall("/webhook");
     expect((webhookInit?.headers as Record<string, string>).Authorization).toBe(
       "Bearer zc_test_token"
     );
     expect((webhookInit?.headers as Record<string, string>)["X-Session-Id"]).toBe(
       "11111111-1111-4111-8111-111111111111"
-    );
-    expect((streamInit?.headers as Record<string, string>)["X-Request-Id"]).toBe(
-      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
     );
     expect((webhookInit?.headers as Record<string, string>)["X-Idempotency-Key"]).toBe(
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
@@ -181,6 +192,13 @@ describe("App", () => {
       )
       .mockResolvedValueOnce(
         new Response(JSON.stringify({ status: "ok" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      // fetchSessionList triggered by watcher when session becomes ready
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sessions: [], total: 0 }), {
           status: 200,
           headers: { "Content-Type": "application/json" },
         })
@@ -254,6 +272,13 @@ describe("App", () => {
           headers: { "Content-Type": "application/json" },
         })
       )
+      // fetchSessionList triggered by watcher when session becomes ready
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sessions: [], total: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
       // Stream endpoint — returns two chunks via SSE
       .mockResolvedValueOnce(
         new Response(sseBody, {
@@ -295,5 +320,56 @@ describe("App", () => {
     const chatMessages = wrapper.findAll('[data-testid="chat-message"]');
     const lastMessage = chatMessages[chatMessages.length - 1];
     expect(lastMessage?.text()).toContain("Hello World");
+  });
+
+  it("rejects persisted messages unless every entry has a finite integer id", async () => {
+    window.sessionStorage.setItem("corvus.chat.session:%2Fapi", "resume-session-1");
+    window.sessionStorage.setItem(
+      "corvus-chat-messages-resume-session-1",
+      JSON.stringify([
+        { id: 1, role: "assistant", content: "valid" },
+        { id: Number.POSITIVE_INFINITY, role: "user", content: "invalid" },
+      ])
+    );
+
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok", paired: true }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ sessions: [], total: 0 }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
+      );
+
+    const wrapper = mountApp();
+
+    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
+    await wrapper
+      .get(`input[placeholder="${translatedText("form.bearerTokenPlaceholder")}"]`)
+      .setValue("valid-token");
+    const connectButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === translatedText("auth.connect"));
+    if (!connectButton) throw new Error("Expected connect button");
+    await connectButton.trigger("click");
+    await flushPromises();
+
+    await wrapper.get('[data-testid="toggle-config"]').trigger("click");
+    const resumeButton = wrapper
+      .findAll("button")
+      .find((button) => button.text() === translatedText("chat.resumeSession"));
+    if (!resumeButton) throw new Error("Expected resume button");
+    await resumeButton.trigger("click");
+    await flushPromises();
+
+    const chatMessages = wrapper.findAll('[data-testid="chat-message"]');
+    expect(chatMessages).toHaveLength(1);
+    expect(chatMessages[0]?.text()).toContain("Corvus Agent");
+    expect(wrapper.text()).not.toContain("invalid");
   });
 });

@@ -1,6 +1,9 @@
 <script setup lang="ts">
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+
+import { trimTrailingSlashes } from "@corvus/shared";
 import { Button, Input } from "@corvus/ui";
+import { ref } from "vue";
 import { useI18n } from "vue-i18n";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import BrowserSettings from "@/components/config/BrowserSettings.vue";
@@ -40,12 +43,77 @@ import TunnelOverview from "@/components/config/TunnelOverview.vue";
 import WebhookSettings from "@/components/config/WebhookSettings.vue";
 // biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import WebSearchSettings from "@/components/config/WebSearchSettings.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import MemoryFilters from "@/components/memory/MemoryFilters.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import MemoryList from "@/components/memory/MemoryList.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import MemoryStats from "@/components/memory/MemoryStats.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import SessionDetail from "@/components/sessions/SessionDetail.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import SessionFilters from "@/components/sessions/SessionFilters.vue";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
+import SessionList from "@/components/sessions/SessionList.vue";
 import { useConfig } from "@/composables/useConfig";
+import type { AdminSessionView } from "@/types/admin-sessions";
 
 const { t } = useI18n();
 
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const config = useConfig(t);
+
+type DashboardPage = "config" | "sessions" | "memory";
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const currentPage = ref<DashboardPage>("config");
+
+// Session view state
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const sessionStatusFilter = ref<"active" | "ended" | undefined>(undefined);
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const sessionSort = ref<"last_activity" | "started_at">("last_activity");
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const selectedSession = ref<AdminSessionView | null>(null);
+
+// Memory view state
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const memoryCategoryFilter = ref<string | undefined>(undefined);
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const memorySessionIdFilter = ref<string | undefined>(undefined);
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const memorySearchFilter = ref<string | undefined>(undefined);
+
+// Gateway URL builder and auth headers for useAdmin composable
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function adminGatewayUrl(path: string): string {
+  const base = trimTrailingSlashes(config.baseUrl.value.trim()) || "/api";
+  if (base.startsWith("/")) {
+    return new URL(`${base}${path}`, globalThis.location.origin).toString();
+  }
+  const cleanPath = path.startsWith("/") ? path.slice(1) : path;
+  return new URL(cleanPath, `${trimTrailingSlashes(base)}/`).toString();
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function adminAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (config.bearerToken.value.trim()) {
+    headers.Authorization = `Bearer ${config.bearerToken.value.trim()}`;
+  }
+  return headers;
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function onSelectSession(session: AdminSessionView) {
+  selectedSession.value = session;
+}
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+function onViewSessionMemory(sessionId: string) {
+  memorySessionIdFilter.value = sessionId;
+  currentPage.value = "memory";
+  selectedSession.value = null;
+}
 </script>
 
 <template>
@@ -58,8 +126,38 @@ const config = useConfig(t);
           <p>{{ t("app.subtitle") }}</p>
         </div>
       </div>
+      <nav v-if="config.isOperatorReady.value" class="nav-tabs" role="tablist" aria-label="Dashboard navigation">
+        <button
+          role="tab"
+          class="nav-tab"
+          :class="{ 'nav-tab-active': currentPage === 'config' }"
+          :aria-selected="currentPage === 'config'"
+          @click="currentPage = 'config'"
+        >
+          {{ t("nav.config", "Config") }}
+        </button>
+        <button
+          role="tab"
+          class="nav-tab"
+          :class="{ 'nav-tab-active': currentPage === 'sessions' }"
+          :aria-selected="currentPage === 'sessions'"
+          @click="currentPage = 'sessions'"
+        >
+          {{ t("nav.sessions", "Sessions") }}
+        </button>
+        <button
+          role="tab"
+          class="nav-tab"
+          :class="{ 'nav-tab-active': currentPage === 'memory' }"
+          :aria-selected="currentPage === 'memory'"
+          @click="currentPage = 'memory'"
+        >
+          {{ t("nav.memory", "Memory") }}
+        </button>
+      </nav>
     </header>
 
+    <!-- Auth / Onboarding section — always visible -->
     <section class="card">
       <h2>{{ t("sections.auth") }}</h2>
       <p class="helper onboarding-intro">{{ t("onboarding.intro") }}</p>
@@ -131,150 +229,207 @@ const config = useConfig(t);
       </div>
     </section>
 
-    <GeneralSettings
-      :model-value="config.form"
-      :memory-backend-options="config.memoryBackendOptions.value"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.general"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('general')"
-    />
+    <!-- Config page (existing content) -->
+    <template v-if="currentPage === 'config'">
+      <GeneralSettings
+        :model-value="config.form"
+        :memory-backend-options="config.memoryBackendOptions.value"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.general"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('general')"
+      />
 
-    <SecuritySettings
-      :model-value="config.form"
-      :autonomy-level-options="config.autonomyLevelOptions.value"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.security"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('security')"
-    />
+      <SecuritySettings
+        :model-value="config.form"
+        :autonomy-level-options="config.autonomyLevelOptions.value"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.security"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('security')"
+      />
 
-    <ObservabilitySettings
-      :model-value="config.form"
-      :observability-backend-options="config.observabilityBackendOptions.value"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.observability"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('observability')"
-    />
+      <ObservabilitySettings
+        :model-value="config.form"
+        :observability-backend-options="config.observabilityBackendOptions.value"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.observability"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('observability')"
+      />
 
-    <RuntimeSettings
-      :model-value="config.form"
-      :runtime-kind-options="config.runtimeKindOptions.value"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.runtime"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('runtime')"
-    />
+      <RuntimeSettings
+        :model-value="config.form"
+        :runtime-kind-options="config.runtimeKindOptions.value"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.runtime"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('runtime')"
+      />
 
-    <SchedulerSettings
-      :model-value="config.form"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.scheduler"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('scheduler')"
-    />
+      <SchedulerSettings
+        :model-value="config.form"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.scheduler"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('scheduler')"
+      />
 
-    <GatewaySettings
-      :model-value="config.form"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.gateway"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('gateway')"
-    />
+      <GatewaySettings
+        :model-value="config.form"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.gateway"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('gateway')"
+      />
 
-    <WebhookSettings
-      :model-value="config.form"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.webhook"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('webhook')"
-    />
+      <WebhookSettings
+        :model-value="config.form"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.webhook"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('webhook')"
+      />
 
-    <WebSearchSettings
-      :model-value="config.form"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving['web-search']"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('web-search')"
-    />
+      <WebSearchSettings
+        :model-value="config.form"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving['web-search']"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('web-search')"
+      />
 
-    <BrowserSettings
-      :model-value="config.form"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.browser"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('browser')"
-    />
+      <BrowserSettings
+        :model-value="config.form"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.browser"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('browser')"
+      />
 
-    <ComposioSettings
-      :model-value="config.form"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.composio"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('composio')"
-    />
+      <ComposioSettings
+        :model-value="config.form"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.composio"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('composio')"
+      />
 
-    <MemorySettings
-      :model-value="config.form"
-      :disabled="!config.canSave.value"
-      :saving="config.sectionSaving.memory"
-      @update:model-value="Object.assign(config.form, $event)"
-      @save="config.saveSection('memory')"
-    />
+      <MemorySettings
+        :model-value="config.form"
+        :disabled="!config.canSave.value"
+        :saving="config.sectionSaving.memory"
+        @update:model-value="Object.assign(config.form, $event)"
+        @save="config.saveSection('memory')"
+      />
 
-    <ChannelsOverview
-      v-if="config.isOperatorReady.value"
-      :gateway-url="config.baseUrl.value"
-      :bearer-token="config.bearerToken.value"
-    />
+      <ChannelsOverview
+        v-if="config.isOperatorReady.value"
+        :gateway-url="config.baseUrl.value"
+        :bearer-token="config.bearerToken.value"
+      />
 
-    <SchedulerStatus
-      v-if="config.isOperatorReady.value"
-      :gateway-url="config.baseUrl.value"
-      :bearer-token="config.bearerToken.value"
-    />
+      <SchedulerStatus
+        v-if="config.isOperatorReady.value"
+        :gateway-url="config.baseUrl.value"
+        :bearer-token="config.bearerToken.value"
+      />
 
-    <CostOverview
-      v-if="config.isOperatorReady.value"
-      :gateway-url="config.baseUrl.value"
-      :bearer-token="config.bearerToken.value"
-    />
+      <CostOverview
+        v-if="config.isOperatorReady.value"
+        :gateway-url="config.baseUrl.value"
+        :bearer-token="config.bearerToken.value"
+      />
 
-    <McpOverview
-      v-if="config.isOperatorReady.value"
-      :gateway-url="config.baseUrl.value"
-      :bearer-token="config.bearerToken.value"
-    />
+      <McpOverview
+        v-if="config.isOperatorReady.value"
+        :gateway-url="config.baseUrl.value"
+        :bearer-token="config.bearerToken.value"
+      />
 
-    <TunnelOverview
-      v-if="config.isOperatorReady.value"
-      :gateway-url="config.baseUrl.value"
-      :bearer-token="config.bearerToken.value"
-    />
+      <TunnelOverview
+        v-if="config.isOperatorReady.value"
+        :gateway-url="config.baseUrl.value"
+        :bearer-token="config.bearerToken.value"
+      />
 
-    <ReliabilityOverview
-      v-if="config.isOperatorReady.value"
-      :gateway-url="config.baseUrl.value"
-      :bearer-token="config.bearerToken.value"
-    />
+      <ReliabilityOverview
+        v-if="config.isOperatorReady.value"
+        :gateway-url="config.baseUrl.value"
+        :bearer-token="config.bearerToken.value"
+      />
 
-    <HeartbeatOverview
-      v-if="config.isOperatorReady.value"
-      :gateway-url="config.baseUrl.value"
-      :bearer-token="config.bearerToken.value"
-    />
+      <HeartbeatOverview
+        v-if="config.isOperatorReady.value"
+        :gateway-url="config.baseUrl.value"
+        :bearer-token="config.bearerToken.value"
+      />
 
-    <HealthDashboard
-      v-if="config.isOperatorReady.value"
-      :gateway-url="config.baseUrl.value"
-      :bearer-token="config.bearerToken.value"
-    />
+      <HealthDashboard
+        v-if="config.isOperatorReady.value"
+        :gateway-url="config.baseUrl.value"
+        :bearer-token="config.bearerToken.value"
+      />
 
-    <!-- TODO: Wire UpdateSettings when raw AdminConfigView is exposed from useConfig
-         (UpdateSettings expects AdminConfigView, not AdminConfigForm) -->
+      <!-- TODO: Wire UpdateSettings when raw AdminConfigView is exposed from useConfig
+           (UpdateSettings expects AdminConfigView, not AdminConfigForm) -->
+    </template>
 
-    <section class="card">
+    <!-- Sessions page -->
+    <template v-if="currentPage === 'sessions' && config.isOperatorReady.value">
+      <section class="card">
+        <h2>{{ t("nav.sessions", "Sessions") }}</h2>
+        <SessionFilters
+          @update:status="sessionStatusFilter = $event"
+          @update:sort="sessionSort = $event"
+        />
+        <div class="sessions-layout">
+          <SessionList
+            :gateway-url="adminGatewayUrl"
+            :auth-headers="adminAuthHeaders"
+            :status-filter="sessionStatusFilter"
+            :sort="sessionSort"
+            @select="onSelectSession"
+          />
+          <SessionDetail
+            v-if="selectedSession"
+            :gateway-url="adminGatewayUrl"
+            :auth-headers="adminAuthHeaders"
+            :session-id="selectedSession.id"
+            @close="selectedSession = null"
+            @view-memory="onViewSessionMemory"
+          />
+        </div>
+      </section>
+    </template>
+
+    <!-- Memory page -->
+    <template v-if="currentPage === 'memory' && config.isOperatorReady.value">
+      <section class="card">
+        <h2>{{ t("nav.memory", "Memory") }}</h2>
+        <MemoryStats
+          :gateway-url="adminGatewayUrl"
+          :auth-headers="adminAuthHeaders"
+        />
+      </section>
+      <section class="card">
+        <MemoryFilters
+          :initial-session-id="memorySessionIdFilter"
+          @update:category="memoryCategoryFilter = $event"
+          @update:session-id="memorySessionIdFilter = $event"
+          @update:search="memorySearchFilter = $event"
+        />
+        <MemoryList
+          :gateway-url="adminGatewayUrl"
+          :auth-headers="adminAuthHeaders"
+          :category-filter="memoryCategoryFilter"
+          :session-id-filter="memorySessionIdFilter"
+          :search-filter="memorySearchFilter"
+        />
+      </section>
+    </template>
+
+    <section v-if="currentPage === 'config'" class="card">
       <p class="helper">
         {{
           t("webhook.secretStatus", {
@@ -325,6 +480,49 @@ const config = useConfig(t);
 
 .header-logo {
   flex-shrink: 0;
+}
+
+.nav-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 12px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+}
+
+.nav-tab {
+  padding: 6px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-tab:hover {
+  background: color-mix(in srgb, var(--color-bg-secondary) 60%, transparent);
+}
+
+.nav-tab-active {
+  background: var(--color-bg-input);
+  color: var(--color-text-primary);
+  border-color: color-mix(in srgb, #3b82f6 45%, var(--color-border));
+}
+
+.sessions-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+}
+
+@media (min-width: 768px) {
+  .sessions-layout {
+    grid-template-columns: 1fr 360px;
+  }
 }
 
 h2 {

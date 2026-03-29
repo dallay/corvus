@@ -1,10 +1,13 @@
 schema: spec-driven
 
 context: |
-  Tech stack: Kotlin Multiplatform + Compose, Rust runtime, TypeScript/Vue/Astro web monorepo.
-  Architecture: Gradle multi-module monorepo with custom build-logic plugins; trait-driven Rust runtime; KMP shared core with platform clients.
-  Testing: Gradle/JUnit (`kotlin("test")`), Cargo test, and pnpm workspace tests in web apps.
-  Style: .editorconfig (2-space, 100-char Kotlin), Spotless/ktfmt + Detekt + Biome, GitHub Actions CI.
+  Corvus: multi-interface agentic platform monorepo.
+  Stack: Kotlin Multiplatform, Rust runtime, Astro/Vue web apps.
+  Build: Gradle (KMP), Cargo (Rust), pnpm (Web).
+  Testing: JUnit/Kotest, cargo test, Vitest/Playwright.
+  CI: GitHub Actions. Lint: ktlint, clippy, biome.
+  Clients: composeApp (desktop), androidApp, web (chat, dashboard, docs, marketing).
+  Runtime: clients/agent-runtime (Rust, trait-based architecture).
 
 rules:
   proposal:
@@ -21,18 +24,18 @@ rules:
     - Use hierarchical numbering (1.1, 1.2, etc.)
     - Keep tasks small enough to complete in one session
   apply:
-    guidance:
+    tdd: true
+    rules:
       - Follow existing code patterns and conventions
       - Load relevant coding skills for the project stack
-    tdd: true
-    test_command: "make test"
   verify:
-    checks:
-      - Execute tests as part of the standard verification stack
+    commands:
+      - cargo fmt --all -- --check
+      - cargo clippy --all-targets -- -D warnings
+      - cargo test
+      - make web-test-all
+      - pnpm check
+    rules:
       - Compare implementation against every spec scenario
-    test_command: "make test"
-    build_command: "make build"
-    # Interim baseline while legacy gaps are closed; increase over time.
-    coverage_threshold: 60
   archive:
     - Warn before merging destructive deltas (large removals)
