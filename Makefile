@@ -92,11 +92,20 @@ build-fast: ## Build skipping tests
 clean: ## Clean build artifacts
 	@echo "CLEAN: $(BOLD)Cleaning build artifacts...$(SGR0)"
 	@$(GRADLEW) clean
-
-clean-all: clean ## Deep clean including caches
-	@echo "CLEAN: $(BOLD)Wiping caches...$(SGR0)"
-	@rm -rf .gradle
 	@echo "$(GREEN)✅ Clean complete$(SGR0)"
+
+clean-all: ## Clean everything: Gradle + Rust + web + pnpm + caches
+	@echo "CLEAN: $(BOLD)Cleaning all build artifacts...$(SGR0)"
+	@$(GRADLEW) clean
+	@echo "CLEAN: $(BOLD)Cleaning Rust targets...$(SGR0)"
+	@ cargo clean --manifest-path clients/agent-runtime/Cargo.toml
+	@echo "CLEAN: $(BOLD)Cleaning web outputs...$(SGR0)"
+	@$(GRADLEW) :cleanAllWebApps
+	@echo "CLEAN: $(BOLD)Cleaning pnpm store...$(SGR0)"
+	@if command -v pnpm >/dev/null 2>&1; then pnpm store prune; fi
+	@echo "CLEAN: $(BOLD)Wiping Gradle caches...$(SGR0)"
+	@rm -rf .gradle
+	@echo "$(GREEN)✅ Full clean complete$(SGR0)"
 
 # --- DESKTOP APPLICATION ---
 
