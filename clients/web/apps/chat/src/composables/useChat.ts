@@ -1,7 +1,7 @@
-import { computed, ref, watch } from "vue";
+import { computed, onScopeDispose, ref, watch } from "vue";
 
 import type { useGateway } from "@/composables/useGateway";
-import type { StreamDoneEvent, StreamErrorEvent } from "@/types/chat";
+import type { SessionListItem, StreamDoneEvent, StreamErrorEvent } from "@/types/chat";
 
 export type ChatSessionRecoveryKind = "session_unavailable";
 export type ChatSessionStatus = "idle" | "session_pending" | "session_ready" | "blocked";
@@ -122,7 +122,9 @@ export function useChat(
   const errorMessage = ref("");
   const sending = ref(false);
   const streaming = ref(false);
+  const sessionList = ref<SessionListItem[]>([]);
   const lastTransitionLabel = ref<string | null>(null);
+  let sessionPollTimer: ReturnType<typeof setInterval> | null = null;
   const currentRecoveryLabel = computed(() =>
     sessionState.value.recoveryKind
       ? chatSessionRecoveryLabel(sessionState.value.recoveryKind)
@@ -136,6 +138,8 @@ export function useChat(
     () => gateway.baseUrl.value,
     () => {
       currentSessionId.value = "";
+      sessionList.value = [];
+      stopSessionPolling();
       updateSessionState(
         gateway.isGatewayReady.value
           ? createSessionState("session_pending", null, false, canResumeSession.value)
@@ -149,6 +153,8 @@ export function useChat(
     (ready) => {
       if (!ready) {
         currentSessionId.value = "";
+        sessionList.value = [];
+        stopSessionPolling();
         updateSessionState(createSessionState("idle"));
         return;
       }
@@ -160,6 +166,26 @@ export function useChat(
       }
     },
     { immediate: true }
+  );
+
+  watch(
+    () =>
+      `${gateway.normalizeBaseUrl()}|${gateway.bearerToken.value}|${gateway.webhookSecret.value}`,
+    (nextContext, previousContext) => {
+      if (previousContext === undefined || nextContext === previousContext) {
+        return;
+      }
+
+      sessionList.value = [];
+
+      if (!gateway.isGatewayReady.value || !isSessionReady.value) {
+        stopSessionPolling();
+        return;
+      }
+
+      void fetchSessionList();
+      startSessionPolling();
+    }
   );
 
   function sessionStorageKey(): string {
@@ -529,6 +555,59 @@ export function useChat(
     }
   }
 
+  async function fetchSessionList(): Promise<void> {
+    if (!gateway.isGatewayReady.value) {
+      sessionList.value = [];
+      return;
+    }
+
+    try {
+      const result = await gateway.getSessionList();
+      sessionList.value = result.sessions.map((s) => ({ ...s, ended_at: s.ended_at ?? null }));
+    } catch {
+      sessionList.value = [];
+    }
+  }
+
+  function startSessionPolling(): void {
+    stopSessionPolling();
+    sessionPollTimer = setInterval(fetchSessionList, 30_000);
+  }
+
+  function stopSessionPolling(): void {
+    if (sessionPollTimer !== null) {
+      clearInterval(sessionPollTimer);
+      sessionPollTimer = null;
+    }
+  }
+
+  function switchSession(targetSessionId: string): void {
+    if (!targetSessionId || targetSessionId === currentSessionId.value) {
+      return;
+    }
+
+    // The current session's messages are persisted by App.vue's debounced watcher.
+    // Set the new session ID — App.vue's watcher on currentSessionId will restore messages.
+    setSessionReady(targetSessionId);
+  }
+
+  watch(
+    () => isSessionReady.value,
+    (ready) => {
+      if (ready) {
+        fetchSessionList();
+        startSessionPolling();
+      } else {
+        stopSessionPolling();
+      }
+    },
+    { immediate: true }
+  );
+
+  onScopeDispose(() => {
+    stopSessionPolling();
+  });
+
   return {
     sessionState,
     currentSessionId,
@@ -540,11 +619,15 @@ export function useChat(
     currentRecoveryLabel,
     isSessionReady,
     canResumeSession,
+    sessionList,
     createSession,
     resumeSession,
     startSession,
     clearSession,
     sendMessage,
     streamMessage,
+    fetchSessionList,
+    switchSession,
+    stopSessionPolling,
   };
 }

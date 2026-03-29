@@ -9,6 +9,8 @@ use std::time::{Duration as StdDuration, SystemTime};
 
 const HYGIENE_INTERVAL_HOURS: i64 = 12;
 const STATE_FILE: &str = "memory_hygiene_state.json";
+/// Default threshold (hours) for auto-closing stale sessions.
+const STALE_SESSION_THRESHOLD_HOURS: i64 = 24;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct HygieneReport {
@@ -17,6 +19,8 @@ struct HygieneReport {
     purged_memory_archives: u64,
     purged_session_archives: u64,
     pruned_conversation_rows: u64,
+    #[serde(default)]
+    closed_stale_sessions: u64,
 }
 
 impl HygieneReport {
@@ -26,6 +30,7 @@ impl HygieneReport {
             + self.purged_memory_archives
             + self.purged_session_archives
             + self.pruned_conversation_rows
+            + self.closed_stale_sessions
     }
 }
 
@@ -59,18 +64,20 @@ pub fn run_if_due(config: &MemoryConfig, workspace_dir: &Path) -> Result<()> {
             workspace_dir,
             config.conversation_retention_days,
         )?,
+        closed_stale_sessions: close_stale_sessions(workspace_dir, STALE_SESSION_THRESHOLD_HOURS)?,
     };
 
     write_state(workspace_dir, &report)?;
 
     if report.total_actions() > 0 {
         tracing::info!(
-            "memory hygiene complete: archived_memory={} archived_sessions={} purged_memory={} purged_sessions={} pruned_conversation_rows={}",
+            "memory hygiene complete: archived_memory={} archived_sessions={} purged_memory={} purged_sessions={} pruned_conversation_rows={} closed_stale_sessions={}",
             report.archived_memory_files,
             report.archived_session_files,
             report.purged_memory_archives,
             report.purged_session_archives,
             report.pruned_conversation_rows,
+            report.closed_stale_sessions,
         );
     }
 
@@ -318,6 +325,50 @@ fn prune_conversation_rows(workspace_dir: &Path, retention_days: u32) -> Result<
     Ok(u64::try_from(affected).unwrap_or(0))
 }
 
+/// Auto-close sessions whose `last_activity` is older than `threshold_hours`.
+///
+/// Only affects active sessions (ended_at IS NULL). Sets `ended_at` to now
+/// and `status` to `'ended'`.
+fn close_stale_sessions(workspace_dir: &Path, threshold_hours: i64) -> Result<u64> {
+    if threshold_hours <= 0 {
+        return Ok(0);
+    }
+
+    let db_path = workspace_dir.join("memory").join("brain.db");
+    if !db_path.exists() {
+        return Ok(0);
+    }
+
+    let conn = Connection::open(db_path)?;
+    conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL;")?;
+
+    // Check if sessions table exists (safe for databases created before this migration)
+    let has_sessions: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='sessions'",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|c| c > 0)
+        .unwrap_or(false);
+
+    if !has_sessions {
+        return Ok(0);
+    }
+
+    let now = Utc::now();
+    let cutoff = (now - Duration::hours(threshold_hours)).to_rfc3339();
+    let now = now.to_rfc3339();
+
+    let affected = conn.execute(
+        "UPDATE sessions SET status = 'ended', ended_at = ?1
+         WHERE status = 'active' AND ended_at IS NULL AND last_activity < ?2",
+        params![now, cutoff],
+    )?;
+
+    Ok(u64::try_from(affected).unwrap_or(0))
+}
+
 fn memory_date_from_filename(filename: &str) -> Option<NaiveDate> {
     let stem = filename.strip_suffix(".md")?;
     let date_part = stem.split('_').next().unwrap_or(stem);
@@ -494,6 +545,94 @@ mod tests {
 
         assert!(!old_file.exists(), "old archived file should be purged");
         assert!(keep_file.exists(), "recent archived file should remain");
+    }
+
+    #[tokio::test]
+    async fn test_close_stale_sessions() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+
+        let mem = SqliteMemory::new(workspace).unwrap();
+        mem.upsert_session("stale-sess", None).await.unwrap();
+        drop(mem);
+
+        // Backdate last_activity to 48 hours ago
+        let db_path = workspace.join("memory").join("brain.db");
+        let conn = Connection::open(&db_path).unwrap();
+        let old_time = (chrono::Utc::now() - Duration::hours(48)).to_rfc3339();
+        conn.execute(
+            "UPDATE sessions SET last_activity = ?1 WHERE id = 'stale-sess'",
+            params![old_time],
+        )
+        .unwrap();
+        drop(conn);
+
+        let closed = close_stale_sessions(workspace, 24).unwrap();
+        assert_eq!(closed, 1);
+
+        // Verify the session is now ended
+        let mem2 = SqliteMemory::new(workspace).unwrap();
+        let s = mem2.get_session("stale-sess").await.unwrap().unwrap();
+        assert_eq!(s.status, crate::memory::SessionStatus::Ended);
+        assert!(s.ended_at.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_close_stale_sessions_within_threshold() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+
+        let mem = SqliteMemory::new(workspace).unwrap();
+        mem.upsert_session("recent-sess", None).await.unwrap();
+        drop(mem);
+
+        // Session was just created so last_activity is now — within threshold
+        let closed = close_stale_sessions(workspace, 24).unwrap();
+        assert_eq!(closed, 0);
+
+        let mem2 = SqliteMemory::new(workspace).unwrap();
+        let s = mem2.get_session("recent-sess").await.unwrap().unwrap();
+        assert_eq!(s.status, crate::memory::SessionStatus::Active);
+        assert!(s.ended_at.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_close_stale_sessions_no_stale() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+
+        // Create DB but no sessions
+        let mem = SqliteMemory::new(workspace).unwrap();
+        drop(mem);
+
+        let closed = close_stale_sessions(workspace, 24).unwrap();
+        assert_eq!(closed, 0);
+    }
+
+    #[tokio::test]
+    async fn test_close_stale_sessions_already_ended() {
+        let tmp = TempDir::new().unwrap();
+        let workspace = tmp.path();
+
+        let mem = SqliteMemory::new(workspace).unwrap();
+        mem.upsert_session("ended-sess", None).await.unwrap();
+        mem.end_session("ended-sess").await.unwrap();
+        drop(mem);
+
+        // Backdate last_activity
+        let db_path = workspace.join("memory").join("brain.db");
+        let conn = Connection::open(&db_path).unwrap();
+        let old_time = (chrono::Utc::now() - Duration::hours(48)).to_rfc3339();
+        conn.execute(
+            "UPDATE sessions SET last_activity = ?1 WHERE id = 'ended-sess'",
+            params![old_time],
+        )
+        .unwrap();
+        drop(conn);
+
+        // Already ended sessions should not be modified
+        let closed = close_stale_sessions(workspace, 24).unwrap();
+        assert_eq!(closed, 0);
     }
 
     #[tokio::test]
