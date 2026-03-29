@@ -540,16 +540,16 @@ describe("useChat", () => {
 
       // createSession triggers one watcher-driven fetch, and the explicit call triggers another.
       fetchMock.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify(sessionListPayload),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+        new Response(JSON.stringify(sessionListPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
       );
       fetchMock.mockResolvedValueOnce(
-        new Response(
-          JSON.stringify(sessionListPayload),
-          { status: 200, headers: { "Content-Type": "application/json" } }
-        )
+        new Response(JSON.stringify(sessionListPayload), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        })
       );
 
       chat.createSession();

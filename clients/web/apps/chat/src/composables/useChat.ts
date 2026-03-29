@@ -169,7 +169,8 @@ export function useChat(
   );
 
   watch(
-    () => `${gateway.normalizeBaseUrl()}|${gateway.bearerToken.value}|${gateway.webhookSecret.value}`,
+    () =>
+      `${gateway.normalizeBaseUrl()}|${gateway.bearerToken.value}|${gateway.webhookSecret.value}`,
     (nextContext, previousContext) => {
       if (previousContext === undefined || nextContext === previousContext) {
         return;
