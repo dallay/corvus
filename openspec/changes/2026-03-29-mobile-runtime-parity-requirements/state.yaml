@@ -1,0 +1,7 @@
+change: 2026-03-29-mobile-runtime-parity-requirements
+current_phase: propose
+completed:
+  - explore
+  - propose
+next: spec+design
+updated: 2026-03-29T09:04:32Z
