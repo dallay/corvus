@@ -1,20 +1,41 @@
 package com.profiletailors.corvus.ui.chat
 
+import com.profiletailors.corvus.runtime.RuntimeConnectionMethod
+import com.profiletailors.corvus.runtime.toCoreOnboardingState
+import com.profiletailors.corvus.runtime.toMobileOnboardingState
+
+// Client-first trust modes (Task 1.2)
 enum class MobileTrustMode {
-  BRIDGE_LINKED
+  BRIDGE_LINKED,
+  PAIRING_REQUIRED,
+  TRUSTED_COMPANION_ESTABLISHED,
 }
 
+// Client-first transport modes (Task 1.2)
 enum class MobileTransportMode {
-  CLI_BRIDGE
+  CLI_BRIDGE,
+  ENDPOINT_URL,
+  TRUSTED_COMPANION,
+  LOCAL_HOST_ADVANCED,
 }
 
+// Client-first recovery kinds (Task 1.2)
 enum class MobileRecoveryKind {
   RUNTIME_UNAVAILABLE,
+  TRANSPORT_UNAVAILABLE,
   LINKED_BUT_NOT_SESSION_READY,
+  SESSION_UNAVAILABLE,
   ENVIRONMENT_UNSUPPORTED,
+  // Client-first recovery kinds
+  NO_TARGET_CONFIGURED,
+  TARGET_NOT_REACHABLE,
+  TRUST_NOT_ESTABLISHED,
 }
 
+// Client-first onboarding statuses (Task 1.2)
 enum class MobileOnboardingStatus {
+  TARGET_SELECTED, // User has selected a connection target
+  RECOVERY, // Recovery action needed
   RUNTIME_PATH_CONFIRMED,
   TRUST_PENDING,
   TRANSPORT_CONNECTING,
@@ -30,6 +51,9 @@ data class MobileOnboardingState(
   val recoveryKind: MobileRecoveryKind? = null,
   val canRetry: Boolean = false,
   val canResume: Boolean = false,
+  // Client-first fields (Task 1.2)
+  val connectionMethod: RuntimeConnectionMethod? = null,
+  val targetId: String? = null,
 )
 
 data class MobileBridgeSnapshot(
@@ -38,41 +62,11 @@ data class MobileBridgeSnapshot(
   val sessionCapable: Boolean,
   val sessionId: String? = null,
   val environmentSupported: Boolean = true,
+  val recoveryOverride: MobileRecoveryKind? = null,
+  val targetLabel: String? = null,
+  // Client-first fields (Task 1.2)
+  val connectionMethod: RuntimeConnectionMethod? = null,
+  val targetId: String? = null,
 ) {
-  fun toOnboardingState(): MobileOnboardingState =
-    when {
-      !environmentSupported ->
-        MobileOnboardingState(
-          status = MobileOnboardingStatus.BLOCKED,
-          recoveryKind = MobileRecoveryKind.ENVIRONMENT_UNSUPPORTED,
-        )
-
-      !runtimeAvailable ->
-        MobileOnboardingState(
-          status = MobileOnboardingStatus.BLOCKED,
-          recoveryKind = MobileRecoveryKind.RUNTIME_UNAVAILABLE,
-          canRetry = true,
-        )
-
-      !linkEstablished ->
-        MobileOnboardingState(status = MobileOnboardingStatus.TRUST_PENDING, canRetry = true)
-
-      !sessionCapable ->
-        MobileOnboardingState(
-          status = MobileOnboardingStatus.BLOCKED,
-          recoveryKind = MobileRecoveryKind.LINKED_BUT_NOT_SESSION_READY,
-          canRetry = true,
-          canResume = !sessionId.isNullOrBlank(),
-        )
-
-      !sessionId.isNullOrBlank() ->
-        MobileOnboardingState(
-          status = MobileOnboardingStatus.SESSION_READY,
-          canRetry = true,
-          canResume = true,
-        )
-
-      else ->
-        MobileOnboardingState(status = MobileOnboardingStatus.SESSION_PENDING, canRetry = true)
-    }
+  fun toOnboardingState(): MobileOnboardingState = toCoreOnboardingState().toMobileOnboardingState()
 }

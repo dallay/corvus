@@ -3,24 +3,24 @@
 package com.profiletailors.corvus
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.tooling.preview.Preview
-import com.profiletailors.corvus.ui.chat.BridgeActions
+import com.profiletailors.corvus.runtime.MobileRuntimeCoordinator
+import com.profiletailors.corvus.runtime.RuntimeApprovalDecision
+import com.profiletailors.corvus.runtime.RuntimeSessionId
+import com.profiletailors.corvus.runtime.rememberPlatformRuntimeDependencies
 import com.profiletailors.corvus.ui.chat.ChatWorkspace
 import com.profiletailors.corvus.ui.chat.ChatWorkspaceDefaults
 import com.profiletailors.corvus.ui.chat.MobileBridgeSnapshot
+import com.profiletailors.corvus.ui.chat.MobileOnboardingState
 import com.profiletailors.corvus.ui.chat.MobileOnboardingStatus
-import com.profiletailors.corvus.ui.onboarding.OnboardingDefaults
 import com.profiletailors.corvus.ui.onboarding.OnboardingScreen
-import com.profiletailors.corvus.ui.onboarding.OnboardingStep
+import com.profiletailors.corvus.ui.onboarding.runtimeOnboardingStep
 import com.profiletailors.corvus.ui.theme.CorvusTheme
-import kotlin.random.Random
 
 private const val AGENT_NAME = "Corvus Agent"
 
@@ -28,29 +28,63 @@ private const val AGENT_NAME = "Corvus Agent"
 @Preview
 fun App(platformOverride: Platform? = null, initialBridgeSnapshot: MobileBridgeSnapshot? = null) {
   val platform = remember(platformOverride) { platformOverride ?: getPlatform() }
-  var onboardingStepIndex by rememberSaveable { mutableIntStateOf(0) }
-  val onboardingSteps = remember { OnboardingDefaults.steps }
-  var bridgeSnapshot by
-    remember(platform, initialBridgeSnapshot) {
-      mutableStateOf(initialBridgeSnapshot ?: defaultBridgeSnapshotFor(platform))
-    }
+  val dependencies =
+    rememberPlatformRuntimeDependencies(initialBridgeSnapshot = initialBridgeSnapshot)
+  val facade = dependencies.facade
+  val persistence = dependencies.persistence
+  val coordinator = remember(facade, persistence) { MobileRuntimeCoordinator(facade, persistence) }
+  var coordinatorState by remember(coordinator) { mutableStateOf(coordinator.state) }
+
+  LaunchedEffect(coordinator) {
+    coordinator.refresh()
+    coordinatorState = coordinator.state
+  }
+
+  fun mutateCoordinator(block: MobileRuntimeCoordinator.() -> Unit) {
+    coordinator.block()
+    coordinatorState = coordinator.state
+  }
+
+  val onboardingState = coordinatorState.bridgeSnapshot.toOnboardingState()
+  // Client-first: show onboarding when not in SESSION_READY, or when target is not configured
   val shouldShowOnboarding =
-    remember(platform, onboardingStepIndex, onboardingSteps) {
-      platform.isMobile && onboardingStepIndex < onboardingSteps.size
+    remember(platform, onboardingState.status) {
+      platform.isMobile && onboardingState.status != MobileOnboardingStatus.SESSION_READY
     }
 
   CorvusTheme {
     if (shouldShowOnboarding) {
       AppOnboardingContent(
-        steps = onboardingSteps,
-        stepIndex = onboardingStepIndex,
-        onStepIndexChange = { onboardingStepIndex = it },
+        onboardingState = onboardingState,
+        onSkip = { mutateCoordinator { refresh() } },
+        onPrimaryAction = {
+          when (onboardingState.status) {
+            // Client-first onboarding states
+            MobileOnboardingStatus.TARGET_SELECTED,
+            MobileOnboardingStatus.RECOVERY,
+            MobileOnboardingStatus.TRUST_PENDING -> {
+              mutateCoordinator { refresh() }
+            }
+            MobileOnboardingStatus.SESSION_PENDING -> mutateCoordinator { startNewSession() }
+            MobileOnboardingStatus.BLOCKED -> mutateCoordinator { refresh() }
+            else -> mutateCoordinator { refresh() }
+          }
+        },
       )
     } else {
       AppChatContent(
         platform = platform,
-        bridgeSnapshot = bridgeSnapshot,
-        onBridgeSnapshotChange = { bridgeSnapshot = it },
+        coordinatorState = coordinatorState,
+        onRetryBridge = { mutateCoordinator { refresh() } },
+        onLinkSurface = { mutateCoordinator { refresh() } },
+        onStartSession = { mutateCoordinator { startNewSession() } },
+        onResumeSession = { sessionId ->
+          mutateCoordinator { resumeSession(RuntimeSessionId(sessionId)) }
+        },
+        onSendMessage = { prompt -> mutateCoordinator { sendMessage(prompt) } },
+        onDisconnectReset = { mutateCoordinator { disconnect() } },
+        onApprove = { mutateCoordinator { submitApproval(RuntimeApprovalDecision.APPROVE) } },
+        onDeny = { mutateCoordinator { submitApproval(RuntimeApprovalDecision.DENY) } },
       )
     }
   }
@@ -58,73 +92,61 @@ fun App(platformOverride: Platform? = null, initialBridgeSnapshot: MobileBridgeS
 
 @Composable
 private fun AppOnboardingContent(
-  steps: List<OnboardingStep>,
-  stepIndex: Int,
-  onStepIndexChange: (Int) -> Unit,
+  onboardingState: MobileOnboardingState,
+  onSkip: () -> Unit,
+  onPrimaryAction: () -> Unit,
 ) {
+  val step = runtimeOnboardingStep(onboardingState)
   OnboardingScreen(
-    step = steps[stepIndex],
-    currentStepIndex = stepIndex,
-    totalSteps = steps.size,
-    isLastStep = stepIndex == steps.lastIndex,
-    onSkip = { onStepIndexChange(steps.size) },
-    onNext = {
-      val next = if (stepIndex < steps.lastIndex) stepIndex + 1 else steps.size
-      onStepIndexChange(next)
-    },
+    step = step,
+    currentStepIndex = step.progressIndex,
+    totalSteps = step.totalSteps,
+    isLastStep = step.isTerminal,
+    primaryActionLabel = step.actionLabel,
+    onSkip = onSkip,
+    onNext = onPrimaryAction,
   )
 }
 
 @Composable
 private fun AppChatContent(
   platform: Platform,
-  bridgeSnapshot: MobileBridgeSnapshot,
-  onBridgeSnapshotChange: (MobileBridgeSnapshot) -> Unit,
+  coordinatorState: com.profiletailors.corvus.runtime.MobileRuntimeCoordinatorState,
+  onRetryBridge: () -> Unit,
+  onLinkSurface: () -> Unit,
+  onStartSession: () -> Unit,
+  onResumeSession: (String) -> Unit,
+  onSendMessage: (String) -> Unit,
+  onDisconnectReset: () -> Unit,
+  onApprove: () -> Unit,
+  onDeny: () -> Unit,
 ) {
-  val currentSnapshot by rememberUpdatedState(bridgeSnapshot)
-  val currentOnChange by rememberUpdatedState(onBridgeSnapshotChange)
-  val bridgeActions = remember {
-    BridgeActions(
-      onRetryBridge = {
-        if (currentSnapshot.environmentSupported) {
-          currentOnChange(currentSnapshot.copy(runtimeAvailable = true, sessionCapable = true))
-        }
-      },
-      onLinkSurface = {
-        if (currentSnapshot.environmentSupported) {
-          currentOnChange(
-            currentSnapshot.copy(
-              runtimeAvailable = true,
-              linkEstablished = true,
-              sessionCapable = true,
-            )
-          )
-        }
-      },
-      onStartSession = {
-        if (currentSnapshot.toOnboardingState().status == MobileOnboardingStatus.SESSION_PENDING) {
-          currentOnChange(currentSnapshot.copy(sessionId = generateSessionId()))
-        }
-      },
-      onClearSession = {
-        if (currentSnapshot.environmentSupported) {
-          currentOnChange(
-            currentSnapshot.copy(linkEstablished = false, sessionCapable = false, sessionId = null)
-          )
-        }
-      },
-    )
-  }
-
   ChatWorkspace(
     state = ChatWorkspaceDefaults.state(modelName = AGENT_NAME),
-    bridgeSnapshot = bridgeSnapshot,
+    bridgeSnapshot = coordinatorState.bridgeSnapshot,
     platformName = platform.name,
-    bridgeActions = bridgeActions,
+    messages = coordinatorState.messages,
+    pendingApproval = coordinatorState.pendingApproval,
+    resumableSessions = coordinatorState.resumableSessions,
+    targetLabel = coordinatorState.targetLabel,
+    activeSessionId = coordinatorState.activeSessionId?.value,
+    onRetryBridge = onRetryBridge,
+    onLinkSurface = onLinkSurface,
+    onStartSession = onStartSession,
+    onResumeSession = onResumeSession,
+    onSendMessage = onSendMessage,
+    onDisconnectReset = onDisconnectReset,
+    onApprove = onApprove,
+    onDeny = onDeny,
   )
 }
 
-internal fun defaultBridgeSnapshotFor(platform: Platform): MobileBridgeSnapshot =
+internal fun launchBridgeSnapshotFor(
+  platform: Platform,
+  preview: Boolean = false,
+): MobileBridgeSnapshot? = if (preview) defaultPreviewBridgeSnapshotFor(platform) else null
+
+internal fun defaultPreviewBridgeSnapshotFor(platform: Platform): MobileBridgeSnapshot =
   when {
     !platform.isMobile ->
       MobileBridgeSnapshot(
@@ -145,14 +167,3 @@ internal fun defaultBridgeSnapshotFor(platform: Platform): MobileBridgeSnapshot 
         environmentSupported = false,
       )
   }
-
-private val UUID_SEGMENT_LENGTHS = listOf(8, 4, 4, 4, 12)
-
-private fun generateSessionId(): String =
-  UUID_SEGMENT_LENGTHS.joinToString("-") { segmentLength ->
-    buildString(segmentLength) {
-      repeat(segmentLength) { append(HEX_DIGITS[Random.nextInt(HEX_DIGITS.length)]) }
-    }
-  }
-
-private const val HEX_DIGITS = "0123456789abcdef"

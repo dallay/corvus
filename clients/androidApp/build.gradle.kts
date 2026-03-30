@@ -2,6 +2,10 @@
 
 import com.android.build.api.dsl.ApplicationExtension
 
+// REMOVED: Client-first Android does NOT package local runtime by default.
+// Android now connects to an existing runtime via endpoint URL or trusted companion.
+// The optional local-host advanced mode is no longer the default path.
+
 plugins {
   id("com.profiletailors.base.identity")
   id("com.profiletailors.base.lifecycle")
@@ -22,6 +26,9 @@ extensions.configure<ApplicationExtension>("android") {
   }
 
   packaging { resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" } }
+
+  // REMOVED: No default jniLibs for local runtime packaging
+  // Android is now a client-first surface - connects to remote runtime
 
   buildTypes { getByName("release") { isMinifyEnabled = false } }
 

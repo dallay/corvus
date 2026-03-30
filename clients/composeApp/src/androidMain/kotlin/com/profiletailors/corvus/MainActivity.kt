@@ -13,9 +13,7 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
 
     val platform = AndroidPlatform()
-    setContent {
-      App(platformOverride = platform, initialBridgeSnapshot = defaultBridgeSnapshotFor(platform))
-    }
+    setContent { App(platformOverride = platform) }
   }
 }
 
@@ -24,5 +22,8 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun AppAndroidPreview() {
   val platform = AndroidPlatform()
-  App(platformOverride = platform, initialBridgeSnapshot = defaultBridgeSnapshotFor(platform))
+  App(
+    platformOverride = platform,
+    initialBridgeSnapshot = launchBridgeSnapshotFor(platform, preview = true),
+  )
 }
