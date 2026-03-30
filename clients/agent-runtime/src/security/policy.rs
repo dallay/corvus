@@ -429,6 +429,7 @@ impl SecurityPolicy {
             || command.contains("${")
             || command.contains("<(")
             || command.contains(">(")
+            || command.contains('<')
             || command.contains('>')
             || self.contains_dangerous_commands(command)
             || contains_single_ampersand(command)
@@ -524,8 +525,11 @@ impl SecurityPolicy {
             return false;
         }
 
+        // Decode percent-encoded paths to prevent bypasses like %2e%2e/%2f
+        let decoded = urlencoding::decode(path).unwrap_or_else(|_| path.into());
+
         // Block path traversal: check for ".." as a path component
-        if Path::new(path)
+        if Path::new(decoded.as_ref())
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
         {
@@ -533,12 +537,12 @@ impl SecurityPolicy {
         }
 
         // Block URL-encoded traversal attempts (e.g. ..%2f)
-        let lower = path.to_lowercase();
-        if lower.contains("..%2f") || lower.contains("%2f..") {
+        let lower = decoded.to_lowercase();
+        if lower.contains("..%2f") || lower.contains("%2f..") || lower.contains("%2f") {
             return false;
         }
 
-        let expanded = expand_tilde(path);
+        let expanded = expand_tilde(&decoded);
 
         // Block absolute paths when workspace_only is set
         if self.workspace_only && Path::new(&expanded).is_absolute() {
@@ -1641,6 +1645,19 @@ mod tests {
         assert!(
             !policy.is_path_allowed("subdir%2f..%2f..%2fetc"),
             "URL-encoded parent dir traversal must be blocked"
+        );
+        assert!(
+            !policy.is_path_allowed("%252e%252e%252f%252e%252e%252fetc%252fpasswd"),
+            "Double URL-encoded traversal must be blocked"
+        );
+    }
+
+    #[test]
+    fn is_command_allowed_blocks_input_redirection() {
+        let p = default_policy();
+        assert!(
+            !p.is_command_allowed("cat < /etc/passwd"),
+            "Input redirection must be blocked"
         );
     }
 
