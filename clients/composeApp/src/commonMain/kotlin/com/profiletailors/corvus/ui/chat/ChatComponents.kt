@@ -22,9 +22,11 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
@@ -43,6 +45,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.profiletailors.corvus.runtime.RuntimeApprovalRequest
+import com.profiletailors.corvus.runtime.RuntimeSession
 import com.profiletailors.corvus.ui.theme.CorvusColorPalette
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 
@@ -404,6 +408,82 @@ fun BridgeStatusCard(bridgeState: MobileBridgeUiState, modifier: Modifier = Modi
 }
 
 @Composable
+fun SessionSelectionCard(
+  sessions: List<RuntimeSession>,
+  activeSessionId: String?,
+  onResumeSession: (String) -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  if (sessions.isEmpty()) return
+
+  diagnosticsCard(
+    title = "Resumable sessions",
+    subtitle = activeSessionId ?: "Select a session to resume",
+    details = sessions.map { session -> session.title ?: session.id.value },
+    modifier = modifier,
+  )
+
+  Column(
+    modifier = modifier.padding(top = 12.dp),
+    verticalArrangement = Arrangement.spacedBy(8.dp),
+  ) {
+    sessions.forEach { session ->
+      OutlinedButton(
+        onClick = { onResumeSession(session.id.value) },
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = CorvusTheme.colors.glowCyan),
+      ) {
+        Text(text = session.title ?: session.id.value, fontWeight = FontWeight.Medium)
+      }
+    }
+  }
+}
+
+@Composable
+fun ApprovalCard(
+  request: RuntimeApprovalRequest,
+  onApprove: () -> Unit,
+  onDeny: () -> Unit,
+  modifier: Modifier = Modifier,
+) {
+  val corvusColors = CorvusTheme.colors
+  Surface(
+    modifier = modifier,
+    shape = RoundedCornerShape(16.dp),
+    color = corvusColors.glassSurface,
+    border = BorderStroke(1.dp, corvusColors.glassOverlay),
+  ) {
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(16.dp),
+      verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+      Text(
+        text = "Approval required",
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = corvusColors.glowCyan,
+      )
+      Text(
+        text = "${request.toolLabel}: ${request.reason}",
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurface,
+      )
+      Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(
+          onClick = onDeny,
+          modifier = Modifier.weight(1f),
+          shape = RoundedCornerShape(12.dp),
+        ) {
+          Text("Deny")
+        }
+        GradientButton(text = "Approve", onClick = onApprove, modifier = Modifier.weight(1f))
+      }
+    }
+  }
+}
+
+@Composable
 fun diagnosticsCard(
   title: String,
   subtitle: String,
@@ -467,6 +547,8 @@ fun diagnosticsCard(
 
 internal fun onboardingStateLabel(onboardingState: MobileOnboardingState): String =
   when (onboardingState.status) {
+    MobileOnboardingStatus.TARGET_SELECTED -> "Target selected"
+    MobileOnboardingStatus.RECOVERY -> "Recovery required"
     MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "Runtime available"
     MobileOnboardingStatus.TRUST_PENDING -> "Trust this surface"
     MobileOnboardingStatus.TRANSPORT_CONNECTING -> "Connect to runtime"
@@ -477,49 +559,62 @@ internal fun onboardingStateLabel(onboardingState: MobileOnboardingState): Strin
 
 internal fun bridgeStateHeadline(bridgeState: MobileBridgeUiState): String =
   when (bridgeState.onboardingState.status) {
-    MobileOnboardingStatus.TRUST_PENDING -> "Link this app to local Corvus"
-    MobileOnboardingStatus.SESSION_PENDING -> "Bridge linked. Start or resume a session next."
-    MobileOnboardingStatus.SESSION_READY -> "Linked session ready on ${bridgeState.platformName}"
-    MobileOnboardingStatus.BLOCKED -> "Bridge attention needed on ${bridgeState.platformName}"
-    MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "Runtime path confirmed"
+    MobileOnboardingStatus.TARGET_SELECTED -> "Target selected"
+    MobileOnboardingStatus.RECOVERY -> "Recovery required"
+    // Client-first: Connect to an existing runtime, not local bridge
+    MobileOnboardingStatus.TRUST_PENDING -> "Connect to runtime endpoint"
+    MobileOnboardingStatus.SESSION_PENDING -> "Runtime connected. Start or resume a session next."
+    MobileOnboardingStatus.SESSION_READY -> "Session ready on ${bridgeState.platformName}"
+    // Client-first: Don't use "bridge" terminology
+    MobileOnboardingStatus.BLOCKED -> "Connection attention needed on ${bridgeState.platformName}"
+    MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "Runtime endpoint configured"
     MobileOnboardingStatus.TRANSPORT_CONNECTING -> "Connecting to runtime"
   }
 
 internal fun bridgeStateDescription(bridgeState: MobileBridgeUiState): String =
   when (bridgeState.onboardingState.status) {
+    // Client-first: Connect to an existing runtime, not "linking" mobile
     MobileOnboardingStatus.TRUST_PENDING ->
-      "Complete mobile linking before Corvus can trust this surface."
+      "Configure connection to an existing runtime before starting a session."
     MobileOnboardingStatus.SESSION_PENDING ->
-      "The bridge can reach Corvus. Create or resume a chat session to continue."
+      "The runtime endpoint is reachable. Create or resume a chat session to continue."
+    // Client-first: Describe as runtime connection, not CLI bridge
     MobileOnboardingStatus.SESSION_READY ->
-      "Messages now flow through the local CLI bridge instead of HTTP pairing."
+      "Messages now flow through the configured runtime connection."
     MobileOnboardingStatus.BLOCKED -> bridgeStateRecovery(bridgeState)
-    else -> "Corvus keeps mobile trust, transport, and session steps separate."
+    else -> "Corvus keeps connection, transport, and session steps separate."
   }
 
 internal fun bridgeStateRecovery(bridgeState: MobileBridgeUiState): String =
   when (bridgeState.onboardingState.recoveryKind) {
+    // Client-first: Guide user to configure target/endpoint
+    MobileRecoveryKind.NO_TARGET_CONFIGURED ->
+      "Select a connection target first. Choose endpoint URL, trusted companion, or another supported method."
+    MobileRecoveryKind.TARGET_NOT_REACHABLE ->
+      "The selected target is not reachable. Check your network connection and try again."
+    MobileRecoveryKind.TRUST_NOT_ESTABLISHED ->
+      "Trust has not been established. Complete the pairing or companion authentication first."
+    // Client-first: Don't mention CLI, describe as runtime connection
     MobileRecoveryKind.RUNTIME_UNAVAILABLE ->
-      "Make sure the Corvus CLI or approved companion path is running, then retry."
+      "Make sure the runtime is running and reachable, then retry."
+    MobileRecoveryKind.TRANSPORT_UNAVAILABLE ->
+      "The connection transport is unavailable. Retry first, or reconfigure the connection target."
     MobileRecoveryKind.LINKED_BUT_NOT_SESSION_READY ->
-      "The app is linked, but session operations are still unavailable. Retry the bridge check."
+      "The runtime is connected, but session operations are unavailable. Retry the connection check."
+    MobileRecoveryKind.SESSION_UNAVAILABLE ->
+      "Your last session is no longer resumable. Start a new session or choose another available session."
     MobileRecoveryKind.ENVIRONMENT_UNSUPPORTED ->
-      "This environment needs the approved companion path. Do not switch to HTTP pairing here."
+      "This environment requires a supported connection method. Check your platform's available options."
     null ->
       when (bridgeState.onboardingState.status) {
+        MobileOnboardingStatus.TARGET_SELECTED ->
+          "A target is selected but not yet configured. Complete the connection setup."
+        MobileOnboardingStatus.RECOVERY -> "Recovery is needed. Follow the on-screen instructions."
+        // Client-first: Don't mention "linking"
         MobileOnboardingStatus.TRUST_PENDING ->
-          "Linking is the trust step for mobile. Pairing codes and bearer tokens stay on web surfaces."
+          "Configure the connection to your runtime endpoint first."
         MobileOnboardingStatus.SESSION_PENDING ->
-          "Start a session after the bridge confirms Corvus is reachable and session-capable."
+          "Start a session after the runtime connection is confirmed reachable."
         else -> "No recovery action needed."
       }
   }
-
-internal fun buildLocalAssistantReply(
-  prompt: String,
-  modelName: String,
-  bridgeState: MobileBridgeUiState,
-): String {
-  val sessionLabel = bridgeState.snapshot.sessionId ?: "pending-session"
-  return "[$modelName] Received \"$prompt\" through the local bridge for session $sessionLabel."
-}

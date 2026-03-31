@@ -59,6 +59,7 @@ kotlin {
 
     val jvmMain by getting {
       dependencies {
+        implementation(project(":agent-core-kmp"))
         implementation(compose.desktop.currentOs)
         implementation(libs.kotlinx.coroutines.swing)
       }

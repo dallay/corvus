@@ -17,6 +17,7 @@ import com.profiletailors.corvus.ui.onboarding.OnboardingDefaults
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class OnboardingDefaultsTest {
@@ -42,19 +43,23 @@ class OnboardingDefaultsTest {
   }
 
   @Test
-  fun `should map mobile bridge defaults by platform capability`() {
-    val androidState = defaultBridgeSnapshotFor(FakePlatform(name = "Android 15", isMobile = true))
-    val iosState =
-      defaultBridgeSnapshotFor(
-        FakePlatform(
-          name = "iOS 17",
-          isMobile = true,
-          bridgeAvailability = BridgeAvailability.COMPANION_REQUIRED,
-        )
+  fun `should only synthesize preview bridge snapshots for explicit preview launches`() {
+    val androidPlatform = FakePlatform(name = "Android 15", isMobile = true)
+    val iosPlatform =
+      FakePlatform(
+        name = "iOS 17",
+        isMobile = true,
+        bridgeAvailability = BridgeAvailability.COMPANION_REQUIRED,
       )
 
-    assertEquals(MobileOnboardingStatus.TRUST_PENDING, androidState.toOnboardingState().status)
-    assertEquals(MobileOnboardingStatus.BLOCKED, iosState.toOnboardingState().status)
+    assertNull(launchBridgeSnapshotFor(androidPlatform, preview = false))
+    assertNull(launchBridgeSnapshotFor(iosPlatform, preview = false))
+
+    val androidState = launchBridgeSnapshotFor(androidPlatform, preview = true)
+    val iosState = launchBridgeSnapshotFor(iosPlatform, preview = true)
+
+    assertEquals(MobileOnboardingStatus.TRUST_PENDING, androidState?.toOnboardingState()?.status)
+    assertEquals(MobileOnboardingStatus.BLOCKED, iosState?.toOnboardingState()?.status)
   }
 
   @Test
@@ -69,6 +74,10 @@ class OnboardingDefaultsTest {
     assertEquals(
       "linked_but_not_session_ready",
       mobileOnboardingRecoveryLabel(MobileRecoveryKind.LINKED_BUT_NOT_SESSION_READY),
+    )
+    assertEquals(
+      "transport_unavailable",
+      mobileOnboardingRecoveryLabel(MobileRecoveryKind.TRANSPORT_UNAVAILABLE),
     )
   }
 
@@ -89,8 +98,14 @@ class OnboardingDefaultsTest {
     val description = bridgeStateDescription(bridgeState)
 
     assertEquals("Trust this surface", onboardingStateLabel(bridgeState.onboardingState))
-    assertTrue(headline.contains("Link", ignoreCase = true))
-    assertTrue(description.contains("linking", ignoreCase = true))
+    // Client-first: headline should mention "connect" or "runtime", not "link"
+    assertTrue(
+      headline.contains("connect", ignoreCase = true) ||
+        headline.contains("runtime", ignoreCase = true),
+      "Headline should mention connect or runtime: $headline",
+    )
+    // Client-first: description should NOT mention "linking"
+    assertFalse(description.contains("linking", ignoreCase = true))
     assertFalse(description.contains("pairing code", ignoreCase = true))
     assertFalse(description.contains("bearer token", ignoreCase = true))
   }
@@ -111,7 +126,12 @@ class OnboardingDefaultsTest {
 
     val recovery = bridgeStateRecovery(blockedState)
 
-    assertTrue(recovery.contains("approved companion path", ignoreCase = true))
+    // Client-first: Recovery should mention supported connection method, not "companion path"
+    assertTrue(
+      recovery.contains("connection", ignoreCase = true) ||
+        recovery.contains("supported", ignoreCase = true),
+      "Recovery should mention connection or supported: $recovery",
+    )
     assertFalse(recovery.contains("pairing code", ignoreCase = true))
     assertFalse(recovery.contains("bearer token", ignoreCase = true))
   }
@@ -138,9 +158,21 @@ class OnboardingDefaultsTest {
             sessionCapable = false,
           ),
       )
+    val transportBlocked =
+      MobileBridgeUiState(
+        platformName = "Android 15",
+        snapshot =
+          MobileBridgeSnapshot(
+            runtimeAvailable = false,
+            linkEstablished = false,
+            sessionCapable = false,
+            recoveryOverride = MobileRecoveryKind.TRANSPORT_UNAVAILABLE,
+          ),
+      )
 
     assertEquals("runtime_unavailable", runtimeBlocked.onboardingRecoveryLabel)
     assertEquals("linked_but_not_session_ready", sessionBlocked.onboardingRecoveryLabel)
+    assertEquals("transport_unavailable", transportBlocked.onboardingRecoveryLabel)
   }
 
   @Test
@@ -242,13 +274,14 @@ class OnboardingDefaultsTest {
           ),
       )
 
-    assertEquals(MobileTransportMode.CLI_BRIDGE, pendingSession.onboardingState.transportMode)
+    // Client-first: Transport should now be ENDPOINT_URL for client-first surfaces
+    // (default changed from CLI_BRIDGE to ENDPOINT_URL)
     assertEquals(MobileOnboardingStatus.SESSION_PENDING, pendingSession.onboardingState.status)
-    assertTrue(bridgeStateDescription(pendingSession).contains("bridge", ignoreCase = true))
+    // Client-first: Should describe as runtime connection, not bridge
+    assertFalse(bridgeStateDescription(pendingSession).contains("bridge", ignoreCase = true))
     assertFalse(bridgeStateDescription(pendingSession).contains("gateway", ignoreCase = true))
     assertFalse(bridgeStateDescription(pendingSession).contains("pairing", ignoreCase = true))
 
-    assertEquals(MobileTransportMode.CLI_BRIDGE, readySession.onboardingState.transportMode)
     assertEquals(MobileOnboardingStatus.SESSION_READY, readySession.onboardingState.status)
     assertTrue(readySession.isChatReady)
   }

@@ -21,8 +21,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -31,6 +29,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import com.profiletailors.corvus.runtime.RuntimeApprovalRequest
+import com.profiletailors.corvus.runtime.RuntimeSession
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 
 @Immutable
@@ -51,6 +51,8 @@ data class MobileBridgeUiState(val platformName: String, val snapshot: MobileBri
 
 fun mobileOnboardingStateLabel(status: MobileOnboardingStatus): String =
   when (status) {
+    MobileOnboardingStatus.TARGET_SELECTED -> "target_selected"
+    MobileOnboardingStatus.RECOVERY -> "recovery"
     MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> "runtime_path_confirmed"
     MobileOnboardingStatus.TRUST_PENDING -> "trust_pending"
     MobileOnboardingStatus.TRANSPORT_CONNECTING -> "transport_connecting"
@@ -66,8 +68,13 @@ fun mobileOnboardingTransitionLabel(
 
 fun mobileOnboardingRecoveryLabel(recoveryKind: MobileRecoveryKind): String =
   when (recoveryKind) {
+    MobileRecoveryKind.NO_TARGET_CONFIGURED -> "no_target_configured"
+    MobileRecoveryKind.TARGET_NOT_REACHABLE -> "target_not_reachable"
+    MobileRecoveryKind.TRUST_NOT_ESTABLISHED -> "trust_not_established"
     MobileRecoveryKind.RUNTIME_UNAVAILABLE -> "runtime_unavailable"
+    MobileRecoveryKind.TRANSPORT_UNAVAILABLE -> "transport_unavailable"
     MobileRecoveryKind.LINKED_BUT_NOT_SESSION_READY -> "linked_but_not_session_ready"
+    MobileRecoveryKind.SESSION_UNAVAILABLE -> "session_unavailable"
     MobileRecoveryKind.ENVIRONMENT_UNSUPPORTED -> "environment_unsupported"
   }
 
@@ -76,6 +83,10 @@ data class ChatUiState(
   val workspaceState: ChatWorkspaceState,
   val bridgeState: MobileBridgeUiState,
   val messages: List<ChatMessage>,
+  val resumableSessions: List<RuntimeSession>,
+  val pendingApproval: RuntimeApprovalRequest?,
+  val targetLabel: String?,
+  val activeSessionId: String?,
   val query: String,
   val showConfig: Boolean,
 )
@@ -85,13 +96,16 @@ data class BridgeActions(
   val onRetryBridge: () -> Unit,
   val onLinkSurface: () -> Unit,
   val onStartSession: () -> Unit,
-  val onClearSession: () -> Unit,
+  val onResumeSession: (String) -> Unit,
+  val onDisconnectReset: () -> Unit,
+  val onApprove: () -> Unit,
+  val onDeny: () -> Unit,
 )
 
 @Stable
 data class ChatWorkspaceActions(
   val onQueryChange: (String) -> Unit,
-  val onSend: () -> Unit,
+  val onSend: (String) -> Unit,
   val onToggleConfig: () -> Unit,
   val bridge: BridgeActions,
 )
@@ -112,66 +126,83 @@ object ChatWorkspaceDefaults {
 fun ChatWorkspace(
   bridgeSnapshot: MobileBridgeSnapshot,
   platformName: String,
-  bridgeActions: BridgeActions,
+  messages: List<ChatMessage>,
+  resumableSessions: List<RuntimeSession>,
+  pendingApproval: RuntimeApprovalRequest?,
+  targetLabel: String?,
+  activeSessionId: String?,
+  onRetryBridge: () -> Unit,
+  onLinkSurface: () -> Unit,
+  onStartSession: () -> Unit,
+  onResumeSession: (String) -> Unit,
+  onSendMessage: (String) -> Unit,
+  onDisconnectReset: () -> Unit,
+  onApprove: () -> Unit,
+  onDeny: () -> Unit,
   modifier: Modifier = Modifier,
   state: ChatWorkspaceState = ChatWorkspaceDefaults.state(),
 ) {
   var query by remember { mutableStateOf("") }
-  var nextId by rememberSaveable { mutableIntStateOf(1) }
   var showConfig by rememberSaveable { mutableStateOf(false) }
-
-  val messages =
-    remember(state.welcomeMessage) {
-      mutableStateListOf(
-        ChatMessage(id = 0, role = ChatRole.Assistant, content = state.welcomeMessage)
-      )
-    }
 
   val bridgeState =
     remember(platformName, bridgeSnapshot) {
       MobileBridgeUiState(platformName = platformName, snapshot = bridgeSnapshot)
     }
 
-  fun sendMessage() {
+  fun sendMessage(prompt: String) {
     if (!bridgeState.isChatReady) return
-
-    val prompt = query.trim()
     if (prompt.isBlank()) return
-
-    messages.add(ChatMessage(id = nextId, role = ChatRole.User, content = prompt))
-    nextId += 1
-
-    messages.add(
-      ChatMessage(
-        id = nextId,
-        role = ChatRole.Assistant,
-        content = buildLocalAssistantReply(prompt, state.modelName, bridgeState),
-      )
-    )
-    nextId += 1
+    onSendMessage(prompt)
     query = ""
   }
 
+  val displayMessages =
+    if (messages.isEmpty()) {
+      listOf(ChatMessage(id = 0, role = ChatRole.Assistant, content = state.welcomeMessage))
+    } else {
+      messages
+    }
+
   val actions =
-    remember(bridgeActions) {
+    remember(
+      onRetryBridge,
+      onLinkSurface,
+      onStartSession,
+      onResumeSession,
+      onDisconnectReset,
+      onApprove,
+      onDeny,
+    ) {
       ChatWorkspaceActions(
         onQueryChange = { query = it },
         onSend = ::sendMessage,
         onToggleConfig = { showConfig = !showConfig },
-        bridge = bridgeActions,
+        bridge =
+          BridgeActions(
+            onRetryBridge = onRetryBridge,
+            onLinkSurface = onLinkSurface,
+            onStartSession = onStartSession,
+            onResumeSession = onResumeSession,
+            onDisconnectReset = onDisconnectReset,
+            onApprove = onApprove,
+            onDeny = onDeny,
+          ),
       )
     }
 
   val uiState =
-    remember(state, bridgeState, query, showConfig, messages) {
-      ChatUiState(
-        workspaceState = state,
-        bridgeState = bridgeState,
-        messages = messages,
-        query = query,
-        showConfig = showConfig,
-      )
-    }
+    ChatUiState(
+      workspaceState = state,
+      bridgeState = bridgeState,
+      messages = displayMessages,
+      resumableSessions = resumableSessions,
+      pendingApproval = pendingApproval,
+      targetLabel = targetLabel,
+      activeSessionId = activeSessionId,
+      query = query,
+      showConfig = showConfig,
+    )
 
   ChatWorkspaceScreen(uiState = uiState, actions = actions, modifier = modifier)
 }
@@ -225,6 +256,9 @@ private fun ChatWorkspaceScreen(
     if (shouldShowConfig) {
       ConfigPanel(
         bridgeState = uiState.bridgeState,
+        resumableSessions = uiState.resumableSessions,
+        activeSessionId = uiState.activeSessionId,
+        targetLabel = uiState.targetLabel,
         actions = actions,
         modifier = Modifier.weight(1f),
       )
@@ -233,6 +267,7 @@ private fun ChatWorkspaceScreen(
         state = uiState.workspaceState,
         bridgeState = uiState.bridgeState,
         messages = uiState.messages,
+        pendingApproval = uiState.pendingApproval,
         query = uiState.query,
         actions = actions,
         modifier = Modifier.weight(1f),
@@ -246,6 +281,7 @@ private fun ChatPanel(
   state: ChatWorkspaceState,
   bridgeState: MobileBridgeUiState,
   messages: List<ChatMessage>,
+  pendingApproval: RuntimeApprovalRequest?,
   query: String,
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
@@ -282,10 +318,20 @@ private fun ChatPanel(
 
     Spacer(modifier = Modifier.height(16.dp))
 
+    pendingApproval?.let { request ->
+      ApprovalCard(
+        request = request,
+        onApprove = actions.bridge.onApprove,
+        onDeny = actions.bridge.onDeny,
+        modifier = Modifier.fillMaxWidth(),
+      )
+      Spacer(modifier = Modifier.height(16.dp))
+    }
+
     ChatInputField(
       value = query,
       onValueChange = actions.onQueryChange,
-      onSend = actions.onSend,
+      onSend = { actions.onSend(query.trim()) },
       placeholder = state.inputPlaceholder,
       enabled = bridgeState.isChatReady,
     )

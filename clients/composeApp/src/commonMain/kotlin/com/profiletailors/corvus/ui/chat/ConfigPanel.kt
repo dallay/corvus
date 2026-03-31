@@ -23,11 +23,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.profiletailors.corvus.runtime.RuntimeSession
 import com.profiletailors.corvus.ui.theme.CorvusTheme
 
 @Composable
 internal fun ConfigPanel(
   bridgeState: MobileBridgeUiState,
+  resumableSessions: List<RuntimeSession>,
+  activeSessionId: String?,
+  targetLabel: String?,
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
@@ -44,13 +48,25 @@ internal fun ConfigPanel(
           brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
         )
     ) {
-      ConfigSettingsList(bridgeState = bridgeState, actions = actions)
+      ConfigSettingsList(
+        bridgeState = bridgeState,
+        resumableSessions = resumableSessions,
+        activeSessionId = activeSessionId,
+        targetLabel = targetLabel,
+        actions = actions,
+      )
     }
   }
 }
 
 @Composable
-internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatWorkspaceActions) {
+internal fun ConfigSettingsList(
+  bridgeState: MobileBridgeUiState,
+  resumableSessions: List<RuntimeSession>,
+  activeSessionId: String?,
+  targetLabel: String?,
+  actions: ChatWorkspaceActions,
+) {
   val corvusColors = CorvusTheme.colors
   val onboardingState = bridgeState.onboardingState
   val detailLines = buildDiagnosticsLines(bridgeState)
@@ -61,8 +77,9 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
   ) {
     item {
       Column {
+        // Client-first: Use "Connection" instead of "Bridge Linking"
         Text(
-          text = "Bridge Linking",
+          text = "Runtime Connection",
           style = MaterialTheme.typography.titleLarge,
           fontWeight = FontWeight.Bold,
           color = MaterialTheme.colorScheme.onSurface,
@@ -86,17 +103,26 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
 
     item {
       diagnosticsCard(
-        title = "Current state",
-        subtitle = bridgeState.platformName,
+        title = "Runtime target",
+        subtitle = targetLabel ?: bridgeState.platformName,
         details = detailLines,
       )
     }
 
     item {
       diagnosticsCard(
-        title = "Recovery guidance",
-        subtitle = bridgeStateDescription(bridgeState),
-        details = listOf(bridgeStateRecovery(bridgeState)),
+        title = "Safe diagnostics",
+        subtitle = "Parity-critical bridge details only",
+        details = buildSafeDiagnosticLines(bridgeState, targetLabel),
+      )
+    }
+
+    item {
+      SessionSelectionCard(
+        sessions = resumableSessions,
+        activeSessionId = activeSessionId,
+        onResumeSession = actions.bridge.onResumeSession,
+        modifier = Modifier.fillMaxWidth(),
       )
     }
 
@@ -132,8 +158,8 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
 
           MobileOnboardingStatus.SESSION_READY -> {
             GradientButton(
-              text = "Relink",
-              onClick = actions.bridge.onClearSession,
+              text = "Disconnect",
+              onClick = actions.bridge.onDisconnectReset,
               modifier = Modifier.weight(1f),
             )
           }
@@ -142,12 +168,14 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
             if (bridgeState.snapshot.environmentSupported) {
               GradientButton(
                 text = "Relink",
-                onClick = actions.bridge.onClearSession,
+                onClick = actions.bridge.onDisconnectReset,
                 modifier = Modifier.weight(1f),
               )
             }
           }
 
+          MobileOnboardingStatus.TARGET_SELECTED,
+          MobileOnboardingStatus.RECOVERY,
           MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED,
           MobileOnboardingStatus.TRANSPORT_CONNECTING -> Unit
         }
@@ -170,14 +198,9 @@ internal fun ConfigSettingsList(bridgeState: MobileBridgeUiState, actions: ChatW
 
     item {
       diagnosticsCard(
-        title = "Trust boundary",
-        subtitle = "Mobile uses linking through the CLI bridge",
-        details =
-          listOf(
-            "Trust mode: bridge linked",
-            "Transport: local Corvus CLI bridge",
-            "HTTP pairing is not the primary recovery path on mobile",
-          ),
+        title = "Reset options",
+        subtitle = "Relink or disconnect without exposing unsafe controls",
+        details = buildResetOptionLines(),
       )
     }
 
@@ -191,5 +214,25 @@ private fun buildDiagnosticsLines(bridgeState: MobileBridgeUiState): List<String
   add("Session capable: ${yesNo(bridgeState.snapshot.sessionCapable)}")
   add("Session id: ${bridgeState.snapshot.sessionId ?: "No active or resumable session"}")
 }
+
+internal fun buildSafeDiagnosticLines(
+  bridgeState: MobileBridgeUiState,
+  targetLabel: String?,
+): List<String> = buildList {
+  // Client-first: Show target info, not local bridge
+  add("Target: ${targetLabel ?: "Not configured"}")
+  add("Transport: Runtime endpoint")
+  add("Recommended timeout: 30 seconds")
+  add(bridgeStateRecovery(bridgeState))
+}
+
+internal fun buildResetOptionLines(): List<String> =
+  listOf(
+    // Client-first: Retry connection checks, not bridge checks
+    "Retry connection checks after runtime availability changes",
+    // Client-first: Don't mention CLI bridge
+    "Reconfigure through the supported connection methods",
+    "Disconnect & reset clears the active session and connection target metadata",
+  )
 
 private fun yesNo(value: Boolean): String = if (value) "Yes" else "No"

@@ -48,6 +48,7 @@ import com.profiletailors.composeapp.generated.resources.onboarding_title_link_s
 import com.profiletailors.composeapp.generated.resources.onboarding_title_resume_session
 import com.profiletailors.composeapp.generated.resources.onboarding_title_runtime_available
 import com.profiletailors.corvus.ui.chat.GradientButton
+import com.profiletailors.corvus.ui.chat.MobileOnboardingState
 import com.profiletailors.corvus.ui.chat.MobileOnboardingStatus
 import com.profiletailors.corvus.ui.chat.MobileTransportMode
 import com.profiletailors.corvus.ui.chat.MobileTrustMode
@@ -67,6 +68,10 @@ data class OnboardingStep(
   val trustMode: MobileTrustMode = MobileTrustMode.BRIDGE_LINKED,
   val transportMode: MobileTransportMode = MobileTransportMode.CLI_BRIDGE,
   val icon: OnboardingIcon = OnboardingIcon.SESSION,
+  val actionLabel: StringResource = Res.string.button_next,
+  val progressIndex: Int = 0,
+  val totalSteps: Int = 4,
+  val isTerminal: Boolean = false,
 )
 
 enum class OnboardingIcon {
@@ -84,27 +89,60 @@ object OnboardingDefaults {
         descriptionRes = Res.string.onboarding_desc_runtime_available,
         status = MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED,
         icon = OnboardingIcon.RUNTIME,
+        progressIndex = 0,
       ),
       OnboardingStep(
         titleRes = Res.string.onboarding_title_link_surface,
         descriptionRes = Res.string.onboarding_desc_link_surface,
         status = MobileOnboardingStatus.TRUST_PENDING,
         icon = OnboardingIcon.LINK,
+        progressIndex = 1,
       ),
       OnboardingStep(
         titleRes = Res.string.onboarding_title_connect_runtime,
         descriptionRes = Res.string.onboarding_desc_connect_runtime,
         status = MobileOnboardingStatus.TRANSPORT_CONNECTING,
         icon = OnboardingIcon.SYNC,
+        progressIndex = 2,
       ),
       OnboardingStep(
         titleRes = Res.string.onboarding_title_resume_session,
         descriptionRes = Res.string.onboarding_desc_resume_session,
         status = MobileOnboardingStatus.SESSION_PENDING,
         icon = OnboardingIcon.SESSION,
+        actionLabel = Res.string.button_start,
+        progressIndex = 3,
+        isTerminal = true,
       ),
     )
 }
+
+fun runtimeOnboardingStep(state: MobileOnboardingState): OnboardingStep =
+  when (state.status) {
+    MobileOnboardingStatus.TARGET_SELECTED -> OnboardingDefaults.steps[0]
+    MobileOnboardingStatus.RECOVERY ->
+      OnboardingDefaults.steps[2].copy(
+        status = MobileOnboardingStatus.RECOVERY,
+        icon = OnboardingIcon.SYNC,
+        actionLabel = Res.string.button_next,
+        progressIndex = 2,
+      )
+    MobileOnboardingStatus.RUNTIME_PATH_CONFIRMED -> OnboardingDefaults.steps[0]
+    MobileOnboardingStatus.TRUST_PENDING ->
+      OnboardingDefaults.steps[1].copy(actionLabel = Res.string.button_next)
+    MobileOnboardingStatus.TRANSPORT_CONNECTING -> OnboardingDefaults.steps[2]
+    MobileOnboardingStatus.SESSION_PENDING -> OnboardingDefaults.steps[3]
+    MobileOnboardingStatus.SESSION_READY -> OnboardingDefaults.steps[3]
+    MobileOnboardingStatus.BLOCKED ->
+      OnboardingDefaults.steps[2].copy(
+        titleRes = Res.string.onboarding_title_connect_runtime,
+        descriptionRes = Res.string.onboarding_desc_connect_runtime,
+        status = MobileOnboardingStatus.BLOCKED,
+        icon = OnboardingIcon.SYNC,
+        actionLabel = Res.string.button_next,
+        progressIndex = 2,
+      )
+  }
 
 // ============================================================================
 // Onboarding Screen - Main
@@ -116,6 +154,8 @@ fun OnboardingScreen(
   currentStepIndex: Int,
   totalSteps: Int,
   isLastStep: Boolean,
+  primaryActionLabel: StringResource =
+    if (isLastStep) Res.string.button_start else Res.string.button_next,
   onSkip: () -> Unit,
   onNext: () -> Unit,
   modifier: Modifier = Modifier,
@@ -205,7 +245,7 @@ fun OnboardingScreen(
 
       // Next/Start Button
       GradientButton(
-        text = stringResource(if (isLastStep) Res.string.button_start else Res.string.button_next),
+        text = stringResource(primaryActionLabel),
         onClick = onNext,
         modifier = Modifier.fillMaxWidth().height(56.dp),
       )
