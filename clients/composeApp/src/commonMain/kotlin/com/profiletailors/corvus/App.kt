@@ -60,10 +60,7 @@ fun App(platformOverride: Platform? = null, initialBridgeSnapshot: MobileBridgeS
 
   val onboardingState = coordinatorState.bridgeSnapshot.toOnboardingState()
   // Client-first: show onboarding when not in SESSION_READY (regardless of platform)
-  val shouldShowOnboarding =
-    remember(onboardingState.status) {
-      onboardingState.status != MobileOnboardingStatus.SESSION_READY
-    }
+  val shouldShowOnboarding = onboardingState.status != MobileOnboardingStatus.SESSION_READY
 
   CorvusTheme {
     if (shouldShowOnboarding) {

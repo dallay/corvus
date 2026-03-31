@@ -4,6 +4,12 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+// Unit separator character used to delimit command parameters
+private const val UNIT_SEPARATOR = '\u001f'
+
+// Timeout for waiting for the reader thread to complete
+private const val READER_THREAD_JOIN_TIMEOUT_MS = 1000L
+
 data class AndroidRuntimeBridgeConfig(
   val executable: String = "corvus",
   val arguments: List<String> = listOf("agent", "-m"),
@@ -111,7 +117,11 @@ class AndroidRuntimeBridge(
   }
 
   override fun sendMessage(sessionId: RuntimeSessionId, prompt: String): RuntimeTurnResult =
-    turnFrom(sessionId, runCommand("__corvus_send_message__${sessionId.value}\u001f$prompt"), "")
+    turnFrom(
+      sessionId,
+      runCommand("__corvus_send_message__${sessionId.value}$UNIT_SEPARATOR$prompt"),
+      "",
+    )
 
   override fun submitApproval(
     requestId: String,
@@ -121,16 +131,15 @@ class AndroidRuntimeBridge(
     turnFrom(
       sessionId,
       runCommand(
-        "__corvus_submit_approval__${sessionId.value}\u001f$requestId\u001f${decision.name}"
+        "__corvus_submit_approval__${sessionId.value}$UNIT_SEPARATOR$requestId$UNIT_SEPARATOR${decision.name}"
       ),
       "",
     )
 
-  private fun runCommand(prompt: String): String? {
-    val process = startProcess(prompt) ?: return null
-    val output = drainOutputWithTimeout(process) ?: return null
-    return if (process.exitValue() == 0) output else null
-  }
+  private fun runCommand(prompt: String): String? =
+    startProcess(prompt)
+      ?.let { process -> drainOutputWithTimeout(process)?.let { output -> process to output } }
+      ?.let { (process, output) -> if (process.exitValue() == 0) output else null }
 
   private fun startProcess(prompt: String): Process? {
     val command = buildList {
@@ -152,6 +161,7 @@ class AndroidRuntimeBridge(
     }
   }
 
+  @Suppress("TooGenericExceptionCaught")
   private fun drainOutputWithTimeout(process: Process): String? {
     val outputBuilder = StringBuilder()
     val readerThread = Thread {
@@ -175,7 +185,7 @@ class AndroidRuntimeBridge(
       return null
     }
 
-    readerThread.join(1000)
+    readerThread.join(READER_THREAD_JOIN_TIMEOUT_MS)
     return outputBuilder.toString().trim()
   }
 
@@ -223,22 +233,68 @@ class AndroidRuntimeBridge(
       }
     return RuntimeTurnResult(sessionId = sessionId, events = listOf(event))
   }
+}
 
-  private fun String.toValues(): Map<String, String> =
-    lineSequence()
-      .map { it.trim() }
-      .filter { it.contains('=') }
-      .associate {
-        val index = it.indexOf('=')
-        it.substring(0, index).trim() to it.substring(index + 1).trim()
-      }
-
-  private fun Map<String, String>.booleanValue(key: String): Boolean =
-    when (this[key]?.lowercase()) {
-      "1",
-      "true",
-      "yes",
-      "ready" -> true
-      else -> false
+// Top-level parsing utilities extracted from AndroidRuntimeBridge
+private fun String.toValues(): Map<String, String> =
+  lineSequence()
+    .map { it.trim() }
+    .filter { it.contains('=') }
+    .associate {
+      val index = it.indexOf('=')
+      it.substring(0, index).trim() to it.substring(index + 1).trim()
     }
+
+private fun Map<String, String>.booleanValue(key: String): Boolean =
+  when (this[key]?.lowercase()) {
+    "1",
+    "true",
+    "yes",
+    "ready" -> true
+    else -> false
+  }
+
+private fun sessionFrom(rawOutput: String): RuntimeSession {
+  val values = rawOutput.toValues()
+  return RuntimeSession(
+    id = RuntimeSessionId(requireNotNull(values["session_id"])),
+    title = values["session_title"]?.takeIf { it.isNotBlank() },
+    isActive = values.booleanValue("session_active"),
+  )
+}
+
+private fun turnFrom(
+  sessionId: RuntimeSessionId,
+  rawOutput: String?,
+  fallback: String,
+): RuntimeTurnResult {
+  val event =
+    when {
+      rawOutput == null ->
+        RuntimeEvent.Failure(
+          sessionId = sessionId,
+          message = "Android runtime bridge unavailable.",
+          recoverable = true,
+        )
+      else -> {
+        val values = rawOutput.toValues()
+        val approvalRequestId = values["approval_request_id"]
+        val approvalMessage = values["approval_message"]
+        if (approvalRequestId != null && approvalMessage != null) {
+          RuntimeEvent.ApprovalPending(
+            request =
+              RuntimeApprovalRequest(
+                id = approvalRequestId,
+                sessionId = sessionId,
+                toolLabel = "Tool",
+                reason = approvalMessage,
+              )
+          )
+        } else {
+          val message = values["assistant_message"]?.takeIf { it.isNotBlank() } ?: fallback
+          RuntimeEvent.AssistantMessage(sessionId = sessionId, text = message)
+        }
+      }
+    }
+  return RuntimeTurnResult(sessionId = sessionId, events = listOf(event))
 }

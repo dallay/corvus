@@ -95,7 +95,7 @@ class MobileRuntimeCoordinator(
   ): RuntimeSessionId? {
     return when {
       persistedSessionId == null && readiness.activeSessionId != null -> {
-        val runtimeSessionId = requireNotNull(readiness.activeSessionId)
+        val runtimeSessionId = readiness.activeSessionId
         persistence.saveActiveSessionId(runtimeSessionId)
         runtimeSessionId
       }
@@ -257,8 +257,12 @@ class MobileRuntimeCoordinator(
       state.copy(messages = state.messages + assistantMessages, pendingApproval = pendingApproval)
   }
 
-  private fun nextMessageId(offset: Int = 0): Int = state.messages.size + offset + 1
+  private fun nextMessageId(offset: Int = 0): Int =
+    computeNextMessageId(state.messages.size, offset)
 }
+
+// Top-level helper for message ID generation
+private fun computeNextMessageId(currentSize: Int, offset: Int = 0): Int = currentSize + offset + 1
 
 class InMemoryMobileRuntimePersistence(
   private var linkedRuntimeMetadata: LinkedRuntimeMetadata? = null,

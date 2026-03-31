@@ -60,12 +60,12 @@ class AndroidPersistence(private val sharedPreferences: SharedPreferences) :
     sharedPreferences.edit().remove(KEY_ACTIVE_SESSION_ID).apply()
   }
 
-  private companion object {
-    private const val KEY_TARGET_ID = "corvus.mobile.runtime.target"
-    private const val KEY_TRANSPORT_MODE = "corvus.mobile.runtime.transport"
-    private const val KEY_TRUST_MODE = "corvus.mobile.runtime.trust"
-    private const val KEY_LINKED_AT_EPOCH_MS = "corvus.mobile.runtime.linkedAtEpochMs"
-    private const val KEY_ACTIVE_SESSION_ID = "corvus.mobile.runtime.activeSessionId"
+  internal companion object {
+    internal const val KEY_TARGET_ID = "corvus.mobile.runtime.target"
+    internal const val KEY_TRANSPORT_MODE = "corvus.mobile.runtime.transport"
+    internal const val KEY_TRUST_MODE = "corvus.mobile.runtime.trust"
+    internal const val KEY_LINKED_AT_EPOCH_MS = "corvus.mobile.runtime.linkedAtEpochMs"
+    internal const val KEY_ACTIVE_SESSION_ID = "corvus.mobile.runtime.activeSessionId"
     private const val MISSING_LINKED_AT = Long.MIN_VALUE
   }
 }
@@ -75,6 +75,9 @@ private fun String?.toTransportMode(): RuntimeTransportMode? =
     RuntimeTransportMode.CLI_BRIDGE.name -> RuntimeTransportMode.CLI_BRIDGE
     RuntimeTransportMode.DIRECT.name -> RuntimeTransportMode.DIRECT
     RuntimeTransportMode.HTTP_GATEWAY.name -> RuntimeTransportMode.HTTP_GATEWAY
+    RuntimeTransportMode.ENDPOINT_URL.name -> RuntimeTransportMode.ENDPOINT_URL
+    RuntimeTransportMode.TRUSTED_COMPANION.name -> RuntimeTransportMode.TRUSTED_COMPANION
+    RuntimeTransportMode.LOCAL_HOST_ADVANCED.name -> RuntimeTransportMode.LOCAL_HOST_ADVANCED
     else -> null
   }
 
@@ -83,5 +86,8 @@ private fun String?.toTrustMode(): RuntimeTrustMode? =
     RuntimeTrustMode.BRIDGE_LINKED.name -> RuntimeTrustMode.BRIDGE_LINKED
     RuntimeTrustMode.HOST_TRUSTED.name -> RuntimeTrustMode.HOST_TRUSTED
     RuntimeTrustMode.HTTP_PAIRED.name -> RuntimeTrustMode.HTTP_PAIRED
+    RuntimeTrustMode.PAIRING_REQUIRED.name -> RuntimeTrustMode.PAIRING_REQUIRED
+    RuntimeTrustMode.TRUSTED_COMPANION_ESTABLISHED.name ->
+      RuntimeTrustMode.TRUSTED_COMPANION_ESTABLISHED
     else -> null
   }

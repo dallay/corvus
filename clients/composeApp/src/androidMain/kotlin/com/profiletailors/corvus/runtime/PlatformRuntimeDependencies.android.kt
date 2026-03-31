@@ -20,7 +20,7 @@ internal fun createAndroidRuntimeFacade(
     ?: // Try to load persisted connection metadata
     run {
       val prefs = context.getSharedPreferences(MOBILE_RUNTIME_PREFS, Context.MODE_PRIVATE)
-      val targetId = prefs.getString("corvus.mobile.runtime.target", null)
+      val targetId = prefs.getString(AndroidPersistence.KEY_TARGET_ID, null)
       if (targetId != null) {
         // Valid persisted connection exists - try to use AndroidRuntimeBridge
         try {
@@ -49,7 +49,7 @@ internal fun createAndroidRuntimeFacade(
                 approvalRequests = false,
               ),
           )
-        } catch (e: Exception) {
+        } catch (e: RuntimeException) {
           // Fall back to fail-closed for any other unexpected exceptions
           FailClosedRuntimeFacade(
             unavailableReason = "Runtime bridge unavailable: ${e}",

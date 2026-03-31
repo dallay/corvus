@@ -337,6 +337,12 @@ Mobile and web end-user chat surfaces MUST maintain parity on mandatory capabili
 - THEN both surfaces MUST provide: approve and deny UI controls
 - AND both MUST use the same approval semantics as the gateway.
 
+**Milestone exception**: For composeApp surfaces (desktop/Android/iOS), the full tool approval
+UI/UX is deferred for this milestone. Runtime-level approval submission is available via
+`AndroidRuntimeBridge.submitApproval` and `MobileRuntimeCoordinator.submitApproval`, but the
+UI controls are not required for milestone acceptance per the earlier exception in this
+spec.
+
 #### Scenario: Platform-specific capabilities differ
 - GIVEN `clients/web/apps/chat` and `clients/composeApp`
 - WHEN platform-specific capabilities are evaluated
