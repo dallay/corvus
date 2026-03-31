@@ -73,10 +73,16 @@ class AndroidRuntimeBridge(
       )
 
   override fun createSession(metadata: Map<String, String>): RuntimeSession =
-    sessionFrom(requireNotNull(runCommand("__corvus_create_session__")))
+    sessionFrom(
+      requireNotNull(runCommand("__corvus_create_session__")) {
+        "runCommand('__corvus_create_session__') returned null in createSession(metadata=$metadata)"
+      }
+    )
 
   override fun listResumableSessions(): List<RuntimeSession> =
-    requireNotNull(runCommand("__corvus_list_sessions__"))
+    requireNotNull(runCommand("__corvus_list_sessions__")) {
+        "runCommand('__corvus_list_sessions__') returned null in listResumableSessions"
+      }
       .lineSequence()
       .map { it.trim() }
       .filter { it.startsWith("session=") }
@@ -91,12 +97,16 @@ class AndroidRuntimeBridge(
       .toList()
 
   override fun resumeSession(sessionId: RuntimeSessionId): RuntimeSession =
-    sessionFrom(requireNotNull(runCommand("__corvus_resume_session__${sessionId.value}")))
+    sessionFrom(
+      requireNotNull(runCommand("__corvus_resume_session__${sessionId.value}")) {
+        "runCommand('__corvus_resume_session__${sessionId.value}') returned null in resumeSession(sessionId=$sessionId)"
+      }
+    )
 
   override fun endSession(sessionId: RuntimeSessionId) {
     val result = runCommand("__corvus_end_session__${sessionId.value}")
     if (result == null) {
-      throw IllegalStateException("Failed to end session ${sessionId.value}: runtime unavailable")
+      error("Failed to end session ${sessionId.value}: runtime unavailable")
     }
   }
 
@@ -117,27 +127,32 @@ class AndroidRuntimeBridge(
     )
 
   private fun runCommand(prompt: String): String? {
+    val process = startProcess(prompt) ?: return null
+    val output = drainOutputWithTimeout(process) ?: return null
+    return if (process.exitValue() == 0) output else null
+  }
+
+  private fun startProcess(prompt: String): Process? {
     val command = buildList {
       add(config.executable)
       addAll(config.arguments)
       add(prompt)
     }
-
-    val process =
-      try {
-        ProcessBuilder(command)
-          .apply {
-            redirectErrorStream(true)
-            if (!config.workingDirectory.isNullOrBlank()) {
-              directory(File(config.workingDirectory))
-            }
+    return try {
+      ProcessBuilder(command)
+        .apply {
+          redirectErrorStream(true)
+          if (!config.workingDirectory.isNullOrBlank()) {
+            directory(File(config.workingDirectory))
           }
-          .start()
-      } catch (_: IOException) {
-        return null
-      }
+        }
+        .start()
+    } catch (_: IOException) {
+      null
+    }
+  }
 
-    // Start background thread to read output to avoid deadlock
+  private fun drainOutputWithTimeout(process: Process): String? {
     val outputBuilder = StringBuilder()
     val readerThread = Thread {
       try {
@@ -147,8 +162,8 @@ class AndroidRuntimeBridge(
             outputBuilder.append(line).append("\n")
           }
         }
-      } catch (_: Exception) {
-        // Ignore read errors
+      } catch (e: Exception) {
+        android.util.Log.d("AndroidRuntimeBridge", "Reader thread exception: ${e.message}", e)
       }
     }
     readerThread.start()
@@ -160,12 +175,7 @@ class AndroidRuntimeBridge(
       return null
     }
 
-    readerThread.join(1000) // Wait for reader to finish
-
-    if (process.exitValue() != 0) {
-      return null
-    }
-
+    readerThread.join(1000)
     return outputBuilder.toString().trim()
   }
 
@@ -183,30 +193,19 @@ class AndroidRuntimeBridge(
     rawOutput: String?,
     fallback: String,
   ): RuntimeTurnResult {
-    if (rawOutput == null) {
-      return RuntimeTurnResult(
-        sessionId = sessionId,
-        events =
-          listOf(
-            RuntimeEvent.Failure(
-              sessionId = sessionId,
-              message = "Android runtime bridge unavailable.",
-              recoverable = true,
-            )
-          ),
-      )
-    }
-
-    val values = rawOutput.toValues()
-
-    // Check for approval request
-    val approvalRequestId = values["approval_request_id"]
-    val approvalMessage = values["approval_message"]
-    if (approvalRequestId != null && approvalMessage != null) {
-      return RuntimeTurnResult(
-        sessionId = sessionId,
-        events =
-          listOf(
+    val event =
+      when {
+        rawOutput == null ->
+          RuntimeEvent.Failure(
+            sessionId = sessionId,
+            message = "Android runtime bridge unavailable.",
+            recoverable = true,
+          )
+        else -> {
+          val values = rawOutput.toValues()
+          val approvalRequestId = values["approval_request_id"]
+          val approvalMessage = values["approval_message"]
+          if (approvalRequestId != null && approvalMessage != null) {
             RuntimeEvent.ApprovalPending(
               request =
                 RuntimeApprovalRequest(
@@ -216,15 +215,13 @@ class AndroidRuntimeBridge(
                   reason = approvalMessage,
                 )
             )
-          ),
-      )
-    }
-
-    val message = values["assistant_message"]?.takeIf { it.isNotBlank() } ?: fallback
-    return RuntimeTurnResult(
-      sessionId = sessionId,
-      events = listOf(RuntimeEvent.AssistantMessage(sessionId = sessionId, text = message)),
-    )
+          } else {
+            val message = values["assistant_message"]?.takeIf { it.isNotBlank() } ?: fallback
+            RuntimeEvent.AssistantMessage(sessionId = sessionId, text = message)
+          }
+        }
+      }
+    return RuntimeTurnResult(sessionId = sessionId, events = listOf(event))
   }
 
   private fun String.toValues(): Map<String, String> =

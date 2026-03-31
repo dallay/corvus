@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import com.profiletailors.corvus.ui.chat.MobileBridgeSnapshot
+import java.io.IOException
 
 private const val MOBILE_RUNTIME_PREFS = "corvus.mobile.runtime"
 
@@ -24,10 +25,34 @@ internal fun createAndroidRuntimeFacade(
         // Valid persisted connection exists - try to use AndroidRuntimeBridge
         try {
           AndroidRuntimeBridge()
-        } catch (e: Exception) {
-          // Fall back to fail-closed if bridge creation fails
+        } catch (e: IOException) {
+          // Fall back to fail-closed if bridge creation fails due to I/O
           FailClosedRuntimeFacade(
-            unavailableReason = "Runtime bridge unavailable: ${e.message}",
+            unavailableReason = "Runtime bridge unavailable: ${e}",
+            environmentSupported = true,
+            capabilities =
+              RuntimeCapabilities(
+                streamingResponses = false,
+                resumableSessionList = false,
+                approvalRequests = false,
+              ),
+          )
+        } catch (e: IllegalStateException) {
+          // Fall back to fail-closed if bridge creation fails due to invalid state
+          FailClosedRuntimeFacade(
+            unavailableReason = "Runtime bridge unavailable: ${e}",
+            environmentSupported = true,
+            capabilities =
+              RuntimeCapabilities(
+                streamingResponses = false,
+                resumableSessionList = false,
+                approvalRequests = false,
+              ),
+          )
+        } catch (e: Exception) {
+          // Fall back to fail-closed for any other unexpected exceptions
+          FailClosedRuntimeFacade(
+            unavailableReason = "Runtime bridge unavailable: ${e}",
             environmentSupported = true,
             capabilities =
               RuntimeCapabilities(

@@ -7,6 +7,7 @@ import com.profiletailors.corvus.ui.chat.MobileRecoveryKind
 import kotlin.math.absoluteValue
 
 private const val DEFAULT_TARGET_ID = "mobile-runtime"
+private const val PREVIEW_SESSION_PAD = 12
 
 data class MobileRuntimeCoordinatorState(
   val bridgeSnapshot: MobileBridgeSnapshot,
@@ -16,7 +17,9 @@ data class MobileRuntimeCoordinatorState(
   val pendingApproval: RuntimeApprovalRequest? = null,
   val targetLabel: String? = null,
 ) {
-  val isChatReady: Boolean = bridgeSnapshot.toOnboardingState().status.name == "SESSION_READY"
+  val isChatReady: Boolean =
+    bridgeSnapshot.toOnboardingState().status ==
+      com.profiletailors.corvus.ui.chat.MobileOnboardingStatus.SESSION_READY
 }
 
 class MobileRuntimeCoordinator(
@@ -51,39 +54,15 @@ class MobileRuntimeCoordinator(
       }
     val sessions = sessionLookup.getOrDefault(emptyList())
 
-    val activeSessionId =
-      when {
-        persistedSessionId == null && readiness.activeSessionId != null -> {
-          val runtimeSessionId = requireNotNull(readiness.activeSessionId)
-          persistence.saveActiveSessionId(runtimeSessionId)
-          runtimeSessionId
-        }
-
-        persistedSessionId != null &&
-          (sessions.any { it.id == persistedSessionId } ||
-            readiness.activeSessionId == persistedSessionId) -> {
-          persistedSessionId
-        }
-
-        else -> null
-      }
-
+    val activeSessionId = computeActiveSessionId(persistedSessionId, sessions, readiness)
     val recoveryOverride =
-      when {
-        // Only clear persisted ID if session lookup succeeded and the persisted ID is truly absent
-        persistedSessionId != null && activeSessionId == null && sessionLookup.isSuccess -> {
-          persistence.clearActiveSessionId()
-          MobileRecoveryKind.SESSION_UNAVAILABLE
-        }
-
-        sessionLookup.isFailure && readiness.linkEstablished ->
-          MobileRecoveryKind.LINKED_BUT_NOT_SESSION_READY
-
-        linkedMetadata != null && !readiness.linkEstablished && !readiness.runtimeAvailable ->
-          MobileRecoveryKind.TRANSPORT_UNAVAILABLE
-
-        else -> null
-      }
+      computeRecoveryOverride(
+        persistedSessionId,
+        activeSessionId,
+        sessionLookup,
+        linkedMetadata,
+        readiness,
+      )
 
     if (readiness.linkEstablished && linkedMetadata == null) {
       persistence.saveLinkedRuntimeMetadata(LinkedRuntimeMetadata(targetId = DEFAULT_TARGET_ID))
@@ -107,6 +86,52 @@ class MobileRuntimeCoordinator(
         pendingApproval = null,
         targetLabel = updatedLinkedMetadata?.targetId,
       )
+  }
+
+  private fun computeActiveSessionId(
+    persistedSessionId: RuntimeSessionId?,
+    sessions: List<RuntimeSession>,
+    readiness: RuntimeReadinessSnapshot,
+  ): RuntimeSessionId? {
+    return when {
+      persistedSessionId == null && readiness.activeSessionId != null -> {
+        val runtimeSessionId = requireNotNull(readiness.activeSessionId)
+        persistence.saveActiveSessionId(runtimeSessionId)
+        runtimeSessionId
+      }
+
+      persistedSessionId != null &&
+        (sessions.any { it.id == persistedSessionId } ||
+          readiness.activeSessionId == persistedSessionId) -> {
+        persistedSessionId
+      }
+
+      else -> null
+    }
+  }
+
+  private fun computeRecoveryOverride(
+    persistedSessionId: RuntimeSessionId?,
+    activeSessionId: RuntimeSessionId?,
+    sessionLookup: Result<List<RuntimeSession>>,
+    linkedMetadata: LinkedRuntimeMetadata?,
+    readiness: RuntimeReadinessSnapshot,
+  ): MobileRecoveryKind? {
+    return when {
+      // Only clear persisted ID if session lookup succeeded and the persisted ID is truly absent
+      persistedSessionId != null && activeSessionId == null && sessionLookup.isSuccess -> {
+        persistence.clearActiveSessionId()
+        MobileRecoveryKind.SESSION_UNAVAILABLE
+      }
+
+      sessionLookup.isFailure && readiness.linkEstablished ->
+        MobileRecoveryKind.LINKED_BUT_NOT_SESSION_READY
+
+      linkedMetadata != null && !readiness.linkEstablished && !readiness.runtimeAvailable ->
+        MobileRecoveryKind.TRANSPORT_UNAVAILABLE
+
+      else -> null
+    }
   }
 
   fun startNewSession() {
@@ -361,7 +386,7 @@ class PreviewMobileRuntimeFacade(initialSnapshot: MobileBridgeSnapshot) : Mobile
 }
 
 private fun previewSessionId(index: Int): RuntimeSessionId =
-  RuntimeSessionId("550e8400-e29b-41d4-a716-${index.toString().padStart(12, '0')}")
+  RuntimeSessionId("550e8400-e29b-41d4-a716-${index.toString().padStart(PREVIEW_SESSION_PAD, '0')}")
 
 private fun previewAssistantReply(prompt: String): String =
   "Corvus runtime processed \"$prompt\" through the local mobile bridge."

@@ -220,6 +220,11 @@ For this milestone, composeApp client surfaces MUST NOT be required to provide:
 - offline mode,
 - local runtime hosting as a milestone acceptance condition.
 
+**Exception**: Runtime-level approval submission IS implemented via
+`AndroidRuntimeBridge.submitApproval` and `MobileRuntimeCoordinator.submitApproval`, but
+the milestone acceptance does NOT require the full UI/UX for approve/deny controls. The
+approval flow is available at the runtime bridge layer; the UI is deferred.
+
 #### Scenario: Client settings expose only readiness-critical controls in this milestone
 - GIVEN a desktop, Android, or iOS user opens client settings during this milestone
 - WHEN the available controls are inspected

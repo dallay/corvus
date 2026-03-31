@@ -5,6 +5,10 @@ import android.content.SharedPreferences
 class AndroidPersistence(private val sharedPreferences: SharedPreferences) :
   MobileRuntimePersistence {
   override fun readLinkedRuntimeMetadata(): LinkedRuntimeMetadata? {
+    return parseLinkedRuntimeMetadataComponents()
+  }
+
+  private fun parseLinkedRuntimeMetadataComponents(): LinkedRuntimeMetadata? {
     val targetId = sharedPreferences.getString(KEY_TARGET_ID, null) ?: return null
     val transportStr = sharedPreferences.getString(KEY_TRANSPORT_MODE, null)
     val trustStr = sharedPreferences.getString(KEY_TRUST_MODE, null)

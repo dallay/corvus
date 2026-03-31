@@ -25,6 +25,18 @@ import java.util.UUID
 
 private const val AGENT_NAME = "Corvus Agent"
 
+private data class ChatBindings(
+  val coordinatorState: com.profiletailors.corvus.runtime.MobileRuntimeCoordinatorState,
+  val onRetryBridge: () -> Unit,
+  val onLinkSurface: () -> Unit,
+  val onStartSession: () -> Unit,
+  val onResumeSession: (String) -> Unit,
+  val onSendMessage: (String) -> Unit,
+  val onDisconnectReset: () -> Unit,
+  val onApprove: () -> Unit,
+  val onDeny: () -> Unit,
+)
+
 @Composable
 @Preview
 fun App(platformOverride: Platform? = null, initialBridgeSnapshot: MobileBridgeSnapshot? = null) {
@@ -75,17 +87,20 @@ fun App(platformOverride: Platform? = null, initialBridgeSnapshot: MobileBridgeS
     } else {
       AppChatContent(
         platform = platform,
-        coordinatorState = coordinatorState,
-        onRetryBridge = { mutateCoordinator { refresh() } },
-        onLinkSurface = { mutateCoordinator { refresh() } },
-        onStartSession = { mutateCoordinator { startNewSession() } },
-        onResumeSession = { sessionId ->
-          mutateCoordinator { resumeSession(RuntimeSessionId(sessionId)) }
-        },
-        onSendMessage = { prompt -> mutateCoordinator { sendMessage(prompt) } },
-        onDisconnectReset = { mutateCoordinator { disconnect() } },
-        onApprove = { mutateCoordinator { submitApproval(RuntimeApprovalDecision.APPROVE) } },
-        onDeny = { mutateCoordinator { submitApproval(RuntimeApprovalDecision.DENY) } },
+        bindings =
+          ChatBindings(
+            coordinatorState = coordinatorState,
+            onRetryBridge = { mutateCoordinator { refresh() } },
+            onLinkSurface = { mutateCoordinator { refresh() } },
+            onStartSession = { mutateCoordinator { startNewSession() } },
+            onResumeSession = { sessionId ->
+              mutateCoordinator { resumeSession(RuntimeSessionId(sessionId)) }
+            },
+            onSendMessage = { prompt -> mutateCoordinator { sendMessage(prompt) } },
+            onDisconnectReset = { mutateCoordinator { disconnect() } },
+            onApprove = { mutateCoordinator { submitApproval(RuntimeApprovalDecision.APPROVE) } },
+            onDeny = { mutateCoordinator { submitApproval(RuntimeApprovalDecision.DENY) } },
+          ),
       )
     }
   }
@@ -110,35 +125,24 @@ private fun AppOnboardingContent(
 }
 
 @Composable
-private fun AppChatContent(
-  platform: Platform,
-  coordinatorState: com.profiletailors.corvus.runtime.MobileRuntimeCoordinatorState,
-  onRetryBridge: () -> Unit,
-  onLinkSurface: () -> Unit,
-  onStartSession: () -> Unit,
-  onResumeSession: (String) -> Unit,
-  onSendMessage: (String) -> Unit,
-  onDisconnectReset: () -> Unit,
-  onApprove: () -> Unit,
-  onDeny: () -> Unit,
-) {
+private fun AppChatContent(platform: Platform, bindings: ChatBindings) {
   ChatWorkspace(
     state = ChatWorkspaceDefaults.state(modelName = AGENT_NAME),
-    bridgeSnapshot = coordinatorState.bridgeSnapshot,
+    bridgeSnapshot = bindings.coordinatorState.bridgeSnapshot,
     platformName = platform.name,
-    messages = coordinatorState.messages,
-    pendingApproval = coordinatorState.pendingApproval,
-    resumableSessions = coordinatorState.resumableSessions,
-    targetLabel = coordinatorState.targetLabel,
-    activeSessionId = coordinatorState.activeSessionId?.value,
-    onRetryBridge = onRetryBridge,
-    onLinkSurface = onLinkSurface,
-    onStartSession = onStartSession,
-    onResumeSession = onResumeSession,
-    onSendMessage = onSendMessage,
-    onDisconnectReset = onDisconnectReset,
-    onApprove = onApprove,
-    onDeny = onDeny,
+    messages = bindings.coordinatorState.messages,
+    pendingApproval = bindings.coordinatorState.pendingApproval,
+    resumableSessions = bindings.coordinatorState.resumableSessions,
+    targetLabel = bindings.coordinatorState.targetLabel,
+    activeSessionId = bindings.coordinatorState.activeSessionId?.value,
+    onRetryBridge = bindings.onRetryBridge,
+    onLinkSurface = bindings.onLinkSurface,
+    onStartSession = bindings.onStartSession,
+    onResumeSession = bindings.onResumeSession,
+    onSendMessage = bindings.onSendMessage,
+    onDisconnectReset = bindings.onDisconnectReset,
+    onApprove = bindings.onApprove,
+    onDeny = bindings.onDeny,
   )
 }
 
