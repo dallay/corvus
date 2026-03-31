@@ -21,6 +21,7 @@ import com.profiletailors.corvus.ui.chat.MobileOnboardingStatus
 import com.profiletailors.corvus.ui.onboarding.OnboardingScreen
 import com.profiletailors.corvus.ui.onboarding.runtimeOnboardingStep
 import com.profiletailors.corvus.ui.theme.CorvusTheme
+import java.util.UUID
 
 private const val AGENT_NAME = "Corvus Agent"
 
@@ -46,10 +47,10 @@ fun App(platformOverride: Platform? = null, initialBridgeSnapshot: MobileBridgeS
   }
 
   val onboardingState = coordinatorState.bridgeSnapshot.toOnboardingState()
-  // Client-first: show onboarding when not in SESSION_READY, or when target is not configured
+  // Client-first: show onboarding when not in SESSION_READY (regardless of platform)
   val shouldShowOnboarding =
-    remember(platform, onboardingState.status) {
-      platform.isMobile && onboardingState.status != MobileOnboardingStatus.SESSION_READY
+    remember(onboardingState.status) {
+      onboardingState.status != MobileOnboardingStatus.SESSION_READY
     }
 
   CorvusTheme {
@@ -153,7 +154,7 @@ internal fun defaultPreviewBridgeSnapshotFor(platform: Platform): MobileBridgeSn
         runtimeAvailable = true,
         linkEstablished = true,
         sessionCapable = true,
-        sessionId = "desktop-preview-session",
+        sessionId = UUID.randomUUID().toString(),
       )
 
     platform.bridgeAvailability == BridgeAvailability.LOCAL_BRIDGE ->

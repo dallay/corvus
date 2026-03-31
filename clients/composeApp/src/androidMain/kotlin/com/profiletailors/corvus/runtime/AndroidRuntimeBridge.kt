@@ -14,11 +14,12 @@ data class AndroidRuntimeBridgeConfig(
 class AndroidRuntimeBridge(
   private val config: AndroidRuntimeBridgeConfig = AndroidRuntimeBridgeConfig()
 ) : RuntimeFacade {
+  // Default to zeroed capabilities - actual capabilities determined by probe
   override val capabilities: RuntimeCapabilities =
     RuntimeCapabilities(
       streamingResponses = false,
-      resumableSessionList = true,
-      approvalRequests = true,
+      resumableSessionList = false,
+      approvalRequests = false,
     )
 
   override fun probeReadiness(): RuntimeReadinessSnapshot =
@@ -31,6 +32,24 @@ class AndroidRuntimeBridge(
         it.substring(0, index).trim() to it.substring(index + 1).trim()
       }
       ?.let { values ->
+        val hasValidCapabilities =
+          values["cap_streaming"] != null ||
+            values["cap_resumable_sessions"] != null ||
+            values["cap_approval_requests"] != null
+        val probedCapabilities =
+          if (hasValidCapabilities) {
+            RuntimeCapabilities(
+              streamingResponses = values.booleanValue("cap_streaming"),
+              resumableSessionList = values.booleanValue("cap_resumable_sessions"),
+              approvalRequests = values.booleanValue("cap_approval_requests"),
+            )
+          } else {
+            RuntimeCapabilities(
+              streamingResponses = false,
+              resumableSessionList = false,
+              approvalRequests = false,
+            )
+          }
         RuntimeReadinessSnapshot(
           runtimeAvailable = values.booleanValue("runtime_available"),
           linkEstablished =
@@ -38,19 +57,19 @@ class AndroidRuntimeBridge(
           sessionCapable = values.booleanValue("session_capable"),
           activeSessionId =
             values["session_id"]?.takeIf { it.isNotBlank() }?.let(::RuntimeSessionId),
-          capabilities =
-            RuntimeCapabilities(
-              streamingResponses = values.booleanValue("cap_streaming"),
-              resumableSessionList = values.booleanValue("cap_resumable_sessions"),
-              approvalRequests = values.booleanValue("cap_approval_requests"),
-            ),
+          capabilities = probedCapabilities,
         )
       }
       ?: RuntimeReadinessSnapshot(
         runtimeAvailable = false,
         linkEstablished = false,
         sessionCapable = false,
-        capabilities = capabilities,
+        capabilities =
+          RuntimeCapabilities(
+            streamingResponses = false,
+            resumableSessionList = false,
+            approvalRequests = false,
+          ),
       )
 
   override fun createSession(metadata: Map<String, String>): RuntimeSession =
@@ -75,7 +94,10 @@ class AndroidRuntimeBridge(
     sessionFrom(requireNotNull(runCommand("__corvus_resume_session__${sessionId.value}")))
 
   override fun endSession(sessionId: RuntimeSessionId) {
-    runCommand("__corvus_end_session__${sessionId.value}")
+    val result = runCommand("__corvus_end_session__${sessionId.value}")
+    if (result == null) {
+      throw IllegalStateException("Failed to end session ${sessionId.value}: runtime unavailable")
+    }
   }
 
   override fun sendMessage(sessionId: RuntimeSessionId, prompt: String): RuntimeTurnResult =
@@ -115,17 +137,36 @@ class AndroidRuntimeBridge(
         return null
       }
 
+    // Start background thread to read output to avoid deadlock
+    val outputBuilder = StringBuilder()
+    val readerThread = Thread {
+      try {
+        process.inputStream.bufferedReader().use { reader ->
+          var line: String?
+          while (reader.readLine().also { line = it } != null) {
+            outputBuilder.append(line).append("\n")
+          }
+        }
+      } catch (_: Exception) {
+        // Ignore read errors
+      }
+    }
+    readerThread.start()
+
     val finished = process.waitFor(config.defaultTimeoutMs, TimeUnit.MILLISECONDS)
     if (!finished) {
       process.destroyForcibly()
+      readerThread.interrupt()
       return null
     }
+
+    readerThread.join(1000) // Wait for reader to finish
 
     if (process.exitValue() != 0) {
       return null
     }
 
-    return process.inputStream.bufferedReader().use { it.readText() }.trim()
+    return outputBuilder.toString().trim()
   }
 
   private fun sessionFrom(rawOutput: String): RuntimeSession {
@@ -157,6 +198,28 @@ class AndroidRuntimeBridge(
     }
 
     val values = rawOutput.toValues()
+
+    // Check for approval request
+    val approvalRequestId = values["approval_request_id"]
+    val approvalMessage = values["approval_message"]
+    if (approvalRequestId != null && approvalMessage != null) {
+      return RuntimeTurnResult(
+        sessionId = sessionId,
+        events =
+          listOf(
+            RuntimeEvent.ApprovalPending(
+              request =
+                RuntimeApprovalRequest(
+                  id = approvalRequestId,
+                  sessionId = sessionId,
+                  toolLabel = "Tool",
+                  reason = approvalMessage,
+                )
+            )
+          ),
+      )
+    }
+
     val message = values["assistant_message"]?.takeIf { it.isNotBlank() } ?: fallback
     return RuntimeTurnResult(
       sessionId = sessionId,

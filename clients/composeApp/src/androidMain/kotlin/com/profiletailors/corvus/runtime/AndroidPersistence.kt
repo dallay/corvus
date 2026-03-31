@@ -6,14 +6,19 @@ class AndroidPersistence(private val sharedPreferences: SharedPreferences) :
   MobileRuntimePersistence {
   override fun readLinkedRuntimeMetadata(): LinkedRuntimeMetadata? {
     val targetId = sharedPreferences.getString(KEY_TARGET_ID, null) ?: return null
+    val transportStr = sharedPreferences.getString(KEY_TRANSPORT_MODE, null)
+    val trustStr = sharedPreferences.getString(KEY_TRUST_MODE, null)
+    val transportMode = transportStr.toTransportMode() ?: return null
+    val trustMode = trustStr.toTrustMode() ?: return null
+    val linkedAtEpochMs =
+      sharedPreferences.getLong(KEY_LINKED_AT_EPOCH_MS, MISSING_LINKED_AT).takeIf {
+        it != MISSING_LINKED_AT
+      } ?: return null
     return LinkedRuntimeMetadata(
       targetId = targetId,
-      transportMode = sharedPreferences.getString(KEY_TRANSPORT_MODE, null).toTransportMode(),
-      trustMode = sharedPreferences.getString(KEY_TRUST_MODE, null).toTrustMode(),
-      linkedAtEpochMs =
-        sharedPreferences.getLong(KEY_LINKED_AT_EPOCH_MS, MISSING_LINKED_AT).takeIf {
-          it != MISSING_LINKED_AT
-        },
+      transportMode = transportMode,
+      trustMode = trustMode,
+      linkedAtEpochMs = linkedAtEpochMs,
     )
   }
 
@@ -61,22 +66,18 @@ class AndroidPersistence(private val sharedPreferences: SharedPreferences) :
   }
 }
 
-private fun String?.toTransportMode(): RuntimeTransportMode =
+private fun String?.toTransportMode(): RuntimeTransportMode? =
   when (this) {
-    RuntimeTransportMode.CLI_BRIDGE.name,
-    "CLI bridge",
-    null -> RuntimeTransportMode.CLI_BRIDGE
+    RuntimeTransportMode.CLI_BRIDGE.name -> RuntimeTransportMode.CLI_BRIDGE
     RuntimeTransportMode.DIRECT.name -> RuntimeTransportMode.DIRECT
     RuntimeTransportMode.HTTP_GATEWAY.name -> RuntimeTransportMode.HTTP_GATEWAY
-    else -> RuntimeTransportMode.CLI_BRIDGE
+    else -> null
   }
 
-private fun String?.toTrustMode(): RuntimeTrustMode =
+private fun String?.toTrustMode(): RuntimeTrustMode? =
   when (this) {
-    RuntimeTrustMode.BRIDGE_LINKED.name,
-    "Bridge linked",
-    null -> RuntimeTrustMode.BRIDGE_LINKED
+    RuntimeTrustMode.BRIDGE_LINKED.name -> RuntimeTrustMode.BRIDGE_LINKED
     RuntimeTrustMode.HOST_TRUSTED.name -> RuntimeTrustMode.HOST_TRUSTED
     RuntimeTrustMode.HTTP_PAIRED.name -> RuntimeTrustMode.HTTP_PAIRED
-    else -> RuntimeTrustMode.BRIDGE_LINKED
+    else -> null
   }

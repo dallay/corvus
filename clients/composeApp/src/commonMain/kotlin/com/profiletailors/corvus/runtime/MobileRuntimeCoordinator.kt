@@ -70,7 +70,8 @@ class MobileRuntimeCoordinator(
 
     val recoveryOverride =
       when {
-        persistedSessionId != null && activeSessionId == null -> {
+        // Only clear persisted ID if session lookup succeeded and the persisted ID is truly absent
+        persistedSessionId != null && activeSessionId == null && sessionLookup.isSuccess -> {
           persistence.clearActiveSessionId()
           MobileRecoveryKind.SESSION_UNAVAILABLE
         }
