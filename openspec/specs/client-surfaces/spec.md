@@ -60,6 +60,20 @@ Each surface uses exactly one transport mechanism for all runtime communication:
 - Mobile clients use CLI bridge because the gateway may not be network-accessible on embedded devices.
 - CLI operators use direct runtime access for full capability access during development and server management.
 
+Each surface MUST use exactly one transport for all runtime communication.
+
+#### Scenario: Web surfaces use HTTP Gateway
+- GIVEN a web client surface (`chat` or `dashboard`) is evaluated for transport
+- WHEN it implements runtime communication
+- THEN the surface MUST use HTTP Gateway endpoints
+- AND it MUST NOT use process bridges or CLI invocation.
+
+#### Scenario: Mobile surfaces use CLI bridge
+- GIVEN a mobile client surface (`composeApp` for desktop/Android/iOS) is evaluated for transport
+- WHEN it implements runtime communication
+- THEN the surface MUST use the RustCliBridge (process bridge)
+- AND it MUST NOT use HTTP Gateway as the primary transport.
+
 ### HTTP Gateway Endpoints
 
 The gateway exposes a **client-safe subset** of runtime capabilities. Route groups below use the implemented HTTP prefixes rather than shorthand aliases:
