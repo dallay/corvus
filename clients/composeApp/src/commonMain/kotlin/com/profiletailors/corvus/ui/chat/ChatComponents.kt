@@ -151,6 +151,9 @@ fun ChatBubble(message: ChatMessage, modelName: String) {
 
 @Composable
 private fun AvatarWithGlow(corvusColors: CorvusColorPalette) {
+  val avatarGradient =
+    remember(corvusColors.gradientPrimary) { Brush.linearGradient(corvusColors.gradientPrimary) }
+
   Box(
     modifier =
       Modifier.size(32.dp)
@@ -159,10 +162,7 @@ private fun AvatarWithGlow(corvusColors: CorvusColorPalette) {
           shape = CircleShape,
           spotColor = corvusColors.glowCyan.copy(alpha = 0.5f),
         )
-        .background(
-          brush = Brush.linearGradient(corvusColors.gradientPrimary),
-          shape = CircleShape,
-        ),
+        .background(brush = avatarGradient, shape = CircleShape),
     contentAlignment = Alignment.Center,
   ) {
     Text(
@@ -236,7 +236,7 @@ private fun ChatBubbleBody(
 fun ChatInputField(
   value: String,
   onValueChange: (String) -> Unit,
-  onSend: () -> Unit,
+  onSend: (String) -> Unit,
   placeholder: String,
   modifier: Modifier = Modifier,
   enabled: Boolean = true,
@@ -280,8 +280,8 @@ fun ChatInputField(
 
     Spacer(modifier = Modifier.width(12.dp))
 
-    Box(
-      modifier =
+    val sendButtonModifier =
+      remember(isEnabled, gradient, corvusColors.glowPurple) {
         Modifier.size(48.dp)
           .shadow(
             elevation = 6.dp,
@@ -291,10 +291,11 @@ fun ChatInputField(
           .clip(CircleShape)
           .background(
             if (isEnabled) gradient else Brush.linearGradient(listOf(Color.Gray, Color.Gray))
-          ),
-      contentAlignment = Alignment.Center,
-    ) {
-      IconButton(onClick = onSend, enabled = isEnabled) {
+          )
+      }
+
+    Box(modifier = sendButtonModifier, contentAlignment = Alignment.Center) {
+      IconButton(onClick = { onSend(value.trim()) }, enabled = isEnabled) {
         Icon(
           imageVector = Icons.AutoMirrored.Filled.Send,
           contentDescription = "Send",
