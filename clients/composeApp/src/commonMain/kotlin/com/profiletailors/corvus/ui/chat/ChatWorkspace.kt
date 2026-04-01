@@ -158,10 +158,12 @@ fun ChatWorkspace(
   }
 
   val displayMessages =
-    if (messages.isEmpty()) {
-      listOf(ChatMessage(id = 0, role = ChatRole.Assistant, content = state.welcomeMessage))
-    } else {
-      messages
+    remember(messages, state.welcomeMessage) {
+      if (messages.isEmpty()) {
+        listOf(ChatMessage(id = 0, role = ChatRole.Assistant, content = state.welcomeMessage))
+      } else {
+        messages
+      }
     }
 
   val actions =
@@ -217,14 +219,16 @@ private fun ChatWorkspaceScreen(
   val corvusColors = CorvusTheme.colors
   val shouldShowConfig = uiState.showConfig || !uiState.bridgeState.isChatReady
 
-  Column(
-    modifier =
+  val screenModifier =
+    remember(modifier, colors.background) {
       modifier
         .fillMaxSize()
         .background(colors.background)
         .safeContentPadding()
         .padding(horizontal = 20.dp, vertical = 16.dp)
-  ) {
+    }
+
+  Column(modifier = screenModifier) {
     ChatHeader(
       modelName = uiState.workspaceState.modelName,
       bridgeState = uiState.bridgeState,
@@ -293,28 +297,11 @@ private fun ChatPanel(
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    Surface(
+    MessageList(
+      messages = messages,
+      modelName = state.modelName,
       modifier = Modifier.fillMaxWidth().weight(1f),
-      shape = RoundedCornerShape(20.dp),
-      color = corvusColors.glassSurface,
-    ) {
-      Box(
-        modifier =
-          Modifier.background(
-            brush =
-              Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
-          )
-      ) {
-        LazyColumn(
-          modifier = Modifier.fillMaxSize().padding(16.dp),
-          verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-          items(items = messages, key = { it.id }, contentType = { it.role }) { message ->
-            ChatBubble(message = message, modelName = state.modelName)
-          }
-        }
-      }
-    }
+    )
 
     Spacer(modifier = Modifier.height(16.dp))
 
@@ -331,9 +318,40 @@ private fun ChatPanel(
     ChatInputField(
       value = query,
       onValueChange = actions.onQueryChange,
-      onSend = { actions.onSend(query.trim()) },
+      onSend = actions.onSend,
       placeholder = state.inputPlaceholder,
       enabled = bridgeState.isChatReady,
     )
+  }
+}
+
+@Composable
+private fun MessageList(
+  messages: List<ChatMessage>,
+  modelName: String,
+  modifier: Modifier = Modifier,
+) {
+  val corvusColors = CorvusTheme.colors
+
+  Surface(
+    modifier = modifier,
+    shape = RoundedCornerShape(20.dp),
+    color = corvusColors.glassSurface,
+  ) {
+    Box(
+      modifier =
+        Modifier.background(
+          brush = Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
+        )
+    ) {
+      LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+      ) {
+        items(items = messages, key = { it.id }, contentType = { it.role }) { message ->
+          ChatBubble(message = message, modelName = modelName)
+        }
+      }
+    }
   }
 }
