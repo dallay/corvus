@@ -40,6 +40,7 @@ Herramientas para gestionar la ejecución autónoma basada en el tiempo.
   - `every`: Intervalos fijos en milisegundos.
 
 ### Acciones de `schedule`
+
 `create`, `list`, `get`, `cancel`, `pause`, `resume`.
 
 ---

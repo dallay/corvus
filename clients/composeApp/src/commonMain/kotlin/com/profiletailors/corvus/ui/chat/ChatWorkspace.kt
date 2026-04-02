@@ -152,7 +152,7 @@ fun ChatWorkspace(
 
   fun sendMessage(prompt: String) {
     if (!bridgeState.isChatReady) return
-    if (prompt.isBlank()) return
+    if (prompt.trim().isBlank()) return
     onSendMessage(prompt)
     query = ""
   }
