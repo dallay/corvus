@@ -1,6 +1,6 @@
 use corvus::config::{BrowserConfig, Config, McpConfig, McpServerConfig, MemoryConfig};
 use corvus::memory::{self, Memory};
-use corvus::security::SecurityPolicy;
+use corvus::security::{NoopSandbox, Sandbox, SecurityPolicy};
 use corvus::tools::{self, Tool};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
@@ -28,10 +28,12 @@ fn build_tools(root_config: &Config, workspace: &std::path::Path) -> Vec<Box<dyn
         ..MemoryConfig::default()
     };
     let mem: Arc<dyn Memory> = Arc::from(memory::create_memory(&mem_cfg, workspace, None).unwrap());
+    let sandbox: Arc<dyn Sandbox> = Arc::new(NoopSandbox);
 
     tools::all_tools(
         Arc::new(Config::default()),
         &security,
+        sandbox,
         mem,
         None,
         None,

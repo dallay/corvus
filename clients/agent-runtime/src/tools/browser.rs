@@ -54,8 +54,16 @@ pub struct BrowserTool {
     native_webdriver_url: String,
     native_chrome_path: Option<String>,
     computer_use: ComputerUseConfig,
+    sidecar_verification_required: bool,
+    sidecar_health: tokio::sync::Mutex<Option<SidecarHealthStatus>>,
     #[cfg(feature = "browser-native")]
     native_state: tokio::sync::Mutex<native_backend::NativeBrowserState>,
+}
+
+#[derive(Debug, Clone)]
+enum SidecarHealthStatus {
+    Verified(serde_json::Value),
+    Failed(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -236,9 +244,16 @@ impl BrowserTool {
             native_webdriver_url,
             native_chrome_path,
             computer_use,
+            sidecar_verification_required: false,
+            sidecar_health: tokio::sync::Mutex::new(None),
             #[cfg(feature = "browser-native")]
             native_state: tokio::sync::Mutex::new(native_backend::NativeBrowserState::default()),
         }
+    }
+
+    pub fn with_sidecar_verification_required(mut self, required: bool) -> Self {
+        self.sidecar_verification_required = required;
+        self
     }
 
     /// Check if agent-browser CLI is available
@@ -325,6 +340,99 @@ impl BrowserTool {
     fn computer_use_available(&self) -> anyhow::Result<bool> {
         let endpoint = self.computer_use_endpoint_url()?;
         Ok(endpoint_reachable(&endpoint, Duration::from_millis(500)))
+    }
+
+    fn computer_use_health_url(&self) -> anyhow::Result<reqwest::Url> {
+        let mut url = self.computer_use_endpoint_url()?;
+        url.set_path("/v1/health");
+        url.set_query(None);
+        url.set_fragment(None);
+        Ok(url)
+    }
+
+    async fn verify_computer_use_sidecar(&self) -> anyhow::Result<Option<serde_json::Value>> {
+        {
+            let guard = self.sidecar_health.lock().await;
+            if let Some(status) = guard.clone() {
+                return match status {
+                    SidecarHealthStatus::Verified(value) => Ok(Some(value)),
+                    SidecarHealthStatus::Failed(message) => {
+                        if self.sidecar_verification_required {
+                            Err(anyhow::anyhow!(message))
+                        } else {
+                            Ok(None)
+                        }
+                    }
+                };
+            }
+        }
+
+        let verification = self.fetch_computer_use_sidecar_health().await;
+        let mut guard = self.sidecar_health.lock().await;
+
+        match verification {
+            Ok(value) => {
+                *guard = Some(SidecarHealthStatus::Verified(value.clone()));
+                Ok(Some(value))
+            }
+            Err(error) => {
+                let message = format!("computer-use sidecar health-check failed: {error}");
+                tracing::warn!("{message}");
+                *guard = Some(SidecarHealthStatus::Failed(message.clone()));
+                if self.sidecar_verification_required {
+                    Err(anyhow::anyhow!(message))
+                } else {
+                    Ok(None)
+                }
+            }
+        }
+    }
+
+    async fn fetch_computer_use_sidecar_health(&self) -> anyhow::Result<serde_json::Value> {
+        let endpoint = self.computer_use_health_url()?;
+        let client = reqwest::Client::new();
+        let mut request = client.get(endpoint.clone()).timeout(Duration::from_millis(
+            self.computer_use.timeout_ms.min(5_000),
+        ));
+
+        if let Some(api_key) = self.computer_use.api_key.as_deref() {
+            let token = api_key.trim();
+            if !token.is_empty() {
+                request = request.bearer_auth(token);
+            }
+        }
+
+        let response = request
+            .send()
+            .await
+            .with_context(|| format!("Failed to call computer-use sidecar health at {endpoint}"))?;
+
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "computer-use sidecar health endpoint returned {}",
+                response.status()
+            );
+        }
+
+        let payload: Value = response
+            .json()
+            .await
+            .context("Failed to parse computer-use sidecar health response")?;
+
+        let status = payload
+            .get("status")
+            .and_then(Value::as_str)
+            .unwrap_or("unknown");
+        let isolation = payload
+            .get("isolation")
+            .cloned()
+            .unwrap_or_else(|| json!({}));
+
+        Ok(json!({
+            "status": status,
+            "endpoint": endpoint.as_str(),
+            "isolation": isolation,
+        }))
     }
 
     async fn require_agent_browser_backend(
@@ -744,6 +852,7 @@ impl BrowserTool {
         action: &str,
         args: &Value,
     ) -> anyhow::Result<ToolResult> {
+        let sidecar_health = self.verify_computer_use_sidecar().await?;
         let endpoint = self.computer_use_endpoint_url()?;
 
         let mut params = args
@@ -814,7 +923,12 @@ impl BrowserTool {
                     success: true,
                     output,
                     error: None,
-                    structured: None,
+                    structured: Some(json!({
+                        "computer_use": {
+                            "action": action,
+                            "sidecar_health": sidecar_health,
+                        }
+                    })),
                 });
             }
 
@@ -832,7 +946,12 @@ impl BrowserTool {
                 success: false,
                 output: String::new(),
                 error,
-                structured: None,
+                structured: Some(json!({
+                    "computer_use": {
+                        "action": action,
+                        "sidecar_health": sidecar_health,
+                    }
+                })),
             });
         }
 
@@ -841,7 +960,12 @@ impl BrowserTool {
                 success: true,
                 output: body,
                 error: None,
-                structured: None,
+                structured: Some(json!({
+                    "computer_use": {
+                        "action": action,
+                        "sidecar_health": sidecar_health,
+                    }
+                })),
             });
         }
 
@@ -852,7 +976,12 @@ impl BrowserTool {
                 "computer-use sidecar request failed with status {status}: {}",
                 body.trim()
             )),
-            structured: None,
+            structured: Some(json!({
+                "computer_use": {
+                    "action": action,
+                    "sidecar_health": sidecar_health,
+                }
+            })),
         })
     }
 
@@ -2195,6 +2324,35 @@ fn host_matches_allowlist(host: &str, allowed: &[String]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::{routing::get, Router};
+    use tokio::net::TcpListener;
+
+    async fn spawn_health_server(body: Value, status: axum::http::StatusCode) -> String {
+        let app = Router::new().route(
+            "/v1/health",
+            get(move || {
+                let body = body.clone();
+                async move { (status, axum::Json(body)) }
+            }),
+        );
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}/v1/actions")
+    }
+
+    async fn spawn_no_health_server() -> String {
+        let app = Router::new();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+        format!("http://{addr}/v1/actions")
+    }
 
     #[test]
     fn normalize_domains_works() {
@@ -2425,6 +2583,144 @@ mod tests {
         );
 
         assert!(tool.computer_use_endpoint_url().is_ok());
+    }
+
+    #[test]
+    fn computer_use_health_url_rewrites_actions_to_health() {
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "computer_use".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            ComputerUseConfig::default(),
+        );
+
+        let url = tool.computer_use_health_url().unwrap();
+        assert_eq!(url.as_str(), "http://127.0.0.1:8787/v1/health");
+    }
+
+    #[test]
+    fn browser_tool_can_require_sidecar_verification() {
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "computer_use".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            ComputerUseConfig::default(),
+        )
+        .with_sidecar_verification_required(true);
+
+        assert!(tool.sidecar_verification_required);
+    }
+
+    #[tokio::test]
+    async fn computer_use_sidecar_health_check_reports_isolation_info() {
+        let endpoint = spawn_health_server(
+            json!({
+                "status": "healthy",
+                "isolation": {
+                    "type": "container",
+                    "runtime": "docker"
+                }
+            }),
+            axum::http::StatusCode::OK,
+        )
+        .await;
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "computer_use".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            ComputerUseConfig {
+                endpoint,
+                ..ComputerUseConfig::default()
+            },
+        );
+
+        let result = tool.verify_computer_use_sidecar().await.unwrap().unwrap();
+        assert_eq!(result["status"], "healthy");
+        assert_eq!(result["isolation"]["type"], "container");
+        assert_eq!(result["isolation"]["runtime"], "docker");
+    }
+
+    #[tokio::test]
+    async fn computer_use_sidecar_health_check_fails_gracefully_when_optional() {
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "computer_use".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            ComputerUseConfig {
+                endpoint: "http://127.0.0.1:9/v1/actions".into(),
+                timeout_ms: 50,
+                ..ComputerUseConfig::default()
+            },
+        );
+
+        let result = tool.verify_computer_use_sidecar().await.unwrap();
+        assert!(result.is_none());
+    }
+
+    #[tokio::test]
+    async fn computer_use_sidecar_health_check_rejects_when_required() {
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "computer_use".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            ComputerUseConfig {
+                endpoint: "http://127.0.0.1:9/v1/actions".into(),
+                timeout_ms: 50,
+                ..ComputerUseConfig::default()
+            },
+        )
+        .with_sidecar_verification_required(true);
+
+        let result = tool.verify_computer_use_sidecar().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn computer_use_sidecar_missing_health_endpoint_is_treated_as_failure() {
+        let endpoint = spawn_no_health_server().await;
+        let security = Arc::new(SecurityPolicy::default());
+        let tool = BrowserTool::new_with_backend(
+            security,
+            vec!["example.com".into()],
+            None,
+            "computer_use".into(),
+            true,
+            "http://127.0.0.1:9515".into(),
+            None,
+            ComputerUseConfig {
+                endpoint,
+                timeout_ms: 200,
+                ..ComputerUseConfig::default()
+            },
+        );
+
+        let result = tool.verify_computer_use_sidecar().await.unwrap();
+        assert!(result.is_none());
     }
 
     #[test]

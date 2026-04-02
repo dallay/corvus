@@ -224,10 +224,13 @@ impl BootstrapContext {
             (None, None)
         };
 
+        let sandbox = crate::security::create_sandbox(&config.security)?;
+
         let tools = tools::all_tools_with_runtime(
             Arc::new(config.clone()),
             &security,
             Arc::clone(&runtime),
+            sandbox,
             Arc::clone(&memory),
             composio_key,
             composio_entity_id,
@@ -401,10 +404,13 @@ mod tests {
             .unwrap(),
         );
 
+        let sandbox = crate::security::create_sandbox(&config.security).unwrap();
+
         let tools = tools::all_tools_with_runtime(
             Arc::new(config.clone()),
             &security,
             runtime,
+            sandbox,
             memory,
             Some("composio-test-key"),
             Some("composio-test-entity"),
