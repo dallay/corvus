@@ -137,6 +137,8 @@ jobs:
           script: |
             const expectedSha = process.env.EXPECTED_SHA
             const expectedRepo = process.env.EXPECTED_REPO
+
+            // Fetch the current PR head from the API to detect any changes on the remote branch
             const { data: pr } = await github.rest.pulls.get({
               owner: context.repo.owner,
               repo: context.repo.repo,
@@ -154,7 +156,10 @@ jobs:
             const localSha = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim()
             core.info(`Current  repo/SHA (local HEAD): ${expectedRepo} @ ${localSha}`)
 
-            if (currentRepo !== expectedRepo || currentSha !== expectedSha || localSha !== expectedSha) {
+            const remoteChanged = currentRepo !== expectedRepo || currentSha !== expectedSha
+            const localChanged = localSha !== expectedSha
+
+            if (remoteChanged || localChanged) {
               core.setFailed(
                 `PR head changed after approval/check (expected ${expectedRepo}@${expectedSha}, got remote ${currentRepo}@${currentSha}, local HEAD ${expectedRepo}@${localSha}). Re-run /fix-lock.`
               )
