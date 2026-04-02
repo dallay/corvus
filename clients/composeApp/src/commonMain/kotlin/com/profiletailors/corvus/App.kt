@@ -21,7 +21,7 @@ import com.profiletailors.corvus.ui.chat.MobileOnboardingStatus
 import com.profiletailors.corvus.ui.onboarding.OnboardingScreen
 import com.profiletailors.corvus.ui.onboarding.runtimeOnboardingStep
 import com.profiletailors.corvus.ui.theme.CorvusTheme
-import java.util.UUID
+import kotlin.random.Random
 
 private const val AGENT_NAME = "Corvus Agent"
 
@@ -155,7 +155,7 @@ internal fun defaultPreviewBridgeSnapshotFor(platform: Platform): MobileBridgeSn
         runtimeAvailable = true,
         linkEstablished = true,
         sessionCapable = true,
-        sessionId = UUID.randomUUID().toString(),
+        sessionId = Random.nextLong().toULong().toString(radix = 16),
       )
 
     platform.bridgeAvailability == BridgeAvailability.LOCAL_BRIDGE ->
