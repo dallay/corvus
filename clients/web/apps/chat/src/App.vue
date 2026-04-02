@@ -35,6 +35,7 @@ const modelName = "Corvus Agent";
 const { t } = useI18n();
 
 const showConfig = ref(false);
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const sidebarCollapsed = ref(true);
 const prompt = ref("");
 const chatContainer = ref<HTMLDivElement | null>(null);

@@ -1374,8 +1374,8 @@ async fn run_message_dispatch_loop(
 
         let worker_ctx = Arc::clone(&ctx);
         workers.spawn(async move {
-            let _permit = permit;
             process_channel_message(worker_ctx, msg).await;
+            drop(permit); // Ensure semaphore permit lives until task completes.
         });
 
         while let Some(result) = workers.try_join_next() {

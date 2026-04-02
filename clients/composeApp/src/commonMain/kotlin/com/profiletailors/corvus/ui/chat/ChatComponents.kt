@@ -20,15 +20,12 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,8 +38,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.profiletailors.corvus.runtime.RuntimeApprovalRequest
@@ -151,6 +146,9 @@ fun ChatBubble(message: ChatMessage, modelName: String) {
 
 @Composable
 private fun AvatarWithGlow(corvusColors: CorvusColorPalette) {
+  val avatarGradient =
+    remember(corvusColors.gradientPrimary) { Brush.linearGradient(corvusColors.gradientPrimary) }
+
   Box(
     modifier =
       Modifier.size(32.dp)
@@ -159,10 +157,7 @@ private fun AvatarWithGlow(corvusColors: CorvusColorPalette) {
           shape = CircleShape,
           spotColor = corvusColors.glowCyan.copy(alpha = 0.5f),
         )
-        .background(
-          brush = Brush.linearGradient(corvusColors.gradientPrimary),
-          shape = CircleShape,
-        ),
+        .background(brush = avatarGradient, shape = CircleShape),
     contentAlignment = Alignment.Center,
   ) {
     Text(
@@ -226,80 +221,6 @@ private fun ChatBubbleBody(
           text = message.content,
           style = MaterialTheme.typography.bodyMedium,
           color = contentColor,
-        )
-      }
-    }
-  }
-}
-
-@Composable
-fun ChatInputField(
-  value: String,
-  onValueChange: (String) -> Unit,
-  onSend: () -> Unit,
-  placeholder: String,
-  modifier: Modifier = Modifier,
-  enabled: Boolean = true,
-) {
-  val colors = MaterialTheme.colorScheme
-  val corvusColors = CorvusTheme.colors
-  val gradient =
-    remember(corvusColors.gradientPrimary) {
-      Brush.horizontalGradient(corvusColors.gradientPrimary)
-    }
-  val isEnabled = enabled && value.trim().isNotBlank()
-
-  Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
-    Surface(
-      modifier = Modifier.weight(1f),
-      shape = RoundedCornerShape(16.dp),
-      color = corvusColors.glassSurface,
-      border = BorderStroke(1.dp, corvusColors.glassOverlay),
-    ) {
-      OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = Modifier.fillMaxWidth(),
-        enabled = enabled,
-        placeholder = {
-          Text(text = placeholder, color = colors.onSurfaceVariant.copy(alpha = 0.6f))
-        },
-        colors =
-          OutlinedTextFieldDefaults.colors(
-            focusedBorderColor = Color.Transparent,
-            unfocusedBorderColor = Color.Transparent,
-            focusedTextColor = colors.onSurface,
-            unfocusedTextColor = colors.onSurface,
-            disabledBorderColor = Color.Transparent,
-            disabledTextColor = colors.onSurfaceVariant,
-          ),
-        maxLines = 4,
-        textStyle = TextStyle(fontFamily = FontFamily.SansSerif),
-      )
-    }
-
-    Spacer(modifier = Modifier.width(12.dp))
-
-    Box(
-      modifier =
-        Modifier.size(48.dp)
-          .shadow(
-            elevation = 6.dp,
-            shape = CircleShape,
-            spotColor = if (isEnabled) corvusColors.glowPurple else Color.Gray,
-          )
-          .clip(CircleShape)
-          .background(
-            if (isEnabled) gradient else Brush.linearGradient(listOf(Color.Gray, Color.Gray))
-          ),
-      contentAlignment = Alignment.Center,
-    ) {
-      IconButton(onClick = onSend, enabled = isEnabled) {
-        Icon(
-          imageVector = Icons.AutoMirrored.Filled.Send,
-          contentDescription = "Send",
-          tint = Color.White,
-          modifier = Modifier.size(22.dp),
         )
       }
     }

@@ -1,0 +1,51 @@
+---
+title: Referencia de Herramientas
+description: Descripción general del sistema de herramientas de Corvus Agent, modelo de seguridad y registro.
+owner: team-runtime
+status: canonical
+lastReviewed: 2026-03-26
+appliesTo: main
+docType: reference
+---
+
+# Referencia de Herramientas
+
+Los agentes de Corvus interactúan con el mundo a través de **Herramientas**. Cada herramienta es una función especializada que el agente puede invocar con parámetros estructurados para realizar acciones, recuperar datos o gestionar su estado interno.
+
+El sistema de herramientas se basa en un modelo de seguridad de "denegación por defecto", asegurando que cada operación esté sujeta a la [Política de Seguridad](../../guides/configuration.md#autonomía-y-seguridad) configurada.
+
+## Categorías
+
+Las herramientas integradas se organizan en cinco categorías principales:
+
+- [**Herramientas Core**](core.md) — Ejecución de comandos del sistema (`shell`) y acceso al sistema de archivos del workspace (`file_read`, `file_write`).
+- [**Herramientas Web**](web.md) — Navegación web (`browser`), búsqueda (`web_search_tool`) y llamadas estructuradas a APIs (`http_request`).
+- [**Herramientas de Memoria**](memory.md) — Persistencia a largo plazo y recuperación de hechos y preferencias (`memory_store`, `memory_recall`).
+- [**Herramientas de Automatización**](automation.md) — Gestión de repositorios Git, tareas programadas (Cron/Schedule) y notificaciones (`pushover`).
+- [**Herramientas Multimedia**](media.md) — Capacidades relacionadas con la visión, incluyendo captura de pantalla y extracción de metadatos de imágenes.
+
+## Modelo de Seguridad
+
+Cada ejecución de herramienta pasa por la capa de `SecurityPolicy`. Las herramientas se clasifican en dos niveles operativos:
+
+### Solo Lectura (Seguras)
+Estas herramientas no modifican el sistema ni el estado externo. Generalmente están permitidas incluso en modos de baja autonomía.
+- *Ejemplos:* `file_read`, `memory_recall`, `web_search_tool`, `image_info`.
+
+### De Acción (Con riesgo)
+Estas herramientas pueden modificar archivos, ejecutar código o interactuar con servicios externos. Pueden requerir aprobación explícita del usuario en modos supervisados.
+- *Ejemplos:* `shell`, `file_write`, `git_operations`, `cron_add`, `pushover`.
+
+## Integración MCP
+
+Además de las herramientas integradas, Corvus soporta el **Model Context Protocol (MCP)**. Esto permite extender las capacidades del agente conectándolo a servidores MCP externos.
+
+Las herramientas MCP reciben automáticamente un namespace como `mcp.<nombre_servidor>.<nombre_herramienta>`. Para una configuración detallada, consulta la [Guía de MCP](mcp.md).
+
+## Registro y Descubrimiento
+
+Las herramientas se registran durante el proceso de arranque (bootstrap) del runtime. El agente descubre las herramientas disponibles inspeccionando el `ToolSpec` emitido por cada implementación, que incluye el nombre de la herramienta, la descripción y el JSON Schema para los parámetros.
+
+:::tip[Herramientas Personalizadas]
+Para añadir herramientas personalizadas, debes implementar el trait `Tool` en Rust y registrarlo en el factory `all_tools` en `clients/agent-runtime/src/tools/mod.rs`.
+:::

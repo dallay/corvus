@@ -152,20 +152,23 @@ fun ChatWorkspace(
 
   fun sendMessage(prompt: String) {
     if (!bridgeState.isChatReady) return
-    if (prompt.isBlank()) return
+    if (prompt.trim().isBlank()) return
     onSendMessage(prompt)
     query = ""
   }
 
   val displayMessages =
-    if (messages.isEmpty()) {
-      listOf(ChatMessage(id = 0, role = ChatRole.Assistant, content = state.welcomeMessage))
-    } else {
-      messages
+    remember(messages, state.welcomeMessage) {
+      if (messages.isEmpty()) {
+        listOf(ChatMessage(id = 0, role = ChatRole.Assistant, content = state.welcomeMessage))
+      } else {
+        messages
+      }
     }
 
   val actions =
     remember(
+      bridgeState,
       onRetryBridge,
       onLinkSurface,
       onStartSession,
@@ -217,14 +220,15 @@ private fun ChatWorkspaceScreen(
   val corvusColors = CorvusTheme.colors
   val shouldShowConfig = uiState.showConfig || !uiState.bridgeState.isChatReady
 
-  Column(
-    modifier =
-      modifier
-        .fillMaxSize()
+  val baseModifier =
+    remember(colors.background) {
+      Modifier.fillMaxSize()
         .background(colors.background)
         .safeContentPadding()
         .padding(horizontal = 20.dp, vertical = 16.dp)
-  ) {
+    }
+
+  Column(modifier = modifier.then(baseModifier)) {
     ChatHeader(
       modelName = uiState.workspaceState.modelName,
       bridgeState = uiState.bridgeState,
@@ -263,11 +267,17 @@ private fun ChatWorkspaceScreen(
         modifier = Modifier.weight(1f),
       )
     } else {
+      val panelState =
+        remember(uiState.workspaceState, uiState.bridgeState, uiState.pendingApproval) {
+          ChatPanelState(
+            workspaceState = uiState.workspaceState,
+            bridgeState = uiState.bridgeState,
+            pendingApproval = uiState.pendingApproval,
+          )
+        }
       ChatPanel(
-        state = uiState.workspaceState,
-        bridgeState = uiState.bridgeState,
+        panelState = panelState,
         messages = uiState.messages,
-        pendingApproval = uiState.pendingApproval,
         query = uiState.query,
         actions = actions,
         modifier = Modifier.weight(1f),
@@ -276,49 +286,35 @@ private fun ChatWorkspaceScreen(
   }
 }
 
+@Immutable
+private data class ChatPanelState(
+  val workspaceState: ChatWorkspaceState,
+  val bridgeState: MobileBridgeUiState,
+  val pendingApproval: RuntimeApprovalRequest?,
+)
+
 @Composable
 private fun ChatPanel(
-  state: ChatWorkspaceState,
-  bridgeState: MobileBridgeUiState,
+  panelState: ChatPanelState,
   messages: List<ChatMessage>,
-  pendingApproval: RuntimeApprovalRequest?,
   query: String,
   actions: ChatWorkspaceActions,
   modifier: Modifier = Modifier,
 ) {
-  val corvusColors = CorvusTheme.colors
-
   Column(modifier = modifier) {
-    BridgeStatusCard(bridgeState = bridgeState, modifier = Modifier.fillMaxWidth())
+    BridgeStatusCard(bridgeState = panelState.bridgeState, modifier = Modifier.fillMaxWidth())
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    Surface(
+    MessageList(
+      messages = messages,
+      modelName = panelState.workspaceState.modelName,
       modifier = Modifier.fillMaxWidth().weight(1f),
-      shape = RoundedCornerShape(20.dp),
-      color = corvusColors.glassSurface,
-    ) {
-      Box(
-        modifier =
-          Modifier.background(
-            brush =
-              Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
-          )
-      ) {
-        LazyColumn(
-          modifier = Modifier.fillMaxSize().padding(16.dp),
-          verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-          items(items = messages, key = { it.id }, contentType = { it.role }) { message ->
-            ChatBubble(message = message, modelName = state.modelName)
-          }
-        }
-      }
-    }
+    )
 
     Spacer(modifier = Modifier.height(16.dp))
 
-    pendingApproval?.let { request ->
+    panelState.pendingApproval?.let { request ->
       ApprovalCard(
         request = request,
         onApprove = actions.bridge.onApprove,
@@ -328,12 +324,46 @@ private fun ChatPanel(
       Spacer(modifier = Modifier.height(16.dp))
     }
 
-    ChatInputField(
-      value = query,
-      onValueChange = actions.onQueryChange,
-      onSend = { actions.onSend(query.trim()) },
-      placeholder = state.inputPlaceholder,
-      enabled = bridgeState.isChatReady,
-    )
+    val inputProps =
+      remember(query, actions.onQueryChange, actions.onSend, panelState) {
+        ChatInputFieldProps(
+          value = query,
+          onValueChange = actions.onQueryChange,
+          onSend = actions.onSend,
+          placeholder = panelState.workspaceState.inputPlaceholder,
+          enabled = panelState.bridgeState.isChatReady,
+        )
+      }
+    ChatInputField(props = inputProps)
+  }
+}
+
+@Composable
+private fun MessageList(
+  messages: List<ChatMessage>,
+  modelName: String,
+  modifier: Modifier = Modifier,
+) {
+  val corvusColors = CorvusTheme.colors
+
+  Surface(
+    modifier = modifier,
+    shape = RoundedCornerShape(20.dp),
+    color = corvusColors.glassSurface,
+  ) {
+    val backgroundBrush = remember {
+      Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.05f), Color.Transparent))
+    }
+
+    Box(modifier = Modifier.background(brush = backgroundBrush)) {
+      LazyColumn(
+        modifier = Modifier.fillMaxSize().padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+      ) {
+        items(items = messages, key = { it.id }, contentType = { it.role }) { message ->
+          ChatBubble(message = message, modelName = modelName)
+        }
+      }
+    }
   }
 }

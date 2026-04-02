@@ -514,7 +514,7 @@ mod tests {
         use crate::channels::media::{AllowedImageMime, ImageTransportForm, StagedImage};
         use std::path::PathBuf;
 
-        let (router, _mocks) = make_router(vec![("default", "ok")], vec![]);
+        let (router, mocks) = make_router(vec![("default", "ok")], vec![]);
 
         let staged = StagedImage {
             sha256: "abc".into(),
@@ -540,7 +540,7 @@ mod tests {
             .downcast_ref::<ImageRejectionReason>()
             .expect("expected structured image rejection");
         assert_eq!(rejection, &ImageRejectionReason::RouteNotImageCapable);
-        assert_eq!(_mocks[0].chat_call_count(), 0);
+        assert_eq!(mocks[0].chat_call_count(), 0);
     }
 
     #[tokio::test]

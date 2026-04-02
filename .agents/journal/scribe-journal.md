@@ -13,3 +13,18 @@
 - Confirmed `gemini-cli` OAuth token support in `gemini.rs`.
 - Confirmed `ANTHROPIC_OAUTH_TOKEN` support in `mod.rs`.
 - Maintained strict bilingual parity between English and Spanish versions.
+
+## 2025-05-18 - Tools Reference Documentation - Completed
+
+**Verification:** Audited `clients/agent-runtime/src/tools/` to identify all built-in tools, their parameters, and security tiers. Verified the integration of `agent-browser` and MCP.
+**Changes:**
+- Created a comprehensive Tools Reference section in both English and Spanish (14 new files).
+- Categorized tools into: Core (shell, file_read/write), Web (browser, http_request, search), Memory (store/recall/forget), Automation (git, cron, schedule), Media (screenshot, image_info), and MCP.
+- Documented Security Operation Tiers (Safe/Read-Only vs. Risk/Action-Bearing).
+- Updated index pages in `docs/clients/agent-runtime/` and `docs/es/clients/agent-runtime/` to link to the new Tools Reference.
+**Validation:**
+- Ran `make docs-check` and `make docs-build`. 58 pages built successfully.
+- Visual verification performed via Playwright for both English and Spanish layouts.
+**Notes:**
+- Confirmed strict 1:1 parity between `en/` and `es/` directories.
+- Technical details like `mcp.<server>.<tool>` naming convention and `agent-browser` requirements are now documented.
