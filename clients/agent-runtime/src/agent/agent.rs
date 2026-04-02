@@ -610,7 +610,7 @@ impl Agent {
             command,
             risk_level,
             approved,
-            allowed: true,
+            allowed: result.structured.is_some(),
             success: result.success,
             duration_ms,
             sandbox_backend,
