@@ -232,22 +232,24 @@ private fun ChatBubbleBody(
   }
 }
 
+@Immutable
+data class ChatInputFieldProps(
+  val value: String,
+  val onValueChange: (String) -> Unit,
+  val onSend: (String) -> Unit,
+  val placeholder: String,
+  val enabled: Boolean = true,
+)
+
 @Composable
-fun ChatInputField(
-  value: String,
-  onValueChange: (String) -> Unit,
-  onSend: (String) -> Unit,
-  placeholder: String,
-  modifier: Modifier = Modifier,
-  enabled: Boolean = true,
-) {
+fun ChatInputField(props: ChatInputFieldProps, modifier: Modifier = Modifier) {
   val colors = MaterialTheme.colorScheme
   val corvusColors = CorvusTheme.colors
   val gradient =
     remember(corvusColors.gradientPrimary) {
       Brush.horizontalGradient(corvusColors.gradientPrimary)
     }
-  val isEnabled = enabled && value.trim().isNotBlank()
+  val isEnabled = props.enabled && props.value.trim().isNotBlank()
 
   Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
     Surface(
@@ -257,12 +259,12 @@ fun ChatInputField(
       border = BorderStroke(1.dp, corvusColors.glassOverlay),
     ) {
       OutlinedTextField(
-        value = value,
-        onValueChange = onValueChange,
+        value = props.value,
+        onValueChange = props.onValueChange,
         modifier = Modifier.fillMaxWidth(),
-        enabled = enabled,
+        enabled = props.enabled,
         placeholder = {
-          Text(text = placeholder, color = colors.onSurfaceVariant.copy(alpha = 0.6f))
+          Text(text = props.placeholder, color = colors.onSurfaceVariant.copy(alpha = 0.6f))
         },
         colors =
           OutlinedTextFieldDefaults.colors(
@@ -280,29 +282,39 @@ fun ChatInputField(
 
     Spacer(modifier = Modifier.width(12.dp))
 
-    val sendButtonModifier =
-      remember(isEnabled, gradient, corvusColors.glowPurple) {
-        Modifier.size(48.dp)
-          .shadow(
-            elevation = 6.dp,
-            shape = CircleShape,
-            spotColor = if (isEnabled) corvusColors.glowPurple else Color.Gray,
-          )
-          .clip(CircleShape)
-          .background(
-            if (isEnabled) gradient else Brush.linearGradient(listOf(Color.Gray, Color.Gray))
-          )
-      }
+    SendButton(
+      isEnabled = isEnabled,
+      gradient = gradient,
+      glowColor = corvusColors.glowPurple,
+      onSend = { props.onSend(props.value.trim()) },
+    )
+  }
+}
 
-    Box(modifier = sendButtonModifier, contentAlignment = Alignment.Center) {
-      IconButton(onClick = { onSend(value.trim()) }, enabled = isEnabled) {
-        Icon(
-          imageVector = Icons.AutoMirrored.Filled.Send,
-          contentDescription = "Send",
-          tint = Color.White,
-          modifier = Modifier.size(22.dp),
+@Composable
+private fun SendButton(isEnabled: Boolean, gradient: Brush, glowColor: Color, onSend: () -> Unit) {
+  val sendButtonModifier =
+    remember(isEnabled, glowColor) {
+      Modifier.size(48.dp)
+        .shadow(
+          elevation = 6.dp,
+          shape = CircleShape,
+          spotColor = if (isEnabled) glowColor else Color.Gray,
         )
-      }
+        .clip(CircleShape)
+        .background(
+          if (isEnabled) gradient else Brush.linearGradient(listOf(Color.Gray, Color.Gray))
+        )
+    }
+
+  Box(modifier = sendButtonModifier, contentAlignment = Alignment.Center) {
+    IconButton(onClick = onSend, enabled = isEnabled) {
+      Icon(
+        imageVector = Icons.AutoMirrored.Filled.Send,
+        contentDescription = "Send",
+        tint = Color.White,
+        modifier = Modifier.size(22.dp),
+      )
     }
   }
 }
