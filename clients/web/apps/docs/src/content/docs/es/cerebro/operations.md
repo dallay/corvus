@@ -47,6 +47,11 @@ username = "root"
 password = "contraseña-segura"
 ```
 
+:::caution
+Estas son credenciales de ejemplo. En producción, usa contraseñas
+seguras y carga valores sensibles mediante variables de entorno.
+:::
+
 La ruta de almacenamiento por defecto es el directorio de trabajo.
 Sobrescríbela con `surreal.storage_path`:
 

@@ -47,6 +47,11 @@ username = "root"
 password = "secure-password"
 ```
 
+:::caution
+These are example credentials. In production, use strong
+passwords and load sensitive values via environment variables.
+:::
+
 The default storage path is the working directory. Override
 with `surreal.storage_path`:
 

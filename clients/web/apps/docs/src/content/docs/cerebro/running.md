@@ -109,7 +109,7 @@ A successful response returns memory statistics:
 
 The MCP endpoint is always at:
 
-```
+```text
 POST http://{host}:{port}/mcp
 ```
 

@@ -19,7 +19,7 @@ configuración `[memory.cerebro]`.
 
 ## Cómo Funciona
 
-```
+```text
 Runtime Corvus ──MCP/HTTP──▶ Servicio Cerebro ──▶ SurrealDB
   (corvus)                    (cerebro serve)      (embebido)
 ```
@@ -97,7 +97,7 @@ CORVUS_CEREBRO_AUTH_TOKEN=secreto-compartido corvus
 
 Los logs del runtime mostrarán Cerebro como configurado:
 
-```
+```text
 INFO cerebro_configured=true endpoint="http://127.0.0.1:4040/mcp"
 ```
 

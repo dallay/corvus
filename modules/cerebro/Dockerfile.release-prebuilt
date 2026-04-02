@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM busybox:latest AS prep
+FROM busybox:1.37.0 AS prep
 
 ARG TARGETARCH
 
@@ -15,6 +15,7 @@ RUN case "$TARGETARCH" in \
   *) echo "Unsupported TARGETARCH=$TARGETARCH" && exit 1 ;; \
 esac
 
+# WARNING: Override surreal password in production via mounted config or env
 # Default config: bind to all interfaces for container use
 RUN printf '%s\n' \
   'host = "0.0.0.0"' \
@@ -25,7 +26,7 @@ RUN printf '%s\n' \
   'namespace = "cerebro"' \
   'database = "cerebro"' \
   'username = "root"' \
-  'password = "cerebro-docker-default"' \
+  'password = "CHANGE_ME_BEFORE_PRODUCTION"' \
   > /etc/cerebro/config.toml
 
 RUN chmod +x /tmp/cerebro \
@@ -42,5 +43,6 @@ ENV HOME=/cerebro-data
 WORKDIR /cerebro-data
 USER 65532:65532
 EXPOSE 4040
+# NOTE: Distroless has no shell; use orchestrator probes (K8s, Compose) against POST /mcp
 ENTRYPOINT ["cerebro"]
 CMD ["serve", "--config", "/etc/cerebro/config.toml"]

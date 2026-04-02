@@ -111,7 +111,7 @@ Una respuesta exitosa devuelve estadísticas de memoria:
 
 El endpoint MCP siempre está en:
 
-```
+```text
 POST http://{host}:{port}/mcp
 ```
 

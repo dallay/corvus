@@ -24,7 +24,7 @@ Rationale: standalone service with its own binaries, config, protocol, and lifec
 
 ## Decision 2: Information Architecture
 
-```
+```text
 Cerebro (top-level)
 ├── Overview                    # What it is, when to use it, key concepts
 ├── Configuration               # CerebroConfig, env vars, storage backends
@@ -100,7 +100,7 @@ Position: after "Agent Runtime" section in astro.config.mjs.
 
 ## File Structure
 
-```
+```text
 src/content/docs/cerebro/
 ├── index.mdx
 ├── configuration.md

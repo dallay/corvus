@@ -18,7 +18,7 @@ over HTTP) using the `[memory.cerebro]` configuration section.
 
 ## How It Works
 
-```
+```text
 Corvus Runtime ──MCP/HTTP──▶ Cerebro Service ──▶ SurrealDB
   (corvus)                    (cerebro serve)     (embedded)
 ```
@@ -94,7 +94,7 @@ CORVUS_CEREBRO_AUTH_TOKEN=shared-secret corvus
 
 The runtime logs will show Cerebro as configured:
 
-```
+```text
 INFO cerebro_configured=true endpoint="http://127.0.0.1:4040/mcp"
 ```
 

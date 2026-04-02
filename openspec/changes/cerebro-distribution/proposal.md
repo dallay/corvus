@@ -68,7 +68,7 @@ SHOULD targets = Intel Mac + Windows for broader compatibility.
 | Architectures  | `linux/amd64` + `linux/arm64` (multi-arch manifest)   |
 | Base image     | `gcr.io/distroless/cc-debian13:nonroot`               |
 | Default port   | `4040` (Cerebro default from config.rs)               |
-| Entry point    | `cerebro serve --host 0.0.0.0 --port 4040`           |
+| Entry point    | `cerebro serve --config /etc/cerebro/config.toml`  |
 | Data volume    | `/cerebro-data` for SurrealDB storage persistence     |
 | Tags           | `v{semver}`, `{major}.{minor}`, `{major}`, `latest`  |
 
