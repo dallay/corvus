@@ -10,6 +10,7 @@ const props = defineProps<{
   collapsed: boolean;
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const emit = defineEmits<{
   "switch-session": [id: string];
   "new-chat": [];
@@ -18,12 +19,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const sortedSessions = computed(() =>
   [...props.sessions].sort(
     (a, b) => new Date(b.last_activity).getTime() - new Date(a.last_activity).getTime()
   )
 );
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function formatRelativeTime(isoDate: string): string {
   const now = Date.now();
   const then = new Date(isoDate).getTime();
@@ -44,6 +47,7 @@ function formatRelativeTime(isoDate: string): string {
   return t("session.daysAgo", { count: days });
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function truncateId(id: string): string {
   return id.length > 8 ? `${id.slice(0, 8)}...` : id;
 }
