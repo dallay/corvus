@@ -148,6 +148,23 @@ rust-fmt: ## Check Rust formatting
 rust-build: ## Build agent runtime binary
 	@$(GRADLEW) $(RUST_MODULE):cargoBuild -PenableRustTasks=true
 
+# --- CEREBRO MEMORY SERVICE ---
+
+cerebro-check: ## Run cargo check for cerebro
+	@cargo check --manifest-path modules/cerebro/Cargo.toml
+
+cerebro-test: ## Run cargo tests for cerebro
+	@cargo test --manifest-path modules/cerebro/Cargo.toml
+
+cerebro-clippy: ## Run clippy for cerebro
+	@cargo clippy --manifest-path modules/cerebro/Cargo.toml --all-targets -- -D warnings
+
+cerebro-fmt: ## Check Rust formatting for cerebro
+	@cargo fmt --manifest-path modules/cerebro/Cargo.toml -- --check
+
+cerebro-build: ## Build cerebro binary
+	@cargo build --manifest-path modules/cerebro/Cargo.toml --release --bin cerebro
+
 # --- WEB APPLICATIONS ---
 
 web-install: ## Install web workspace dependencies
@@ -373,6 +390,7 @@ sync-version: ## Sync VERSION with git tag
 
 .PHONY: help h check-tools setup doctor sync-agents wrapper build build-fast clean clean-all run dev \
         android-build android-lint rust-check rust-test rust-clippy rust-fmt rust-build \
+        cerebro-check cerebro-test cerebro-clippy cerebro-fmt cerebro-build \
         web-install docs-dev docs-build docs-check docs-format \
         chat-dev chat-build chat-check chat-test dashboard-dev dashboard-build dashboard-check dashboard-test \
         marketing-dev marketing-build marketing-check web-build-all web-clean-all web-test-all web-check-all \
