@@ -79,9 +79,9 @@ storage_mode = "disk"
 storage_path = "/var/lib/cerebro/disk-data"
 ```
 
-## Respaldo de Almacenamiento
+## Fallback de Almacenamiento
 
-Configura un backend de respaldo si el primario falla al
+Configura un backend alternativo si el primario falla al
 inicializarse:
 
 ```toml
