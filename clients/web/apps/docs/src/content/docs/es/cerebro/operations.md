@@ -23,7 +23,7 @@ tus requisitos de durabilidad y rendimiento.
 
 | Modo              | Persistencia | Rendimiento | Caso de Uso              |
 |-------------------|--------------|-------------|--------------------------|
-| SurrealDB embebido| Durable      | Alto        | Producción (default)     |
+| SurrealDB embebido | Durable      | Alto        | Producción (default)     |
 | Disco             | Durable      | Moderado    | Basado en archivos       |
 | En memoria        | Ninguna      | Máximo      | Solo pruebas             |
 
@@ -89,9 +89,10 @@ storage_mode = "embedded_surreal"
 storage_fallback = "in_memory"
 ```
 
-Esto mantiene Cerebro en ejecución aunque la base de datos no
-esté disponible, a costa de perder persistencia hasta que se
-restaure el primario.
+Esto puede mantener Cerebro en ejecución aunque el backend
+primario no esté disponible. La pérdida de persistencia ocurre
+solo si el backend de fallback no ofrece persistencia (por
+ejemplo, `in_memory`).
 
 ## Panel TUI
 
@@ -173,6 +174,17 @@ curl -s -X POST http://127.0.0.1:4040/mcp \
   | jq .result
 ```
 
+:::note
+Si la autenticación está habilitada, incluye el header de auth:
+```bash
+curl -s -X POST http://127.0.0.1:4040/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mem_stats","arguments":{}}}' \
+  | jq .result
+```
+:::
+
 Úsalo en health checks de contenedores o sondas de monitoreo.
 
 ## Respaldo y Restauración
@@ -218,7 +230,7 @@ docker run --rm \
 | Conexión rechazada en :4040 | Cerebro no está corriendo | Iniciar con `cerebro serve` |
 | Error de auth en llamadas MCP | Token no coincide | Verificar `CEREBRO_AUTH_TOKEN` |
 | "embedded surrealdb credentials are required" | Falta auth de surreal | Configurar `surreal.username` y `surreal.password` |
-| "embedded surrealdb must bind to loopback only" | Validación de seguridad | Configurar `surreal.embedded_allow_non_loopback = true` |
+| "embedded surrealdb must bind to loopback only" | Validación de seguridad | Preferir loopback con proxy inverso. Solo usar `surreal.embedded_allow_non_loopback = true` en redes privadas de confianza. |
 | TUI no inicia | Feature faltante | Recompilar con `--features tui` |
 
 ### Modo Debug

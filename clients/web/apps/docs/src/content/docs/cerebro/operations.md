@@ -23,7 +23,7 @@ durability and performance requirements.
 
 | Mode              | Persistence | Performance | Use Case               |
 |-------------------|-------------|-------------|------------------------|
-| Embedded SurrealDB| Durable     | High        | Production (default)   |
+| Embedded SurrealDB | Durable     | High        | Production (default)   |
 | Disk              | Durable     | Moderate    | Simple file-based      |
 | In-Memory         | None        | Highest     | Testing only           |
 
@@ -89,9 +89,9 @@ storage_mode = "embedded_surreal"
 storage_fallback = "in_memory"
 ```
 
-This keeps Cerebro running even if the database is
-unavailable, at the cost of losing persistence until the
-primary is restored.
+This can keep Cerebro running even if the primary backend is
+unavailable. Persistence is lost only if the fallback backend
+does not offer persistence (e.g., `in_memory`).
 
 ## TUI Dashboard
 
@@ -172,6 +172,17 @@ curl -s -X POST http://127.0.0.1:4040/mcp \
   | jq .result
 ```
 
+:::note
+If authentication is enabled, include the auth header:
+```bash
+curl -s -X POST http://127.0.0.1:4040/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer <TOKEN>" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"mem_stats","arguments":{}}}' \
+  | jq .result
+```
+:::
+
 Use this in container health checks or monitoring probes.
 
 ## Backup and Restore
@@ -217,7 +228,7 @@ docker run --rm \
 | Connection refused on :4040 | Cerebro not running | Start with `cerebro serve` |
 | Auth error on MCP calls | Token mismatch | Verify `CEREBRO_AUTH_TOKEN` matches |
 | "embedded surrealdb credentials are required" | Missing surreal auth | Set `surreal.username` and `surreal.password` |
-| "embedded surrealdb must bind to loopback only" | Security validation | Set `surreal.embedded_allow_non_loopback = true` or use loopback address |
+| "embedded surrealdb must bind to loopback only" | Security validation | Prefer loopback with a reverse proxy. Only use `surreal.embedded_allow_non_loopback = true` on trusted private networks. |
 | TUI fails to start | Missing feature | Rebuild with `--features tui` |
 
 ### Debug Mode
