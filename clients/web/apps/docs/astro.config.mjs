@@ -157,13 +157,6 @@ export default defineConfig({
               },
             },
             {
-              label: "Cerebro Migration",
-              slug: "guides/cerebro/migration",
-              translations: {
-                es: "Migración a Cerebro",
-              },
-            },
-            {
               label: "CLI Reference",
               slug: "guides/cli-reference",
               translations: {
