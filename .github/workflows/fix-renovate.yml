@@ -205,7 +205,8 @@ jobs:
             core.info(`Expected repo/SHA: ${expectedRepo} @ ${expectedSha}`)
             core.info(`Current  repo/SHA (remote): ${currentRepo} @ ${currentSha}`)
 
-            // Also print local HEAD for diagnostics (but only remote mismatch triggers failure)
+            // Local HEAD intentionally not checked: it now includes our lock-file
+            // commit and will differ from expectedSha. Only remote ref matters.
             const { execSync } = require('node:child_process')
             const localSha = execSync('git rev-parse HEAD', { encoding: 'utf8' }).trim()
             core.info(`Current  repo/SHA (local HEAD): ${expectedRepo} @ ${localSha}`)
@@ -219,7 +220,7 @@ jobs:
       - name: 🚀 Push lockfile updates
         env:
           SKIP_GIT_HOOKS: "1"
-        run: git push origin HEAD:${{ steps.get-pr-data.outputs.head_branch }}
+        run: git push --force-with-lease=refs/heads/${{ steps.get-pr-data.outputs.head_branch }}:${{ steps.get-pr-data.outputs.head_sha }} origin HEAD:${{ steps.get-pr-data.outputs.head_branch }}
 
       - name: 💬 Add reaction to trigger comment
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0

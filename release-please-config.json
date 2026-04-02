@@ -24,6 +24,11 @@
           "jsonpath": "$.package.version"
         },
         {
+          "type": "toml",
+          "path": "modules/cerebro/Cargo.toml",
+          "jsonpath": "$.package.version"
+        },
+        {
           "type": "json",
           "path": "clients/agent-runtime/npm/**/package.json",
           "glob": true,

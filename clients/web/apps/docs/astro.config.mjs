@@ -157,13 +157,6 @@ export default defineConfig({
               },
             },
             {
-              label: "Cerebro Migration",
-              slug: "guides/cerebro/migration",
-              translations: {
-                es: "Migración a Cerebro",
-              },
-            },
-            {
               label: "CLI Reference",
               slug: "guides/cli-reference",
               translations: {
@@ -219,6 +212,70 @@ export default defineConfig({
               slug: "clients/agent-runtime/architecture",
               translations: {
                 es: "Arquitectura",
+              },
+            },
+          ],
+        },
+        {
+          label: "Cerebro",
+          translations: {
+            es: "Cerebro",
+          },
+          items: [
+            {
+              label: "Overview",
+              slug: "cerebro",
+              translations: {
+                es: "Descripción General",
+              },
+            },
+            {
+              label: "Configuration",
+              slug: "cerebro/configuration",
+              translations: {
+                es: "Configuración",
+              },
+            },
+            {
+              label: "Running",
+              slug: "cerebro/running",
+              translations: {
+                es: "Ejecución",
+              },
+            },
+            {
+              label: "CLI Reference",
+              slug: "cerebro/cli-reference",
+              translations: {
+                es: "Referencia CLI",
+              },
+            },
+            {
+              label: "MCP Tools Reference",
+              slug: "cerebro/mcp-tools",
+              translations: {
+                es: "Referencia de Herramientas MCP",
+              },
+            },
+            {
+              label: "Integration",
+              slug: "cerebro/integration",
+              translations: {
+                es: "Integración",
+              },
+            },
+            {
+              label: "Migration",
+              slug: "cerebro/migration",
+              translations: {
+                es: "Migración",
+              },
+            },
+            {
+              label: "Operations",
+              slug: "cerebro/operations",
+              translations: {
+                es: "Operaciones",
               },
             },
           ],

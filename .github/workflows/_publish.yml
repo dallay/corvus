@@ -126,12 +126,14 @@ jobs:
 
           expected_version="${TAG_VERSION#v}"
           gradle_version="$(awk -F= '/^VERSION=/{print $2}' gradle.properties)"
-          cargo_version="$(awk -F' = ' '/^version = /{gsub(/\"/, "", $2); print $2; exit}' clients/agent-runtime/Cargo.toml)"
+          cargo_version="$(awk -F' = ' '/^version = /{gsub(/"/, "", $2); print $2; exit}' clients/agent-runtime/Cargo.toml)"
+          cerebro_version="$(awk -F' = ' '/^version = /{gsub(/"/, "", $2); print $2; exit}' modules/cerebro/Cargo.toml)"
           npm_version="$(awk -F'"' '/"version"/{print $4; exit}' clients/agent-runtime/npm/corvus/package.json)"
 
           for item in \
             "gradle.properties:$gradle_version" \
             "clients/agent-runtime/Cargo.toml:$cargo_version" \
+            "modules/cerebro/Cargo.toml:$cerebro_version" \
             "clients/agent-runtime/npm/corvus/package.json:$npm_version"; do
             file="${item%%:*}"
             actual="${item#*:}"
@@ -219,6 +221,11 @@ jobs:
     needs: publish
     uses: ./.github/workflows/_build-native-binaries.yml
 
+  build-cerebro-binaries:
+    if: ${{ inputs.release }}
+    needs: publish
+    uses: ./.github/workflows/_build-cerebro-binaries.yml
+
   docker-image:
     if: ${{ inputs.release }}
     needs: [publish, build-native-binaries]
@@ -283,6 +290,76 @@ jobs:
         with:
           context: .
           file: clients/agent-runtime/Dockerfile.release-prebuilt
+          target: release
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+
+  docker-image-cerebro:
+    if: ${{ inputs.release }}
+    needs: [publish, build-cerebro-binaries]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: ✈ Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: ⬇ Download Cerebro Linux artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cerebro-linux-*
+          path: modules/cerebro/dist
+          merge-multiple: true
+          if-no-files-found: error
+
+      - name: 📦 Extract Cerebro Linux binaries
+        working-directory: modules/cerebro/dist
+        run: |
+          set -euo pipefail
+          tar -xzf cerebro-linux-x64.tar.gz
+          tar -xzf cerebro-linux-arm64.tar.gz
+          chmod +x cerebro-linux-x64 cerebro-linux-arm64
+
+      - name: 🐳 Set up QEMU
+        uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+
+      - name: 🐳 Set up Docker Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: 🔐 Login to Docker Hub
+        continue-on-error: true
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: 🔐 Login to GitHub Container Registry
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🏷️ Generate Cerebro Docker tags and labels
+        id: docker-meta
+        uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5
+        with:
+          images: |
+            docker.io/${{ secrets.DOCKERHUB_USERNAME }}/cerebro
+            ghcr.io/${{ github.repository_owner }}/cerebro
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ github.ref_name }}
+            type=semver,pattern={{major}},value=${{ github.ref_name }}
+            type=raw,value=latest
+
+      - name: 🐳 Build and push Cerebro Docker image
+        continue-on-error: true
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: modules/cerebro/Dockerfile.release-prebuilt
           target: release
           platforms: linux/amd64,linux/arm64
           push: true
@@ -429,30 +506,41 @@ jobs:
 
   release-assets:
     if: ${{ inputs.release }}
-    needs: [publish, build-native-binaries]
+    needs: [publish, build-native-binaries, build-cerebro-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
 
     steps:
-      - name: ⬇ Download all release artifacts
+      - name: ⬇ Download corvus release artifacts
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           pattern: corvus-*
-          path: clients/agent-runtime/dist
+          path: dist/corvus
+          merge-multiple: true
+          if-no-files-found: error
+
+      - name: ⬇ Download cerebro release artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: cerebro-*
+          path: dist/cerebro
           merge-multiple: true
           if-no-files-found: error
 
       - name: 📋 Generate SHA256 checksums
         run: |
           set -euo pipefail
-          cd clients/agent-runtime/dist
-          for archive in *.tar.gz *.zip; do
-            [[ -f "$archive" ]] || continue
-            sha256sum "$archive" > "$archive.sha256"
+          for dir in dist/corvus dist/cerebro; do
+            cd "$dir"
+            for archive in *.tar.gz *.zip; do
+              [[ -f "$archive" ]] || continue
+              sha256sum "$archive" > "$archive.sha256"
+            done
+            ls -la
+            cd "$GITHUB_WORKSPACE"
           done
-          ls -la
 
       - name: 🚀 Create GitHub Release
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
@@ -460,6 +548,7 @@ jobs:
           body: ${{ needs.publish.outputs.changelog }}
           generate_release_notes: true
           files: |
-            clients/agent-runtime/dist/corvus-*
+            dist/corvus/corvus-*
+            dist/cerebro/cerebro-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

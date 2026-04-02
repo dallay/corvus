@@ -1,7 +1,7 @@
 ---
 title: Cerebro Migration Guide
 description: Move long-term memory to the MCP-backed Cerebro service.
-slug: guides/cerebro/migration
+slug: cerebro/migration
 owner: team-platform
 status: canonical
 lastReviewed: 2026-03-26
@@ -80,7 +80,7 @@ SurrealDB fallback is attempted.
 
 Machine-readable JSON schemas for all 13 tools are available at:
 
-- [`mcp-schema/`](./mcp-schema/)
+- [`mcp-schema/`](../guides/cerebro/mcp-schema/)
 
 Use these schemas to validate tool calls and responses in agents and integrations.
 

@@ -1,7 +1,7 @@
 ---
 title: Guía de Migración a Cerebro
 description: Mueve la memoria a largo plazo al servicio Cerebro basado en MCP.
-slug: es/guides/cerebro/migration
+slug: es/cerebro/migration
 owner: team-platform
 status: canonical
 lastReviewed: 2026-03-26
@@ -71,7 +71,7 @@ Si Cerebro no está configurado o no es accesible, las llamadas a herramientas h
 
 Los esquemas JSON legibles por máquina para las 13 herramientas están disponibles en:
 
-- [`mcp-schema/`](./mcp-schema/)
+- [`mcp-schema/`](../../guides/cerebro/mcp-schema/)
 
 Usa estos esquemas para validar las llamadas a herramientas y las respuestas en agentes e integraciones.
 

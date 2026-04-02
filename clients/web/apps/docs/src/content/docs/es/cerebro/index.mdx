@@ -1,0 +1,108 @@
+---
+title: Cerebro
+description: >-
+  Cerebro es un servicio de memoria MCP de alto rendimiento, agnóstico
+  al agente, que proporciona persistencia a largo plazo para agentes
+  de IA mediante el Model Context Protocol.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-04-02
+appliesTo: main
+docType: guide
+---
+
+# Cerebro
+
+Cerebro es un servicio independiente en Rust que proporciona
+**memoria a largo plazo** para agentes de IA mediante el
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
+Funciona como un servidor HTTP que expone 13 herramientas de memoria
+a través de JSON-RPC, respaldado por una base de datos SurrealDB
+embebida.
+
+Los agentes se conectan a Cerebro a través de MCP para guardar,
+buscar, organizar y recuperar conocimiento entre sesiones,
+proporcionándoles contexto persistente que sobrevive a reinicios
+y abarca múltiples conversaciones.
+
+## Características Principales
+
+- **Punto de entrada MCP** — 13 herramientas de memoria expuestas
+  vía JSON-RPC sobre HTTP. Los agentes interactúan mediante llamadas
+  estándar del protocolo MCP.
+- **Almacenamiento embebido** — Utiliza SurrealDB con backend
+  RocksDB para almacenamiento embebido multi-modelo de alto
+  rendimiento (documento, grafo, vectorial).
+- **Organización por temas** — Las memorias se organizan por temas
+  con sugerencia automática de claves, permitiendo la recuperación
+  estructurada de conocimiento.
+- **Observabilidad** — Panel TUI opcional (`--features tui`) para
+  monitoreo en tiempo real de llamadas a herramientas y exploración
+  de memorias.
+- **Seguridad por defecto** — Sin modo sin autenticación en
+  producción. Diseñado para operación segura y aislada.
+
+## Cuándo Usar Cerebro
+
+Cerebro es la opción adecuada cuando tus agentes necesitan:
+
+- **Memoria persistente entre sesiones** — hechos, preferencias y
+  contexto que sobreviven a reinicios.
+- **Organización de conocimiento por temas** — almacenamiento
+  estructurado con temas y observaciones buscables.
+- **Búsqueda y recuperación de memorias** — encontrar contexto
+  relevante de interacciones pasadas.
+- **Línea temporal y estadísticas** — seguimiento del crecimiento
+  de la memoria y patrones de acceso.
+
+## Visión General de la Arquitectura
+
+Cerebro funciona como un servicio HTTP independiente en el puerto
+`4040` (por defecto). La arquitectura es simple e intencional:
+
+```
+Agente (corvus) ──MCP/HTTP──▶ Cerebro ──▶ SurrealDB (embebido)
+                               :4040        (backend RocksDB)
+```
+
+- **Transporte**: HTTP con JSON-RPC (protocolo MCP)
+- **Almacenamiento**: SurrealDB embebido con RocksDB para
+  persistencia
+- **Binarios**: CLI `cerebro` con subcomandos `serve` y `migrate`
+- **Despliegue**: Contenedor Docker o binario independiente
+
+## Instalación
+
+### Docker (recomendado para producción)
+
+```bash
+docker run -v cerebro-data:/cerebro-data -p 4040:4040 \
+  dallay/cerebro:latest
+```
+
+### Descarga de binario
+
+Descarga la última versión para tu plataforma desde
+[GitHub Releases](https://github.com/dallay/corvus/releases)
+y ejecuta:
+
+```bash
+cerebro serve
+```
+
+## Contenidos
+
+- [Configuración](configuration.md) — CerebroConfig, variables de
+  entorno y opciones de backend de almacenamiento
+- [Ejecución](running.md) — Iniciar el servicio, verificación de
+  estado y comprobaciones de salud
+- [Referencia CLI](cli-reference.md) — Todos los comandos y
+  opciones
+- [Referencia de Herramientas MCP](mcp-tools.md) — Las 13
+  herramientas de memoria con esquemas y ejemplos
+- [Integración](integration.md) — Conectar Cerebro al runtime de
+  agentes Corvus
+- [Migración](migration.md) — Migrar desde sistemas de memoria
+  anteriores
+- [Operaciones](operations.md) — Modos de almacenamiento,
+  monitoreo y panel TUI

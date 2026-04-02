@@ -1,0 +1,100 @@
+---
+title: Cerebro
+description: >-
+  Cerebro is a high-performance, agent-agnostic MCP memory service
+  providing long-term persistence for AI agents via the Model Context
+  Protocol.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-04-02
+appliesTo: main
+docType: guide
+---
+
+# Cerebro
+
+Cerebro is a standalone Rust service that provides **long-term memory**
+for AI agents via the
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io/).
+It runs as an HTTP server exposing 13 memory tools through JSON-RPC,
+backed by an embedded SurrealDB database.
+
+Agents connect to Cerebro over MCP to save, search, organize, and
+retrieve knowledge across sessions — giving them persistent context
+that survives restarts and spans conversations.
+
+## Key Features
+
+- **MCP Entry Point** — 13 memory tools exposed via JSON-RPC over
+  HTTP. Agents interact through standard MCP protocol calls.
+- **Embedded Storage** — Uses SurrealDB with a RocksDB backend for
+  high-performance, embedded multi-model storage (document, graph,
+  vector).
+- **Topic-Based Organization** — Memories are organized by topics
+  with automatic key suggestion, enabling structured knowledge
+  retrieval.
+- **Observability** — Optional TUI dashboard (`--features tui`) for
+  real-time monitoring of tool calls and memory exploration.
+- **Secure Defaults** — No auth-less mode in production. Designed
+  for safe, isolated operation.
+
+## When to Use Cerebro
+
+Cerebro is the right choice when your agents need:
+
+- **Persistent memory across sessions** — facts, preferences, and
+  context that survive restarts.
+- **Topic-based knowledge organization** — structured storage with
+  searchable topics and observations.
+- **Memory search and retrieval** — find relevant context from past
+  interactions.
+- **Timeline and statistics** — track memory growth and access
+  patterns over time.
+
+## Architecture Overview
+
+Cerebro runs as a standalone HTTP service on port `4040` (default).
+The architecture is simple and intentional:
+
+```
+Agent (corvus) ──MCP/HTTP──▶ Cerebro ──▶ SurrealDB (embedded)
+                             :4040         (RocksDB backend)
+```
+
+- **Transport**: HTTP with JSON-RPC (MCP protocol)
+- **Storage**: Embedded SurrealDB with RocksDB for persistence
+- **Binaries**: `cerebro` CLI with `serve` and `migrate` subcommands
+- **Deployment**: Docker container or standalone binary
+
+## Installation
+
+### Docker (recommended for production)
+
+```bash
+docker run -v cerebro-data:/cerebro-data -p 4040:4040 \
+  dallay/cerebro:latest
+```
+
+### Binary download
+
+Download the latest release for your platform from
+[GitHub Releases](https://github.com/dallay/corvus/releases) and run:
+
+```bash
+cerebro serve
+```
+
+## Contents
+
+- [Configuration](configuration.md) — CerebroConfig, environment
+  variables, and storage backend options
+- [Running](running.md) — Starting the service, health checks, and
+  startup verification
+- [CLI Reference](cli-reference.md) — All commands and flags
+- [MCP Tools Reference](mcp-tools.md) — The 13 memory tools with
+  schemas and examples
+- [Integration](integration.md) — Connecting Cerebro to the Corvus
+  agent runtime
+- [Migration](migration.md) — Moving from legacy memory systems
+- [Operations](operations.md) — Storage modes, monitoring, and the
+  TUI dashboard
