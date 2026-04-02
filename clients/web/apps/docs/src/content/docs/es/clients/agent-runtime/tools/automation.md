@@ -46,7 +46,7 @@ Herramientas para gestionar la ejecución autónoma basada en el tiempo.
 
 ## `pushover`
 
-Envía una noticia push al dispositivo móvil del usuario.
+Envía una notificación push al dispositivo móvil del usuario.
 
 - **Nivel de Seguridad:** De Acción (Con riesgo).
 - **Requisitos:** Requiere `PUSHOVER_TOKEN` y `PUSHOVER_USER_KEY` en el archivo `.env` del workspace.

@@ -294,7 +294,7 @@ fun ChatInputField(props: ChatInputFieldProps, modifier: Modifier = Modifier) {
 @Composable
 private fun SendButton(isEnabled: Boolean, gradient: Brush, glowColor: Color, onSend: () -> Unit) {
   val sendButtonModifier =
-    remember(isEnabled, glowColor) {
+    remember(isEnabled, glowColor, gradient) {
       Modifier.size(48.dp)
         .shadow(
           elevation = 6.dp,
