@@ -4,8 +4,8 @@
    ───────────────────────────────────────────── */
 
 /* ── Shared Brand Tokens ── */
-@import url("@corvus/shared/base.css");
-@import url("@corvus/shared/theme.css");
+@import "@corvus/shared/base.css";
+@import "@corvus/shared/theme.css";
 
 /* ── Root Theme Tokens ── */
 :root {
