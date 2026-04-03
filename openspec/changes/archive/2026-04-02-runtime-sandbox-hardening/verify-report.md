@@ -86,7 +86,7 @@ Results:
 | R6 | R6-S3 Config without require field deserializes correctly | `config::schema::tests::sandbox_config_missing_require_defaults_to_false` | ✅ COMPLIANT |
 | R6 | R6-S4 CLI contract unchanged | full `cargo test`, `mcp_native_regression`, `mcp_runtime_e2e` | ⚠️ PARTIAL |
 
-**Compliance summary**: 14/24 scenarios compliant
+**Compliance summary**: 13/24 scenarios compliant
 
 ---
 

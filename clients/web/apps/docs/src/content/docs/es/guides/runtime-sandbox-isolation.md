@@ -85,7 +85,7 @@ Esto se permite para desarrollo local, pero es una postura de seguridad más dé
 
 ## Aislamiento del sidecar de computer-use
 
-Las acciones de computer-use (`mouse_move`, `mouse_click`, `mouse_drag`, `key_type`, `screen_capture`) usan un sidecar.
+Las acciones de computer-use (`mouse_move`, `mouse_click`, `mouse_drag`, `key_type`, `key_press`, `screen_capture`) usan un sidecar.
 
 Valores seguros por defecto:
 - el endpoint por defecto usa loopback: `http://127.0.0.1:8787/v1/actions`

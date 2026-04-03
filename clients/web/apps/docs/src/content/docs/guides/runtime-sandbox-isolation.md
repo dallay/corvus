@@ -85,7 +85,7 @@ This is allowed for local development, but it is a weaker security posture.
 
 ## Computer-use sidecar isolation
 
-Computer-use actions (`mouse_move`, `mouse_click`, `mouse_drag`, `key_type`, `screen_capture`) use a sidecar.
+Computer-use actions (`mouse_move`, `mouse_click`, `mouse_drag`, `key_type`, `key_press`, `screen_capture`) use a sidecar.
 
 Safe defaults:
 - endpoint defaults to loopback: `http://127.0.0.1:8787/v1/actions`
