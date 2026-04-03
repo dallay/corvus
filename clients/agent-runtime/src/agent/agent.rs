@@ -536,10 +536,12 @@ impl Agent {
                         if let Err(e) = self.log_shell_audit_event(call, &r, start.elapsed()) {
                             return ToolExecutionResult {
                                 name: call.name.clone(),
-                                output: format!("Error: {e}"),
-                                success: false,
+                                output: format!("{}\n\n[AUDIT ERROR: {e}]", r.output),
+                                success: r.success,
                                 tool_call_id: call.tool_call_id.clone(),
-                                action: crate::agent::dispatcher::DispatchAction::Execute,
+                                action: DispatchAction::ApprovalRequired(format!(
+                                    "Audit logging failed: {e}"
+                                )),
                             };
                         }
                     } else if call.name == "browser" {
@@ -612,6 +614,11 @@ impl Agent {
             .and_then(|v| v.as_str())
             .map(str::to_string);
 
+        let allowed = structured
+            .and_then(|v| v.get("approved"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
         let duration_ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
 
         if let Err(error) = logger.log_command_event(CommandExecutionLog {
@@ -619,7 +626,7 @@ impl Agent {
             command: &redacted_command,
             risk_level,
             approved,
-            allowed: result.structured.is_some(),
+            allowed,
             success: result.success,
             duration_ms,
             sandbox_backend,

@@ -5,7 +5,7 @@
 
 ---
 
-### Completeness
+## Completeness
 
 | Metric | Value |
 |--------|-------|
@@ -17,7 +17,7 @@ All tasks T1-T8 are marked complete in `tasks.md`.
 
 ---
 
-### Build & Tests Execution
+## Build & Tests Execution
 
 **Build**: ✅ Passed
 
@@ -57,7 +57,7 @@ Results:
 
 ---
 
-### Spec Compliance Matrix
+## Spec Compliance Matrix
 
 | Requirement | Scenario | Test | Result |
 |-------------|----------|------|--------|
@@ -90,7 +90,7 @@ Results:
 
 ---
 
-### Correctness (Static — Structural Evidence)
+## Correctness (Static — Structural Evidence)
 
 | Requirement | Status | Notes |
 |------------|--------|-------|
@@ -103,7 +103,7 @@ Results:
 
 ---
 
-### Coherence (Design)
+## Coherence (Design)
 
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
@@ -116,7 +116,7 @@ Results:
 
 ---
 
-### Issues Found
+## Issues Found
 
 **CRITICAL** (must fix before archive):
 None.
@@ -135,7 +135,8 @@ None.
 
 ---
 
-### Verdict
+## Verdict
+
 PASS WITH WARNINGS
 
 The change now passes all validation gates and has runtime proof for the previously missing critical scenarios, but a handful of spec scenarios are still only partially covered or indirectly proven.

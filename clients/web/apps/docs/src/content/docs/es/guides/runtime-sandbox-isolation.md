@@ -41,7 +41,7 @@ firejail_args = []
 
 Corvus prueba los backends soportados según la plataforma y usa el primero disponible.
 
-- Linux: `landlock` → `firejail` → `docker`
+- Linux: `landlock` → `firejail` → `bubblewrap` → `docker`
 - macOS: `bubblewrap` → `docker`
 - otras plataformas: `docker`
 - si ninguno está disponible y `require = false`, Corvus cae a `none`
@@ -120,7 +120,7 @@ Corvus registra esto como una entrada de auditoría `SecurityEvent`.
 ## Expectativas de auditoría
 
 Los eventos de auditoría de comandos shell incluyen:
-- comando
+- comando (redactado para eliminar secretos en línea)
 - nivel de riesgo
 - bandera de aprobación
 - éxito/fracaso

@@ -77,7 +77,7 @@ This change wires the existing sandbox infrastructure into the actual execution 
 | `src/tools/shell.rs` | Modified | Accept and use `Arc<dyn Sandbox>`, call `wrap_command()` |
 | `src/tools/mod.rs` | Modified | Pass sandbox to `ShellTool` in factory functions |
 | `src/tools/browser.rs` | Modified | Add sidecar health-check at init, log isolation level |
-| `src/security/audit.rs` | Unchanged | Already has `sandbox_backend` field — just needs to be populated |
+| `src/security/audit.rs` | Modified | Added sandbox_backend field to audit payload; updated command-event logging and test helpers |
 | `docs/` | New | Sidecar isolation contract documentation |
 
 ## Risks

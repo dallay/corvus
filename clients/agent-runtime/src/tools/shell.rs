@@ -190,8 +190,7 @@ impl Tool for ShellTool {
 
         if should_warn_for_noop_sandbox(self.security.as_ref(), self.sandbox.as_ref(), command) {
             tracing::warn!(
-                command = %command,
-                "OS-level sandbox not active; running with application-layer policy only"
+                "OS-level sandbox not active for shell command; running with application-layer policy only"
             );
         }
 

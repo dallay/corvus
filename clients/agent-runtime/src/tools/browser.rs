@@ -344,7 +344,13 @@ impl BrowserTool {
 
     fn computer_use_health_url(&self) -> anyhow::Result<reqwest::Url> {
         let mut url = self.computer_use_endpoint_url()?;
-        url.set_path("/v1/health");
+        let path = url.path().to_string();
+        let new_path = if path.ends_with("/v1/actions") {
+            path.replace("/v1/actions", "/v1/health")
+        } else {
+            "/v1/health".to_string()
+        };
+        url.set_path(&new_path);
         url.set_query(None);
         url.set_fragment(None);
         Ok(url)
@@ -389,6 +395,11 @@ impl BrowserTool {
 
     async fn fetch_computer_use_sidecar_health(&self) -> anyhow::Result<serde_json::Value> {
         let endpoint = self.computer_use_health_url()?;
+
+        let mut sanitized_url = endpoint.clone();
+        let _ = sanitized_url.set_username("");
+        let _ = sanitized_url.set_password(None);
+
         let client = reqwest::Client::new();
         let mut request = client.get(endpoint.clone()).timeout(Duration::from_millis(
             self.computer_use.timeout_ms.min(5_000),
@@ -401,10 +412,9 @@ impl BrowserTool {
             }
         }
 
-        let response = request
-            .send()
-            .await
-            .with_context(|| format!("Failed to call computer-use sidecar health at {endpoint}"))?;
+        let response = request.send().await.with_context(|| {
+            format!("Failed to call computer-use sidecar health at {sanitized_url}")
+        })?;
 
         if !response.status().is_success() {
             anyhow::bail!(
@@ -421,15 +431,23 @@ impl BrowserTool {
         let status = payload
             .get("status")
             .and_then(Value::as_str)
-            .unwrap_or("unknown");
+            .ok_or_else(|| anyhow::anyhow!("Sidecar health response missing 'status' field"))?;
+
+        if status != "healthy" {
+            anyhow::bail!("Sidecar reports unhealthy status: {status}");
+        }
+
         let isolation = payload
             .get("isolation")
+            .filter(|v| v.is_object() && !v.as_object().map_or(true, |o| o.is_empty()))
             .cloned()
-            .unwrap_or_else(|| json!({}));
+            .ok_or_else(|| {
+                anyhow::anyhow!("Sidecar health response missing or empty 'isolation' field")
+            })?;
 
         Ok(json!({
             "status": status,
-            "endpoint": endpoint.as_str(),
+            "endpoint": sanitized_url.as_str(),
             "isolation": isolation,
         }))
     }
