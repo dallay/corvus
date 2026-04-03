@@ -494,16 +494,19 @@ mod tests {
     impl EnvGuard {
         fn set(key: &'static str, value: &str) -> Self {
             let original = std::env::var(key).ok();
-            std::env::set_var(key, value);
+            // SAFETY: test-only code running under `current_thread` flavor
+            // to serialize env-dependent tests.
+            unsafe { std::env::set_var(key, value) };
             Self { key, original }
         }
     }
 
     impl Drop for EnvGuard {
         fn drop(&mut self) {
+            // SAFETY: test-only RAII cleanup, serialized by `current_thread`.
             match &self.original {
-                Some(val) => std::env::set_var(self.key, val),
-                None => std::env::remove_var(self.key),
+                Some(val) => unsafe { std::env::set_var(self.key, val) },
+                None => unsafe { std::env::remove_var(self.key) },
             }
         }
     }
@@ -698,12 +701,9 @@ mod tests {
             .contains("Sandbox wrapping failed"));
     }
 
-    #[tokio::test]
+    #[tokio::test(flavor = "current_thread")]
     async fn shell_wraps_after_env_sanitization() {
-        let previous = std::env::var("CORVUS_TEST_SECRET").ok();
-        unsafe {
-            std::env::set_var("CORVUS_TEST_SECRET", "super-secret");
-        }
+        let _guard = EnvGuard::set("CORVUS_TEST_SECRET", "super-secret");
 
         let sandbox = Arc::new(EnvInspectSandbox {
             saw_path: AtomicBool::new(false),
@@ -723,11 +723,6 @@ mod tests {
         assert!(result.success);
         assert!(sandbox.saw_path.load(Ordering::SeqCst));
         assert!(!sandbox.saw_secret.load(Ordering::SeqCst));
-
-        match previous {
-            Some(value) => unsafe { std::env::set_var("CORVUS_TEST_SECRET", value) },
-            None => unsafe { std::env::remove_var("CORVUS_TEST_SECRET") },
-        }
     }
 
     #[test]

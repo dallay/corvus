@@ -249,7 +249,7 @@ impl AuditLogger {
                 entry.allowed,
             )
             .with_result(entry.success, None, entry.duration_ms, None)
-            .with_security(entry.sandbox_backend.clone());
+            .with_security(entry.sandbox_backend);
 
         self.log(&event)
     }

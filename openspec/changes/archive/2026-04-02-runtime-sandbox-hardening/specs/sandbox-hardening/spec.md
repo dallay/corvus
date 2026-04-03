@@ -62,7 +62,7 @@ New `sandbox.require` config option (bool, default `false`). When `true`, `creat
 - Then `create_sandbox()` returns `Err`
 - And the error message identifies the unavailable backend
 
-**R2-S3: Require mode with auto finds nothing fails**
+**R2-S3: Require mode with auto-detection finds no backend**
 - Given `sandbox.require = true` and `sandbox.backend = auto`
 - When no OS-level backend is available
 - Then `create_sandbox()` returns `Err`

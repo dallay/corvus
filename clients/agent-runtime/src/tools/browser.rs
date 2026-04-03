@@ -351,26 +351,25 @@ impl BrowserTool {
     }
 
     async fn verify_computer_use_sidecar(&self) -> anyhow::Result<Option<serde_json::Value>> {
-        {
-            let guard = self.sidecar_health.lock().await;
-            if let Some(status) = guard.clone() {
-                return match status {
-                    SidecarHealthStatus::Verified(value) => Ok(Some(value)),
-                    SidecarHealthStatus::Failed(message) => {
-                        if self.sidecar_verification_required {
-                            Err(anyhow::anyhow!(message))
-                        } else {
-                            Ok(None)
-                        }
-                    }
-                };
-            }
-        }
-
-        let verification = self.fetch_computer_use_sidecar_health().await;
+        // Hold the lock across the fetch to eliminate the TOCTOU race where
+        // the lock was previously released between the cache check and the
+        // fetch, allowing concurrent callers to issue duplicate requests.
         let mut guard = self.sidecar_health.lock().await;
 
-        match verification {
+        if let Some(status) = guard.clone() {
+            return match status {
+                SidecarHealthStatus::Verified(value) => Ok(Some(value)),
+                SidecarHealthStatus::Failed(message) => {
+                    if self.sidecar_verification_required {
+                        Err(anyhow::anyhow!(message))
+                    } else {
+                        Ok(None)
+                    }
+                }
+            };
+        }
+
+        match self.fetch_computer_use_sidecar_health().await {
             Ok(value) => {
                 *guard = Some(SidecarHealthStatus::Verified(value.clone()));
                 Ok(Some(value))

@@ -203,6 +203,11 @@ impl BootstrapContext {
         observer_override: Option<Arc<dyn Observer>>,
     ) -> anyhow::Result<Self> {
         let profile = AgentProfile::from_config(config)?;
+
+        // Fail fast: create sandbox before allocating memory/observer resources
+        // so that `security.sandbox.require = true` rejects early.
+        let sandbox = crate::security::create_sandbox(&config.security)?;
+
         let (memory, observer) = init_memory_and_observer_with_overrides(
             config,
             profile,
@@ -223,8 +228,6 @@ impl BootstrapContext {
         } else {
             (None, None)
         };
-
-        let sandbox = crate::security::create_sandbox(&config.security)?;
 
         let tools = tools::all_tools_with_runtime(
             Arc::new(config.clone()),

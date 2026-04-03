@@ -130,6 +130,15 @@ fn detect_best_sandbox(require: bool) -> Result<Arc<dyn Sandbox>> {
             tracing::info!("Firejail sandbox enabled");
             return Ok(Arc::new(sandbox));
         }
+
+        // Try Bubblewrap third (common on Linux via Flatpak)
+        #[cfg(feature = "sandbox-bubblewrap")]
+        {
+            if let Ok(sandbox) = super::bubblewrap::BubblewrapSandbox::probe() {
+                tracing::info!("Auto-detected sandbox backend: bubblewrap");
+                return Ok(Arc::new(sandbox));
+            }
+        }
     }
 
     #[cfg(target_os = "macos")]

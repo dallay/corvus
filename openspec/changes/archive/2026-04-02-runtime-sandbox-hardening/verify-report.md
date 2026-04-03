@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: runtime-sandbox-hardening  
 **Version**: N/A
@@ -6,6 +6,7 @@
 ---
 
 ### Completeness
+
 | Metric | Value |
 |--------|-------|
 | Tasks total | 8 |
@@ -74,8 +75,8 @@ Results:
 | R3 | R3-S2 No warning for read-only command with NoopSandbox | `tools::shell::tests::noop_sandbox_warning_helper_skips_read_only_commands` | ⚠️ PARTIAL |
 | R3 | R3-S3 No warning when real sandbox is active | `tools::shell::tests::noop_sandbox_warning_helper_skips_real_sandbox` | ⚠️ PARTIAL |
 | R4 | R4-S1 Audit event includes sandbox backend name | `security::audit::tests::audit_log_command_event_writes_structured_entry` | ✅ COMPLIANT |
-| R4 | R4-S2 NoopSandbox is recorded as `none` | `security::audit::tests::audit_log_command_event_writes_structured_entry` | ✅ COMPLIANT |
-| R4 | R4-S3 Real backend name is recorded | `security::audit::tests::audit_log_command_event_records_real_sandbox_backend` | ✅ COMPLIANT |
+| R4 | R4-S2 NoopSandbox is recorded as `none` | `security::audit::tests::audit_log_command_event_writes_structured_entry` | ⚠️ PARTIAL — test injects values into `CommandExecutionLog` proving serialization, but does not assert `NoopSandbox` name is emitted via the actual shell execution path; an end-to-end runtime propagation test is needed |
+| R4 | R4-S3 Real backend name is recorded | `security::audit::tests::audit_log_command_event_records_real_sandbox_backend` | ⚠️ PARTIAL — test injects a backend name into `CommandExecutionLog` proving serialization, but does not assert the real sandbox backend name flows through the actual shell/browser execution path; an end-to-end runtime propagation test is needed |
 | R5 | R5-S1 Healthy sidecar with isolation info | `tools::browser::tests::computer_use_sidecar_health_check_reports_isolation_info` | ✅ COMPLIANT |
 | R5 | R5-S2 Sidecar health-check fails gracefully | `tools::browser::tests::computer_use_sidecar_health_check_fails_gracefully_when_optional` | ✅ COMPLIANT |
 | R5 | R5-S3 Sidecar health-check with require mode | `tools::browser::tests::computer_use_sidecar_health_check_rejects_when_required` | ✅ COMPLIANT |
@@ -85,11 +86,12 @@ Results:
 | R6 | R6-S3 Config without require field deserializes correctly | `config::schema::tests::sandbox_config_missing_require_defaults_to_false` | ✅ COMPLIANT |
 | R6 | R6-S4 CLI contract unchanged | full `cargo test`, `mcp_native_regression`, `mcp_runtime_e2e` | ⚠️ PARTIAL |
 
-**Compliance summary**: 16/24 scenarios compliant
+**Compliance summary**: 14/24 scenarios compliant
 
 ---
 
 ### Correctness (Static — Structural Evidence)
+
 | Requirement | Status | Notes |
 |------------|--------|-------|
 | R1 Sandbox wiring into `ShellTool` | ✅ Implemented | `src/tools/shell.rs:177-200` calls `self.sandbox.wrap_command(&mut std_cmd)` after env sanitization and before process spawn. |
@@ -102,6 +104,7 @@ Results:
 ---
 
 ### Coherence (Design)
+
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
 | Inject `Arc<dyn Sandbox>` into `ShellTool` | ✅ Yes | Matches constructor and factory wiring in `src/tools/mod.rs`. |

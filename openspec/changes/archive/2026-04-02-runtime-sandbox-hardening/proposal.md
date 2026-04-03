@@ -92,9 +92,9 @@ This change wires the existing sandbox infrastructure into the actual execution 
 
 ## Rollback Plan
 
-1. **Config-level rollback**: Set `sandbox.require = false` and `sandbox.backend = None` to restore exact pre-change behavior (NoopSandbox, no wrapping, no warnings).
-2. **Code-level rollback**: Revert the PR. The change is additive — `ShellTool` gains a field and a call; removing it restores the original execution path. No data migrations, no schema changes, no external API changes.
-3. **Feature flag**: The `sandbox.require` config option itself acts as a feature flag. Operators can deploy the code without enabling enforcement.
+1. **Config-level rollback**: Set `sandbox.require = false` and `sandbox.backend = "none"` to disable enforcement. Note: this does NOT fully restore pre-change behavior — `ShellTool` still holds the `sandbox` field, `NoopSandbox` is still resolved via `detect_best_sandbox()` (same path as `auto`), and the mutating-command warning (`should_warn_for_noop_sandbox()`) will still fire for non-read-only commands. Config-only rollback disables the fail-closed gate but leaves the new warning behavior in place.
+2. **Code-level rollback**: Revert the PR. This is the only way to fully remove the mutating-command warning path, the `ShellTool.sandbox` field, and the `wrap_command()` call — restoring the original execution path exactly. The change is additive with no data migrations, schema changes, or external API changes, so a clean revert is safe.
+3. **Feature flag**: The `sandbox.require` config option itself acts as a feature flag. Operators can deploy the code without enabling enforcement. However, even with `require = false`, the `NoopSandbox` warning for mutating commands (via `ShellTool`) remains active.
 
 ## Dependencies
 

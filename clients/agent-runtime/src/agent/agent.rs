@@ -533,7 +533,15 @@ impl Agent {
             match tool.execute(call.arguments.clone()).await {
                 Ok(r) => {
                     if call.name == "shell" {
-                        self.log_shell_audit_event(call, &r, start.elapsed());
+                        if let Err(e) = self.log_shell_audit_event(call, &r, start.elapsed()) {
+                            return ToolExecutionResult {
+                                name: call.name.clone(),
+                                output: format!("Error: {e}"),
+                                success: false,
+                                tool_call_id: call.tool_call_id.clone(),
+                                action: crate::agent::dispatcher::DispatchAction::Execute,
+                            };
+                        }
                     } else if call.name == "browser" {
                         self.log_browser_security_event(&r);
                     }
@@ -578,16 +586,17 @@ impl Agent {
         call: &ParsedToolCall,
         result: &crate::tools::ToolResult,
         duration: Duration,
-    ) {
+    ) -> anyhow::Result<()> {
         let Some(logger) = &self.audit_logger else {
-            return;
+            return Ok(());
         };
 
-        let command = call
+        let raw_command = call
             .arguments
             .get("command")
             .and_then(|v| v.as_str())
             .unwrap_or("");
+        let redacted_command = redact_observer_payload(raw_command);
         let approved = call
             .arguments
             .get("approved")
@@ -607,7 +616,7 @@ impl Agent {
 
         if let Err(error) = logger.log_command_event(CommandExecutionLog {
             channel: "agent",
-            command,
+            command: &redacted_command,
             risk_level,
             approved,
             allowed: result.structured.is_some(),
@@ -616,11 +625,12 @@ impl Agent {
             sandbox_backend,
         }) {
             if self.audit_strict {
-                tracing::error!("Failed to write shell command audit event: {error}");
-            } else {
-                tracing::warn!("Failed to write shell command audit event: {error}");
+                anyhow::bail!("Failed to write shell command audit event: {error}");
             }
+            tracing::warn!("Failed to write shell command audit event: {error}");
         }
+
+        Ok(())
     }
 
     fn log_browser_security_event(&self, result: &crate::tools::ToolResult) {
