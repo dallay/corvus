@@ -5688,6 +5688,463 @@ mod tests {
         assert_eq!(transcriber.call_count.load(Ordering::SeqCst), 2);
     }
 
+    // ── audio_rejection_user_text — all 11 variants (coverage) ──
+
+    #[test]
+    fn audio_rejection_user_text_disabled() {
+        let config = Config::default();
+        let text =
+            audio_rejection_user_text("s1", &audio_media::AudioRejectionReason::Disabled, &config);
+        assert!(text.contains("[session:s1]"));
+        assert!(text.contains("Audio input is currently disabled"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_channel_not_allowed() {
+        let config = Config::default();
+        let text = audio_rejection_user_text(
+            "s2",
+            &audio_media::AudioRejectionReason::ChannelNotAllowed,
+            &config,
+        );
+        assert!(text.contains("not enabled for this channel"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_fetch_failed() {
+        let config = Config::default();
+        let text = audio_rejection_user_text(
+            "s3",
+            &audio_media::AudioRejectionReason::FetchFailed,
+            &config,
+        );
+        assert!(text.contains("couldn't download"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_mime_rejected() {
+        let config = Config::default();
+        let text = audio_rejection_user_text(
+            "s4",
+            &audio_media::AudioRejectionReason::MimeRejected,
+            &config,
+        );
+        assert!(text.contains("not supported"));
+        assert!(text.contains("OGG"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_oversize() {
+        let config = Config::default();
+        let text =
+            audio_rejection_user_text("s5", &audio_media::AudioRejectionReason::Oversize, &config);
+        assert!(text.contains("too large"));
+        assert!(text.contains("MB"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_too_long() {
+        let config = Config::default();
+        let text =
+            audio_rejection_user_text("s6", &audio_media::AudioRejectionReason::TooLong, &config);
+        assert!(text.contains("too long"));
+        assert!(text.contains("minutes"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_corrupted() {
+        let config = Config::default();
+        let text =
+            audio_rejection_user_text("s7", &audio_media::AudioRejectionReason::Corrupted, &config);
+        assert!(text.contains("corrupted"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_transcriber_unavailable() {
+        let config = Config::default();
+        let text = audio_rejection_user_text(
+            "s8",
+            &audio_media::AudioRejectionReason::TranscriberUnavailable,
+            &config,
+        );
+        assert!(text.contains("not available"));
+        assert!(text.contains("text instead"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_transcription_failed() {
+        let config = Config::default();
+        let text = audio_rejection_user_text(
+            "s9",
+            &audio_media::AudioRejectionReason::TranscriptionFailed,
+            &config,
+        );
+        assert!(text.contains("transcription failed"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_no_speech_detected() {
+        let config = Config::default();
+        let text = audio_rejection_user_text(
+            "s10",
+            &audio_media::AudioRejectionReason::NoSpeechDetected,
+            &config,
+        );
+        assert!(text.contains("No speech was detected"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_system_error() {
+        let config = Config::default();
+        let text = audio_rejection_user_text(
+            "s11",
+            &audio_media::AudioRejectionReason::SystemError,
+            &config,
+        );
+        assert!(text.contains("internal error"));
+    }
+
+    #[test]
+    fn audio_rejection_user_text_oversize_uses_config_max() {
+        let mut config = Config::default();
+        config.audio.max_audio_bytes = 50 * 1024 * 1024;
+        let text = audio_rejection_user_text(
+            "s-size",
+            &audio_media::AudioRejectionReason::Oversize,
+            &config,
+        );
+        assert!(text.contains("50 MB"), "expected 50 MB, got: {text}");
+    }
+
+    #[test]
+    fn audio_rejection_user_text_too_long_uses_config_max() {
+        let mut config = Config::default();
+        config.audio.max_audio_duration_secs = 1800;
+        let text = audio_rejection_user_text(
+            "s-dur",
+            &audio_media::AudioRejectionReason::TooLong,
+            &config,
+        );
+        assert!(text.contains("30 minutes"), "expected 30 min, got: {text}");
+    }
+
+    // ── audio_rejection_to_ingress_reason — all 11 variants ──
+
+    #[test]
+    fn audio_rejection_to_ingress_reason_maps_all_variants() {
+        use crate::observability::AudioIngressReason;
+        let cases = vec![
+            (
+                audio_media::AudioRejectionReason::Disabled,
+                AudioIngressReason::Disabled,
+            ),
+            (
+                audio_media::AudioRejectionReason::ChannelNotAllowed,
+                AudioIngressReason::ChannelNotAllowed,
+            ),
+            (
+                audio_media::AudioRejectionReason::FetchFailed,
+                AudioIngressReason::FetchFailed,
+            ),
+            (
+                audio_media::AudioRejectionReason::MimeRejected,
+                AudioIngressReason::MimeRejected,
+            ),
+            (
+                audio_media::AudioRejectionReason::Oversize,
+                AudioIngressReason::Oversize,
+            ),
+            (
+                audio_media::AudioRejectionReason::TooLong,
+                AudioIngressReason::TooLong,
+            ),
+            (
+                audio_media::AudioRejectionReason::Corrupted,
+                AudioIngressReason::Corrupted,
+            ),
+            (
+                audio_media::AudioRejectionReason::TranscriptionFailed,
+                AudioIngressReason::TranscriptionFailed,
+            ),
+            (
+                audio_media::AudioRejectionReason::NoSpeechDetected,
+                AudioIngressReason::NoSpeechDetected,
+            ),
+            (
+                audio_media::AudioRejectionReason::TranscriberUnavailable,
+                AudioIngressReason::TranscriberUnavailable,
+            ),
+            (
+                audio_media::AudioRejectionReason::SystemError,
+                AudioIngressReason::SystemError,
+            ),
+        ];
+        for (rejection, expected) in cases {
+            assert_eq!(
+                audio_rejection_to_ingress_reason(&rejection),
+                expected,
+                "mismatch for {rejection:?}"
+            );
+        }
+    }
+
+    // ── inject_transcription — caption and multi-part tests ──
+
+    #[test]
+    fn inject_transcription_preserves_caption_text() {
+        let tmp = tempfile::tempdir().unwrap();
+        let staged = make_test_staged_audio(tmp.path());
+
+        let transcriptions = vec![crate::transcription::traits::TranscriptionResult {
+            text: "Hola mundo".to_string(),
+            language: Some("es".into()),
+            duration_secs: Some(5.0),
+            confidence: Some(0.9),
+        }];
+
+        let mut msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
+            channel_handle: "file123".into(),
+            source_channel: "telegram".into(),
+            declared_mime: Some("audio/ogg".into()),
+            caption_text: Some("translate this".into()),
+            file_name: None,
+            declared_bytes: Some(64),
+            declared_duration_secs: Some(5),
+        }]);
+
+        let history_metas =
+            inject_transcription(&mut msg, std::slice::from_ref(&staged), &transcriptions);
+
+        let text_part = msg.parts.iter().find_map(|p| {
+            if let traits::ContentPart::Text { text } = p {
+                Some(text.clone())
+            } else {
+                None
+            }
+        });
+        assert!(text_part.is_some());
+        assert!(
+            text_part
+                .as_ref()
+                .unwrap()
+                .contains("[Audio transcription]"),
+            "expected '[Audio transcription]' prefix, got: {}",
+            text_part.unwrap()
+        );
+
+        assert_eq!(history_metas.len(), 1);
+        assert_eq!(history_metas[0].caption, Some("translate this".to_string()));
+    }
+
+    #[test]
+    fn inject_transcription_voice_without_caption() {
+        let tmp = tempfile::tempdir().unwrap();
+        let staged = make_test_staged_audio(tmp.path());
+
+        let transcriptions = vec![crate::transcription::traits::TranscriptionResult {
+            text: "Buenos días".to_string(),
+            language: Some("es".into()),
+            duration_secs: Some(3.0),
+            confidence: None,
+        }];
+
+        let mut msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
+            channel_handle: "file456".into(),
+            source_channel: "telegram".into(),
+            declared_mime: Some("audio/ogg".into()),
+            caption_text: None,
+            file_name: None,
+            declared_bytes: Some(64),
+            declared_duration_secs: Some(3),
+        }]);
+
+        let history_metas =
+            inject_transcription(&mut msg, std::slice::from_ref(&staged), &transcriptions);
+
+        let text_part = msg.parts.iter().find_map(|p| {
+            if let traits::ContentPart::Text { text } = p {
+                Some(text.clone())
+            } else {
+                None
+            }
+        });
+        assert!(text_part.is_some());
+        assert!(
+            text_part
+                .as_ref()
+                .unwrap()
+                .contains("[Voice message transcription]"),
+            "expected '[Voice message transcription]' prefix, got: {}",
+            text_part.unwrap()
+        );
+
+        assert_eq!(history_metas[0].caption, None);
+    }
+
+    #[test]
+    fn inject_transcription_updates_content_field() {
+        let tmp = tempfile::tempdir().unwrap();
+        let staged = make_test_staged_audio(tmp.path());
+
+        let transcriptions = vec![crate::transcription::traits::TranscriptionResult {
+            text: "Updated content".to_string(),
+            language: Some("es".into()),
+            duration_secs: Some(2.0),
+            confidence: None,
+        }];
+
+        let mut msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
+            channel_handle: "file789".into(),
+            source_channel: "telegram".into(),
+            declared_mime: Some("audio/ogg".into()),
+            caption_text: None,
+            file_name: None,
+            declared_bytes: Some(64),
+            declared_duration_secs: Some(2),
+        }]);
+
+        assert!(msg.content.is_empty(), "content should start empty");
+
+        inject_transcription(&mut msg, std::slice::from_ref(&staged), &transcriptions);
+
+        assert!(
+            !msg.content.is_empty(),
+            "content should be updated after injection"
+        );
+        assert!(msg.content.contains("Updated content"));
+    }
+
+    #[test]
+    fn inject_transcription_preserves_text_parts() {
+        let tmp = tempfile::tempdir().unwrap();
+        let staged = make_test_staged_audio(tmp.path());
+
+        let transcriptions = vec![crate::transcription::traits::TranscriptionResult {
+            text: "Transcribed text".to_string(),
+            language: Some("es".into()),
+            duration_secs: Some(5.0),
+            confidence: None,
+        }];
+
+        let mut msg = make_audio_channel_message(vec![
+            traits::ContentPart::Text {
+                text: "Here is my voice note:".into(),
+            },
+            traits::ContentPart::Audio {
+                channel_handle: "file999".into(),
+                source_channel: "telegram".into(),
+                declared_mime: Some("audio/ogg".into()),
+                caption_text: None,
+                file_name: None,
+                declared_bytes: Some(64),
+                declared_duration_secs: Some(5),
+            },
+        ]);
+
+        inject_transcription(&mut msg, std::slice::from_ref(&staged), &transcriptions);
+
+        assert_eq!(msg.parts.len(), 2, "should still have 2 parts");
+        assert!(
+            matches!(
+                &msg.parts[0],
+                traits::ContentPart::Text { text } if text.contains("voice note")
+            ),
+            "first part should remain unchanged"
+        );
+        assert!(
+            matches!(
+                &msg.parts[1],
+                traits::ContentPart::Text { text } if text.contains("Transcribed text")
+            ),
+            "second part should be the injected transcription"
+        );
+    }
+
+    // ── StagedAudioGuard with multiple files ─────────────────
+
+    #[test]
+    fn staged_audio_guard_cleanup_multiple_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let f1 = dir.path().join("audio1.ogg");
+        let f2 = dir.path().join("audio2.ogg");
+        std::fs::write(&f1, b"fake1").unwrap();
+        std::fs::write(&f2, b"fake2").unwrap();
+        assert!(f1.exists());
+        assert!(f2.exists());
+
+        {
+            let _guard = StagedAudioGuard(vec![
+                audio_media::StagedAudio {
+                    sha256: "aaa".into(),
+                    mime_type: audio_media::AllowedAudioMime::OggOpus,
+                    byte_len: 5,
+                    duration_secs: Some(1.0),
+                    temp_path: f1.clone(),
+                    channel_origin: "telegram".into(),
+                },
+                audio_media::StagedAudio {
+                    sha256: "bbb".into(),
+                    mime_type: audio_media::AllowedAudioMime::Mp3,
+                    byte_len: 5,
+                    duration_secs: Some(2.0),
+                    temp_path: f2.clone(),
+                    channel_origin: "telegram".into(),
+                },
+            ]);
+        }
+
+        assert!(!f1.exists(), "first temp file should be removed");
+        assert!(!f2.exists(), "second temp file should be removed");
+    }
+
+    // ── duration_f64_to_ms helper tests ──────────────────────
+
+    #[test]
+    fn duration_f64_to_ms_normal_values() {
+        assert_eq!(duration_f64_to_ms(1.0), 1000);
+        assert_eq!(duration_f64_to_ms(0.5), 500);
+        assert_eq!(duration_f64_to_ms(5.123), 5123);
+        assert_eq!(duration_f64_to_ms(0.0), 0);
+    }
+
+    #[test]
+    fn duration_f64_to_ms_negative_clamped_to_zero() {
+        assert_eq!(duration_f64_to_ms(-1.0), 0);
+        assert_eq!(duration_f64_to_ms(-100.0), 0);
+    }
+
+    // ── emit_audio_ingress rejection event test ──────────────
+
+    #[tokio::test]
+    async fn audio_pipeline_rejection_event_emitted_with_reason() {
+        let observer = Arc::new(AudioRecordingObserver::default());
+
+        emit_audio_ingress(
+            observer.as_ref(),
+            "telegram",
+            crate::observability::AudioIngressOutcome::Rejected,
+            Some(&audio_media::AudioRejectionReason::Oversize),
+            Some("audio/ogg".into()),
+            Some(30_000_000),
+            Some(120.0),
+            None,
+        );
+
+        let events = observer.audio_events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].outcome,
+            crate::observability::AudioIngressOutcome::Rejected
+        );
+        assert_eq!(
+            events[0].reason,
+            Some(crate::observability::AudioIngressReason::Oversize)
+        );
+        assert_eq!(events[0].byte_len, Some(30_000_000));
+        assert_eq!(events[0].duration_secs, Some(120.0));
+        assert!(events[0].transcription_duration_ms.is_none());
+    }
+
     #[tokio::test]
     async fn transcription_semaphore_allows_parallel_with_higher_concurrency() {
         // With concurrency=2, both should run in parallel

@@ -6900,4 +6900,110 @@ transcription_timeout_secs = 60
         };
         assert!(config.validate_audio_config().is_ok());
     }
+
+    // ── AudioConfig default values (coverage) ────────────────
+
+    #[test]
+    fn audio_config_default_values_are_correct() {
+        let ac = AudioConfig::default();
+        assert!(!ac.enabled);
+        assert!(ac.allowed_channels.is_empty());
+        assert_eq!(ac.max_audio_bytes, 26_214_400); // 25 MiB
+        assert_eq!(ac.max_audio_duration_secs, 600); // 10 min
+        assert_eq!(ac.transcription_model, "base");
+        assert_eq!(ac.transcription_language, "es");
+        assert_eq!(ac.whisper_binary, "whisper-cli");
+        assert_eq!(ac.max_concurrent_transcriptions, 1);
+        assert_eq!(ac.transcription_timeout_secs, 120);
+    }
+
+    // ── AudioConfig serde deserialization ─────────────────────
+
+    #[test]
+    fn audio_config_toml_deserialization_with_all_fields() {
+        let toml_str = r#"
+default_temperature = 0.7
+
+[audio]
+enabled = true
+allowed_channels = ["telegram"]
+max_audio_bytes = 52428800
+max_audio_duration_secs = 300
+transcription_model = "large-v3"
+transcription_language = "en"
+whisper_binary = "/usr/local/bin/whisper-cli"
+max_concurrent_transcriptions = 4
+transcription_timeout_secs = 60
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(parsed.audio.enabled);
+        assert_eq!(parsed.audio.allowed_channels, vec!["telegram"]);
+        assert_eq!(parsed.audio.max_audio_bytes, 52_428_800);
+        assert_eq!(parsed.audio.max_audio_duration_secs, 300);
+        assert_eq!(parsed.audio.transcription_model, "large-v3");
+        assert_eq!(parsed.audio.transcription_language, "en");
+        assert_eq!(parsed.audio.whisper_binary, "/usr/local/bin/whisper-cli");
+        assert_eq!(parsed.audio.max_concurrent_transcriptions, 4);
+        assert_eq!(parsed.audio.transcription_timeout_secs, 60);
+    }
+
+    #[test]
+    fn audio_config_toml_missing_optional_fields_use_defaults() {
+        let toml_str = r#"
+default_temperature = 0.7
+
+[audio]
+enabled = true
+allowed_channels = ["telegram"]
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(parsed.audio.enabled);
+        assert_eq!(parsed.audio.allowed_channels, vec!["telegram"]);
+        // All other fields should fall back to defaults
+        assert_eq!(parsed.audio.max_audio_bytes, 26_214_400);
+        assert_eq!(parsed.audio.max_audio_duration_secs, 600);
+        assert_eq!(parsed.audio.transcription_model, "base");
+        assert_eq!(parsed.audio.transcription_language, "es");
+        assert_eq!(parsed.audio.whisper_binary, "whisper-cli");
+        assert_eq!(parsed.audio.max_concurrent_transcriptions, 1);
+        assert_eq!(parsed.audio.transcription_timeout_secs, 120);
+    }
+
+    #[test]
+    fn audio_config_toml_no_section_gets_defaults() {
+        let toml_str = r#"
+default_temperature = 0.7
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(!parsed.audio.enabled);
+        assert!(parsed.audio.allowed_channels.is_empty());
+        assert_eq!(parsed.audio.max_audio_bytes, 26_214_400);
+        assert_eq!(parsed.audio.transcription_model, "base");
+    }
+
+    #[test]
+    fn audio_config_serde_roundtrip() {
+        let ac = AudioConfig {
+            enabled: true,
+            allowed_channels: vec!["telegram".into(), "discord".into()],
+            max_audio_bytes: 10_000_000,
+            max_audio_duration_secs: 120,
+            transcription_model: "small".into(),
+            transcription_language: "fr".into(),
+            whisper_binary: "/opt/whisper".into(),
+            max_concurrent_transcriptions: 2,
+            transcription_timeout_secs: 90,
+        };
+        let toml_str = toml::to_string(&ac).unwrap();
+        let parsed: AudioConfig = toml::from_str(&toml_str).unwrap();
+        assert!(parsed.enabled);
+        assert_eq!(parsed.allowed_channels, vec!["telegram", "discord"]);
+        assert_eq!(parsed.max_audio_bytes, 10_000_000);
+        assert_eq!(parsed.max_audio_duration_secs, 120);
+        assert_eq!(parsed.transcription_model, "small");
+        assert_eq!(parsed.transcription_language, "fr");
+        assert_eq!(parsed.whisper_binary, "/opt/whisper");
+        assert_eq!(parsed.max_concurrent_transcriptions, 2);
+        assert_eq!(parsed.transcription_timeout_secs, 90);
+    }
 }
