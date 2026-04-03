@@ -9,8 +9,8 @@
 
 ## Specs Synced
 
-| Domain | Action | Details |
-|--------|--------|---------|
+| Domain                    | Action  | Details                                                                                            |
+|---------------------------|---------|----------------------------------------------------------------------------------------------------|
 | mcp-platform-capabilities | Created | 2 modified requirements, 18 added requirements (644 lines). New spec — no prior main spec existed. |
 
 ## Archive Contents
@@ -25,11 +25,13 @@
 ## Source of Truth Updated
 
 The following specs now reflect the new behavior:
+
 - `openspec/specs/mcp-platform-capabilities/spec.md`
 
 ## Verification Verdict
 
 **PASS WITH WARNINGS** — all warnings resolved prior to archive:
+
 - 47/51 spec scenarios COMPLIANT, 4/51 PARTIAL (timeout tests inherited structurally)
 - 6,068 tests passed, 0 failed
 - Clippy clean, formatting clean

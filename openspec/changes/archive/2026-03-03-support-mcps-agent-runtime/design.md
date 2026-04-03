@@ -18,15 +18,16 @@ validation, registration, policy/approval gating, and execution limits at the ru
 ## V1 Boundaries
 
 - In scope:
-  - MCP `tools/list` discovery at startup from config-defined stdio servers.
-  - MCP `tools/call` execution through the existing `Tool` trait surface.
-  - Namespaced IDs (`mcp.<server>.<tool>`), collision rejection, risk/approval integration, timeout
-    and output caps, redaction-safe diagnostics.
+    - MCP `tools/list` discovery at startup from config-defined stdio servers.
+    - MCP `tools/call` execution through the existing `Tool` trait surface.
+    - Namespaced IDs (`mcp.<server>.<tool>`), collision rejection, risk/approval integration,
+      timeout
+      and output caps, redaction-safe diagnostics.
 - Out of scope:
-  - MCP resources/prompts.
-  - Runtime hot reload of `mcp.servers`.
-  - Persistent manifest cache across restarts.
-  - Automatic reconnect/restart supervision beyond startup validation.
+    - MCP resources/prompts.
+    - Runtime hot reload of `mcp.servers`.
+    - Persistent manifest cache across restarts.
+    - Automatic reconnect/restart supervision beyond startup validation.
 
 ## Architecture Decisions
 
@@ -71,30 +72,30 @@ and gateway paths.
 ## Component Responsibilities
 
 - `src/config/schema.rs`
-  - Define `mcp` config model.
-  - Validate server identity, command, timeout/limit bounds, and redaction-safe errors.
+    - Define `mcp` config model.
+    - Validate server identity, command, timeout/limit bounds, and redaction-safe errors.
 - `src/config/mod.rs`
-  - Re-export MCP config types for compatibility.
+    - Re-export MCP config types for compatibility.
 - `src/tools/mcp/*` (new module)
-  - MCP stdio client/session lifecycle.
-  - Startup `tools/list` discovery.
-  - `Tool` adapter implementation for each discovered MCP tool.
-  - Invocation limits and output cap enforcement.
+    - MCP stdio client/session lifecycle.
+    - Startup `tools/list` discovery.
+    - `Tool` adapter implementation for each discovered MCP tool.
+    - Invocation limits and output cap enforcement.
 - `src/tools/traits.rs`
-  - Extend `ToolSpec` metadata to carry source/origin needed for policy and audits.
+    - Extend `ToolSpec` metadata to carry source/origin needed for policy and audits.
 - `src/tools/mod.rs`
-  - Merge native + MCP tools in `all_tools_with_runtime` with deterministic collision checks.
+    - Merge native + MCP tools in `all_tools_with_runtime` with deterministic collision checks.
 - `src/agent/dispatcher.rs`
-  - Classify MCP tool calls as risk-bearing by default.
-  - Keep fail-closed unknown handling.
+    - Classify MCP tool calls as risk-bearing by default.
+    - Keep fail-closed unknown handling.
 - `src/agent/agent.rs`
-  - Consume unified registry and propagate structured denial/timeout outputs.
+    - Consume unified registry and propagate structured denial/timeout outputs.
 - `src/security/policy.rs`
-  - Add MCP-aware policy evaluation primitives (source-aware allow/deny semantics).
+    - Add MCP-aware policy evaluation primitives (source-aware allow/deny semantics).
 - `src/approval/mod.rs`
-  - Apply unknown/high-risk MCP approval requirement and structured denial format.
+    - Apply unknown/high-risk MCP approval requirement and structured denial format.
 - `src/channels/mod.rs` and `src/gateway/mod.rs`
-  - Ensure MCP tool invocations use the same dispatcher risk/approval decisions.
+    - Ensure MCP tool invocations use the same dispatcher risk/approval decisions.
 
 ## Data / Config Model
 
@@ -217,14 +218,14 @@ sequenceDiagram
 ## Security Model
 
 - Trust boundary:
-  - MCP servers are untrusted external processes.
-  - Tool metadata and outputs are treated as untrusted input.
+    - MCP servers are untrusted external processes.
+    - Tool metadata and outputs are treated as untrusted input.
 - Defenses:
-  - Deny-by-default MCP execution without explicit allow/approval outcome.
-  - Strict identifier normalization to prevent shadowing native tools.
-  - Output and timeout ceilings to prevent hangs/resource abuse.
-  - Sanitized, redacted diagnostics (no raw secrets/env dumps).
-  - Capability scope: v1 registers only MCP tools; resources/prompts are ignored/rejected.
+    - Deny-by-default MCP execution without explicit allow/approval outcome.
+    - Strict identifier normalization to prevent shadowing native tools.
+    - Output and timeout ceilings to prevent hangs/resource abuse.
+    - Sanitized, redacted diagnostics (no raw secrets/env dumps).
+    - Capability scope: v1 registers only MCP tools; resources/prompts are ignored/rejected.
 
 ## Failure Modes and Handling
 
@@ -243,9 +244,9 @@ sequenceDiagram
 - Reuse existing observer pipeline with additional MCP tags in tool names (`mcp.*`) so
   `ObserverEvent::ToolCall{tool,duration,success}` captures MCP behavior.
 - Add redacted diagnostics on:
-  - startup discovery success/failure per server,
-  - collision rejection,
-  - timeout/output-cap enforcement.
+    - startup discovery success/failure per server,
+    - collision rejection,
+    - timeout/output-cap enforcement.
 - Keep secrets out of logs by reusing redaction approach used by gateway/config debug surfaces.
 
 ## File Changes (clients/agent-runtime)
@@ -294,13 +295,20 @@ sequenceDiagram
 ## Rollout Plan
 
 1. Phase 1: Config + discovery scaffolding
-  - Add schema, validation, MCP client, startup discovery behind `mcp.enabled`.
+
+- Add schema, validation, MCP client, startup discovery behind `mcp.enabled`.
+
 2. Phase 2: Identity + dispatch + policy
-  - Introduce namespaced registration and centralized risk/approval handling.
+
+- Introduce namespaced registration and centralized risk/approval handling.
+
 3. Phase 3: Hardening
-  - Enforce timeouts/output caps, redaction diagnostics, and failure-isolation tests.
+
+- Enforce timeouts/output caps, redaction diagnostics, and failure-isolation tests.
+
 4. Verification gates
-  - Targeted unit/integration tests for all scenarios in spec delta.
+
+- Targeted unit/integration tests for all scenarios in spec delta.
 
 Rollback:
 

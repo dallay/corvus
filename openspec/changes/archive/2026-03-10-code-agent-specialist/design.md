@@ -141,20 +141,20 @@ sequenceDiagram
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/main.rs` | Modify | Add explicit `code` entry point (or equivalent profile-specific command path) that reuses canonical pre-checks and runtime execution. |
-| `clients/agent-runtime/src/agent/agent.rs` | Modify | Add effective-config/session-override construction, code-mode launch helpers, and final report emission for direct and delegated sessions. |
-| `clients/agent-runtime/src/agent/prompt.rs` | Modify | Add code-specialist prompt section(s) describing inspect-plan-edit-verify workflow and required final result format. |
-| `clients/agent-runtime/src/agent/code_session.rs` | Create | Hold code-session contracts, result/report rendering, validation planning, and delegated child-session orchestration helpers. |
-| `clients/agent-runtime/src/bootstrap/mod.rs` | Modify | Keep profile-based bootstrap as the single assembly path and formalize code-specific defaults without adding a second runtime. |
-| `clients/agent-runtime/src/config/schema.rs` | Modify | Add declarative config for code sessions, validation commands, delegated budgets, and delegate execution mode/profile overrides. |
-| `clients/agent-runtime/src/tools/delegate.rs` | Modify | Preserve one tool surface while adding session-backed delegation and structured result return. |
-| `clients/agent-runtime/src/tools/traits.rs` | Modify | Extend `ToolResult` with optional structured payload metadata so delegated code sessions can return machine-readable output without breaking text consumers. |
-| `clients/agent-runtime/src/observability/traits.rs` | Modify | Add dedicated code-session observer events/metrics for launch, validation, completion, and delegated-session outcomes. |
-| `clients/agent-runtime/src/security/audit.rs` | Modify | Add additive audit payloads for code-session summary data (commands, validation status, delegated session id). |
-| `clients/agent-runtime/src/security/policy.rs` | Modify | Preserve policy decisions for delegated origin and ensure no code-session bypass for shell/file/git/MCP actions. |
-| `clients/agent-runtime/src/approval/mod.rs` | Modify | Ensure delegated sessions surface approval-required results consistently with canonical sessions. |
+| File                                                | Action | Description                                                                                                                                                  |
+|-----------------------------------------------------|--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/main.rs`                 | Modify | Add explicit `code` entry point (or equivalent profile-specific command path) that reuses canonical pre-checks and runtime execution.                        |
+| `clients/agent-runtime/src/agent/agent.rs`          | Modify | Add effective-config/session-override construction, code-mode launch helpers, and final report emission for direct and delegated sessions.                   |
+| `clients/agent-runtime/src/agent/prompt.rs`         | Modify | Add code-specialist prompt section(s) describing inspect-plan-edit-verify workflow and required final result format.                                         |
+| `clients/agent-runtime/src/agent/code_session.rs`   | Create | Hold code-session contracts, result/report rendering, validation planning, and delegated child-session orchestration helpers.                                |
+| `clients/agent-runtime/src/bootstrap/mod.rs`        | Modify | Keep profile-based bootstrap as the single assembly path and formalize code-specific defaults without adding a second runtime.                               |
+| `clients/agent-runtime/src/config/schema.rs`        | Modify | Add declarative config for code sessions, validation commands, delegated budgets, and delegate execution mode/profile overrides.                             |
+| `clients/agent-runtime/src/tools/delegate.rs`       | Modify | Preserve one tool surface while adding session-backed delegation and structured result return.                                                               |
+| `clients/agent-runtime/src/tools/traits.rs`         | Modify | Extend `ToolResult` with optional structured payload metadata so delegated code sessions can return machine-readable output without breaking text consumers. |
+| `clients/agent-runtime/src/observability/traits.rs` | Modify | Add dedicated code-session observer events/metrics for launch, validation, completion, and delegated-session outcomes.                                       |
+| `clients/agent-runtime/src/security/audit.rs`       | Modify | Add additive audit payloads for code-session summary data (commands, validation status, delegated session id).                                               |
+| `clients/agent-runtime/src/security/policy.rs`      | Modify | Preserve policy decisions for delegated origin and ensure no code-session bypass for shell/file/git/MCP actions.                                             |
+| `clients/agent-runtime/src/approval/mod.rs`         | Modify | Ensure delegated sessions surface approval-required results consistently with canonical sessions.                                                            |
 
 ## Interfaces / Contracts
 
@@ -294,18 +294,18 @@ Only `delegate` needs this in the MVP. Existing tools can keep `structured = Non
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|--------------|----------|
-| Unit | Config defaults and validation for code-session fields and delegate session mode | Extend `config/schema.rs` serde and validation tests with fail-safe defaults and invalid-profile/invalid-timeout cases. |
-| Unit | Prompt builder includes code-specialist workflow and final output instructions only when code mode is active | Add focused prompt tests in `agent/prompt.rs`. |
-| Unit | Delegate depth, timeout, and backward-compatible one-shot/session branching | Add `delegate.rs` tests with mocked provider/session factory. |
-| Unit | Structured `CodeSessionResult` rendering and `ToolResult.structured` serialization | Add tests in `agent/code_session.rs` and `tools/traits.rs`. |
-| Unit | Security parity for delegated sessions | Add tests around delegated origin using existing policy/approval helpers; assert approval-required results still surface for MCP/high-risk operations. |
-| Integration | CLI `code` entry uses the same canonical pre-checks and loop semantics as `agent` | Add command-path tests around `main.rs`/agent launch helper with preview/canonical flags preserved. |
-| Integration | Child delegated code session can execute bounded file/shell/git workflow inside workspace and emit structured result | Add an integration-style test using temp workspace and mocked provider responses to drive multiple tool iterations. |
-| Integration | MCP tools remain namespaced and approval-gated inside delegated code sessions | Reuse current MCP dispatcher tests with a child-session launch path. |
-| Spec conformance | `agent-loop` invariants still hold for code mode and delegated sessions | Verify iteration budgets, approval-required denials, timeout aborts, and context continuity. |
-| Spec conformance | `mcp-runtime` invariants still hold | Verify no delegated-session path bypasses fail-closed registration, namespacing, or approval semantics. |
+| Layer            | What to Test                                                                                                         | Approach                                                                                                                                               |
+|------------------|----------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Unit             | Config defaults and validation for code-session fields and delegate session mode                                     | Extend `config/schema.rs` serde and validation tests with fail-safe defaults and invalid-profile/invalid-timeout cases.                                |
+| Unit             | Prompt builder includes code-specialist workflow and final output instructions only when code mode is active         | Add focused prompt tests in `agent/prompt.rs`.                                                                                                         |
+| Unit             | Delegate depth, timeout, and backward-compatible one-shot/session branching                                          | Add `delegate.rs` tests with mocked provider/session factory.                                                                                          |
+| Unit             | Structured `CodeSessionResult` rendering and `ToolResult.structured` serialization                                   | Add tests in `agent/code_session.rs` and `tools/traits.rs`.                                                                                            |
+| Unit             | Security parity for delegated sessions                                                                               | Add tests around delegated origin using existing policy/approval helpers; assert approval-required results still surface for MCP/high-risk operations. |
+| Integration      | CLI `code` entry uses the same canonical pre-checks and loop semantics as `agent`                                    | Add command-path tests around `main.rs`/agent launch helper with preview/canonical flags preserved.                                                    |
+| Integration      | Child delegated code session can execute bounded file/shell/git workflow inside workspace and emit structured result | Add an integration-style test using temp workspace and mocked provider responses to drive multiple tool iterations.                                    |
+| Integration      | MCP tools remain namespaced and approval-gated inside delegated code sessions                                        | Reuse current MCP dispatcher tests with a child-session launch path.                                                                                   |
+| Spec conformance | `agent-loop` invariants still hold for code mode and delegated sessions                                              | Verify iteration budgets, approval-required denials, timeout aborts, and context continuity.                                                           |
+| Spec conformance | `mcp-runtime` invariants still hold                                                                                  | Verify no delegated-session path bypasses fail-closed registration, namespacing, or approval semantics.                                                |
 
 ## Migration / Rollout
 

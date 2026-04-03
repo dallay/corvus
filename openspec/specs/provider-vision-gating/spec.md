@@ -51,14 +51,14 @@ The system MUST maintain a provider vision capability matrix that defines, for e
 provider family, whether image input is supported in the current release and which transport forms
 are accepted. The matrix for v1 MUST be:
 
-| Provider Family      | Image Input | Transport Form | Status   |
-|----------------------|-------------|----------------|----------|
-| OpenAI-compatible    | Yes         | InlineBytes    | Complete |
-| Gemini               | Yes         | InlineBytes    | Complete |
-| Anthropic            | Yes         | InlineBytes    | Complete |
-| Ollama               | No          | N/A            | Deferred |
-| GLM                  | No          | N/A            | Deferred |
-| Copilot              | No          | N/A            | Deferred |
+| Provider Family   | Image Input | Transport Form | Status   |
+|-------------------|-------------|----------------|----------|
+| OpenAI-compatible | Yes         | InlineBytes    | Complete |
+| Gemini            | Yes         | InlineBytes    | Complete |
+| Anthropic         | Yes         | InlineBytes    | Complete |
+| Ollama            | No          | N/A            | Deferred |
+| GLM               | No          | N/A            | Deferred |
+| Copilot           | No          | N/A            | Deferred |
 
 Providers marked "Deferred" MUST NOT declare `image_input: true` in their capability metadata.
 Adding image support for a deferred provider MUST be tracked as a separate change.
@@ -217,6 +217,7 @@ MUST reject the request with `RouteNotImageCapable` BEFORE making any API call t
 backend. The rejection MUST occur at the router layer (REQ-3, Layer 2).
 
 The system MUST NOT:
+
 - Silently strip image parts and send a text-only request
 - Queue the image for later processing
 - Attempt to transcode the image into a text description as a fallback

@@ -39,11 +39,11 @@ deployments while preserving secure configuration defaults and MCP access patter
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `modules/cerebro/` | Modified | Default storage mode selection and migration tooling implementation. |
-| `openspec/specs/cerebro/spec.md` | Modified | Update deltas to reflect migration tooling now in scope. |
-| `clients/web/apps/docs/src/content/docs/guides/cerebro/` | Modified | Update migration guidance to include import/validate tooling. |
+| Area                                                     | Impact   | Description                                                          |
+|----------------------------------------------------------|----------|----------------------------------------------------------------------|
+| `modules/cerebro/`                                       | Modified | Default storage mode selection and migration tooling implementation. |
+| `openspec/specs/cerebro/spec.md`                         | Modified | Update deltas to reflect migration tooling now in scope.             |
+| `clients/web/apps/docs/src/content/docs/guides/cerebro/` | Modified | Update migration guidance to include import/validate tooling.        |
 
 ## Deltas vs Current Implementation
 
@@ -57,11 +57,11 @@ deployments while preserving secure configuration defaults and MCP access patter
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Migration tooling corrupts or partially imports data | Medium | Provide validation step and dry-run/verify modes; document backup requirements. |
-| Performance regressions with embedded default storage | Medium | Include sizing guidance and allow explicit overrides to remote SurrealDB. |
-| Security regressions from default storage change | Low | Preserve secure transport defaults and access controls; validate auth requirements in tooling. |
+| Risk                                                  | Likelihood | Mitigation                                                                                     |
+|-------------------------------------------------------|------------|------------------------------------------------------------------------------------------------|
+| Migration tooling corrupts or partially imports data  | Medium     | Provide validation step and dry-run/verify modes; document backup requirements.                |
+| Performance regressions with embedded default storage | Medium     | Include sizing guidance and allow explicit overrides to remote SurrealDB.                      |
+| Security regressions from default storage change      | Low        | Preserve secure transport defaults and access controls; validate auth requirements in tooling. |
 
 ## Rollback Plan
 

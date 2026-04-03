@@ -61,6 +61,7 @@ multiple findings or one high-severity match, reducing false positives on clean 
 ### AD4: Sandbox as Path Validation (not OS-Level)
 
 **Choice**: Sandbox = set `cwd` to skill directory + validate all path arguments stay within scope
+
 + resolve symlinks. No seccomp/landlock/pledge.
 
 **Alternatives considered**: (A) OS-level sandboxing with seccomp (Linux) and sandbox-exec
@@ -165,17 +166,17 @@ execute_skill_tool(skill, tool, args)
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/skills/mod.rs` | Modify | Remove open-skills code (~200 lines: constants, `load_open_skills`, `open_skills_enabled`, `resolve_open_skills_dir`, `ensure_open_skills_repo`, `clone_open_skills_repo`, `pull_open_skills_repo`, `should_sync_open_skills`, `mark_open_skills_synced`, `load_open_skill_md`). Remove SKILL.toml code (~80 lines: `SkillManifest`, `SkillMeta`, `default_version`, `load_skill_toml`, SKILL.toml branch in `load_skills_from_directory`). Add integrity verification and scanner calls in `load_skills_with_config`. Add name validation calls in `load_skills_from_directory` and `handle_install_command`. Update `init_skills_dir` README to remove SKILL.toml references. Remove SKILL.toml tests (~6 tests). Add `pub mod validation;` and `pub mod scanner;` and `pub mod sandbox;`. |
-| `clients/agent-runtime/src/skills/scanner.rs` | Create | Prompt injection scoring scanner: `ScanResult`, `ScanFinding`, `ScanCategory`, `scan_skill_content()`, pattern matchers, threshold comparison. |
-| `clients/agent-runtime/src/skills/validation.rs` | Create | Name validation: `validate_skill_name()`, `validate_name_matches_directory()`, `SkillValidationError`. |
-| `clients/agent-runtime/src/skills/sandbox.rs` | Create | Tool sandboxing: `SandboxPolicy`, `SandboxViolation`, `validate_tool_paths()`, `apply_sandbox()`. |
-| `clients/agent-runtime/src/skills/lockfile.rs` | Modify | Add `verify_integrity()` function. Remove `SKILL.toml` existence check from `repair_lockfile` (line 151-153). |
-| `clients/agent-runtime/src/config/schema.rs` | Modify | Remove `legacy_open_skills` from `SkillsConfig`. Add `verify_integrity: bool` (default true) and `scan_threshold: Option<u32>` (default Some(50)). |
-| `clients/agent-runtime/src/skills/trust.rs` | None | No changes. Trust derivation remains as-is. |
-| `clients/agent-runtime/src/skills/frontmatter.rs` | None | No changes. Validation is external to parsing (separation of concerns). |
-| `clients/agent-runtime/src/skills/catalog.rs` | None | No changes expected. |
+| File                                              | Action | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|---------------------------------------------------|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/skills/mod.rs`         | Modify | Remove open-skills code (~200 lines: constants, `load_open_skills`, `open_skills_enabled`, `resolve_open_skills_dir`, `ensure_open_skills_repo`, `clone_open_skills_repo`, `pull_open_skills_repo`, `should_sync_open_skills`, `mark_open_skills_synced`, `load_open_skill_md`). Remove SKILL.toml code (~80 lines: `SkillManifest`, `SkillMeta`, `default_version`, `load_skill_toml`, SKILL.toml branch in `load_skills_from_directory`). Add integrity verification and scanner calls in `load_skills_with_config`. Add name validation calls in `load_skills_from_directory` and `handle_install_command`. Update `init_skills_dir` README to remove SKILL.toml references. Remove SKILL.toml tests (~6 tests). Add `pub mod validation;` and `pub mod scanner;` and `pub mod sandbox;`. |
+| `clients/agent-runtime/src/skills/scanner.rs`     | Create | Prompt injection scoring scanner: `ScanResult`, `ScanFinding`, `ScanCategory`, `scan_skill_content()`, pattern matchers, threshold comparison.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `clients/agent-runtime/src/skills/validation.rs`  | Create | Name validation: `validate_skill_name()`, `validate_name_matches_directory()`, `SkillValidationError`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `clients/agent-runtime/src/skills/sandbox.rs`     | Create | Tool sandboxing: `SandboxPolicy`, `SandboxViolation`, `validate_tool_paths()`, `apply_sandbox()`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `clients/agent-runtime/src/skills/lockfile.rs`    | Modify | Add `verify_integrity()` function. Remove `SKILL.toml` existence check from `repair_lockfile` (line 151-153).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `clients/agent-runtime/src/config/schema.rs`      | Modify | Remove `legacy_open_skills` from `SkillsConfig`. Add `verify_integrity: bool` (default true) and `scan_threshold: Option<u32>` (default Some(50)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `clients/agent-runtime/src/skills/trust.rs`       | None   | No changes. Trust derivation remains as-is.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `clients/agent-runtime/src/skills/frontmatter.rs` | None   | No changes. Validation is external to parsing (separation of concerns).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `clients/agent-runtime/src/skills/catalog.rs`     | None   | No changes expected.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
 ## Interfaces / Contracts
 
@@ -704,22 +705,22 @@ impl Default for SkillsConfig {
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | `validate_skill_name` — valid names, invalid chars, empty, too long, leading/trailing hyphens, consecutive hyphens | Direct function calls with assertions in `validation.rs` tests |
-| Unit | `validate_name_matches_directory` — match, mismatch | Direct function calls |
-| Unit | `scan_skill_content` — each pattern category triggers correct finding and severity | Craft minimal SKILL.md content per category |
-| Unit | Scanner false-positive check — clean legitimate SKILL.md scores 0 | Use a real skill from `.opencode/skills/` as input |
-| Unit | Scanner threshold logic — `exceeds_threshold` for boundary values | `ScanResult` with known scores |
-| Unit | `verify_integrity` — match, mismatch, missing hash, disabled | Construct `LockEntry` with known hashes, write test SKILL.md files |
-| Unit | `validate_tool_paths` — clean paths pass, `../` rejected, absolute escape rejected, symlink escape detected | `tempfile` dirs with controlled symlinks |
-| Unit | `build_policy` — ThirdParty enables sandbox, Local/Official disables | Direct calls with trust tiers |
-| Unit (deferred) | `resolve_index` — cache hit, cache miss, fetch failure, embedded fallback (task 4.2) | Mock HTTP or use `test_catalog_cache` helper |
-| Unit (deferred) | `repair_lockfile` — added, removed, updated, unchanged (task 4.6) | `tempfile` workspace with varied skill/lockfile states |
-| Integration (deferred) | `handle_catalog_install` end-to-end (task 4.7) | Mock git clone with local fixture repo |
-| Integration (deferred) | SKILL.toml rejection with migration error (task 4.8, adapted) | Create SKILL.toml-only dir, assert error log and skip |
-| Regression | All existing tests pass after open-skills and SKILL.toml removal | `cargo test` — tests referencing removed code are deleted or adapted |
-| Regression | `cargo clippy --all-targets -- -D warnings` clean | CI check |
+| Layer                  | What to Test                                                                                                       | Approach                                                             |
+|------------------------|--------------------------------------------------------------------------------------------------------------------|----------------------------------------------------------------------|
+| Unit                   | `validate_skill_name` — valid names, invalid chars, empty, too long, leading/trailing hyphens, consecutive hyphens | Direct function calls with assertions in `validation.rs` tests       |
+| Unit                   | `validate_name_matches_directory` — match, mismatch                                                                | Direct function calls                                                |
+| Unit                   | `scan_skill_content` — each pattern category triggers correct finding and severity                                 | Craft minimal SKILL.md content per category                          |
+| Unit                   | Scanner false-positive check — clean legitimate SKILL.md scores 0                                                  | Use a real skill from `.opencode/skills/` as input                   |
+| Unit                   | Scanner threshold logic — `exceeds_threshold` for boundary values                                                  | `ScanResult` with known scores                                       |
+| Unit                   | `verify_integrity` — match, mismatch, missing hash, disabled                                                       | Construct `LockEntry` with known hashes, write test SKILL.md files   |
+| Unit                   | `validate_tool_paths` — clean paths pass, `../` rejected, absolute escape rejected, symlink escape detected        | `tempfile` dirs with controlled symlinks                             |
+| Unit                   | `build_policy` — ThirdParty enables sandbox, Local/Official disables                                               | Direct calls with trust tiers                                        |
+| Unit (deferred)        | `resolve_index` — cache hit, cache miss, fetch failure, embedded fallback (task 4.2)                               | Mock HTTP or use `test_catalog_cache` helper                         |
+| Unit (deferred)        | `repair_lockfile` — added, removed, updated, unchanged (task 4.6)                                                  | `tempfile` workspace with varied skill/lockfile states               |
+| Integration (deferred) | `handle_catalog_install` end-to-end (task 4.7)                                                                     | Mock git clone with local fixture repo                               |
+| Integration (deferred) | SKILL.toml rejection with migration error (task 4.8, adapted)                                                      | Create SKILL.toml-only dir, assert error log and skip                |
+| Regression             | All existing tests pass after open-skills and SKILL.toml removal                                                   | `cargo test` — tests referencing removed code are deleted or adapted |
+| Regression             | `cargo clippy --all-targets -- -D warnings` clean                                                                  | CI check                                                             |
 
 ### Tests to Delete
 
@@ -764,14 +765,14 @@ No automatic migration tool in this phase (deferred to Phase 4).
 
 Each component can be individually disabled or reverted:
 
-| Component | Disable without code change | Code revert |
-|-----------|---------------------------|-------------|
-| Integrity verification | `skills.verify_integrity = false` | Remove hash check from `load_skills_with_config` |
-| Scanner | `skills.scan_threshold = null` | Remove `scan_skill_content` calls |
-| Name validation | N/A (no config toggle) | Remove validation calls from load/install paths |
-| Sandbox | N/A (only applies to ThirdParty) | Remove `apply_sandbox`/`validate_tool_paths` calls |
-| Open-skills removal | Revert deletion commits | Restores dead code |
-| SKILL.toml removal | Revert deletion commits | Restores deprecated path |
+| Component              | Disable without code change       | Code revert                                        |
+|------------------------|-----------------------------------|----------------------------------------------------|
+| Integrity verification | `skills.verify_integrity = false` | Remove hash check from `load_skills_with_config`   |
+| Scanner                | `skills.scan_threshold = null`    | Remove `scan_skill_content` calls                  |
+| Name validation        | N/A (no config toggle)            | Remove validation calls from load/install paths    |
+| Sandbox                | N/A (only applies to ThirdParty)  | Remove `apply_sandbox`/`validate_tool_paths` calls |
+| Open-skills removal    | Revert deletion commits           | Restores dead code                                 |
+| SKILL.toml removal     | Revert deletion commits           | Restores deprecated path                           |
 
 ## Open Questions
 

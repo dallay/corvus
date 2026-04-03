@@ -154,7 +154,8 @@ The composeApp mobile surface MUST implement full i18n compliance as a Tier 1 su
 
 - GIVEN the `composeApp` surface
 - WHEN the i18n compliance audit runs
-- THEN all `<string name="...">` entries MUST exist in both `values/strings.xml` and `values-es/strings.xml`
+- THEN all `<string name="...">` entries MUST exist in both `values/strings.xml` and
+  `values-es/strings.xml`
 - AND no hardcoded user-facing strings MUST exist in Kotlin/Compose source files
 - AND `AGENT_NAME` MUST be sourced from string resources, not a constant
 - AND the Gradle parity test MUST pass

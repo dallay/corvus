@@ -78,11 +78,11 @@ The runtime MUST process every inbound image through a 5-step normalization pipe
    `ContentPart::Image`. (Owned by channel-ingestion spec REQ-2 step 1.)
 
 2. **Gate**: Apply config-driven admission control before any fetch:
-   - `multimodal.enabled` MUST be `true` (reject with `Disabled` otherwise)
-   - Channel MUST be in `multimodal.allowed_channels` (reject with `ChannelNotAllowed` otherwise)
-   - `multimodal.vision_model_hint` MUST resolve to a route with `allow_image_input=true` (reject
-     with `MissingVisionRoute` or `RouteNotImageCapable` otherwise)
-   - Image count MUST NOT exceed `MAX_IMAGES_PER_TURN` (reject with `TooManyImages` otherwise)
+    - `multimodal.enabled` MUST be `true` (reject with `Disabled` otherwise)
+    - Channel MUST be in `multimodal.allowed_channels` (reject with `ChannelNotAllowed` otherwise)
+    - `multimodal.vision_model_hint` MUST resolve to a route with `allow_image_input=true` (reject
+      with `MissingVisionRoute` or `RouteNotImageCapable` otherwise)
+    - Image count MUST NOT exceed `MAX_IMAGES_PER_TURN` (reject with `TooManyImages` otherwise)
 
 3. **Fetch + Stage**: Download image bytes from the channel's platform CDN/API and write to a
    validated temp file. (Owned by channel-ingestion spec REQ-2 steps 3-5.)
@@ -91,12 +91,12 @@ The runtime MUST process every inbound image through a 5-step normalization pipe
    occur during streaming — the runtime MUST NOT buffer the entire image before checking limits.
 
 5. **Handoff**: Deliver the `StagedImage` to the provider layer:
-   - The provider MUST read bytes from `StagedImage.temp_path`
-   - For `InlineBytes` transport, the provider MUST base64-encode the bytes and construct a
-     `data:{mime};base64,{b64}` data URL
-   - The image content block MUST be attached to the last user message in the provider request
-   - After provider dispatch (success or failure), `StagedImageGuard` MUST clean up temp files via
-     RAII semantics (see channel-ingestion spec REQ-7)
+    - The provider MUST read bytes from `StagedImage.temp_path`
+    - For `InlineBytes` transport, the provider MUST base64-encode the bytes and construct a
+      `data:{mime};base64,{b64}` data URL
+    - The image content block MUST be attached to the last user message in the provider request
+    - After provider dispatch (success or failure), `StagedImageGuard` MUST clean up temp files via
+      RAII semantics (see channel-ingestion spec REQ-7)
 
 The pipeline MUST be fail-closed: any step that cannot be completed MUST reject the image with an
 appropriate `ImageRejectionReason` and emit an `ImageIngressEvent`.
@@ -175,6 +175,7 @@ If `multimodal.max_image_bytes` is not set or is `null`, the runtime MUST fall b
 hardcoded `MAX_IMAGE_BYTES` constant.
 
 Config validation for `max_image_bytes` (see REQ-8):
+
 - The value MUST be greater than 0
 - The value MUST NOT exceed 50 MiB (hardcoded ceiling)
 - Invalid values MUST cause a startup validation error
@@ -310,23 +311,24 @@ The image context in history SHOULD be structured such that:
 The runtime MUST use the following rejection reasons as a stable contract. Each rejection reason
 MUST map to exactly one user-facing message and one observability event.
 
-| Rejection Reason       | User-Facing Message                                                      | Emitted When                                                              |
-|------------------------|--------------------------------------------------------------------------|---------------------------------------------------------------------------|
-| `Disabled`             | "Image input is currently disabled."                                     | `multimodal.enabled` is `false`                                           |
-| `ChannelNotAllowed`    | "Image input is not enabled for this channel."                           | Channel not in `multimodal.allowed_channels`                              |
-| `MissingVisionRoute`   | "Image input is not configured with a vision route."                     | `vision_model_hint` is unset or resolves to no route                      |
-| `RouteNotImageCapable` | "The configured vision route does not allow image input."                | Resolved route has `allow_image_input=false`                              |
-| `TooManyImages`        | "Too many images ({count}). Maximum {limit} per message."                | Image count exceeds `MAX_IMAGES_PER_TURN`                                 |
-| `FetchFailed`          | "I couldn't download that image safely. Please try again."               | Channel fetch fails (network error, auth error, timeout)                  |
-| `MimeRejected`         | "That image format is not supported."                                    | Magic-byte sniffing does not match JPEG, PNG, or WebP                     |
-| `Oversize`             | "That image is too large to process."                                    | Image bytes exceed effective size limit                                   |
-| `ChannelNotSupported`  | "Image input is not yet supported for this channel."                     | Channel has no `fetch_and_stage_image()` implementation                   |
-| `ProviderError`        | "Image processing failed — please try again."                            | Provider returned an error during image-bearing request                   |
+| Rejection Reason       | User-Facing Message                                        | Emitted When                                             |
+|------------------------|------------------------------------------------------------|----------------------------------------------------------|
+| `Disabled`             | "Image input is currently disabled."                       | `multimodal.enabled` is `false`                          |
+| `ChannelNotAllowed`    | "Image input is not enabled for this channel."             | Channel not in `multimodal.allowed_channels`             |
+| `MissingVisionRoute`   | "Image input is not configured with a vision route."       | `vision_model_hint` is unset or resolves to no route     |
+| `RouteNotImageCapable` | "The configured vision route does not allow image input."  | Resolved route has `allow_image_input=false`             |
+| `TooManyImages`        | "Too many images ({count}). Maximum {limit} per message."  | Image count exceeds `MAX_IMAGES_PER_TURN`                |
+| `FetchFailed`          | "I couldn't download that image safely. Please try again." | Channel fetch fails (network error, auth error, timeout) |
+| `MimeRejected`         | "That image format is not supported."                      | Magic-byte sniffing does not match JPEG, PNG, or WebP    |
+| `Oversize`             | "That image is too large to process."                      | Image bytes exceed effective size limit                  |
+| `ChannelNotSupported`  | "Image input is not yet supported for this channel."       | Channel has no `fetch_and_stage_image()` implementation  |
+| `ProviderError`        | "Image processing failed — please try again."              | Provider returned an error during image-bearing request  |
 
 This taxonomy (10 variants) MUST be exhaustive for MVP — every image rejection MUST map to exactly
 one of these reasons.
 
 All rejection reasons MUST:
+
 - Be variants of `ImageRejectionReason` enum
 - Implement `Display` producing a stable snake_case identifier (e.g., `disabled`, `mime_rejected`)
 - Emit an `ImageIngressEvent` with outcome `Rejected` and the corresponding reason

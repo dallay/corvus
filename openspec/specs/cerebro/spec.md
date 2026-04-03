@@ -163,7 +163,8 @@ clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md
 - GIVEN a legacy configuration that references the SurrealDB backend
 - WHEN the runtime loads the configuration
 - THEN the runtime rejects the configuration with a clear error indicating the backend is removed
-  ("SurrealDB backend has been removed; use the Cerebro backend for long-term memory. See clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md")
+  ("SurrealDB backend has been removed; use the Cerebro backend for long-term memory. See
+  clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md")
 
 ### Requirement: Legacy Tool Aliases
 

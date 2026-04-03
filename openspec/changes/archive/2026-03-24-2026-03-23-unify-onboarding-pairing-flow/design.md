@@ -34,6 +34,7 @@ adapters:
 mapping its own UI and transport behavior onto the same states.
 
 **Alternatives considered**:
+
 - Keep separate per-surface onboarding narratives
 - Use CLI/dashboard activation as the de facto canonical flow
 - Define only terminology without a formal state model
@@ -45,15 +46,18 @@ for terminology, recovery, and future issue slicing without forcing the same UI 
 ### Decision: Trust establishment is the shared concept; pairing and linking are adapter-specific
 
 **Choice**: Model `trust_established` as the canonical outcome, with three adapter modes:
+
 - `host_trusted` for CLI/runtime
 - `http_paired` for dashboard/web chat
 - `bridge_linked` for composeApp mobile
 
 **Alternatives considered**:
+
 - Use “pairing” as the umbrella term for all surfaces
 - Keep separate unrelated notions of pairing, activation, and linking
 
-**Rationale**: Current code makes pairing explicitly HTTP-specific (`POST /pair`, bearer token), while
+**Rationale**: Current code makes pairing explicitly HTTP-specific (`POST /pair`, bearer token),
+while
 the mobile contract explicitly forbids HTTP as the primary path. A shared trust outcome plus
 surface-specific naming preserves security semantics without leaking gateway terminology into mobile
 UX.
@@ -63,6 +67,7 @@ UX.
 **Choice**: Split `trust_established` from `transport_connected` and `ready`.
 
 **Alternatives considered**:
+
 - Collapse pairing/linking and readiness into one “connected” step
 - Treat bearer token presence as synonymous with readiness
 
@@ -76,6 +81,7 @@ extra separation keeps recovery states precise and cross-surface comparable.
 **Choice**: Use one shared recovery taxonomy with surface-specific triggers, labels, and actions.
 
 **Alternatives considered**:
+
 - Keep dashboard `DASH-*` codes as the only formal taxonomy
 - Let each surface define its own retry model independently
 
@@ -86,13 +92,16 @@ comparable across surfaces.
 ### Decision: Source of truth stays layered rather than consolidated into one spec
 
 **Choice**:
-- `openspec/specs/client-surfaces/spec.md` remains the authority for role, capability, and transport.
+
+- `openspec/specs/client-surfaces/spec.md` remains the authority for role, capability, and
+  transport.
 - `openspec/specs/dashboard/spec.md` remains the authority for the operator-only dashboard
   activation slice inside CLI onboarding.
 - This change becomes the authority for cross-surface onboarding sequence, terminology, state model,
   and recovery mapping.
 
 **Alternatives considered**:
+
 - Move dashboard activation into this change entirely
 - Add onboarding rules directly into the client-surfaces capability matrix
 - Let each surface contract redefine onboarding locally
@@ -107,17 +116,17 @@ focused on cross-surface cohesion.
 
 The onboarding model uses the following product states:
 
-| State | Meaning | Shared Exit Condition |
-|------|--------|------------------------|
-| `intent_selected` | Surface and user goal are known | Surface adapter chosen |
-| `runtime_path_confirmed` | A usable Corvus backend path exists for this surface | Runtime or bridge/gateway endpoint verified |
-| `trust_pending` | Surface is not yet trusted | Surface-specific trust action available |
-| `trust_established` | Surface now has the right to continue | Pairing/token, link, or host trust completed |
-| `transport_connecting` | Surface validates its active communication path | Transport health/auth/session preconditions checked |
-| `ready` | Surface can start its primary work | Capability-appropriate ready UI shown |
-| `session_pending` | Chat surfaces need a new or resumed session | Session is created/resumed or skipped for operator surfaces |
-| `session_ready` | Chat session is active or resumable | Conversation workspace shown |
-| `blocked` | User cannot progress without recovery | Recovery action surfaced |
+| State                    | Meaning                                              | Shared Exit Condition                                       |
+|--------------------------|------------------------------------------------------|-------------------------------------------------------------|
+| `intent_selected`        | Surface and user goal are known                      | Surface adapter chosen                                      |
+| `runtime_path_confirmed` | A usable Corvus backend path exists for this surface | Runtime or bridge/gateway endpoint verified                 |
+| `trust_pending`          | Surface is not yet trusted                           | Surface-specific trust action available                     |
+| `trust_established`      | Surface now has the right to continue                | Pairing/token, link, or host trust completed                |
+| `transport_connecting`   | Surface validates its active communication path      | Transport health/auth/session preconditions checked         |
+| `ready`                  | Surface can start its primary work                   | Capability-appropriate ready UI shown                       |
+| `session_pending`        | Chat surfaces need a new or resumed session          | Session is created/resumed or skipped for operator surfaces |
+| `session_ready`          | Chat session is active or resumable                  | Conversation workspace shown                                |
+| `blocked`                | User cannot progress without recovery                | Recovery action surfaced                                    |
 
 ### Canonical state machine
 
@@ -139,12 +148,12 @@ At any step:
 
 ### Surface mapping
 
-| Surface | Intent archetype | Trust mode | Ready outcome |
-|--------|------------------|------------|---------------|
-| CLI/runtime | Operator setup / direct use | `host_trusted` | CLI ready; may offer dashboard activation guidance |
-| Web dashboard | Operator web management | `http_paired` | Gateway-authenticated admin access |
-| Web chat | End-user browser chat | `http_paired` | Gateway-authenticated chat access |
-| composeApp mobile | End-user mobile chat | `bridge_linked` | Bridge-linked chat access |
+| Surface           | Intent archetype            | Trust mode      | Ready outcome                                      |
+|-------------------|-----------------------------|-----------------|----------------------------------------------------|
+| CLI/runtime       | Operator setup / direct use | `host_trusted`  | CLI ready; may offer dashboard activation guidance |
+| Web dashboard     | Operator web management     | `http_paired`   | Gateway-authenticated admin access                 |
+| Web chat          | End-user browser chat       | `http_paired`   | Gateway-authenticated chat access                  |
+| composeApp mobile | End-user mobile chat        | `bridge_linked` | Bridge-linked chat access                          |
 
 ## Shared UX Concepts vs Adapters
 
@@ -161,12 +170,12 @@ These concepts MUST remain product-consistent across surfaces:
 
 ### Adapter-specific UX labels
 
-| Product concept | CLI/runtime | Web dashboard / web chat | composeApp mobile |
-|----------------|-------------|---------------------------|-------------------|
-| Trust action | Already trusted on host | Pair with code | Link app to local Corvus |
-| Trust credential | None | Bearer token | Bridge link state / platform secret |
-| Transport check | Local runtime/gateway readiness | Gateway reachable + authenticated | Bridge reachable + session-capable |
-| Primary next step | Continue setup or management | Open/manage dashboard or start chat | Start/resume mobile session |
+| Product concept   | CLI/runtime                     | Web dashboard / web chat            | composeApp mobile                   |
+|-------------------|---------------------------------|-------------------------------------|-------------------------------------|
+| Trust action      | Already trusted on host         | Pair with code                      | Link app to local Corvus            |
+| Trust credential  | None                            | Bearer token                        | Bridge link state / platform secret |
+| Transport check   | Local runtime/gateway readiness | Gateway reachable + authenticated   | Bridge reachable + session-capable  |
+| Primary next step | Continue setup or management    | Open/manage dashboard or start chat | Start/resume mobile session         |
 
 ### Adapter boundary rules
 
@@ -247,33 +256,33 @@ CLI -> optionally direct user toward dashboard activation
 
 ### Normalized recovery kinds
 
-| Recovery kind | Meaning | Typical retry anchor |
-|--------------|---------|----------------------|
-| `runtime_unavailable` | Required local runtime path is missing or down | Re-check runtime availability |
-| `transport_unavailable` | Selected transport cannot currently communicate | Retry transport validation |
-| `trust_input_invalid` | Pairing code or linking input is invalid | Re-enter trust input |
-| `trust_input_expired` | Pairing/link bootstrap has expired | Regenerate/restart trust flow |
-| `credential_missing` | Expected bearer token or link secret is absent | Return to trust step |
-| `credential_invalid` | Credential exists but is rejected/revoked | Clear and re-establish trust |
-| `paired_but_not_connected` | Trust exists, but active transport validation fails | Retry transport connection |
+| Recovery kind                  | Meaning                                                   | Typical retry anchor           |
+|--------------------------------|-----------------------------------------------------------|--------------------------------|
+| `runtime_unavailable`          | Required local runtime path is missing or down            | Re-check runtime availability  |
+| `transport_unavailable`        | Selected transport cannot currently communicate           | Retry transport validation     |
+| `trust_input_invalid`          | Pairing code or linking input is invalid                  | Re-enter trust input           |
+| `trust_input_expired`          | Pairing/link bootstrap has expired                        | Regenerate/restart trust flow  |
+| `credential_missing`           | Expected bearer token or link secret is absent            | Return to trust step           |
+| `credential_invalid`           | Credential exists but is rejected/revoked                 | Clear and re-establish trust   |
+| `paired_but_not_connected`     | Trust exists, but active transport validation fails       | Retry transport connection     |
 | `linked_but_not_session_ready` | Bridge link exists, but session operations cannot proceed | Retry session capability check |
-| `session_unavailable` | No active/resumable session exists | Create a new session |
-| `environment_unsupported` | Surface cannot run in this environment | Redirect to supported path |
+| `session_unavailable`          | No active/resumable session exists                        | Create a new session           |
+| `environment_unsupported`      | Surface cannot run in this environment                    | Redirect to supported path     |
 
 ### Surface-specific mapping
 
-| Recovery kind | CLI/runtime | Web dashboard | Web chat | composeApp mobile |
-|--------------|-------------|---------------|----------|-------------------|
-| `runtime_unavailable` | Gateway/runtime not started | Local gateway missing | Local gateway missing | CLI/companion not found |
-| `transport_unavailable` | Local status check fails | `/health` unreachable or UI path broken | `/health` unreachable | Bridge handshake fails |
-| `trust_input_invalid` | N/A | Pairing code rejected | Pairing code rejected | Link code/path invalid |
-| `trust_input_expired` | N/A | Pairing code expired | Pairing code expired | Link invitation expired |
-| `credential_missing` | N/A | Bearer token absent | Bearer token absent | Stored link state absent |
-| `credential_invalid` | N/A | Bearer token revoked | Bearer token revoked | Link state no longer trusted |
-| `paired_but_not_connected` | N/A | Paired but admin fetch fails | Paired but chat transport fails | N/A |
-| `linked_but_not_session_ready` | N/A | N/A | N/A | Bridge reachable but session calls fail |
-| `session_unavailable` | Resume target missing | Session monitoring scope only | No resumable chat session | No resumable mobile session |
-| `environment_unsupported` | Browser open unsupported | Unsafe local origin | Unsafe local origin | iOS/desktop bridge path unavailable |
+| Recovery kind                  | CLI/runtime                 | Web dashboard                           | Web chat                        | composeApp mobile                       |
+|--------------------------------|-----------------------------|-----------------------------------------|---------------------------------|-----------------------------------------|
+| `runtime_unavailable`          | Gateway/runtime not started | Local gateway missing                   | Local gateway missing           | CLI/companion not found                 |
+| `transport_unavailable`        | Local status check fails    | `/health` unreachable or UI path broken | `/health` unreachable           | Bridge handshake fails                  |
+| `trust_input_invalid`          | N/A                         | Pairing code rejected                   | Pairing code rejected           | Link code/path invalid                  |
+| `trust_input_expired`          | N/A                         | Pairing code expired                    | Pairing code expired            | Link invitation expired                 |
+| `credential_missing`           | N/A                         | Bearer token absent                     | Bearer token absent             | Stored link state absent                |
+| `credential_invalid`           | N/A                         | Bearer token revoked                    | Bearer token revoked            | Link state no longer trusted            |
+| `paired_but_not_connected`     | N/A                         | Paired but admin fetch fails            | Paired but chat transport fails | N/A                                     |
+| `linked_but_not_session_ready` | N/A                         | N/A                                     | N/A                             | Bridge reachable but session calls fail |
+| `session_unavailable`          | Resume target missing       | Session monitoring scope only           | No resumable chat session       | No resumable mobile session             |
+| `environment_unsupported`      | Browser open unsupported    | Unsafe local origin                     | Unsafe local origin             | iOS/desktop bridge path unavailable     |
 
 ### Retry semantics
 
@@ -288,16 +297,17 @@ CLI -> optionally direct user toward dashboard activation
 
 ### Boundary model
 
-| Artifact | Owns | Does not own |
-|---------|------|--------------|
-| `openspec/specs/client-surfaces/spec.md` | Transport invariants, capability matrix, parity requirements | Product onboarding wording, retry taxonomy details |
-| `openspec/specs/client-surfaces/surface-contracts/*` | Surface capability obligations and local platform rules | Cross-surface canonical journey |
-| `openspec/specs/dashboard/spec.md` | Optional CLI-to-dashboard activation flow and `DASH-*` operator diagnostics | End-user web chat or mobile onboarding |
-| This change design/spec chain | Shared onboarding sequence, terminology, state machine, recovery normalization | Low-level protocol/storage mechanics |
+| Artifact                                             | Owns                                                                           | Does not own                                       |
+|------------------------------------------------------|--------------------------------------------------------------------------------|----------------------------------------------------|
+| `openspec/specs/client-surfaces/spec.md`             | Transport invariants, capability matrix, parity requirements                   | Product onboarding wording, retry taxonomy details |
+| `openspec/specs/client-surfaces/surface-contracts/*` | Surface capability obligations and local platform rules                        | Cross-surface canonical journey                    |
+| `openspec/specs/dashboard/spec.md`                   | Optional CLI-to-dashboard activation flow and `DASH-*` operator diagnostics    | End-user web chat or mobile onboarding             |
+| This change design/spec chain                        | Shared onboarding sequence, terminology, state machine, recovery normalization | Low-level protocol/storage mechanics               |
 
 ### Relationship to existing dashboard activation spec
 
-The dashboard activation spec remains valid as a narrower operator slice. This change reframes it as:
+The dashboard activation spec remains valid as a narrower operator slice. This change reframes it
+as:
 
 - a concrete CLI/operator adapter instance of the canonical model,
 - using the same `runtime_path_confirmed -> trust_pending -> trust_established -> ready` flow,
@@ -361,20 +371,20 @@ OnboardingState {
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `openspec/changes/2026-03-23-unify-onboarding-pairing-flow/design.md` | Create | Canonical cross-surface onboarding design artifact |
-| `openspec/changes/2026-03-23-unify-onboarding-pairing-flow/specs/...` | Future Modify | Follow-up delta specs should encode the canonical state model and terminology per surface |
-| `clients/agent-runtime/src/onboard/wizard.rs` | Future Modify | Align CLI onboarding states and dashboard handoff language to the canonical model |
-| `clients/agent-runtime/src/gateway/mod.rs` | Future Modify | Preserve pairing/token mechanics while aligning user-facing trust/readiness wording |
-| `clients/web/apps/dashboard/src/composables/useConfig.ts` | Future Modify | Map quick-pair, token, and connected states onto canonical trust/readiness states |
-| `clients/web/apps/chat/src/composables/useGateway.ts` | Future Create/Modify | Implement web-chat onboarding and retry behavior using the HTTP adapter model |
-| `clients/web/apps/chat/src/composables/useChat.ts` | Future Create/Modify | Separate session lifecycle from trust/readiness state |
-| `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/onboarding/OnboardingScreen.kt` | Future Modify | Replace gateway-centric step copy with mobile linking stages |
-| `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatWorkspace.kt` | Future Modify | Remove HTTP gateway config assumptions and model bridge-linked/session-ready states |
-| `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ConfigPanel.kt` | Future Modify/Delete | Replace HTTP config panel with bridge/linking diagnostics if still needed |
-| `modules/agent-core-kmp/src/commonMain/kotlin/com/profiletailors/agent/core/CoreContracts.kt` | Future Modify | Add canonical bridge/link/session status contracts only if needed for mobile/shared alignment |
-| `modules/agent-core-kmp/src/jvmMain/kotlin/com/profiletailors/agent/core/RustCliBridge.kt` | Future Modify | Support link/session capability checks required by the mobile adapter |
+| File                                                                                                   | Action               | Description                                                                                   |
+|--------------------------------------------------------------------------------------------------------|----------------------|-----------------------------------------------------------------------------------------------|
+| `openspec/changes/2026-03-23-unify-onboarding-pairing-flow/design.md`                                  | Create               | Canonical cross-surface onboarding design artifact                                            |
+| `openspec/changes/2026-03-23-unify-onboarding-pairing-flow/specs/...`                                  | Future Modify        | Follow-up delta specs should encode the canonical state model and terminology per surface     |
+| `clients/agent-runtime/src/onboard/wizard.rs`                                                          | Future Modify        | Align CLI onboarding states and dashboard handoff language to the canonical model             |
+| `clients/agent-runtime/src/gateway/mod.rs`                                                             | Future Modify        | Preserve pairing/token mechanics while aligning user-facing trust/readiness wording           |
+| `clients/web/apps/dashboard/src/composables/useConfig.ts`                                              | Future Modify        | Map quick-pair, token, and connected states onto canonical trust/readiness states             |
+| `clients/web/apps/chat/src/composables/useGateway.ts`                                                  | Future Create/Modify | Implement web-chat onboarding and retry behavior using the HTTP adapter model                 |
+| `clients/web/apps/chat/src/composables/useChat.ts`                                                     | Future Create/Modify | Separate session lifecycle from trust/readiness state                                         |
+| `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/onboarding/OnboardingScreen.kt` | Future Modify        | Replace gateway-centric step copy with mobile linking stages                                  |
+| `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ChatWorkspace.kt`          | Future Modify        | Remove HTTP gateway config assumptions and model bridge-linked/session-ready states           |
+| `clients/composeApp/src/commonMain/kotlin/com/profiletailors/corvus/ui/chat/ConfigPanel.kt`            | Future Modify/Delete | Replace HTTP config panel with bridge/linking diagnostics if still needed                     |
+| `modules/agent-core-kmp/src/commonMain/kotlin/com/profiletailors/agent/core/CoreContracts.kt`          | Future Modify        | Add canonical bridge/link/session status contracts only if needed for mobile/shared alignment |
+| `modules/agent-core-kmp/src/jvmMain/kotlin/com/profiletailors/agent/core/RustCliBridge.kt`             | Future Modify        | Support link/session capability checks required by the mobile adapter                         |
 
 ## Interfaces / Contracts
 
@@ -428,7 +438,8 @@ enum RecoveryKind {
 
 - Input: local runtime configuration and gateway readiness checks
 - Output: direct-ready state plus optional handoff instructions for the dashboard adapter
-- Security invariant: CLI remains the host surface and does not acquire a second trust credential for
+- Security invariant: CLI remains the host surface and does not acquire a second trust credential
+  for
   itself
 
 ## Suggested Implementation Slicing
@@ -436,6 +447,7 @@ enum RecoveryKind {
 ### Slice 1: Shared product/state-model specs
 
 Deliverables:
+
 - Delta spec for canonical onboarding states, terms, and recovery taxonomy
 - Cross-reference updates into relevant surface contracts
 
@@ -444,6 +456,7 @@ Why first: every surface depends on the same model and terminology.
 ### Slice 2: CLI/runtime alignment
 
 Deliverables:
+
 - Map `wizard.rs` post-summary/dashboard activation states to canonical states
 - Keep existing `DASH-*` diagnostics but document their normalized recovery mapping
 
@@ -452,6 +465,7 @@ Why second: it is the only implemented onboarding flow and anchors operator word
 ### Slice 3: Shared HTTP onboarding model for dashboard + web chat
 
 Deliverables:
+
 - Shared HTTP adapter state vocabulary (`trust_pending`, `http_paired`, `paired_but_not_connected`)
 - Dashboard keeps admin focus; web chat gets the same trust/recovery model without admin semantics
 
@@ -460,6 +474,7 @@ Why third: dashboard already has code and web chat is currently empty.
 ### Slice 4: composeApp mobile linking model
 
 Deliverables:
+
 - Replace gateway-centric onboarding and config assumptions
 - Introduce bridge-link/session-ready mapping consistent with the canonical model
 
@@ -468,6 +483,7 @@ Why fourth: mobile transport mechanics are less complete and should build on the
 ### Slice 5: Shared observability and resume semantics
 
 Deliverables:
+
 - Standardized analytics/log labels for onboarding state transitions and recovery kinds
 - Consistent session resume vs re-trust rules across chat surfaces
 
@@ -475,14 +491,14 @@ Why last: this depends on the prior surface models being agreed.
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|--------------|----------|
-| Unit | State-machine transitions and recovery mapping | Pure mapping tests for canonical state/recovery logic in each surface adapter |
-| Unit | Terminology boundaries | Assertions that mobile adapters never emit HTTP pairing labels and web adapters never emit bridge labels |
-| Integration | HTTP trust flow | Exercise `/health` -> `/pair` -> authenticated access mapping without changing gateway semantics |
-| Integration | CLI/dashboard handoff | Verify dashboard activation outputs map to canonical states and recovery kinds |
-| Integration | Mobile linking flow | Verify bridge presence/link/session capability states map to canonical ready and blocked states |
-| E2E | Cross-surface first-run stories | Scenario tests for operator CLI, operator web, end-user web, and mobile paths using the same normalized outcomes |
+| Layer       | What to Test                                   | Approach                                                                                                         |
+|-------------|------------------------------------------------|------------------------------------------------------------------------------------------------------------------|
+| Unit        | State-machine transitions and recovery mapping | Pure mapping tests for canonical state/recovery logic in each surface adapter                                    |
+| Unit        | Terminology boundaries                         | Assertions that mobile adapters never emit HTTP pairing labels and web adapters never emit bridge labels         |
+| Integration | HTTP trust flow                                | Exercise `/health` -> `/pair` -> authenticated access mapping without changing gateway semantics                 |
+| Integration | CLI/dashboard handoff                          | Verify dashboard activation outputs map to canonical states and recovery kinds                                   |
+| Integration | Mobile linking flow                            | Verify bridge presence/link/session capability states map to canonical ready and blocked states                  |
+| E2E         | Cross-surface first-run stories                | Scenario tests for operator CLI, operator web, end-user web, and mobile paths using the same normalized outcomes |
 
 ## Migration / Rollout
 
@@ -501,9 +517,10 @@ Recommended rollout order:
 
 ## Open Questions
 
-- [ ] Should later web chat work reuse the dashboard quick-pair hash-link pattern directly, or define
-      a chat-specific but equivalent entry flow on top of the same HTTP trust adapter?
+- [ ] Should later web chat work reuse the dashboard quick-pair hash-link pattern directly, or
+  define
+  a chat-specific but equivalent entry flow on top of the same HTTP trust adapter?
 - [ ] Should canonical product docs standardize one local user-facing web entrypoint now, or should
-      that remain a separate follow-up so this change stays focused on flow/state alignment?
+  that remain a separate follow-up so this change stays focused on flow/state alignment?
 - [ ] For iOS, should the first mobile-linking spec target companion-daemon linking explicitly, or
-      keep the linking adapter abstract until platform mechanics are ready?
+  keep the linking adapter abstract until platform mechanics are ready?

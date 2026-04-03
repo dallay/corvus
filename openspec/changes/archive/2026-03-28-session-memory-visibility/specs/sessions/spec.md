@@ -9,7 +9,9 @@
 
 ## Overview
 
-This specification defines session lifecycle management for the Corvus runtime. Sessions transition from implicit memory filters to explicit, tracked entities with creation timestamps, activity tracking, and deterministic closure. The SQLite backend is the authoritative source of truth.
+This specification defines session lifecycle management for the Corvus runtime. Sessions transition
+from implicit memory filters to explicit, tracked entities with creation timestamps, activity
+tracking, and deterministic closure. The SQLite backend is the authoritative source of truth.
 
 ---
 
@@ -19,18 +21,19 @@ This specification defines session lifecycle management for the Corvus runtime. 
 
 The runtime MUST maintain a `sessions` table in the SQLite `brain.db` with the following columns:
 
-| Column | Type | Constraints |
-|--------|------|-------------|
-| `id` | TEXT | PRIMARY KEY, NOT NULL |
-| `started_at` | TEXT (ISO 8601) | NOT NULL |
-| `ended_at` | TEXT (ISO 8601) | NULL (active sessions) |
-| `status` | TEXT | NOT NULL, DEFAULT 'active' |
-| `message_count` | INTEGER | NOT NULL, DEFAULT 0 |
-| `last_activity` | TEXT (ISO 8601) | NOT NULL |
-| `token_hash` | TEXT | NULL |
-| `metadata` | TEXT (JSON) | NULL |
+| Column          | Type            | Constraints                |
+|-----------------|-----------------|----------------------------|
+| `id`            | TEXT            | PRIMARY KEY, NOT NULL      |
+| `started_at`    | TEXT (ISO 8601) | NOT NULL                   |
+| `ended_at`      | TEXT (ISO 8601) | NULL (active sessions)     |
+| `status`        | TEXT            | NOT NULL, DEFAULT 'active' |
+| `message_count` | INTEGER         | NOT NULL, DEFAULT 0        |
+| `last_activity` | TEXT (ISO 8601) | NOT NULL                   |
+| `token_hash`    | TEXT            | NULL                       |
+| `metadata`      | TEXT (JSON)     | NULL                       |
 
-The table MUST have indexes on `status`, `started_at`, `last_activity`, and `token_hash` for efficient listing, filtering, and end-user scoping.
+The table MUST have indexes on `status`, `started_at`, `last_activity`, and `token_hash` for
+efficient listing, filtering, and end-user scoping.
 
 #### Scenario: Session table migration on existing brain.db
 
@@ -55,9 +58,11 @@ And no data in the existing sessions table MUST be modified
 
 ### SESS-2: Session Creation
 
-The runtime MUST explicitly create a session record when a new `session_id` is first used in the agent loop.
+The runtime MUST explicitly create a session record when a new `session_id` is first used in the
+agent loop.
 
-- Session creation MUST be idempotent — if a session with the given ID already exists, the existing record MUST be returned without modification (UPSERT semantics on insert).
+- Session creation MUST be idempotent — if a session with the given ID already exists, the existing
+  record MUST be returned without modification (UPSERT semantics on insert).
 - The `started_at` and `last_activity` fields MUST be set to the current UTC timestamp on creation.
 - The `message_count` MUST be initialized to `0`.
 
@@ -159,7 +164,8 @@ And ended_at MUST remain "2026-03-28T09:00:00Z"
 
 The memory hygiene pass MUST auto-close stale sessions.
 
-- A session is **stale** when `ended_at` IS NULL AND `last_activity` is older than the configured threshold.
+- A session is **stale** when `ended_at` IS NULL AND `last_activity` is older than the configured
+  threshold.
 - The default stale threshold MUST be 24 hours.
 - The threshold SHOULD be configurable via runtime config.
 - Auto-close MUST set `ended_at` to the current UTC timestamp, not the `last_activity` time.
@@ -238,11 +244,11 @@ The gateway MUST expose admin endpoints for session management.
 - MUST require bearer token authentication with admin role.
 - MUST return a paginated list of sessions.
 - MUST support query parameters:
-  - `status`: filter by `active`, `ended`, or `all` (default: `all`)
-  - `limit`: max results per page (default: 50, max: 200)
-  - `offset`: pagination offset (default: 0)
-  - `sort`: `started_at` or `last_activity` (default: `last_activity`)
-  - `order`: `asc` or `desc` (default: `desc`)
+    - `status`: filter by `active`, `ended`, or `all` (default: `all`)
+    - `limit`: max results per page (default: 50, max: 200)
+    - `offset`: pagination offset (default: 0)
+    - `sort`: `started_at` or `last_activity` (default: `last_activity`)
+    - `order`: `asc` or `desc` (default: `desc`)
 - Response MUST include `total` count for pagination.
 
 ##### Scenario: Admin lists all sessions
@@ -377,15 +383,20 @@ Then the response status MUST be 401
 
 The `Memory` trait MUST be extended with session lifecycle methods:
 
-- `upsert_session(session_id: &str, token_hash: Option<&str>) -> Result<()>` — create session or touch existing.
+- `upsert_session(session_id: &str, token_hash: Option<&str>) -> Result<()>` — create session or
+  touch existing.
 - `end_session(session_id: &str) -> Result<()>` — mark session as ended.
-- `update_session_activity(session_id: &str) -> Result<()>` — increment message count and update last_activity.
-- `list_sessions(status, limit, offset, sort, order) -> Result<(Vec<SessionEntry>, u64)>` — list sessions with filtering and pagination.
+- `update_session_activity(session_id: &str) -> Result<()>` — increment message count and update
+  last_activity.
+- `list_sessions(status, limit, offset, sort, order) -> Result<(Vec<SessionEntry>, u64)>` — list
+  sessions with filtering and pagination.
 - `get_session(session_id: &str) -> Result<Option<SessionEntry>>` — get a single session by ID.
-- `list_sessions_for_token(token_hash: &str, limit, offset) -> Result<(Vec<SessionEntry>, u64)>` — list sessions scoped to a bearer token.
+- `list_sessions_for_token(token_hash: &str, limit, offset) -> Result<(Vec<SessionEntry>, u64)>` —
+  list sessions scoped to a bearer token.
 - `memory_stats() -> Result<MemoryStats>` — return aggregated memory and session statistics.
 
-These methods MUST have default implementations that return `Ok` with empty/default values, so that non-SQLite backends (Markdown, None) do not break.
+These methods MUST have default implementations that return `Ok` with empty/default values, so that
+non-SQLite backends (Markdown, None) do not break.
 
 #### Scenario: Non-SQLite backend handles session methods gracefully
 

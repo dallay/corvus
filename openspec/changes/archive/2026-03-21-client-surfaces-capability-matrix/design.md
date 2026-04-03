@@ -16,6 +16,7 @@ each surface communicates with the runtime.
 defined gateway interfaces, never exposed directly to client surfaces.
 
 **Alternatives considered**:
+
 - Tiered RPC: Expose raw RPC endpoints to all surfaces, let each surface decide what to use
 - Shared library: Bundle runtime core as a shared library linked into each surface
 - Monolithic: Single binary with all surfaces embedded
@@ -28,12 +29,14 @@ layer, not by convention alone.
 ### Decision: Transport Per Surface, Not Per Capability
 
 **Choice**: Each surface uses exactly one transport mechanism for all runtime communication:
+
 - Web clients → HTTP Gateway
 - Mobile clients → RustCliBridge (process)
 - CLI operators → Direct runtime CLI
 - Dashboard → HTTP Gateway
 
 **Alternatives considered**:
+
 - Unified transport abstraction that could route to either HTTP or CLI
 - Surface-optional transports (e.g., mobile could use gateway if available)
 
@@ -48,6 +51,7 @@ choice is constrained by platform capability, not preference.
 only. It contains no execution logic, no UI, and no state management.
 
 **Alternatives considered**:
+
 - Distribute contracts across surfaces (copy types into each surface)
 - Create a dedicated "contracts" module separate from agent-core-kmp
 - Include agent-core-kmp as a dependency in all surfaces for execution capability
@@ -172,6 +176,7 @@ transport adapter, not a capability implementation.
 
 The HTTP Gateway is an Axum-based server providing REST and WebSocket endpoints for web clients.
 Current implementation features:
+
 - HTTP/1.1 compliance with proper content-length validation
 - 64KB request body limit (prevents slow-loris attacks)
 - 30s request timeout
@@ -203,6 +208,7 @@ Mobile App ──→ RustCliBridge ──→ ProcessBuilder ──→ corvus age
 ```
 
 **Current contract** (`CoreContracts.kt`):
+
 ```kotlin
 data class CoreInvocation(
   val prompt: String,
@@ -236,6 +242,7 @@ management, streaming responses, and structured tool results are not implemented
 primary gap to close for mobile parity.
 
 **Target: CLI session mode** (`corvus agent -m --session-id <id>`) should enable:
+
 1. Session creation and resumption
 2. Streaming output parsing
 3. Structured tool result deserialization
@@ -247,6 +254,7 @@ primary gap to close for mobile parity.
 
 Operators interact directly with the runtime via CLI commands. This bypasses the gateway entirely,
 providing full runtime capability access. CLI mode is appropriate for:
+
 - Local development and debugging
 - Server operators who prefer shell-based management
 - Automated scripts and CI/CD pipelines
@@ -311,11 +319,13 @@ item (see below).
 ### Mandatory Capabilities
 
 A capability is **Mandatory** for a surface when:
+
 1. It is the primary function of the surface (e.g., chat for the chat surface)
 2. Users of that surface cannot accomplish their core task without it
 3. Its absence would make the surface non-functional for its intended role
 
 **Examples**:
+
 - Chat message composition: Mandatory for chat surfaces (web + mobile) because without it, there
   is no chat
 - Gateway API integration: Mandatory for web chat because browser sandbox prevents process bridges
@@ -325,11 +335,13 @@ A capability is **Mandatory** for a surface when:
 ### Optional Capabilities
 
 A capability is **Optional** for a surface when:
+
 1. It enhances the surface but is not required for core functionality
 2. Implementation may vary by platform or be deferred
 3. Users can accomplish core tasks without it
 
 **Examples**:
+
 - Short-term memory display: Useful context but chat works without it
 - Long-term memory queries: Powerful feature, not required for basic chat
 - MCP tool visibility: Nice-to-have debugging aid
@@ -341,6 +353,7 @@ indicates essential functionality.
 ### Out-of-Scope Capabilities
 
 A capability is **Out-of-Scope** for a surface when:
+
 1. It violates the surface's role (e.g., admin in end-user surface)
 2. It is a runtime-only capability that must not leak to clients
 3. It is physically impossible on the platform (e.g., filesystem access from browser)
@@ -360,16 +373,16 @@ A capability is **Out-of-Scope** for a surface when:
 
 ### Parity Matrix (from proposal)
 
-| Capability | Web (`chat`) | Mobile (`composeApp`) | Parity Level |
-|------------|--------------|----------------------|---------------|
-| Chat composition | Yes | Yes | **Mandatory** |
-| Streaming response display | Yes | Yes | **Mandatory** |
-| Sync response display | Yes | Yes | **Mandatory** |
-| Session lifecycle | Yes | Yes | **Mandatory** |
-| Tool approval UI | Yes | Yes | **Mandatory** |
-| Short-term memory display | Yes | Yes | **Optional** |
-| Long-term memory queries | Yes | Yes | **Optional** |
-| MCP tool visibility | Yes | Yes | **Optional** |
+| Capability                 | Web (`chat`) | Mobile (`composeApp`) | Parity Level  |
+|----------------------------|--------------|-----------------------|---------------|
+| Chat composition           | Yes          | Yes                   | **Mandatory** |
+| Streaming response display | Yes          | Yes                   | **Mandatory** |
+| Sync response display      | Yes          | Yes                   | **Mandatory** |
+| Session lifecycle          | Yes          | Yes                   | **Mandatory** |
+| Tool approval UI           | Yes          | Yes                   | **Mandatory** |
+| Short-term memory display  | Yes          | Yes                   | **Optional**  |
+| Long-term memory queries   | Yes          | Yes                   | **Optional**  |
+| MCP tool visibility        | Yes          | Yes                   | **Optional**  |
 
 ### Enforcement Mechanisms
 
@@ -379,21 +392,25 @@ and mobile can reference ensures type-level parity.
 
 **2. Feature flag gates**: Mobile releases gate on mandatory parity. A `mobileMandatoryParity`
 feature flag in composeApp build configuration ensures that:
+
 - Web chat features marked Mandatory must have mobile equivalents before mobile release
 - Optional features can be independently released on either surface
 
 **3. Surface interface contracts**: Each surface should define its interface contract as a
 checklist that reviewers reference:
+
 - `CLAUDE.md` in each surface directory references the canonical matrix
 - PRs touching a surface must state which matrix rows are affected
 - Code review verifies classification matches matrix
 
 **4. Capability audit CI**: A periodic CI job (weekly or per-release) validates:
+
 - Each surface implements exactly the capabilities in its matrix row
 - No surface imports or calls capabilities outside its row
 - Runtime-only capabilities are not imported into any client surface
 
 **5. Transport invariant checks**:
+
 ```kotlin
 // In composeApp: Verify RustCliBridge is used, not HTTP
 assert(transport == "rust-cli", "Mobile must use RustCliBridge, not HTTP Gateway")
@@ -478,15 +495,16 @@ is removed from composeApp (it belongs to the web chat surface). Session managem
 CLI bridge session APIs.
 
 **Migration steps**:
+
 1. Create `RustCliBridgeSession` wrapper in `modules/agent-core-kmp/jvmMain` that supports:
-   - Session creation (`--session-id` argument or `SESSION CREATE` subcommand)
-   - Session resumption
-   - Structured output parsing (JSON responses)
-   - Streaming output handling
+    - Session creation (`--session-id` argument or `SESSION CREATE` subcommand)
+    - Session resumption
+    - Structured output parsing (JSON responses)
+    - Streaming output handling
 2. Update `composeApp/ChatWorkspace.kt` to:
-   - Remove `AgentGatewayConfig`
-   - Replace `buildLocalAssistantReply` with `RustCliBridge` invocations
-   - Add session state management
+    - Remove `AgentGatewayConfig`
+    - Replace `buildLocalAssistantReply` with `RustCliBridge` invocations
+    - Add session state management
 3. Remove `endpointUrl` and HTTP-specific helpers from `ChatComponents.kt`
 4. Update composeApp onboarding to guide users to install the `corvus` CLI binary
 
@@ -500,18 +518,20 @@ that generates a stub response ("[$modelName] Recibido..."). The `useGateway.ts`
 empty.
 
 **Target state**: Full chat functionality via HTTP Gateway:
+
 1. Session creation and management via `/session/*` endpoints
 2. Message sending via `/chat/send` (streaming)
 3. Tool approval UI wired to `/tool/approve` and `/tool/deny`
 4. Memory display via `/memory/*` endpoints
 
 **Migration steps**:
+
 1. Implement `useGateway.ts` composable:
-   - `connect()`: Establish gateway connection with bearer token
-   - `sendMessage(prompt: string)`: Send chat message
-   - `subscribeToolApproval(callback)`: Real-time tool approval events
-   - `approveTool(toolId: string)`: Approve pending tool
-   - `denyTool(toolId: string)`: Deny pending tool
+    - `connect()`: Establish gateway connection with bearer token
+    - `sendMessage(prompt: string)`: Send chat message
+    - `subscribeToolApproval(callback)`: Real-time tool approval events
+    - `approveTool(toolId: string)`: Approve pending tool
+    - `denyTool(toolId: string)`: Deny pending tool
 2. Replace `buildLocalAssistantReply` with `useGateway` hook integration
 3. Add WebSocket support for streaming responses
 4. Wire session management (start, resume, end)
@@ -522,12 +542,14 @@ empty.
 support, no structured output, no streaming.
 
 **Target state**: Session-aware CLI bridge:
+
 1. Session management commands: `SESSION CREATE`, `SESSION RESUME <id>`, `SESSION END <id>`
 2. Structured JSON output mode: `--output json`
 3. Streaming mode: `--stream` with SSE-like output
 4. Tool result serialization: structured `ToolResult` in JSON
 
 **Migration steps**:
+
 1. Define `CliBridgeSession` interface in `modules/agent-core-kmp/commonMain`:
    ```kotlin
    interface CliBridgeSession {
@@ -547,12 +569,14 @@ support, no structured output, no streaming.
 capabilities need verification against the capability matrix.
 
 **Target state**: Gateway fully implements the matrix columns:
+
 - `/session/create`, `/session/resume`, `/session/end` → Sessions column
 - `/memory/short-term`, `/memory/long-term` → Memory column (optional)
 - `/tool/invoke`, `/tool/approve`, `/tool/deny` → Tools column (optional)
 - `/admin/*` → Admin column (dashboard only, out-of-scope for chat)
 
 **Migration steps**:
+
 1. Audit current gateway endpoints against matrix
 2. Implement missing endpoints with proper authentication and authorization
 3. Add session persistence (if not already present)

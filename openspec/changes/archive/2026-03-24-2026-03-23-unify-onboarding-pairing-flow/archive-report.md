@@ -18,11 +18,11 @@ verification side effects were carried forward for follow-up.
 
 ## Specs Synced
 
-| Domain | Action | Details |
-|--------|--------|---------|
-| onboarding | Created | Main spec did not exist; copied the approved onboarding spec into `openspec/specs/onboarding/spec.md`. |
-| client-surfaces | Updated | Merged 2 added requirements (`Onboarding Contract Alignment`, `Cross-Surface Recovery State Coverage`) and 1 modified requirement (`Transport Invariant`) into `openspec/specs/client-surfaces/spec.md`. |
-| dashboard | Updated | Merged 1 added requirement (`Dashboard Onboarding Boundary`) and 2 modified requirements (`Accepted-Path Activation Guidance`, `Deterministic Diagnosis and Fallback Commands`) into `openspec/specs/dashboard/spec.md`. |
+| Domain          | Action  | Details                                                                                                                                                                                                                  |
+|-----------------|---------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| onboarding      | Created | Main spec did not exist; copied the approved onboarding spec into `openspec/specs/onboarding/spec.md`.                                                                                                                   |
+| client-surfaces | Updated | Merged 2 added requirements (`Onboarding Contract Alignment`, `Cross-Surface Recovery State Coverage`) and 1 modified requirement (`Transport Invariant`) into `openspec/specs/client-surfaces/spec.md`.                 |
+| dashboard       | Updated | Merged 1 added requirement (`Dashboard Onboarding Boundary`) and 2 modified requirements (`Accepted-Path Activation Guidance`, `Deterministic Diagnosis and Fallback Commands`) into `openspec/specs/dashboard/spec.md`. |
 
 ## Archive Operation
 
@@ -52,9 +52,14 @@ verification side effects were carried forward for follow-up.
 - `openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/proposal.md`
 - `openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/design.md`
 - `openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/tasks.md`
-- `openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/specs/onboarding/spec.md`
-- `openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/specs/client-surfaces/spec.md`
-- `openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/specs/dashboard/spec.md`
+-
+
+`openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/specs/onboarding/spec.md`
+-
+`openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/specs/client-surfaces/spec.md`
+-
+`openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/specs/dashboard/spec.md`
+
 - `openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/verify-report.md`
 - `openspec/changes/archive/2026-03-24-2026-03-23-unify-onboarding-pairing-flow/archive-report.md`
 
@@ -67,7 +72,9 @@ verification side effects were carried forward for follow-up.
 
 ## Risks
 
-- Remaining verification-stack hygiene warnings can still reduce confidence in future PASS results if
+- Remaining verification-stack hygiene warnings can still reduce confidence in future PASS results
+  if
   the default verify target is used without the supplemental Rust and web coverage.
-- Validation side effects from coverage emission and `agentsyncApply` can obscure unrelated changes in
+- Validation side effects from coverage emission and `agentsyncApply` can obscure unrelated changes
+  in
   the worktree during future archive cycles.

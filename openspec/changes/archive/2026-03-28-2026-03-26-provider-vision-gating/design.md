@@ -56,6 +56,7 @@ receives raw channel data.
 The `supports_image_input()` method requires both the flag AND at least one transport form.
 
 **Alternatives considered**:
+
 - Feature flag in config only — rejected because capability is intrinsic to the provider/model,
   not a deployment concern
 - Separate `VisionProvider` trait — rejected because it would fragment the trait hierarchy and
@@ -79,6 +80,7 @@ the trait declaration.
    chain for image turns. Fails with `"No image-capable provider available"` if none found.
 
 **Alternatives considered**:
+
 - Single gate at router only — rejected because providers loaded outside the router (tests,
   direct usage) would bypass the check
 - Silent fallback to text-only — rejected because stripping images changes the user's intent
@@ -120,10 +122,11 @@ struct ImageSource {
 ```
 
 **`chat()` modification** (`anthropic.rs:469-511`): When `request.images` is non-empty:
+
 - Find the last user message index (same pattern as `compatible.rs:509`)
 - For that message, interleave text and image `NativeContentOut` blocks:
-  1. `NativeContentOut::Text` with the user's text content
-  2. For each `StagedImage`: read `temp_path`, base64-encode, emit `NativeContentOut::Image`
+    1. `NativeContentOut::Text` with the user's text content
+    2. For each `StagedImage`: read `temp_path`, base64-encode, emit `NativeContentOut::Image`
 - Non-user messages pass through unchanged
 
 **`capabilities()` override** (new method on `impl Provider for AnthropicProvider`):
@@ -143,6 +146,7 @@ fn capabilities(&self) -> ProviderCapabilities {
 arm is a no-op (same as `ToolUse`).
 
 **Alternatives considered**:
+
 - Generic multimodal adapter trait — rejected; each provider's API format is different enough
   that a shared abstraction adds complexity without reducing code
 - Separate `chat_multimodal()` method (OpenAI-compatible pattern) — rejected for Anthropic
@@ -159,13 +163,14 @@ naturally. Keeps the change minimal and local to `anthropic.rs`.
 **Choice**: `StagedImage` is the universal boundary type. Each provider translates independently
 to its native API format. No shared "format adapter" abstraction.
 
-| Provider | API Format | Translation |
-|---|---|---|
-| OpenAI-compatible | `{type:"image_url", image_url:{url:"data:{mime};base64,{data}"}}` | Data URI in content blocks array |
-| Anthropic | `{type:"image", source:{type:"base64", media_type:"{mime}", data:"{b64}"}}` | Source object in content blocks array |
-| Gemini | `{inline_data:{mime_type:"{mime}", data:"{b64}"}}` | InlineData struct in parts array |
+| Provider          | API Format                                                                  | Translation                           |
+|-------------------|-----------------------------------------------------------------------------|---------------------------------------|
+| OpenAI-compatible | `{type:"image_url", image_url:{url:"data:{mime};base64,{data}"}}`           | Data URI in content blocks array      |
+| Anthropic         | `{type:"image", source:{type:"base64", media_type:"{mime}", data:"{b64}"}}` | Source object in content blocks array |
+| Gemini            | `{inline_data:{mime_type:"{mime}", data:"{b64}"}}`                          | InlineData struct in parts array      |
 
 **Alternatives considered**:
+
 - Shared base64-encoding utility — already exists implicitly (each provider calls
   `std::fs::read` + `base64_encode`); a shared helper could be extracted later but is not
   required for three call sites
@@ -181,6 +186,7 @@ it eliminates. Each adapter owns its format contract completely.
 **Choice**: Defer Ollama vision support to Wave 2.
 
 **Alternatives considered**:
+
 - Implement now with a hardcoded model allowlist — rejected because the list would be
   immediately stale as new vision models are released
 - Query Ollama `/api/show` for model capabilities — rejected because the response does not
@@ -246,10 +252,10 @@ Channel
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/providers/anthropic.rs` | Modify | Add `NativeContentOut::Image` variant + `ImageSource` struct; override `capabilities()` to declare image support; extend `chat()` to inject image content blocks from `StagedImage`; update `apply_cache_to_last_message` match arm |
-| `clients/agent-runtime/src/providers/anthropic.rs` (tests) | Modify | Add unit tests for: capability declaration, image content block construction, interleaved text+image blocks, cache control with image variant |
+| File                                                       | Action | Description                                                                                                                                                                                                                         |
+|------------------------------------------------------------|--------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/providers/anthropic.rs`         | Modify | Add `NativeContentOut::Image` variant + `ImageSource` struct; override `capabilities()` to declare image support; extend `chat()` to inject image content blocks from `StagedImage`; update `apply_cache_to_last_message` match arm |
+| `clients/agent-runtime/src/providers/anthropic.rs` (tests) | Modify | Add unit tests for: capability declaration, image content block construction, interleaved text+image blocks, cache control with image variant                                                                                       |
 
 ## Interfaces / Contracts
 
@@ -307,17 +313,17 @@ impl Provider for AnthropicProvider {
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | `NativeContentOut::Image` serializes to correct Anthropic JSON format | Construct variant, `serde_json::to_value`, assert structure matches `{type:"image", source:{type:"base64", media_type, data}}` |
-| Unit | `capabilities()` returns `image_input: true` + `[InlineBytes]` | Call `AnthropicProvider::new(...).capabilities()`, assert fields |
-| Unit | `supports_image_input()` returns `true` for Anthropic capabilities | Call `.capabilities().supports_image_input()`, assert true |
-| Unit | Image blocks interleaved with text in user message | Build a mock `ChatRequest` with text + images, verify `convert_messages` output contains both `Text` and `Image` blocks in the last user message |
-| Unit | Images attached only to last user message | Multi-turn request with two user messages; verify only the last one gets image blocks |
-| Unit | `apply_cache_to_last_message` handles `Image` variant without panic | Message ending with `Image` block — verify no crash, cache not applied to image blocks |
-| Unit | Empty images slice produces no image blocks | `ChatRequest` with `images: &[]` — verify output matches existing text-only behavior exactly |
-| Integration | Router rejects image turn to non-image provider | `RouterProvider` with an Anthropic (image-capable) and Ollama (text-only); route image turn to Ollama route, expect error |
-| Integration | Reliable skips text-only, selects Anthropic for image turn | `ReliableProvider` with mixed providers; send image turn, verify Anthropic is selected |
+| Layer       | What to Test                                                          | Approach                                                                                                                                         |
+|-------------|-----------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
+| Unit        | `NativeContentOut::Image` serializes to correct Anthropic JSON format | Construct variant, `serde_json::to_value`, assert structure matches `{type:"image", source:{type:"base64", media_type, data}}`                   |
+| Unit        | `capabilities()` returns `image_input: true` + `[InlineBytes]`        | Call `AnthropicProvider::new(...).capabilities()`, assert fields                                                                                 |
+| Unit        | `supports_image_input()` returns `true` for Anthropic capabilities    | Call `.capabilities().supports_image_input()`, assert true                                                                                       |
+| Unit        | Image blocks interleaved with text in user message                    | Build a mock `ChatRequest` with text + images, verify `convert_messages` output contains both `Text` and `Image` blocks in the last user message |
+| Unit        | Images attached only to last user message                             | Multi-turn request with two user messages; verify only the last one gets image blocks                                                            |
+| Unit        | `apply_cache_to_last_message` handles `Image` variant without panic   | Message ending with `Image` block — verify no crash, cache not applied to image blocks                                                           |
+| Unit        | Empty images slice produces no image blocks                           | `ChatRequest` with `images: &[]` — verify output matches existing text-only behavior exactly                                                     |
+| Integration | Router rejects image turn to non-image provider                       | `RouterProvider` with an Anthropic (image-capable) and Ollama (text-only); route image turn to Ollama route, expect error                        |
+| Integration | Reliable skips text-only, selects Anthropic for image turn            | `ReliableProvider` with mixed providers; send image turn, verify Anthropic is selected                                                           |
 
 Tests use `cargo test --manifest-path clients/agent-runtime/Cargo.toml` and follow the
 existing pattern in `anthropic.rs` tests (lines 532+).

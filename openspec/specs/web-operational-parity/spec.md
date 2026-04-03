@@ -268,11 +268,13 @@ All dashboard components have unit tests following the existing patterns in
 `components/config/*.spec.ts`.
 
 **Implemented coverage**:
+
 - Dashboard: 78 tests across 23 test files (all pass)
 - Chat: 63 tests across 6 test files (all pass)
 - Total: 141 tests, 0 failures
 
 **Known gaps**:
+
 - `ProviderPoolsSettings.spec.ts` — does not exist (component not built)
 - Some spec files have only 1 test (e.g., `SecuritySettings.spec.ts`, `BrowserSettings.spec.ts`)
 - Coverage threshold (60%) configured but not measured in verification run
@@ -300,10 +302,10 @@ views.
 
 ## Gateway Endpoints
 
-| Method | Path | Auth | Description |
-|--------|------|------|-------------|
-| GET | `/web/admin/channels` | Pairing | Channel status list |
-| GET | `/web/admin/health` | Pairing | Aggregate health view |
-| GET | `/web/admin/tasks` | Pairing | Scheduled task list |
-| POST | `/web/chat/stream` | Pairing | SSE streaming chat |
-| POST | `/web/chat/tool-approval` | Pairing | Tool approval decision |
+| Method | Path                      | Auth    | Description            |
+|--------|---------------------------|---------|------------------------|
+| GET    | `/web/admin/channels`     | Pairing | Channel status list    |
+| GET    | `/web/admin/health`       | Pairing | Aggregate health view  |
+| GET    | `/web/admin/tasks`        | Pairing | Scheduled task list    |
+| POST   | `/web/chat/stream`        | Pairing | SSE streaming chat     |
+| POST   | `/web/chat/tool-approval` | Pairing | Tool approval decision |

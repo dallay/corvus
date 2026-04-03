@@ -9,6 +9,7 @@ routing or operator intervention.
 ## Scope
 
 ### In Scope
+
 - Add a first-class account pool model under reliability configuration for providers.
 - Implement account selection in the reliability layer (e.g., round-robin/weighted) and apply
   credentials per request.
@@ -16,9 +17,11 @@ routing or operator intervention.
   and redacted.
 - Define whether admin HTTP config can read/update pool settings and update admin schema/contracts
   if enabled.
-- It should be a reusable module that is independent of any specific system. Simply by adding the module, you should have access to all its functionality.
+- It should be a reusable module that is independent of any specific system. Simply by adding the
+  module, you should have access to all its functionality.
 
 ### Out of Scope
+
 - Automatic account discovery or external credential fetchers.
 - New provider types or model routing semantics beyond existing hints.
 - Gateway webhook migration to canonical dispatcher behavior.
@@ -32,23 +35,23 @@ optional; if enabled, it will be limited to validated, redacted update paths.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/providers/reliable.rs` | Modified | Apply per-request account selection and credential injection. |
-| `clients/agent-runtime/src/providers/mod.rs` | Modified | Build and cache providers per account; update factory wiring. |
-| `clients/agent-runtime/src/config/schema.rs` | Modified | Add account pool config shape, validation, and secret handling. |
-| `clients/agent-runtime/src/gateway/admin.rs` | Modified | Optional admin read/patch for pool config with redaction. |
-| `clients/agent-runtime/src/bootstrap/mod.rs` | Modified | Ensure pool config flows to runtime provider selection. |
-| `clients/web/apps/dashboard/src/types/admin-config.ts` | Modified | Admin UI types/patch payloads if pool config is exposed. |
-| `clients/agent-runtime/tests/admin_config_api_integration.rs` | Modified | Update admin API contract tests if pool config is exposed. |
+| Area                                                          | Impact   | Description                                                     |
+|---------------------------------------------------------------|----------|-----------------------------------------------------------------|
+| `clients/agent-runtime/src/providers/reliable.rs`             | Modified | Apply per-request account selection and credential injection.   |
+| `clients/agent-runtime/src/providers/mod.rs`                  | Modified | Build and cache providers per account; update factory wiring.   |
+| `clients/agent-runtime/src/config/schema.rs`                  | Modified | Add account pool config shape, validation, and secret handling. |
+| `clients/agent-runtime/src/gateway/admin.rs`                  | Modified | Optional admin read/patch for pool config with redaction.       |
+| `clients/agent-runtime/src/bootstrap/mod.rs`                  | Modified | Ensure pool config flows to runtime provider selection.         |
+| `clients/web/apps/dashboard/src/types/admin-config.ts`        | Modified | Admin UI types/patch payloads if pool config is exposed.        |
+| `clients/agent-runtime/tests/admin_config_api_integration.rs` | Modified | Update admin API contract tests if pool config is exposed.      |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Credential rotation still ineffective if provider interfaces cannot accept per-request keys. | Medium | Introduce a credential-aware wrapper or per-account provider instances. |
-| Admin API exposure increases secret handling complexity. | Medium | Redact responses, validate patches, and keep updates optional. |
-| Pool selection could reduce per-account cache locality or increase overhead. | Low | Cache provider instances by account and reuse across calls. |
+| Risk                                                                                         | Likelihood | Mitigation                                                              |
+|----------------------------------------------------------------------------------------------|------------|-------------------------------------------------------------------------|
+| Credential rotation still ineffective if provider interfaces cannot accept per-request keys. | Medium     | Introduce a credential-aware wrapper or per-account provider instances. |
+| Admin API exposure increases secret handling complexity.                                     | Medium     | Redact responses, validate patches, and keep updates optional.          |
+| Pool selection could reduce per-account cache locality or increase overhead.                 | Low        | Cache provider instances by account and reuse across calls.             |
 
 ## Rollback Plan
 

@@ -20,12 +20,12 @@ Secondary deliverables include per-surface contracts and architectural guidance 
 
 - [x] **1.1** Create directory `openspec/specs/client-surfaces/`
 - [x] **1.2** Author canonical `spec.md` incorporating:
-  - Surface registry table (7 surfaces with role classification)
-  - Capability matrix table (Chat/Config/Memory/Tools/Sessions/Admin columns)
-  - Transport assignments per surface
-  - Runtime-only capabilities exclusion list
-  - Mobile-web parity requirements section
-  - Surface boundary resolution rules
+    - Surface registry table (7 surfaces with role classification)
+    - Capability matrix table (Chat/Config/Memory/Tools/Sessions/Admin columns)
+    - Transport assignments per surface
+    - Runtime-only capabilities exclusion list
+    - Mobile-web parity requirements section
+    - Surface boundary resolution rules
 - [x] **1.3** Include doc history frontmatter:
   ```yaml
   ---
@@ -66,45 +66,45 @@ Secondary deliverables include per-surface contracts and architectural guidance 
   ```
 
 - [x] **2.2** Create `agent-runtime-cli.md`:
-  - Role: Operator/Admin - Direct runtime access
-  - Transport: Direct CLI
-  - Mandatory capabilities checklist
-  - Out-of-scope capabilities list
-  - Runtime-only boundary definition
+    - Role: Operator/Admin - Direct runtime access
+    - Transport: Direct CLI
+    - Mandatory capabilities checklist
+    - Out-of-scope capabilities list
+    - Runtime-only boundary definition
 
 - [x] **2.3** Create `web-chat.md`:
-  - Role: End-user (Web)
-  - Transport: HTTP Gateway
-  - Mandatory checklist: Chat composition, session lifecycle, tool approval UI
-  - Optional checklist: Memory display, MCP tool visibility
-  - Out-of-scope checklist: Direct runtime access, local filesystem
-  - Current status: Stub implementation (see Migration 2)
+    - Role: End-user (Web)
+    - Transport: HTTP Gateway
+    - Mandatory checklist: Chat composition, session lifecycle, tool approval UI
+    - Optional checklist: Memory display, MCP tool visibility
+    - Out-of-scope checklist: Direct runtime access, local filesystem
+    - Current status: Stub implementation (see Migration 2)
 
 - [x] **2.4** Create `web-dashboard.md`:
-  - Role: Operator/Admin (Web)
-  - Transport: HTTP Gateway
-  - Mandatory checklist: Config, agent management, session monitoring, audit
-  - Out-of-scope checklist: Direct runtime access, runtime code modification
-  - Current status: Complete
+    - Role: Operator/Admin (Web)
+    - Transport: HTTP Gateway
+    - Mandatory checklist: Config, agent management, session monitoring, audit
+    - Out-of-scope checklist: Direct runtime access, runtime code modification
+    - Current status: Complete
 
 - [x] **2.5** Create `composeapp-mobile.md`:
-  - Role: End-user (Mobile)
-  - Transport: RustCliBridge (process bridge)
-  - Mandatory checklist: Chat composition, session lifecycle, tool approval UI
-  - Optional checklist: Memory display, MCP tool visibility
-  - Platform-specific checklist: Push notifications, background sessions
-  - Out-of-scope checklist: Gateway API integration
-  - Current status: Scaffold, no runtime bridge (see Migration 1, 3)
+    - Role: End-user (Mobile)
+    - Transport: RustCliBridge (process bridge)
+    - Mandatory checklist: Chat composition, session lifecycle, tool approval UI
+    - Optional checklist: Memory display, MCP tool visibility
+    - Platform-specific checklist: Push notifications, background sessions
+    - Out-of-scope checklist: Gateway API integration
+    - Current status: Scaffold, no runtime bridge (see Migration 1, 3)
 
 - [x] **2.6** Create `composeapp-shared.md`:
-  - Role: Supporting - Shared contracts library
-  - Scope: Type definitions only, no execution
-  - List shared types: `CoreInvocation`, `CoreOutput`, `CoreResult`, `AgentCoreBridge`
-  - Document contract versioning policy
+    - Role: Supporting - Shared contracts library
+    - Scope: Type definitions only, no execution
+    - List shared types: `CoreInvocation`, `CoreOutput`, `CoreResult`, `AgentCoreBridge`
+    - Document contract versioning policy
 
 - [x] **2.7** Create `web-docs.md` and `web-marketing.md`:
-  - Minimal contracts (zero runtime interaction)
-  - Out-of-scope confirmation checklist
+    - Minimal contracts (zero runtime interaction)
+    - Out-of-scope confirmation checklist
 
 ### Contract Template
 
@@ -163,16 +163,16 @@ Each surface contract uses this structure:
   See: `openspec/specs/client-surfaces/spec.md`
   ```
 - [x] **3.3** Add transport rules guidance:
-  - Web clients MUST use HTTP Gateway
-  - Mobile clients MUST use RustCliBridge
-  - CLI operators use Direct runtime access
+    - Web clients MUST use HTTP Gateway
+    - Mobile clients MUST use RustCliBridge
+    - CLI operators use Direct runtime access
 - [x] **3.4** Review surface-specific `CLAUDE.md` files:
-  - [x] `clients/web/apps/chat/CLAUDE.md` - Add chat surface contract reference
-  - [x] `clients/composeApp/CLAUDE.md` - Add mobile surface contract reference
-  - [x] `clients/web/apps/dashboard/CLAUDE.md` - Add admin surface contract reference
+    - [x] `clients/web/apps/chat/CLAUDE.md` - Add chat surface contract reference
+    - [x] `clients/composeApp/CLAUDE.md` - Add mobile surface contract reference
+    - [x] `clients/web/apps/dashboard/CLAUDE.md` - Add admin surface contract reference
 - [x] **3.5** Update `modules/agent-core-kmp/README.md` or add `CLAUDE.md`:
-  - [x] Document contract scope (types only, no execution)
-  - [x] Reference `composeapp-shared.md` surface contract
+    - [x] Document contract scope (types only, no execution)
+    - [x] Reference `composeapp-shared.md` surface contract
 
 ### Verification
 
@@ -287,14 +287,14 @@ Before marking this change complete:
 
 ## Estimated Effort
 
-| Task | Complexity | Status |
-|------|------------|--------|
-| Task 1: Permanent spec | Medium | ✅ Complete |
-| Task 2: Surface contracts | Low | ✅ Complete (7/7) |
-| Task 3: Architectural guidance | Low | ✅ Complete (3.1-3.7 all ✅) |
-| Task 4: Open questions | Medium | ✅ Complete (5/5) |
-| Task 5: Migration tracking | Low | ✅ Complete |
-| Task 6: Archive | Low | ✅ Complete |
+| Task                           | Complexity | Status                     |
+|--------------------------------|------------|----------------------------|
+| Task 1: Permanent spec         | Medium     | ✅ Complete                 |
+| Task 2: Surface contracts      | Low        | ✅ Complete (7/7)           |
+| Task 3: Architectural guidance | Low        | ✅ Complete (3.1-3.7 all ✅) |
+| Task 4: Open questions         | Medium     | ✅ Complete (5/5)           |
+| Task 5: Migration tracking     | Low        | ✅ Complete                 |
+| Task 6: Archive                | Low        | ✅ Complete                 |
 
 ---
 
@@ -304,6 +304,7 @@ Before marking this change complete:
 **Remaining**: None
 
 **Files created/modified**:
+
 - `openspec/specs/client-surfaces/spec.md` (permanent spec)
 - `openspec/specs/client-surfaces/surface-contracts/agent-runtime-cli.md`
 - `openspec/specs/client-surfaces/surface-contracts/web-chat.md`

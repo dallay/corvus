@@ -200,16 +200,16 @@ sequenceDiagram
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `src/skills/trust.rs` | **Create** | `SkillTrust` enum, `SkillOrigin` struct, `SkillSource` enum, `impl From<&SkillSource> for SkillTrust` |
-| `src/skills/lockfile.rs` | **Create** | `SkillsLockfile` struct, `LockEntry` struct, `read_lockfile()`, `write_lock_entry()`, `remove_lock_entry()` |
-| `src/skills/frontmatter.rs` | **Create** | `SkillFrontmatter` struct, `parse_frontmatter()` for YAML frontmatter extraction from SKILL.md |
-| `src/skills/mod.rs` | **Modify** | Add `trust`, `origin`, `allowed_tools` fields to `Skill`. Update `load_skills()` to populate trust/origin. Update `open_skills_enabled()` default. Update install flow with trust gating. Add config-based open-skills check. |
-| `src/agent/prompt.rs` | **Modify** | Update `render_skills_section()` for trust-aware rendering: sort by tier, add `trust` attribute, add third-party caution note and preamble. |
-| `src/config/schema.rs` | **Modify** | Add `SkillsConfig` struct with `legacy_open_skills: bool` field. Add `skills` field to top-level `Config`. |
-| `src/config/mod.rs` | **Modify** | Re-export `SkillsConfig`. |
-| `src/lib.rs` | **Modify** | Add `--trust` flag to `SkillCommands::Install`. |
+| File                        | Action     | Description                                                                                                                                                                                                                   |
+|-----------------------------|------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `src/skills/trust.rs`       | **Create** | `SkillTrust` enum, `SkillOrigin` struct, `SkillSource` enum, `impl From<&SkillSource> for SkillTrust`                                                                                                                         |
+| `src/skills/lockfile.rs`    | **Create** | `SkillsLockfile` struct, `LockEntry` struct, `read_lockfile()`, `write_lock_entry()`, `remove_lock_entry()`                                                                                                                   |
+| `src/skills/frontmatter.rs` | **Create** | `SkillFrontmatter` struct, `parse_frontmatter()` for YAML frontmatter extraction from SKILL.md                                                                                                                                |
+| `src/skills/mod.rs`         | **Modify** | Add `trust`, `origin`, `allowed_tools` fields to `Skill`. Update `load_skills()` to populate trust/origin. Update `open_skills_enabled()` default. Update install flow with trust gating. Add config-based open-skills check. |
+| `src/agent/prompt.rs`       | **Modify** | Update `render_skills_section()` for trust-aware rendering: sort by tier, add `trust` attribute, add third-party caution note and preamble.                                                                                   |
+| `src/config/schema.rs`      | **Modify** | Add `SkillsConfig` struct with `legacy_open_skills: bool` field. Add `skills` field to top-level `Config`.                                                                                                                    |
+| `src/config/mod.rs`         | **Modify** | Re-export `SkillsConfig`.                                                                                                                                                                                                     |
+| `src/lib.rs`                | **Modify** | Add `--trust` flag to `SkillCommands::Install`.                                                                                                                                                                               |
 
 ## Interfaces / Contracts
 
@@ -638,40 +638,40 @@ src/lib.rs         ← modifies SkillCommands (clap derive)
 
 ## Error Handling
 
-| Scenario | Behavior | Justification |
-|----------|----------|---------------|
-| Lockfile missing | `read_lockfile()` returns empty `SkillsLockfile` | Advisory model — first run has no lockfile |
-| Lockfile corrupt TOML | Log warning via `tracing::warn!`, return empty lockfile | Availability over consistency |
-| Lockfile entry missing for installed skill | Skill defaults to `Local` trust | Backward compat for pre-lockfile installs |
-| Frontmatter parse failure (no `---` delimiters, malformed YAML) | `parse_frontmatter()` returns `SkillFrontmatter::default()` (empty) | Safe default — skill becomes instruction-only if ThirdParty |
-| Content hash computation failure (file read error) | `compute_content_hash()` returns `None`, stored as `None` in lock entry | Non-blocking — hash is for integrity audit, not load-time gating |
-| Trust gate denial (ThirdParty + tools, no `--trust`, no TTY) | Return `anyhow::bail!()` with clear message explaining `--trust` flag | User must explicitly opt in to third-party tools |
-| SKILL.md missing during install validation | `anyhow::bail!("Skill directory must contain SKILL.md")` | Minimum structure requirement |
-| Git clone failure during install | Existing behavior preserved — `anyhow::bail!` with stderr | No change from current error path |
+| Scenario                                                        | Behavior                                                                | Justification                                                    |
+|-----------------------------------------------------------------|-------------------------------------------------------------------------|------------------------------------------------------------------|
+| Lockfile missing                                                | `read_lockfile()` returns empty `SkillsLockfile`                        | Advisory model — first run has no lockfile                       |
+| Lockfile corrupt TOML                                           | Log warning via `tracing::warn!`, return empty lockfile                 | Availability over consistency                                    |
+| Lockfile entry missing for installed skill                      | Skill defaults to `Local` trust                                         | Backward compat for pre-lockfile installs                        |
+| Frontmatter parse failure (no `---` delimiters, malformed YAML) | `parse_frontmatter()` returns `SkillFrontmatter::default()` (empty)     | Safe default — skill becomes instruction-only if ThirdParty      |
+| Content hash computation failure (file read error)              | `compute_content_hash()` returns `None`, stored as `None` in lock entry | Non-blocking — hash is for integrity audit, not load-time gating |
+| Trust gate denial (ThirdParty + tools, no `--trust`, no TTY)    | Return `anyhow::bail!()` with clear message explaining `--trust` flag   | User must explicitly opt in to third-party tools                 |
+| SKILL.md missing during install validation                      | `anyhow::bail!("Skill directory must contain SKILL.md")`                | Minimum structure requirement                                    |
+| Git clone failure during install                                | Existing behavior preserved — `anyhow::bail!` with stderr               | No change from current error path                                |
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | `SkillTrust` derivation from each `SkillSource` variant | `src/skills/trust.rs` — test `From<&SkillSource>` for all 5 variants |
-| Unit | `SkillTrust` ordering (`Official < Local < ThirdParty`) | `src/skills/trust.rs` — test `Ord` impl for sort correctness |
-| Unit | Lockfile serialization round-trip | `src/skills/lockfile.rs` — serialize `SkillsLockfile`, deserialize, assert equality |
-| Unit | Lockfile read from missing file | `src/skills/lockfile.rs` — verify returns empty default |
-| Unit | Lockfile read from corrupt file | `src/skills/lockfile.rs` — write garbage, verify returns empty default (no panic) |
-| Unit | `write_lock_entry` creates and updates entries | `src/skills/lockfile.rs` — write two entries, read back, verify both present |
-| Unit | `remove_lock_entry` removes correct entry | `src/skills/lockfile.rs` — write two, remove one, verify other remains |
-| Unit | Frontmatter parse: valid with all fields | `src/skills/frontmatter.rs` — full frontmatter block with name, description, allowed-tools list |
-| Unit | Frontmatter parse: valid without allowed-tools | `src/skills/frontmatter.rs` — verify `allowed_tools` is empty vec |
-| Unit | Frontmatter parse: no frontmatter delimiters | `src/skills/frontmatter.rs` — plain markdown, verify returns default |
-| Unit | Frontmatter parse: malformed YAML | `src/skills/frontmatter.rs` — broken content, verify returns default (no panic) |
-| Unit | Content hash computation | `src/skills/lockfile.rs` — write known content, verify SHA-256 matches expected |
-| Unit | `open_skills_enabled()` respects config and env | `src/skills/mod.rs` — test priority order: config > env > default(false) |
-| Unit | Prompt rendering with mixed trust tiers | `src/agent/prompt.rs` — create skills with all 3 trust tiers, verify sort order, trust attributes, third-party note, preamble |
-| Unit | Prompt rendering with no third-party skills | `src/agent/prompt.rs` — verify no preamble note when all skills are Official/Local |
-| Unit | `Skill` struct with new fields initializes correctly | `src/skills/mod.rs` — verify trust defaults to `Local`, origin defaults to local source |
-| Integration | Install flow with trust gating | `src/skills/mod.rs` — simulate install of a third-party skill with `allowed-tools`, verify: lock entry written, trust gate triggers without `--trust`, proceeds with `--trust` |
-| Integration | `load_skills()` populates trust from lockfile | `src/skills/mod.rs` — write lockfile with entries, load skills, verify trust/origin populated |
-| Regression | All existing tests pass unchanged | `cargo test` — existing 15+ tests in `skills/mod.rs` and `agent/prompt.rs` must pass. New `trust`/`origin`/`allowed_tools` fields use `#[serde(skip)]` and `Default`, so existing deserialization is unaffected. |
+| Layer       | What to Test                                            | Approach                                                                                                                                                                                                         |
+|-------------|---------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Unit        | `SkillTrust` derivation from each `SkillSource` variant | `src/skills/trust.rs` — test `From<&SkillSource>` for all 5 variants                                                                                                                                             |
+| Unit        | `SkillTrust` ordering (`Official < Local < ThirdParty`) | `src/skills/trust.rs` — test `Ord` impl for sort correctness                                                                                                                                                     |
+| Unit        | Lockfile serialization round-trip                       | `src/skills/lockfile.rs` — serialize `SkillsLockfile`, deserialize, assert equality                                                                                                                              |
+| Unit        | Lockfile read from missing file                         | `src/skills/lockfile.rs` — verify returns empty default                                                                                                                                                          |
+| Unit        | Lockfile read from corrupt file                         | `src/skills/lockfile.rs` — write garbage, verify returns empty default (no panic)                                                                                                                                |
+| Unit        | `write_lock_entry` creates and updates entries          | `src/skills/lockfile.rs` — write two entries, read back, verify both present                                                                                                                                     |
+| Unit        | `remove_lock_entry` removes correct entry               | `src/skills/lockfile.rs` — write two, remove one, verify other remains                                                                                                                                           |
+| Unit        | Frontmatter parse: valid with all fields                | `src/skills/frontmatter.rs` — full frontmatter block with name, description, allowed-tools list                                                                                                                  |
+| Unit        | Frontmatter parse: valid without allowed-tools          | `src/skills/frontmatter.rs` — verify `allowed_tools` is empty vec                                                                                                                                                |
+| Unit        | Frontmatter parse: no frontmatter delimiters            | `src/skills/frontmatter.rs` — plain markdown, verify returns default                                                                                                                                             |
+| Unit        | Frontmatter parse: malformed YAML                       | `src/skills/frontmatter.rs` — broken content, verify returns default (no panic)                                                                                                                                  |
+| Unit        | Content hash computation                                | `src/skills/lockfile.rs` — write known content, verify SHA-256 matches expected                                                                                                                                  |
+| Unit        | `open_skills_enabled()` respects config and env         | `src/skills/mod.rs` — test priority order: config > env > default(false)                                                                                                                                         |
+| Unit        | Prompt rendering with mixed trust tiers                 | `src/agent/prompt.rs` — create skills with all 3 trust tiers, verify sort order, trust attributes, third-party note, preamble                                                                                    |
+| Unit        | Prompt rendering with no third-party skills             | `src/agent/prompt.rs` — verify no preamble note when all skills are Official/Local                                                                                                                               |
+| Unit        | `Skill` struct with new fields initializes correctly    | `src/skills/mod.rs` — verify trust defaults to `Local`, origin defaults to local source                                                                                                                          |
+| Integration | Install flow with trust gating                          | `src/skills/mod.rs` — simulate install of a third-party skill with `allowed-tools`, verify: lock entry written, trust gate triggers without `--trust`, proceeds with `--trust`                                   |
+| Integration | `load_skills()` populates trust from lockfile           | `src/skills/mod.rs` — write lockfile with entries, load skills, verify trust/origin populated                                                                                                                    |
+| Regression  | All existing tests pass unchanged                       | `cargo test` — existing 15+ tests in `skills/mod.rs` and `agent/prompt.rs` must pass. New `trust`/`origin`/`allowed_tools` fields use `#[serde(skip)]` and `Default`, so existing deserialization is unaffected. |
 
 ### Test File Organization
 

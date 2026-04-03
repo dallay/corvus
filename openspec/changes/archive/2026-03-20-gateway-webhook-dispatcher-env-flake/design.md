@@ -66,11 +66,11 @@ This keeps concurrent test binaries from observing each other's transient dispat
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
+| File                                         | Action | Description                                                                                                                                                                                                  |
+|----------------------------------------------|--------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `clients/agent-runtime/src/config/schema.rs` | Modify | Point env-override tests at the shared dispatcher env test lock/helper from `clients/agent-runtime/src/test_support.rs` and restore `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` deterministically in the flaky test. |
-| `clients/agent-runtime/src/gateway/mod.rs` | Modify | Reuse the shared `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` test lock/helper from `clients/agent-runtime/src/test_support.rs`, including `temp_config()` reads, instead of a module-local seam. |
-| `clients/agent-runtime/src/test_support.rs` | Modify | Host the tiny shared test-only mutex/guard seam used by both config and gateway tests. |
+| `clients/agent-runtime/src/gateway/mod.rs`   | Modify | Reuse the shared `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` test lock/helper from `clients/agent-runtime/src/test_support.rs`, including `temp_config()` reads, instead of a module-local seam.                     |
+| `clients/agent-runtime/src/test_support.rs`  | Modify | Host the tiny shared test-only mutex/guard seam used by both config and gateway tests.                                                                                                                       |
 
 ## Interfaces / Contracts
 
@@ -82,16 +82,17 @@ Expected test-only seam shape:
     pub fn gateway_webhook_dispatcher_env_guard(...) -> ...
 
 The exact helper signature should follow existing test patterns, but it must provide:
+
 - shared serialization for `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` mutations
 - restoration of the previous env value on drop
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | `config::schema::tests::env_override_gateway_webhook_dispatcher` no longer leaks env state | Update the test to run under the shared lock and verify cleanup-friendly setup/teardown. |
-| Unit | Representative gateway dispatcher-path test remains compatible with the shared lock | Run at least one gateway test that sets `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` under the new shared guard. |
-| Integration | Focused coexistence of config and gateway env-sensitive tests | Use repeated targeted test runs across both modules/test binaries to show the flake is bounded without broad suite changes. |
+| Layer       | What to Test                                                                               | Approach                                                                                                                    |
+|-------------|--------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------|
+| Unit        | `config::schema::tests::env_override_gateway_webhook_dispatcher` no longer leaks env state | Update the test to run under the shared lock and verify cleanup-friendly setup/teardown.                                    |
+| Unit        | Representative gateway dispatcher-path test remains compatible with the shared lock        | Run at least one gateway test that sets `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` under the new shared guard.                     |
+| Integration | Focused coexistence of config and gateway env-sensitive tests                              | Use repeated targeted test runs across both modules/test binaries to show the flake is bounded without broad suite changes. |
 
 ## Migration / Rollout
 
@@ -99,5 +100,7 @@ No migration required.
 
 ## Open Questions
 
-- [ ] Is there already a reusable `#[cfg(test)]` helper in `clients/agent-runtime/src/test_support` that can host the shared env lock without creating a new file?
-- [ ] If focused repeated runs still fail after shared locking and cleanup, is there deterministic evidence of a real override bug that justifies revisiting production code?
+- [ ] Is there already a reusable `#[cfg(test)]` helper in `clients/agent-runtime/src/test_support`
+  that can host the shared env lock without creating a new file?
+- [ ] If focused repeated runs still fail after shared locking and cleanup, is there deterministic
+  evidence of a real override bug that justifies revisiting production code?

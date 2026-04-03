@@ -28,7 +28,8 @@ for a workspace containing 50 skills.
 
 #### Scenario: ThirdParty skill with tampered content
 
-- GIVEN a ThirdParty skill `community-tool` is installed with lockfile `content_hash = "sha256:aaa..."`
+- GIVEN a ThirdParty skill `community-tool` is installed with lockfile
+  `content_hash = "sha256:aaa..."`
 - AND the current SKILL.md on disk has been modified (SHA-256 digest is `"sha256:bbb..."`)
 - WHEN `load_skills()` executes with `skills.verify_integrity = true`
 - THEN a warning MUST be emitted containing the skill name and hash mismatch details
@@ -154,7 +155,8 @@ enforced; no new install-time behavior is needed.
 
 #### Scenario: SKILL.toml ignored when SKILL.md also present
 
-- GIVEN a skill directory `{workspace}/skills/dual-format/` contains both `SKILL.toml` and `SKILL.md`
+- GIVEN a skill directory `{workspace}/skills/dual-format/` contains both `SKILL.toml` and
+  `SKILL.md`
 - WHEN `load_skills()` loads the `dual-format` skill
 - THEN the skill MUST be loaded from `SKILL.md` only
 - AND `SKILL.toml` MUST NOT be read or parsed

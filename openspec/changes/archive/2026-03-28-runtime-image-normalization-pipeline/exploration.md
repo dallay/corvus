@@ -22,7 +22,8 @@ size checks, MIME sniffing, SHA-256 hashing, and temp file creation.
 
 **Validated artifact** — `StagedImage` (`channels/media.rs:80-88`) is the post-validation struct:
 `sha256`, `mime_type` (enum), `byte_len`, `temp_path`, `transport_form` (currently only
-`InlineBytes`), `channel_origin`. Cleanup is RAII via `StagedImageGuard` (`channels/mod.rs:127-135`).
+`InlineBytes`), `channel_origin`. Cleanup is RAII via `StagedImageGuard` (
+`channels/mod.rs:127-135`).
 
 **Provider handoff** — `ChatRequest.images` (`providers/traits.rs:79-81`) carries a `&[StagedImage]`
 slice. The `CompatibleProvider::chat_multimodal()` (`providers/compatible.rs:494-550`) reads bytes
@@ -61,7 +62,9 @@ syntax.
 
 Code refs: `channels/traits.rs:5-17`, `channels/media.rs:80-88`, `providers/traits.rs:76-82`
 
-#### 2. Should Corvus adopt a marker like `[IMAGE:<source>]`, a structured message part model, or both?
+#### 2. Should Corvus adopt a marker like
+
+`[IMAGE:<source>]`, a structured message part model, or both?
 
 **Answer**: The structured model is already adopted and is the correct choice. Markers like
 `[IMAGE:<source>]` exist only in the **outbound** delivery layer (`channel_delivery_instructions()`
@@ -73,11 +76,11 @@ Do NOT introduce marker syntax for inbound/runtime representation.
 
 **Answer**: Three types, validated by magic-byte sniffing:
 
-| Format | Magic Bytes | MIME | Extension |
-|--------|-------------|------|-----------|
-| JPEG | `FF D8 FF` | image/jpeg | .jpg |
-| PNG | 8-byte PNG signature | image/png | .png |
-| WebP | `RIFF....WEBP` | image/webp | .webp |
+| Format | Magic Bytes          | MIME       | Extension |
+|--------|----------------------|------------|-----------|
+| JPEG   | `FF D8 FF`           | image/jpeg | .jpg      |
+| PNG    | 8-byte PNG signature | image/png  | .png      |
+| WebP   | `RIFF....WEBP`       | image/webp | .webp     |
 
 All other formats (GIF, BMP, TIFF, SVG, etc.) are rejected. Code ref: `channels/media.rs:13-39`,
 `channels/media.rs:106-146`
@@ -110,17 +113,17 @@ security constraint.
 **Answer**: The runtime already provides user-facing error messages for each rejection case
 (`channels/mod.rs:700-870`):
 
-| Rejection Reason | User Message |
-|-----------------|--------------|
-| `Disabled` | "Image input is currently disabled." |
-| `ChannelNotAllowed` | "Image input is not enabled for this channel." |
-| `MissingVisionRoute` | "Image input is not configured with a vision route." |
-| `RouteNotImageCapable` | "The configured vision route does not allow image input." |
-| `TooManyImages` | "Too many images ({count}). Maximum {limit} per message." |
-| `FetchFailed` | "I couldn't download that image safely. Please try again." |
-| `MimeRejected` | "That image format is not supported." |
-| `Oversize` | "That image is too large to process." |
-| Unimplemented channel | "Image input is not yet supported for this channel." |
+| Rejection Reason       | User Message                                               |
+|------------------------|------------------------------------------------------------|
+| `Disabled`             | "Image input is currently disabled."                       |
+| `ChannelNotAllowed`    | "Image input is not enabled for this channel."             |
+| `MissingVisionRoute`   | "Image input is not configured with a vision route."       |
+| `RouteNotImageCapable` | "The configured vision route does not allow image input."  |
+| `TooManyImages`        | "Too many images ({count}). Maximum {limit} per message."  |
+| `FetchFailed`          | "I couldn't download that image safely. Please try again." |
+| `MimeRejected`         | "That image format is not supported."                      |
+| `Oversize`             | "That image is too large to process."                      |
+| Unimplemented channel  | "Image input is not yet supported for this channel."       |
 
 All rejections also emit `ImageIngressEvent` for operator observability.
 
@@ -137,12 +140,14 @@ All rejections also emit `ImageIngressEvent` for operator observability.
 ## Gaps Identified
 
 1. **No runtime-layer spec exists** — The existing `channel-image-ingestion` spec covers the channel
-   ingestion pipeline but does NOT cover the runtime normalization contract (provider dispatch format,
+   ingestion pipeline but does NOT cover the runtime normalization contract (provider dispatch
+   format,
    conversation history representation, error taxonomy as a formal contract). Issue #267 asks for
    this missing layer.
 
 2. **Conversation history loses image context** — In `handle_successful_response()`
-   (`channels/mod.rs:1210-1211`), image turns are stored as plain `ChatMessage::user(enriched_message)`.
+   (`channels/mod.rs:1210-1211`), image turns are stored as plain
+   `ChatMessage::user(enriched_message)`.
    The `enriched_message` is the text projection only — **staged images are not represented in
    history**. On subsequent turns, the model has no record that an image was part of a prior
    exchange. This is the most significant gap.
@@ -166,30 +171,31 @@ All rejections also emit `ImageIngressEvent` for operator observability.
 7. **Provider capability negotiation is implicit** — The `CompatibleProvider` hardcodes
    `image_input: true`, but the `Provider` trait's default `chat()` implementation rejects images
    (`providers/traits.rs:327-329`). There is no runtime check that the resolved provider actually
-   supports images before dispatching — the fail-closed default catches it, but the error is generic.
+   supports images before dispatching — the fail-closed default catches it, but the error is
+   generic.
 
 ## Approaches
 
 1. **Formalize existing patterns as a runtime spec** — Document the current `ContentPart::Image` →
    `StagedImage` → `ChatRequest.images` pipeline as the canonical runtime contract. Add the missing
    conversation-history representation. Wire `max_image_bytes` config.
-   - Pros: Low risk, codifies what works, closes the spec gap
-   - Cons: Does not add new capabilities
-   - Effort: Low
+    - Pros: Low risk, codifies what works, closes the spec gap
+    - Cons: Does not add new capabilities
+    - Effort: Low
 
 2. **Introduce a `NormalizedImageMessage` intermediate type** — Add a new struct between
    `StagedImage` and provider dispatch that captures the normalized runtime view (including history
    replay metadata). Separate from the channel-layer `ContentPart::Image`.
-   - Pros: Cleaner separation of concerns, enables richer history representation
-   - Cons: More types to maintain, migration cost for existing code
-   - Effort: Medium
+    - Pros: Cleaner separation of concerns, enables richer history representation
+    - Cons: More types to maintain, migration cost for existing code
+    - Effort: Medium
 
 3. **Full multimodal message model overhaul** — Replace `ChatMessage` with a multimodal-native
    `RuntimeMessage` that natively supports content parts (text + image + future modalities).
    Eliminate the text-only `ChatMessage` for multimodal turns.
-   - Pros: Future-proof, eliminates the history gap structurally
-   - Cons: Large refactor across providers and conversation management, high risk
-   - Effort: High
+    - Pros: Future-proof, eliminates the history gap structurally
+    - Cons: Large refactor across providers and conversation management, high risk
+    - Effort: High
 
 ## Recommendation
 

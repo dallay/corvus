@@ -77,36 +77,42 @@ interface CliBridgeSession {
 ## Mandatory Capabilities
 
 ### Type Definitions
+
 - [ ] `CoreInvocation` data class
 - [ ] `CoreOutput` data class
 - [ ] `CoreResult` sealed interface
 - [ ] `AgentCoreBridge` functional interface
 
 ### Module Metadata
+
 - [ ] `AgentKernel` object with version constants
 - [ ] Contract version tracking
 
 ### Platform Adapters
+
 - [ ] `RustCliBridge` implementation (jvmMain only)
 - [ ] Platform detection utilities
 
 ## Out-of-Scope
 
-| Capability | Reason |
-|-----------|--------|
-| Runtime execution | Library only, no execution |
-| UI components | Compose UI lives in composeApp |
-| State management | Handled by platform targets |
-| HTTP Gateway logic | Web-specific, not in KMP |
-| Configuration management | CLI handles this |
+| Capability               | Reason                         |
+|--------------------------|--------------------------------|
+| Runtime execution        | Library only, no execution     |
+| UI components            | Compose UI lives in composeApp |
+| State management         | Handled by platform targets    |
+| HTTP Gateway logic       | Web-specific, not in KMP       |
+| Configuration management | CLI handles this               |
 
 ## Contract Versioning Policy
 
-1. **Patch versions** (x.y.z or 0.1.z): Non-breaking bug fixes and additive changes (new optional fields, new interfaces)
-2. **Minor versions** (x.y.0 or 0.y.0): Backwards-compatible feature additions (increment the minor version)
+1. **Patch versions** (x.y.z or 0.1.z): Non-breaking bug fixes and additive changes (new optional
+   fields, new interfaces)
+2. **Minor versions** (x.y.0 or 0.y.0): Backwards-compatible feature additions (increment the minor
+   version)
 3. **Major versions** (x.0.0): Breaking changes reserved for fundamental contract redesigns
 
 Breaking changes require:
+
 - Migration guide in spec
 - Deprecation period (minimum 2 minor versions)
 - Migration tooling if possible
@@ -134,12 +140,14 @@ are **UI-layer** types, not runtime contracts. They belong in `clients/composeAp
 `modules/agent-core-kmp/`.
 
 The boundary:
+
 - `agent-core-kmp`: Runtime communication contracts (CoreInvocation, CoreResult)
 - `composeApp`: UI state and platform integration (ChatUiState, ChatWorkspace)
 
 ## Related Specifications
 
-- [ComposeApp Mobile Contract](./composeapp-mobile.md) — Mobile surface that consumes these contracts
+- [ComposeApp Mobile Contract](./composeapp-mobile.md) — Mobile surface that consumes these
+  contracts
 - [MCP Runtime](../../mcp-runtime/spec.md) — Tool registry contract
 
 ## i18n Requirements
@@ -155,7 +163,8 @@ The boundary:
 - The shared module MUST NOT contain any localized or UI-visible strings
 - The shared module MUST NOT contain locale files or translation resources
 - Type definitions (e.g., `CoreResult.Failure.message`) MUST use English-only technical identifiers
-- Internal validation messages (e.g., `require()` assertions) are developer diagnostics and are exempt from localization
+- Internal validation messages (e.g., `require()` assertions) are developer diagnostics and are
+  exempt from localization
 
 ### Parity Testing
 
@@ -181,6 +190,6 @@ The boundary:
 
 ## Change History
 
-| Version | Date       | Changes                                                  |
-|---------|------------|----------------------------------------------------------|
-| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Exempt, #278)           |
+| Version | Date       | Changes                                        |
+|---------|------------|------------------------------------------------|
+| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Exempt, #278) |

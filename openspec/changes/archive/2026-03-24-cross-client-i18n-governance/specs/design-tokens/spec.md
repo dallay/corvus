@@ -235,7 +235,8 @@ Surfaces implementing glass morphism MUST use these tokens rather than hardcoded
   spec)
 - [Surface Contract Amendments](../client-surfaces/surface-amendments.md) — Per-surface design token
   requirements
-- [Current tokens.css](../../../../../../clients/web/packages/shared/tokens.css) — Existing web token
+- [Current tokens.css](../../../../../../clients/web/packages/shared/tokens.css) — Existing web
+  token
   implementation
 
 ## Change History

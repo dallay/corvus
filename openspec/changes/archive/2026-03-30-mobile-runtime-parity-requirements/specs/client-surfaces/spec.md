@@ -4,10 +4,12 @@
 
 ### Requirement: Transport Invariant
 
-Each surface MUST use exactly one approved transport for all runtime communication, and its onboarding
+Each surface MUST use exactly one approved transport for all runtime communication, and its
+onboarding
 flow MUST validate readiness only through that approved transport.
 
 For the composeApp client surfaces in this milestone:
+
 - Desktop MUST be treated as a client-first surface.
 - Android MUST be treated as a client-first surface.
 - iOS MUST be treated as a client-first surface.
@@ -27,6 +29,7 @@ centered Android and iOS on a mobile runtime bridge path, and excluded HTTP or e
 setup as the primary product contract.)
 
 #### Scenario: Desktop starts as a client instead of a local host
+
 - GIVEN a desktop user opens composeApp with no saved ready connection
 - WHEN startup is evaluated
 - THEN the surface MUST enter onboarding, readiness, or configuration UX
@@ -34,6 +37,7 @@ setup as the primary product contract.)
   action.
 
 #### Scenario: Android starts as a client instead of a packaged runtime host
+
 - GIVEN an Android user opens composeApp with no saved ready connection
 - WHEN startup is evaluated
 - THEN the surface MUST enter onboarding, readiness, or configuration UX
@@ -41,6 +45,7 @@ setup as the primary product contract.)
   available.
 
 #### Scenario: iOS shows only supported client connection paths
+
 - GIVEN an iOS user opens composeApp for first-run setup
 - WHEN the app presents connection options
 - THEN the app MUST present only the iOS connection path or paths approved for this milestone
@@ -52,6 +57,7 @@ Each surface MUST implement only the capabilities assigned to it in the canonica
 
 For this milestone, the required composeApp client capability set for desktop, Android, and iOS MUST
 be limited to:
+
 - startup routing into onboarding, readiness, and configuration UX,
 - supported connection-path selection or configuration,
 - display of the currently targeted runtime or endpoint,
@@ -61,6 +67,7 @@ be limited to:
 - gating of chat or session entry until ready state is confirmed.
 
 For this milestone, composeApp client surfaces MUST NOT be required to provide:
+
 - runtime-backed chat-turn parity,
 - session creation, resumption, or termination parity,
 - tool approval handling,
@@ -72,10 +79,12 @@ For this milestone, composeApp client surfaces MUST NOT be required to provide:
 - offline mode,
 - local runtime hosting as a milestone acceptance condition.
 
-(Previously: The requirement defined a runtime-backed mobile parity capability set including session,
+(Previously: The requirement defined a runtime-backed mobile parity capability set including
+session,
 chat, and approval behavior, and treated those end-user flows as mandatory for this milestone.)
 
 #### Scenario: Client settings expose only readiness-critical controls in this milestone
+
 - GIVEN a desktop, Android, or iOS user opens client settings during this milestone
 - WHEN the available controls are inspected
 - THEN the surface MUST provide only connection setup, readiness diagnostics, and recovery controls
@@ -83,6 +92,7 @@ chat, and approval behavior, and treated those end-user flows as mandatory for t
   memory features.
 
 #### Scenario: Chat entry remains gated until readiness succeeds
+
 - GIVEN a desktop, Android, or iOS user has not yet completed the required connection and readiness
   checks
 - WHEN the user attempts to enter normal chat or session flow
@@ -97,10 +107,12 @@ Desktop, Android, and iOS composeApp clients MUST route startup into onboarding,
 configuration UX before normal chat startup whenever a ready client connection is not already
 available.
 
-If a previously configured connection exists, startup MUST still land in a readiness-confirmed client
+If a previously configured connection exists, startup MUST still land in a readiness-confirmed
+client
 state rather than silently starting a local runtime.
 
 #### Scenario: First launch goes to onboarding instead of chat workspace
+
 - GIVEN a user launches desktop, Android, or iOS composeApp for the first time
 - WHEN no ready client connection has been established yet
 - THEN startup MUST open onboarding, readiness, or configuration UX first
@@ -108,6 +120,7 @@ state rather than silently starting a local runtime.
   local execution.
 
 #### Scenario: Relaunch with saved configuration still stays client-first
+
 - GIVEN a user relaunches desktop, Android, or iOS composeApp with a previously saved target runtime
   configuration
 - WHEN startup validates the saved state
@@ -116,7 +129,8 @@ state rather than silently starting a local runtime.
 
 ### Requirement: Platform-Specific Connection Path Disclosure
 
-Each composeApp client surface MUST disclose only the connection paths that are actually supported on
+Each composeApp client surface MUST disclose only the connection paths that are actually supported
+on
 that platform in this milestone.
 
 - Desktop MUST disclose runtime URL or endpoint configuration as a supported path.
@@ -130,17 +144,20 @@ that platform in this milestone.
   default local execution.
 
 #### Scenario: Unsupported connection path is not shown as available
+
 - GIVEN a platform does not support a pairing, trusted companion, or endpoint path in this milestone
 - WHEN the connection setup UI is rendered on that platform
 - THEN the unsupported path MUST be absent or clearly marked unavailable
 - AND the user MUST NOT be told to complete setup through that unsupported path.
 
 #### Scenario: Supported connection path includes platform-appropriate guidance
+
 - GIVEN a platform supports runtime endpoint configuration or a pairing or trusted companion flow in
   this milestone
 - WHEN the user starts connection setup
 - THEN the surface MUST guide the user through that supported path
-- AND the guidance MUST describe the path as connecting to an existing runtime rather than starting a
+- AND the guidance MUST describe the path as connecting to an existing runtime rather than starting
+  a
   local host by default.
 
 ### Requirement: Milestone Scope Exclusions
@@ -149,6 +166,7 @@ This milestone MUST stay limited to client-first onboarding, readiness, and conn
 for desktop, Android, and iOS.
 
 The system MUST NOT treat the following as required for milestone completion:
+
 - default local runtime execution on any composeApp client surface,
 - mandatory local `corvus` installation guidance as the normal path,
 - runtime-backed chat, session, or approval parity,
@@ -160,6 +178,7 @@ The system MUST NOT treat the following as required for milestone completion:
 - background automation beyond preserving client configuration needed to re-enter readiness UX.
 
 #### Scenario: Milestone acceptance does not depend on full chat parity
+
 - GIVEN desktop, Android, and iOS satisfy the client-first startup, connection setup, readiness, and
   recovery requirements
 - WHEN the milestone is evaluated for acceptance

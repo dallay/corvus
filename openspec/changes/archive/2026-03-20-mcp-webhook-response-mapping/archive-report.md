@@ -16,8 +16,8 @@ future need for end-to-end proof if non-denial MCP `/webhook` execution becomes 
 
 ## Specs Synced
 
-| Domain | Action | Details |
-|--------|--------|---------|
+| Domain      | Action  | Details                                                                                                                                                                                                                                  |
+|-------------|---------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | mcp-runtime | Updated | Replaced `Gateway Webhook MCP Capability Parity` with proof-obligation language that distinguishes runtime-reachable MCP denial from currently blocked non-denial outcomes and requires future end-to-end proof if reachability changes. |
 
 ## Archive Operation
@@ -30,7 +30,8 @@ future need for end-to-end proof if non-denial MCP `/webhook` execution becomes 
 ## Warnings Carried Forward
 
 1. Standard repo verify flow does not itself exercise the focused Rust cargo tests that provide the
-   decisive changed-area proof; archive confidence still depends on the targeted `clients/agent-runtime`
+   decisive changed-area proof; archive confidence still depends on the targeted
+   `clients/agent-runtime`
    cargo test evidence recorded in `verify-report.md`.
 2. If live `/webhook` MCP execution ever becomes runtime-reachable for completed, timeout, or
    failure outcomes, new end-to-end proof will be required beyond the current seam evidence.
@@ -58,5 +59,6 @@ future need for end-to-end proof if non-denial MCP `/webhook` execution becomes 
 
 - Verification remains partly dependent on change-specific Rust test execution outside the default
   repo verify stack.
-- Future runtime reachability changes could silently invalidate the current proof split if end-to-end
+- Future runtime reachability changes could silently invalidate the current proof split if
+  end-to-end
   gateway evidence is not added alongside them.

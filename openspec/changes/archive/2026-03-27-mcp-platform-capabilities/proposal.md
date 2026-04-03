@@ -75,11 +75,11 @@ automatically extends to resources/prompts — no model change needed.
 
 ### Three-Tier Capability Model
 
-| Tier | Capability | Semantics | Risk | Default Policy |
-|------|-----------|-----------|------|---------------|
-| 1 | **Tools** (existing) | Action execution, may mutate state | Medium | Approval required |
-| 2 | **Resources** | Read-only context provision, stateless | Low | Allow with limits |
-| 3 | **Prompts** | Template injection into LLM conversation | High | Approval required + content provenance |
+| Tier | Capability           | Semantics                                | Risk   | Default Policy                         |
+|------|----------------------|------------------------------------------|--------|----------------------------------------|
+| 1    | **Tools** (existing) | Action execution, may mutate state       | Medium | Approval required                      |
+| 2    | **Resources**        | Read-only context provision, stateless   | Low    | Allow with limits                      |
+| 3    | **Prompts**          | Template injection into LLM conversation | High   | Approval required + content provenance |
 
 ### Extended Naming Convention
 
@@ -114,19 +114,21 @@ output_limit_bytes = 131072  # Override for resources if needed
 ```
 
 Key design decisions:
+
 - `capabilities` defaults to `["tools"]` when absent — **zero breaking changes**.
 - `"prompts"` is a valid capability value but requires explicit opt-in.
 - Resource and prompt limits inherit from server-level defaults but can be overridden.
 
 ### Security Tiers
 
-| Capability | Policy Default | Approval Flow | Content Handling |
-|-----------|---------------|---------------|-----------------|
-| Tools | `ApprovalRequired` | Per-invocation or blanket allow | Output bounded by `output_limit_bytes` |
-| Resources | `AllowWithLimits` | No approval needed; bounded by output limits and timeouts | Read-only; URI validated against server scope; output bounded |
-| Prompts | `ApprovalRequired` | Operator must explicitly enable per-server; content marked with provenance | Injected content tagged with source; content scanning hook available |
+| Capability | Policy Default     | Approval Flow                                                              | Content Handling                                                     |
+|------------|--------------------|----------------------------------------------------------------------------|----------------------------------------------------------------------|
+| Tools      | `ApprovalRequired` | Per-invocation or blanket allow                                            | Output bounded by `output_limit_bytes`                               |
+| Resources  | `AllowWithLimits`  | No approval needed; bounded by output limits and timeouts                  | Read-only; URI validated against server scope; output bounded        |
+| Prompts    | `ApprovalRequired` | Operator must explicitly enable per-server; content marked with provenance | Injected content tagged with source; content scanning hook available |
 
 Prompt-specific security constraints:
+
 - Prompt content MUST be marked with provenance metadata (source server, fetch timestamp).
 - Prompt content MUST NOT override system-level safety instructions.
 - A content scanning hook SHOULD be available for operators to attach validation logic.
@@ -135,12 +137,14 @@ Prompt-specific security constraints:
 ### Phased Rollout
 
 **Phase 1: Resources** (lower risk, higher value)
+
 - Extend discovery to call `list_resources()` alongside `list_tools()`.
 - Register resources as read-only capabilities with `AllowWithLimits` policy.
 - Expose via `mcp.<server>.resource.<name>` naming.
 - Resources available as tool-like callables (LLM can request a resource read).
 
 **Phase 2: Prompts** (higher risk, requires security review)
+
 - Extend discovery to call `list_prompts()`.
 - Register prompts with `ApprovalRequired` + provenance tagging.
 - Expose via `mcp.<server>.prompt.<name>` naming.
@@ -151,27 +155,27 @@ infrastructure patterns established in Phase 1.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/config/schema.rs` | Modified | Add `capabilities` field and resource/prompt limit overrides to `McpServerConfig` |
-| `clients/agent-runtime/src/tools/mcp/client.rs` | Modified | Parse resource/prompt manifests from server introspection (currently warns and ignores) |
-| `clients/agent-runtime/src/tools/mcp/mod.rs` | Modified | Extend discovery to register resources and prompts alongside tools |
-| `clients/agent-runtime/src/tools/mcp/adapter.rs` | New modules | `ResourceAdapter` and `PromptAdapter` (or new sibling files) |
-| `clients/agent-runtime/src/tools/mcp/normalize.rs` | Modified | Extended naming validation for `resource.` and `prompt.` segments |
-| `clients/agent-runtime/src/security/policy.rs` | Modified | Per-capability-type policy defaults (AllowWithLimits for resources) |
-| `clients/agent-runtime/src/agent/dispatcher.rs` | Modified | Risk classification for new capability types |
-| `clients/agent-runtime/src/agent/prompt.rs` | Modified (Phase 2) | Context injection for prompt template content |
-| `openspec/specs/mcp-runtime/spec.md` | Modified | Remove v1 exclusion clause; add resource/prompt requirements and scenarios |
+| Area                                               | Impact             | Description                                                                             |
+|----------------------------------------------------|--------------------|-----------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/config/schema.rs`       | Modified           | Add `capabilities` field and resource/prompt limit overrides to `McpServerConfig`       |
+| `clients/agent-runtime/src/tools/mcp/client.rs`    | Modified           | Parse resource/prompt manifests from server introspection (currently warns and ignores) |
+| `clients/agent-runtime/src/tools/mcp/mod.rs`       | Modified           | Extend discovery to register resources and prompts alongside tools                      |
+| `clients/agent-runtime/src/tools/mcp/adapter.rs`   | New modules        | `ResourceAdapter` and `PromptAdapter` (or new sibling files)                            |
+| `clients/agent-runtime/src/tools/mcp/normalize.rs` | Modified           | Extended naming validation for `resource.` and `prompt.` segments                       |
+| `clients/agent-runtime/src/security/policy.rs`     | Modified           | Per-capability-type policy defaults (AllowWithLimits for resources)                     |
+| `clients/agent-runtime/src/agent/dispatcher.rs`    | Modified           | Risk classification for new capability types                                            |
+| `clients/agent-runtime/src/agent/prompt.rs`        | Modified (Phase 2) | Context injection for prompt template content                                           |
+| `openspec/specs/mcp-runtime/spec.md`               | Modified           | Remove v1 exclusion clause; add resource/prompt requirements and scenarios              |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Prompt injection via MCP prompt templates | High (if prompts enabled) | Operator-only approval; provenance tagging; content scanning hook; Phase 2 deferred until security review complete |
-| Resource data exfiltration (sensitive content exposed to LLM) | Low | Resources bounded by `output_limit_bytes`; URI scope limited to server declaration; operator controls which servers expose resources |
-| Naming collision across capability types | Low | Fully qualified names include capability-type segment; collision detection spans all types per server |
-| Config migration confusion | Low | `capabilities` defaults to `["tools"]`; existing configs unchanged; migration guide in release notes |
-| Scope creep into subscriptions or hot-reload | Medium | Explicitly out-of-scope in this proposal; implementation PRs gated by spec scenarios |
+| Risk                                                          | Likelihood                | Mitigation                                                                                                                           |
+|---------------------------------------------------------------|---------------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| Prompt injection via MCP prompt templates                     | High (if prompts enabled) | Operator-only approval; provenance tagging; content scanning hook; Phase 2 deferred until security review complete                   |
+| Resource data exfiltration (sensitive content exposed to LLM) | Low                       | Resources bounded by `output_limit_bytes`; URI scope limited to server declaration; operator controls which servers expose resources |
+| Naming collision across capability types                      | Low                       | Fully qualified names include capability-type segment; collision detection spans all types per server                                |
+| Config migration confusion                                    | Low                       | `capabilities` defaults to `["tools"]`; existing configs unchanged; migration guide in release notes                                 |
+| Scope creep into subscriptions or hot-reload                  | Medium                    | Explicitly out-of-scope in this proposal; implementation PRs gated by spec scenarios                                                 |
 
 ## Rollback Plan
 
@@ -200,12 +204,12 @@ Both rollbacks are independent and do not affect existing tool functionality.
 ## Success Criteria
 
 - [ ] Three-tier capability model (Tools/Resources/Prompts) is clearly defined with explicit
-      semantics, risk levels, and policy defaults.
+  semantics, risk levels, and policy defaults.
 - [ ] Extended naming convention is specified and collision handling is defined.
 - [ ] Per-server `capabilities` config schema extension is designed with backward compatibility
-      guaranteed.
+  guaranteed.
 - [ ] Security tier per capability type is documented with policy expectations.
 - [ ] Phased rollout (Resources → Prompts) is justified and scoped.
 - [ ] All five open questions from exploration are resolved with explicit decisions.
 - [ ] Follow-up spec and design work can proceed without major ambiguity (issue #258 acceptance
-      criteria).
+  criteria).

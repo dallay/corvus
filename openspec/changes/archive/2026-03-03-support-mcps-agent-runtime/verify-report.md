@@ -157,21 +157,21 @@ fails due to a real build break and one spec scenario remaining unproven at runt
 
 - Added explicit non-tool MCP capability handling in
   `clients/agent-runtime/src/tools/mcp/client.rs`:
-  - resources/prompts are explicitly detected and ignored for v1 registration.
-  - payloads with only non-tool capabilities now resolve to an empty tool set.
+    - resources/prompts are explicitly detected and ignored for v1 registration.
+    - payloads with only non-tool capabilities now resolve to an empty tool set.
 - Strengthened collision diagnostics in `clients/agent-runtime/src/tools/mcp/mod.rs` with
   operator-actionable remediation text containing canonical identifier context.
 
 ### New / Updated Test Evidence
 
 - `clients/agent-runtime/tests/mcp_registry_integration.rs`
-  - `discovery_ignores_non_tool_capabilities_and_registers_only_tools` ✅
-  - `discovery_reports_actionable_collision_errors` ✅
+    - `discovery_ignores_non_tool_capabilities_and_registers_only_tools` ✅
+    - `discovery_reports_actionable_collision_errors` ✅
 - `clients/agent-runtime/src/tools/mcp/client.rs`
-  - `parse_payload_ignores_non_tool_capabilities_when_tools_exist` ✅
-  - `parse_payload_with_only_non_tool_capabilities_returns_empty_tools` ✅
+    - `parse_payload_ignores_non_tool_capabilities_when_tools_exist` ✅
+    - `parse_payload_with_only_non_tool_capabilities_returns_empty_tools` ✅
 - `clients/agent-runtime/src/tools/mcp/mod.rs`
-  - `collision_error_message_is_actionable_for_operators` ✅
+    - `collision_error_message_is_actionable_for_operators` ✅
 
 ### Re-run Commands
 

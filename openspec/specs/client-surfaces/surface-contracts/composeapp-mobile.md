@@ -17,6 +17,7 @@ Each platform hosts the shared `composeApp` module with native wrappers.
 ## Mandatory Capabilities
 
 ### Chat Composition
+
 - [ ] Platform-native text input
 - [ ] Send and cancel controls
 - [ ] Message bubble rendering (user/assistant)
@@ -25,6 +26,7 @@ Each platform hosts the shared `composeApp` module with native wrappers.
 - [ ] Model name display
 
 ### Session Management
+
 - [ ] Session creation via CLI bridge
 - [ ] Session resumption (UUID-based)
 - [ ] Session termination
@@ -32,12 +34,14 @@ Each platform hosts the shared `composeApp` module with native wrappers.
 - [ ] Timeout handling with user feedback
 
 ### Tool Approval
+
 - [ ] Inline tool call display
 - [ ] Approve button/action
 - [ ] Deny button/action
 - [ ] Approval status indicators
 
 ### RustCliBridge Integration
+
 - [ ] Process spawning (`corvus agent`)
 - [ ] Prompt passing via stdin/stdout
 - [ ] Structured JSON output parsing (`--output json`)
@@ -45,6 +49,7 @@ Each platform hosts the shared `composeApp` module with native wrappers.
 - [ ] Timeout management (configurable)
 
 ### Platform-Specific Features
+
 - [ ] Push notifications (OS-native)
 - [ ] Background session handling
 - [ ] Platform file picker
@@ -54,21 +59,23 @@ Each platform hosts the shared `composeApp` module with native wrappers.
 ## Optional Capabilities
 
 ### Memory Display
+
 - [ ] Short-term memory context (session-scoped)
 - [ ] Long-term memory query results
 
 ### MCP Tool Visibility
+
 - [ ] Tool call metadata
 - [ ] Execution progress
 
 ## Out-of-Scope
 
-| Capability | Reason |
-|-----------|--------|
-| HTTP Gateway integration | Mobile uses CLI bridge by design |
-| Runtime configuration editing | Dashboard handles this |
-| Admin/operator controls | CLI or dashboard handles this |
-| Web-only features | Browser sandbox limitations |
+| Capability                    | Reason                           |
+|-------------------------------|----------------------------------|
+| HTTP Gateway integration      | Mobile uses CLI bridge by design |
+| Runtime configuration editing | Dashboard handles this           |
+| Admin/operator controls       | CLI or dashboard handles this    |
+| Web-only features             | Browser sandbox limitations      |
 
 ## iOS-Specific Notes
 
@@ -81,9 +88,12 @@ See: [iOS Bridge Strategy in spec](../spec.md#requirement-ios-bridge)
 
 ## Current Status
 
-**Gap**: `ChatWorkspace.kt` has `AgentGatewayConfig` pointing to HTTP Gateway and `buildLocalAssistantReply` stub. The `RustCliBridge` exists in `modules/agent-core-kmp` but is not wired up.
+**Gap**: `ChatWorkspace.kt` has `AgentGatewayConfig` pointing to HTTP Gateway and
+`buildLocalAssistantReply` stub. The `RustCliBridge` exists in `modules/agent-core-kmp` but is not
+wired up.
 
 **Required for completion**:
+
 1. Wire `RustCliBridge` into `ChatWorkspace`
 2. Remove `AgentGatewayConfig` (mobile doesn't use HTTP)
 3. Add session state management
@@ -94,15 +104,17 @@ See: [Migration M1 & M3](../migrations.md#m1-composeapp-gatewayconfig--rustclibr
 
 ## Transport Rule
 
-Mobile composeApp **MUST** use a `MobileBridgeContract` implementation. HTTP Gateway is out-of-scope as primary transport.
+Mobile composeApp **MUST** use a `MobileBridgeContract` implementation. HTTP Gateway is out-of-scope
+as primary transport.
 
-The `MobileBridgeContract` defines the interface for mobile-to-runtime communication. Platform-specific implementations:
+The `MobileBridgeContract` defines the interface for mobile-to-runtime communication.
+Platform-specific implementations:
 
-| Platform | Implementation | Notes |
-|----------|---------------|-------|
-| Android | `RustCliBridge` | Process bridge via JVM subprocess |
-| Desktop (JVM) | `RustCliBridge` | Process bridge via JVM subprocess |
-| macOS/iOS | Companion daemon or Embedded Rust | IPC over local network (near-term), FFI/Swift-Rust bindings (long-term) |
+| Platform      | Implementation                    | Notes                                                                   |
+|---------------|-----------------------------------|-------------------------------------------------------------------------|
+| Android       | `RustCliBridge`                   | Process bridge via JVM subprocess                                       |
+| Desktop (JVM) | `RustCliBridge`                   | Process bridge via JVM subprocess                                       |
+| macOS/iOS     | Companion daemon or Embedded Rust | IPC over local network (near-term), FFI/Swift-Rust bindings (long-term) |
 
 **Reference**: `AgentCoreBridge` interface in `modules/agent-core-kmp/commonMain`
 
@@ -123,7 +135,8 @@ The `MobileBridgeContract` defines the interface for mobile-to-runtime communica
 
 ## Session ID Format
 
-UUID-based (e.g., `550e8400-e29b-41d4-a716-446655440000`) for consistency with gateway and cross-surface compatibility.
+UUID-based (e.g., `550e8400-e29b-41d4-a716-446655440000`) for consistency with gateway and
+cross-surface compatibility.
 
 ## Background Session Strategy
 
@@ -204,6 +217,6 @@ UUID-based (e.g., `550e8400-e29b-41d4-a716-446655440000`) for consistency with g
 
 ## Change History
 
-| Version | Date       | Changes                                                  |
-|---------|------------|----------------------------------------------------------|
-| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 1 — Full, #278)   |
+| Version | Date       | Changes                                               |
+|---------|------------|-------------------------------------------------------|
+| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 1 — Full, #278) |

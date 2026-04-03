@@ -10,6 +10,7 @@ behavior.
 ## Scope
 
 ### In Scope
+
 - Optional in-process TUI controlled by a feature flag (disabled by default)
 - Event bus for live tool-call stream updates
 - Views: dashboard, memory explorer, session timeline, live logs
@@ -17,6 +18,7 @@ behavior.
 - Leverage existing MCP implementation for tool-call stream data
 
 ### Out of Scope
+
 - Any new network endpoints or streaming APIs
 - Remote/web UI variants or external dashboards
 - Changes to MCP tool contracts beyond internal event emission
@@ -31,20 +33,20 @@ for event emission rather than adding new network surfaces.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `modules/cerebro/` | Modified | Add in-process TUI entrypoint, feature flag, and event bus plumbing |
-| `modules/cerebro/src/` | Modified | Emit tool-call events from MCP request handling and wire TUI subscriber |
-| `clients/agent-runtime/src/tools/mcp/cerebro.rs` | Reference | Existing MCP integration referenced for tool-call stream semantics |
-| `openspec/specs/cerebro/spec.md` | Reference | Existing optional TUI requirement for alignment |
+| Area                                             | Impact    | Description                                                             |
+|--------------------------------------------------|-----------|-------------------------------------------------------------------------|
+| `modules/cerebro/`                               | Modified  | Add in-process TUI entrypoint, feature flag, and event bus plumbing     |
+| `modules/cerebro/src/`                           | Modified  | Emit tool-call events from MCP request handling and wire TUI subscriber |
+| `clients/agent-runtime/src/tools/mcp/cerebro.rs` | Reference | Existing MCP integration referenced for tool-call stream semantics      |
+| `openspec/specs/cerebro/spec.md`                 | Reference | Existing optional TUI requirement for alignment                         |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| TUI blocks or degrades MCP throughput | Medium | Run TUI in a separate non-blocking task; ensure bounded event handling |
-| Event bus introduces memory/CPU overhead | Medium | Use bounded channels, drop/compact events when backpressure occurs |
-| Feature flag misconfiguration | Low | Default to disabled; log explicit state at startup |
+| Risk                                     | Likelihood | Mitigation                                                             |
+|------------------------------------------|------------|------------------------------------------------------------------------|
+| TUI blocks or degrades MCP throughput    | Medium     | Run TUI in a separate non-blocking task; ensure bounded event handling |
+| Event bus introduces memory/CPU overhead | Medium     | Use bounded channels, drop/compact events when backpressure occurs     |
+| Feature flag misconfiguration            | Low        | Default to disabled; log explicit state at startup                     |
 
 ## Rollback Plan
 

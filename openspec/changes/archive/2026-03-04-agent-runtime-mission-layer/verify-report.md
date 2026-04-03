@@ -47,8 +47,10 @@ Additional mission/runtime verification evidence:
 - `cargo fmt --all -- --check` -> ✅ passed
 - `cargo clippy --all-targets -- -D warnings` -> ✅ passed
 -
+
 `cargo test -p corvus --test legacy_loop_guard --test mission_lifecycle_integration --test mission_governance_integration --test mission_security_parity --test mission_config_toggle --test mission_entrypoint_parity` ->
 ✅ passed (25 passed / 0 failed)
+
 - `cargo test -p corvus concurrent_transition_attempts_are_serialized_with_single_winner` -> ✅
   passed
 - `cargo test -p corvus --quiet` -> ✅ full runtime suite passed (0 failed)

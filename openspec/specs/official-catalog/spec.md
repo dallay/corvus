@@ -2,7 +2,10 @@
 
 ## Overview
 
-The official catalog is a curated collection of skills maintained by the Corvus project. Catalog skills carry the **Official** trust tier — they are reviewed, scanned, and distributed through a controlled pipeline. The catalog is the default source for bare-name skill installs and the recommended way to distribute high-quality skills to all Corvus users.
+The official catalog is a curated collection of skills maintained by the Corvus project. Catalog
+skills carry the **Official** trust tier — they are reviewed, scanned, and distributed through a
+controlled pipeline. The catalog is the default source for bare-name skill installs and the
+recommended way to distribute high-quality skills to all Corvus users.
 
 ## Repository
 
@@ -43,33 +46,38 @@ tags = ["docker", "devops"]
 
 **Entry fields:**
 
-| Field | Description |
-|-------|-------------|
-| `name` | Skill identifier (matches directory name) |
-| `description` | One-line description |
-| `version` | Informational version string |
-| `path` | Relative path within the catalog repository |
-| `content_hash` | SHA-256 hash of skill content |
-| `author` | Skill author or team |
-| `tags` | List of tags for search and categorization |
+| Field          | Description                                 |
+|----------------|---------------------------------------------|
+| `name`         | Skill identifier (matches directory name)   |
+| `description`  | One-line description                        |
+| `version`      | Informational version string                |
+| `path`         | Relative path within the catalog repository |
+| `content_hash` | SHA-256 hash of skill content               |
+| `author`       | Skill author or team                        |
+| `tags`         | List of tags for search and categorization  |
 
-The `[meta]` section includes the schema version (must be `1`), generation timestamp, and source commit.
+The `[meta]` section includes the schema version (must be `1`), generation timestamp, and source
+commit.
 
 ## Distribution: Embedded + Cache
 
 ### Embedded index
 
-A snapshot of `index.toml` is compiled into the Corvus binary at build time using `build.rs` and `include_str!`. This ensures every Corvus installation has a baseline catalog available even without network access.
+A snapshot of `index.toml` is compiled into the Corvus binary at build time using `build.rs` and
+`include_str!`. This ensures every Corvus installation has a baseline catalog available even without
+network access.
 
 ### Cache
 
-On first use (or when the cache expires), Corvus fetches the latest `index.toml` from the catalog repository and stores it at:
+On first use (or when the cache expires), Corvus fetches the latest `index.toml` from the catalog
+repository and stores it at:
 
 ```
 {workspace}/.catalog-cache/index.toml
 ```
 
-The cache has a **24-hour TTL** (configurable via `skills.catalog_cache_ttl_hours`). After expiry, the runtime attempts a fresh fetch with a 3-second timeout.
+The cache has a **24-hour TTL** (configurable via `skills.catalog_cache_ttl_hours`). After expiry,
+the runtime attempts a fresh fetch with a 3-second timeout.
 
 ### Fallback chain
 
@@ -95,7 +103,8 @@ Bare-name installs resolve against the catalog:
 4. No trust gate required — Official skills are pre-reviewed
 5. Lockfile entry written with `trust = "Official"` and `source = "catalog:<name>"`
 
-If the name is not found in the catalog, the installer shows a helpful error with suggestions based on fuzzy matching.
+If the name is not found in the catalog, the installer shows a helpful error with suggestions based
+on fuzzy matching.
 
 ## Trust & Security
 
@@ -109,13 +118,16 @@ If the name is not found in the catalog, the installer shows a helpful error wit
 
 Every skill submitted to the catalog must pass a 5-point review:
 
-1. **Valid SKILL.md** — file exists with complete YAML frontmatter (`name` and `description` required)
+1. **Valid SKILL.md** — file exists with complete YAML frontmatter (`name` and `description`
+   required)
 2. **Name validation** — name matches `[a-z0-9-]`, 1-64 characters, no consecutive hyphens
 3. **Scanner clean** — injection scanner score of 0 (no patterns detected)
-4. **Tools declared** — if the skill uses tools, `allowed-tools` must be explicitly listed in frontmatter
+4. **Tools declared** — if the skill uses tools, `allowed-tools` must be explicitly listed in
+   frontmatter
 5. **Maintainer review** — at least one project maintainer reviews the skill instructions via PR
 
-Submissions that fail any check are rejected with feedback. The review process is PR-based in the `dallay/corvus-skills` repository.
+Submissions that fail any check are rejected with feedback. The review process is PR-based in the
+`dallay/corvus-skills` repository.
 
 ## User Experience
 
@@ -125,7 +137,8 @@ Submissions that fail any check are rejected with feedback. The review process i
 corvus skills list --catalog
 ```
 
-Shows all official skills with name, description, version, and tags. Installed skills are marked with `[installed]`.
+Shows all official skills with name, description, version, and tags. Installed skills are marked
+with `[installed]`.
 
 ### Search the catalog
 
@@ -133,21 +146,31 @@ Shows all official skills with name, description, version, and tags. Installed s
 corvus skills search kotlin
 ```
 
-Case-insensitive substring match against name, description, and tags. Official catalog results appear first, before any third-party discovery results.
+Case-insensitive substring match against name, description, and tags. Official catalog results
+appear first, before any third-party discovery results.
 
 ### Prompt rendering
 
-Official skills are sorted first in the agent prompt, before Local and ThirdParty skills. They carry no caution note (unlike ThirdParty skills).
+Official skills are sorted first in the agent prompt, before Local and ThirdParty skills. They carry
+no caution note (unlike ThirdParty skills).
 
 ## Versioning
 
-Catalog skills use **content-hash versioning**. When a skill's content changes, its `content_hash` in the index changes. The `version` field is informational only — there is no semantic versioning enforcement in the current phase.
+Catalog skills use **content-hash versioning**. When a skill's content changes, its `content_hash`
+in the index changes. The `version` field is informational only — there is no semantic versioning
+enforcement in the current phase.
 
-`corvus skills update` detects new versions by comparing the installed `content_hash` against the catalog's current hash.
+`corvus skills update` detects new versions by comparing the installed `content_hash` against the
+catalog's current hash.
 
 ## Limitations & Future Work
 
-- **No CI pipeline for index regeneration.** The `index.toml` is currently generated manually. A GitHub Action in `dallay/corvus-skills` to auto-regenerate the index on push is planned.
-- **No contribution guide yet.** The `dallay/corvus-skills` repository needs a `CONTRIBUTING.md` documenting the submission workflow, required fields, and testing expectations.
-- **No deprecation policy.** When a skill is removed from the catalog, there is no defined behavior for users who have it installed. The lockfile entry persists, and the skill continues to work but cannot be updated.
-- **No semantic versioning.** Content-hash versioning is sufficient for the current phase. SemVer may be introduced when the catalog grows and breaking changes become a concern.
+- **No CI pipeline for index regeneration.** The `index.toml` is currently generated manually. A
+  GitHub Action in `dallay/corvus-skills` to auto-regenerate the index on push is planned.
+- **No contribution guide yet.** The `dallay/corvus-skills` repository needs a `CONTRIBUTING.md`
+  documenting the submission workflow, required fields, and testing expectations.
+- **No deprecation policy.** When a skill is removed from the catalog, there is no defined behavior
+  for users who have it installed. The lockfile entry persists, and the skill continues to work but
+  cannot be updated.
+- **No semantic versioning.** Content-hash versioning is sufficient for the current phase. SemVer
+  may be introduced when the catalog grows and breaking changes become a concern.

@@ -10,7 +10,10 @@ owner: architecture
 
 ## Overview
 
-This specification defines how memory contents are exposed to operator and admin surfaces through the gateway. Memory visibility is admin-only — end users MUST NOT have direct access to raw memory entries. All endpoints operate against the local SQLite backend as the authoritative source of truth.
+This specification defines how memory contents are exposed to operator and admin surfaces through
+the gateway. Memory visibility is admin-only — end users MUST NOT have direct access to raw memory
+entries. All endpoints operate against the local SQLite backend as the authoritative source of
+truth.
 
 ---
 
@@ -23,16 +26,18 @@ The gateway MUST expose a paginated memory browsing endpoint for admin users.
 - MUST require bearer token authentication with admin role.
 - MUST return memory entries from the local SQLite backend.
 - MUST support the following query parameters:
-  - `category`: filter by `MemoryCategory` value (`core`, `daily`, `conversation`, `custom`) — optional, defaults to all
-  - `session_id`: filter by session ID — optional
-  - `q`: full-text search query against memory content — optional
-  - `limit`: max results per page (default: 50, max: 200)
-  - `offset`: pagination offset (default: 0)
-  - `sort`: `timestamp` or `key` (default: `timestamp`)
-  - `order`: `asc` or `desc` (default: `desc`)
+    - `category`: filter by `MemoryCategory` value (`core`, `daily`, `conversation`, `custom`) —
+      optional, defaults to all
+    - `session_id`: filter by session ID — optional
+    - `q`: full-text search query against memory content — optional
+    - `limit`: max results per page (default: 50, max: 200)
+    - `offset`: pagination offset (default: 0)
+    - `sort`: `timestamp` or `key` (default: `timestamp`)
+    - `order`: `asc` or `desc` (default: `desc`)
 - Each returned entry MUST include: `id`, `key`, `content`, `category`, `timestamp`, `session_id`.
 - Response MUST include `total` count for pagination.
-- When `q` is provided, the implementation MAY cap the searched candidate set before pagination; if capped, `total` MUST reflect the capped match set rather than the full corpus.
+- When `q` is provided, the implementation MAY cap the searched candidate set before pagination; if
+  capped, `total` MUST reflect the capped match set rather than the full corpus.
 
 #### Scenario: Admin browses all memory entries
 
@@ -136,12 +141,12 @@ The gateway MUST expose an endpoint for aggregated memory statistics.
 
 - MUST require bearer token authentication with admin role.
 - Response MUST include:
-  - `total_entries`: total memory entry count
-  - `by_category`: object mapping category names to entry counts
-  - `total_sessions`: total session count (from sessions table)
-  - `active_sessions`: count of sessions where ended_at IS NULL
-  - `backend`: current memory backend name (e.g., "sqlite", "lucid", "markdown")
-  - `cerebro_configured`: boolean indicating if Cerebro MCP endpoint is set
+    - `total_entries`: total memory entry count
+    - `by_category`: object mapping category names to entry counts
+    - `total_sessions`: total session count (from sessions table)
+    - `active_sessions`: count of sessions where ended_at IS NULL
+    - `backend`: current memory backend name (e.g., "sqlite", "lucid", "markdown")
+    - `cerebro_configured`: boolean indicating if Cerebro MCP endpoint is set
 
 #### Scenario: Admin views memory stats
 
@@ -282,8 +287,10 @@ Full-text search via the `q` parameter on `GET /web/admin/memory` MUST use the S
 - The search MUST match against the `content` field of memory entries.
 - Search MUST be case-insensitive.
 - Results MUST be ranked by relevance (BM25 score) when a search query is provided.
-- When `q` is combined with other filters (`category`, `session_id`), all filters MUST be applied conjunctively (AND logic).
-- The current implementation caps FTS-backed recall results at 200 entries before category filtering and pagination, and documented totals MUST be interpreted within that cap.
+- When `q` is combined with other filters (`category`, `session_id`), all filters MUST be applied
+  conjunctively (AND logic).
+- The current implementation caps FTS-backed recall results at 200 entries before category filtering
+  and pagination, and documented totals MUST be interpreted within that cap.
 
 #### Scenario: Full-text search uses FTS5
 
@@ -384,6 +391,6 @@ And backend MUST be a non-empty string
 
 ## Change History
 
-| Version | Date | Changes |
-|---------|------|---------|
-| 1.0.0 | 2026-03-28 | Initial specification from session-memory-visibility change |
+| Version | Date       | Changes                                                     |
+|---------|------------|-------------------------------------------------------------|
+| 1.0.0   | 2026-03-28 | Initial specification from session-memory-visibility change |

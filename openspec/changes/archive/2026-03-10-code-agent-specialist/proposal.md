@@ -78,19 +78,19 @@ checks and structured output, while leaving richer stack-specific automation for
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/main.rs` | Modified | Add explicit code-mode invocation and user-facing runtime entry. |
-| `clients/agent-runtime/src/agent/agent.rs` | Modified | Reuse and formalize specialized agent creation and bounded delegated sessions. |
-| `clients/agent-runtime/src/agent/prompt.rs` | Modified | Add code-specialist prompt and structured final-output guidance. |
-| `clients/agent-runtime/src/bootstrap/mod.rs` | Modified | Formalize `code` profile defaults without duplicating runtime assembly. |
-| `clients/agent-runtime/src/config/schema.rs` | Modified | Add declarative configuration for code-session behavior, budgets, and output contract. |
-| `clients/agent-runtime/src/tools/delegate.rs` | Modified | Replace one-shot delegated coding with iterative specialized sessions. |
-| `clients/agent-runtime/src/security/policy.rs` | Modified | Preserve risk classification and approval behavior for code-session actions. |
-| `clients/agent-runtime/src/approval/mod.rs` | Modified | Ensure delegated code sessions respect existing approval semantics. |
-| `clients/agent-runtime/src/observability/*` | Modified | Add dedicated code-session result and audit metadata. |
-| `openspec/specs/agent-loop/spec.md` | Referenced | Proposal/spec work must align to canonical loop behavior. |
-| `openspec/specs/mcp-runtime/spec.md` | Referenced | Proposal/spec work must preserve current MCP fail-closed behavior. |
+| Area                                           | Impact     | Description                                                                            |
+|------------------------------------------------|------------|----------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/main.rs`            | Modified   | Add explicit code-mode invocation and user-facing runtime entry.                       |
+| `clients/agent-runtime/src/agent/agent.rs`     | Modified   | Reuse and formalize specialized agent creation and bounded delegated sessions.         |
+| `clients/agent-runtime/src/agent/prompt.rs`    | Modified   | Add code-specialist prompt and structured final-output guidance.                       |
+| `clients/agent-runtime/src/bootstrap/mod.rs`   | Modified   | Formalize `code` profile defaults without duplicating runtime assembly.                |
+| `clients/agent-runtime/src/config/schema.rs`   | Modified   | Add declarative configuration for code-session behavior, budgets, and output contract. |
+| `clients/agent-runtime/src/tools/delegate.rs`  | Modified   | Replace one-shot delegated coding with iterative specialized sessions.                 |
+| `clients/agent-runtime/src/security/policy.rs` | Modified   | Preserve risk classification and approval behavior for code-session actions.           |
+| `clients/agent-runtime/src/approval/mod.rs`    | Modified   | Ensure delegated code sessions respect existing approval semantics.                    |
+| `clients/agent-runtime/src/observability/*`    | Modified   | Add dedicated code-session result and audit metadata.                                  |
+| `openspec/specs/agent-loop/spec.md`            | Referenced | Proposal/spec work must align to canonical loop behavior.                              |
+| `openspec/specs/mcp-runtime/spec.md`           | Referenced | Proposal/spec work must preserve current MCP fail-closed behavior.                     |
 
 ## Impact Areas
 
@@ -116,13 +116,13 @@ checks and structured output, while leaving richer stack-specific automation for
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Code mode becomes cosmetic instead of operationally distinct | Medium | Require explicit workflow/output contract and validation reporting in MVP. |
-| Delegated sessions bypass or weaken approval semantics | Medium | Reuse the canonical dispatcher, policy, and approval flow rather than custom execution. |
-| Delegate changes become too broad for MVP | Medium | Sequence direct code mode first, then bounded delegated sessions with a narrow result envelope. |
-| Validation behavior becomes brittle or prompt-dependent | Medium | Model checks declaratively in config/schema and keep MVP defaults minimal. |
-| Entry-point expectations drift beyond current gateway capability | High | Scope MVP to CLI/runtime first and document gateway parity as follow-up work. |
+| Risk                                                             | Likelihood | Mitigation                                                                                      |
+|------------------------------------------------------------------|------------|-------------------------------------------------------------------------------------------------|
+| Code mode becomes cosmetic instead of operationally distinct     | Medium     | Require explicit workflow/output contract and validation reporting in MVP.                      |
+| Delegated sessions bypass or weaken approval semantics           | Medium     | Reuse the canonical dispatcher, policy, and approval flow rather than custom execution.         |
+| Delegate changes become too broad for MVP                        | Medium     | Sequence direct code mode first, then bounded delegated sessions with a narrow result envelope. |
+| Validation behavior becomes brittle or prompt-dependent          | Medium     | Model checks declaratively in config/schema and keep MVP defaults minimal.                      |
+| Entry-point expectations drift beyond current gateway capability | High       | Scope MVP to CLI/runtime first and document gateway parity as follow-up work.                   |
 
 ## Rollback Plan
 
@@ -136,8 +136,8 @@ without undoing core agent/bootstrap behavior.
 
 - [ ] Corvus exposes an official code-mode entry that runs through the existing runtime stack.
 - [ ] Code mode produces a structured final result that reports status, changed files, commands,
-      validations, and blockers.
+  validations, and blockers.
 - [ ] Delegated coding work can execute as a bounded specialized session rather than a one-shot
-      provider call.
+  provider call.
 - [ ] Code sessions preserve current workspace-only, approval, and MCP fail-closed behavior.
 - [ ] MVP changes remain incremental and do not introduce a parallel runtime architecture.

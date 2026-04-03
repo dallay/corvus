@@ -11,6 +11,7 @@ smallest end-to-end dispatcher-backed proof at the gateway edge.
 ## Scope
 
 ### In Scope
+
 - Add focused dispatcher-backed `/webhook` MCP runtime tests that prove HTTP response mapping for an
   MCP success outcome.
 - Add one focused dispatcher-backed `/webhook` MCP runtime test for a single non-success variant,
@@ -23,6 +24,7 @@ smallest end-to-end dispatcher-backed proof at the gateway edge.
   response mapping.
 
 ### Out of Scope
+
 - Generated-session isolation follow-up and any missing `X-Session-Id` end-to-end proof.
 - Env-var flake stabilization around `CORVUS_GATEWAY_WEBHOOK_DISPATCHER`.
 - `/whatsapp` behavior, contracts, or tests.
@@ -57,19 +59,19 @@ projection at the gateway boundary.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `openspec/changes/mcp-webhook-response-mapping/proposal.md` | New | Proposal artifact for this proof-only follow-up |
-| `clients/agent-runtime/src/gateway/mod.rs` | Modified | Primary location for dispatcher-backed `/webhook` integration tests covering MCP response mapping |
-| `clients/agent-runtime/src/gateway/webhook_dispatch.rs` | Possible Modified | Only if a new proof exposes a real response-mapping defect in the canonical-to-HTTP adapter |
+| Area                                                        | Impact            | Description                                                                                       |
+|-------------------------------------------------------------|-------------------|---------------------------------------------------------------------------------------------------|
+| `openspec/changes/mcp-webhook-response-mapping/proposal.md` | New               | Proposal artifact for this proof-only follow-up                                                   |
+| `clients/agent-runtime/src/gateway/mod.rs`                  | Modified          | Primary location for dispatcher-backed `/webhook` integration tests covering MCP response mapping |
+| `clients/agent-runtime/src/gateway/webhook_dispatch.rs`     | Possible Modified | Only if a new proof exposes a real response-mapping defect in the canonical-to-HTTP adapter       |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Scope drifts from proof into broader dispatcher or gateway changes | Medium | Limit edits to focused MCP webhook tests and only patch production code when a failing proof demonstrates a real defect |
-| MCP success/error proof needs more setup than expected because MCP tools are deny-by-default | Medium | Reuse existing gateway/provider scaffolding and keep the second variant to a single error case rather than expanding into multiple paths |
-| Residual timeout gap remains after this narrow slice | Low | Record timeout as a follow-up only if success + error land cleanly and no timeout-specific defect is indicated |
+| Risk                                                                                         | Likelihood | Mitigation                                                                                                                               |
+|----------------------------------------------------------------------------------------------|------------|------------------------------------------------------------------------------------------------------------------------------------------|
+| Scope drifts from proof into broader dispatcher or gateway changes                           | Medium     | Limit edits to focused MCP webhook tests and only patch production code when a failing proof demonstrates a real defect                  |
+| MCP success/error proof needs more setup than expected because MCP tools are deny-by-default | Medium     | Reuse existing gateway/provider scaffolding and keep the second variant to a single error case rather than expanding into multiple paths |
+| Residual timeout gap remains after this narrow slice                                         | Low        | Record timeout as a follow-up only if success + error land cleanly and no timeout-specific defect is indicated                           |
 
 ## Rollback Plan
 
@@ -79,19 +81,21 @@ rollback is limited to removing the added proof and any defect fix tied directly
 
 ## Dependencies
 
-- Archived verification warning in `openspec/changes/archive/2026-03-20-gateway-dispatcher-parity/verify-report.md`
-- Archived carry-forward context in `openspec/changes/archive/2026-03-20-gateway-dispatcher-parity/archive-report.md`
+- Archived verification warning in
+  `openspec/changes/archive/2026-03-20-gateway-dispatcher-parity/verify-report.md`
+- Archived carry-forward context in
+  `openspec/changes/archive/2026-03-20-gateway-dispatcher-parity/archive-report.md`
 - Canonical gateway parity requirements in `openspec/specs/agent-loop/spec.md`
 - MCP gateway response-mapping requirement in `openspec/specs/mcp-runtime/spec.md`
 
 ## Success Criteria
 
 - [ ] Dispatcher-backed `/webhook` has direct MCP-specific proof for a successful HTTP response
-      mapping outcome.
+  mapping outcome.
 - [ ] Dispatcher-backed `/webhook` has direct MCP-specific proof for exactly one additional
-      non-success mapping outcome, prioritized as error unless implementation reality forces timeout
-      instead.
+  non-success mapping outcome, prioritized as error unless implementation reality forces timeout
+  instead.
 - [ ] The change stays proof-first: no production code changes are made unless a new failing test
-      exposes a real defect.
+  exposes a real defect.
 - [ ] Out-of-scope follow-ups remain deferred: generated-session isolation, env-var flake work,
-      `/whatsapp`, broad dispatcher refactors, and unrelated MCP behavior.
+  `/whatsapp`, broad dispatcher refactors, and unrelated MCP behavior.

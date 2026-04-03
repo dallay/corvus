@@ -40,13 +40,13 @@ guides, and API specifications. Zero runtime interaction by design.
 
 ## Out-of-Scope
 
-| Capability | Reason |
-|-----------|--------|
-| Agent chat interaction | Not a chat surface |
-| Runtime configuration | Dashboard handles this |
-| Memory queries | No runtime access |
-| User authentication | Public site |
-| Form submissions | Lead capture belongs to marketing |
+| Capability             | Reason                            |
+|------------------------|-----------------------------------|
+| Agent chat interaction | Not a chat surface                |
+| Runtime configuration  | Dashboard handles this            |
+| Memory queries         | No runtime access                 |
+| User authentication    | Public site                       |
+| Form submissions       | Lead capture belongs to marketing |
 
 ## Current Status
 
@@ -79,6 +79,7 @@ docs/
 ## No Runtime Access
 
 This surface intentionally has no runtime communication:
+
 - No gateway API calls
 - No CLI bridge integration
 - No memory system access
@@ -160,6 +161,6 @@ This surface intentionally has no runtime communication:
 
 ## Change History
 
-| Version | Date       | Changes                                                    |
-|---------|------------|------------------------------------------------------------|
-| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 2 — Content, #278)   |
+| Version | Date       | Changes                                                  |
+|---------|------------|----------------------------------------------------------|
+| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 2 — Content, #278) |

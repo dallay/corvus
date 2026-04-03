@@ -15,6 +15,7 @@ canonical turn request, then map the canonical result back into gateway JSON and
 compatible event output.
 
 This design intentionally preserves a narrow transport shim:
+
 - Gateway owns request authentication, pairing, webhook secret validation, rate limiting,
   idempotency, and HTTP status/JSON mapping.
 - Canonical runtime owns prompt preparation, memory loading, dispatcher selection, tool registry,
@@ -32,6 +33,7 @@ This design intentionally preserves a narrow transport shim:
 types, not through `agent::unified_loop` / `unified_entrypoint` preview helpers.
 
 **Alternatives considered**:
+
 - Expand `agent::unified_loop` into the production dispatcher runtime
 - Keep `simple_chat()` as the main path and only improve preview/guard behavior
 - Extract a larger shared runtime abstraction for channels and gateway first
@@ -48,6 +50,7 @@ limit checks, idempotency checks, session-id normalization, and response shaping
 gateway-specific dispatcher adapter after those checks pass.
 
 **Alternatives considered**:
+
 - Push transport concerns into `Agent`
 - Introduce a global entrypoint abstraction that owns both HTTP and runtime semantics
 
@@ -62,6 +65,7 @@ runtime guarantees.
 provide a concrete `session_id`, external conversation history scope, and memory session scope.
 
 **Alternatives considered**:
+
 - Keep webhook stateless and only echo `X-Session-Id`
 - Store gateway session state separately from the canonical runtime
 - Encode the session id only in memory keys without changing agent interfaces
@@ -78,6 +82,7 @@ gateway-only code.
 with a structured denial payload and no resumable approval protocol in this change.
 
 **Alternatives considered**:
+
 - Block the HTTP request waiting for interactive approval
 - Add a resumable approval token/protocol as part of this change
 - Auto-approve gateway requests to preserve previous simplicity
@@ -94,6 +99,7 @@ without inventing new transport semantics.
 event frames in `events_sse`; do not make long-lived SSE transport mandatory in this change.
 
 **Alternatives considered**:
+
 - Replace `/webhook` with real-time SSE-only responses
 - Emit raw internal dispatcher events directly in JSON
 - Keep synthetic preview frames generated from `unified_loop`
@@ -109,6 +115,7 @@ new dispatcher-backed webhook path, plus comparative observability that records 
 request and why a fallback occurred.
 
 **Alternatives considered**:
+
 - Hard-cut all webhook traffic to the new path
 - Shadow-execute both paths for every request
 - Reuse the preview flag as the rollout control
@@ -122,29 +129,29 @@ control to a debugging feature.
 ### End-to-End `/webhook` Flow After Change
 
 1. `handle_webhook()` validates transport/auth concerns:
-   - pairing / bearer token
-   - `X-Webhook-Secret`
-   - client rate limit
-   - JSON body parsing
-   - `X-Session-Id` normalization or generated fallback
+    - pairing / bearer token
+    - `X-Webhook-Secret`
+    - client rate limit
+    - JSON body parsing
+    - `X-Session-Id` normalization or generated fallback
 2. Gateway checks idempotency before runtime invocation for normal execution; blocking outcomes that
    intentionally do not complete a turn (approval required, timeout abort) must not consume the key.
 3. Gateway builds a `WebhookTurnRequest` and calls the dispatcher adapter.
 4. The adapter constructs or reuses a canonical `Agent` with the bootstrapped provider, observer,
    memory, tool registry, and dispatcher mode selection.
 5. The canonical turn executes:
-   - session-aware memory recall/context assembly
-   - model request via `Provider::chat(...)`
-   - dispatcher parsing and tool execution
-   - risk/approval gates using the standard dispatcher policy
-   - MCP tool availability identical to other dispatcher-backed entry points
-   - strict validation and final assistant message construction
+    - session-aware memory recall/context assembly
+    - model request via `Provider::chat(...)`
+    - dispatcher parsing and tool execution
+    - risk/approval gates using the standard dispatcher policy
+    - MCP tool availability identical to other dispatcher-backed entry points
+    - strict validation and final assistant message construction
 6. The adapter returns a `WebhookTurnResult` with:
-   - terminal outcome (`completed`, `approval_required`, `timeout`, `fallback`, `error`)
-   - final text when available
-   - structured denial metadata when blocked
-   - dispatcher event transcript for optional SSE-compatible mapping
-   - session/model metadata for response shaping and observability
+    - terminal outcome (`completed`, `approval_required`, `timeout`, `fallback`, `error`)
+    - final text when available
+    - structured denial metadata when blocked
+    - dispatcher event transcript for optional SSE-compatible mapping
+    - session/model metadata for response shaping and observability
 7. Gateway maps that result to HTTP JSON (and optional `events_sse`) and records path/outcome
    telemetry.
 
@@ -173,6 +180,7 @@ HTTP response
 ### Dispatcher Boundary vs Gateway Boundary
 
 Gateway boundary responsibilities:
+
 - request auth and secret validation
 - pairing enforcement
 - IP/header-aware rate limiting
@@ -182,6 +190,7 @@ Gateway boundary responsibilities:
 - feature-flag routing and rollback selection
 
 Dispatcher boundary responsibilities:
+
 - prompt construction
 - memory/session context propagation
 - provider `chat` request formation
@@ -192,16 +201,16 @@ Dispatcher boundary responsibilities:
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/gateway/mod.rs` | Modify | Replace direct `simple_chat()` webhook execution with dispatcher adapter invocation; keep auth, rate-limit, idempotency, session normalization, and HTTP mapping here. |
-| `clients/agent-runtime/src/gateway/webhook_dispatch.rs` | Create | Gateway-only adapter that translates webhook requests/responses to and from the canonical `Agent` turn contract, including event capture for SSE-compatible output. |
-| `clients/agent-runtime/src/agent/agent.rs` | Modify | Add explicit session-aware turn execution surfaces and expose structured turn outcomes needed by gateway without changing CLI semantics. |
-| `clients/agent-runtime/src/agent/memory_loader.rs` | Modify | Allow memory recall to receive an optional `session_id` so webhook turns can scope memory loading to the supplied/generated session. |
-| `clients/agent-runtime/src/bootstrap/mod.rs` | Modify | Reuse canonical bootstrap context for gateway dispatcher execution and avoid any gateway-only tool registry divergence. |
-| `clients/agent-runtime/src/pre_execution/mod.rs` | Narrow / Modify | Reduce webhook use of synthetic canonical pre-checks once dispatcher-backed execution is primary; retain only compatibility helpers still needed for non-dispatcher fallback. |
-| `openspec/specs/agent-loop/spec.md` | Modify | Remove the webhook exception and define parity at the dispatcher boundary while preserving transport-specific response shims. |
-| `openspec/specs/mcp-runtime/spec.md` | Modify | Extend MCP parity expectations to gateway webhook once dispatcher-backed execution is enabled. |
+| File                                                    | Action          | Description                                                                                                                                                                   |
+|---------------------------------------------------------|-----------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/gateway/mod.rs`              | Modify          | Replace direct `simple_chat()` webhook execution with dispatcher adapter invocation; keep auth, rate-limit, idempotency, session normalization, and HTTP mapping here.        |
+| `clients/agent-runtime/src/gateway/webhook_dispatch.rs` | Create          | Gateway-only adapter that translates webhook requests/responses to and from the canonical `Agent` turn contract, including event capture for SSE-compatible output.           |
+| `clients/agent-runtime/src/agent/agent.rs`              | Modify          | Add explicit session-aware turn execution surfaces and expose structured turn outcomes needed by gateway without changing CLI semantics.                                      |
+| `clients/agent-runtime/src/agent/memory_loader.rs`      | Modify          | Allow memory recall to receive an optional `session_id` so webhook turns can scope memory loading to the supplied/generated session.                                          |
+| `clients/agent-runtime/src/bootstrap/mod.rs`            | Modify          | Reuse canonical bootstrap context for gateway dispatcher execution and avoid any gateway-only tool registry divergence.                                                       |
+| `clients/agent-runtime/src/pre_execution/mod.rs`        | Narrow / Modify | Reduce webhook use of synthetic canonical pre-checks once dispatcher-backed execution is primary; retain only compatibility helpers still needed for non-dispatcher fallback. |
+| `openspec/specs/agent-loop/spec.md`                     | Modify          | Remove the webhook exception and define parity at the dispatcher boundary while preserving transport-specific response shims.                                                 |
+| `openspec/specs/mcp-runtime/spec.md`                    | Modify          | Extend MCP parity expectations to gateway webhook once dispatcher-backed execution is enabled.                                                                                |
 
 ## Interfaces / Contracts
 
@@ -254,6 +263,7 @@ Earlier bool-based outcome sketches were pre-implementation pseudocode. The land
 `used_fallback` booleans.
 
 Response mapping contract for `/webhook`:
+
 - `200 OK` + `response` for completed turns
 - `200 OK` + `response` and `fallback: true` for `WebhookTerminalOutcome::Fallback`
 - `403 Forbidden` + structured `error` payload for approval-required tool actions
@@ -270,10 +280,10 @@ Response mapping contract for `/webhook`:
 - Missing or invalid headers continue to generate `webhook-{uuid}` so every dispatcher-backed turn
   has a concrete session identifier.
 - The resolved `session_id` MUST flow into:
-  - memory recall for context loading
-  - memory auto-save writes for conversation/audit continuity
-  - any gateway-side conversation history cache if one is introduced for multi-turn continuity
-  - observer/audit correlation fields where available
+    - memory recall for context loading
+    - memory auto-save writes for conversation/audit continuity
+    - any gateway-side conversation history cache if one is introduced for multi-turn continuity
+    - observer/audit correlation fields where available
 - Auto-save keys should stop using a single global webhook memory key for dispatcher-backed turns.
   Use session-scoped turn keys so one webhook conversation cannot overwrite another.
 - The design does not require persistent long-lived gateway conversation storage outside existing
@@ -299,23 +309,23 @@ Response mapping contract for `/webhook`:
   existing `map_loop_event_to_sse_frame(...)`-style mapper.
 - The event mapper should be transport-neutral: the same canonical event transcript can be emitted
   either as:
-  - `events_sse: ["event: ..."]` in JSON for compatibility, or
-  - a future `text/event-stream` response without changing dispatcher semantics.
+    - `events_sse: ["event: ..."]` in JSON for compatibility, or
+    - a future `text/event-stream` response without changing dispatcher semantics.
 - This change does not require fully streamed live SSE delivery. It only requires that any SSE-
   compatible output come from the canonical execution path.
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|--------------|----------|
-| Unit | Webhook adapter outcome mapping | Cover completed, approval-required, timeout, fallback, and internal error result mapping to HTTP responses. |
-| Unit | Session propagation | Verify session-aware memory recall/store calls receive the normalized/generated `session_id`. |
-| Unit | Event mapping | Verify `events_sse` frames are generated from canonical dispatcher events, not synthetic preview output. |
+| Layer       | What to Test                     | Approach                                                                                                                                                |
+|-------------|----------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Unit        | Webhook adapter outcome mapping  | Cover completed, approval-required, timeout, fallback, and internal error result mapping to HTTP responses.                                             |
+| Unit        | Session propagation              | Verify session-aware memory recall/store calls receive the normalized/generated `session_id`.                                                           |
+| Unit        | Event mapping                    | Verify `events_sse` frames are generated from canonical dispatcher events, not synthetic preview output.                                                |
 | Integration | Dispatcher parity for `/webhook` | Exercise a webhook request through the canonical tool loop with a mock provider and mock tools; assert `Provider::chat()` is used, not `simple_chat()`. |
-| Integration | MCP parity | With MCP enabled, verify webhook can surface or block `mcp.*` tool calls under the same dispatcher policy as CLI/channels. |
-| Integration | Approval constraints | Verify approval-required tool calls return `403`, preserve `session_id`, and do not consume idempotency keys. |
-| Integration | Rollout/fallback | Verify the feature flag cleanly selects legacy vs dispatcher-backed runtime and records the chosen path in telemetry. |
-| Regression | Gateway transport invariants | Preserve pairing, webhook-secret auth, rate limits, and idempotency behavior regardless of runtime selection. |
+| Integration | MCP parity                       | With MCP enabled, verify webhook can surface or block `mcp.*` tool calls under the same dispatcher policy as CLI/channels.                              |
+| Integration | Approval constraints             | Verify approval-required tool calls return `403`, preserve `session_id`, and do not consume idempotency keys.                                           |
+| Integration | Rollout/fallback                 | Verify the feature flag cleanly selects legacy vs dispatcher-backed runtime and records the chosen path in telemetry.                                   |
+| Regression  | Gateway transport invariants     | Preserve pairing, webhook-secret auth, rate limits, and idempotency behavior regardless of runtime selection.                                           |
 
 ## Migration / Rollout
 
@@ -323,13 +333,13 @@ Response mapping contract for `/webhook`:
   plus an env override for fast rollback in operations.
 - Default the flag to `false` initially.
 - When disabled:
-  - keep the current `simple_chat()` path
-  - retain current auth/rate-limit/idempotency behavior
+    - keep the current `simple_chat()` path
+    - retain current auth/rate-limit/idempotency behavior
 - When enabled:
-  - route `/webhook` through the dispatcher adapter
-  - emit runtime-path telemetry (`legacy_simple_chat` vs `dispatcher_agent`)
-  - emit structured outcome counters (`completed`, `approval_required`, `timeout`, `fallback`,
-    `error`)
+    - route `/webhook` through the dispatcher adapter
+    - emit runtime-path telemetry (`legacy_simple_chat` vs `dispatcher_agent`)
+    - emit structured outcome counters (`completed`, `approval_required`, `timeout`, `fallback`,
+      `error`)
 - Preserve a one-step rollback: disable the flag and return to legacy execution without changing the
   external webhook contract.
 
@@ -341,7 +351,8 @@ Response mapping contract for `/webhook`:
   be separated from legacy webhook traffic during rollout.
 - Add explicit logging when the system falls back to the legacy webhook path because the dispatcher
   flag is off or a guarded rollback condition is active.
-- Preserve idempotency semantics for non-terminal dispatcher-blocked requests so approval-required or
+- Preserve idempotency semantics for non-terminal dispatcher-blocked requests so approval-required
+  or
   timeout-aborted turns do not poison caller retries.
 - Prefer fail-closed behavior on approval/policy ambiguity and fail-open only for the existing
   feature-flag rollback path controlled by operators.
@@ -359,9 +370,9 @@ Response mapping contract for `/webhook`:
 ## Open Questions
 
 - [ ] Should session-scoped webhook conversation continuity rely only on memory recall, or should a
-      lightweight persistent conversation history store also be introduced for higher fidelity with
-      CLI/channel multi-turn history?
+  lightweight persistent conversation history store also be introduced for higher fidelity with
+  CLI/channel multi-turn history?
 - [ ] Which exact config/env names should be standardized for the dispatcher rollout flag and the
-      compatibility event-output mode?
+  compatibility event-output mode?
 - [ ] Does the observer model need a first-class `session_id` or `entry_point` field to make
-      rollout comparison reliable without parsing logs?
+  rollout comparison reliable without parsing logs?

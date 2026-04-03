@@ -40,38 +40,39 @@ Order follows user journey: What → Install/Config → Run → Use → Integrat
 
 ## Decision 3: Minimum Launch Content
 
-| Page                    | Priority      | Source                                      |
-|-------------------------|---------------|---------------------------------------------|
-| Overview (index.mdx)   | MUST          | New — from README.md + openspec             |
-| Configuration           | MUST          | New — from config.rs, env vars              |
-| Running                 | MUST          | New — cerebro serve flags, health endpoint  |
-| CLI Reference           | MUST          | New — from bin/cerebro.rs clap definitions  |
-| MCP Tools Reference     | MUST          | Restructure existing 13 JSON schemas        |
-| Migration               | MUST          | MOVE existing guides/cerebro/migration.md   |
-| Installation            | SHOULD        | Can be short section in Overview initially  |
-| Integration with Corvus | SHOULD        | New — MemoryCerebroConfig, CORVUS_CEREBRO_* |
-| Operations              | NICE-TO-HAVE  | New — TUI, storage modes, backup            |
+| Page                    | Priority     | Source                                      |
+|-------------------------|--------------|---------------------------------------------|
+| Overview (index.mdx)    | MUST         | New — from README.md + openspec             |
+| Configuration           | MUST         | New — from config.rs, env vars              |
+| Running                 | MUST         | New — cerebro serve flags, health endpoint  |
+| CLI Reference           | MUST         | New — from bin/cerebro.rs clap definitions  |
+| MCP Tools Reference     | MUST         | Restructure existing 13 JSON schemas        |
+| Migration               | MUST         | MOVE existing guides/cerebro/migration.md   |
+| Installation            | SHOULD       | Can be short section in Overview initially  |
+| Integration with Corvus | SHOULD       | New — MemoryCerebroConfig, CORVUS_CEREBRO_* |
+| Operations              | NICE-TO-HAVE | New — TUI, storage modes, backup            |
 
 Minimum launch = 6 pages.
 
 ## Decision 4: Existing Content Disposition
 
-| Content                              | Action                                    |
-|--------------------------------------|-------------------------------------------|
-| guides/cerebro/migration.md (EN)     | MOVE to cerebro/migration.md + redirect   |
-| guides/cerebro/migration.md (ES)     | MOVE to es/cerebro/migration.md + redirect|
-| guides/cerebro/mcp-schema/*.json     | KEEP in place, reference from MCP Tools   |
-| guides/architecture.md               | KEEP — cross-link to Cerebro Overview     |
-| guides/surrealdb.md                  | KEEP — not Cerebro-specific               |
-| guides/configuration.md              | KEEP — add cross-link to Cerebro Config   |
-| modules/cerebro/README.md            | KEEP — dev-facing                         |
-| openspec/specs/cerebro/spec.md       | KEEP — internal spec                      |
+| Content                          | Action                                     |
+|----------------------------------|--------------------------------------------|
+| guides/cerebro/migration.md (EN) | MOVE to cerebro/migration.md + redirect    |
+| guides/cerebro/migration.md (ES) | MOVE to es/cerebro/migration.md + redirect |
+| guides/cerebro/mcp-schema/*.json | KEEP in place, reference from MCP Tools    |
+| guides/architecture.md           | KEEP — cross-link to Cerebro Overview      |
+| guides/surrealdb.md              | KEEP — not Cerebro-specific                |
+| guides/configuration.md          | KEEP — add cross-link to Cerebro Config    |
+| modules/cerebro/README.md        | KEEP — dev-facing                          |
+| openspec/specs/cerebro/spec.md   | KEEP — internal spec                       |
 
 ## Decision 5: Bilingual Parity EN/ES
 
 **Both languages are REQUIRED from day one.** No launch without EN/ES parity.
 
 Rules:
+
 - Each page is written EN first (Starlight default locale).
 - ES translation ships in the SAME PR.
 - If ES content is incomplete, mark with `:::caution[Traduccion en progreso]` banner.
@@ -124,26 +125,26 @@ src/content/docs/es/cerebro/
 
 ## Risks
 
-| Risk                                        | Mitigation                                        |
-|---------------------------------------------|---------------------------------------------------|
-| Migration guide move breaks links           | Add Starlight redirects in astro.config.mjs       |
-| MCP schemas reference NotImplemented tools  | Mark clearly as "Planned" in reference page       |
-| Content from source code drifts             | lastReviewed frontmatter + review cadence         |
-| ES content quality                          | Same-PR delivery + caution banners where needed   |
+| Risk                                       | Mitigation                                      |
+|--------------------------------------------|-------------------------------------------------|
+| Migration guide move breaks links          | Add Starlight redirects in astro.config.mjs     |
+| MCP schemas reference NotImplemented tools | Mark clearly as "Planned" in reference page     |
+| Content from source code drifts            | lastReviewed frontmatter + review cadence       |
+| ES content quality                         | Same-PR delivery + caution banners where needed |
 
 ## Implementation Issues
 
 8 follow-up issues created in Linear as sub-issues of DALLAY-152:
 
-| # | Linear ID   | Title                                          | Priority     |
-|---|-------------|------------------------------------------------|--------------|
-| 1 | DALLAY-223  | Scaffold section structure + sidebar config    | High (MUST)  |
-| 2 | DALLAY-224  | Configuration page EN/ES                       | High (MUST)  |
-| 3 | DALLAY-225  | Running page EN/ES                             | High (MUST)  |
-| 4 | DALLAY-226  | CLI Reference page EN/ES                       | High (MUST)  |
-| 5 | DALLAY-227  | MCP Tools Reference page EN/ES                 | High (MUST)  |
-| 6 | DALLAY-228  | Move migration guide to Cerebro section        | High (MUST)  |
-| 7 | DALLAY-229  | Integration with Corvus page EN/ES             | Medium (SHOULD) |
-| 8 | DALLAY-230  | Operations page EN/ES                          | Low (NICE-TO-HAVE) |
+| # | Linear ID  | Title                                       | Priority           |
+|---|------------|---------------------------------------------|--------------------|
+| 1 | DALLAY-223 | Scaffold section structure + sidebar config | High (MUST)        |
+| 2 | DALLAY-224 | Configuration page EN/ES                    | High (MUST)        |
+| 3 | DALLAY-225 | Running page EN/ES                          | High (MUST)        |
+| 4 | DALLAY-226 | CLI Reference page EN/ES                    | High (MUST)        |
+| 5 | DALLAY-227 | MCP Tools Reference page EN/ES              | High (MUST)        |
+| 6 | DALLAY-228 | Move migration guide to Cerebro section     | High (MUST)        |
+| 7 | DALLAY-229 | Integration with Corvus page EN/ES          | Medium (SHOULD)    |
+| 8 | DALLAY-230 | Operations page EN/ES                       | Low (NICE-TO-HAVE) |
 
 Execution order: 223 → 228 → (224, 225, 226, 227 parallel) → 229 → 230

@@ -67,7 +67,8 @@ assigned transport.
 **Canonical**: Runtime
 **Definition**: The Rust-based Corvus agent execution environment that processes agent loops, tool
 calls, and memory operations.
-**Context**: The core backend process. Surfaces never access the runtime directly except the CLI; all
+**Context**: The core backend process. Surfaces never access the runtime directly except the CLI;
+all
 others go through a gateway or bridge.
 **Anti-terms**: server, backend, engine, daemon (too generic; "runtime" is the Corvus-specific term)
 
@@ -95,7 +96,8 @@ runtime as a subprocess.
 and reaches a ready state.
 **Context**: All onboarding-capable surfaces implement the canonical onboarding steps. The flow
 varies by transport but achieves the same outcome.
-**Anti-terms**: setup, wizard, first-run, registration (too generic or implies different UX patterns)
+**Anti-terms**: setup, wizard, first-run, registration (too generic or implies different UX
+patterns)
 
 ### Tool
 
@@ -120,7 +122,8 @@ dashboard, and CLI surfaces.
 **Canonical**: Operator
 **Definition**: A human administrator who manages the Corvus runtime, configures surfaces, and
 monitors system health.
-**Context**: Operators interact through the CLI and dashboard surfaces. They have elevated privileges
+**Context**: Operators interact through the CLI and dashboard surfaces. They have elevated
+privileges
 compared to end-users.
 **Anti-terms**: admin, administrator (too generic; "operator" conveys the runtime management role)
 

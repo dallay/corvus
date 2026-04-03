@@ -19,6 +19,7 @@ This maps directly to the proposal's three-tier capability model and phased roll
 validation, normalization) stays in place.
 
 **Alternatives considered**:
+
 - **New top-level `src/mcp/` module**: Would separate MCP from the tool subsystem, requiring new
   registry infrastructure, new dispatch paths, and duplicated wiring. High cost, low benefit for
   what are effectively "tool-shaped" capabilities.
@@ -27,7 +28,8 @@ validation, normalization) stays in place.
 
 **Rationale**: Resources and prompts are invoked through the same agent loop tool-call mechanism
 as MCP tools. They share the same transport (`McpClient`), naming scheme (`normalize.rs`), config
-(`McpServerConfig`), and policy evaluation (`source_kind_for_tool`). Keeping them in `src/tools/mcp/`
+(`McpServerConfig`), and policy evaluation (`source_kind_for_tool`). Keeping them in
+`src/tools/mcp/`
 avoids duplicating infrastructure and means the dispatcher, approval flow, and output limiting all
 work without changes to the agent loop.
 
@@ -48,6 +50,7 @@ src/tools/mcp/
 from `src/tools/traits.rs`. They register as `Box<dyn Tool>` in the unified tool set.
 
 **Alternatives considered**:
+
 - **Dedicated `Resource` and `Prompt` traits**: Would require a parallel registry, new dispatch
   paths in the agent loop (`unified_loop.rs`), new policy evaluation paths, and new output
   formatting. Architecturally cleaner in theory but enormous implementation cost for the initial
@@ -59,6 +62,7 @@ from `src/tools/traits.rs`. They register as `Box<dyn Tool>` in the unified tool
 **Rationale**: The `Tool` trait is the universal dispatch surface in Corvus. The agent loop already
 knows how to discover, approve, execute, and format `Tool` results. By implementing `Tool` for
 resources and prompts:
+
 - The LLM sees them in the tool list and can call them naturally.
 - The dispatcher's `check_tool_risk()` applies automatically via `source_kind_for_tool()`.
 - Output limiting via `enforce_output_limit()` works out of the box.
@@ -70,6 +74,7 @@ capability types (e.g., `kind: "mcp_resource"` vs `kind: "mcp"`) for policy diff
 ### Decision 3: Client Extension — Add JSON-RPC Methods to Existing `McpClient`
 
 **Choice**: Extend `McpClient` with four new methods:
+
 - `list_resources() -> Vec<McpResourceManifest>`
 - `read_resource(uri: &str) -> String`
 - `list_prompts() -> Vec<McpPromptManifest>`
@@ -78,6 +83,7 @@ capability types (e.g., `kind: "mcp_resource"` vs `kind: "mcp"`) for policy diff
 These follow the same transport pattern as `list_tools()` and `call_tool()`.
 
 **Alternatives considered**:
+
 - **Separate client per capability type**: Would duplicate transport, timeout, and error handling
   logic. The MCP protocol uses a single connection per server for all capability types.
 - **Generic `call_method(method: &str, params: Value)` approach**: Too loose — loses type safety
@@ -119,6 +125,7 @@ fn default_mcp_capabilities() -> Vec<String> {
 ```
 
 **Alternatives considered**:
+
 - **Boolean flags (`enable_resources: bool`)**: Less extensible if new capability types are added.
   A list is more composable.
 - **Nested config objects per capability**: Over-engineered for the initial model. Per-capability
@@ -157,6 +164,7 @@ discover_capabilities(config) {
 ```
 
 **Alternatives considered**:
+
 - **Separate introspection calls per capability type** (`list_tools()`, then `list_resources()`,
   then `list_prompts()`): Three process spawns per server for stdio transport. Wasteful when the
   server's manifest payload already contains all capability types.
@@ -185,6 +193,7 @@ like any other tool.
   `ToolResult`.
 
 **Alternatives considered**:
+
 - **Resources as context injection (prompt-time fetch)**: Resources would be fetched during
   `build_system_prompt()` and injected as `PromptSection` content. Transparent to LLM but requires
   changes to `agent/prompt.rs`, adds startup latency, and forces all resources to load even if
@@ -194,6 +203,7 @@ like any other tool.
   surface that's harder to audit (content appears as system instructions rather than tool results).
 
 **Rationale**: Tool-shaped callables are the lowest-risk integration path:
+
 1. The agent loop (`unified_loop.rs`) needs zero changes.
 2. The LLM retains agency over when to invoke resources/prompts.
 3. All invocations pass through the existing approval and policy flow.
@@ -207,13 +217,14 @@ like any other tool.
 **Choice**: Extend `ToolSourceMetadata.kind` to distinguish capability types. Policy evaluation
 uses this for differentiated defaults:
 
-| `kind` value | Policy Default | Rationale |
-|---|---|---|
-| `"mcp"` (existing tools) | `ApprovalRequired` | Unchanged from v1 |
-| `"mcp_resource"` | `ApprovalRequired` | Read-only but may expose sensitive data; start restrictive, relax later |
-| `"mcp_prompt"` | `ApprovalRequired` | Highest risk — prompt injection surface |
+| `kind` value             | Policy Default     | Rationale                                                               |
+|--------------------------|--------------------|-------------------------------------------------------------------------|
+| `"mcp"` (existing tools) | `ApprovalRequired` | Unchanged from v1                                                       |
+| `"mcp_resource"`         | `ApprovalRequired` | Read-only but may expose sensitive data; start restrictive, relax later |
+| `"mcp_prompt"`           | `ApprovalRequired` | Highest risk — prompt injection surface                                 |
 
 **Alternatives considered**:
+
 - **`AllowWithLimits` for resources by default**: The proposal suggested this, but after reviewing
   the actual code, the `ToolPolicyDecision` enum has three values: `Allow`, `ApprovalRequired`,
   `Deny`. There is no `AllowWithLimits` variant. Adding one would require changes to the policy
@@ -275,6 +286,7 @@ Collision detection spans all capability types in a single `HashSet<String>` (th
 `seen_names` set in `discover_tools()`).
 
 **Alternatives considered**:
+
 - **Separate registries per capability type**: Would require the dispatcher to check multiple
   registries and the agent loop to merge tool lists from multiple sources. The existing unified
   registry handles this naturally.
@@ -419,17 +431,17 @@ Dispatcher::check_tool_risk()
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `src/config/schema.rs` | Modify | Add `capabilities`, `resource_output_limit_bytes`, `prompt_output_limit_bytes` to `McpServerConfig`; add validation for capability values |
-| `src/tools/mcp/mod.rs` | Modify | Rename `discover_tools` → `discover_capabilities`; add resource/prompt registration branches gated by `capabilities` config; extend `seen_names` collision detection |
-| `src/tools/mcp/client.rs` | Modify | Add `McpResourceManifest`, `McpPromptManifest` structs; add `list_resources()`, `read_resource()`, `list_prompts()`, `get_prompt()` methods; extend manifest parsing to extract resources/prompts (replace warn-and-ignore at line 447-452) |
-| `src/tools/mcp/resource_adapter.rs` | Create | `McpResourceAdapter` implementing `Tool` trait; wraps `read_resource()` with output limiting, URI validation, and source metadata |
-| `src/tools/mcp/prompt_adapter.rs` | Create | `McpPromptAdapter` implementing `Tool` trait; wraps `get_prompt()` with output limiting, provenance tagging, and structured output |
-| `src/tools/mcp/normalize.rs` | Modify | Add `normalize_resource_name()`, `normalize_prompt_name()`; extend reserved word list to include `"resource"` and `"prompt"` as server names |
-| `src/security/policy.rs` | Modify | Extend `ToolSourceKind` with `McpResource`, `McpPrompt` variants; update `source_kind_for_tool()` to detect `.resource.` and `.prompt.` segments; map both to `ApprovalRequired` |
-| `src/agent/dispatcher.rs` | Modify | Update `evaluate_tool_risk_for_origin()` to handle `McpResource` and `McpPrompt` source kinds (both → `ApprovalRequired`) |
-| `openspec/specs/mcp-runtime/spec.md` | Modify | Remove v1 exclusion clause (line 9-10); add resource and prompt requirements and scenarios |
+| File                                 | Action | Description                                                                                                                                                                                                                                 |
+|--------------------------------------|--------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `src/config/schema.rs`               | Modify | Add `capabilities`, `resource_output_limit_bytes`, `prompt_output_limit_bytes` to `McpServerConfig`; add validation for capability values                                                                                                   |
+| `src/tools/mcp/mod.rs`               | Modify | Rename `discover_tools` → `discover_capabilities`; add resource/prompt registration branches gated by `capabilities` config; extend `seen_names` collision detection                                                                        |
+| `src/tools/mcp/client.rs`            | Modify | Add `McpResourceManifest`, `McpPromptManifest` structs; add `list_resources()`, `read_resource()`, `list_prompts()`, `get_prompt()` methods; extend manifest parsing to extract resources/prompts (replace warn-and-ignore at line 447-452) |
+| `src/tools/mcp/resource_adapter.rs`  | Create | `McpResourceAdapter` implementing `Tool` trait; wraps `read_resource()` with output limiting, URI validation, and source metadata                                                                                                           |
+| `src/tools/mcp/prompt_adapter.rs`    | Create | `McpPromptAdapter` implementing `Tool` trait; wraps `get_prompt()` with output limiting, provenance tagging, and structured output                                                                                                          |
+| `src/tools/mcp/normalize.rs`         | Modify | Add `normalize_resource_name()`, `normalize_prompt_name()`; extend reserved word list to include `"resource"` and `"prompt"` as server names                                                                                                |
+| `src/security/policy.rs`             | Modify | Extend `ToolSourceKind` with `McpResource`, `McpPrompt` variants; update `source_kind_for_tool()` to detect `.resource.` and `.prompt.` segments; map both to `ApprovalRequired`                                                            |
+| `src/agent/dispatcher.rs`            | Modify | Update `evaluate_tool_risk_for_origin()` to handle `McpResource` and `McpPrompt` source kinds (both → `ApprovalRequired`)                                                                                                                   |
+| `openspec/specs/mcp-runtime/spec.md` | Modify | Remove v1 exclusion clause (line 9-10); add resource and prompt requirements and scenarios                                                                                                                                                  |
 
 ## Interfaces / Contracts
 
@@ -617,20 +629,20 @@ pub fn source_kind_for_tool(tool_name: &str) -> ToolSourceKind {
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | `normalize_resource_name()`, `normalize_prompt_name()` produce correct canonical names | Mirror existing `normalize_tool_name` tests in `normalize.rs` |
-| Unit | `source_kind_for_tool()` detects `McpResource` and `McpPrompt` variants | Extend existing `source_kind_distinguishes_mcp_from_native` test |
-| Unit | `McpResourceAdapter::execute()` returns resource content with output limiting | Mock client pattern from existing `adapter.rs` tests |
-| Unit | `McpPromptAdapter::execute()` returns formatted prompt with provenance | Mock client, verify provenance header and structured output |
-| Unit | `McpPromptAdapter::execute()` rejects missing required arguments | Validation test |
-| Unit | Config validation rejects unknown capability values | Extend existing config validation tests |
-| Unit | Config `capabilities` defaults to `["tools"]` when absent | Deserialization test |
-| Unit | Collision detection spans tools + resources + prompts | Extend `collision_error_message` test |
-| Integration | `discover_capabilities()` with mock servers advertising all three types | Extend existing mock discovery tests; use `__mcp_mock__` with resources/prompts in payload |
-| Integration | Policy evaluation for `mcp.*.resource.*` and `mcp.*.prompt.*` names | Extend existing policy tests |
-| Integration | End-to-end resource read through adapter → client → mock server | Async test with mock transport |
-| Integration | End-to-end prompt get through adapter → client → mock server | Async test with mock transport |
+| Layer       | What to Test                                                                           | Approach                                                                                   |
+|-------------|----------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------|
+| Unit        | `normalize_resource_name()`, `normalize_prompt_name()` produce correct canonical names | Mirror existing `normalize_tool_name` tests in `normalize.rs`                              |
+| Unit        | `source_kind_for_tool()` detects `McpResource` and `McpPrompt` variants                | Extend existing `source_kind_distinguishes_mcp_from_native` test                           |
+| Unit        | `McpResourceAdapter::execute()` returns resource content with output limiting          | Mock client pattern from existing `adapter.rs` tests                                       |
+| Unit        | `McpPromptAdapter::execute()` returns formatted prompt with provenance                 | Mock client, verify provenance header and structured output                                |
+| Unit        | `McpPromptAdapter::execute()` rejects missing required arguments                       | Validation test                                                                            |
+| Unit        | Config validation rejects unknown capability values                                    | Extend existing config validation tests                                                    |
+| Unit        | Config `capabilities` defaults to `["tools"]` when absent                              | Deserialization test                                                                       |
+| Unit        | Collision detection spans tools + resources + prompts                                  | Extend `collision_error_message` test                                                      |
+| Integration | `discover_capabilities()` with mock servers advertising all three types                | Extend existing mock discovery tests; use `__mcp_mock__` with resources/prompts in payload |
+| Integration | Policy evaluation for `mcp.*.resource.*` and `mcp.*.prompt.*` names                    | Extend existing policy tests                                                               |
+| Integration | End-to-end resource read through adapter → client → mock server                        | Async test with mock transport                                                             |
+| Integration | End-to-end prompt get through adapter → client → mock server                           | Async test with mock transport                                                             |
 
 ## Migration / Rollout
 
@@ -640,12 +652,14 @@ change.
 For the implementation phases:
 
 **Phase 1 (Resources)**:
+
 - Add `capabilities` field with `["tools"]` default — zero config migration needed.
 - Existing `__mcp_mock__` test infrastructure extends naturally (mock payload already contains
   `resources` key).
 - Feature is invisible until operator adds `"resources"` to a server's capabilities list.
 
 **Phase 2 (Prompts)**:
+
 - Same pattern — invisible until operator adds `"prompts"` to capabilities.
 - Provenance tagging ensures prompt-sourced content is always attributable.
 - Prompts require the most thorough security review before implementation ships.
@@ -656,7 +670,8 @@ to be ignored (serde `#[serde(default)]` handles this — unknown values use def
 
 ## Open Questions
 
-- [x] Should resources use `AllowWithLimits` or `ApprovalRequired`? → **Resolved**: `ApprovalRequired`.
+- [x] Should resources use `AllowWithLimits` or `ApprovalRequired`? → **Resolved**:
+  `ApprovalRequired`.
   The `ToolPolicyDecision` enum lacks an `AllowWithLimits` variant. Start restrictive; operators
   can configure exceptions. Adding a new policy variant is a future enhancement.
 - [x] Single or separate introspection calls? → **Resolved**: Single manifest parse preferred,

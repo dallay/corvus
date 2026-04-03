@@ -84,11 +84,11 @@ session.
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/gateway/mod.rs` | Modify | Extend the local `TrackingMemory` helper to record recall/store session ids and add one dispatcher-backed missing-header isolation test. |
-| `clients/agent-runtime/src/gateway/webhook_dispatch.rs` | No change expected | Existing request-to-context propagation should remain as-is; only touch this file if the new test exposes a concrete bug that must be fixed. |
-| `openspec/changes/webhook-generated-session-isolation/design.md` | Create | Record the proof-oriented implementation plan for this follow-up. |
+| File                                                             | Action             | Description                                                                                                                                  |
+|------------------------------------------------------------------|--------------------|----------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/gateway/mod.rs`                       | Modify             | Extend the local `TrackingMemory` helper to record recall/store session ids and add one dispatcher-backed missing-header isolation test.     |
+| `clients/agent-runtime/src/gateway/webhook_dispatch.rs`          | No change expected | Existing request-to-context propagation should remain as-is; only touch this file if the new test exposes a concrete bug that must be fixed. |
+| `openspec/changes/webhook-generated-session-isolation/design.md` | Create             | Record the proof-oriented implementation plan for this follow-up.                                                                            |
 
 ## Interfaces / Contracts
 
@@ -127,11 +127,11 @@ production fix is to correct the existing dispatcher-backed `/webhook` session p
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | None newly required for behavior | Reuse existing `webhook_dispatch.rs` and `agent/tests.rs` coverage as supporting lower-layer evidence. |
+| Layer       | What to Test                                          | Approach                                                                                                                                                                            |
+|-------------|-------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Unit        | None newly required for behavior                      | Reuse existing `webhook_dispatch.rs` and `agent/tests.rs` coverage as supporting lower-layer evidence.                                                                              |
 | Integration | Dispatcher-backed `/webhook` missing-header isolation | Add one `gateway::tests` case that enables dispatcher mode, omits `X-Session-Id`, enables auto-save, uses `TrackingMemory`, and asserts response-session / recall / store equality. |
-| E2E | Not separately added | The gateway integration-style test is the proof target for this follow-up and is sufficient for the narrow gap. |
+| E2E         | Not separately added                                  | The gateway integration-style test is the proof target for this follow-up and is sufficient for the narrow gap.                                                                     |
 
 Test setup details:
 

@@ -9,7 +9,9 @@
 
 ## Overview
 
-This specification defines the client-side requirements for session and memory visibility across Corvus surfaces: dashboard (operator/admin), chat (end-user), and KMP/mobile (deferred). Each surface has distinct visibility rules based on user role.
+This specification defines the client-side requirements for session and memory visibility across
+Corvus surfaces: dashboard (operator/admin), chat (end-user), and KMP/mobile (deferred). Each
+surface has distinct visibility rules based on user role.
 
 ---
 
@@ -20,11 +22,13 @@ This specification defines the client-side requirements for session and memory v
 The dashboard MUST include a session monitoring page that displays a paginated table of sessions.
 
 - The page MUST be accessible from the dashboard navigation.
-- The table MUST display columns: Session ID, Started, Last Activity, Messages, Status (Active/Ended).
+- The table MUST display columns: Session ID, Started, Last Activity, Messages, Status (
+  Active/Ended).
 - The table MUST support filtering by status (`active`, `ended`, `all`).
 - The table MUST support sorting by `started_at` and `last_activity`.
 - The table MUST support pagination (page size selector, next/previous navigation).
-- Active sessions SHOULD be visually distinguished from ended sessions (e.g., badge or row highlight).
+- Active sessions SHOULD be visually distinguished from ended sessions (e.g., badge or row
+  highlight).
 - The view MUST consume `GET /web/admin/sessions` from the gateway.
 
 #### Scenario: Dashboard displays session list
@@ -75,9 +79,12 @@ And the message SHOULD indicate "No sessions found"
 
 The dashboard MUST provide a session detail panel accessible by clicking a session row.
 
-- The detail view MUST display: session ID, started_at, ended_at (or "Active"), message_count, last_activity, metadata (if present).
-- The detail view MUST display a memory summary: count of memory entries by category for that session.
-- The detail view SHOULD provide a link/button to view the session's memory entries in the memory browser (pre-filtered by session_id).
+- The detail view MUST display: session ID, started_at, ended_at (or "Active"), message_count,
+  last_activity, metadata (if present).
+- The detail view MUST display a memory summary: count of memory entries by category for that
+  session.
+- The detail view SHOULD provide a link/button to view the session's memory entries in the memory
+  browser (pre-filtered by session_id).
 - The detail view MUST consume `GET /web/admin/sessions/:id` from the gateway.
 
 #### Scenario: Admin views session detail
@@ -112,10 +119,12 @@ And no memory categories MUST be listed
 
 ### CS-3: Dashboard — Memory Browser
 
-The dashboard MUST include a memory administration page with a searchable, filterable list of memory entries.
+The dashboard MUST include a memory administration page with a searchable, filterable list of memory
+entries.
 
 - The page MUST be accessible from the dashboard navigation.
-- The page MUST display a table/list of memory entries with columns: Key, Category, Timestamp, Session ID, Content (truncated preview).
+- The page MUST display a table/list of memory entries with columns: Key, Category, Timestamp,
+  Session ID, Content (truncated preview).
 - The page MUST support filtering by category (Core, Daily, Conversation, Custom).
 - The page MUST support filtering by session ID (dropdown or text input).
 - The page MUST support full-text search via a search input field.
@@ -177,7 +186,8 @@ And no DELETE request MUST be sent
 
 The dashboard memory browser page MUST display a stats summary panel.
 
-- The panel MUST show: total entry count, entries by category, total sessions, active sessions, backend name, Cerebro status.
+- The panel MUST show: total entry count, entries by category, total sessions, active sessions,
+  backend name, Cerebro status.
 - The panel MUST consume `GET /web/admin/memory/stats`.
 - The panel SHOULD be displayed above or alongside the memory entry list.
 
@@ -277,8 +287,10 @@ Chat session context MUST be persisted across page reloads.
 
 - The current session ID MUST be stored in `sessionStorage` (existing behavior).
 - The session list MUST be fetched from the server via `GET /session/list` on load.
-- Messages for the current session MUST continue to use `sessionStorage` persistence (existing behavior).
-- When switching sessions, the current session's messages MUST be saved to `sessionStorage` before loading the new session.
+- Messages for the current session MUST continue to use `sessionStorage` persistence (existing
+  behavior).
+- When switching sessions, the current session's messages MUST be saved to `sessionStorage` before
+  loading the new session.
 
 #### Scenario: Session list loads from server on mount
 
@@ -307,7 +319,8 @@ And the session list MUST be re-fetched from the server
 The chat app MUST NOT expose raw memory contents to end users.
 
 - The chat MUST NOT display memory keys, categories, or raw content.
-- The chat MAY display subtle "context used" indicators (e.g., "The agent recalled context from a previous session") as a future enhancement — this is NOT required for Phase 1.
+- The chat MAY display subtle "context used" indicators (e.g., "The agent recalled context from a
+  previous session") as a future enhancement — this is NOT required for Phase 1.
 - The chat MUST NOT call any `/web/admin/memory*` endpoint.
 
 #### Scenario: Chat does not expose memory data
@@ -325,10 +338,12 @@ And no requests to /web/admin/memory endpoints MUST be made
 
 The dashboard MUST define TypeScript types for all new API responses.
 
-- `AdminSessionView`: session list item (id, started_at, ended_at, status, message_count, last_activity).
+- `AdminSessionView`: session list item (id, started_at, ended_at, status, message_count,
+  last_activity).
 - `AdminSessionDetail`: extends `AdminSessionView` with metadata and memory_summary.
 - `AdminMemoryEntry`: memory entry (id, key, content, category, timestamp, session_id).
-- `AdminMemoryStats`: stats response (total_entries, by_category, total_sessions, active_sessions, backend, cerebro_configured).
+- `AdminMemoryStats`: stats response (total_entries, by_category, total_sessions, active_sessions,
+  backend, cerebro_configured).
 - Types MUST be defined in the existing `admin-config.ts` or a co-located types file.
 
 #### Scenario: TypeScript types match API response shape
@@ -356,8 +371,10 @@ And the type MUST NOT include admin-only fields (metadata, memory_summary)
 KMP and mobile clients (composeApp, androidApp) are OUT OF SCOPE for Phase 1.
 
 - Session history and memory visibility for KMP clients MUST NOT be implemented in this change.
-- The KMP `CoreContracts.kt` MAY be updated with session history type stubs if convenient, but this is NOT required.
-- The mobile bridge is not wired — session history depends on bridge completion (tracked separately).
+- The KMP `CoreContracts.kt` MAY be updated with session history type stubs if convenient, but this
+  is NOT required.
+- The mobile bridge is not wired — session history depends on bridge completion (tracked
+  separately).
 
 #### Scenario: KMP contracts remain unchanged
 
@@ -372,17 +389,17 @@ And existing KMP functionality MUST NOT be affected
 
 ### CS-10: Visibility Rules Summary
 
-| Capability | Dashboard (Admin) | Chat (End-User) | KMP/Mobile |
-|------------|-------------------|------------------|------------|
-| Session list (all) | MUST | - | Deferred |
-| Session list (own) | - | MUST | Deferred |
-| Session detail | MUST | - | Deferred |
-| Memory browser | MUST | MUST NOT | Deferred |
-| Memory stats | MUST | MUST NOT | Deferred |
-| Memory delete | MUST | MUST NOT | Deferred |
-| Memory search | MUST | MUST NOT | Deferred |
-| Session switching | - | MUST | Deferred |
-| New chat / session | - | MUST | Deferred |
+| Capability         | Dashboard (Admin) | Chat (End-User) | KMP/Mobile |
+|--------------------|-------------------|-----------------|------------|
+| Session list (all) | MUST              | -               | Deferred   |
+| Session list (own) | -                 | MUST            | Deferred   |
+| Session detail     | MUST              | -               | Deferred   |
+| Memory browser     | MUST              | MUST NOT        | Deferred   |
+| Memory stats       | MUST              | MUST NOT        | Deferred   |
+| Memory delete      | MUST              | MUST NOT        | Deferred   |
+| Memory search      | MUST              | MUST NOT        | Deferred   |
+| Session switching  | -                 | MUST            | Deferred   |
+| New chat / session | -                 | MUST            | Deferred   |
 
 #### Scenario: Admin has full visibility
 

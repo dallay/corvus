@@ -15,10 +15,10 @@ remained, so archive proceeded while preserving the verification warnings for fo
 
 ## Specs Synced
 
-| Domain | Action | Details |
-|--------|--------|---------|
-| agent-loop | Updated | Replaced `Entry Points Alignment` with dispatcher-backed `/webhook` parity language and added 5 gateway requirements: transport boundary preservation, approval outcome parity, session scoping, response/streaming contract, and rollout safety. |
-| mcp-runtime | Updated | Expanded `MCP Policy and Approval Enforcement` to include dispatcher-backed `/webhook`, added fallback semantics, and added `Gateway Webhook MCP Capability Parity`. |
+| Domain      | Action  | Details                                                                                                                                                                                                                                           |
+|-------------|---------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| agent-loop  | Updated | Replaced `Entry Points Alignment` with dispatcher-backed `/webhook` parity language and added 5 gateway requirements: transport boundary preservation, approval outcome parity, session scoping, response/streaming contract, and rollout safety. |
+| mcp-runtime | Updated | Expanded `MCP Policy and Approval Enforcement` to include dispatcher-backed `/webhook`, added fallback semantics, and added `Gateway Webhook MCP Capability Parity`.                                                                              |
 
 ## Archive Operation
 

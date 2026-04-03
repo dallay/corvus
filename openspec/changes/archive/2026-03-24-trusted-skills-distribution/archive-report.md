@@ -8,22 +8,22 @@
 
 ## Phase Completion Summary
 
-| Phase | Status | Notes |
-|-------|--------|-------|
-| Explore | Done | Full investigation of security gaps in open-skills model |
-| Propose | Done | Phase 1 scope defined: trust model, lockfile, prompt rendering, install gating |
-| Spec | Done | 6 requirements (R1–R6) with 30+ scenarios in `skills-trust/spec.md` |
-| Design | Done | 4 architecture decisions (AD1–AD4), file-level change plan |
-| Tasks | Done | 19 tasks across 4 phases; 16/19 implemented, 3 genuinely incomplete (test gaps) |
-| Apply | Done | 3 new modules + 5 modified files in `clients/agent-runtime/` |
-| Verify | PASS WITH WARNINGS | 3 critical issues fixed; 25 new tests, 5327 total passing |
+| Phase   | Status             | Notes                                                                           |
+|---------|--------------------|---------------------------------------------------------------------------------|
+| Explore | Done               | Full investigation of security gaps in open-skills model                        |
+| Propose | Done               | Phase 1 scope defined: trust model, lockfile, prompt rendering, install gating  |
+| Spec    | Done               | 6 requirements (R1–R6) with 30+ scenarios in `skills-trust/spec.md`             |
+| Design  | Done               | 4 architecture decisions (AD1–AD4), file-level change plan                      |
+| Tasks   | Done               | 19 tasks across 4 phases; 16/19 implemented, 3 genuinely incomplete (test gaps) |
+| Apply   | Done               | 3 new modules + 5 modified files in `clients/agent-runtime/`                    |
+| Verify  | PASS WITH WARNINGS | 3 critical issues fixed; 25 new tests, 5327 total passing                       |
 
 ---
 
 ## Delta Specs Synced
 
-| Domain | Action | Target |
-|--------|--------|--------|
+| Domain       | Action                 | Target                                |
+|--------------|------------------------|---------------------------------------|
 | skills-trust | **Created** (new spec) | `openspec/specs/skills-trust/spec.md` |
 
 This is a new spec domain. The full spec (480 lines, 6 requirements R1–R6) was copied directly
@@ -35,23 +35,23 @@ from the delta to main specs. No merge was needed.
 
 ### New Files Created
 
-| File | Purpose |
-|------|---------|
-| `clients/agent-runtime/src/skills/trust.rs` | SkillTrust enum, SkillSource enum, SkillOrigin struct, trust derivation |
-| `clients/agent-runtime/src/skills/frontmatter.rs` | Hand-rolled YAML frontmatter parser for SKILL.md (no serde_yaml dep) |
-| `clients/agent-runtime/src/skills/lockfile.rs` | Skills lockfile (TOML), read/write/remove, SHA-256 content hashing |
+| File                                              | Purpose                                                                 |
+|---------------------------------------------------|-------------------------------------------------------------------------|
+| `clients/agent-runtime/src/skills/trust.rs`       | SkillTrust enum, SkillSource enum, SkillOrigin struct, trust derivation |
+| `clients/agent-runtime/src/skills/frontmatter.rs` | Hand-rolled YAML frontmatter parser for SKILL.md (no serde_yaml dep)    |
+| `clients/agent-runtime/src/skills/lockfile.rs`    | Skills lockfile (TOML), read/write/remove, SHA-256 content hashing      |
 
 ### Modified Files
 
-| File | Changes |
-|------|---------|
-| `clients/agent-runtime/src/skills/mod.rs` | Trust/origin/allowed_tools fields on Skill, open_skills_enabled(), load_skills() trust enrichment, install flow trust gating, remove flow lockfile cleanup, filter_tools_by_trust() |
-| `clients/agent-runtime/src/agent/prompt.rs` | Trust-aware rendering: sort by tier, trust attribute, caution note, conditional preamble |
-| `clients/agent-runtime/src/config/schema.rs` | SkillsConfig struct with legacy_open_skills field |
-| `clients/agent-runtime/src/config/mod.rs` | Re-export of SkillsConfig |
-| `clients/agent-runtime/src/lib.rs` | --trust CLI flag on SkillCommands::Install |
-| `clients/agent-runtime/src/main.rs` | Pass --trust flag through to handler |
-| `clients/agent-runtime/src/channels/mod.rs` | Tool filtering integration |
+| File                                         | Changes                                                                                                                                                                             |
+|----------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/skills/mod.rs`    | Trust/origin/allowed_tools fields on Skill, open_skills_enabled(), load_skills() trust enrichment, install flow trust gating, remove flow lockfile cleanup, filter_tools_by_trust() |
+| `clients/agent-runtime/src/agent/prompt.rs`  | Trust-aware rendering: sort by tier, trust attribute, caution note, conditional preamble                                                                                            |
+| `clients/agent-runtime/src/config/schema.rs` | SkillsConfig struct with legacy_open_skills field                                                                                                                                   |
+| `clients/agent-runtime/src/config/mod.rs`    | Re-export of SkillsConfig                                                                                                                                                           |
+| `clients/agent-runtime/src/lib.rs`           | --trust CLI flag on SkillCommands::Install                                                                                                                                          |
+| `clients/agent-runtime/src/main.rs`          | Pass --trust flag through to handler                                                                                                                                                |
+| `clients/agent-runtime/src/channels/mod.rs`  | Tool filtering integration                                                                                                                                                          |
 
 ### Test Coverage
 
@@ -89,12 +89,12 @@ from the delta to main specs. No merge was needed.
 
 ## Architecture Decisions Followed
 
-| Decision | Description | Status |
-|----------|-------------|--------|
-| AD1 | Trust as derived property (never stored independently) | Followed |
-| AD2 | Lockfile as advisory (missing/corrupt never blocks loading) | Followed |
-| AD3 | Backward compatibility (no lock entry → Local, SKILL.toml supported) | Followed |
-| AD4 | No serde_yaml dependency (hand-rolled parser) | Followed |
+| Decision | Description                                                          | Status   |
+|----------|----------------------------------------------------------------------|----------|
+| AD1      | Trust as derived property (never stored independently)               | Followed |
+| AD2      | Lockfile as advisory (missing/corrupt never blocks loading)          | Followed |
+| AD3      | Backward compatibility (no lock entry → Local, SKILL.toml supported) | Followed |
+| AD4      | No serde_yaml dependency (hand-rolled parser)                        | Followed |
 
 ---
 
@@ -124,15 +124,15 @@ from the delta to main specs. No merge was needed.
 
 ## Archive Contents
 
-| Artifact | Present |
-|----------|---------|
-| proposal.md | Yes |
-| exploration.md | Yes |
-| design.md | Yes |
-| tasks.md | Yes |
-| specs/skills-trust/spec.md | Yes |
-| verify-report.md | Yes |
-| archive-report.md | Yes |
+| Artifact                   | Present |
+|----------------------------|---------|
+| proposal.md                | Yes     |
+| exploration.md             | Yes     |
+| design.md                  | Yes     |
+| tasks.md                   | Yes     |
+| specs/skills-trust/spec.md | Yes     |
+| verify-report.md           | Yes     |
+| archive-report.md          | Yes     |
 
 ---
 

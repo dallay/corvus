@@ -39,31 +39,36 @@ This change adds a secure v1 MCP runtime path that integrates into existing tool
 ## Proposed approach
 
 1. Runtime integration
-  - Introduce an MCP tool adapter implementing the existing `Tool` trait contract.
-  - Extend `all_tools_with_runtime` to merge native + MCP-derived tools into one dispatchable set.
-  - Keep provider layer unchanged; MCP remains runtime/tooling concern.
+
+- Introduce an MCP tool adapter implementing the existing `Tool` trait contract.
+- Extend `all_tools_with_runtime` to merge native + MCP-derived tools into one dispatchable set.
+- Keep provider layer unchanged; MCP remains runtime/tooling concern.
 
 2. Configuration model
-  - Extend config schema with an `mcp.servers` collection, initially stdio-only.
-  - Define server identity, command/args, environment references, startup and per-call timeouts,
-    output limits, and enabled/disabled flags.
-  - Validate config strictly at load time and fail-safe for malformed or unsafe definitions.
+
+- Extend config schema with an `mcp.servers` collection, initially stdio-only.
+- Define server identity, command/args, environment references, startup and per-call timeouts,
+  output limits, and enabled/disabled flags.
+- Validate config strictly at load time and fail-safe for malformed or unsafe definitions.
 
 3. Tool naming and dispatch
-  - Map MCP tools to canonical namespaced identifiers (for example `mcp.<server>.<tool>`).
-  - Preserve source metadata in `ToolSpec` for policy/approval/audit decisions.
-  - Resolve collisions deterministically (deny ambiguous registration and emit actionable errors).
+
+- Map MCP tools to canonical namespaced identifiers (for example `mcp.<server>.<tool>`).
+- Preserve source metadata in `ToolSpec` for policy/approval/audit decisions.
+- Resolve collisions deterministically (deny ambiguous registration and emit actionable errors).
 
 4. Policy and approvals
-  - Classify MCP tool invocations as explicit risk-bearing operations by default.
-  - Require policy evaluation before invocation; route unresolved/unknown classes through approval.
-  - Ensure gateway/channel paths share the same MCP approval semantics (`src/gateway/mod.rs`,
-    `src/channels/mod.rs`).
+
+- Classify MCP tool invocations as explicit risk-bearing operations by default.
+- Require policy evaluation before invocation; route unresolved/unknown classes through approval.
+- Ensure gateway/channel paths share the same MCP approval semantics (`src/gateway/mod.rs`,
+  `src/channels/mod.rs`).
 
 5. Execution hardening
-  - Enforce per-server/per-tool timeout ceilings and output byte/token caps.
-  - Sanitize/log-redact secrets and sensitive configuration values.
-  - Bound startup-time MCP discovery to avoid blocking runtime initialization indefinitely.
+
+- Enforce per-server/per-tool timeout ceilings and output byte/token caps.
+- Sanitize/log-redact secrets and sensitive configuration values.
+- Bound startup-time MCP discovery to avoid blocking runtime initialization indefinitely.
 
 ### Affected areas
 
@@ -105,23 +110,27 @@ This change adds a secure v1 MCP runtime path that integrates into existing tool
 ## Rollout/testing plan
 
 1. Phase 1 - Configuration and registration
-  - Implement schema/config parsing for `mcp.servers` (stdio).
-  - Register namespaced MCP tools in `all_tools_with_runtime` behind feature/config flag.
-  - Tests: config validation, invalid server rejection, collision detection.
+
+- Implement schema/config parsing for `mcp.servers` (stdio).
+- Register namespaced MCP tools in `all_tools_with_runtime` behind feature/config flag.
+- Tests: config validation, invalid server rejection, collision detection.
 
 2. Phase 2 - Dispatch, policy, and approvals
-  - Wire MCP tools through dispatcher and agent loop with source metadata.
-  - Apply security policy classification and approval flow integration.
-  - Tests: approval behavior for unknown/high-risk MCP tools, cross-entrypoint parity.
+
+- Wire MCP tools through dispatcher and agent loop with source metadata.
+- Apply security policy classification and approval flow integration.
+- Tests: approval behavior for unknown/high-risk MCP tools, cross-entrypoint parity.
 
 3. Phase 3 - Hardening and limits
-  - Enforce timeout/output caps, startup timeout, secret redaction checks.
-  - Tests: timeout and cap enforcement, redaction assertions, failure-mode behavior.
+
+- Enforce timeout/output caps, startup timeout, secret redaction checks.
+- Tests: timeout and cap enforcement, redaction assertions, failure-mode behavior.
 
 4. Verification gates
-  - Unit tests for config/schema + tool normalization.
-  - Integration tests for end-to-end invocation via agent runtime and channels/gateway.
-  - Regression tests to ensure existing native tool behavior remains unchanged.
+
+- Unit tests for config/schema + tool normalization.
+- Integration tests for end-to-end invocation via agent runtime and channels/gateway.
+- Regression tests to ensure existing native tool behavior remains unchanged.
 
 ### Rollback plan
 

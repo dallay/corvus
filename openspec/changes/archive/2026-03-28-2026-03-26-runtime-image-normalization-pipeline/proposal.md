@@ -69,41 +69,41 @@ This is primarily a **spec + design change with targeted code changes**:
    conversation history representation, config overrides, and error taxonomy.
 
 2. **Design**: Produce a design document that details:
-   - The conversation-history image representation (the biggest code change)
-   - The `max_image_bytes` config wiring (small, mechanical)
-   - Error taxonomy stabilization (mostly documentation, possibly adding stable error codes)
+    - The conversation-history image representation (the biggest code change)
+    - The `max_image_bytes` config wiring (small, mechanical)
+    - Error taxonomy stabilization (mostly documentation, possibly adding stable error codes)
 
 3. **Code**: Implement the designed changes:
-   - Modify `handle_successful_response()` to store image metadata in conversation history
-   - Wire `MultimodalConfig.max_image_bytes` through to validation functions
-   - Add/update tests for both changes
+    - Modify `handle_successful_response()` to store image metadata in conversation history
+    - Wire `MultimodalConfig.max_image_bytes` through to validation functions
+    - Add/update tests for both changes
 
 4. **Verify**: Confirm all spec scenarios pass and the channel-ingestion spec remains unbroken.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `openspec/specs/runtime-image-normalization/` | New | Runtime-layer spec formalizing the normalization pipeline |
-| `clients/agent-runtime/src/channels/mod.rs` | Modified | History storage in `handle_successful_response()` (~line 1210) |
-| `clients/agent-runtime/src/channels/media.rs` | Modified | Wire `max_image_bytes` config to `validate_size()` and `stream_validate_and_stage()` |
-| `clients/agent-runtime/src/config/schema.rs` | Modified | `max_image_bytes` startup validation (bounds checking with 50 MiB ceiling) |
-| `clients/agent-runtime/src/providers/traits.rs` | Modified | `ChatMessage.image_metadata` field added; `user_with_images()` constructor |
-| `clients/agent-runtime/src/providers/compatible.rs` | Unchanged | Base64/data-URL encoding documented but not modified |
-| `clients/agent-runtime/src/channels/discord.rs` | Modified | `max_bytes` parameter threading to `stream_validate_and_stage()` |
-| `clients/agent-runtime/src/channels/whatsapp.rs` | Modified | `max_bytes` parameter threading to `stream_validate_and_stage()` |
-| `clients/agent-runtime/src/channels/telegram.rs` | Modified | `max_bytes` parameter threading to `stream_validate_and_stage()` |
-| `openspec/specs/channel-image-ingestion/spec.md` | Unchanged | Cross-referenced; no modifications needed |
+| Area                                                | Impact    | Description                                                                          |
+|-----------------------------------------------------|-----------|--------------------------------------------------------------------------------------|
+| `openspec/specs/runtime-image-normalization/`       | New       | Runtime-layer spec formalizing the normalization pipeline                            |
+| `clients/agent-runtime/src/channels/mod.rs`         | Modified  | History storage in `handle_successful_response()` (~line 1210)                       |
+| `clients/agent-runtime/src/channels/media.rs`       | Modified  | Wire `max_image_bytes` config to `validate_size()` and `stream_validate_and_stage()` |
+| `clients/agent-runtime/src/config/schema.rs`        | Modified  | `max_image_bytes` startup validation (bounds checking with 50 MiB ceiling)           |
+| `clients/agent-runtime/src/providers/traits.rs`     | Modified  | `ChatMessage.image_metadata` field added; `user_with_images()` constructor           |
+| `clients/agent-runtime/src/providers/compatible.rs` | Unchanged | Base64/data-URL encoding documented but not modified                                 |
+| `clients/agent-runtime/src/channels/discord.rs`     | Modified  | `max_bytes` parameter threading to `stream_validate_and_stage()`                     |
+| `clients/agent-runtime/src/channels/whatsapp.rs`    | Modified  | `max_bytes` parameter threading to `stream_validate_and_stage()`                     |
+| `clients/agent-runtime/src/channels/telegram.rs`    | Modified  | `max_bytes` parameter threading to `stream_validate_and_stage()`                     |
+| `openspec/specs/channel-image-ingestion/spec.md`    | Unchanged | Cross-referenced; no modifications needed                                            |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| History representation increases memory usage for long conversations | Medium | Design a compact representation (metadata + hash, not raw bytes). Set a TTL or sliding window for image metadata in history. |
-| Changing history format breaks existing conversation replay | Low | The current format already loses image data. Any representation is strictly additive — no existing behavior degrades. |
-| `max_image_bytes` override introduces operator misconfiguration surface | Low | Validate at config load time: reject values ≤ 0 or > hardcoded ceiling. Log effective limit at startup. |
-| Spec drift between channel-ingestion and runtime-normalization specs | Medium | Explicit cross-references between specs. Both specs share the `StagedImage` boundary type as the interface contract. |
-| Provider compatibility — non-OpenAI providers may reject the normalized format | Low | Out of scope for this change. The spec will document `ImageTransportForm` as extensible. Provider adapters (#268) own format translation. |
+| Risk                                                                           | Likelihood | Mitigation                                                                                                                                |
+|--------------------------------------------------------------------------------|------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| History representation increases memory usage for long conversations           | Medium     | Design a compact representation (metadata + hash, not raw bytes). Set a TTL or sliding window for image metadata in history.              |
+| Changing history format breaks existing conversation replay                    | Low        | The current format already loses image data. Any representation is strictly additive — no existing behavior degrades.                     |
+| `max_image_bytes` override introduces operator misconfiguration surface        | Low        | Validate at config load time: reject values ≤ 0 or > hardcoded ceiling. Log effective limit at startup.                                   |
+| Spec drift between channel-ingestion and runtime-normalization specs           | Medium     | Explicit cross-references between specs. Both specs share the `StagedImage` boundary type as the interface contract.                      |
+| Provider compatibility — non-OpenAI providers may reject the normalized format | Low        | Out of scope for this change. The spec will document `ImageTransportForm` as extensible. Provider adapters (#268) own format translation. |
 
 ## Rollback Plan
 

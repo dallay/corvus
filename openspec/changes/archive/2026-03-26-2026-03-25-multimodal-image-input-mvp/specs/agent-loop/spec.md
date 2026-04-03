@@ -19,6 +19,7 @@ Previously: WhatsApp was explicitly outside the parity contract and any `/whatsa
 changes were deferred to a separate follow-up.
 
 #### Scenario: WhatsApp image turn enters the canonical runtime seam
+
 - GIVEN a WhatsApp webhook event passes transport verification and contains an admitted MVP image
   turn
 - WHEN the gateway hands the turn to the runtime
@@ -27,6 +28,7 @@ changes were deferred to a separate follow-up.
 - AND the turn MUST inherit the same session, policy, approval, tool, and result semantics.
 
 #### Scenario: Rejected WhatsApp transport never reaches the runtime
+
 - GIVEN a WhatsApp webhook event fails signature validation, idempotency, or another required
   transport check
 - WHEN the gateway evaluates the event
@@ -45,6 +47,7 @@ relative ordering of text and image parts that is required to reconstruct the us
 MUST NOT require generic document, audio, video, or arbitrary attachment semantics in this MVP.
 
 #### Scenario: Telegram photo with caption is normalized into canonical parts
+
 - GIVEN Telegram delivers a user message containing a photo and a caption
 - WHEN the runtime admits the message as an MVP multimodal turn
 - THEN the system MUST normalize the turn into canonical `text` and `image` parts
@@ -52,6 +55,7 @@ MUST NOT require generic document, audio, video, or arbitrary attachment semanti
   validation and provider adaptation.
 
 #### Scenario: Non-image attachment is not coerced into an image turn
+
 - GIVEN a channel event contains a document, audio clip, or video without an admitted MVP image
   part
 - WHEN the runtime evaluates the event for this change
@@ -69,6 +73,7 @@ distinguish admitted, rejected, filtered, and provider-routed image turns withou
 image contents themselves.
 
 #### Scenario: Oversized or disallowed media is rejected before provider routing
+
 - GIVEN an inbound Telegram or WhatsApp image exceeds the configured size ceiling or fails the
   allowed image MIME policy
 - WHEN the runtime validates the admitted media
@@ -77,6 +82,7 @@ image contents themselves.
   media payload.
 
 #### Scenario: Admitted image bytes are handled ephemerally
+
 - GIVEN an inbound image turn passes validation and completes provider processing
 - WHEN the turn is recorded in runtime history and observability systems
 - THEN the system MUST avoid persisting raw image bytes to long-term memory by default
@@ -93,12 +99,14 @@ continuing as if the request were text-only. The system SHOULD return a channel-
 that image input is unavailable or rejected.
 
 #### Scenario: Supported channel image ingress is disabled by rollout control
+
 - GIVEN Telegram or WhatsApp image ingress is disabled by configuration
 - WHEN a user sends an image turn through that channel
 - THEN the system MUST return an explicit unsupported or unavailable image outcome for that turn
 - AND the system MUST NOT silently downgrade the turn into text-only processing.
 
 #### Scenario: Out-of-scope surface remains text-only
+
 - GIVEN a request reaches generic gateway `/webhook` or another out-of-scope surface with image-like
   input
 - WHEN this MVP contract is evaluated

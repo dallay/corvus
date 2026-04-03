@@ -46,18 +46,25 @@ modular loop ownership with shared dispatcher and unified invariants.
 ### Phased Rollout
 
 1. Baseline Contract Phase
-  - Capture as-is loop behavior as normative fundamentals and acceptance criteria.
-  - Identify must-preserve behavior for CLI and channels.
+
+- Capture as-is loop behavior as normative fundamentals and acceptance criteria.
+- Identify must-preserve behavior for CLI and channels.
+
 2. Convergence Phase
-  - Move protocol and orchestration responsibilities toward `agent.rs` + `dispatcher.rs` boundaries.
-  - Add compatibility adapters so existing entrypoints continue functioning.
+
+- Move protocol and orchestration responsibilities toward `agent.rs` + `dispatcher.rs` boundaries.
+- Add compatibility adapters so existing entrypoints continue functioning.
+
 3. Alignment Phase
-  - Align gateway path semantics with canonical fundamentals (or explicitly codify narrow
-    exceptions).
-  - Enforce consistent session scoping and approval/risk checks across execution surfaces.
+
+- Align gateway path semantics with canonical fundamentals (or explicitly codify narrow
+  exceptions).
+- Enforce consistent session scoping and approval/risk checks across execution surfaces.
+
 4. Hardening Phase
-  - Validate reliability/performance budgets and remove duplicated legacy loop paths once parity is
-    proven.
+
+- Validate reliability/performance budgets and remove duplicated legacy loop paths once parity is
+  proven.
 
 ## Affected Areas
 

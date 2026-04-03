@@ -1,5 +1,5 @@
 change: cerebro-distribution
 current_phase: archive
-completed: [explore, propose, verify, archive]
+completed: [ explore, propose, verify, archive ]
 next: none
 updated: 2026-04-02

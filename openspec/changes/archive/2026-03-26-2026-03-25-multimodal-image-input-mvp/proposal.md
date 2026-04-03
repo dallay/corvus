@@ -11,6 +11,7 @@ controls required by the planning bundle.
 ## Scope
 
 ### In Scope
+
 - Add a minimal canonical inbound content model for `text` and `image` parts only.
 - Support inbound image understanding for `Telegram` and `WhatsApp` only.
 - Support provider routing for `OpenAI-compatible` backends and `Gemini` only.
@@ -20,6 +21,7 @@ controls required by the planning bundle.
 - Define MVP safety rules for media fetch, validation, retention, redaction, and observability.
 
 ### Out of Scope
+
 - Generic attachment support beyond images, including document, audio, and video reasoning.
 - Any multimodal changes for generic gateway `/webhook`, web chat, dashboard, or mobile bridge.
 - Adding `Signal`, `Matrix`, `Email`, or other channels to the MVP.
@@ -46,6 +48,7 @@ WhatsApp SHOULD converge onto the canonical channel runtime seam in this MVP rat
 temporary gateway-specific multimodal adapter.
 
 Rationale:
+
 - WhatsApp is already the major architecture exception; extending the exception for images would
   compound debt instead of containing it.
 - The canonical seam is where Corvus already applies memory enrichment, blocking, provider routing,
@@ -76,27 +79,27 @@ without changing the rest of the runtime contract.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/channels/traits.rs` | Modified | Canonical inbound channel contract gains minimal image-part semantics |
-| `clients/agent-runtime/src/channels/mod.rs` | Modified | Unified channel loop admits and routes inbound image parts |
-| `clients/agent-runtime/src/channels/telegram.rs` | Modified | Telegram parses inbound image messages into canonical parts |
-| `clients/agent-runtime/src/channels/whatsapp.rs` | Modified | WhatsApp ingress converges on canonical channel runtime path for MVP image turns |
-| `clients/agent-runtime/src/gateway/mod.rs` | Modified | WhatsApp transport boundary preserves verification while handing off to canonical runtime seam |
-| `clients/agent-runtime/src/providers/traits.rs` | Modified | Provider capabilities and request contract declare image-input support |
-| `clients/agent-runtime/src/providers/compatible.rs` | Modified | OpenAI-compatible adapter accepts canonical image input |
-| `clients/agent-runtime/src/providers/gemini.rs` | Modified | Gemini adapter accepts canonical image input |
-| `openspec/specs/agent-runtime-providers/spec.md` | Modified | Provider capability and multimodal request requirements |
-| `openspec/specs/agent-loop/spec.md` | Modified | WhatsApp convergence and canonical-runtime expectations for this change |
+| Area                                                | Impact   | Description                                                                                    |
+|-----------------------------------------------------|----------|------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/channels/traits.rs`      | Modified | Canonical inbound channel contract gains minimal image-part semantics                          |
+| `clients/agent-runtime/src/channels/mod.rs`         | Modified | Unified channel loop admits and routes inbound image parts                                     |
+| `clients/agent-runtime/src/channels/telegram.rs`    | Modified | Telegram parses inbound image messages into canonical parts                                    |
+| `clients/agent-runtime/src/channels/whatsapp.rs`    | Modified | WhatsApp ingress converges on canonical channel runtime path for MVP image turns               |
+| `clients/agent-runtime/src/gateway/mod.rs`          | Modified | WhatsApp transport boundary preserves verification while handing off to canonical runtime seam |
+| `clients/agent-runtime/src/providers/traits.rs`     | Modified | Provider capabilities and request contract declare image-input support                         |
+| `clients/agent-runtime/src/providers/compatible.rs` | Modified | OpenAI-compatible adapter accepts canonical image input                                        |
+| `clients/agent-runtime/src/providers/gemini.rs`     | Modified | Gemini adapter accepts canonical image input                                                   |
+| `openspec/specs/agent-runtime-providers/spec.md`    | Modified | Provider capability and multimodal request requirements                                        |
+| `openspec/specs/agent-loop/spec.md`                 | Modified | WhatsApp convergence and canonical-runtime expectations for this change                        |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Cross-cutting text-to-multimodal contract change expands beyond MVP | Medium | Keep the canonical model image-only and limit adoption to two channels and two provider seams |
-| WhatsApp convergence increases delivery scope | Medium | Constrain the change to preserving transport checks while moving only runtime execution onto the shared seam |
-| Provider capability mismatch causes image turns to hit text-only backends | High | Require explicit image-input capability flags and gated routing |
-| Media handling introduces security/privacy exposure | High | Use strict validation, bounded fetches, redaction, and default non-persistence of raw images |
+| Risk                                                                      | Likelihood | Mitigation                                                                                                   |
+|---------------------------------------------------------------------------|------------|--------------------------------------------------------------------------------------------------------------|
+| Cross-cutting text-to-multimodal contract change expands beyond MVP       | Medium     | Keep the canonical model image-only and limit adoption to two channels and two provider seams                |
+| WhatsApp convergence increases delivery scope                             | Medium     | Constrain the change to preserving transport checks while moving only runtime execution onto the shared seam |
+| Provider capability mismatch causes image turns to hit text-only backends | High       | Require explicit image-input capability flags and gated routing                                              |
+| Media handling introduces security/privacy exposure                       | High       | Use strict validation, bounded fetches, redaction, and default non-persistence of raw images                 |
 
 ## Rollback Plan
 
@@ -116,6 +119,7 @@ independently without undoing the broader runtime contract work.
 - [ ] Proposal locks the MVP to inbound `image` + `text` parts only.
 - [ ] Proposal explicitly limits channel scope to `Telegram` and `WhatsApp`.
 - [ ] Proposal explicitly limits provider scope to `OpenAI-compatible` and `Gemini`.
-- [ ] Proposal resolves the WhatsApp architecture decision in favor of canonical runtime convergence.
+- [ ] Proposal resolves the WhatsApp architecture decision in favor of canonical runtime
+  convergence.
 - [ ] Proposal defines non-goals, safety posture, and rollout philosophy clearly enough for spec and
-      design work to proceed without reopening MVP scope.
+  design work to proceed without reopening MVP scope.

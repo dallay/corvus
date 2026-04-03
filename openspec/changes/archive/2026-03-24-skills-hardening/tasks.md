@@ -397,41 +397,41 @@
 
 ## Scenario → Task Mapping
 
-| Spec Scenario | Requirement | Task(s) |
-|---------------|-------------|---------|
-| ThirdParty skill with tampered content | R14 | 1.9, 4.4 |
-| Official skill with modified content | R14 | 1.9, 4.4 |
-| Local skill with modified content | R14 | 1.9, 4.4 |
-| Skill without lockfile entry skips verification | R14 | 1.9, 4.4 |
-| Integrity verification disabled via config | R14 | 1.7, 1.9, 4.4 |
-| Performance within budget (50 skills / 50ms) | R14 | 1.9, 4.6 |
-| Open-skills env vars have no effect | R15 | 1.1, 1.2 |
-| Previously downloaded open-skills still load as Local | R15 | 1.2 |
-| Config with legacy_open_skills field tolerated | R15 | 1.3 |
-| SKILL.toml-only directory skipped with migration warning | R16 | 1.4, 2.10 |
-| SKILL.toml ignored when SKILL.md also present | R16 | 1.4 |
-| Install rejects repository without SKILL.md | R16 | 1.4 |
-| Valid skill name accepted on install | R17 | 2.2, 4.1 |
-| Invalid name with uppercase rejected on install | R17 | 2.2, 4.1 |
-| Invalid name with consecutive hyphens rejected | R17 | 2.2, 4.1 |
-| Invalid name on load warns but still loads | R17 | 2.3, 4.1 |
-| Single character name accepted | R17 | 2.2, 4.1 |
-| Name exceeding 64 characters rejected | R17 | 2.2, 4.1 |
-| High injection score blocks ThirdParty install | R18 | 2.5, 4.2 |
-| High score blocked but overridden with --trust | R18 | 2.5 |
-| Low injection score allows install | R18 | 2.5, 4.3 |
-| ThirdParty skill with high score on load downgraded | R18 | 2.6, 4.2 |
-| Official skill skips scanning | R18 | 2.6 |
-| Legitimate content does not trigger false positive | R18.4 | 4.3 |
-| ThirdParty tool with path traversal blocked | R19 | 3.3, 4.5 |
-| ThirdParty tool with valid path allowed | R19 | 3.3, 4.5 |
-| Official tool with traversal path allowed | R19 | 3.3, 4.5 |
-| ThirdParty tool with symlink escaping blocked | R19 | 3.3, 4.5 |
-| Sandboxed field derived from trust tier | R19.3 | 3.2, 4.5 |
-| Index resolution cache hit | R20.1 | 2.7 |
-| Index resolution falls back on fetch failure | R20.1 | 2.7 |
-| Lockfile repair adds missing entry | R20.2 | 2.8 |
-| SKILL.toml-only directory rejected in load | R20.4 | 2.10 |
-| Former open-skills config field ignored | R2 (modified) | 1.3 |
-| SKILL.toml no longer loads | R10 (modified) | 1.4 |
-| Repair ignores SKILL.toml-only directories | R12.1 (modified) | 1.5 |
+| Spec Scenario                                            | Requirement      | Task(s)       |
+|----------------------------------------------------------|------------------|---------------|
+| ThirdParty skill with tampered content                   | R14              | 1.9, 4.4      |
+| Official skill with modified content                     | R14              | 1.9, 4.4      |
+| Local skill with modified content                        | R14              | 1.9, 4.4      |
+| Skill without lockfile entry skips verification          | R14              | 1.9, 4.4      |
+| Integrity verification disabled via config               | R14              | 1.7, 1.9, 4.4 |
+| Performance within budget (50 skills / 50ms)             | R14              | 1.9, 4.6      |
+| Open-skills env vars have no effect                      | R15              | 1.1, 1.2      |
+| Previously downloaded open-skills still load as Local    | R15              | 1.2           |
+| Config with legacy_open_skills field tolerated           | R15              | 1.3           |
+| SKILL.toml-only directory skipped with migration warning | R16              | 1.4, 2.10     |
+| SKILL.toml ignored when SKILL.md also present            | R16              | 1.4           |
+| Install rejects repository without SKILL.md              | R16              | 1.4           |
+| Valid skill name accepted on install                     | R17              | 2.2, 4.1      |
+| Invalid name with uppercase rejected on install          | R17              | 2.2, 4.1      |
+| Invalid name with consecutive hyphens rejected           | R17              | 2.2, 4.1      |
+| Invalid name on load warns but still loads               | R17              | 2.3, 4.1      |
+| Single character name accepted                           | R17              | 2.2, 4.1      |
+| Name exceeding 64 characters rejected                    | R17              | 2.2, 4.1      |
+| High injection score blocks ThirdParty install           | R18              | 2.5, 4.2      |
+| High score blocked but overridden with --trust           | R18              | 2.5           |
+| Low injection score allows install                       | R18              | 2.5, 4.3      |
+| ThirdParty skill with high score on load downgraded      | R18              | 2.6, 4.2      |
+| Official skill skips scanning                            | R18              | 2.6           |
+| Legitimate content does not trigger false positive       | R18.4            | 4.3           |
+| ThirdParty tool with path traversal blocked              | R19              | 3.3, 4.5      |
+| ThirdParty tool with valid path allowed                  | R19              | 3.3, 4.5      |
+| Official tool with traversal path allowed                | R19              | 3.3, 4.5      |
+| ThirdParty tool with symlink escaping blocked            | R19              | 3.3, 4.5      |
+| Sandboxed field derived from trust tier                  | R19.3            | 3.2, 4.5      |
+| Index resolution cache hit                               | R20.1            | 2.7           |
+| Index resolution falls back on fetch failure             | R20.1            | 2.7           |
+| Lockfile repair adds missing entry                       | R20.2            | 2.8           |
+| SKILL.toml-only directory rejected in load               | R20.4            | 2.10          |
+| Former open-skills config field ignored                  | R2 (modified)    | 1.3           |
+| SKILL.toml no longer loads                               | R10 (modified)   | 1.4           |
+| Repair ignores SKILL.toml-only directories               | R12.1 (modified) | 1.5           |

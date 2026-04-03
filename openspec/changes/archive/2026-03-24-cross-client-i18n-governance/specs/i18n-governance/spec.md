@@ -346,7 +346,8 @@ The canonical glossary is owned by the **architecture team** and follows these g
 
 ## Cross-Reference
 
-- [Client Surfaces Capability Matrix](../../../../../specs/client-surfaces/spec.md) — Surface registry
+- [Client Surfaces Capability Matrix](../../../../../specs/client-surfaces/spec.md) — Surface
+  registry
   and transport rules
 - [Design Token Governance](../design-tokens/spec.md) — Visual language governance (companion spec)
 - [Surface Contract Amendments](../client-surfaces/surface-amendments.md) — Per-surface i18n

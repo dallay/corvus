@@ -251,10 +251,12 @@ writes a new temp file atomically.
 1. Validate configured override (`updates.install_method_override` or env). If valid, use it and
    mark source `override`.
 2. If no override:
-  - detect Homebrew by executable path prefixes and brew metadata query
-  - detect Cargo via executable path/cargo home and `cargo install --list`
-  - detect npm/pnpm/yarn/bun via package-manager global package inspection
-  - detect script/binary via unmanaged binary location heuristics
+
+- detect Homebrew by executable path prefixes and brew metadata query
+- detect Cargo via executable path/cargo home and `cargo install --list`
+- detect npm/pnpm/yarn/bun via package-manager global package inspection
+- detect script/binary via unmanaged binary location heuristics
+
 3. If none detected, set `Unknown` and return manual fallback plan only.
 
 Detection output includes confidence + source for audit/status. Unsupported methods never trigger
@@ -265,31 +267,31 @@ unsafe generic shell paths.
 New `corvus update` command tree in `clients/agent-runtime/src/main.rs`:
 
 - `update status`
-  - loads effective policy + latest snapshot
-  - prints current/latest version, update availability, method (detected/effective), policy flags
-  - exit 0 on resolvable status
+    - loads effective policy + latest snapshot
+    - prints current/latest version, update availability, method (detected/effective), policy flags
+    - exit 0 on resolvable status
 
 - `update check`
-  - forces remote check (bypasses TTL), records check audit event
-  - updates snapshot atomically
-  - exit 0 when check succeeds (update may or may not be available), non-zero on check failure
+    - forces remote check (bypasses TTL), records check audit event
+    - updates snapshot atomically
+    - exit 0 when check succeeds (update may or may not be available), non-zero on check failure
 
 - `update install`
-  - acquires install lock
-  - resolves policy + method
-  - verifies artifacts for download paths (fail-closed)
-  - executes method strategy or emits deterministic manual fallback
-  - records install + verification audit events
-  - exit codes: success / no-update / blocked / busy / failed
+    - acquires install lock
+    - resolves policy + method
+    - verifies artifacts for download paths (fail-closed)
+    - executes method strategy or emits deterministic manual fallback
+    - records install + verification audit events
+    - exit codes: success / no-update / blocked / busy / failed
 
 - `update auto-enable` / `update auto-disable`
-  - toggles `updates.auto_install_enabled` in config
-  - persists config atomically via existing config save path
-  - records policy_change audit event
+    - toggles `updates.auto_install_enabled` in config
+    - persists config atomically via existing config save path
+    - records policy_change audit event
 
 - `update history`
-  - reads `update_history.jsonl` in chronological order
-  - supports deterministic text and machine-readable JSON output mode
+    - reads `update_history.jsonl` in chronological order
+    - supports deterministic text and machine-readable JSON output mode
 
 Compatibility: `corvus update confirm <nonce>` remains for channel nonce confirmations; it is
 treated as an internal/advanced path and routed through the same install transaction guard.

@@ -4,7 +4,8 @@
 
 Defines the trust model, integrity tracking, and security boundaries for Corvus's skills system.
 Skills are categorized into trust tiers derived from their origin, with enforcement rules governing
-prompt rendering, tool access, and installation workflows. This specification covers Phase 1 (trust enum, origin tracking, open-skills deprecation, lockfile,
+prompt rendering, tool access, and installation workflows. This specification covers Phase 1 (trust
+enum, origin tracking, open-skills deprecation, lockfile,
 trust-aware prompt rendering, `allowed-tools` parsing, and install flow trust gating), Phase 2
 (official skills catalog index, embedded index with offline fallback, catalog-aware
 install/search/update commands, SKILL.toml deprecation, SkillForge trust boundary enforcement,
@@ -202,9 +203,11 @@ map to `SkillSource::GitRepo { url }`.
 
 ##### Scenario: Official lockfile entry reconstructed correctly
 
-- GIVEN a lockfile entry with `source = "official:dallay/corvus-skills"` and `path = "skills/git-expert"`
+- GIVEN a lockfile entry with `source = "official:dallay/corvus-skills"` and
+  `path = "skills/git-expert"`
 - WHEN `lock_entry_to_origin()` processes the entry
-- THEN the result MUST be `SkillSource::Official { repo: "dallay/corvus-skills", path: "skills/git-expert" }`
+- THEN the result MUST be
+  `SkillSource::Official { repo: "dallay/corvus-skills", path: "skills/git-expert" }`
 - AND the derived trust MUST be `Official`
 
 ##### Scenario: Git URL lockfile entry still maps to ThirdParty
@@ -487,9 +490,9 @@ The system MUST define a catalog index format for describing available official 
 The catalog index MUST be a valid TOML document containing:
 
 - A `[meta]` table with:
-  - `version` — Integer schema version. MUST be `1` for this specification.
-  - `generated_at` — ISO 8601 timestamp of index generation.
-  - `commit` — Git SHA of the skills repository at generation time.
+    - `version` — Integer schema version. MUST be `1` for this specification.
+    - `generated_at` — ISO 8601 timestamp of index generation.
+    - `commit` — Git SHA of the skills repository at generation time.
 - A `[skills.<name>]` table for each official skill (see R7.2).
 
 The `meta.version` field MUST be checked on parse. If the version is not recognized, the parser
@@ -517,7 +520,8 @@ reference external resources that require fetching to complete parsing.
 ##### Scenario: Valid catalog index parsed successfully
 
 - GIVEN a TOML file with `[meta]` containing `version = 1`, `generated_at`, and `commit`
-- AND a `[skills.git-expert]` entry with `description`, `version`, `content_hash`, `path`, and `tags`
+- AND a `[skills.git-expert]` entry with `description`, `version`, `content_hash`, `path`, and
+  `tags`
 - WHEN the index is parsed
 - THEN a `CatalogIndex` MUST be returned with the `git-expert` entry accessible by name
 - AND `meta.version` MUST equal `1`
@@ -668,10 +672,12 @@ using the embedded index fallback.
 - GIVEN the catalog index contains an entry for `git-expert` with path `"skills/git-expert"`
 - WHEN the user runs `skills install git-expert`
 - THEN the skill MUST be cloned from the official repository at path `skills/git-expert`
-- AND `skill.origin.source` MUST be `Official { repo: "dallay/corvus-skills", path: "skills/git-expert" }`
+- AND `skill.origin.source` MUST be
+  `Official { repo: "dallay/corvus-skills", path: "skills/git-expert" }`
 - AND `skill.trust` MUST be `Official`
 - AND no trust gate prompt SHALL be displayed
-- AND the lockfile entry MUST contain `source = "official:dallay/corvus-skills"` and `trust = "official"`
+- AND the lockfile entry MUST contain `source = "official:dallay/corvus-skills"` and
+  `trust = "official"`
 
 ##### Scenario: Install bare name not in catalog
 
@@ -747,7 +753,8 @@ files with YAML frontmatter containing all relevant metadata fields.
 
 ##### Scenario: Frontmatter with new fields parsed correctly
 
-- GIVEN a SKILL.md with frontmatter containing `version: 1.2.0`, `author: "Jane Doe"`, and `tags: [git, vcs]`
+- GIVEN a SKILL.md with frontmatter containing `version: 1.2.0`, `author: "Jane Doe"`, and
+  `tags: [git, vcs]`
 - WHEN the frontmatter is parsed
 - THEN `version` MUST be `Some("1.2.0")`
 - AND `author` MUST be `Some("Jane Doe")`
@@ -755,7 +762,8 @@ files with YAML frontmatter containing all relevant metadata fields.
 
 ##### Scenario: Missing new fields default to None
 
-- GIVEN a SKILL.md with frontmatter containing only `name` and `description` (no `version`, `author`, or `tags`)
+- GIVEN a SKILL.md with frontmatter containing only `name` and `description` (no `version`,
+  `author`, or `tags`)
 - WHEN the frontmatter is parsed
 - THEN `version` MUST be `None`
 - AND `author` MUST be `None`
@@ -995,7 +1003,8 @@ fields MUST NOT change during an update.
 
 ##### Scenario: Update all skills
 
-- GIVEN 3 skills are installed: `git-expert` (Official), `community-tool` (ThirdParty), `my-notes` (Local)
+- GIVEN 3 skills are installed: `git-expert` (Official), `community-tool` (ThirdParty), `my-notes` (
+  Local)
 - WHEN the user runs `skills update` (no name argument)
 - THEN `git-expert` MUST be checked against the catalog for updates
 - AND `community-tool` MUST be re-fetched from its source URL
@@ -1044,7 +1053,8 @@ for a workspace containing 50 skills.
 
 ##### Scenario: ThirdParty skill with tampered content
 
-- GIVEN a ThirdParty skill `community-tool` is installed with lockfile `content_hash = "sha256:aaa..."`
+- GIVEN a ThirdParty skill `community-tool` is installed with lockfile
+  `content_hash = "sha256:aaa..."`
 - AND the current SKILL.md on disk has been modified (SHA-256 digest is `"sha256:bbb..."`)
 - WHEN `load_skills()` executes with `skills.verify_integrity = true`
 - THEN a warning MUST be emitted containing the skill name and hash mismatch details
@@ -1170,7 +1180,8 @@ enforced; no new install-time behavior is needed.
 
 ##### Scenario: SKILL.toml ignored when SKILL.md also present
 
-- GIVEN a skill directory `{workspace}/skills/dual-format/` contains both `SKILL.toml` and `SKILL.md`
+- GIVEN a skill directory `{workspace}/skills/dual-format/` contains both `SKILL.toml` and
+  `SKILL.md`
 - WHEN `load_skills()` loads the `dual-format` skill
 - THEN the skill MUST be loaded from `SKILL.md` only
 - AND `SKILL.toml` MUST NOT be read or parsed

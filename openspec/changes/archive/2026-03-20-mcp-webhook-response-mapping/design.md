@@ -32,6 +32,7 @@ defect in the existing HTTP mapper.
 variant.
 
 **Alternatives considered**:
+
 - Add new dispatcher-backed `/webhook` success and error tests by bypassing MCP approval in tests
 - Prove everything only in `clients/agent-runtime/src/gateway/webhook_dispatch.rs`
 - Broaden the change into dispatcher or policy work so MCP can execute end-to-end
@@ -48,13 +49,15 @@ coverage for the currently reachable MCP path.
 for this follow-up.
 
 **Alternatives considered**:
+
 - Use `Timeout` as the only non-success variant
 - Add both `Timeout` and `Error` in this follow-up
 
 **Rationale**: The proposal targets a tiny proof slice. `webhook_response_from_dispatch_result(...)`
 has distinct `Timeout` and `Error` branches, but the archived warning specifically called out
 success plus one non-success/failure proof. `Error` best matches that gap and complements the
-existing generic timeout transport proof already present in `clients/agent-runtime/src/gateway/mod.rs`.
+existing generic timeout transport proof already present in
+`clients/agent-runtime/src/gateway/mod.rs`.
 If timeout semantics need MCP-labeled proof later, that should be a separate follow-up instead of
 expanding this archived change retroactively.
 
@@ -66,6 +69,7 @@ expanding this archived change retroactively.
 change only if a failing proof demonstrates incorrect status/body mapping.
 
 **Alternatives considered**:
+
 - Preemptively refactor the mapper for test ergonomics
 - Add a policy escape hatch or test-only MCP execution mode
 
@@ -91,20 +95,20 @@ Detailed split:
    `mcp.*` tool call is denied before execution and becomes the expected HTTP `403` payload.
 2. New seam tests construct `WebhookTurnResult` fixtures with the same terminal shapes the gateway
    would receive after canonical mapping and assert the final HTTP projection for:
-   - `WebhookTerminalOutcome::Completed`
-   - exactly one of `WebhookTerminalOutcome::Error` or `WebhookTerminalOutcome::Timeout`
+    - `WebhookTerminalOutcome::Completed`
+    - exactly one of `WebhookTerminalOutcome::Error` or `WebhookTerminalOutcome::Timeout`
 3. Those seam fixtures are labeled in-test as MCP follow-up evidence, with comments or test names
    explaining that they stand in for currently unreachable MCP post-execution outcomes because the
    dispatcher blocks real MCP execution first.
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `openspec/changes/archive/2026-03-20-mcp-webhook-response-mapping/design.md` | Create | Record the proof-oriented design and testing boundaries for this follow-up. |
-| `clients/agent-runtime/src/gateway/mod.rs` | Modify | Add focused tests for `webhook_response_from_dispatch_result(...)`, and retain or reference existing `/webhook` MCP denial evidence. |
-| `clients/agent-runtime/src/gateway/webhook_dispatch.rs` | No change expected | Existing canonical-to-webhook mapping tests remain supporting evidence; modify only if a new RED test exposes a real defect. |
-| `clients/agent-runtime/src/agent/dispatcher.rs` | No change expected | Deny-by-default MCP policy is an explicit constraint, not a target of this proof. |
+| File                                                                         | Action             | Description                                                                                                                          |
+|------------------------------------------------------------------------------|--------------------|--------------------------------------------------------------------------------------------------------------------------------------|
+| `openspec/changes/archive/2026-03-20-mcp-webhook-response-mapping/design.md` | Create             | Record the proof-oriented design and testing boundaries for this follow-up.                                                          |
+| `clients/agent-runtime/src/gateway/mod.rs`                                   | Modify             | Add focused tests for `webhook_response_from_dispatch_result(...)`, and retain or reference existing `/webhook` MCP denial evidence. |
+| `clients/agent-runtime/src/gateway/webhook_dispatch.rs`                      | No change expected | Existing canonical-to-webhook mapping tests remain supporting evidence; modify only if a new RED test exposes a real defect.         |
+| `clients/agent-runtime/src/agent/dispatcher.rs`                              | No change expected | Deny-by-default MCP policy is an explicit constraint, not a target of this proof.                                                    |
 
 ## Interfaces / Contracts
 
@@ -146,12 +150,12 @@ Proof assertions should stay at the transport contract:
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|--------------|----------|
-| Unit / seam | MCP-labeled completed HTTP mapping | In `clients/agent-runtime/src/gateway/mod.rs`, add a direct test that passes a synthetic `WebhookTurnResult { outcome: Completed, ... }` into `webhook_response_from_dispatch_result(...)` and asserts the exact `200` JSON transport shape. |
-| Unit / seam | MCP-labeled one non-success HTTP mapping | Add one direct test for `WebhookTerminalOutcome::Error` preferred, or `Timeout` if implementation reality makes that the more relevant branch; assert exact status and payload fields. |
-| Integration | Reachable MCP policy behavior remains end-to-end | Keep `webhook_dispatcher_blocks_mcp_tool_with_structured_denial` as the live `/webhook` proof that deny-by-default MCP policy still governs the dispatcher-backed gateway path. |
-| Regression guard | No proof-driven policy bypass | Do not add tests that relax `mcp.*` approval gates, mutate dispatcher policy, or create a test-only execution loophole. |
+| Layer            | What to Test                                     | Approach                                                                                                                                                                                                                                     |
+|------------------|--------------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Unit / seam      | MCP-labeled completed HTTP mapping               | In `clients/agent-runtime/src/gateway/mod.rs`, add a direct test that passes a synthetic `WebhookTurnResult { outcome: Completed, ... }` into `webhook_response_from_dispatch_result(...)` and asserts the exact `200` JSON transport shape. |
+| Unit / seam      | MCP-labeled one non-success HTTP mapping         | Add one direct test for `WebhookTerminalOutcome::Error` preferred, or `Timeout` if implementation reality makes that the more relevant branch; assert exact status and payload fields.                                                       |
+| Integration      | Reachable MCP policy behavior remains end-to-end | Keep `webhook_dispatcher_blocks_mcp_tool_with_structured_denial` as the live `/webhook` proof that deny-by-default MCP policy still governs the dispatcher-backed gateway path.                                                              |
+| Regression guard | No proof-driven policy bypass                    | Do not add tests that relax `mcp.*` approval gates, mutate dispatcher policy, or create a test-only execution loophole.                                                                                                                      |
 
 Test placement notes:
 
@@ -173,4 +177,4 @@ defect is uncovered.
 ## Open Questions
 
 - [ ] Should the design lock the extra non-success proof to `Error`, or leave `Timeout` as an
-      allowed substitute if the first RED pass shows that is the smaller truthful branch to close?
+  allowed substitute if the first RED pass shows that is the smaller truthful branch to close?

@@ -17,6 +17,7 @@ provides conversational interaction with the agent through the HTTP Gateway API.
 ## Mandatory Capabilities
 
 ### Chat Composition
+
 - [ ] Text input field with send/cancel controls
 - [ ] Message submission via gateway `/chat/send`
 - [ ] Streaming response display (WebSocket or SSE)
@@ -24,18 +25,21 @@ provides conversational interaction with the agent through the HTTP Gateway API.
 - [ ] Message history rendering (user/assistant bubbles)
 
 ### Session Management
+
 - [ ] Session creation via gateway
 - [ ] Session resumption with `X-Session-Id`
 - [ ] Session termination
 - [ ] UUID-based session IDs
 
 ### Tool Approval
+
 - [ ] Inline tool call display
 - [ ] Approve control
 - [ ] Deny control
 - [ ] Approval status feedback
 
 ### Gateway Integration
+
 - [ ] Pairing code exchange (`POST /pair`)
 - [ ] Bearer token authentication
 - [ ] Health check connectivity (`GET /health`)
@@ -44,26 +48,29 @@ provides conversational interaction with the agent through the HTTP Gateway API.
 ## Optional Capabilities
 
 ### Memory Display
+
 - [ ] Short-term memory context display
 - [ ] Session-scoped memory indicators
 
 ### Long-term Memory
+
 - [ ] Cerebro memory query integration
 - [ ] Memory tool results in conversation
 
 ### MCP Tool Visibility
+
 - [ ] Tool call metadata display
 - [ ] Tool execution progress indicators
 
 ## Out-of-Scope
 
-| Capability | Reason |
-|-----------|--------|
-| Direct runtime process access | Browser sandboxing prevents |
-| Local filesystem access | Browser sandboxing prevents |
-| Native notification dispatch | Browser API only, not full OS |
+| Capability                    | Reason                         |
+|-------------------------------|--------------------------------|
+| Direct runtime process access | Browser sandboxing prevents    |
+| Local filesystem access       | Browser sandboxing prevents    |
+| Native notification dispatch  | Browser API only, not full OS  |
 | Runtime configuration editing | Dashboard surface handles this |
-| Admin/operator controls | Dashboard surface handles this |
+| Admin/operator controls       | Dashboard surface handles this |
 
 ## Current Status
 
@@ -71,6 +78,7 @@ provides conversational interaction with the agent through the HTTP Gateway API.
 fake responses. The `useGateway.ts` composable is empty.
 
 **Required for completion**:
+
 1. Implement `useGateway.ts` composable
 2. Wire chat to gateway `/chat/send` endpoint
 3. Add WebSocket streaming support
@@ -157,6 +165,6 @@ Web chat **MUST** use HTTP Gateway only. Process bridges and CLI invocation are 
 
 ## Change History
 
-| Version | Date       | Changes                                                  |
-|---------|------------|----------------------------------------------------------|
-| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 1 — Full, #278)   |
+| Version | Date       | Changes                                               |
+|---------|------------|-------------------------------------------------------|
+| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 1 — Full, #278) |

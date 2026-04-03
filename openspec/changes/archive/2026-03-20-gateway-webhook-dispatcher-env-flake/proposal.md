@@ -12,6 +12,7 @@ config defect.
 ## Scope
 
 ### In Scope
+
 - Reproduce and bound the flake around
   `config::schema::tests::env_override_gateway_webhook_dispatcher` in
   `clients/agent-runtime/src/config/schema.rs`.
@@ -22,6 +23,7 @@ config defect.
 - Document clearly whether any production config code change is actually required.
 
 ### Out of Scope
+
 - Dispatcher behavior changes or gateway runtime-path changes.
 - MCP mapping changes.
 - `/whatsapp` behavior or tests.
@@ -49,18 +51,18 @@ behavior rather than test contamination.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `openspec/changes/gateway-webhook-dispatcher-env-flake/proposal.md` | New | Proposal artifact for this narrowly scoped stabilization slice |
-| `clients/agent-runtime/src/config/schema.rs` | Possible Modified | Focused env-override test and, if needed, the smallest adjacent test-isolation helper change |
+| Area                                                                | Impact            | Description                                                                                  |
+|---------------------------------------------------------------------|-------------------|----------------------------------------------------------------------------------------------|
+| `openspec/changes/gateway-webhook-dispatcher-env-flake/proposal.md` | New               | Proposal artifact for this narrowly scoped stabilization slice                               |
+| `clients/agent-runtime/src/config/schema.rs`                        | Possible Modified | Focused env-override test and, if needed, the smallest adjacent test-isolation helper change |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| The flake is hard to reproduce deterministically | Medium | Use the archived failing test name and keep the investigation limited to the env-override test cluster |
-| Scope drifts into broader config cleanup | Medium | Restrict edits to the failing test and the smallest supporting test harness behavior |
-| A real production defect is mistaken for test-only interference | Low | Allow a production change only if a stable reproducer shows `apply_gateway_env_overrides()` is incorrect |
+| Risk                                                            | Likelihood | Mitigation                                                                                               |
+|-----------------------------------------------------------------|------------|----------------------------------------------------------------------------------------------------------|
+| The flake is hard to reproduce deterministically                | Medium     | Use the archived failing test name and keep the investigation limited to the env-override test cluster   |
+| Scope drifts into broader config cleanup                        | Medium     | Restrict edits to the failing test and the smallest supporting test harness behavior                     |
+| A real production defect is mistaken for test-only interference | Low        | Allow a production change only if a stable reproducer shows `apply_gateway_env_overrides()` is incorrect |
 
 ## Rollback Plan
 
@@ -79,11 +81,11 @@ state while keeping gateway dispatcher runtime behavior untouched.
 ## Success Criteria
 
 - [ ] The intermittent failure around
-      `config::schema::tests::env_override_gateway_webhook_dispatcher` is reproduced or otherwise
-      bounded tightly enough to justify the chosen fix.
+  `config::schema::tests::env_override_gateway_webhook_dispatcher` is reproduced or otherwise
+  bounded tightly enough to justify the chosen fix.
 - [ ] The implemented fix keeps scope at test level unless a real production override defect is
-      proven.
+  proven.
 - [ ] `CORVUS_GATEWAY_WEBHOOK_DISPATCHER` env-override behavior is covered by stable focused test
-      evidence.
+  evidence.
 - [ ] Out-of-scope areas remain untouched: dispatcher behavior, webhook runtime behavior, MCP
-      mapping, `/whatsapp`, and broad config refactors.
+  mapping, `/whatsapp`, and broad config refactors.

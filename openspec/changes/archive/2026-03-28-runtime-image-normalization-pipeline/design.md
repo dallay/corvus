@@ -73,6 +73,7 @@ The full runtime pipeline from channel receipt to provider dispatch and history 
 syntax like `[IMAGE:<source>]` for inbound/runtime image handling.
 
 **Alternatives considered**:
+
 - **Marker syntax** (`[IMAGE:telegram:file_123]`) — Text-based markers embedded in `content` string.
   Requires parsing, is fragile to user input collision, and cannot carry typed metadata (MIME,
   byte count, channel handle) without inventing an encoding scheme.
@@ -95,10 +96,12 @@ compile time rather than parse time.
 `ChatMessage`.
 
 **Alternatives considered**:
+
 1. **Store full image bytes in history** — Unbounded memory growth. A 10 MiB image × 50-turn history
    = 500 MiB per conversation. Rejected.
 2. **Placeholder text** (e.g., `[An image was shared: photo.jpg, 2.4 MB JPEG]`) — Loses structured
-   queryability. The model sees it but operators cannot filter/aggregate image metadata from history.
+   queryability. The model sees it but operators cannot filter/aggregate image metadata from
+   history.
    Partially viable as a fallback but insufficient alone.
 3. **Image description from model only** — Relies on the LLM's vision response to describe the
    image. Good for model context continuity but not available until after the provider responds.
@@ -146,6 +149,7 @@ pub struct ImageHistoryMeta {
 constant when `None`.
 
 **Alternatives considered**:
+
 - **Global mutable state** — Set a global once at startup. Violates Rust safety patterns and makes
   testing harder. Rejected.
 - **Environment variable** — `CORVUS_MAX_IMAGE_BYTES` env override. Adds a second config surface
@@ -167,6 +171,7 @@ resolved value. Validate at config load: reject `max_image_bytes` values ≤ 0 o
 stable public contract. No numeric error codes for MVP.
 
 **Alternatives considered**:
+
 - **Numeric error codes** (`ERR_IMG_001` through `ERR_IMG_010`) — Adds a mapping layer with no
   clear consumer. Operator dashboards and observability already use the snake_case strings. Numeric
   codes are harder to remember and require a lookup table. Rejected for MVP.
@@ -180,18 +185,18 @@ stability guarantee without adding complexity.
 
 **The 10 stable variants**:
 
-| Variant               | Display string           | Trigger                                    |
-|-----------------------|--------------------------|--------------------------------------------|
-| `Disabled`            | `disabled`               | `multimodal.enabled = false`               |
-| `ChannelNotAllowed`   | `channel_not_allowed`    | Channel not in `allowed_channels`          |
-| `MissingVisionRoute`  | `missing_vision_route`   | No `vision_model_hint` or hint not found   |
-| `RouteNotImageCapable`| `route_not_image_capable`| Route exists but `allow_image_input=false` |
-| `TooManyImages`       | `too_many_images`        | Image count > `MAX_IMAGES_PER_TURN`        |
-| `FetchFailed`         | `fetch_failed`           | HTTP error, stream error, or temp write    |
-| `MimeRejected`        | `mime_rejected`          | Magic-byte sniff rejects format            |
-| `Oversize`            | `oversize`               | Bytes exceed `max_image_bytes` limit       |
-| `ProviderError`       | `provider_error`         | Provider rejects or fails on image turn    |
-| `ChannelNotSupported` | `channel_not_supported`  | Channel has no `fetch_and_stage_image()` impl |
+| Variant                | Display string            | Trigger                                       |
+|------------------------|---------------------------|-----------------------------------------------|
+| `Disabled`             | `disabled`                | `multimodal.enabled = false`                  |
+| `ChannelNotAllowed`    | `channel_not_allowed`     | Channel not in `allowed_channels`             |
+| `MissingVisionRoute`   | `missing_vision_route`    | No `vision_model_hint` or hint not found      |
+| `RouteNotImageCapable` | `route_not_image_capable` | Route exists but `allow_image_input=false`    |
+| `TooManyImages`        | `too_many_images`         | Image count > `MAX_IMAGES_PER_TURN`           |
+| `FetchFailed`          | `fetch_failed`            | HTTP error, stream error, or temp write       |
+| `MimeRejected`         | `mime_rejected`           | Magic-byte sniff rejects format               |
+| `Oversize`             | `oversize`                | Bytes exceed `max_image_bytes` limit          |
+| `ProviderError`        | `provider_error`          | Provider rejects or fails on image turn       |
+| `ChannelNotSupported`  | `channel_not_supported`   | Channel has no `fetch_and_stage_image()` impl |
 
 ### ADR-5: Provider-Agnostic Handoff via StagedImage
 
@@ -200,6 +205,7 @@ provider adapters. Provider adapters translate `StagedImage` to format-specific 
 independently.
 
 **Alternatives considered**:
+
 - **Pre-encoded payloads** — Runtime encodes to base64/data-URL before passing to provider. Locks
   all providers into one encoding. Rejected — Anthropic uses a different content block format than
   OpenAI.
@@ -309,15 +315,15 @@ Conversation history for an image turn after this change:
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/channels/media.rs` | Modify | Add `ImageHistoryMeta` struct. Add `max_bytes` parameter to `stream_validate_and_stage()`. Add config ceiling validation constant `MAX_IMAGE_BYTES_CEILING = 50 MiB`. |
-| `clients/agent-runtime/src/channels/mod.rs` | Modify | In `handle_successful_response()` (~line 1210): build `ImageHistoryMeta` from staged images, store with user turn. Add helper to extract description from assistant response. Thread `max_image_bytes` config to staging call sites. |
-| `clients/agent-runtime/src/providers/traits.rs` | Modify | Add optional `image_metadata: Option<Vec<ImageHistoryMeta>>` field to `ChatMessage`. Update `ChatMessage::user()` to default `image_metadata: None`. Add `ChatMessage::user_with_images()` constructor. |
-| `clients/agent-runtime/src/config/schema.rs` | Unchanged | `MultimodalConfig.max_image_bytes` already exists. No schema change. |
-| `clients/agent-runtime/src/providers/compatible.rs` | Unchanged | `chat_multimodal()` reads `StagedImage.temp_path`. No change needed. |
-| `openspec/specs/channel-image-ingestion/spec.md` | Unchanged | Cross-referenced, not modified. |
-| `openspec/specs/runtime-image-normalization/spec.md` | Create | Runtime-layer spec (produced by `sdd-spec` phase). |
+| File                                                 | Action    | Description                                                                                                                                                                                                                          |
+|------------------------------------------------------|-----------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/channels/media.rs`        | Modify    | Add `ImageHistoryMeta` struct. Add `max_bytes` parameter to `stream_validate_and_stage()`. Add config ceiling validation constant `MAX_IMAGE_BYTES_CEILING = 50 MiB`.                                                                |
+| `clients/agent-runtime/src/channels/mod.rs`          | Modify    | In `handle_successful_response()` (~line 1210): build `ImageHistoryMeta` from staged images, store with user turn. Add helper to extract description from assistant response. Thread `max_image_bytes` config to staging call sites. |
+| `clients/agent-runtime/src/providers/traits.rs`      | Modify    | Add optional `image_metadata: Option<Vec<ImageHistoryMeta>>` field to `ChatMessage`. Update `ChatMessage::user()` to default `image_metadata: None`. Add `ChatMessage::user_with_images()` constructor.                              |
+| `clients/agent-runtime/src/config/schema.rs`         | Unchanged | `MultimodalConfig.max_image_bytes` already exists. No schema change.                                                                                                                                                                 |
+| `clients/agent-runtime/src/providers/compatible.rs`  | Unchanged | `chat_multimodal()` reads `StagedImage.temp_path`. No change needed.                                                                                                                                                                 |
+| `openspec/specs/channel-image-ingestion/spec.md`     | Unchanged | Cross-referenced, not modified.                                                                                                                                                                                                      |
+| `openspec/specs/runtime-image-normalization/spec.md` | Create    | Runtime-layer spec (produced by `sdd-spec` phase).                                                                                                                                                                                   |
 
 ## Interfaces / Contracts
 
@@ -413,17 +419,17 @@ pub async fn stream_validate_and_stage(
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | `ImageHistoryMeta::from_staged()` produces correct fields | Construct `StagedImage`, assert all fields map correctly |
-| Unit | `ImageHistoryMeta::to_context_string()` format | Assert output matches expected format with and without description |
-| Unit | `ChatMessage::user_with_images()` constructor | Assert `image_metadata` is `Some` for non-empty, `None` for empty |
-| Unit | `stream_validate_and_stage()` respects custom `max_bytes` | Mock response with body between `MAX_IMAGE_BYTES` and custom limit; assert pass/fail |
-| Unit | Config validation rejects `max_image_bytes > 50 MiB` | Load config with 200 MiB, assert error |
-| Integration | History stores image metadata across turns | Send image turn, assert next history retrieval contains `ImageHistoryMeta` |
-| Integration | Follow-up turn sees prior image context | Send image turn, then text follow-up; assert model receives synthetic context block |
-| Integration | `max_image_bytes` override is effective end-to-end | Set config override to 1 MiB, send 5 MiB image, assert `Oversize` rejection |
-| Regression | Existing `channel-image-ingestion` scenarios still pass | Run full test suite; no existing behavior degrades |
+| Layer       | What to Test                                              | Approach                                                                             |
+|-------------|-----------------------------------------------------------|--------------------------------------------------------------------------------------|
+| Unit        | `ImageHistoryMeta::from_staged()` produces correct fields | Construct `StagedImage`, assert all fields map correctly                             |
+| Unit        | `ImageHistoryMeta::to_context_string()` format            | Assert output matches expected format with and without description                   |
+| Unit        | `ChatMessage::user_with_images()` constructor             | Assert `image_metadata` is `Some` for non-empty, `None` for empty                    |
+| Unit        | `stream_validate_and_stage()` respects custom `max_bytes` | Mock response with body between `MAX_IMAGE_BYTES` and custom limit; assert pass/fail |
+| Unit        | Config validation rejects `max_image_bytes > 50 MiB`      | Load config with 200 MiB, assert error                                               |
+| Integration | History stores image metadata across turns                | Send image turn, assert next history retrieval contains `ImageHistoryMeta`           |
+| Integration | Follow-up turn sees prior image context                   | Send image turn, then text follow-up; assert model receives synthetic context block  |
+| Integration | `max_image_bytes` override is effective end-to-end        | Set config override to 1 MiB, send 5 MiB image, assert `Oversize` rejection          |
+| Regression  | Existing `channel-image-ingestion` scenarios still pass   | Run full test suite; no existing behavior degrades                                   |
 
 ## Migration / Rollout
 

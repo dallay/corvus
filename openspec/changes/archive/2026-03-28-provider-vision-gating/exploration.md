@@ -18,12 +18,13 @@ The multimodal image pipeline is already partially implemented across three laye
    (`traits.rs:348-349`).
 
 3. **Provider adapters**: Two providers currently implement multimodal `chat()` overrides:
-   - `OpenAiCompatibleProvider` — `chat_multimodal()` method (`compatible.rs:494-609`)
-   - `GeminiProvider` — inline `chat()` override (`gemini.rs:342-464`)
+    - `OpenAiCompatibleProvider` — `chat_multimodal()` method (`compatible.rs:494-609`)
+    - `GeminiProvider` — inline `chat()` override (`gemini.rs:342-464`)
 
 #### Provider Capability Declaration (Current)
 
 `ProviderCapabilities` (`traits.rs:222-243`) has three fields:
+
 - `native_tool_calling: bool`
 - `image_input: bool`
 - `image_transport_forms: Vec<ImageTransportForm>`
@@ -33,12 +34,12 @@ AND at least one transport form.
 
 **Current declarations per provider:**
 
-| Provider | `image_input` | `image_transport_forms` | `native_tool_calling` | Overrides `chat()`? |
-|---|---|---|---|---|
-| `OpenAiCompatibleProvider` | `true` | `[InlineBytes]` | `true` | Yes — `chat_multimodal()` |
-| `GeminiProvider` | `true` | `[InlineBytes]` | `false` | Yes — inline in `chat()` |
-| `AnthropicProvider` | `false` (default) | `[]` (default) | `true` | Yes — but no image handling |
-| `OllamaProvider` | `false` (default) | `[]` (default) | `false` | No — uses default trait impl |
+| Provider                   | `image_input`     | `image_transport_forms` | `native_tool_calling` | Overrides `chat()`?          |
+|----------------------------|-------------------|-------------------------|-----------------------|------------------------------|
+| `OpenAiCompatibleProvider` | `true`            | `[InlineBytes]`         | `true`                | Yes — `chat_multimodal()`    |
+| `GeminiProvider`           | `true`            | `[InlineBytes]`         | `false`               | Yes — inline in `chat()`     |
+| `AnthropicProvider`        | `false` (default) | `[]` (default)          | `true`                | Yes — but no image handling  |
+| `OllamaProvider`           | `false` (default) | `[]` (default)          | `false`               | No — uses default trait impl |
 
 #### Provider Routing & Gating (Current)
 
@@ -52,12 +53,12 @@ AND at least one transport form.
 
 #### Image Encoding Per Provider
 
-| Provider | API Format | Encoding |
-|---|---|---|
-| OpenAI-compatible | `content: [{type:"image_url", image_url:{url:"data:mime;base64,..."}}]` | base64 data URL in content blocks array |
-| Gemini | `parts: [{inline_data: {mime_type:"...", data:"..."}}]` | base64 in `InlineData` struct |
-| Anthropic | Not implemented | N/A — would need `{type:"image", source:{type:"base64", media_type:"...", data:"..."}}` |
-| Ollama | Not implemented | N/A — would need `images: ["base64..."]` field in message |
+| Provider          | API Format                                                              | Encoding                                                                                |
+|-------------------|-------------------------------------------------------------------------|-----------------------------------------------------------------------------------------|
+| OpenAI-compatible | `content: [{type:"image_url", image_url:{url:"data:mime;base64,..."}}]` | base64 data URL in content blocks array                                                 |
+| Gemini            | `parts: [{inline_data: {mime_type:"...", data:"..."}}]`                 | base64 in `InlineData` struct                                                           |
+| Anthropic         | Not implemented                                                         | N/A — would need `{type:"image", source:{type:"base64", media_type:"...", data:"..."}}` |
+| Ollama            | Not implemented                                                         | N/A — would need `images: ["base64..."]` field in message                               |
 
 ### Answers to Questions
 
@@ -65,14 +66,15 @@ AND at least one transport form.
 
 **Answer**: Based on current code, **three providers** already declare or can declare image support:
 
-| Provider | v1 Status | Rationale |
-|---|---|---|
-| OpenAI-compatible | **Done** | Fully implemented (`chat_multimodal`). Covers OpenAI, Groq, Mistral, xAI, Venice, etc. |
-| Gemini | **Done** | Fully implemented (inline `chat()` override with `InlineData` parts). |
-| Anthropic | **Not implemented** | Has native tool calling but no `chat()` image override. Anthropic's Messages API supports `image` content blocks — adapter needed. |
-| Ollama | **Out of scope for v1** | Ollama's `/api/chat` supports `images` field (base64 array), but local model vision support varies wildly. Defer to Wave 2. |
+| Provider          | v1 Status               | Rationale                                                                                                                          |
+|-------------------|-------------------------|------------------------------------------------------------------------------------------------------------------------------------|
+| OpenAI-compatible | **Done**                | Fully implemented (`chat_multimodal`). Covers OpenAI, Groq, Mistral, xAI, Venice, etc.                                             |
+| Gemini            | **Done**                | Fully implemented (inline `chat()` override with `InlineData` parts).                                                              |
+| Anthropic         | **Not implemented**     | Has native tool calling but no `chat()` image override. Anthropic's Messages API supports `image` content blocks — adapter needed. |
+| Ollama            | **Out of scope for v1** | Ollama's `/api/chat` supports `images` field (base64 array), but local model vision support varies wildly. Defer to Wave 2.        |
 
-**Recommendation**: v1 scope = OpenAI-compatible (done) + Gemini (done) + Anthropic (new adapter needed).
+**Recommendation**: v1 scope = OpenAI-compatible (done) + Gemini (done) + Anthropic (new adapter
+needed).
 
 #### Q2: How should provider vision capability be declared?
 
@@ -86,6 +88,7 @@ AND at least one transport form.
 - The `MultimodalConfig.vision_model_hint` points to the route used for image turns.
 
 **No changes needed** to the declaration mechanism. What's missing is:
+
 1. Anthropic provider declaring `image_input: true` + `[InlineBytes]`.
 2. Documentation of the provider capability matrix in a spec.
 
@@ -106,13 +109,14 @@ AND at least one transport form.
 
 **Answer**: Only **one new adapter** is needed:
 
-| Adapter | Status | Work Required |
-|---|---|---|
-| OpenAI-compatible (`chat_multimodal`) | Done | None |
-| Gemini (`chat()` with `InlineData`) | Done | None |
+| Adapter                                              | Status      | Work Required                                                                                                      |
+|------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------------------------|
+| OpenAI-compatible (`chat_multimodal`)                | Done        | None                                                                                                               |
+| Gemini (`chat()` with `InlineData`)                  | Done        | None                                                                                                               |
 | **Anthropic** (`chat()` with `image` content blocks) | **Missing** | New adapter: build `{type:"image", source:{type:"base64", media_type, data}}` content blocks in `NativeContentOut` |
 
 The Anthropic adapter needs:
+
 - A new `NativeContentOut::Image` variant with `source_type`, `media_type`, `data` fields.
 - `capabilities()` override returning `image_input: true, image_transport_forms: [InlineBytes]`.
 - Image block injection in the `chat()` method (similar pattern to `compatible.rs:528-538`).
@@ -122,7 +126,8 @@ The Anthropic adapter needs:
 
 **Answer**: The current behavior is correct and should be preserved:
 
-- **No silent fallback**: Image turns are never silently downgraded to text-only. The `ReliableProvider`
+- **No silent fallback**: Image turns are never silently downgraded to text-only. The
+  `ReliableProvider`
   explicitly skips text-only providers for image turns (`reliable.rs:413-417`).
 - **No image stripping**: Images are never stripped from requests to make them fit a text-only
   provider. The user gets a clear error instead.
@@ -143,29 +148,31 @@ The Anthropic adapter needs:
 
 ### Provider Capability Matrix (v1)
 
-| Provider | Supports Images | Transport Form | API Format | Status |
-|---|---|---|---|---|
-| OpenAI-compatible | Yes | InlineBytes | `image_url` content block with data URL | **Complete** |
-| Gemini | Yes | InlineBytes | `inline_data` part with mime + base64 | **Complete** |
-| Anthropic | Yes (planned) | InlineBytes | `image` content block with base64 source | **Needs adapter** |
-| Ollama | No (v1) | N/A | `images` array (base64) | **Deferred to Wave 2** |
+| Provider          | Supports Images | Transport Form | API Format                               | Status                 |
+|-------------------|-----------------|----------------|------------------------------------------|------------------------|
+| OpenAI-compatible | Yes             | InlineBytes    | `image_url` content block with data URL  | **Complete**           |
+| Gemini            | Yes             | InlineBytes    | `inline_data` part with mime + base64    | **Complete**           |
+| Anthropic         | Yes (planned)   | InlineBytes    | `image` content block with base64 source | **Needs adapter**      |
+| Ollama            | No (v1)         | N/A            | `images` array (base64)                  | **Deferred to Wave 2** |
 
 ### Approaches
 
 1. **Anthropic-only adapter addition** — Add image support to `AnthropicProvider` only
-   - Pros: Minimal scope, covers the three major cloud providers for v1, low risk
-   - Cons: Ollama users with vision models (llava, etc.) can't use images yet
-   - Effort: Low
+    - Pros: Minimal scope, covers the three major cloud providers for v1, low risk
+    - Cons: Ollama users with vision models (llava, etc.) can't use images yet
+    - Effort: Low
 
 2. **Anthropic + Ollama adapters** — Add both in one change
-   - Pros: Broader coverage, Ollama vision models (llava, bakllava) are popular
-   - Cons: Ollama vision model detection is hard (no standardized capability query), increases scope
-   - Effort: Medium
+    - Pros: Broader coverage, Ollama vision models (llava, bakllava) are popular
+    - Cons: Ollama vision model detection is hard (no standardized capability query), increases
+      scope
+    - Effort: Medium
 
-3. **Spec-only (no code)** — Document the capability matrix and adapter contracts without implementing
-   - Pros: Enables parallel implementation issues, zero risk
-   - Cons: No new functionality delivered
-   - Effort: Low
+3. **Spec-only (no code)** — Document the capability matrix and adapter contracts without
+   implementing
+    - Pros: Enables parallel implementation issues, zero risk
+    - Cons: No new functionality delivered
+    - Effort: Low
 
 ### Recommendation
 
@@ -194,6 +201,7 @@ Anthropic support. Ollama can follow in a focused Wave 2 change with proper visi
 Yes — the codebase exploration is complete. The capability infrastructure is mature, gating is
 fail-closed at every layer, and the only implementation gap is the Anthropic adapter. The proposal
 should scope:
+
 1. Anthropic image adapter implementation
 2. Provider capability matrix documentation (as a spec)
 3. Explicit deferral of Ollama to a follow-up issue

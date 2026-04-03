@@ -81,17 +81,17 @@ TUI view ── periodic query ──→ Storage (search/get/count)
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `modules/cerebro/src/config.rs` | Modify | Add TUI feature flag and redaction/backpressure settings. |
-| `modules/cerebro/src/server.rs` | Modify | Emit tool-call lifecycle events around `handle_json_rpc`. |
-| `modules/cerebro/src/tools.rs` | Modify | Optionally include tool metadata in emitted events for redaction. |
-| `modules/cerebro/src/lib.rs` | Modify | Export new TUI/event bus modules. |
-| `modules/cerebro/src/tui/mod.rs` | Create | TUI task entrypoint, view routing, shutdown handling. |
-| `modules/cerebro/src/tui/event_bus.rs` | Create | Broadcast channel, event types, and drop accounting. |
-| `modules/cerebro/src/tui/redaction.rs` | Create | Central redaction policy for event payloads and view queries. |
-| `modules/cerebro/src/tui/views/*` | Create | Dashboard, memory explorer, session timeline, live logs. |
-| `modules/cerebro/src/main.rs` | Modify | Start TUI task when enabled, wire shutdown signal. |
+| File                                   | Action | Description                                                       |
+|----------------------------------------|--------|-------------------------------------------------------------------|
+| `modules/cerebro/src/config.rs`        | Modify | Add TUI feature flag and redaction/backpressure settings.         |
+| `modules/cerebro/src/server.rs`        | Modify | Emit tool-call lifecycle events around `handle_json_rpc`.         |
+| `modules/cerebro/src/tools.rs`         | Modify | Optionally include tool metadata in emitted events for redaction. |
+| `modules/cerebro/src/lib.rs`           | Modify | Export new TUI/event bus modules.                                 |
+| `modules/cerebro/src/tui/mod.rs`       | Create | TUI task entrypoint, view routing, shutdown handling.             |
+| `modules/cerebro/src/tui/event_bus.rs` | Create | Broadcast channel, event types, and drop accounting.              |
+| `modules/cerebro/src/tui/redaction.rs` | Create | Central redaction policy for event payloads and view queries.     |
+| `modules/cerebro/src/tui/views/*`      | Create | Dashboard, memory explorer, session timeline, live logs.          |
+| `modules/cerebro/src/main.rs`          | Modify | Start TUI task when enabled, wire shutdown signal.                |
 
 ## Interfaces / Contracts
 
@@ -149,13 +149,13 @@ pub struct TuiConfig {
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | Redaction policy | Verify sensitive fields are removed or masked. |
-| Unit | Event bus backpressure | Simulate lagging subscriber and assert drop accounting. |
-| Integration | MCP path emission | Ensure tool-call lifecycle events fire for success/error. |
-| Integration | TUI startup gating | Validate TUI starts only when flag enabled. |
-| Manual | TUI view rendering | Run Cerebro and verify views render with live updates. |
+| Layer       | What to Test           | Approach                                                  |
+|-------------|------------------------|-----------------------------------------------------------|
+| Unit        | Redaction policy       | Verify sensitive fields are removed or masked.            |
+| Unit        | Event bus backpressure | Simulate lagging subscriber and assert drop accounting.   |
+| Integration | MCP path emission      | Ensure tool-call lifecycle events fire for success/error. |
+| Integration | TUI startup gating     | Validate TUI starts only when flag enabled.               |
+| Manual      | TUI view rendering     | Run Cerebro and verify views render with live updates.    |
 
 ## Migration / Rollout
 

@@ -17,9 +17,9 @@ harness updates only. No production behavior changes were made.
 
 ## Specs Synced
 
-| Domain | Action | Details |
-|--------|--------|---------|
-| None | No change | No delta spec existed for this follow-up by design, so `openspec/specs/` was not modified. |
+| Domain | Action    | Details                                                                                    |
+|--------|-----------|--------------------------------------------------------------------------------------------|
+| None   | No change | No delta spec existed for this follow-up by design, so `openspec/specs/` was not modified. |
 
 ## Archive Operation
 

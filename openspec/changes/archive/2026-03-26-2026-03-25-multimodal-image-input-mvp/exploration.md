@@ -27,13 +27,15 @@ contract is still text-first.
   delivery in `process_channel_message(...)` / `build_history(...)`
   (`clients/agent-runtime/src/channels/mod.rs:472`,
   `clients/agent-runtime/src/channels/mod.rs:612`).
-- Telegram has outbound media delivery, but inbound parsing is still text-only. Incoming updates only
+- Telegram has outbound media delivery, but inbound parsing is still text-only. Incoming updates
+  only
   read `message.text`, while outbound responses can already emit `[IMAGE:...]` / `[DOCUMENT:...]`
   markers and send actual media (`clients/agent-runtime/src/channels/telegram.rs:733`,
   `clients/agent-runtime/src/channels/telegram.rs:1673`).
 - WhatsApp inbound is explicitly text-only today. `extract_whatsapp_text_content(...)` returns
   `None` for non-text messages, and webhook handling calls `provider.simple_chat(...)` directly
-  instead of the canonical channel/dispatcher path (`clients/agent-runtime/src/channels/whatsapp.rs:28`,
+  instead of the canonical channel/dispatcher path (
+  `clients/agent-runtime/src/channels/whatsapp.rs:28`,
   `clients/agent-runtime/src/channels/whatsapp.rs:40`,
   `clients/agent-runtime/src/gateway/mod.rs:1980`).
 - There is already precedent for attachment filtering in other channels. Signal can ignore
@@ -69,8 +71,10 @@ contract is still text-first.
   path; generic `/webhook` is also string-only.
 - `clients/agent-runtime/src/providers/traits.rs` — needs a richer provider capability model and a
   multimodal request contract.
-- `clients/agent-runtime/src/providers/compatible.rs`, `clients/agent-runtime/src/providers/gemini.rs`,
-  `clients/agent-runtime/src/providers/anthropic.rs`, and likely `clients/agent-runtime/src/providers/openrouter.rs`
+- `clients/agent-runtime/src/providers/compatible.rs`,
+  `clients/agent-runtime/src/providers/gemini.rs`,
+  `clients/agent-runtime/src/providers/anthropic.rs`, and likely
+  `clients/agent-runtime/src/providers/openrouter.rs`
   — candidate adapters for first-wave image-capable backends.
 - `openspec/specs/agent-runtime-providers/spec.md` — already owns provider capability/config shape,
   so it is the natural spec home for image-input capability modeling.
@@ -81,72 +85,76 @@ contract is still text-first.
 ### Candidate Channels
 
 1. **Telegram** — best MVP channel candidate.
-   - Pros: already a first-class channel in the unified runtime, already has media send semantics,
-     and has a mature allowlist/onboarding path.
-   - Cons: inbound photo/document retrieval and security validation still need to be designed.
-   - Effort: Medium.
+    - Pros: already a first-class channel in the unified runtime, already has media send semantics,
+      and has a mature allowlist/onboarding path.
+    - Cons: inbound photo/document retrieval and security validation still need to be designed.
+    - Effort: Medium.
 
 2. **WhatsApp** — product-important candidate, but architecturally riskier.
-   - Pros: already has webhook verification, signature validation, and allowlist controls.
-   - Cons: current path is webhook-special-cased and bypasses the canonical dispatcher/tool path,
-     so image MVP work here can sprawl into runtime-parity work.
-   - Effort: Medium-High.
+    - Pros: already has webhook verification, signature validation, and allowlist controls.
+    - Cons: current path is webhook-special-cased and bypasses the canonical dispatcher/tool path,
+      so image MVP work here can sprawl into runtime-parity work.
+    - Effort: Medium-High.
 
 3. **Signal / Matrix / Email** — useful reference channels, not primary MVP targets.
-   - Pros: existing attachment/media handling patterns can inform normalization rules.
-   - Cons: adding them to MVP would widen scope without clear product pressure from the prompt.
-   - Effort: High if included in the initial slice.
+    - Pros: existing attachment/media handling patterns can inform normalization rules.
+    - Cons: adding them to MVP would widen scope without clear product pressure from the prompt.
+    - Effort: High if included in the initial slice.
 
 ### Candidate Providers
 
 1. **OpenAI-compatible provider family** (`compatible.rs`) — best primary backend seam.
-   - Pros: many Corvus providers already funnel through this adapter; one multimodal contract here
-     could unlock multiple compatible backends and custom endpoints.
-   - Cons: current request models are still string-only, and image support varies significantly by
-     vendor/model even behind an OpenAI-compatible facade.
-   - Effort: Medium.
+    - Pros: many Corvus providers already funnel through this adapter; one multimodal contract here
+      could unlock multiple compatible backends and custom endpoints.
+    - Cons: current request models are still string-only, and image support varies significantly by
+      vendor/model even behind an OpenAI-compatible facade.
+    - Effort: Medium.
 
 2. **Gemini** — strong first-class multimodal candidate.
-   - Pros: API structure already uses `contents[].parts[]`, which is a natural fit for text + image
-     inputs.
-   - Cons: current implementation only serializes text parts, so image part handling and tests would
-     still be new work.
-   - Effort: Medium.
+    - Pros: API structure already uses `contents[].parts[]`, which is a natural fit for text + image
+      inputs.
+    - Cons: current implementation only serializes text parts, so image part handling and tests
+      would
+      still be new work.
+    - Effort: Medium.
 
 3. **Anthropic** — viable second-wave candidate.
-   - Pros: content-block architecture is already richer than plain text and should extend cleanly.
-   - Cons: current implementation only models text/tool blocks; adding image blocks is more work
-     than the current capability model suggests.
-   - Effort: Medium.
+    - Pros: content-block architecture is already richer than plain text and should extend cleanly.
+    - Cons: current implementation only models text/tool blocks; adding image blocks is more work
+      than the current capability model suggests.
+    - Effort: Medium.
 
 4. **OpenRouter-specific adapter** — useful later, but weaker as the design center.
-   - Pros: broad model reach.
-   - Cons: route-level vision capability is inconsistent, so it is a poor source of truth for the
-     core Corvus multimodal contract.
-   - Effort: Medium.
+    - Pros: broad model reach.
+    - Cons: route-level vision capability is inconsistent, so it is a poor source of truth for the
+      core Corvus multimodal contract.
+    - Effort: Medium.
 
 ### Approaches
 
-1. **Prompt-proxy MVP** — download inbound images, run local metadata/OCR/caption tooling, and inject
+1. **Prompt-proxy MVP** — download inbound images, run local metadata/OCR/caption tooling, and
+   inject
    text summaries into the current text-only provider flow.
-   - Pros: smallest change to runtime contracts; works with text-only providers.
-   - Cons: not truly Corvus-native multimodal understanding; quality depends on sidecar tooling;
-     loses raw-image reasoning and provider-native vision strengths.
-   - Effort: Medium.
+    - Pros: smallest change to runtime contracts; works with text-only providers.
+    - Cons: not truly Corvus-native multimodal understanding; quality depends on sidecar tooling;
+      loses raw-image reasoning and provider-native vision strengths.
+    - Effort: Medium.
 
 2. **End-to-end multimodal contract** — add canonical media parts to channel ingress, conversation
    history, provider requests, and capability routing.
-   - Pros: correct long-term architecture; cleanly supports future audio/document/video expansion.
-   - Cons: too broad for an MVP unless tightly constrained to image-only + selected channels/providers.
-   - Effort: High.
+    - Pros: correct long-term architecture; cleanly supports future audio/document/video expansion.
+    - Cons: too broad for an MVP unless tightly constrained to image-only + selected
+      channels/providers.
+    - Effort: High.
 
 3. **Hybrid MVP contract** — add a minimal canonical image-input model end to end, but scope it to
    inbound image parts only, selected channels only, and selected provider backends only.
-   - Pros: preserves native multimodal semantics while keeping change size controlled; creates the
-     right seam for proposal/spec/design.
-   - Cons: still requires contract changes across channels, provider traits, and at least one runtime
-     path divergence (`/whatsapp`).
-   - Effort: Medium-High.
+    - Pros: preserves native multimodal semantics while keeping change size controlled; creates the
+      right seam for proposal/spec/design.
+    - Cons: still requires contract changes across channels, provider traits, and at least one
+      runtime
+      path divergence (`/whatsapp`).
+    - Effort: Medium-High.
 
 ### Recommendation
 
@@ -189,15 +197,19 @@ Concrete recommendation for proposal/spec/design:
 
 ### Risks
 
-- The current string-only message contracts (`ChannelMessage`, `ChatMessage`, `/webhook`) make this a
+- The current string-only message contracts (`ChannelMessage`, `ChatMessage`, `/webhook`) make this
+  a
   cross-cutting contract change, not a leaf feature.
-- WhatsApp currently bypasses the canonical channel/dispatcher flow, so parity and multimodal work can
+- WhatsApp currently bypasses the canonical channel/dispatcher flow, so parity and multimodal work
+  can
   collapse into the same change if scope is not enforced.
 - Provider capability routing is under-specified today; without explicit image capability flags,
   multimodal requests could be misrouted to text-only backends.
-- Media handling introduces new security exposure: untrusted URLs, oversized payloads, MIME spoofing,
+- Media handling introduces new security exposure: untrusted URLs, oversized payloads, MIME
+  spoofing,
   malware-in-document edges, and accidental long-term storage of sensitive user images.
-- Conversation history and memory semantics are not defined yet for raw images, captions, and derived
+- Conversation history and memory semantics are not defined yet for raw images, captions, and
+  derived
   summaries, which can create privacy and cost surprises if not specified upfront.
 
 ### Ready for Proposal

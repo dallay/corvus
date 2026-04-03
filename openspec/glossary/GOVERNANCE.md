@@ -16,12 +16,12 @@ The canonical glossary is owned by the **architecture team**. Changes require ap
 
 1. **Open a change proposal** following the standard SDD process (proposal → spec → design → tasks)
 2. **Add the term** to `terms.json` with all required fields:
-   - `canonical` — the English canonical form
-   - `definition` — what the term means in Corvus context
-   - `context` — where and when to use this term
-   - `aliases` — acceptable synonyms (if any)
-   - `anti_terms` — disallowed synonyms that MUST NOT appear in locale files
-   - `locales.es` — canonical Spanish translation (required for all Tier 1 locales)
+    - `canonical` — the English canonical form
+    - `definition` — what the term means in Corvus context
+    - `context` — where and when to use this term
+    - `aliases` — acceptable synonyms (if any)
+    - `anti_terms` — disallowed synonyms that MUST NOT appear in locale files
+    - `locales.es` — canonical Spanish translation (required for all Tier 1 locales)
 3. **Add the term** to `README.md` following the existing entry format
 4. **Submit a PR** with both file changes and request review from architecture + affected surface
    maintainer(s)
@@ -39,13 +39,13 @@ The canonical glossary is owned by the **architecture team**. Changes require ap
 
 ### Modification Scope
 
-| Field Changed | Impact | Review Required |
-|---------------|--------|-----------------|
-| `definition`, `context` | Documentation only | Architecture |
-| `aliases` | May affect lint rules | Architecture |
-| `anti_terms` | CI lint rules change; existing locale files may fail | Architecture + all surface maintainers |
-| `canonical` | All surfaces must update UI strings | Architecture + all surface maintainers |
-| `locales` | Translated surfaces must update | Architecture + affected surface maintainer |
+| Field Changed           | Impact                                               | Review Required                            |
+|-------------------------|------------------------------------------------------|--------------------------------------------|
+| `definition`, `context` | Documentation only                                   | Architecture                               |
+| `aliases`               | May affect lint rules                                | Architecture                               |
+| `anti_terms`            | CI lint rules change; existing locale files may fail | Architecture + all surface maintainers     |
+| `canonical`             | All surfaces must update UI strings                  | Architecture + all surface maintainers     |
+| `locales`               | Translated surfaces must update                      | Architecture + affected surface maintainer |
 
 ## Deprecating a Term
 
@@ -80,11 +80,11 @@ files:
 
 ### Enforcement Rules
 
-| Surface Tier | Enforcement Level | CI Behavior |
-|--------------|-------------------|-------------|
-| Tier 1 (Full i18n) | Mandatory | Build **fails** if anti-terms found in locale files |
-| Tier 2 (Content i18n) | Recommended | Build **warns** if anti-terms found in content files |
-| Tier 3 (English-only) | Advisory | Build **warns** if anti-terms found in user-facing strings |
+| Surface Tier          | Enforcement Level | CI Behavior                                                |
+|-----------------------|-------------------|------------------------------------------------------------|
+| Tier 1 (Full i18n)    | Mandatory         | Build **fails** if anti-terms found in locale files        |
+| Tier 2 (Content i18n) | Recommended       | Build **warns** if anti-terms found in content files       |
+| Tier 3 (English-only) | Advisory          | Build **warns** if anti-terms found in user-facing strings |
 
 ### Scan Scope
 

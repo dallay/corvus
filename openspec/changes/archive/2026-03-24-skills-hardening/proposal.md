@@ -50,12 +50,12 @@ production-grade for untrusted third-party content.
    tuning).
 
 6. **Deferred Phase 2 tests** — Implement the 4 missing test tasks adapted for current code:
-   - 4.2: Unit tests for `resolve_index()` — cache hit, cache miss, fetch failure, embedded
-     fallback.
-   - 4.6: Unit tests for `repair_lockfile()` — added, removed, updated, unchanged scenarios.
-   - 4.7: Integration test for `handle_catalog_install()` end-to-end flow.
-   - 4.8: Adapted from "test SKILL.toml deprecation warning" to "test SKILL.toml rejection with
-     migration error message."
+    - 4.2: Unit tests for `resolve_index()` — cache hit, cache miss, fetch failure, embedded
+      fallback.
+    - 4.6: Unit tests for `repair_lockfile()` — added, removed, updated, unchanged scenarios.
+    - 4.7: Integration test for `handle_catalog_install()` end-to-end flow.
+    - 4.8: Adapted from "test SKILL.toml deprecation warning" to "test SKILL.toml rejection with
+      migration error message."
 
 **P2 — Medium Value:**
 
@@ -101,6 +101,7 @@ The `compute_content_hash()` function already exists in `lockfile.rs` — reuse 
 **A2. Open-skills removal**
 
 Pure deletion. Remove in order:
+
 1. Constants and env var names from `mod.rs`
 2. All `open_skills_*` functions from `mod.rs` (~160 lines)
 3. `load_open_skill_md()` from `mod.rs`
@@ -137,6 +138,7 @@ pub fn validate_name_matches_directory(name: &str, dir_name: &str)
 ```
 
 Call `validate_skill_name` + `validate_name_matches_directory`:
+
 - In `handle_install` → reject on failure (before writing lockfile)
 - In `load_skills_from_directory` → warn and skip on failure
 
@@ -170,6 +172,7 @@ pub fn scan_skill_content(content: &str) -> ScanResult;
 ```
 
 Integration points:
+
 - `handle_install` → call `scan_skill_content`; if `score > threshold`, block install with
   findings report
 - `load_skills_from_directory` → call `scan_skill_content`; if `score > threshold`, warn and
@@ -206,6 +209,7 @@ pub fn apply_sandbox(
 ```
 
 In the tool executor for shell-type tools:
+
 1. If `skill.trust == ThirdParty`, construct `SandboxPolicy` with `skill_dir` as the only
    allowed path
 2. Call `apply_sandbox` to set `cwd` to skill dir
@@ -213,36 +217,37 @@ In the tool executor for shell-type tools:
 4. On violation → reject execution with error
 
 Path validation checks:
+
 - Canonicalize paths and verify they start with an allowed prefix
 - Reject arguments containing `../` before canonicalization (defense in depth)
 - Follow symlinks and verify resolved target is within scope
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/skills/mod.rs` | Modified | Remove open-skills (~200 lines), SKILL.toml (~100 lines), add integrity check and scanner/validation calls in load path |
-| `clients/agent-runtime/src/skills/lockfile.rs` | Modified | Remove SKILL.toml references in repair, reuse `compute_content_hash` |
-| `clients/agent-runtime/src/skills/frontmatter.rs` | Modified | Minor — validation calls after parse |
-| `clients/agent-runtime/src/skills/trust.rs` | Modified | Add sandbox policy metadata |
-| `clients/agent-runtime/src/skills/validation.rs` | New | Name validation functions |
-| `clients/agent-runtime/src/skills/scanner.rs` | New | Prompt injection scoring scanner |
-| `clients/agent-runtime/src/skills/sandbox.rs` | New | Tool sandboxing policy and path validation |
-| `clients/agent-runtime/src/config/schema.rs` | Modified | Remove `legacy_open_skills`, add `verify_integrity` and `scan_threshold` |
-| `clients/agent-runtime/src/skillforge/mod.rs` | Modified | Minor — remove SKILL.toml assertion cleanup |
-| `clients/agent-runtime/src/skillforge/integrate.rs` | Modified | Minor — remove SKILL.toml test assertions |
-| `openspec/specs/skills-trust/spec.md` | Modified | Update R2 (open-skills removed), R10 (SKILL.toml removed), add R14-R18 for new requirements |
+| Area                                                | Impact   | Description                                                                                                             |
+|-----------------------------------------------------|----------|-------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/skills/mod.rs`           | Modified | Remove open-skills (~200 lines), SKILL.toml (~100 lines), add integrity check and scanner/validation calls in load path |
+| `clients/agent-runtime/src/skills/lockfile.rs`      | Modified | Remove SKILL.toml references in repair, reuse `compute_content_hash`                                                    |
+| `clients/agent-runtime/src/skills/frontmatter.rs`   | Modified | Minor — validation calls after parse                                                                                    |
+| `clients/agent-runtime/src/skills/trust.rs`         | Modified | Add sandbox policy metadata                                                                                             |
+| `clients/agent-runtime/src/skills/validation.rs`    | New      | Name validation functions                                                                                               |
+| `clients/agent-runtime/src/skills/scanner.rs`       | New      | Prompt injection scoring scanner                                                                                        |
+| `clients/agent-runtime/src/skills/sandbox.rs`       | New      | Tool sandboxing policy and path validation                                                                              |
+| `clients/agent-runtime/src/config/schema.rs`        | Modified | Remove `legacy_open_skills`, add `verify_integrity` and `scan_threshold`                                                |
+| `clients/agent-runtime/src/skillforge/mod.rs`       | Modified | Minor — remove SKILL.toml assertion cleanup                                                                             |
+| `clients/agent-runtime/src/skillforge/integrate.rs` | Modified | Minor — remove SKILL.toml test assertions                                                                               |
+| `openspec/specs/skills-trust/spec.md`               | Modified | Update R2 (open-skills removed), R10 (SKILL.toml removed), add R14-R18 for new requirements                             |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| SKILL.toml removal breaks users who haven't migrated | Low | Two phases of deprecation warnings shipped; clear migration error message with instructions |
-| Open-skills removal breaks opt-in users | Very Low | Default OFF since Phase 1; opt-in since Phase 2; minimal user base |
-| Hash verification false positives on manual edits | Low | Official/Local skills only warn (no downgrade); `corvus skills lock repair` re-hashes; configurable via `verify_integrity: false` |
-| Prompt injection scanner false positives | Medium | Scoring-based approach (not binary); tunable threshold; load-time action is warn+downgrade, not block; install-time shows findings for user review |
-| Sandbox bypass via symlinks or indirect execution | Medium | Defense-in-depth layer, not a hard boundary; canonicalize + resolve symlinks; document known limitations; OS-level sandboxing deferred to future phase |
-| Large diff across multiple modules | Low | Grouped by priority tier; P0 is pure deletion + simple addition; reviewable incrementally |
+| Risk                                                 | Likelihood | Mitigation                                                                                                                                             |
+|------------------------------------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| SKILL.toml removal breaks users who haven't migrated | Low        | Two phases of deprecation warnings shipped; clear migration error message with instructions                                                            |
+| Open-skills removal breaks opt-in users              | Very Low   | Default OFF since Phase 1; opt-in since Phase 2; minimal user base                                                                                     |
+| Hash verification false positives on manual edits    | Low        | Official/Local skills only warn (no downgrade); `corvus skills lock repair` re-hashes; configurable via `verify_integrity: false`                      |
+| Prompt injection scanner false positives             | Medium     | Scoring-based approach (not binary); tunable threshold; load-time action is warn+downgrade, not block; install-time shows findings for user review     |
+| Sandbox bypass via symlinks or indirect execution    | Medium     | Defense-in-depth layer, not a hard boundary; canonicalize + resolve symlinks; document known limitations; OS-level sandboxing deferred to future phase |
+| Large diff across multiple modules                   | Low        | Grouped by priority tier; P0 is pure deletion + simple addition; reviewable incrementally                                                              |
 
 ## Rollback Plan
 
@@ -278,18 +283,18 @@ Phase 2 behavior without data loss.
 ## Success Criteria
 
 - [ ] All `open_skills_*` code removed; `CORVUS_OPEN_SKILLS_ENABLED` / `CORVUS_OPEN_SKILLS` env
-      vars no longer recognized; `legacy_open_skills` config field removed
+  vars no longer recognized; `legacy_open_skills` config field removed
 - [ ] All SKILL.toml loading code removed; SKILL.toml-only directories produce error log with
-      migration instructions and are skipped
+  migration instructions and are skipped
 - [ ] `load_skills_with_config()` re-hashes SKILL.md and detects tampering; ThirdParty mismatch
-      downgrades to instruction-only; Official/Local mismatch warns only
+  downgrades to instruction-only; Official/Local mismatch warns only
 - [ ] Skill names validated against `[a-z0-9-]` 1–64 char format on install (reject) and load
-      (warn+skip)
+  (warn+skip)
 - [ ] `scan_skill_content()` detects at least: system prompt overrides, role manipulation, trust
-      escalation, encoded payloads, Unicode anomalies
+  escalation, encoded payloads, Unicode anomalies
 - [ ] Scanner blocks install above threshold; warns and downgrades trust on load above threshold
 - [ ] Third-party shell tools execute with `cwd` = skill directory; path traversal outside skill
-      dir rejected
+  dir rejected
 - [ ] Deferred tests 4.2, 4.6, 4.7, 4.8 (adapted) all pass
 - [ ] `make test` passes with no regressions
 - [ ] `make lint-kotlin && cargo clippy` clean (no new warnings)

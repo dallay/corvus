@@ -55,30 +55,30 @@ default, router, reliable provider). The work is primarily:
 
 3. **Code**: Implement the Anthropic adapter following the same pattern as
    `OpenAiCompatibleProvider::chat_multimodal()` (`compatible.rs:494-609`):
-   - Add `NativeContentOut::Image` variant with `source_type`, `media_type`, `data` fields
-   - Override `capabilities()` in `AnthropicProvider` to declare image support
-   - Override `chat()` to inject image content blocks when `StagedImage` data is present
-   - Read bytes from `StagedImage.temp_path` and base64-encode for the API payload
+    - Add `NativeContentOut::Image` variant with `source_type`, `media_type`, `data` fields
+    - Override `capabilities()` in `AnthropicProvider` to declare image support
+    - Override `chat()` to inject image content blocks when `StagedImage` data is present
+    - Read bytes from `StagedImage.temp_path` and base64-encode for the API payload
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/providers/anthropic.rs` | Modified | Add image adapter: `capabilities()` override + `chat()` image block injection + local `NativeContentOut::Image` variant |
-| `openspec/specs/agent-runtime-providers/spec.md` | Modified | Delta spec: update MVP scope to include Anthropic, add image format contract requirements |
-| `clients/agent-runtime/src/providers/router.rs` | None | Gating already correct — documented in spec only |
-| `clients/agent-runtime/src/providers/reliable.rs` | None | Fallback already correct — documented in spec only |
-| `clients/agent-runtime/src/providers/compatible.rs` | None | Reference pattern for the Anthropic adapter |
-| `clients/agent-runtime/src/providers/gemini.rs` | None | Reference pattern for the Anthropic adapter |
+| Area                                                | Impact   | Description                                                                                                             |
+|-----------------------------------------------------|----------|-------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/providers/anthropic.rs`  | Modified | Add image adapter: `capabilities()` override + `chat()` image block injection + local `NativeContentOut::Image` variant |
+| `openspec/specs/agent-runtime-providers/spec.md`    | Modified | Delta spec: update MVP scope to include Anthropic, add image format contract requirements                               |
+| `clients/agent-runtime/src/providers/router.rs`     | None     | Gating already correct — documented in spec only                                                                        |
+| `clients/agent-runtime/src/providers/reliable.rs`   | None     | Fallback already correct — documented in spec only                                                                      |
+| `clients/agent-runtime/src/providers/compatible.rs` | None     | Reference pattern for the Anthropic adapter                                                                             |
+| `clients/agent-runtime/src/providers/gemini.rs`     | None     | Reference pattern for the Anthropic adapter                                                                             |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Anthropic API image content block format changes | Low | Format is stable since `2023-06-01` API version; validate against current docs before implementation |
-| Image history replay not handled in Anthropic adapter | Med | Out of scope for this change — `ImageHistoryMeta` exists but Anthropic reconstruction deferred; document as known gap |
-| Base64 overhead crowds context window on small models | Low | No token budget system yet; defer to future optimization; large images are already size-gated at ingestion |
-| `NativeContentOut::Image` variant breaks exhaustive matches | Low | Compiler enforces exhaustive matching — any missed arms will fail at build time |
+| Risk                                                        | Likelihood | Mitigation                                                                                                            |
+|-------------------------------------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------|
+| Anthropic API image content block format changes            | Low        | Format is stable since `2023-06-01` API version; validate against current docs before implementation                  |
+| Image history replay not handled in Anthropic adapter       | Med        | Out of scope for this change — `ImageHistoryMeta` exists but Anthropic reconstruction deferred; document as known gap |
+| Base64 overhead crowds context window on small models       | Low        | No token budget system yet; defer to future optimization; large images are already size-gated at ingestion            |
+| `NativeContentOut::Image` variant breaks exhaustive matches | Low        | Compiler enforces exhaustive matching — any missed arms will fail at build time                                       |
 
 ## Rollback Plan
 
@@ -102,9 +102,11 @@ All changes are additive and behind capability declarations:
 ## Success Criteria
 
 - [ ] Anthropic provider declares `image_input: true` and `image_transport_forms: [InlineBytes]`
-- [ ] Anthropic `chat()` override correctly builds `{type:"image", source:{type:"base64", media_type, data}}` content blocks from `StagedImage` data
+- [ ] Anthropic `chat()` override correctly builds
+  `{type:"image", source:{type:"base64", media_type, data}}` content blocks from `StagedImage` data
 - [ ] All existing provider tests pass (no regressions in OpenAI-compatible or Gemini adapters)
 - [ ] New unit tests cover Anthropic image content block construction and capability declaration
-- [ ] Router and reliable provider correctly route image turns to Anthropic when it is the selected provider
+- [ ] Router and reliable provider correctly route image turns to Anthropic when it is the selected
+  provider
 - [ ] Provider capability matrix is documented as a formal spec with Given/When/Then scenarios
 - [ ] `cargo test` and `cargo clippy` pass with no warnings

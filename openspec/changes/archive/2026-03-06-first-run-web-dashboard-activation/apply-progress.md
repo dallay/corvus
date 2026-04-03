@@ -28,15 +28,15 @@ Completed (Phase 6 handoff gate passed).
 ## Tests run
 
 - `cargo fmt --all -- --check`
-  - Passed: formatting check clean for `clients/agent-runtime`.
+    - Passed: formatting check clean for `clients/agent-runtime`.
 - `cargo clippy --all-targets -- -D warnings`
-  - Passed: lint check clean for `clients/agent-runtime`.
+    - Passed: lint check clean for `clients/agent-runtime`.
 - `cargo test dashboard_`
-  - Passed: 16 dashboard onboarding tests in `src/lib.rs` and 17 in `src/main.rs` (all green).
+    - Passed: 16 dashboard onboarding tests in `src/lib.rs` and 17 in `src/main.rs` (all green).
 - `cargo test dashboard_resume_status_lines_include_help_and_secure_pairing_path`
-  - Passed: 1 status resume-handoff unit test in `src/main.rs` (green).
+    - Passed: 1 status resume-handoff unit test in `src/main.rs` (green).
 - `pnpm --filter @corvus/docs run check`
-  - Passed: Biome check for docs app (`Checked 6 files`, no issues).
+    - Passed: Biome check for docs app (`Checked 6 files`, no issues).
 
 ## Remaining tasks
 

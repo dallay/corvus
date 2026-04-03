@@ -84,22 +84,24 @@ nudges.
 ### Recommended Scope Boundaries
 
 - **In scope (phase 1)**
-  - Add a first-class `corvus update` command group (`check`, `install`, `status`, and confirmation
-    plumbing as needed).
-  - Introduce install-method detection and persistence (detected + user-overridable) with a safe
-    fallback matrix.
-  - Expand update config with explicit policy knobs (auto-check cadence, auto-install mode, restart
-    behavior, visibility channels) plus env overrides.
-  - Implement process-safe/atomic update state and install transaction guards.
-  - Unify notification payloads across CLI banner, in-conversation mention, and machine-readable
-    indicator endpoints.
-  - Add focused tests for detection, policy gating, atomic state transitions, confirmation safety,
-    and command UX.
+    - Add a first-class `corvus update` command group (`check`, `install`, `status`, and
+      confirmation
+      plumbing as needed).
+    - Introduce install-method detection and persistence (detected + user-overridable) with a safe
+      fallback matrix.
+    - Expand update config with explicit policy knobs (auto-check cadence, auto-install mode,
+      restart
+      behavior, visibility channels) plus env overrides.
+    - Implement process-safe/atomic update state and install transaction guards.
+    - Unify notification payloads across CLI banner, in-conversation mention, and machine-readable
+      indicator endpoints.
+    - Add focused tests for detection, policy gating, atomic state transitions, confirmation safety,
+      and command UX.
 - **Out of scope (phase 1)**
-  - Re-architecting release pipeline/package ecosystem beyond verification metadata consumption.
-  - Building a full standalone update UI in unrelated clients; expose API/typed fields first, then
-    incremental frontend adoption.
-  - Force-updating running sessions without explicit restart strategy and rollback semantics.
+    - Re-architecting release pipeline/package ecosystem beyond verification metadata consumption.
+    - Building a full standalone update UI in unrelated clients; expose API/typed fields first, then
+      incremental frontend adoption.
+    - Force-updating running sessions without explicit restart strategy and rollback semantics.
 
 ### Ready for Proposal
 

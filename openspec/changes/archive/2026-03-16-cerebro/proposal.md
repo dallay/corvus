@@ -56,8 +56,8 @@ Cerebro, retaining legacy tool names as aliases during a transition period.
 |-----------------------------------------------|------------|-----------------------------------------------------------------------|
 | Memory regressions from backend removal       | Medium     | Maintain legacy tool aliases; validate via integration tests.         |
 | Data loss or missing history                  | Medium     | Preserve existing SQLite/local memory; plan migration in later phase. |
-| MCP connectivity failures                     | Medium     | Return structured errors, log/alert on failures, and enforce no
-|                                               |            | fallback to local memory (legacy-only opt-in is out of scope).         |
+| MCP connectivity failures                     | Medium     | Return structured errors, log/alert on failures, and enforce no       
+|                                               |            | fallback to local memory (legacy-only opt-in is out of scope).        |
 | Security misconfiguration of remote endpoints | Low        | Enforce secure defaults and explicit opt-in for insecure modes.       |
 
 ## Rollback Plan

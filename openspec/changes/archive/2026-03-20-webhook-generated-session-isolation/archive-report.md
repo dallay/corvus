@@ -17,8 +17,8 @@ modifying the base spec.
 
 ## Specs Synced
 
-| Domain | Action | Details |
-|--------|--------|---------|
+| Domain     | Action    | Details                                                                                                                                                                                                                                                    |
+|------------|-----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | agent-loop | No change | No delta spec was created under `openspec/changes/webhook-generated-session-isolation/specs/` because the follow-up closed a proof gap only; `openspec/specs/agent-loop/spec.md` already contains `Gateway Webhook Session Scoping` and required no merge. |
 
 ## Archive Operation

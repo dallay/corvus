@@ -11,10 +11,10 @@ security defaults.
 
 - Add an optional final onboarding prompt to activate the web dashboard immediately.
 - If accepted, provide one-screen actionable guidance (3-5 steps) covering:
-  - dashboard URL,
-  - gateway status,
-  - pairing instructions,
-  - optional browser-open attempt when supported.
+    - dashboard URL,
+    - gateway status,
+    - pairing instructions,
+    - optional browser-open attempt when supported.
 - Preserve `gateway.require_pairing = true` behavior and avoid secret leakage in onboarding
   logs/output.
 - Provide deterministic activation diagnostics and exact manual fallback commands.
@@ -47,11 +47,13 @@ security defaults.
 1. Insert a final interactive prompt in onboarding after existing summary output and before exit.
 2. Keep decline path behavior stable by reusing current messaging and command flow.
 3. For accept path, render a compact activation panel with:
-  - canonical local URLs,
-  - current gateway status and pairing expectation,
-  - stepwise instructions to pair via dashboard,
-  - best-effort browser-open attempt when platform/runtime support exists (with explicit non-fatal
-    fallback).
+
+- canonical local URLs,
+- current gateway status and pairing expectation,
+- stepwise instructions to pair via dashboard,
+- best-effort browser-open attempt when platform/runtime support exists (with explicit non-fatal
+  fallback).
+
 4. Run bounded checks (no unbounded waits) to classify activation outcome into deterministic
    categories and print exact commands for manual recovery.
 5. Add a "resume later" command hint block that users can run verbatim.
@@ -85,21 +87,26 @@ security defaults.
 ## Proposed Implementation Phases
 
 1. **Onboarding Prompt + Branch Control**
-  - Add final "activate now" prompt.
-  - Preserve decline branch output/flow parity.
+
+- Add final "activate now" prompt.
+- Preserve decline branch output/flow parity.
 
 2. **Activation Guidance + Optional Browser Open**
-  - Implement one-screen 3-5 step guidance block.
-  - Add non-fatal optional browser-open attempt with clear fallback text.
+
+- Implement one-screen 3-5 step guidance block.
+- Add non-fatal optional browser-open attempt with clear fallback text.
 
 3. **Deterministic Diagnostics + Manual Fallbacks**
-  - Add bounded status checks and deterministic condition mapping.
-  - Attach exact manual fallback commands per condition.
+
+- Add bounded status checks and deterministic condition mapping.
+- Attach exact manual fallback commands per condition.
 
 4. **Resume-Later Path + Docs**
-  - Add explicit resume command hints in onboarding output.
-  - Update user docs for activation, troubleshooting, and resume.
+
+- Add explicit resume command hints in onboarding output.
+- Update user docs for activation, troubleshooting, and resume.
 
 5. **Testing + Rollout Hardening**
-  - Add/expand unit/integration tests for accept/decline, diagnostics, and secret-safe output.
-  - Validate command examples and docs consistency before spec/design handoff.
+
+- Add/expand unit/integration tests for accept/decline, diagnostics, and secret-safe output.
+- Validate command examples and docs consistency before spec/design handoff.

@@ -94,6 +94,7 @@ pub const EMBEDDED_INDEX: &str = include_str!("skills/catalog_index.toml");
 ```
 
 Runtime index resolution strategy (implemented in `catalog.rs`):
+
 1. Check cached index at `{workspace}/catalog-index-cache.toml` — use if < 24h old.
 2. If stale/missing, attempt HTTP GET from GitHub raw content (3s timeout).
 3. On success: update cache, use fresh index.
@@ -109,6 +110,7 @@ present.
 treat as a catalog name lookup.
 
 **Install flow** (`skills install <bare-name>`):
+
 1. Resolve name in catalog index (cached → embedded).
 2. Construct official repo URL from hardcoded constant (`dallay/corvus-skills`).
 3. Sparse checkout or shallow clone of the skill path.
@@ -126,6 +128,7 @@ catalog index. Works offline via embedded index fallback.
 **List catalog** (`skills list --catalog`): Display all official skills, marking installed ones.
 
 **CLI expansion**:
+
 ```rust
 enum SkillCommands {
     List,                                             // existing
@@ -156,6 +159,7 @@ generation).
 ### Task Group 5: SkillForge Trust Boundaries
 
 Replace the auto-integrate pipeline with an explicit `corvus skills discover` command:
+
 1. Runs Scout → Evaluate pipeline (existing code).
 2. Displays results in a table (name, URL, score) without writing to disk.
 3. User explicitly installs via `corvus skills install <url>` (standard ThirdParty flow).
@@ -165,6 +169,7 @@ Deprecate `auto_integrate` config option. When set, emit warning and ignore.
 ### Task Group 6: Lockfile Repair
 
 `corvus skills lock repair`:
+
 1. Scan `{workspace}/skills/` for directories with SKILL.md (or SKILL.toml).
 2. Read existing lockfile (tolerate corruption — start empty if corrupt).
 3. For each skill on disk: verify existing entry or create new one (default Local).
@@ -175,6 +180,7 @@ Deprecate `auto_integrate` config option. When set, emit warning and ignore.
 ### Task Group 7: Skills Update
 
 `corvus skills update [name]`:
+
 - **Official skills**: Check catalog index for newer version (compare content_hash or version).
   If newer, re-fetch from official repo, update lockfile entry.
 - **Third-party (GitRepo)**: Re-clone from source URL, update content_hash and pinned_ref.
@@ -193,32 +199,32 @@ Following the exploration's phased sub-release recommendation:
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/skills/catalog.rs` | New | Catalog index types, parsing, cache, search |
-| `clients/agent-runtime/src/skills/mod.rs` | Modified | Catalog install path, bare-name detection, `SkillCommands` expansion |
-| `clients/agent-runtime/src/skills/trust.rs` | Modified | Official source detection in `lock_entry_to_origin()` |
-| `clients/agent-runtime/src/skills/lockfile.rs` | Modified | Official variant in `lock_entry_to_origin()`, repair command |
-| `clients/agent-runtime/src/skills/frontmatter.rs` | Modified | Parse `version`, `author`, `tags` fields |
-| `clients/agent-runtime/src/skillforge/mod.rs` | Modified | Discover command, deprecate auto-integrate |
-| `clients/agent-runtime/src/skillforge/integrate.rs` | Modified | Stop generating SKILL.toml |
-| `clients/agent-runtime/src/lib.rs` | Modified | New CLI subcommands (search, update, lock repair, discover) |
-| `clients/agent-runtime/src/config/schema.rs` | Modified | `SkillsConfig` expansion (catalog_url, cache settings) |
-| `clients/agent-runtime/build.rs` | New | Embedded index const generation |
-| `clients/agent-runtime/src/skills/catalog_index.toml` | New | Committed index snapshot (initially empty/minimal) |
-| `clients/agent-runtime/Cargo.toml` | Modified | build.rs declaration (no new deps expected) |
+| Area                                                  | Impact   | Description                                                          |
+|-------------------------------------------------------|----------|----------------------------------------------------------------------|
+| `clients/agent-runtime/src/skills/catalog.rs`         | New      | Catalog index types, parsing, cache, search                          |
+| `clients/agent-runtime/src/skills/mod.rs`             | Modified | Catalog install path, bare-name detection, `SkillCommands` expansion |
+| `clients/agent-runtime/src/skills/trust.rs`           | Modified | Official source detection in `lock_entry_to_origin()`                |
+| `clients/agent-runtime/src/skills/lockfile.rs`        | Modified | Official variant in `lock_entry_to_origin()`, repair command         |
+| `clients/agent-runtime/src/skills/frontmatter.rs`     | Modified | Parse `version`, `author`, `tags` fields                             |
+| `clients/agent-runtime/src/skillforge/mod.rs`         | Modified | Discover command, deprecate auto-integrate                           |
+| `clients/agent-runtime/src/skillforge/integrate.rs`   | Modified | Stop generating SKILL.toml                                           |
+| `clients/agent-runtime/src/lib.rs`                    | Modified | New CLI subcommands (search, update, lock repair, discover)          |
+| `clients/agent-runtime/src/config/schema.rs`          | Modified | `SkillsConfig` expansion (catalog_url, cache settings)               |
+| `clients/agent-runtime/build.rs`                      | New      | Embedded index const generation                                      |
+| `clients/agent-runtime/src/skills/catalog_index.toml` | New      | Committed index snapshot (initially empty/minimal)                   |
+| `clients/agent-runtime/Cargo.toml`                    | Modified | build.rs declaration (no new deps expected)                          |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Embedded index becomes stale if manual sync is forgotten | Medium | CI workflow to auto-open PR when skills repo changes; embedded index is floor not ceiling — runtime fetches latest when online |
-| Sparse git checkout fails on older git versions | Low | Fall back to shallow clone of entire repo; only copy target skill directory |
-| Catalog name squatting in official repo | Low | Review process for official repo; reserved namespace for core skills |
-| build.rs adds build-time complexity | Low | Keep minimal — just const generation from committed file, no network, no complex logic |
-| SKILL.toml deprecation warnings disrupt existing users | Low | Warnings are informational only; SKILL.toml continues to work throughout Phase 2 |
-| SkillForge discover command breaks existing workflows | Low | Auto-integrate was already disabled by default; deprecation warning before removal |
-| Bare-name heuristic misclassifies unusual paths | Low | Heuristic is conservative (any `/`, `\`, `.`, `:` triggers URL/path mode); document edge cases |
+| Risk                                                     | Likelihood | Mitigation                                                                                                                     |
+|----------------------------------------------------------|------------|--------------------------------------------------------------------------------------------------------------------------------|
+| Embedded index becomes stale if manual sync is forgotten | Medium     | CI workflow to auto-open PR when skills repo changes; embedded index is floor not ceiling — runtime fetches latest when online |
+| Sparse git checkout fails on older git versions          | Low        | Fall back to shallow clone of entire repo; only copy target skill directory                                                    |
+| Catalog name squatting in official repo                  | Low        | Review process for official repo; reserved namespace for core skills                                                           |
+| build.rs adds build-time complexity                      | Low        | Keep minimal — just const generation from committed file, no network, no complex logic                                         |
+| SKILL.toml deprecation warnings disrupt existing users   | Low        | Warnings are informational only; SKILL.toml continues to work throughout Phase 2                                               |
+| SkillForge discover command breaks existing workflows    | Low        | Auto-integrate was already disabled by default; deprecation warning before removal                                             |
+| Bare-name heuristic misclassifies unusual paths          | Low        | Heuristic is conservative (any `/`, `\`, `.`, `:` triggers URL/path mode); document edge cases                                 |
 
 ## Rollback Plan
 
@@ -257,7 +263,8 @@ dependencies.
 - [ ] `corvus skills list --catalog` shows all official skills with install status
 - [ ] `lock_entry_to_origin()` reconstructs `SkillSource::Official` from `"official:"` prefix
 - [ ] Official skills installed via catalog get `Official` trust without trust gate prompt
-- [ ] Installing official repo URL directly (`skills install https://...`) still produces `ThirdParty` — privilege escalation prevented
+- [ ] Installing official repo URL directly (`skills install https://...`) still produces
+  `ThirdParty` — privilege escalation prevented
 - [ ] Frontmatter parser handles `version`, `author`, `tags` fields
 - [ ] Loading SKILL.toml emits deprecation warning
 - [ ] SkillForge integrator generates only SKILL.md (no SKILL.toml)

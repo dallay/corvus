@@ -136,12 +136,12 @@ Extensible to new domains. The dot-to-underscore mapping for Compose is mechanic
 
 **Platform mappings**:
 
-| Canonical Token               | Web (CSS Custom Property)           | Compose (Theme)                     |
-|-------------------------------|-------------------------------------|-------------------------------------|
-| `corvus.color.bg.primary`     | `--corvus-color-bg-primary`         | `CorvusTheme.colors.bgPrimary`      |
-| `corvus.color.accent.default` | `--corvus-color-accent-default`     | `CorvusTheme.colors.accentDefault`  |
-| `corvus.font.heading`         | `--corvus-font-heading`             | `CorvusTheme.typography.heading`    |
-| `corvus.radius.md`            | `--corvus-radius-md`                | `CorvusTheme.shape.radiusMd`        |
+| Canonical Token               | Web (CSS Custom Property)       | Compose (Theme)                    |
+|-------------------------------|---------------------------------|------------------------------------|
+| `corvus.color.bg.primary`     | `--corvus-color-bg-primary`     | `CorvusTheme.colors.bgPrimary`     |
+| `corvus.color.accent.default` | `--corvus-color-accent-default` | `CorvusTheme.colors.accentDefault` |
+| `corvus.font.heading`         | `--corvus-font-heading`         | `CorvusTheme.typography.heading`   |
+| `corvus.radius.md`            | `--corvus-radius-md`            | `CorvusTheme.shape.radiusMd`       |
 
 **Categories**: `color`, `font`, `radius`, `spacing`, `transition`, `glass`, `gradient`
 

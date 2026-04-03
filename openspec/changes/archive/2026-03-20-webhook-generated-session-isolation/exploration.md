@@ -24,7 +24,8 @@ boundary. That proof now exists in
 `clients/agent-runtime/src/gateway/mod.rs`, which covers the dispatcher-backed `/webhook` request
 that omits `X-Session-Id` and proves the generated session stays isolated end-to-end.
 
-The lower-layer agent proof remains useful context: `turn_with_context_keeps_missing_session_isolated`
+The lower-layer agent proof remains useful context:
+`turn_with_context_keeps_missing_session_isolated`
 in `clients/agent-runtime/src/agent/tests.rs` proves `TurnContext::default()` keeps recall/store
 session scope as `None`, while the gateway test above closes the HTTP-boundary proof required by
 the `/webhook` session-scoping scenario in `openspec/specs/agent-loop/spec.md`.
@@ -50,18 +51,18 @@ the `/webhook` session-scoping scenario in `openspec/specs/agent-loop/spec.md`.
    dispatcher-backed `/webhook` test suite to omit `X-Session-Id`, assert the response returns a
    generated `webhook-` session id, and verify memory recall/store saw only that same generated
    session.
-   - Pros: Directly closes the archived warning, exercises the real gateway adapter, keeps scope
-     minimal, no production behavior changes.
-   - Cons: Likely needs a richer test double than the current gateway `TrackingMemory`, because
-     that helper records keys but not session ids.
-   - Effort: Low.
+    - Pros: Directly closes the archived warning, exercises the real gateway adapter, keeps scope
+      minimal, no production behavior changes.
+    - Cons: Likely needs a richer test double than the current gateway `TrackingMemory`, because
+      that helper records keys but not session ids.
+    - Effort: Low.
 
 2. **Add broader webhook parity coverage bundle** — combine missing-session proof with
    MCP success/timeout/error mapping and other archived warnings in one follow-up.
-   - Pros: Reduces the number of change artifacts.
-   - Cons: Mixes unrelated proof gaps, increases review and regression surface, and weakens the
-     focus of this follow-up.
-   - Effort: Medium.
+    - Pros: Reduces the number of change artifacts.
+    - Cons: Mixes unrelated proof gaps, increases review and regression surface, and weakens the
+      focus of this follow-up.
+    - Effort: Medium.
 
 ## Recommendation
 

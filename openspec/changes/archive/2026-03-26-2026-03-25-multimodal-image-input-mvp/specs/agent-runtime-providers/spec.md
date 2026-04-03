@@ -13,12 +13,15 @@ unknown, or disabled, the system MUST treat that provider/account as text-only f
 purposes.
 
 #### Scenario: Provider declares accepted image transport forms
+
 - GIVEN a Gemini or OpenAI-compatible provider/account is configured for MVP image input
 - WHEN the runtime loads provider capability metadata
 - THEN the system MUST expose that the provider/account supports image input
-- AND the system MUST expose which of the MVP transport forms are accepted for that provider/account.
+- AND the system MUST expose which of the MVP transport forms are accepted for that
+  provider/account.
 
 #### Scenario: Undeclared provider remains text-only
+
 - GIVEN a provider/account configuration does not declare image-input capability
 - WHEN the runtime evaluates that provider/account for an image turn
 - THEN the system MUST treat the provider/account as not image-capable
@@ -31,6 +34,7 @@ this MVP. The system MUST NOT promise canonical inbound image support for Anthro
 OpenRouter-specific routing, or any other provider family as part of this change.
 
 #### Scenario: In-scope providers are eligible for MVP image routing
+
 - GIVEN the runtime evaluates configured providers for a canonical image turn
 - WHEN a configured provider belongs to the OpenAI-compatible family or Gemini and declares image
   capability
@@ -38,6 +42,7 @@ OpenRouter-specific routing, or any other provider family as part of this change
 - AND eligibility MUST still depend on capability and transport-form compatibility.
 
 #### Scenario: Out-of-scope provider is excluded from MVP promise
+
 - GIVEN Anthropic or another non-MVP provider is configured in the runtime
 - WHEN the runtime evaluates the provider for a canonical image turn
 - THEN the system MUST NOT treat that provider as covered by this MVP image contract
@@ -54,6 +59,7 @@ MUST return a structured unsupported or unavailable outcome and SHOULD surface a
 explanation.
 
 #### Scenario: Eligible provider receives the canonical image turn
+
 - GIVEN a canonical image turn is ready for provider routing
 - WHEN the selected provider/account declares image support and accepts the available normalized
   image transport form
@@ -61,6 +67,7 @@ explanation.
 - AND the request MUST preserve the canonical image content needed for provider reasoning.
 
 #### Scenario: No capable provider is available
+
 - GIVEN a canonical image turn is ready for routing
 - AND all configured providers are text-only, disabled for image input, or incompatible with the
   available image transport form
@@ -77,12 +84,14 @@ MUST redact raw image payloads from logs and diagnostics, and MUST NOT retain ra
 than required to complete the provider request.
 
 #### Scenario: Runtime-managed inline payload is used for a validated image
+
 - GIVEN a provider/account accepts runtime-managed inline image payloads
 - WHEN the runtime has already validated and normalized the inbound image
 - THEN the provider adapter MUST send only the minimum normalized payload needed for the request
 - AND the adapter MUST NOT emit the raw image bytes into logs or diagnostics.
 
 #### Scenario: Remote reference is rejected when it would weaken safety controls
+
 - GIVEN a provider/account can fetch remote media references
 - WHEN using that remote reference would bypass required validation, determinism, or audit controls
 - THEN the system SHOULD choose Corvus-managed retrieval and normalization instead

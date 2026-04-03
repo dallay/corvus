@@ -195,12 +195,12 @@ allowed-tools:
 
 Enforcement rules:
 
-| Trust Tier   | `allowed-tools` declared | Behavior                              |
-|-------------|--------------------------|---------------------------------------|
-| Official    | Any                      | All tools allowed                     |
-| Local       | Any                      | All tools allowed                     |
-| ThirdParty  | Yes                      | Only declared tools exposed to agent  |
-| ThirdParty  | No                       | Instruction-only (no tools available) |
+| Trust Tier | `allowed-tools` declared | Behavior                              |
+|------------|--------------------------|---------------------------------------|
+| Official   | Any                      | All tools allowed                     |
+| Local      | Any                      | All tools allowed                     |
+| ThirdParty | Yes                      | Only declared tools exposed to agent  |
+| ThirdParty | No                       | Instruction-only (no tools available) |
 
 At runtime, when building the tool list for a skill activation, filter `SkillTool` entries against
 the `allowed-tools` list for third-party skills.
@@ -214,39 +214,40 @@ Updated `skills install <source>` flow:
 3. **Fetch metadata** — for git sources, shallow-clone and read SKILL.md frontmatter
 4. **Validate structure** — SKILL.md exists, frontmatter parses, name matches directory
 5. **Trust gate** — if `ThirdParty` and `allowed-tools` declares tools:
-   - If `--trust` flag provided: proceed
-   - If TTY available: prompt user with tool list and ask for confirmation
-   - If neither: abort with message explaining `--trust` flag
+    - If `--trust` flag provided: proceed
+    - If TTY available: prompt user with tool list and ask for confirmation
+    - If neither: abort with message explaining `--trust` flag
 6. **Install** — clone/copy to `~/.corvus/workspace/skills/<name>/`
 7. **Compute integrity** — SHA-256 hash of SKILL.md content
 8. **Write lock entry** — append/update entry in `skills.lock`
 
 New CLI flags on `skills install`:
+
 - `--trust` — acknowledge third-party trust for skills with tools
 
 Expand `SkillCommands` enum in `lib.rs` to support the `--trust` flag on install.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/skills/mod.rs` | Modified | Add `SkillTrust`, `SkillOrigin`, `SkillSource` types. Modify `Skill` struct. Update `load_skills()` to populate trust/origin. Add lockfile read/write. Update install flow with trust gating. Change `open_skills_enabled()` default. |
-| `clients/agent-runtime/src/agent/prompt.rs` | Modified | Update `render_skills_section` for trust-aware rendering: sort by tier, add `trust` attribute, add third-party caution note. |
-| `clients/agent-runtime/src/channels/mod.rs` | Modified | Pass skills trust configuration to prompt builder if needed. |
-| `clients/agent-runtime/src/main.rs` | Modified | Add `--trust` flag to `skills install` CLI command. |
-| `clients/agent-runtime/src/lib.rs` | Modified | Expand `SkillCommands` enum with `--trust` option on install. |
-| `clients/agent-runtime/src/config/` | Modified | Add `skills.legacy_open_skills` configuration option. |
+| Area                                        | Impact   | Description                                                                                                                                                                                                                           |
+|---------------------------------------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/skills/mod.rs`   | Modified | Add `SkillTrust`, `SkillOrigin`, `SkillSource` types. Modify `Skill` struct. Update `load_skills()` to populate trust/origin. Add lockfile read/write. Update install flow with trust gating. Change `open_skills_enabled()` default. |
+| `clients/agent-runtime/src/agent/prompt.rs` | Modified | Update `render_skills_section` for trust-aware rendering: sort by tier, add `trust` attribute, add third-party caution note.                                                                                                          |
+| `clients/agent-runtime/src/channels/mod.rs` | Modified | Pass skills trust configuration to prompt builder if needed.                                                                                                                                                                          |
+| `clients/agent-runtime/src/main.rs`         | Modified | Add `--trust` flag to `skills install` CLI command.                                                                                                                                                                                   |
+| `clients/agent-runtime/src/lib.rs`          | Modified | Expand `SkillCommands` enum with `--trust` option on install.                                                                                                                                                                         |
+| `clients/agent-runtime/src/config/`         | Modified | Add `skills.legacy_open_skills` configuration option.                                                                                                                                                                                 |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Breaking existing users who rely on open-skills content | Medium | Soft deprecation: default off with config escape hatch (`skills.legacy_open_skills`), deprecation warning, documentation. Hard removal deferred to Phase 2. |
-| Lockfile corruption or desync with actual installed skills | Low | Treat lockfile as advisory — skills present on disk without lock entries default to `Local`. Add `skills lock repair` in Phase 2 if needed. |
-| Prompt token increase from trust attributes and caution notes | Low | Additions are minimal: one XML attribute per skill, one-line note only for third-party. Measured impact expected < 100 tokens. |
-| `allowed-tools` parsing fragility with varied YAML formats | Low | Follow Agent Skills standard exactly. Treat parse failures as "no tools declared" (safe default). |
-| Users frustrated by `--trust` gate on third-party install | Low | Gate only triggers when third-party skills declare tools. Instruction-only skills install without friction. Clear error message explains the flag. |
-| Phase 2 delays leave no official skills catalog | Medium | Phase 1 is self-contained and valuable without an official repo. Local and third-party workflows work independently. |
+| Risk                                                          | Likelihood | Mitigation                                                                                                                                                  |
+|---------------------------------------------------------------|------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Breaking existing users who rely on open-skills content       | Medium     | Soft deprecation: default off with config escape hatch (`skills.legacy_open_skills`), deprecation warning, documentation. Hard removal deferred to Phase 2. |
+| Lockfile corruption or desync with actual installed skills    | Low        | Treat lockfile as advisory — skills present on disk without lock entries default to `Local`. Add `skills lock repair` in Phase 2 if needed.                 |
+| Prompt token increase from trust attributes and caution notes | Low        | Additions are minimal: one XML attribute per skill, one-line note only for third-party. Measured impact expected < 100 tokens.                              |
+| `allowed-tools` parsing fragility with varied YAML formats    | Low        | Follow Agent Skills standard exactly. Treat parse failures as "no tools declared" (safe default).                                                           |
+| Users frustrated by `--trust` gate on third-party install     | Low        | Gate only triggers when third-party skills declare tools. Instruction-only skills install without friction. Clear error message explains the flag.          |
+| Phase 2 delays leave no official skills catalog               | Medium     | Phase 1 is self-contained and valuable without an official repo. Local and third-party workflows work independently.                                        |
 
 ## Rollback Plan
 
@@ -272,11 +273,11 @@ requiring a code change.
 ## Success Criteria
 
 - [ ] `SkillTrust` enum and `SkillOrigin` struct are added to the `Skill` type, populated at load
-      time, and never independently mutable
+  time, and never independently mutable
 - [ ] `open_skills_enabled()` returns `false` by default; enabling it emits a deprecation warning
 - [ ] `skills.legacy_open_skills` config option exists and works as an opt-in override
 - [ ] `skills.lock` is written on `skills install` with trust tier, source, pinned ref, content
-      hash, and install timestamp
+  hash, and install timestamp
 - [ ] `<skill>` XML elements in prompt output include a `trust` attribute
 - [ ] Skills are rendered in trust-priority order: official → local → third-party
 - [ ] Third-party skills include a caution note in rendered prompt
@@ -284,10 +285,10 @@ requiring a code change.
 - [ ] Third-party skills without `allowed-tools` are instruction-only (no tools exposed)
 - [ ] Third-party skills with `allowed-tools` only expose declared tools
 - [ ] `skills install` for third-party skills with tools requires `--trust` flag or interactive
-      confirmation
+  confirmation
 - [ ] All existing tests pass (no regression from trust model additions)
 - [ ] New unit tests cover: trust derivation from origin, lockfile serialization/deserialization,
-      `allowed-tools` parsing, prompt rendering with trust tiers
+  `allowed-tools` parsing, prompt rendering with trust tiers
 
 ## Follow-Up Changes
 

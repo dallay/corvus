@@ -77,22 +77,25 @@ limits/timeouts/body limits, and idempotency tracking.
 
 1. **Document Current Active Loop (`loop_.rs`-first)** — Treat current behavior as source of truth
    and write SDD around existing control flow.
-  - Pros: lowest ambiguity, fastest to proposal, directly reflects production path.
-  - Cons: encodes known duplication with modular `Agent` path and may harden legacy structure.
-  - Effort: Low.
+
+- Pros: lowest ambiguity, fastest to proposal, directly reflects production path.
+- Cons: encodes known duplication with modular `Agent` path and may harden legacy structure.
+- Effort: Low.
 
 2. **Define Target Fundamentals Around Modular `Agent` + `ToolDispatcher`** — Use `agent/agent.rs` +
    `dispatcher.rs` as intended architecture and map migration from `loop_.rs`.
-  - Pros: cleaner separation (prompt, dispatch, memory load, execution), easier future
-    hooks/extensibility.
-  - Cons: requires explicit migration plan and compatibility matrix for channels/CLI/gateway.
-  - Effort: Medium.
+
+- Pros: cleaner separation (prompt, dispatch, memory load, execution), easier future
+  hooks/extensibility.
+- Cons: requires explicit migration plan and compatibility matrix for channels/CLI/gateway.
+- Effort: Medium.
 
 3. **Hybrid Spec (As-Is Baseline + Migration Track)** — Capture current active loop behavior, then
    define staged convergence to modular agent runtime.
-  - Pros: safest for delivery, preserves current contracts while reducing architecture drift.
-  - Cons: larger spec/design surface and more acceptance criteria.
-  - Effort: Medium.
+
+- Pros: safest for delivery, preserves current contracts while reducing architecture drift.
+- Cons: larger spec/design surface and more acceptance criteria.
+- Effort: Medium.
 
 ### Recommendation
 

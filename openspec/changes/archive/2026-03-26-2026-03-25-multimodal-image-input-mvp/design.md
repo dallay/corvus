@@ -60,6 +60,7 @@ existing plain-text `content` field stays as a derived text projection for backw
 runtime paths.
 
 **Alternatives considered**:
+
 - Replace all text fields with part arrays immediately.
 - Keep the runtime fully text-only and tunnel images through sidecar summaries.
 
@@ -74,6 +75,7 @@ source of truth for image turns.
 payloads to providers.
 
 **Alternatives considered**:
+
 - Hand raw channel URLs to providers.
 - Persist inbound images directly in memory or on disk for later reuse.
 
@@ -87,6 +89,7 @@ and redaction under one trusted boundary. It also avoids storing user images bey
 `hint:<name>` routing. The selected route must be explicitly marked as image-capable.
 
 **Alternatives considered**:
+
 - Assume the default provider/model can accept images.
 - Infer vision support from provider name or model string heuristics.
 
@@ -100,6 +103,7 @@ vision route, and text turns keep their current routing behavior.
 it forwards parsed messages into the same canonical channel runtime loop used by other channels.
 
 **Alternatives considered**:
+
 - Keep a WhatsApp-specific `simple_chat()` multimodal adapter in the gateway.
 - Delay WhatsApp until a later change.
 
@@ -113,6 +117,7 @@ expanding it.
 memory retain only the text projection, not raw image data or reusable image handles.
 
 **Alternatives considered**:
+
 - Persist staged image handles in channel history for follow-up turns.
 - Generate and store text summaries of every admitted image.
 
@@ -125,20 +130,20 @@ semantics that materially expand scope. The MVP optimizes for safe single-turn i
 
 `ChannelMessage` becomes the canonical inbound envelope for multimodal turns with these semantics:
 
-| Field | Semantics |
-|------|-----------|
-| `id`, `sender`, `reply_target`, `channel`, `timestamp` | Unchanged identity and reply routing |
-| `content` | Derived plain-text projection used by existing memory/blocking/logging paths |
-| `parts` | Canonical ordered content parts for the inbound turn |
+| Field                                                  | Semantics                                                                    |
+|--------------------------------------------------------|------------------------------------------------------------------------------|
+| `id`, `sender`, `reply_target`, `channel`, `timestamp` | Unchanged identity and reply routing                                         |
+| `content`                                              | Derived plain-text projection used by existing memory/blocking/logging paths |
+| `parts`                                                | Canonical ordered content parts for the inbound turn                         |
 
 ### Content parts
 
 Only two part kinds are valid in this change:
 
-| Part kind | Required fields | Notes |
-|-----------|-----------------|-------|
-| `text` | `text` | Used for message body text and captions |
-| `image` | `channel_handle`, `source_channel`, `declared_mime`, `caption_text`, `file_name`, `declared_bytes` | Represents an image reference before fetch/staging |
+| Part kind | Required fields                                                                                    | Notes                                              |
+|-----------|----------------------------------------------------------------------------------------------------|----------------------------------------------------|
+| `text`    | `text`                                                                                             | Used for message body text and captions            |
+| `image`   | `channel_handle`, `source_channel`, `declared_mime`, `caption_text`, `file_name`, `declared_bytes` | Represents an image reference before fetch/staging |
 
 ### Text projection rules
 
@@ -155,14 +160,14 @@ while an image-only turn produces an empty text projection.
 
 After validation, each admitted image produces a runtime-only staged image record:
 
-| Field | Semantics |
-|------|-----------|
-| `sha256` | Deterministic content fingerprint for dedupe and telemetry |
-| `mime_type` | Final MIME after sniff/validation |
-| `byte_len` | Final admitted size |
-| `temp_path` | Ephemeral runtime path used only during the active turn |
+| Field            | Semantics                                                  |
+|------------------|------------------------------------------------------------|
+| `sha256`         | Deterministic content fingerprint for dedupe and telemetry |
+| `mime_type`      | Final MIME after sniff/validation                          |
+| `byte_len`       | Final admitted size                                        |
+| `temp_path`      | Ephemeral runtime path used only during the active turn    |
 | `transport_form` | Canonical staging form handed to adapters (`inline_bytes`) |
-| `channel_origin` | Minimal source reference for logs and audit correlation |
+| `channel_origin` | Minimal source reference for logs and audit correlation    |
 
 Staged images are not serialized into conversation history, memory, or observer payloads.
 
@@ -252,16 +257,17 @@ The validation pipeline is shared across Telegram and WhatsApp image turns.
 
 ### MVP admission rules
 
-| Rule | Decision |
-|------|----------|
-| Allowed MIME types | `image/jpeg`, `image/png`, `image/webp` |
-| Rejected MIME types | all others, including document, audio, video, and animated formats |
-| Max admitted images per turn | 1 |
-| Max admitted bytes per image | 10 MiB |
-| Download policy | streamed with bounded timeouts; abort on ceiling exceed |
-| Text-only fallback on image failure | not allowed |
+| Rule                                | Decision                                                           |
+|-------------------------------------|--------------------------------------------------------------------|
+| Allowed MIME types                  | `image/jpeg`, `image/png`, `image/webp`                            |
+| Rejected MIME types                 | all others, including document, audio, video, and animated formats |
+| Max admitted images per turn        | 1                                                                  |
+| Max admitted bytes per image        | 10 MiB                                                             |
+| Download policy                     | streamed with bounded timeouts; abort on ceiling exceed            |
+| Text-only fallback on image failure | not allowed                                                        |
 
-The runtime must treat declared MIME as advisory only. Final admission depends on sniffed content and
+The runtime must treat declared MIME as advisory only. Final admission depends on sniffed content
+and
 successful staging.
 
 ## Provider Capability Gating
@@ -271,10 +277,10 @@ successful staging.
 `ProviderCapabilities` is extended so the runtime can make an explicit admission decision before
 calling a provider. The capability contract must cover:
 
-| Capability | Meaning |
-|-----------|---------|
-| `native_tool_calling` | Existing meaning, unchanged |
-| `image_input` | Whether the provider/model can accept image parts |
+| Capability              | Meaning                                                   |
+|-------------------------|-----------------------------------------------------------|
+| `native_tool_calling`   | Existing meaning, unchanged                               |
+| `image_input`           | Whether the provider/model can accept image parts         |
 | `image_transport_forms` | Which canonical image transport forms the adapter accepts |
 
 For this MVP, only one canonical transport form is used downstream: `inline_bytes`. Adapters may
@@ -286,20 +292,20 @@ Image support is not inferred from provider identity alone. The selected model r
 
 The design adds rollout metadata to the existing model route configuration:
 
-| Route field | Purpose |
-|-------------|---------|
-| `hint` | Existing route selector |
-| `provider` / `model` | Existing provider target |
-| `allow_image_input` | Explicit opt-in for multimodal routing |
+| Route field          | Purpose                                |
+|----------------------|----------------------------------------|
+| `hint`               | Existing route selector                |
+| `provider` / `model` | Existing provider target               |
+| `allow_image_input`  | Explicit opt-in for multimodal routing |
 
 The runtime also adds a global multimodal config block:
 
-| Config field | Purpose |
-|-------------|---------|
-| `enabled` | Global kill switch for image ingress |
-| `allowed_channels` | Channel allowlist; MVP-valid values are `telegram`, `whatsapp` |
-| `vision_model_hint` | Existing route hint used only for image turns |
-| `max_image_bytes` | Operator override for the default limit |
+| Config field        | Purpose                                                        |
+|---------------------|----------------------------------------------------------------|
+| `enabled`           | Global kill switch for image ingress                           |
+| `allowed_channels`  | Channel allowlist; MVP-valid values are `telegram`, `whatsapp` |
+| `vision_model_hint` | Existing route hint used only for image turns                  |
+| `max_image_bytes`   | Operator override for the default limit                        |
 
 ### Gating behavior
 
@@ -413,16 +419,16 @@ measured without exposing sensitive payloads.
 
 Add one observer event for image ingress lifecycle with fields:
 
-| Field | Description |
-|------|-------------|
-| `channel` | `telegram` or `whatsapp` |
-| `provider` | resolved provider label |
-| `model` | resolved model label |
-| `outcome` | `admitted`, `rejected`, `provider_sent`, `provider_error` |
-| `reason` | normalized reason code such as `disabled`, `mime_rejected`, `oversize`, `capability_missing` |
-| `image_count` | admitted image count |
-| `mime_type` | final sniffed MIME for admitted images |
-| `byte_len` | admitted byte size |
+| Field         | Description                                                                                  |
+|---------------|----------------------------------------------------------------------------------------------|
+| `channel`     | `telegram` or `whatsapp`                                                                     |
+| `provider`    | resolved provider label                                                                      |
+| `model`       | resolved model label                                                                         |
+| `outcome`     | `admitted`, `rejected`, `provider_sent`, `provider_error`                                    |
+| `reason`      | normalized reason code such as `disabled`, `mime_rejected`, `oversize`, `capability_missing` |
+| `image_count` | admitted image count                                                                         |
+| `mime_type`   | final sniffed MIME for admitted images                                                       |
+| `byte_len`    | admitted byte size                                                                           |
 
 ### Metrics
 
@@ -490,24 +496,24 @@ sequenceDiagram
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/channels/traits.rs` | Modify | Add canonical inbound content parts and image-reference metadata to `ChannelMessage` |
-| `clients/agent-runtime/src/channels/mod.rs` | Modify | Build shared runtime handle, stage/validate images, gate provider routing, and preserve text-only compatibility behavior |
-| `clients/agent-runtime/src/channels/media.rs` | Create | Shared staging types, validation helpers, temp-file lifecycle, and normalized rejection reasons |
-| `clients/agent-runtime/src/channels/telegram.rs` | Modify | Parse inbound photo/image-document messages and implement Telegram media fetch helpers |
-| `clients/agent-runtime/src/channels/whatsapp.rs` | Modify | Parse inbound image messages and implement Graph media fetch helpers |
-| `clients/agent-runtime/src/gateway/mod.rs` | Modify | Replace WhatsApp `simple_chat()` execution with canonical runtime handoff while keeping transport verification in place |
-| `clients/agent-runtime/src/providers/traits.rs` | Modify | Add image-capability metadata and multimodal message-part contract |
-| `clients/agent-runtime/src/providers/router.rs` | Modify | Resolve route-aware image capability and prevent text-only fallback for image turns |
-| `clients/agent-runtime/src/providers/pool.rs` | Modify | Delegate image capability through account selection |
-| `clients/agent-runtime/src/providers/reliable.rs` | Modify | Keep retries/fallbacks compatible with image-capable route selection |
-| `clients/agent-runtime/src/providers/compatible.rs` | Modify | Format OpenAI-compatible text+image requests with inline data URLs |
-| `clients/agent-runtime/src/providers/gemini.rs` | Modify | Format Gemini text+image requests with inline image parts |
-| `clients/agent-runtime/src/config/schema.rs` | Modify | Add rollout controls and route-level image capability flags |
-| `clients/agent-runtime/src/observability/traits.rs` | Modify | Add image-ingress observer event(s) and related metrics |
-| `openspec/specs/agent-loop/spec.md` | Modify | Add WhatsApp canonical runtime requirement for image turns |
-| `openspec/specs/agent-runtime-providers/spec.md` | Modify | Define provider image capability signaling and transport-form requirements |
+| File                                                | Action | Description                                                                                                              |
+|-----------------------------------------------------|--------|--------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/channels/traits.rs`      | Modify | Add canonical inbound content parts and image-reference metadata to `ChannelMessage`                                     |
+| `clients/agent-runtime/src/channels/mod.rs`         | Modify | Build shared runtime handle, stage/validate images, gate provider routing, and preserve text-only compatibility behavior |
+| `clients/agent-runtime/src/channels/media.rs`       | Create | Shared staging types, validation helpers, temp-file lifecycle, and normalized rejection reasons                          |
+| `clients/agent-runtime/src/channels/telegram.rs`    | Modify | Parse inbound photo/image-document messages and implement Telegram media fetch helpers                                   |
+| `clients/agent-runtime/src/channels/whatsapp.rs`    | Modify | Parse inbound image messages and implement Graph media fetch helpers                                                     |
+| `clients/agent-runtime/src/gateway/mod.rs`          | Modify | Replace WhatsApp `simple_chat()` execution with canonical runtime handoff while keeping transport verification in place  |
+| `clients/agent-runtime/src/providers/traits.rs`     | Modify | Add image-capability metadata and multimodal message-part contract                                                       |
+| `clients/agent-runtime/src/providers/router.rs`     | Modify | Resolve route-aware image capability and prevent text-only fallback for image turns                                      |
+| `clients/agent-runtime/src/providers/pool.rs`       | Modify | Delegate image capability through account selection                                                                      |
+| `clients/agent-runtime/src/providers/reliable.rs`   | Modify | Keep retries/fallbacks compatible with image-capable route selection                                                     |
+| `clients/agent-runtime/src/providers/compatible.rs` | Modify | Format OpenAI-compatible text+image requests with inline data URLs                                                       |
+| `clients/agent-runtime/src/providers/gemini.rs`     | Modify | Format Gemini text+image requests with inline image parts                                                                |
+| `clients/agent-runtime/src/config/schema.rs`        | Modify | Add rollout controls and route-level image capability flags                                                              |
+| `clients/agent-runtime/src/observability/traits.rs` | Modify | Add image-ingress observer event(s) and related metrics                                                                  |
+| `openspec/specs/agent-loop/spec.md`                 | Modify | Add WhatsApp canonical runtime requirement for image turns                                                               |
+| `openspec/specs/agent-runtime-providers/spec.md`    | Modify | Define provider image capability signaling and transport-form requirements                                               |
 
 ## Interfaces / Contracts
 
@@ -515,21 +521,21 @@ sequenceDiagram
 
 The runtime contract must distinguish three layers clearly:
 
-| Layer | Stored in `ChannelMessage` | Persisted past the active turn |
-|------|-----------------------------|-------------------------------|
-| Text projection | Yes | Yes, under current history/memory rules |
-| Image reference metadata | Yes | No durable persistence |
-| Staged image bytes | No, runtime-only | No |
+| Layer                    | Stored in `ChannelMessage` | Persisted past the active turn          |
+|--------------------------|----------------------------|-----------------------------------------|
+| Text projection          | Yes                        | Yes, under current history/memory rules |
+| Image reference metadata | Yes                        | No durable persistence                  |
+| Staged image bytes       | No, runtime-only           | No                                      |
 
 ### Provider contract
 
 The provider contract must distinguish provider capability from provider transport formatting:
 
-| Concern | Owner |
-|--------|-------|
-| Is image input allowed for this route/model? | Router + provider capability contract |
-| How are images fetched and validated? | Channel runtime |
-| How are staged images serialized to the upstream API? | Provider adapter |
+| Concern                                               | Owner                                 |
+|-------------------------------------------------------|---------------------------------------|
+| Is image input allowed for this route/model?          | Router + provider capability contract |
+| How are images fetched and validated?                 | Channel runtime                       |
+| How are staged images serialized to the upstream API? | Provider adapter                      |
 
 ### Rejection reason taxonomy
 
@@ -548,16 +554,16 @@ codes:
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|--------------|----------|
-| Unit | Canonical text projection, MIME admission, byte-limit enforcement, staging cleanup, reason-code mapping | Rust unit tests in channel media/runtime modules |
-| Unit | Telegram photo/document normalization and WhatsApp image payload parsing | Channel-specific parser tests with fixture payloads |
-| Unit | Route-aware provider capability gating and no-fallback behavior for image turns | Provider/router tests |
-| Unit | Compatible and Gemini request serialization for text+image turns | Provider request-shape tests with mocked HTTP bodies |
-| Integration | WhatsApp webhook verification plus canonical runtime enqueue path | Gateway tests using signed payload fixtures |
-| Integration | End-to-end admitted image turn sends one provider request and one channel reply | Runtime tests with fake channel + fake provider |
-| Integration | Rejected image turn never reaches provider and emits normalized telemetry | Observer-backed tests |
-| Regression | Text-only Telegram, WhatsApp, `/webhook`, and non-MVP providers preserve current behavior | Existing channel/provider test suites plus targeted regressions |
+| Layer       | What to Test                                                                                            | Approach                                                        |
+|-------------|---------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------|
+| Unit        | Canonical text projection, MIME admission, byte-limit enforcement, staging cleanup, reason-code mapping | Rust unit tests in channel media/runtime modules                |
+| Unit        | Telegram photo/document normalization and WhatsApp image payload parsing                                | Channel-specific parser tests with fixture payloads             |
+| Unit        | Route-aware provider capability gating and no-fallback behavior for image turns                         | Provider/router tests                                           |
+| Unit        | Compatible and Gemini request serialization for text+image turns                                        | Provider request-shape tests with mocked HTTP bodies            |
+| Integration | WhatsApp webhook verification plus canonical runtime enqueue path                                       | Gateway tests using signed payload fixtures                     |
+| Integration | End-to-end admitted image turn sends one provider request and one channel reply                         | Runtime tests with fake channel + fake provider                 |
+| Integration | Rejected image turn never reaches provider and emits normalized telemetry                               | Observer-backed tests                                           |
+| Regression  | Text-only Telegram, WhatsApp, `/webhook`, and non-MVP providers preserve current behavior               | Existing channel/provider test suites plus targeted regressions |
 
 ## Migration / Rollout
 
@@ -566,19 +572,20 @@ No data migration is required.
 ### Phased rollout
 
 1. **Phase 0 - dark launch infrastructure**
-   - ship contract, staging, telemetry, and provider capability plumbing behind `multimodal.enabled = false`
-   - no channel emits image parts in production
+    - ship contract, staging, telemetry, and provider capability plumbing behind
+      `multimodal.enabled = false`
+    - no channel emits image parts in production
 2. **Phase 1 - provider validation**
-   - enable `vision_model_hint` and route-level `allow_image_input` in test environments
-   - validate Gemini and OpenAI-compatible adapters with fixture traffic
+    - enable `vision_model_hint` and route-level `allow_image_input` in test environments
+    - validate Gemini and OpenAI-compatible adapters with fixture traffic
 3. **Phase 2 - Telegram first**
-   - enable `telegram` in `allowed_channels`
-   - monitor admitted/rejected/provider-error telemetry
+    - enable `telegram` in `allowed_channels`
+    - monitor admitted/rejected/provider-error telemetry
 4. **Phase 3 - WhatsApp convergence**
-   - enable `/whatsapp` canonical runtime handoff with the same image route
-   - compare rollout metrics between Telegram and WhatsApp
+    - enable `/whatsapp` canonical runtime handoff with the same image route
+    - compare rollout metrics between Telegram and WhatsApp
 5. **Phase 4 - broader operator enablement**
-   - document supported route configuration and keep non-MVP channels/providers disabled by default
+    - document supported route configuration and keep non-MVP channels/providers disabled by default
 
 ### Rollback
 
@@ -595,7 +602,8 @@ Text-only channel behavior remains intact after rollback.
 ### Phase A - runtime and config foundation
 
 1. Add rollout config, canonical part types, staging types, and normalized rejection reasons.
-2. Refactor the canonical channel runtime into a reusable runtime handle that both channel server and
+2. Refactor the canonical channel runtime into a reusable runtime handle that both channel server
+   and
    gateway can use.
 3. Add image-ingress telemetry and redaction safeguards.
 

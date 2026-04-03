@@ -31,27 +31,27 @@ adapters, preserving existing tool names via aliases during migration.
 ### Modules
 
 - **Cerebro (`modules/cerebro`)**
-  - Rust binary exposing MCP JSON-RPC tools.
-  - Owns long-term memory storage, hygiene, and enrichment pipeline.
+    - Rust binary exposing MCP JSON-RPC tools.
+    - Owns long-term memory storage, hygiene, and enrichment pipeline.
 - **agent-runtime (existing)**
-  - Keeps Memory trait and factory for local short-term memory.
-  - Replaces SurrealDB backend with MCP client adapter.
-  - Uses MCP tool adapters in `clients/agent-runtime/src/tools/mcp/`.
+    - Keeps Memory trait and factory for local short-term memory.
+    - Replaces SurrealDB backend with MCP client adapter.
+    - Uses MCP tool adapters in `clients/agent-runtime/src/tools/mcp/`.
 
 ### Components
 
 - **Memory Trait + Factory** (`clients/agent-runtime/src/memory/traits.rs`, `mod.rs`)
-  - Remains the abstraction boundary for memory backends.
-  - Backend selection simplified: local short-term vs MCP (Cerebro).
+    - Remains the abstraction boundary for memory backends.
+    - Backend selection simplified: local short-term vs MCP (Cerebro).
 - **MCP Tool Adapters** (`clients/agent-runtime/src/tools/mcp/`)
-  - Implements tool calls to Cerebro via MCP JSON-RPC.
-  - Provides compatibility aliases for legacy tools.
+    - Implements tool calls to Cerebro via MCP JSON-RPC.
+    - Provides compatibility aliases for legacy tools.
 - **Native Memory Tools** (`clients/agent-runtime/src/tools/memory_*.rs`)
-  - Re-routed to MCP when using centralized memory.
-  - Local-only logic retained for short-term/personal context.
+    - Re-routed to MCP when using centralized memory.
+    - Local-only logic retained for short-term/personal context.
 - **Cerebro Storage Layer**
-  - Owns memory nodes, session nodes, prompt nodes, and relations.
-  - Responsible for dedup, topic key upserts, and soft-delete filtering.
+    - Owns memory nodes, session nodes, prompt nodes, and relations.
+    - Responsible for dedup, topic key upserts, and soft-delete filtering.
 
 ## Data Flow
 
@@ -112,12 +112,12 @@ adapters, preserving existing tool names via aliases during migration.
 ### agent-runtime
 
 - **Remove** Surreal backend config and feature flag:
-  - Remove `memory-surreal` feature in `clients/agent-runtime/Cargo.toml`.
-  - Remove SurrealDB settings from `MemoryConfig` in
-    `clients/agent-runtime/src/config/schema.rs`.
+    - Remove `memory-surreal` feature in `clients/agent-runtime/Cargo.toml`.
+    - Remove SurrealDB settings from `MemoryConfig` in
+      `clients/agent-runtime/src/config/schema.rs`.
 - **Add/Confirm** MCP memory endpoint settings:
-  - MCP server URL, auth token, and timeout.
-  - Explicit `allow_insecure` for `http/ws` loopback only.
+    - MCP server URL, auth token, and timeout.
+    - Explicit `allow_insecure` for `http/ws` loopback only.
 - **Preserve** local short-term memory configuration (e.g., sqlite/in-memory).
 
 ### Cerebro

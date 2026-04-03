@@ -16,6 +16,7 @@ guidance, and lead capture. Zero runtime interaction by design.
 ## Mandatory Capabilities
 
 ### Marketing Content
+
 - [ ] Landing page with hero section
 - [ ] Feature highlights
 - [ ] Pricing information (if applicable)
@@ -24,11 +25,13 @@ guidance, and lead capture. Zero runtime interaction by design.
 - [ ] FAQ section
 
 ### Installation
+
 - [ ] Installation script (`/install.sh`)
 - [ ] Platform-specific instructions (macOS, Linux, Docker)
 - [ ] Quick start guide
 
 ### Navigation
+
 - [ ] Header navigation
 - [ ] Footer with links
 - [ ] CTA buttons (Install, Docs, GitHub)
@@ -43,30 +46,31 @@ guidance, and lead capture. Zero runtime interaction by design.
 
 **Lead Capture Controls** (required for implementation):
 
-| Control | Requirement |
-|---------|-------------|
-| Input validation | Sanitize all form fields; reject malformed input |
-| Field boundaries | Max length: email (254 chars), name (100 chars), message (2000 chars) |
-| Storage/retention | Store in approved CRM only; retain max 2 years or per consent |
-| Consent/opt-in | Explicit opt-in checkbox required; pre-checked disallowed |
-| Opt-out handling | Unsubscribe link in all emails; honor removal within 48 hours |
-| Abuse protection | Rate limiting (max 5 submissions per IP/hour); CAPTCHA on forms |
-| Spam filtering | Implement SPF/DKIM/DMARC; block known spam domains |
+| Control           | Requirement                                                           |
+|-------------------|-----------------------------------------------------------------------|
+| Input validation  | Sanitize all form fields; reject malformed input                      |
+| Field boundaries  | Max length: email (254 chars), name (100 chars), message (2000 chars) |
+| Storage/retention | Store in approved CRM only; retain max 2 years or per consent         |
+| Consent/opt-in    | Explicit opt-in checkbox required; pre-checked disallowed             |
+| Opt-out handling  | Unsubscribe link in all emails; honor removal within 48 hours         |
+| Abuse protection  | Rate limiting (max 5 submissions per IP/hour); CAPTCHA on forms       |
+| Spam filtering    | Implement SPF/DKIM/DMARC; block known spam domains                    |
 
 ### Analytics
+
 - [ ] Page view tracking
 - [ ] Conversion tracking
 - [ ] User behavior analytics
 
 ## Out-of-Scope
 
-| Capability | Reason |
-|-----------|--------|
-| Agent chat interaction | Not a chat surface |
-| Runtime configuration | Dashboard handles this |
-| Memory queries | No runtime access |
-| User authentication | Public marketing site |
-| Product documentation | Docs surface handles this |
+| Capability             | Reason                    |
+|------------------------|---------------------------|
+| Agent chat interaction | Not a chat surface        |
+| Runtime configuration  | Dashboard handles this    |
+| Memory queries         | No runtime access         |
+| User authentication    | Public marketing site     |
+| Product documentation  | Docs surface handles this |
 
 ## Current Status
 
@@ -98,6 +102,7 @@ marketing/
 ## Domain-Aware URL Resolution
 
 The marketing site supports domain-aware URL resolution for multi-environment deployments:
+
 - Production domain resolution
 - Local development fallback
 - Marketing URL configuration via environment
@@ -105,6 +110,7 @@ The marketing site supports domain-aware URL resolution for multi-environment de
 ## No Runtime Access
 
 This surface intentionally has no runtime communication:
+
 - No gateway API calls
 - No CLI bridge integration
 - Static HTML/CSS/JS only

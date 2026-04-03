@@ -2,9 +2,11 @@
 
 ## Purpose
 
-This specification defines the canonical Corvus onboarding and pairing journey across the CLI/runtime,
+This specification defines the canonical Corvus onboarding and pairing journey across the
+CLI/runtime,
 web dashboard, web chat, and composeApp mobile surfaces. It establishes shared product terminology,
-the required first-run sequence, surface-specific variants, and the recovery states that every client
+the required first-run sequence, surface-specific variants, and the recovery states that every
+client
 MUST expose without changing the existing transport contracts.
 
 ## Requirements
@@ -25,6 +27,7 @@ Each surface MAY present these steps with different UI, but it MUST preserve the
 and order dependencies.
 
 #### Scenario: New operator follows the canonical sequence from the CLI
+
 - GIVEN a first-run operator starts Corvus from the CLI/runtime surface
 - WHEN the onboarding flow is presented
 - THEN the flow MUST require intent selection, runtime availability confirmation, local trust
@@ -32,6 +35,7 @@ and order dependencies.
 - AND the flow MUST end with operator next steps instead of requiring chat session creation.
 
 #### Scenario: New end-user follows the canonical sequence from a chat surface
+
 - GIVEN a first-run user starts Corvus from web chat or composeApp mobile
 - WHEN the onboarding flow is presented
 - THEN the flow MUST require intent selection, runtime availability confirmation, trust
@@ -54,12 +58,14 @@ Every surface MUST implement the canonical sequence using the same shared step o
 - `Create or resume the first session` MUST apply only to chat-capable surfaces.
 
 #### Scenario: Shared steps map to the same user outcomes across surfaces
+
 - GIVEN two different Corvus surfaces are compared for first-run onboarding
 - WHEN the shared steps are evaluated
 - THEN each step MUST describe the same user outcome regardless of transport
 - AND surface-specific copy MUST NOT redefine the meaning of the shared steps.
 
 #### Scenario: Operator surface stops before session creation
+
 - GIVEN the chosen surface is CLI/runtime or web dashboard
 - WHEN the user reaches ready state
 - THEN the onboarding flow MUST describe the surface as ready for management tasks
@@ -76,6 +82,7 @@ sequence intact.
   and MUST NOT describe that step as HTTP pairing.
 
 #### Scenario: HTTP surface completes trust by pairing
+
 - GIVEN the user is onboarding through web dashboard or web chat
 - WHEN the trust-establishment step begins
 - THEN the system MUST request a valid pairing code from the local runtime or gateway
@@ -83,6 +90,7 @@ sequence intact.
   trusted.
 
 #### Scenario: Mobile surface completes trust by linking
+
 - GIVEN the user is onboarding through composeApp mobile
 - WHEN the trust-establishment step begins
 - THEN the system MUST guide the user through linking to the CLI bridge or companion path
@@ -104,6 +112,7 @@ surfaces:
   any approved transport.
 
 #### Scenario: Product copy distinguishes pairing from linking
+
 - GIVEN onboarding copy is shown for web and mobile surfaces
 - WHEN the trust step is described
 - THEN web surfaces MUST use `pairing`, `pairing code`, and `bearer token` for HTTP trust
@@ -111,6 +120,7 @@ surfaces:
 - AND mobile surfaces MUST use `linking` for bridge trust establishment.
 
 #### Scenario: Transport validation uses the correct connection term
+
 - GIVEN a surface validates post-trust connectivity
 - WHEN the connection state is shown to the user
 - THEN HTTP surfaces MUST describe that state as connecting to the gateway
@@ -129,6 +139,7 @@ Each surface MUST finish onboarding according to its role and capability tier.
   or resume a chat session.
 
 #### Scenario: CLI completion includes optional dashboard continuation
+
 - GIVEN a new operator completes CLI/runtime onboarding
 - WHEN the flow reaches completion
 - THEN the system MUST confirm local runtime readiness
@@ -136,6 +147,7 @@ Each surface MUST finish onboarding according to its role and capability tier.
   completion.
 
 #### Scenario: Chat surface completion requires session entry
+
 - GIVEN a user completes onboarding on web chat or composeApp mobile
 - WHEN the surface enters ready state
 - THEN the system MUST offer first-session creation or resumable-session entry
@@ -155,10 +167,12 @@ taxonomy. The minimum taxonomy MUST include:
 - Session expired or no resumable session exists.
 - Local environment unsupported for the chosen surface.
 
-Each surface MUST map its transport-specific failures into one of these states before presenting user
+Each surface MUST map its transport-specific failures into one of these states before presenting
+user
 guidance.
 
 #### Scenario: HTTP pairing failure maps to a normalized recovery state
+
 - GIVEN a web dashboard or web chat user submits an expired pairing code
 - WHEN the trust step fails
 - THEN the system MUST classify the failure as `pairing code invalid or expired`
@@ -166,6 +180,7 @@ guidance.
   error.
 
 #### Scenario: Mobile bridge failure maps to a normalized recovery state
+
 - GIVEN a mobile user has completed linking but the bridge cannot start or resume a session
 - WHEN the chat entry step fails
 - THEN the system MUST classify the failure as `bridge linked but session start or resume
@@ -179,12 +194,14 @@ surface. Onboarding flows MUST NOT instruct users to bypass pairing, bearer toke
 origin protections, or mobile bridge requirements as a recovery shortcut.
 
 #### Scenario: Dashboard retry guidance preserves secure HTTP pairing
+
 - GIVEN the user is recovering from missing or revoked dashboard authentication
 - WHEN retry guidance is shown
 - THEN the system MUST direct the user back to the standard HTTP pairing and bearer-token flow
 - AND it MUST NOT instruct the user to use direct runtime or insecure admin access as a workaround.
 
 #### Scenario: Mobile retry guidance preserves bridge-only transport
+
 - GIVEN the user is recovering on composeApp mobile
 - WHEN retry guidance is shown
 - THEN the system MUST direct the user to relink or restore the approved bridge path
@@ -197,13 +214,16 @@ and recovery expectations. It MUST NOT replace the transport and capability auth
 `client-surfaces` or the operator activation authority of `dashboard`.
 
 #### Scenario: Product onboarding defers transport authority to client-surfaces
+
 - GIVEN a question arises about which transport a surface may use
 - WHEN this onboarding specification is applied
 - THEN the answer MUST be governed by the `client-surfaces` specification
 - AND this specification MUST only define how onboarding maps to that approved transport.
 
 #### Scenario: Product onboarding defers operator activation details to dashboard
+
 - GIVEN a question arises about the operator-specific dashboard activation slice
 - WHEN this onboarding specification is applied
 - THEN the answer MUST be governed by the `dashboard` specification
-- AND this specification MUST only require that the dashboard slice fits the shared onboarding model.
+- AND this specification MUST only require that the dashboard slice fits the shared onboarding
+  model.

@@ -2,9 +2,16 @@
 
 ## Intent
 
-The Corvus agent-runtime has a well-designed `Sandbox` trait with four OS-level backends (Landlock, Firejail, Bubblewrap, Docker) and auto-detection logic — but **none of it is ever called during tool execution**. The `wrap_command()` method is dead code. Every shell command runs with application-layer policy only (`SecurityPolicy`), and operators who configure `sandbox.backend = Landlock` get a silent fallback to `NoopSandbox` with no indication that OS-level isolation is absent.
+The Corvus agent-runtime has a well-designed `Sandbox` trait with four OS-level backends (Landlock,
+Firejail, Bubblewrap, Docker) and auto-detection logic — but **none of it is ever called during tool
+execution**. The `wrap_command()` method is dead code. Every shell command runs with
+application-layer policy only (`SecurityPolicy`), and operators who configure
+`sandbox.backend = Landlock` get a silent fallback to `NoopSandbox` with no indication that OS-level
+isolation is absent.
 
-This change wires the existing sandbox infrastructure into the actual execution path, adds a fail-closed option, propagates sandbox context to audit events, and establishes the isolation contract for the computer-use sidecar.
+This change wires the existing sandbox infrastructure into the actual execution path, adds a
+fail-closed option, propagates sandbox context to audit events, and establishes the isolation
+contract for the computer-use sidecar.
 
 **GitHub Issue:** #37
 
@@ -12,12 +19,19 @@ This change wires the existing sandbox infrastructure into the actual execution 
 
 ### In Scope
 
-1. **Wire `Sandbox` into `ShellTool` execution**: Inject `Arc<dyn Sandbox>` into `ShellTool` and call `wrap_command()` for ALL shell executions (defense in depth).
-2. **Add `sandbox.require` config option**: When `true`, `create_sandbox()` returns an error instead of silently falling back to `NoopSandbox`. Defaults to `false` for backward compatibility.
-3. **Warning on NoopSandbox for mutating operations**: When `sandbox.require = false` and `NoopSandbox` is active, log a warning for non-read-only command executions.
-4. **Propagate sandbox backend to audit events**: Ensure `AuditEvent.security.sandbox_backend` reflects the actual sandbox used per execution, not always `None`.
-5. **Computer-use sidecar isolation contract**: Add a first computer-use health-check that queries and logs the sidecar's isolation level in the audit log. Document the expected isolation contract.
-6. **Focused tests for new security boundaries**: Integration tests verifying sandbox wiring, fail-closed behavior, audit propagation, and NoopSandbox warning paths.
+1. **Wire `Sandbox` into `ShellTool` execution**: Inject `Arc<dyn Sandbox>` into `ShellTool` and
+   call `wrap_command()` for ALL shell executions (defense in depth).
+2. **Add `sandbox.require` config option**: When `true`, `create_sandbox()` returns an error instead
+   of silently falling back to `NoopSandbox`. Defaults to `false` for backward compatibility.
+3. **Warning on NoopSandbox for mutating operations**: When `sandbox.require = false` and
+   `NoopSandbox` is active, log a warning for non-read-only command executions.
+4. **Propagate sandbox backend to audit events**: Ensure `AuditEvent.security.sandbox_backend`
+   reflects the actual sandbox used per execution, not always `None`.
+5. **Computer-use sidecar isolation contract**: Add a first computer-use health-check that queries
+   and logs the sidecar's isolation level in the audit log. Document the expected isolation
+   contract.
+6. **Focused tests for new security boundaries**: Integration tests verifying sandbox wiring,
+   fail-closed behavior, audit propagation, and NoopSandbox warning paths.
 
 ### Out of Scope
 
@@ -32,31 +46,39 @@ This change wires the existing sandbox infrastructure into the actual execution 
 ### Phase 1: Fail-Closed Infrastructure
 
 - Add `require: bool` field to `SandboxConfig` (default `false`).
-- Change `create_sandbox()` signature to return `Result<Arc<dyn Sandbox>, anyhow::Error>` so it can fail when `require = true` and no backend is available.
+- Change `create_sandbox()` signature to return `Result<Arc<dyn Sandbox>, anyhow::Error>` so it can
+  fail when `require = true` and no backend is available.
 - Update all call sites (currently only `security/mod.rs` re-export).
 
 ### Phase 2: Wire Sandbox into ShellTool
 
 - Add `sandbox: Arc<dyn Sandbox>` field to `ShellTool`.
 - Update `ShellTool::new()` to accept the sandbox.
-- In `ShellTool::execute()`, after `validate_command_execution()` succeeds and before `cmd.output()`, call `self.sandbox.wrap_command(&mut cmd)?`.
+- In `ShellTool::execute()`, after `validate_command_execution()` succeeds and before
+  `cmd.output()`, call `self.sandbox.wrap_command(&mut cmd)?`.
 - Update `tools/mod.rs` factory (`add_shell_tool` / `create_tools`) to pass the sandbox through.
 
 ### Phase 3: Audit Propagation
 
-- In `ShellTool::execute()`, pass `self.sandbox.name()` to the audit event builder via `with_security(Some(sandbox_name))`.
+- In `ShellTool::execute()`, pass `self.sandbox.name()` to the audit event builder via
+  `with_security(Some(sandbox_name))`.
 - Ensure the sandbox backend name appears in every `CommandExecution` audit event.
 
 ### Phase 4: NoopSandbox Warning
 
-- When `NoopSandbox` is the active backend and a non-read-only command executes, emit a `tracing::warn!` with a clear message: "OS-level sandbox is not active; running with application-layer policy only".
+- When `NoopSandbox` is the active backend and a non-read-only command executes, emit a
+  `tracing::warn!` with a clear message: "OS-level sandbox is not active; running with
+  application-layer policy only".
 - Read-only detection reuses the existing `SecurityPolicy::risk_level()` classification.
 
 ### Phase 5: Computer-Use Sidecar Contract
 
-- Add an optional lazy health-check call to the sidecar endpoint on the first computer-use action that queries isolation capabilities.
-- Log the sidecar's reported isolation level as a `SecurityEvent` audit entry on that first computer-use verification.
-- Document the expected isolation contract in the runtime sandbox isolation docs — what operators SHOULD ensure about sidecar deployment before first use.
+- Add an optional lazy health-check call to the sidecar endpoint on the first computer-use action
+  that queries isolation capabilities.
+- Log the sidecar's reported isolation level as a `SecurityEvent` audit entry on that first
+  computer-use verification.
+- Document the expected isolation contract in the runtime sandbox isolation docs — what operators
+  SHOULD ensure about sidecar deployment before first use.
 
 ### Phase 6: Tests
 
@@ -68,47 +90,64 @@ This change wires the existing sandbox infrastructure into the actual execution 
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `src/security/detect.rs` | Modified | `create_sandbox()` returns `Result`, respects `require` flag |
-| `src/security/traits.rs` | Modified | Minor — may add `is_noop()` helper to `Sandbox` trait |
-| `src/security/mod.rs` | Modified | Re-export updated signature |
-| `src/config/schema.rs` | Modified | Add `require: bool` to `SandboxConfig` |
-| `src/tools/shell.rs` | Modified | Accept and use `Arc<dyn Sandbox>`, call `wrap_command()` |
-| `src/tools/mod.rs` | Modified | Pass sandbox to `ShellTool` in factory functions |
-| `src/tools/browser.rs` | Modified | Add lazy first computer-use sidecar health-check and isolation audit logging |
-| `src/security/audit.rs` | Modified | Added sandbox_backend field to audit payload; updated command-event logging and test helpers |
-| `docs/` | New | Sidecar isolation contract documentation |
+| Area                     | Impact   | Description                                                                                  |
+|--------------------------|----------|----------------------------------------------------------------------------------------------|
+| `src/security/detect.rs` | Modified | `create_sandbox()` returns `Result`, respects `require` flag                                 |
+| `src/security/traits.rs` | Modified | Minor — may add `is_noop()` helper to `Sandbox` trait                                        |
+| `src/security/mod.rs`    | Modified | Re-export updated signature                                                                  |
+| `src/config/schema.rs`   | Modified | Add `require: bool` to `SandboxConfig`                                                       |
+| `src/tools/shell.rs`     | Modified | Accept and use `Arc<dyn Sandbox>`, call `wrap_command()`                                     |
+| `src/tools/mod.rs`       | Modified | Pass sandbox to `ShellTool` in factory functions                                             |
+| `src/tools/browser.rs`   | Modified | Add lazy first computer-use sidecar health-check and isolation audit logging                 |
+| `src/security/audit.rs`  | Modified | Added sandbox_backend field to audit payload; updated command-event logging and test helpers |
+| `docs/`                  | New      | Sidecar isolation contract documentation                                                     |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Breaking existing deployments that rely on silent NoopSandbox fallback | Low | `sandbox.require` defaults to `false`; existing behavior preserved unless operator opts in |
-| `wrap_command()` backend errors blocking all shell execution | Medium | Errors from `wrap_command()` are surfaced clearly; `NoopSandbox.wrap_command()` always succeeds; operators can set `backend = None` to explicitly opt out |
-| Performance overhead of sandbox wrapping on every shell call | Low | `wrap_command()` is synchronous command mutation (no I/O); `NoopSandbox` is a no-op; real backends add CLI prefix only |
-| Sidecar health-check adding first-use latency | Low | Health-check runs once on first computer-use action with a short timeout; failure is logged as warning, not fatal (unless `require = true`) |
-| Test complexity for OS-specific backends | Medium | Use mock `Sandbox` implementations in tests; real backend tests remain behind feature flags |
+| Risk                                                                   | Likelihood | Mitigation                                                                                                                                                |
+|------------------------------------------------------------------------|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Breaking existing deployments that rely on silent NoopSandbox fallback | Low        | `sandbox.require` defaults to `false`; existing behavior preserved unless operator opts in                                                                |
+| `wrap_command()` backend errors blocking all shell execution           | Medium     | Errors from `wrap_command()` are surfaced clearly; `NoopSandbox.wrap_command()` always succeeds; operators can set `backend = None` to explicitly opt out |
+| Performance overhead of sandbox wrapping on every shell call           | Low        | `wrap_command()` is synchronous command mutation (no I/O); `NoopSandbox` is a no-op; real backends add CLI prefix only                                    |
+| Sidecar health-check adding first-use latency                          | Low        | Health-check runs once on first computer-use action with a short timeout; failure is logged as warning, not fatal (unless `require = true`)               |
+| Test complexity for OS-specific backends                               | Medium     | Use mock `Sandbox` implementations in tests; real backend tests remain behind feature flags                                                               |
 
 ## Rollback Plan
 
-1. **Config-level rollback**: Set `sandbox.require = false` and `sandbox.backend = "none"` to disable enforcement. Note: this does NOT fully restore pre-change behavior — `ShellTool` still holds the `sandbox` field, `NoopSandbox` is still resolved via `detect_best_sandbox()` (same path as `auto`), and the mutating-command warning (`should_warn_for_noop_sandbox()`) will still fire for non-read-only commands. Config-only rollback disables the fail-closed gate but leaves the new warning behavior in place.
-2. **Code-level rollback**: Revert the PR. This is the only way to fully remove the mutating-command warning path, the `ShellTool.sandbox` field, and the `wrap_command()` call — restoring the original execution path exactly. The change is additive with no data migrations, schema changes, or external API changes, so a clean revert is safe.
-3. **Feature flag**: The `sandbox.require` config option itself acts as a feature flag. Operators can deploy the code without enabling enforcement. However, even with `require = false`, the `NoopSandbox` warning for mutating commands (via `ShellTool`) remains active.
+1. **Config-level rollback**: Set `sandbox.require = false` and `sandbox.backend = "none"` to
+   disable enforcement. Note: this does NOT fully restore pre-change behavior — `ShellTool` still
+   holds the `sandbox` field, `NoopSandbox` is still resolved via `detect_best_sandbox()` (same path
+   as `auto`), and the mutating-command warning (`should_warn_for_noop_sandbox()`) will still fire
+   for non-read-only commands. Config-only rollback disables the fail-closed gate but leaves the new
+   warning behavior in place.
+2. **Code-level rollback**: Revert the PR. This is the only way to fully remove the mutating-command
+   warning path, the `ShellTool.sandbox` field, and the `wrap_command()` call — restoring the
+   original execution path exactly. The change is additive with no data migrations, schema changes,
+   or external API changes, so a clean revert is safe.
+3. **Feature flag**: The `sandbox.require` config option itself acts as a feature flag. Operators
+   can deploy the code without enabling enforcement. However, even with `require = false`, the
+   `NoopSandbox` warning for mutating commands (via `ShellTool`) remains active.
 
 ## Dependencies
 
 - No new crate dependencies expected.
-- Existing sandbox backends (`landlock`, `firejail`, `bubblewrap`, `docker`) are already implemented and tested in isolation.
-- Computer-use sidecar health-check depends on the existing HTTP client infrastructure in `browser.rs`.
+- Existing sandbox backends (`landlock`, `firejail`, `bubblewrap`, `docker`) are already implemented
+  and tested in isolation.
+- Computer-use sidecar health-check depends on the existing HTTP client infrastructure in
+  `browser.rs`.
 
 ## Success Criteria
 
-- [ ] `ShellTool::execute()` calls `wrap_command()` on the injected sandbox for every shell execution
-- [ ] `create_sandbox()` returns an error (not NoopSandbox) when `sandbox.require = true` and no backend is available
-- [ ] `AuditEvent.security.sandbox_backend` is populated with the actual backend name for every `CommandExecution` event
+- [ ] `ShellTool::execute()` calls `wrap_command()` on the injected sandbox for every shell
+  execution
+- [ ] `create_sandbox()` returns an error (not NoopSandbox) when `sandbox.require = true` and no
+  backend is available
+- [ ] `AuditEvent.security.sandbox_backend` is populated with the actual backend name for every
+  `CommandExecution` event
 - [ ] A warning is logged when `NoopSandbox` is used for non-read-only operations
-- [ ] Computer-use sidecar reports its isolation level on first computer-use verification in a `SecurityEvent` audit entry
+- [ ] Computer-use sidecar reports its isolation level on first computer-use verification in a
+  `SecurityEvent` audit entry
 - [ ] All existing `SecurityPolicy` tests continue to pass (no regressions)
-- [ ] New tests cover: sandbox wiring, fail-closed, audit propagation, NoopSandbox warning, sidecar health-check
+- [ ] New tests cover: sandbox wiring, fail-closed, audit propagation, NoopSandbox warning, sidecar
+  health-check
 - [ ] `cargo test`, `cargo clippy`, and `cargo fmt --check` pass cleanly

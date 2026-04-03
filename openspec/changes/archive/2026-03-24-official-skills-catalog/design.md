@@ -3,6 +3,7 @@
 ## Technical Approach
 
 Deliver the official skills catalog infrastructure for Corvus by:
+
 1. Defining a TOML-based catalog index format with `CatalogIndex`/`CatalogEntry` types
 2. Embedding a committed index snapshot via `build.rs` + `include_str!` for offline-first operation
 3. Adding catalog-aware install (bare-name resolution), search, update, and lock-repair commands
@@ -21,6 +22,7 @@ directly on the Phase 1 trust model infrastructure in `skills/trust.rs`, `skills
 `include_str!` as a compile-time constant.
 
 **Alternatives considered**:
+
 - `build.rs` fetches from network at build time — rejected: breaks reproducible/offline builds
 - Git submodule pointing to `dallay/corvus-skills` — rejected: adds contributor friction,
   complicates CI, version coupling
@@ -38,6 +40,7 @@ from GitHub raw URL with 24h TTL cache at `{workspace}/.catalog-cache/index.toml
 chain: cache (if < 24h) → network fetch (3s timeout) → embedded constant.
 
 **Alternatives considered**:
+
 - Eager parse at startup — rejected: adds latency to all commands, most don't need catalog
 - No caching (always fetch) — rejected: unnecessary network traffic, slow offline degradation
 - Longer/shorter TTL — 24h balances freshness vs. traffic; configurable via `SkillsConfig`
@@ -52,6 +55,7 @@ connections.
 catalog bare-name lookup. Everything else routes to existing URL or path install.
 
 **Alternatives considered**:
+
 - Explicit `--catalog` flag — rejected: worse UX for the common case; `skills install git-expert`
   is more natural than `skills install --catalog git-expert`
 - Namespace prefix (`official:git-expert`) — rejected: adds typing for users; the heuristic is
@@ -68,6 +72,7 @@ Scout → Evaluate and displays results as a table. No files are written. Users 
 `corvus skills install <url>` (standard ThirdParty flow).
 
 **Alternatives considered**:
+
 - Keep auto-integrate with ThirdParty trust — rejected: auto-writing to disk without consent
   contradicts the explicit-consent trust model from Phase 1
 - Remove SkillForge entirely — rejected: discovery is still useful; just needs trust boundaries
@@ -82,6 +87,7 @@ clone) can produce `SkillSource::Official`. URL-based installs of the same repo 
 `ThirdParty`. Lockfile `trust` field is re-derived from `source` at load time.
 
 **Alternatives considered**:
+
 - Allow URL installs from official repo to get Official trust — rejected: privilege escalation
   vector; user could clone a fork with the same URL pattern
 - Trust the lockfile `trust` field directly — rejected: violates Phase 1 invariant that trust
@@ -97,6 +103,7 @@ index and fetches from a hardcoded constant URL. This prevents privilege escalat
 `reqwest`, `chrono`, `serde`). The frontmatter parser remains hand-rolled.
 
 **Alternatives considered**:
+
 - Add `serde_yaml` for frontmatter — rejected: AGENTS.md §3.1 requires minimal dependencies;
   the hand-rolled parser handles the simple flat structure adequately
 - Add `fuzzy-matcher` crate — rejected: simple substring/contains matching is sufficient for
@@ -236,21 +243,21 @@ Print summary:
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/skills/catalog.rs` | Create | `CatalogIndex`, `CatalogEntry`, `CatalogMeta` types; TOML parse/load; `resolve_index()` with cache + embedded fallback; `search()` fuzzy match; bare-name detection; `OFFICIAL_REPO` constant |
-| `clients/agent-runtime/src/skills/catalog_index.toml` | Create | Committed index snapshot (initially minimal with seed entries or empty `[meta]`) |
-| `clients/agent-runtime/build.rs` | Create | Read `src/skills/catalog_index.toml`, generate const via `include_str!` in OUT_DIR |
-| `clients/agent-runtime/src/skills/mod.rs` | Modify | Add `pub mod catalog;` declaration. Update `handle_command()` to route new `SkillCommands` variants. Update `handle_install_command()` to detect bare names → catalog resolve. Add `handle_search_command()`, `handle_update_command()`, `handle_lock_repair_command()`, `handle_list_catalog()`. Add SKILL.toml deprecation warning in `load_skill_toml()`. Wire frontmatter `version`/`author`/`tags` into `load_skill_md()`. |
-| `clients/agent-runtime/src/skills/frontmatter.rs` | Modify | Add `version`, `author`, `tags` fields to `SkillFrontmatter`. Extend `parse_frontmatter_block()` to parse these fields (same hand-rolled approach). |
-| `clients/agent-runtime/src/skills/lockfile.rs` | Modify | Update `lock_entry_to_origin()` to recognize `"official:"` prefix → `SkillSource::Official`. Update `build_lock_entry()` to accept optional `path` parameter. Add `repair_lockfile()` function. |
-| `clients/agent-runtime/src/skills/trust.rs` | No change | Types already support `Official` variant. No modifications needed. |
-| `clients/agent-runtime/src/skillforge/mod.rs` | Modify | Add `discover()` public method that runs Scout → Evaluate and returns results without integrating. Deprecate `auto_integrate` config field (warn when set). |
-| `clients/agent-runtime/src/skillforge/integrate.rs` | Modify | Stop generating SKILL.toml in `integrate()`. Generate only SKILL.md with YAML frontmatter header. |
-| `clients/agent-runtime/src/lib.rs` | Modify | Expand `SkillCommands` enum with `Search`, `Update`, `Lock`, `Discover` variants. Add `LockCommands` sub-enum. |
-| `clients/agent-runtime/src/config/schema.rs` | Modify | Expand `SkillsConfig` with `catalog_repo_url`, `catalog_cache_ttl_hours` fields. |
-| `clients/agent-runtime/src/main.rs` | Modify | Route new `SkillCommands` variants to handlers (discover requires async). |
-| `clients/agent-runtime/Cargo.toml` | Modify | Add `build = "build.rs"` declaration. No new dependency crates. |
+| File                                                  | Action    | Description                                                                                                                                                                                                                                                                                                                                                                                                                     |
+|-------------------------------------------------------|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/skills/catalog.rs`         | Create    | `CatalogIndex`, `CatalogEntry`, `CatalogMeta` types; TOML parse/load; `resolve_index()` with cache + embedded fallback; `search()` fuzzy match; bare-name detection; `OFFICIAL_REPO` constant                                                                                                                                                                                                                                   |
+| `clients/agent-runtime/src/skills/catalog_index.toml` | Create    | Committed index snapshot (initially minimal with seed entries or empty `[meta]`)                                                                                                                                                                                                                                                                                                                                                |
+| `clients/agent-runtime/build.rs`                      | Create    | Read `src/skills/catalog_index.toml`, generate const via `include_str!` in OUT_DIR                                                                                                                                                                                                                                                                                                                                              |
+| `clients/agent-runtime/src/skills/mod.rs`             | Modify    | Add `pub mod catalog;` declaration. Update `handle_command()` to route new `SkillCommands` variants. Update `handle_install_command()` to detect bare names → catalog resolve. Add `handle_search_command()`, `handle_update_command()`, `handle_lock_repair_command()`, `handle_list_catalog()`. Add SKILL.toml deprecation warning in `load_skill_toml()`. Wire frontmatter `version`/`author`/`tags` into `load_skill_md()`. |
+| `clients/agent-runtime/src/skills/frontmatter.rs`     | Modify    | Add `version`, `author`, `tags` fields to `SkillFrontmatter`. Extend `parse_frontmatter_block()` to parse these fields (same hand-rolled approach).                                                                                                                                                                                                                                                                             |
+| `clients/agent-runtime/src/skills/lockfile.rs`        | Modify    | Update `lock_entry_to_origin()` to recognize `"official:"` prefix → `SkillSource::Official`. Update `build_lock_entry()` to accept optional `path` parameter. Add `repair_lockfile()` function.                                                                                                                                                                                                                                 |
+| `clients/agent-runtime/src/skills/trust.rs`           | No change | Types already support `Official` variant. No modifications needed.                                                                                                                                                                                                                                                                                                                                                              |
+| `clients/agent-runtime/src/skillforge/mod.rs`         | Modify    | Add `discover()` public method that runs Scout → Evaluate and returns results without integrating. Deprecate `auto_integrate` config field (warn when set).                                                                                                                                                                                                                                                                     |
+| `clients/agent-runtime/src/skillforge/integrate.rs`   | Modify    | Stop generating SKILL.toml in `integrate()`. Generate only SKILL.md with YAML frontmatter header.                                                                                                                                                                                                                                                                                                                               |
+| `clients/agent-runtime/src/lib.rs`                    | Modify    | Expand `SkillCommands` enum with `Search`, `Update`, `Lock`, `Discover` variants. Add `LockCommands` sub-enum.                                                                                                                                                                                                                                                                                                                  |
+| `clients/agent-runtime/src/config/schema.rs`          | Modify    | Expand `SkillsConfig` with `catalog_repo_url`, `catalog_cache_ttl_hours` fields.                                                                                                                                                                                                                                                                                                                                                |
+| `clients/agent-runtime/src/main.rs`                   | Modify    | Route new `SkillCommands` variants to handlers (discover requires async).                                                                                                                                                                                                                                                                                                                                                       |
+| `clients/agent-runtime/Cargo.toml`                    | Modify    | Add `build = "build.rs"` declaration. No new dependency crates.                                                                                                                                                                                                                                                                                                                                                                 |
 
 ## Interfaces / Contracts
 
@@ -679,29 +686,31 @@ sequenceDiagram
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | `CatalogIndex`/`CatalogEntry` TOML parsing (valid, invalid, missing fields) | `catalog.rs` — parse sample TOML strings, verify struct fields |
-| Unit | `is_bare_name()` — positive cases (`git-expert`, `rust`) and negative (`./path`, `https://url`, `a.b`, `a:b`, `a/b`) | `catalog.rs` — exhaustive assertions |
-| Unit | `search()` — matches name, description, tags; case-insensitive; no-match returns empty | `catalog.rs` — build test index, verify search results |
-| Unit | `resolve_index()` fallback chain — cached/embedded paths (network mocked or skipped) | `catalog.rs` — use tempdir, write/omit cache file, verify fallback to embedded |
-| Unit | Extended `SkillFrontmatter` parsing — `version`, `author`, `tags` fields | `frontmatter.rs` — add test cases mirroring existing style |
-| Unit | `tags` list parsing (same pattern as `allowed-tools`) | `frontmatter.rs` — verify list items parsed correctly |
-| Unit | `lock_entry_to_origin()` — `"official:dallay/corvus-skills"` → `SkillSource::Official` | `lockfile.rs` — add test case alongside existing ones |
-| Unit | `repair_lockfile()` — verified/added/removed/updated scenarios | `lockfile.rs` — tempdir with skills on disk + lockfile, verify summary |
-| Unit | `build_lock_entry()` with `path` field for official skills | `lockfile.rs` — verify path is populated |
-| Integration | Catalog install end-to-end: bare name → index lookup → mock clone → lockfile entry | `skills/mod.rs` — tempdir workspace, embedded index, verify Official trust |
-| Integration | SKILL.toml deprecation warning emitted on load | `skills/mod.rs` — existing `load_skill_toml` test + tracing subscriber capture |
-| Regression | All existing Phase 1 tests pass unchanged | `cargo test` — no modifications to existing test assertions |
-| Regression | Existing `SkillCommands::List`, `Install` (URL/path), `Remove` continue to work | Existing tests in `skills/mod.rs` cover these paths |
+| Layer       | What to Test                                                                                                         | Approach                                                                       |
+|-------------|----------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------|
+| Unit        | `CatalogIndex`/`CatalogEntry` TOML parsing (valid, invalid, missing fields)                                          | `catalog.rs` — parse sample TOML strings, verify struct fields                 |
+| Unit        | `is_bare_name()` — positive cases (`git-expert`, `rust`) and negative (`./path`, `https://url`, `a.b`, `a:b`, `a/b`) | `catalog.rs` — exhaustive assertions                                           |
+| Unit        | `search()` — matches name, description, tags; case-insensitive; no-match returns empty                               | `catalog.rs` — build test index, verify search results                         |
+| Unit        | `resolve_index()` fallback chain — cached/embedded paths (network mocked or skipped)                                 | `catalog.rs` — use tempdir, write/omit cache file, verify fallback to embedded |
+| Unit        | Extended `SkillFrontmatter` parsing — `version`, `author`, `tags` fields                                             | `frontmatter.rs` — add test cases mirroring existing style                     |
+| Unit        | `tags` list parsing (same pattern as `allowed-tools`)                                                                | `frontmatter.rs` — verify list items parsed correctly                          |
+| Unit        | `lock_entry_to_origin()` — `"official:dallay/corvus-skills"` → `SkillSource::Official`                               | `lockfile.rs` — add test case alongside existing ones                          |
+| Unit        | `repair_lockfile()` — verified/added/removed/updated scenarios                                                       | `lockfile.rs` — tempdir with skills on disk + lockfile, verify summary         |
+| Unit        | `build_lock_entry()` with `path` field for official skills                                                           | `lockfile.rs` — verify path is populated                                       |
+| Integration | Catalog install end-to-end: bare name → index lookup → mock clone → lockfile entry                                   | `skills/mod.rs` — tempdir workspace, embedded index, verify Official trust     |
+| Integration | SKILL.toml deprecation warning emitted on load                                                                       | `skills/mod.rs` — existing `load_skill_toml` test + tracing subscriber capture |
+| Regression  | All existing Phase 1 tests pass unchanged                                                                            | `cargo test` — no modifications to existing test assertions                    |
+| Regression  | Existing `SkillCommands::List`, `Install` (URL/path), `Remove` continue to work                                      | Existing tests in `skills/mod.rs` cover these paths                            |
 
 ### Key Test Invariants
 
-1. **Privilege escalation prevention**: URL-based install of `https://github.com/dallay/corvus-skills`
+1. **Privilege escalation prevention**: URL-based install of
+   `https://github.com/dallay/corvus-skills`
    must still produce `ThirdParty` trust, never `Official`. Add explicit test.
 2. **Offline operation**: `resolve_index()` with no cache and no network returns embedded index
    successfully. Search works against embedded index.
-3. **Backward compatibility**: `handle_install_command("https://github.com/someone/skill")` continues
+3. **Backward compatibility**: `handle_install_command("https://github.com/someone/skill")`
+   continues
    to work identically to Phase 1 behavior.
 4. **Lock repair idempotency**: Running repair twice produces the same result.
 
@@ -735,5 +744,10 @@ Following the proposal's phased approach:
 
 - [x] Official repo name: `dallay/corvus-skills` (confirmed in proposal)
 - [x] Catalog name format: Flat names (`git-expert`) — no namespacing (confirmed in proposal)
-- [ ] Sparse checkout vs shallow clone: Should the catalog install use `git clone --filter=blob:none --sparse` or fall back to full shallow clone? The design uses sparse checkout with shallow clone fallback, but the minimum git version requirement should be documented.
-- [ ] SKILL.toml `[[tools]]` migration: The proposal says official skills should not use `[[tools]]`. Should the frontmatter parser ever support tool declarations, or is that permanently out of scope? Current design: tools stay in SKILL.toml only, not in frontmatter.
+- [ ] Sparse checkout vs shallow clone: Should the catalog install use
+  `git clone --filter=blob:none --sparse` or fall back to full shallow clone? The design uses sparse
+  checkout with shallow clone fallback, but the minimum git version requirement should be
+  documented.
+- [ ] SKILL.toml `[[tools]]` migration: The proposal says official skills should not use
+  `[[tools]]`. Should the frontmatter parser ever support tool declarations, or is that permanently
+  out of scope? Current design: tools stay in SKILL.toml only, not in frontmatter.

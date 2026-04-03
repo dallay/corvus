@@ -119,20 +119,20 @@ Comparator --> CLI: validation status
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `modules/cerebro/src/config.rs` | Modify | Add embedded/remote storage config fields, default to embedded, add fallback policy. |
-| `modules/cerebro/src/storage/mod.rs` | Modify | Add embedded SurrealDB storage implementation and fallback selection logic. |
-| `modules/cerebro/src/storage/surreal.rs` | Create | Embedded SurrealDB storage adapter implementing `Storage`. |
-| `modules/cerebro/src/migration/mod.rs` | Create | Migration orchestration: import + validate workflows. |
-| `modules/cerebro/src/migration/legacy.rs` | Create | Legacy export reader + normalization + checksum generation. |
-| `modules/cerebro/src/migration/report.rs` | Create | Import/validation report output (JSON + human-readable). |
-| `modules/cerebro/src/bin/cerebro.rs` | Create | CLI entrypoint with `serve` and `migrate` subcommands. |
-| `modules/cerebro/src/main.rs` | Modify | Delegate to CLI or keep as thin `serve` wrapper. |
-| `modules/cerebro/Cargo.toml` | Modify | Add SurrealDB + clap + checksum dependencies. |
-| `modules/cerebro/tests/` | Modify | Add migration validation tests; update storage default tests. |
-| `clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md` | Modify | Document import/validate tooling and embedded default. |
-| `openspec/specs/cerebro/spec.md` | Modify | Update delta spec references to include migration tooling scope. |
+| File                                                                 | Action | Description                                                                          |
+|----------------------------------------------------------------------|--------|--------------------------------------------------------------------------------------|
+| `modules/cerebro/src/config.rs`                                      | Modify | Add embedded/remote storage config fields, default to embedded, add fallback policy. |
+| `modules/cerebro/src/storage/mod.rs`                                 | Modify | Add embedded SurrealDB storage implementation and fallback selection logic.          |
+| `modules/cerebro/src/storage/surreal.rs`                             | Create | Embedded SurrealDB storage adapter implementing `Storage`.                           |
+| `modules/cerebro/src/migration/mod.rs`                               | Create | Migration orchestration: import + validate workflows.                                |
+| `modules/cerebro/src/migration/legacy.rs`                            | Create | Legacy export reader + normalization + checksum generation.                          |
+| `modules/cerebro/src/migration/report.rs`                            | Create | Import/validation report output (JSON + human-readable).                             |
+| `modules/cerebro/src/bin/cerebro.rs`                                 | Create | CLI entrypoint with `serve` and `migrate` subcommands.                               |
+| `modules/cerebro/src/main.rs`                                        | Modify | Delegate to CLI or keep as thin `serve` wrapper.                                     |
+| `modules/cerebro/Cargo.toml`                                         | Modify | Add SurrealDB + clap + checksum dependencies.                                        |
+| `modules/cerebro/tests/`                                             | Modify | Add migration validation tests; update storage default tests.                        |
+| `clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md` | Modify | Document import/validate tooling and embedded default.                               |
+| `openspec/specs/cerebro/spec.md`                                     | Modify | Update delta spec references to include migration tooling scope.                     |
 
 ## Interfaces / Contracts
 
@@ -200,13 +200,13 @@ cerebro migrate validate \
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | Config defaults and fallback policy | Assert default storage mode and explicit fallback behaviors. |
-| Unit | Legacy parsing + checksum normalization | Golden fixtures for export parsing and stable hash results. |
-| Integration | Embedded SurrealDB storage | Write/read/search/delete against embedded store. |
-| Integration | Migration import + validate | Import fixture export, verify counts + checksums match. |
-| E2E | CLI workflows | Run `cerebro migrate import/validate` against temp dirs. |
+| Layer       | What to Test                            | Approach                                                     |
+|-------------|-----------------------------------------|--------------------------------------------------------------|
+| Unit        | Config defaults and fallback policy     | Assert default storage mode and explicit fallback behaviors. |
+| Unit        | Legacy parsing + checksum normalization | Golden fixtures for export parsing and stable hash results.  |
+| Integration | Embedded SurrealDB storage              | Write/read/search/delete against embedded store.             |
+| Integration | Migration import + validate             | Import fixture export, verify counts + checksums match.      |
+| E2E         | CLI workflows                           | Run `cerebro migrate import/validate` against temp dirs.     |
 
 ## Migration / Rollout
 
@@ -214,14 +214,14 @@ cerebro migrate validate \
 - Default storage mode becomes embedded for new deployments; existing deployments can override via
   config to `RemoteSurreal`, `Disk`, or `InMemory`.
 - Rollout steps:
-  1. Export legacy SurrealDB data to file.
-  2. Run `cerebro migrate import` targeting the embedded path.
-  3. Run `cerebro migrate validate` and review report.
-  4. Switch Cerebro config to embedded default and restart.
+    1. Export legacy SurrealDB data to file.
+    2. Run `cerebro migrate import` targeting the embedded path.
+    3. Run `cerebro migrate validate` and review report.
+    4. Switch Cerebro config to embedded default and restart.
 - Backward compatibility:
-  - Existing `storage_mode` values remain supported.
-  - `storage_path` continues to work for `Disk` or embedded path.
-  - MCP tool behavior remains unchanged.
+    - Existing `storage_mode` values remain supported.
+    - `storage_path` continues to work for `Disk` or embedded path.
+    - MCP tool behavior remains unchanged.
 
 ## Security Constraints
 

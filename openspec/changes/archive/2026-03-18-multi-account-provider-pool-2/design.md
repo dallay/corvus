@@ -51,17 +51,18 @@ Primary request flow with account selection:
       │
       │  chat_with_system
       ▼
-  ReliableProvider
-      │  (retry/fallback loops)
-      ▼
-  AccountPoolProvider (per-provider)
-      │  select account (round-robin/weighted)
-      │  get/create provider for account
-      ▼
-  Concrete Provider (OpenAI/Anthropic/etc)
-      │
-      ▼
-  Response / Error
+
+ReliableProvider
+│  (retry/fallback loops)
+▼
+AccountPoolProvider (per-provider)
+│ select account (round-robin/weighted)
+│ get/create provider for account
+▼
+Concrete Provider (OpenAI/Anthropic/etc)
+│
+▼
+Response / Error
 
 If a rate-limit error is detected inside `AccountPoolProvider`, the account is put on
 cooldown, so subsequent calls skip it until the cooldown expires.
@@ -96,15 +97,15 @@ Request with account selection + rate-limit cooldown:
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `clients/agent-runtime/src/config/schema.rs` | Modify | Add pool config structs; load/save encryption for pooled secrets; validation rules. |
-| `clients/agent-runtime/src/providers/pool.rs` | Create | New `AccountPoolProvider` and selection logic. |
-| `clients/agent-runtime/src/providers/mod.rs` | Modify | Construct pooled providers when pool config exists; wire into resilient provider creation. |
-| `clients/agent-runtime/src/providers/reliable.rs` | Modify | Minor integration if needed (e.g., removing unused api_key rotation when pool present). |
-| `clients/agent-runtime/src/bootstrap/mod.rs` | Modify | Ensure runtime options pass through pooled provider creation (no behavior change). |
-| `clients/agent-runtime/tests/admin_config_api_integration.rs` | Modify | Only if admin config includes pool exposure. |
-| `clients/web/apps/dashboard/src/types/admin-config.ts` | Modify | Only if admin config includes pool exposure. |
+| File                                                          | Action | Description                                                                                |
+|---------------------------------------------------------------|--------|--------------------------------------------------------------------------------------------|
+| `clients/agent-runtime/src/config/schema.rs`                  | Modify | Add pool config structs; load/save encryption for pooled secrets; validation rules.        |
+| `clients/agent-runtime/src/providers/pool.rs`                 | Create | New `AccountPoolProvider` and selection logic.                                             |
+| `clients/agent-runtime/src/providers/mod.rs`                  | Modify | Construct pooled providers when pool config exists; wire into resilient provider creation. |
+| `clients/agent-runtime/src/providers/reliable.rs`             | Modify | Minor integration if needed (e.g., removing unused api_key rotation when pool present).    |
+| `clients/agent-runtime/src/bootstrap/mod.rs`                  | Modify | Ensure runtime options pass through pooled provider creation (no behavior change).         |
+| `clients/agent-runtime/tests/admin_config_api_integration.rs` | Modify | Only if admin config includes pool exposure.                                               |
+| `clients/web/apps/dashboard/src/types/admin-config.ts`        | Modify | Only if admin config includes pool exposure.                                               |
 
 ## Interfaces / Contracts
 
@@ -175,6 +176,7 @@ TOML example:
     }
 
 Key behaviors:
+
 - `select_account()` skips disabled accounts and those with active cooldowns.
 - Provider instance is created lazily per account and cached by `id`.
 - Errors are inspected for rate-limits; if detected, the account enters cooldown
@@ -182,13 +184,13 @@ Key behaviors:
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
-| Unit | Pool selection (round-robin/weighted), cooldown skip | New tests in `clients/agent-runtime/src/providers/pool.rs` with mock provider. |
-| Unit | Config load/save encrypts pooled api_key | Extend config save/load tests in `clients/agent-runtime/src/config/schema.rs`. |
-| Unit | Validation rejects empty ids, duplicate ids, zero weights | Add validation tests near `validate_for_runtime`. |
-| Integration | Provider creation uses pool when configured | Tests in `clients/agent-runtime/src/providers/mod.rs` using a synthetic provider. |
-| Integration | Admin config API (only if exposed) | Update `clients/agent-runtime/tests/admin_config_api_integration.rs`. |
+| Layer       | What to Test                                              | Approach                                                                          |
+|-------------|-----------------------------------------------------------|-----------------------------------------------------------------------------------|
+| Unit        | Pool selection (round-robin/weighted), cooldown skip      | New tests in `clients/agent-runtime/src/providers/pool.rs` with mock provider.    |
+| Unit        | Config load/save encrypts pooled api_key                  | Extend config save/load tests in `clients/agent-runtime/src/config/schema.rs`.    |
+| Unit        | Validation rejects empty ids, duplicate ids, zero weights | Add validation tests near `validate_for_runtime`.                                 |
+| Integration | Provider creation uses pool when configured               | Tests in `clients/agent-runtime/src/providers/mod.rs` using a synthetic provider. |
+| Integration | Admin config API (only if exposed)                        | Update `clients/agent-runtime/tests/admin_config_api_integration.rs`.             |
 
 ## Migration / Rollout
 

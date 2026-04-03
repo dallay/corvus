@@ -57,7 +57,8 @@
 - [x] 3.2 Add security tests for endpoint policy and auth token requirements in
   `clients/agent-runtime/tests/mcp_config_validation.rs` and
   `modules/cerebro/tests/mcp_auth_policy.rs`.
-- [x] 3.3 Run `cargo fmt --all -- --check` to verify code formatting compliance (or document why this
+- [x] 3.3 Run `cargo fmt --all -- --check` to verify code formatting compliance (or document why
+  this
   check was skipped in test log notes).
 - [x] 3.4 Run `cargo clippy --all-targets -- -D warnings` to verify linting compliance (or document
   why this check was skipped in test log notes).

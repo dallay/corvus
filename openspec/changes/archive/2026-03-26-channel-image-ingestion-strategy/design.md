@@ -120,16 +120,16 @@ errors, etc.).
 
 ### Event structure
 
-| Field          | Source                                       |
-|----------------|----------------------------------------------|
-| `channel`      | `msg.channel` string                         |
-| `provider`     | Resolved vision route name (if available)    |
-| `model`        | Resolved vision model (if available)         |
-| `outcome`      | `Admitted` · `Rejected` · `ProviderSent` · `ProviderError` |
-| `reason`       | Rejection reason (if rejected)               |
-| `image_count`  | Number of images in the turn                 |
-| `mime_type`    | Sniffed MIME (if fetch succeeded)            |
-| `byte_len`     | Payload size in bytes (if fetch succeeded)   |
+| Field         | Source                                                     |
+|---------------|------------------------------------------------------------|
+| `channel`     | `msg.channel` string                                       |
+| `provider`    | Resolved vision route name (if available)                  |
+| `model`       | Resolved vision model (if available)                       |
+| `outcome`     | `Admitted` · `Rejected` · `ProviderSent` · `ProviderError` |
+| `reason`      | Rejection reason (if rejected)                             |
+| `image_count` | Number of images in the turn                               |
+| `mime_type`   | Sniffed MIME (if fetch succeeded)                          |
+| `byte_len`    | Payload size in bytes (if fetch succeeded)                 |
 
 ### Emission points
 

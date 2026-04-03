@@ -106,10 +106,10 @@ sequenceDiagram
 
 ## File Changes
 
-| File | Action | Description |
-|------|--------|-------------|
-| `openspec/changes/2026-03-17-cerebro-spec-refresh/design.md` | Create | Document architecture decisions and data flow for the refreshed Cerebro spec. |
-| `openspec/specs/cerebro/spec.md` | Modify | Refresh the main Cerebro spec with updated architecture, data model, drill-in retrieval, and TUI scope decisions. |
+| File                                                         | Action | Description                                                                                                       |
+|--------------------------------------------------------------|--------|-------------------------------------------------------------------------------------------------------------------|
+| `openspec/changes/2026-03-17-cerebro-spec-refresh/design.md` | Create | Document architecture decisions and data flow for the refreshed Cerebro spec.                                     |
+| `openspec/specs/cerebro/spec.md`                             | Modify | Refresh the main Cerebro spec with updated architecture, data model, drill-in retrieval, and TUI scope decisions. |
 
 ## Interfaces / Contracts
 
@@ -152,11 +152,11 @@ request full details only for the few relevant memories.
 
 ## Testing Strategy
 
-| Layer | What to Test | Approach |
-|-------|-------------|----------|
+| Layer         | What to Test                                       | Approach                                                                                                            |
+|---------------|----------------------------------------------------|---------------------------------------------------------------------------------------------------------------------|
 | Documentation | Spec consistency with proposal and archived change | Manual review against `openspec/changes/archive/2026-03-16-cerebro/cerebro.md` and `openspec/specs/cerebro/spec.md` |
-| Contract | Tool list and drill-in semantics | Verify updated spec text includes required tool surface and summary/full payload separation |
-| Security | Auth and secure defaults | Ensure spec language continues to enforce Bearer token and loopback-only insecure transport |
+| Contract      | Tool list and drill-in semantics                   | Verify updated spec text includes required tool surface and summary/full payload separation                         |
+| Security      | Auth and secure defaults                           | Ensure spec language continues to enforce Bearer token and loopback-only insecure transport                         |
 
 ## Migration / Rollout
 

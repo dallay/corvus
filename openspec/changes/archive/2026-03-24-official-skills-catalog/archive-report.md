@@ -18,21 +18,25 @@ repair tooling.
 
 ## Delta Specs Synced
 
-| Domain | Action | Details |
-|--------|--------|---------|
+| Domain         | Action  | Details                                                                            |
+|----------------|---------|------------------------------------------------------------------------------------|
 | `skills-trust` | Updated | 7 requirements added (R7–R13), 2 modified (R3.3 updated, R3.6 added, R6.1 updated) |
 
 **Target spec**: `openspec/specs/skills-trust/spec.md`
 
 Merge details:
+
 - **R3.3** (Write Triggers): Added `skills lock repair` as a write trigger
 - **R3.6** (Official Source in Lock Entries): New sub-requirement for `"official:"` prefix handling
-- **R6.1** (Trust Resolution at Install): Updated to cover bare-name catalog resolution producing `Official` trust
+- **R6.1** (Trust Resolution at Install): Updated to cover bare-name catalog resolution producing
+  `Official` trust
 - **R7** (Catalog Index Format): CatalogIndex/CatalogEntry structures, TOML schema, parseability
 - **R8** (Embedded Index): Build-time embedding, lazy parsing, cached index with TTL, fallback chain
-- **R9** (Catalog Install Path): Bare-name detection, catalog resolution, official trust, search, list
+- **R9** (Catalog Install Path): Bare-name detection, catalog resolution, official trust, search,
+  list
 - **R10** (SKILL.toml Deprecation): Extended frontmatter, deprecation warning, SkillForge output
-- **R11** (SkillForge Trust Boundaries): Discover command, no auto-install, auto_integrate deprecation
+- **R11** (SkillForge Trust Boundaries): Discover command, no auto-install, auto_integrate
+  deprecation
 - **R12** (Lockfile Repair): Disk scan, rebuild, orphan removal, hash recompute, summary report
 - **R13** (Skills Update): Update all/by-name, official/third-party/local handling
 
@@ -41,11 +45,13 @@ Merge details:
 ## Implementation Summary
 
 ### Files Created
+
 - `clients/agent-runtime/build.rs` — Embeds catalog index at build time
 - `clients/agent-runtime/src/skills/catalog.rs` — Catalog index types, parsing, cache, search
 - `clients/agent-runtime/src/skills/catalog_index.toml` — Committed index snapshot
 
 ### Files Modified
+
 - `clients/agent-runtime/Cargo.toml` — build.rs declaration
 - `clients/agent-runtime/src/agent/prompt.rs` — Trust-aware rendering updates
 - `clients/agent-runtime/src/channels/mod.rs` — Channel updates
@@ -62,6 +68,7 @@ Merge details:
 - `clients/agent-runtime/src/skills/trust.rs` — Trust derivation updates
 
 ### Tasks Completed
+
 - 20/27 tasks marked complete in tasks.md
 - 3 additional tasks done in code but not marked (1.7, 4.4, 4.9)
 - 4 test tasks deferred (4.2, 4.6, 4.7, 4.8) — WARNING severity
@@ -73,12 +80,16 @@ Merge details:
 **Initial verdict**: FAIL (2 critical issues)
 
 ### Critical Fixes Applied
-1. **Update command routing** — `skills/mod.rs` stub replaced with call to `handle_update_command()` (R13 unblocked)
-2. **Frontmatter fields wiring** — `load_skill_md` now uses parsed `fm.version`, `fm.author`, `fm.tags` (R10.1 effective)
+
+1. **Update command routing** — `skills/mod.rs` stub replaced with call to
+   `handle_update_command()` (R13 unblocked)
+2. **Frontmatter fields wiring** — `load_skill_md` now uses parsed `fm.version`, `fm.author`,
+   `fm.tags` (R10.1 effective)
 
 **Final verdict**: PASS (after critical fixes)
 
 ### Remaining Warnings (non-blocking)
+
 - `CatalogEntry.version` and `content_hash` are `Option<String>` (spec says required)
 - `CatalogMeta.commit` is `Option<String>` (spec says required)
 - `RepairSummary.unchanged` should be `verified` per R12.5
@@ -86,6 +97,7 @@ Merge details:
 - 19/38 scenarios lack test coverage (tasks 4.2, 4.6, 4.7, 4.8 incomplete)
 
 ### Build Status
+
 - Build: PASS (0 errors, 0 warnings)
 - Clippy: PASS (0 warnings)
 - Format: PASS (no diff)
@@ -107,6 +119,7 @@ Merge details:
 ## Source of Truth Updated
 
 The following spec now reflects Phase 1 + Phase 2 behavior:
+
 - `openspec/specs/skills-trust/spec.md` (R1–R13, 38 scenarios)
 
 ---

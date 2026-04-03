@@ -16,6 +16,7 @@ oversight. All operations flow through the HTTP Gateway API with bearer token au
 ## Mandatory Capabilities
 
 ### Runtime Configuration
+
 - [ ] Provider and model selection
 - [ ] Temperature and default settings
 - [ ] Memory backend configuration
@@ -23,36 +24,43 @@ oversight. All operations flow through the HTTP Gateway API with bearer token au
 - [ ] Pairing and token management
 
 ### Agent Management
+
 - [ ] Agent creation and configuration
 - [ ] Agent deletion
 - [ ] Agent behavior settings
 
 ### Session Monitoring
+
 - [ ] Active session list
 - [ ] Session inspection
 - [ ] Session termination
 
 ### Memory Administration
+
 - [ ] Cerebro memory viewing
 - [ ] Memory management controls
 - [ ] Embedding configuration
 
 ### MCP Server Configuration
+
 - [ ] MCP server registration
 - [ ] MCP server removal
 - [ ] MCP tool visibility settings
 
 ### Approval Policy Management
+
 - [ ] Autonomy level configuration
 - [ ] Risk threshold settings
 - [ ] Approval rule definition
 
 ### Audit and Observability
+
 - [ ] Audit log viewing
 - [ ] Health status display
 - [ ] Channel status overview
 
 ### Gateway Integration
+
 - [ ] Options catalog fetch (`GET /web/admin/options`)
 - [ ] Config read (`GET /web/admin/config`)
 - [ ] Config update (`PUT /web/admin/config`)
@@ -66,12 +74,12 @@ oversight. All operations flow through the HTTP Gateway API with bearer token au
 
 ## Out-of-Scope
 
-| Capability | Reason |
-|-----------|--------|
-| Direct runtime process access | Gateway API only |
-| Runtime binary modification | Configuration only |
-| Chat message composition | Chat surface handles this |
-| Mobile-specific features | ComposeApp handles this |
+| Capability                    | Reason                    |
+|-------------------------------|---------------------------|
+| Direct runtime process access | Gateway API only          |
+| Runtime binary modification   | Configuration only        |
+| Chat message composition      | Chat surface handles this |
+| Mobile-specific features      | ComposeApp handles this   |
 
 ## Current Status
 
@@ -136,7 +144,8 @@ Dashboard **MUST** use HTTP Gateway only. Direct runtime access is prohibited.
 
 - GIVEN the dashboard renders runtime configuration forms
 - WHEN field labels reference Corvus concepts
-- THEN labels MUST use "runtime" (not "server" or "backend"), "gateway" (not "API" or "proxy"), and "tool" (not "action" or "function")
+- THEN labels MUST use "runtime" (not "server" or "backend"), "gateway" (not "API" or "proxy"),
+  and "tool" (not "action" or "function")
 
 #### Scenario: Dashboard uses canonical tokens
 
@@ -152,6 +161,6 @@ Dashboard **MUST** use HTTP Gateway only. Direct runtime access is prohibited.
 
 ## Change History
 
-| Version | Date       | Changes                                                  |
-|---------|------------|----------------------------------------------------------|
-| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 1 — Full, #278)   |
+| Version | Date       | Changes                                               |
+|---------|------------|-------------------------------------------------------|
+| 1.1.0   | 2026-03-24 | Added i18n Requirements section (Tier 1 — Full, #278) |

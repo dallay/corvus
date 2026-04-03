@@ -9,8 +9,8 @@
 
 ## Specs Synced
 
-| Domain | Action | Details |
-|--------|--------|---------|
+| Domain                 | Action  | Details                                                                                                                                                                                                                                                  |
+|------------------------|---------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | web-operational-parity | Created | 12 requirements, 12 scenarios. New spec — no prior main spec existed. Spec updated to reflect implementation reality (ProviderPools gap, Identity folded into Security, SSE push for tool approval, Phase 4 overview components added as REQ-11/REQ-12). |
 
 ## Archive Contents
@@ -25,11 +25,13 @@
 ## Source of Truth Updated
 
 The following specs now reflect the new behavior:
+
 - `openspec/specs/web-operational-parity/spec.md`
 
 ## Verification Verdict
 
 **PASS WITH WARNINGS** — no CRITICAL issues:
+
 - 141 tests passed (78 dashboard + 63 chat), 0 failed
 - TypeScript: `tsc --noEmit` clean
 - Rust: `cargo check` clean
@@ -40,14 +42,14 @@ The following specs now reflect the new behavior:
 
 ## Implementation Deviations from Original Spec
 
-| Topic | Original Spec | Actual Implementation |
-|-------|--------------|----------------------|
-| ProviderPools UI | Full CRUD component | Types exist, no UI component |
-| Identity section | Separate `IdentitySettings.vue` | Folded into `SecuritySettings.vue` |
-| Tool approval delivery | Polling model | SSE push events (improvement) |
-| Channel health | Real-time health indicator | Best-effort `configured` boolean |
-| Phase 4 views | "Future" / TBD | Implemented as read-only overview components |
-| Operational views routing | Via `ConfigSection` | Wired directly in `App.vue` |
+| Topic                     | Original Spec                   | Actual Implementation                        |
+|---------------------------|---------------------------------|----------------------------------------------|
+| ProviderPools UI          | Full CRUD component             | Types exist, no UI component                 |
+| Identity section          | Separate `IdentitySettings.vue` | Folded into `SecuritySettings.vue`           |
+| Tool approval delivery    | Polling model                   | SSE push events (improvement)                |
+| Channel health            | Real-time health indicator      | Best-effort `configured` boolean             |
+| Phase 4 views             | "Future" / TBD                  | Implemented as read-only overview components |
+| Operational views routing | Via `ConfigSection`             | Wired directly in `App.vue`                  |
 
 ## Follow-up Work
 

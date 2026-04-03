@@ -11,6 +11,7 @@ separation guarantees.
 ## Scope
 
 ### In Scope
+
 - Update `openspec/specs/cerebro/spec.md` to incorporate the user-provided philosophy, data model,
   MCP tools, memory hygiene, and TUI scope.
 - Align the spec with the archived change at
@@ -22,6 +23,7 @@ separation guarantees.
   secure defaults.
 
 ### Out of Scope
+
 - Implementing code changes in `modules/cerebro` or `clients/agent-runtime`.
 - Creating new spec/design/tasks artifacts beyond the refreshed spec.
 - Shipping the TUI, SurrealDB embedding, or migration tooling; this change only updates spec text.
@@ -34,6 +36,7 @@ tech, MCP tools, data model, memory hygiene, and TUI expectations. Where conflic
 refreshed spec will make an explicit decision and document rationale.
 
 ### Conflicts / Deltas to Resolve
+
 - **Embedded SurrealDB**: Current spec removes SurrealDB from the runtime and declares embedded
   SurrealDB out of scope; the new proposal must clarify that embedded SurrealDB is a Cerebro
   service deployment mode (not agent-runtime) and update scope accordingly.
@@ -45,19 +48,19 @@ refreshed spec will make an explicit decision and document rationale.
 
 ## Affected Areas
 
-| Area | Impact | Description |
-|------|--------|-------------|
-| `openspec/specs/cerebro/spec.md` | Modified | Refresh spec to match updated philosophy, tools, data model, and scope. |
+| Area                                           | Impact    | Description                                                                     |
+|------------------------------------------------|-----------|---------------------------------------------------------------------------------|
+| `openspec/specs/cerebro/spec.md`               | Modified  | Refresh spec to match updated philosophy, tools, data model, and scope.         |
 | `openspec/changes/archive/2026-03-16-cerebro/` | Reference | Use archived change as authoritative background for tool and migration context. |
-| `openspec/changes/cerebro/cerebro.md` | Reference | Confirm tool surface and security expectations remain aligned. |
+| `openspec/changes/cerebro/cerebro.md`          | Reference | Confirm tool surface and security expectations remain aligned.                  |
 
 ## Risks
 
-| Risk | Likelihood | Mitigation |
-|------|------------|------------|
-| Spec ambiguity around embedded SurrealDB vs runtime removal | Medium | Explicitly scope embedded SurrealDB to the Cerebro service only; reaffirm runtime separation. |
-| TUI scope inflation without implementation plan | Medium | Mark TUI as optional phase with clear boundaries and non-blocking status. |
-| Tool contract drift from existing MCP expectations | Low | Cross-check `openspec/changes/cerebro/cerebro.md` and archived change tool list. |
+| Risk                                                        | Likelihood | Mitigation                                                                                    |
+|-------------------------------------------------------------|------------|-----------------------------------------------------------------------------------------------|
+| Spec ambiguity around embedded SurrealDB vs runtime removal | Medium     | Explicitly scope embedded SurrealDB to the Cerebro service only; reaffirm runtime separation. |
+| TUI scope inflation without implementation plan             | Medium     | Mark TUI as optional phase with clear boundaries and non-blocking status.                     |
+| Tool contract drift from existing MCP expectations          | Low        | Cross-check `openspec/changes/cerebro/cerebro.md` and archived change tool list.              |
 
 ## Rollback Plan
 
@@ -74,6 +77,6 @@ guidance or breaks alignment with existing implementations.
 ## Success Criteria
 
 - [ ] The refreshed spec explicitly reflects the user-provided philosophy, data model, MCP tools,
-      memory hygiene, and agent prompt guidance.
+  memory hygiene, and agent prompt guidance.
 - [ ] Conflicts (embedded SurrealDB and TUI scope) are resolved and clearly documented.
 - [ ] The spec continues to enforce runtime separation, MCP auth, and secure defaults.

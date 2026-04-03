@@ -114,11 +114,12 @@
 - Hard dependencies: 2.x depends on 1.2-1.5; 3.x depends on 2.4-2.5; 4.x depends on 2.2-2.6 and
   3.2-3.5; 5.x depends on all prior implementation tasks.
 - Parallelizable within phases after prerequisites:
-  - `Phase 2`: 2.2 and 2.3 can run in parallel after 1.2; 2.4 can start once adapter interfaces are
-    stable.
-  - `Phase 3`: 3.3 and 3.4 can run in parallel after 3.2 baseline classification is in place.
-  - `Phase 4`: 4.2 and 4.3 can run in parallel after 2.2; 4.5 can run in parallel with 4.4 after
-    result/error shape is stable.
-  - `Phase 5`: 5.1 and 5.3 can run in parallel; 5.4 runs last.
+    - `Phase 2`: 2.2 and 2.3 can run in parallel after 1.2; 2.4 can start once adapter interfaces
+      are
+      stable.
+    - `Phase 3`: 3.3 and 3.4 can run in parallel after 3.2 baseline classification is in place.
+    - `Phase 4`: 4.2 and 4.3 can run in parallel after 2.2; 4.5 can run in parallel with 4.4 after
+      result/error shape is stable.
+    - `Phase 5`: 5.1 and 5.3 can run in parallel; 5.4 runs last.
 - TDD cadence requirement for each feature area: execute RED tasks first (1.1, 2.1, 3.1, 4.1), then
   GREEN implementation tasks, then refactor without changing behavior.
