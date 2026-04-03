@@ -16,7 +16,7 @@ This change wires the existing sandbox infrastructure into the actual execution 
 2. **Add `sandbox.require` config option**: When `true`, `create_sandbox()` returns an error instead of silently falling back to `NoopSandbox`. Defaults to `false` for backward compatibility.
 3. **Warning on NoopSandbox for mutating operations**: When `sandbox.require = false` and `NoopSandbox` is active, log a warning for non-read-only command executions.
 4. **Propagate sandbox backend to audit events**: Ensure `AuditEvent.security.sandbox_backend` reflects the actual sandbox used per execution, not always `None`.
-5. **Computer-use sidecar isolation contract**: Add a startup health-check that queries and logs the sidecar's isolation level in the audit log. Document the expected isolation contract.
+5. **Computer-use sidecar isolation contract**: Add a first computer-use health-check that queries and logs the sidecar's isolation level in the audit log. Document the expected isolation contract.
 6. **Focused tests for new security boundaries**: Integration tests verifying sandbox wiring, fail-closed behavior, audit propagation, and NoopSandbox warning paths.
 
 ### Out of Scope
@@ -54,9 +54,9 @@ This change wires the existing sandbox infrastructure into the actual execution 
 
 ### Phase 5: Computer-Use Sidecar Contract
 
-- Add an optional health-check call to the sidecar endpoint at `BrowserTool` initialization that queries isolation capabilities.
-- Log the sidecar's reported isolation level as an audit event (`SecurityEvent` type).
-- Document the expected isolation contract in `docs/` — what operators SHOULD ensure about sidecar deployment.
+- Add an optional lazy health-check call to the sidecar endpoint on the first computer-use action that queries isolation capabilities.
+- Log the sidecar's reported isolation level as a `SecurityEvent` audit entry on that first computer-use verification.
+- Document the expected isolation contract in the runtime sandbox isolation docs — what operators SHOULD ensure about sidecar deployment before first use.
 
 ### Phase 6: Tests
 
@@ -76,7 +76,7 @@ This change wires the existing sandbox infrastructure into the actual execution 
 | `src/config/schema.rs` | Modified | Add `require: bool` to `SandboxConfig` |
 | `src/tools/shell.rs` | Modified | Accept and use `Arc<dyn Sandbox>`, call `wrap_command()` |
 | `src/tools/mod.rs` | Modified | Pass sandbox to `ShellTool` in factory functions |
-| `src/tools/browser.rs` | Modified | Add sidecar health-check at init, log isolation level |
+| `src/tools/browser.rs` | Modified | Add lazy first computer-use sidecar health-check and isolation audit logging |
 | `src/security/audit.rs` | Modified | Added sandbox_backend field to audit payload; updated command-event logging and test helpers |
 | `docs/` | New | Sidecar isolation contract documentation |
 
@@ -87,7 +87,7 @@ This change wires the existing sandbox infrastructure into the actual execution 
 | Breaking existing deployments that rely on silent NoopSandbox fallback | Low | `sandbox.require` defaults to `false`; existing behavior preserved unless operator opts in |
 | `wrap_command()` backend errors blocking all shell execution | Medium | Errors from `wrap_command()` are surfaced clearly; `NoopSandbox.wrap_command()` always succeeds; operators can set `backend = None` to explicitly opt out |
 | Performance overhead of sandbox wrapping on every shell call | Low | `wrap_command()` is synchronous command mutation (no I/O); `NoopSandbox` is a no-op; real backends add CLI prefix only |
-| Sidecar health-check adding startup latency | Low | Health-check is async with a short timeout; failure is logged as warning, not fatal (unless `require = true`) |
+| Sidecar health-check adding first-use latency | Low | Health-check runs once on first computer-use action with a short timeout; failure is logged as warning, not fatal (unless `require = true`) |
 | Test complexity for OS-specific backends | Medium | Use mock `Sandbox` implementations in tests; real backend tests remain behind feature flags |
 
 ## Rollback Plan
@@ -108,7 +108,7 @@ This change wires the existing sandbox infrastructure into the actual execution 
 - [ ] `create_sandbox()` returns an error (not NoopSandbox) when `sandbox.require = true` and no backend is available
 - [ ] `AuditEvent.security.sandbox_backend` is populated with the actual backend name for every `CommandExecution` event
 - [ ] A warning is logged when `NoopSandbox` is used for non-read-only operations
-- [ ] Computer-use sidecar reports its isolation level at startup in an audit event
+- [ ] Computer-use sidecar reports its isolation level on first computer-use verification in a `SecurityEvent` audit entry
 - [ ] All existing `SecurityPolicy` tests continue to pass (no regressions)
 - [ ] New tests cover: sandbox wiring, fail-closed, audit propagation, NoopSandbox warning, sidecar health-check
 - [ ] `cargo test`, `cargo clippy`, and `cargo fmt --check` pass cleanly
