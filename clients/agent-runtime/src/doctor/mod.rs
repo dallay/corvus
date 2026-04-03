@@ -656,7 +656,7 @@ fn check_audio_health(config: &Config, items: &mut Vec<DiagItem>) {
 
     // Check model file
     let model_path = crate::transcription::whisper_cli::resolve_model_path(&ac.transcription_model);
-    if model_path.exists() {
+    if model_path.is_file() {
         items.push(DiagItem::ok(
             cat,
             format!(

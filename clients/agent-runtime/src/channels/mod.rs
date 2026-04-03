@@ -677,7 +677,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
                 Some(audio.mime_type.as_str().to_string()),
                 Some(audio.byte_len),
                 audio.duration_secs,
-                tx.duration_secs.map(duration_f64_to_ms),
+                tx.processing_ms,
             );
         }
 
@@ -1080,6 +1080,23 @@ fn duration_f64_to_ms(secs: f64) -> u64 {
     (secs * 1000.0).clamp(0.0, u64::MAX as f64) as u64
 }
 
+/// Build a transcriber from config when audio is enabled.
+fn build_transcriber(config: &Config) -> Option<Arc<dyn Transcriber>> {
+    if !config.audio.enabled {
+        return None;
+    }
+    let ac = &config.audio;
+    Some(Arc::new(
+        crate::transcription::whisper_cli::WhisperCliTranscriber::new(
+            ac.whisper_binary.clone(),
+            &ac.transcription_model,
+            ac.transcription_language.clone(),
+            ac.transcription_timeout_secs,
+            ac.max_concurrent_transcriptions,
+        ),
+    ))
+}
+
 // ── Audio pipeline helpers ──────────────────────────────────────
 
 fn audio_rejection_to_ingress_reason(
@@ -1103,7 +1120,8 @@ fn audio_rejection_to_ingress_reason(
         audio_media::AudioRejectionReason::TranscriberUnavailable => {
             AudioIngressReason::TranscriberUnavailable
         }
-        audio_media::AudioRejectionReason::SystemError => AudioIngressReason::SystemError,
+        audio_media::AudioRejectionReason::MultipleAudioParts
+        | audio_media::AudioRejectionReason::SystemError => AudioIngressReason::SystemError,
     }
 }
 
@@ -1171,6 +1189,9 @@ fn audio_rejection_user_text(
             "No speech was detected in that audio. \
              Please try again with a clearer recording."
                 .to_string()
+        }
+        audio_media::AudioRejectionReason::MultipleAudioParts => {
+            "Only one audio file per message is supported.".to_string()
         }
         audio_media::AudioRejectionReason::SystemError => {
             "An internal error occurred processing your audio. Please try again.".to_string()
@@ -1275,7 +1296,7 @@ async fn gate_and_stage_audio(
             ctx,
             msg,
             target_channel,
-            audio_media::AudioRejectionReason::SystemError,
+            audio_media::AudioRejectionReason::MultipleAudioParts,
             session_id,
         )
         .await;
@@ -1377,8 +1398,9 @@ async fn transcribe_audio(
     for audio in staged {
         let start = std::time::Instant::now();
         match transcriber.transcribe(audio).await {
-            Ok(result) => {
+            Ok(mut result) => {
                 let processing_ms = elapsed_ms(&start);
+                result.processing_ms = Some(processing_ms);
                 // Empty transcription guard (REQ-14)
                 if result.text.trim().is_empty() {
                     emit_audio_ingress(
@@ -1747,9 +1769,13 @@ async fn handle_successful_response(
 
         // Build history turn with image/audio metadata if present
         if !audio_history_metas.is_empty() {
-            let mut turn = ChatMessage::user_with_audio(enriched_message, audio_history_metas);
-            // If there are also images, attach image metadata too
-            if !staged_images.is_empty() {
+            if staged_images.is_empty() {
+                turns.push(ChatMessage::user_with_audio(
+                    enriched_message,
+                    audio_history_metas,
+                ));
+            } else {
+                // Mixed media: both audio and images in the same turn
                 let caption = original_msg.parts.iter().find_map(|p| match p {
                     traits::ContentPart::Image { caption_text, .. } => caption_text.clone(),
                     _ => None,
@@ -1758,9 +1784,12 @@ async fn handle_successful_response(
                     .iter()
                     .map(|img| media::ImageHistoryMeta::from_staged(img, caption.clone()))
                     .collect();
-                turn.image_metadata = Some(img_meta);
+                turns.push(ChatMessage::user_with_media(
+                    enriched_message,
+                    img_meta,
+                    audio_history_metas,
+                ));
             }
-            turns.push(turn);
         } else if !staged_images.is_empty() {
             let caption = original_msg.parts.iter().find_map(|p| match p {
                 traits::ContentPart::Image { caption_text, .. }
@@ -2717,7 +2746,7 @@ pub async fn start_channels(config: Config) -> Result<()> {
         max_tool_iterations: config.agent.max_tool_iterations,
         min_relevance_score: config.memory.min_relevance_score,
         conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-        transcriber: None,
+        transcriber: build_transcriber(&config),
     });
 
     run_message_dispatch_loop(rx, runtime_ctx, max_in_flight_messages).await;
@@ -2796,7 +2825,7 @@ pub(crate) fn spawn_runtime_handle(config: &Config) -> Result<Option<ChannelRunt
         max_tool_iterations: config.agent.max_tool_iterations,
         min_relevance_score: config.memory.min_relevance_score,
         conversation_histories: Arc::new(Mutex::new(HashMap::new())),
-        transcriber: None,
+        transcriber: build_transcriber(config),
     });
 
     let (tx, rx) = tokio::sync::mpsc::channel::<traits::ChannelMessage>(100);
@@ -5346,6 +5375,7 @@ mod tests {
                 language: Some("es".into()),
                 duration_secs: audio.duration_secs,
                 confidence: Some(0.95),
+                processing_ms: None,
             })
         }
 
@@ -5437,6 +5467,7 @@ mod tests {
             language: Some("es".into()),
             duration_secs: Some(5.0),
             confidence: Some(0.95),
+            processing_ms: None,
         }];
 
         let mut msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
@@ -5828,7 +5859,7 @@ mod tests {
         assert!(text.contains("30 minutes"), "expected 30 min, got: {text}");
     }
 
-    // ── audio_rejection_to_ingress_reason — all 11 variants ──
+    // ── audio_rejection_to_ingress_reason — all 12 variants ──
 
     #[test]
     fn audio_rejection_to_ingress_reason_maps_all_variants() {
@@ -5875,6 +5906,10 @@ mod tests {
                 AudioIngressReason::TranscriberUnavailable,
             ),
             (
+                audio_media::AudioRejectionReason::MultipleAudioParts,
+                AudioIngressReason::SystemError,
+            ),
+            (
                 audio_media::AudioRejectionReason::SystemError,
                 AudioIngressReason::SystemError,
             ),
@@ -5900,6 +5935,7 @@ mod tests {
             language: Some("es".into()),
             duration_secs: Some(5.0),
             confidence: Some(0.9),
+            processing_ms: None,
         }];
 
         let mut msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
@@ -5946,6 +5982,7 @@ mod tests {
             language: Some("es".into()),
             duration_secs: Some(3.0),
             confidence: None,
+            processing_ms: None,
         }];
 
         let mut msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
@@ -5991,6 +6028,7 @@ mod tests {
             language: Some("es".into()),
             duration_secs: Some(2.0),
             confidence: None,
+            processing_ms: None,
         }];
 
         let mut msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
@@ -6024,6 +6062,7 @@ mod tests {
             language: Some("es".into()),
             duration_secs: Some(5.0),
             confidence: None,
+            processing_ms: None,
         }];
 
         let mut msg = make_audio_channel_message(vec![

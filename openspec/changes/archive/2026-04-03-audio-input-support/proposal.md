@@ -66,7 +66,7 @@ validated patterns for media ingestion. Audio follows the same architecture with
 difference: **audio is transcribed to text before the agent loop; the provider never sees audio
 bytes**.
 
-```
+```text
 Image flow:  Channel → ContentPart::Image → stage → provider.chat(images: &[StagedImage])
 Audio flow:  Channel → ContentPart::Audio → stage → transcribe → inject Text → provider.chat(text)
 ```
@@ -76,7 +76,7 @@ Audio flow:  Channel → ContentPart::Audio → stage → transcribe → inject 
 Audio processing inserts into `process_channel_message()` (in `src/channels/mod.rs`) between
 `extract_user_text()` and `enrich_with_memory()`:
 
-```
+```text
 extract_user_text()
 → gate_audio_config()           // check [audio] enabled + allowed_channels
 → gate_and_stage_audio()        // fetch from channel, validate MIME/size/duration, stage to disk

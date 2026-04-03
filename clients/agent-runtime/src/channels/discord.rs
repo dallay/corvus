@@ -952,7 +952,7 @@ mod tests {
                 assert_eq!(file_name.as_deref(), Some("photo.jpg"));
                 assert_eq!(*declared_bytes, Some(102_400));
             }
-            _ => panic!("expected Image, got Text"),
+            other => panic!("expected Image, got {:?}", other),
         }
     }
 

@@ -301,16 +301,14 @@ pub struct MultimodalConfig {
 /// Phase-1 valid channel names for audio ingress.
 const PHASE1_VALID_AUDIO_CHANNELS: &[&str] = &["telegram"];
 
-/// Hard ceiling for `max_audio_bytes` (100 MiB).
-pub const MAX_AUDIO_BYTES_CEILING: u64 = 100 * 1024 * 1024;
-
-/// Hard ceiling for `max_audio_duration_secs` (1 hour).
-pub const MAX_AUDIO_DURATION_SECS_CEILING: u64 = 3600;
+// Hard ceilings imported from the canonical definition in audio_media.
+use crate::channels::audio_media::{MAX_AUDIO_BYTES_CEILING, MAX_AUDIO_DURATION_SECS_CEILING};
 
 /// Audio input processing and transcription controls.
 ///
 /// Default-deny: `enabled = false` means no channel processes audio.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AudioConfig {
     /// Global kill switch for audio ingress (default: false).
     #[serde(default)]
@@ -3335,6 +3333,13 @@ impl Config {
                 ac.max_audio_duration_secs,
                 MAX_AUDIO_DURATION_SECS_CEILING,
             );
+        }
+
+        if ac.max_concurrent_transcriptions == 0 {
+            anyhow::bail!("audio.max_concurrent_transcriptions must be greater than 0");
+        }
+        if ac.transcription_timeout_secs == 0 {
+            anyhow::bail!("audio.transcription_timeout_secs must be greater than 0");
         }
 
         if !ac.enabled {
@@ -6696,7 +6701,7 @@ allow_image_input = true
 
     #[test]
     fn audio_config_empty_toml_section_uses_defaults() {
-        let toml_str = "[audio]\n";
+        let toml_str = "";
         let parsed: AudioConfig = toml::from_str(toml_str).unwrap();
         assert!(!parsed.enabled);
         assert!(parsed.allowed_channels.is_empty());

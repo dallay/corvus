@@ -726,11 +726,6 @@ impl TelegramChannel {
             None => return,
         };
 
-        let text = match extract_message_text_for_command_handling(message) {
-            Some(t) => t,
-            None => return,
-        };
-
         let (normalized_username, normalized_user_id, chat_id) =
             extract_user_info_from_message(message);
 
@@ -751,13 +746,34 @@ impl TelegramChannel {
             return;
         }
 
-        self.process_telegram_message(
-            &text,
-            &chat_id,
-            &normalized_username,
-            normalized_user_id.as_deref(),
-        )
-        .await;
+        // If text projection is available, attempt bind-code extraction before
+        // falling through to the unauthorized notification.
+        // For media-only messages (audio/image without text), skip bind-code
+        // parsing and send the unauthorized notification directly.
+        match extract_message_text_for_command_handling(message) {
+            Some(text) => {
+                self.process_telegram_message(
+                    &text,
+                    &chat_id,
+                    &normalized_username,
+                    normalized_user_id.as_deref(),
+                )
+                .await;
+            }
+            None => {
+                // Media-only update (e.g. audio/image with no caption) —
+                // still notify the sender that they are not authorized.
+                let parts = build_telegram_content_parts(message);
+                if !parts.is_empty() {
+                    self.send_unauthorized_notification(
+                        &chat_id,
+                        &normalized_username,
+                        normalized_user_id.as_deref(),
+                    )
+                    .await;
+                }
+            }
+        }
     }
 
     async fn process_telegram_message(
@@ -1821,11 +1837,32 @@ impl TelegramChannel {
             hex::encode(hasher.finalize())
         };
 
+        // Build a unique temp path with a random suffix to avoid
+        // predictable filenames (race / symlink attacks). We use
+        // create_new(true) so the open fails if the path already exists.
+        let random_suffix: u64 = {
+            use std::collections::hash_map::RandomState;
+            use std::hash::{BuildHasher, Hasher};
+            let s = RandomState::new();
+            let mut h = s.build_hasher();
+            h.write(sha256.as_bytes());
+            h.finish()
+        };
         let temp_path = std::env::temp_dir().join(format!(
-            "corvus-tg-aud-{}.{}",
-            &sha256[..16],
+            "corvus-tg-aud-{random_suffix:016x}.{}",
             mime.file_extension()
         ));
+
+        // create_new ensures atomic creation — fails if file exists.
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+            .map_err(|e| {
+                tracing::warn!("Failed to create temp file {}: {e}", temp_path.display());
+                audio_media::AudioRejectionReason::FetchFailed
+            })?;
+        drop(file);
 
         tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
             tracing::warn!("Failed to stage audio to {}: {e}", temp_path.display());

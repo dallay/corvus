@@ -91,6 +91,8 @@ pub enum AudioRejectionReason {
     TranscriptionFailed,
     #[error("no_speech_detected")]
     NoSpeechDetected,
+    #[error("multiple_audio_parts")]
+    MultipleAudioParts,
     #[error("system_error")]
     SystemError,
 }
@@ -115,11 +117,10 @@ pub fn validate_audio_mime(
         return Ok(AllowedAudioMime::Mp3);
     }
 
-    // MP3: MPEG sync word (0xFF followed by 0xFB, 0xF3, or 0xF2)
-    if sniffed_bytes.len() >= 2
-        && sniffed_bytes[0] == 0xFF
-        && (sniffed_bytes[1] == 0xFB || sniffed_bytes[1] == 0xF3 || sniffed_bytes[1] == 0xF2)
-    {
+    // MP3: MPEG sync word — first byte 0xFF, second byte has top 3 bits
+    // set (0xE0 mask). This covers all valid MPEG audio frame headers
+    // (MPEG-1/2/2.5, all layers).
+    if sniffed_bytes.len() >= 2 && sniffed_bytes[0] == 0xFF && (sniffed_bytes[1] & 0xE0) == 0xE0 {
         return Ok(AllowedAudioMime::Mp3);
     }
 
@@ -417,6 +418,30 @@ mod tests {
     }
 
     #[test]
+    fn validate_audio_mime_detects_mp3_sync_e2() {
+        // 0xE2 has top 3 bits set — valid MPEG sync but was previously rejected
+        let bytes = [0xFF, 0xE2, 0x90, 0x00];
+        assert_eq!(validate_audio_mime(None, &bytes), Ok(AllowedAudioMime::Mp3));
+    }
+
+    #[test]
+    fn validate_audio_mime_detects_mp3_sync_e0() {
+        // 0xE0 is the minimum valid second byte (top 3 bits set)
+        let bytes = [0xFF, 0xE0, 0x00, 0x00];
+        assert_eq!(validate_audio_mime(None, &bytes), Ok(AllowedAudioMime::Mp3));
+    }
+
+    #[test]
+    fn validate_audio_mime_rejects_mp3_sync_below_e0() {
+        // 0xDF does NOT have top 3 bits set — invalid sync
+        let bytes = [0xFF, 0xDF, 0x00, 0x00];
+        assert_eq!(
+            validate_audio_mime(None, &bytes),
+            Err(AudioRejectionReason::MimeRejected)
+        );
+    }
+
+    #[test]
     fn validate_audio_mime_detects_wav() {
         let mut bytes = vec![0u8; 12];
         bytes[0..4].copy_from_slice(b"RIFF");
@@ -527,6 +552,10 @@ mod tests {
         assert_eq!(
             AudioRejectionReason::NoSpeechDetected.to_string(),
             "no_speech_detected"
+        );
+        assert_eq!(
+            AudioRejectionReason::MultipleAudioParts.to_string(),
+            "multiple_audio_parts"
         );
         assert_eq!(
             AudioRejectionReason::SystemError.to_string(),

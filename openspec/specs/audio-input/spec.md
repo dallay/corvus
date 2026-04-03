@@ -95,7 +95,7 @@ alongside the `ContentPart::Audio` part.
 ### REQ-2: Audio Processing Pipeline (FR2)
 
 The runtime MUST process every inbound audio through a 7-step pipeline inserted into
-`process_channel_message()` between `extract_user_text()` and `enrich_with_memory()`:
+`process_channel_message()` before `extract_user_text()` and `enrich_with_memory()`:
 
 1. **Parse**: Channel extracts audio metadata into `ContentPart::Audio` (REQ-1)
 2. **Gate config**: Check `[audio]` config — `enabled` and `allowed_channels` (REQ-7)
@@ -338,7 +338,7 @@ Staged files MUST be cleaned up via `StagedAudioGuard` RAII semantics:
 
 The runtime MUST define a `Transcriber` trait as a new extension point for speech-to-text engines:
 
-```
+```rust
 trait Transcriber: Send + Sync {
     fn name(&self) -> &str;
     async fn transcribe(&self, audio: &StagedAudio) -> Result<TranscriptionResult, AudioRejectionReason>;
@@ -356,7 +356,7 @@ trait Transcriber: Send + Sync {
 | `confidence`    | `Option<f64>`    | Confidence score if available (0.0–1.0)      |
 
 The Phase 1 implementation MUST be a whisper.cpp CLI wrapper that:
-- Spawns `whisper` (or configured binary path) as an external process
+- Spawns `whisper-cli` (or configured binary path) as an external process
 - Passes the staged audio file path and configured model/language
 - Parses stdout for transcription text
 - Returns structured errors on non-zero exit, timeout, or unparseable output
@@ -426,6 +426,9 @@ max_audio_bytes = 26214400           # u64, default: 25 MiB
 max_audio_duration_secs = 600        # u64, default: 10 minutes
 transcription_model = "base"         # string, default: "base"
 transcription_language = "es"        # string, default: "es"
+whisper_binary = "whisper-cli"       # string, default: "whisper-cli"
+max_concurrent_transcriptions = 1    # usize, default: 1
+transcription_timeout_secs = 120     # u64, default: 120
 ```
 
 Startup validation MUST enforce:

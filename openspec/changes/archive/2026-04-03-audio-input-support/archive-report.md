@@ -1,7 +1,7 @@
 # Archive Report: Audio Input Support
 
 **Change**: `audio-input-support`
-**Issue**: [#246](https://github.com/anthropics/corvus/issues/246) / DALLAY-150
+**Issue**: [#246](https://github.com/dallay/corvus/issues/246) / DALLAY-150
 **Branch**: `feature/dallay-150-add-audio-input-support-for-agents-telegram-http-gateway-cli`
 **Archived**: 2026-04-03
 **Verify Verdict**: PASS WITH WARNINGS (0 CRITICAL, 7 WARNING, 5 SUGGESTION)

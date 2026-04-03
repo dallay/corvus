@@ -28,6 +28,7 @@ pub struct OtelObserver {
     active_sessions: Gauge<u64>,
     queue_depth: Gauge<u64>,
     image_ingress: Counter<u64>,
+    audio_ingress: Counter<u64>,
 }
 
 impl OtelObserver {
@@ -156,6 +157,11 @@ impl OtelObserver {
             .with_description("Image ingress lifecycle events")
             .build();
 
+        let audio_ingress = meter
+            .u64_counter("corvus.audio.ingress")
+            .with_description("Audio ingress lifecycle events")
+            .build();
+
         Ok(Self {
             tracer_provider,
             meter_provider: meter_provider_clone,
@@ -173,6 +179,7 @@ impl OtelObserver {
             active_sessions,
             queue_depth,
             image_ingress,
+            audio_ingress,
         })
     }
 }
@@ -198,8 +205,22 @@ impl Observer for OtelObserver {
             | ObserverEvent::MissionCheckpointProgress { .. }
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. }
-            | ObserverEvent::AudioIngress(_) => {}
+            | ObserverEvent::MissionTerminated { .. } => {}
+            ObserverEvent::AudioIngress(evt) => {
+                let reason_str = evt
+                    .reason
+                    .as_ref()
+                    .map(|r| r.to_string())
+                    .unwrap_or_default();
+                self.audio_ingress.add(
+                    1,
+                    &[
+                        KeyValue::new("channel", evt.channel.clone()),
+                        KeyValue::new("audio.outcome", format!("{:?}", evt.outcome)),
+                        KeyValue::new("audio.reason", reason_str),
+                    ],
+                );
+            }
             ObserverEvent::ImageIngress(evt) => {
                 let reason_str = evt
                     .reason

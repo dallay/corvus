@@ -68,7 +68,7 @@ This pattern MUST be replicated for audio files. A `StagedAudioGuard` is needed.
 
 The full flow is:
 
-```
+```text
 Channel.listen() → parse message → build ContentPart::Image
   → process_channel_message()
     → extract_user_text()           // text projection
@@ -356,7 +356,7 @@ pub struct AudioHistoryMeta {
 
 In `process_channel_message()` (`src/channels/mod.rs`, line 604), audio processing inserts **between** `extract_user_text()` and `enrich_with_memory()`:
 
-```
+```text
 extract_user_text()
 → NEW: gate_audio_config()         // check enabled, allowed channels
 → NEW: gate_and_stage_audio()      // fetch, validate MIME/size/duration
@@ -367,7 +367,7 @@ extract_user_text()
 
 ### 5.5 Module Structure
 
-```
+```text
 src/
 ├── transcription/
 │   ├── mod.rs              // module exports
@@ -431,20 +431,26 @@ src/
 8. **HTTP Gateway** — new `POST /web/chat/audio` multipart endpoint
 9. **CLI** — `/audio <path>` command for local file transcription
 
+
 ### Phase 1 Scope (MVP)
+
 - Telegram voice notes + audio files
 - whisper.cpp CLI wrapper (proven pattern from robot-kit)
 - `[audio]` config with enabled/allowed_channels/max_bytes/max_duration
 - Audio observability events
 - 6 error types from PRD
 
+
 ### Phase 2 (Follow-up)
+
 - HTTP Gateway multipart endpoint
 - CLI `/audio` command
 - whisper-rs embedded (feature-gated)
 - Model auto-download
 
+
 ### Effort Estimate
+
 - Phase 1: **Medium-High** (~15–20 tasks across infrastructure, implementation, testing)
 - Phase 2: **Medium** (~8–12 additional tasks)
 

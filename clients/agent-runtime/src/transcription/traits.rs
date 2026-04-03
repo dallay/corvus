@@ -13,6 +13,9 @@ pub struct TranscriptionResult {
     pub duration_secs: Option<f64>,
     /// Engine-reported confidence (0.0–1.0), if available.
     pub confidence: Option<f64>,
+    /// Wall-clock processing time in milliseconds.
+    /// Set by the caller after `transcribe()` returns.
+    pub processing_ms: Option<u64>,
 }
 
 /// Extension point for speech-to-text engines.

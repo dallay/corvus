@@ -22,17 +22,17 @@ All 17 tasks across 4 phases are marked `[x]` and verified structurally complete
 ## Build & Tests Execution
 
 **Build**: ✅ Passed
-```
+```bash
 cargo check --manifest-path clients/agent-runtime/Cargo.toml → Finished dev profile
 ```
 
 **Clippy**: ✅ Passed (zero warnings)
-```
+```bash
 cargo clippy --manifest-path clients/agent-runtime/Cargo.toml --all-targets -- -D warnings → Finished dev profile
 ```
 
 **Tests**: ✅ 6,487 passed / 0 failed / 0 ignored
-```
+```text
 All test suites pass: unit tests (3193 lib + 3220 bin), 15 integration test suites, 2 doc-tests.
 ```
 

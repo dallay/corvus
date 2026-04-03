@@ -64,6 +64,28 @@ impl ChatMessage {
         }
     }
 
+    /// Build a user turn carrying both image and audio metadata.
+    pub fn user_with_media(
+        content: impl Into<String>,
+        image_metadata: Vec<ImageHistoryMeta>,
+        audio_metadata: Vec<AudioHistoryMeta>,
+    ) -> Self {
+        Self {
+            role: "user".into(),
+            content: content.into(),
+            image_metadata: if image_metadata.is_empty() {
+                None
+            } else {
+                Some(image_metadata)
+            },
+            audio_metadata: if audio_metadata.is_empty() {
+                None
+            } else {
+                Some(audio_metadata)
+            },
+        }
+    }
+
     pub fn assistant(content: impl Into<String>) -> Self {
         Self {
             role: "assistant".into(),
@@ -1122,5 +1144,52 @@ mod tests {
 
         // image_metadata should not appear in JSON when None
         assert!(!json.contains("image_metadata"));
+    }
+
+    #[test]
+    fn chat_message_backward_compat_missing_audio_metadata() {
+        // JSON without audio_metadata field — should deserialize with None
+        let json = r#"{"role":"user","content":"Hello"}"#;
+        let msg: ChatMessage = serde_json::from_str(json).unwrap();
+
+        assert_eq!(msg.role, "user");
+        assert_eq!(msg.content, "Hello");
+        assert!(msg.audio_metadata.is_none());
+    }
+
+    #[test]
+    fn chat_message_skip_serializing_none_audio_metadata() {
+        let msg = ChatMessage::user("Hello");
+        let json = serde_json::to_string(&msg).unwrap();
+
+        // audio_metadata should not appear in JSON when None
+        assert!(!json.contains("audio_metadata"));
+    }
+
+    #[test]
+    fn chat_message_serde_roundtrip_with_audio_metadata() {
+        use crate::channels::audio_media::AudioHistoryMeta;
+
+        let meta = vec![AudioHistoryMeta {
+            mime: "audio/ogg".into(),
+            sha256: "abc123".into(),
+            byte_len: 4096,
+            duration_secs: Some(10.0),
+            channel_origin: "telegram".into(),
+            transcription: "hello world".into(),
+            caption: None,
+        }];
+
+        let msg = ChatMessage::user_with_audio("Transcribed audio", meta);
+        let json = serde_json::to_string(&msg).unwrap();
+        let deserialized: ChatMessage = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(deserialized.role, "user");
+        assert_eq!(deserialized.content, "Transcribed audio");
+        assert!(deserialized.audio_metadata.is_some());
+        let dm = deserialized.audio_metadata.unwrap();
+        assert_eq!(dm.len(), 1);
+        assert_eq!(dm[0].mime, "audio/ogg");
+        assert_eq!(dm[0].transcription, "hello world");
     }
 }

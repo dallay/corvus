@@ -79,7 +79,7 @@ sequenceDiagram
 
 Current flow in `src/channels/mod.rs` line 604:
 
-```
+```text
 extract_user_text()                           // existing
 → enrich_with_memory()                        // existing
 → gate_multimodal_config()                    // existing (images)
@@ -89,7 +89,7 @@ extract_user_text()                           // existing
 
 New flow with audio inserted **between** `extract_user_text()` and `enrich_with_memory()`:
 
-```
+```text
 extract_user_text()                           // existing
 → gate_audio_config()                         // NEW: check [audio] enabled + allowed_channels
 → gate_and_stage_audio()                      // NEW: fetch, validate MIME/size/duration, stage
@@ -823,9 +823,8 @@ pub audio: AudioConfig,
 
 ### `corvus doctor` Checks
 
-The doctor command does not currently exist as a standalone module (no `doctor.rs` found). The
-health checks will be added to the runtime startup validation path in `src/config/validation.rs`
-and exposed through any future doctor command:
+The doctor module exists at `src/doctor/mod.rs` and is invoked via the `corvus doctor` CLI command.
+Audio health checks are added to this module:
 
 ```rust
 fn check_audio_config(config: &AudioConfig) -> Vec<DoctorWarning> {
@@ -946,7 +945,7 @@ No migration required.
 
 ## Module Structure
 
-```
+```text
 src/
 ├── transcription/              # NEW module
 │   ├── mod.rs                  # pub mod traits; pub mod whisper_cli;
