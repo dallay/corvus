@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "last_updated": "2026-04-03T07:56:32.088781+00:00",
+  "skills": {
+    "frontend-design": {
+      "name": "frontend-design",
+      "version": null,
+      "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
+      "provider": null,
+      "source": "/var/folders/zz/d4kl1hfj1j15nxm43d24px300000gn/T/.tmp71dKTg",
+      "installedAt": "2026-04-03T07:56:09.884671+00:00",
+      "files": null,
+      "manifestHash": null
+    },
+    "github-actions": {
+      "name": "github-actions",
+      "version": null,
+      "description": "GitHub Actions workflow patterns for React Native iOS simulator and Android emulator cloud builds with downloadable artifacts. Use when setting up CI build pipelines or downloading GitHub Actions artifacts via gh CLI and GitHub API.",
+      "provider": null,
+      "source": "/var/folders/zz/d4kl1hfj1j15nxm43d24px300000gn/T/.tmpUXqjDT",
+      "installedAt": "2026-04-03T07:56:11.749434+00:00",
+      "files": null,
+      "manifestHash": null
+    },
+    "vite": {
+      "name": "vite",
+      "version": null,
+      "description": "Vite build tool configuration, plugin API, SSR, and Vite 8 Rolldown migration. Use when working with Vite projects, vite.config.ts, Vite plugins, or building libraries/SSR apps with Vite.",
+      "provider": null,
+      "source": "/var/folders/zz/d4kl1hfj1j15nxm43d24px300000gn/T/.tmpg6SopF",
+      "installedAt": "2026-04-03T07:56:32.088714+00:00",
+      "files": null,
+      "manifestHash": null
+    }
+  }
+}
