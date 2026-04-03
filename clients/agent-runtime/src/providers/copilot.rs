@@ -1068,6 +1068,7 @@ mod tests {
             role: "assistant".to_string(),
             content: assistant_payload,
             image_metadata: None,
+            audio_metadata: None,
         }];
 
         let converted = CopilotProvider::convert_messages(&messages);
@@ -1092,6 +1093,7 @@ mod tests {
             role: "tool".to_string(),
             content: tool_payload,
             image_metadata: None,
+            audio_metadata: None,
         }];
 
         let converted = CopilotProvider::convert_messages(&messages);
@@ -1107,6 +1109,7 @@ mod tests {
             role: "assistant".to_string(),
             content: "not-json".to_string(),
             image_metadata: None,
+            audio_metadata: None,
         }];
 
         let converted = CopilotProvider::convert_messages(&messages);

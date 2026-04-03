@@ -972,16 +972,19 @@ mod tests {
                 role: "system".to_string(),
                 content: "System prompt".to_string(),
                 image_metadata: None,
+                audio_metadata: None,
             },
             ChatMessage {
                 role: "user".to_string(),
                 content: "Hello".to_string(),
                 image_metadata: None,
+                audio_metadata: None,
             },
             ChatMessage {
                 role: "assistant".to_string(),
                 content: "Hi".to_string(),
                 image_metadata: None,
+                audio_metadata: None,
             },
         ];
         // Only 2 non-system messages
@@ -994,6 +997,7 @@ mod tests {
             role: "system".to_string(),
             content: "System prompt".to_string(),
             image_metadata: None,
+            audio_metadata: None,
         }];
         // Add 5 non-system messages
         for i in 0..5 {
@@ -1001,6 +1005,7 @@ mod tests {
                 role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
                 content: format!("Message {i}"),
                 image_metadata: None,
+                audio_metadata: None,
             });
         }
         assert!(AnthropicProvider::should_cache_conversation(&messages));
@@ -1015,6 +1020,7 @@ mod tests {
                 role: if i % 2 == 0 { "user" } else { "assistant" }.to_string(),
                 content: format!("Message {i}"),
                 image_metadata: None,
+                audio_metadata: None,
             });
         }
         assert!(!AnthropicProvider::should_cache_conversation(&messages));
@@ -1024,6 +1030,7 @@ mod tests {
             role: "user".to_string(),
             content: "One more".to_string(),
             image_metadata: None,
+            audio_metadata: None,
         });
         assert!(AnthropicProvider::should_cache_conversation(&messages));
     }
@@ -1145,6 +1152,7 @@ mod tests {
             role: "system".to_string(),
             content: "Short system prompt".to_string(),
             image_metadata: None,
+            audio_metadata: None,
         }];
 
         let (system_prompt, _) = AnthropicProvider::convert_messages(&messages);
@@ -1164,6 +1172,7 @@ mod tests {
             role: "system".to_string(),
             content: large_content.clone(),
             image_metadata: None,
+            audio_metadata: None,
         }];
 
         let (system_prompt, _) = AnthropicProvider::convert_messages(&messages);
@@ -1265,6 +1274,7 @@ mod tests {
             role: "user".to_string(),
             content: "Hello".to_string(),
             image_metadata: None,
+            audio_metadata: None,
         }];
         let (_, native) = AnthropicProvider::convert_messages(&messages);
         assert_eq!(native.len(), 1);
@@ -1327,16 +1337,19 @@ mod tests {
                 role: "user".to_string(),
                 content: "First message".to_string(),
                 image_metadata: None,
+                audio_metadata: None,
             },
             ChatMessage {
                 role: "assistant".to_string(),
                 content: "Response".to_string(),
                 image_metadata: None,
+                audio_metadata: None,
             },
             ChatMessage {
                 role: "user".to_string(),
                 content: "Describe this image".to_string(),
                 image_metadata: None,
+                audio_metadata: None,
             },
         ];
 

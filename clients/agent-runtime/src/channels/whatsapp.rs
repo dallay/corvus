@@ -518,7 +518,7 @@ mod tests {
                 assert_eq!(declared_mime.as_deref(), Some("image/jpeg"));
                 assert!(caption_text.is_none());
             }
-            ContentPart::Text { .. } => panic!("expected Image part"),
+            _ => panic!("expected Image part"),
         }
         // Image-only: content is empty (no placeholder)
         assert!(msgs[0].content.is_empty());
@@ -1383,7 +1383,7 @@ mod tests {
             ContentPart::Text { text } => {
                 assert_eq!(text, "Hello world");
             }
-            ContentPart::Image { .. } => panic!("expected Text part"),
+            _ => panic!("expected Text part"),
         }
         assert_eq!(msgs[0].content, "Hello world");
     }
@@ -1443,7 +1443,7 @@ mod tests {
             ContentPart::Text { text } => {
                 assert_eq!(text, "Check this out");
             }
-            ContentPart::Image { .. } => panic!("expected Text part first"),
+            _ => panic!("expected Text part first"),
         }
 
         // Second part: Image with caption_text set
@@ -1463,7 +1463,7 @@ mod tests {
                 assert!(file_name.is_none());
                 assert!(declared_bytes.is_none());
             }
-            ContentPart::Text { .. } => panic!("expected Image part second"),
+            _ => panic!("expected Image part second"),
         }
 
         // Content is the caption text
@@ -1493,7 +1493,7 @@ mod tests {
             ContentPart::Image { declared_mime, .. } => {
                 assert!(declared_mime.is_none());
             }
-            ContentPart::Text { .. } => panic!("expected Image part"),
+            _ => panic!("expected Image part"),
         }
     }
 

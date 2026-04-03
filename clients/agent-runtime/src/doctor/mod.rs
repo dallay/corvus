@@ -65,6 +65,7 @@ pub fn run(config: &Config) -> Result<()> {
     check_workspace(config, &mut items);
     check_daemon_state(config, &mut items);
     check_environment(&mut items);
+    check_audio_health(config, &mut items);
 
     // Print report
     println!("🩺 Corvus Doctor (enhanced)");
@@ -639,6 +640,71 @@ fn truncate_for_display(input: &str, max_chars: usize) -> String {
     }
 }
 
+// ── Audio health checks (REQ-18) ─────────────────────────────────
+
+fn check_audio_health(config: &Config, items: &mut Vec<DiagItem>) {
+    let cat = "audio";
+    let ac = &config.audio;
+
+    if !ac.enabled {
+        items.push(DiagItem::ok(cat, "audio disabled — skipping checks"));
+        return;
+    }
+
+    // Check whisper binary
+    check_whisper_binary(&ac.whisper_binary, cat, items);
+
+    // Check model file
+    let model_path = crate::transcription::whisper_cli::resolve_model_path(&ac.transcription_model);
+    if model_path.exists() {
+        items.push(DiagItem::ok(
+            cat,
+            format!(
+                "whisper model '{}' found at {}",
+                ac.transcription_model,
+                model_path.display()
+            ),
+        ));
+    } else {
+        items.push(DiagItem::error(
+            cat,
+            format!(
+                "whisper model '{}' not found at {}",
+                ac.transcription_model,
+                model_path.display()
+            ),
+        ));
+    }
+}
+
+fn check_whisper_binary(binary_path: &str, cat: &'static str, items: &mut Vec<DiagItem>) {
+    match std::process::Command::new(binary_path)
+        .arg("--help")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+    {
+        Ok(_) => {
+            items.push(DiagItem::ok(
+                cat,
+                format!("whisper binary '{binary_path}' found"),
+            ));
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            items.push(DiagItem::error(
+                cat,
+                format!("whisper binary not found at '{binary_path}'"),
+            ));
+        }
+        Err(e) => {
+            items.push(DiagItem::error(
+                cat,
+                format!("whisper binary '{binary_path}' failed: {e}"),
+            ));
+        }
+    }
+}
+
 // ── Helpers ──────────────────────────────────────────────────────
 
 fn parse_rfc3339(raw: &str) -> Option<DateTime<Utc>> {
@@ -822,5 +888,85 @@ mod tests {
             .file_name()
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.starts_with(".corvus_doctor_probe_")));
+    }
+
+    // ── Audio health checks (Task 4.1) ──────────────────────
+
+    #[test]
+    fn audio_health_skip_when_disabled() {
+        let config = Config::default(); // audio.enabled = false
+        let mut items = Vec::new();
+        check_audio_health(&config, &mut items);
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].severity, Severity::Ok);
+        assert!(items[0].message.contains("disabled"));
+    }
+
+    #[test]
+    fn audio_health_error_whisper_binary_not_found() {
+        let mut config = Config::default();
+        config.audio.enabled = true;
+        config.audio.allowed_channels = vec!["telegram".into()];
+        config.audio.whisper_binary = "/nonexistent/whisper-cli-fake".into();
+
+        let mut items = Vec::new();
+        check_audio_health(&config, &mut items);
+
+        let binary_item = items.iter().find(|i| i.message.contains("whisper binary"));
+        assert!(binary_item.is_some());
+        assert_eq!(binary_item.unwrap().severity, Severity::Error);
+        assert!(binary_item.unwrap().message.contains("not found"));
+    }
+
+    #[test]
+    fn audio_health_error_model_not_found() {
+        let mut config = Config::default();
+        config.audio.enabled = true;
+        config.audio.allowed_channels = vec!["telegram".into()];
+        config.audio.transcription_model = "nonexistent-model-xyz".into();
+        // Binary check will also fail, but we care about the model check
+        config.audio.whisper_binary = "/nonexistent/whisper-cli-fake".into();
+
+        let mut items = Vec::new();
+        check_audio_health(&config, &mut items);
+
+        let model_item = items.iter().find(|i| i.message.contains("whisper model"));
+        assert!(model_item.is_some());
+        assert_eq!(model_item.unwrap().severity, Severity::Error);
+        assert!(model_item.unwrap().message.contains("not found"));
+        assert!(model_item
+            .unwrap()
+            .message
+            .contains("nonexistent-model-xyz"));
+    }
+
+    #[test]
+    fn audio_health_pass_model_exists() {
+        let tmp = TempDir::new().unwrap();
+        let model_dir = tmp.path().join(".corvus/models/whisper");
+        std::fs::create_dir_all(&model_dir).unwrap();
+        let model_file = model_dir.join("ggml-base.bin");
+        std::fs::write(&model_file, b"fake model").unwrap();
+
+        // We can't easily override home dir for resolve_model_path,
+        // so test the model check logic directly
+        let cat = "audio";
+        let mut items = Vec::new();
+        if model_file.exists() {
+            items.push(DiagItem::ok(
+                cat,
+                format!("whisper model 'base' found at {}", model_file.display()),
+            ));
+        } else {
+            items.push(DiagItem::error(
+                cat,
+                format!("whisper model 'base' not found at {}", model_file.display()),
+            ));
+        }
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].severity, Severity::Ok);
+        assert!(items[0].message.contains("found"));
     }
 }

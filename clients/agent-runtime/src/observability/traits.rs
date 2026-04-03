@@ -62,6 +62,65 @@ pub struct ImageIngressEvent {
     pub byte_len: Option<u64>,
 }
 
+// ── Audio ingress telemetry ──────────────────────────────────
+
+/// Outcome of an audio ingress lifecycle event.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AudioIngressOutcome {
+    Admitted,
+    Rejected,
+}
+
+/// Closed set of reasons for audio ingress rejection/failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AudioIngressReason {
+    Disabled,
+    ChannelNotAllowed,
+    FetchFailed,
+    MimeRejected,
+    Oversize,
+    TooLong,
+    Corrupted,
+    TranscriptionFailed,
+    NoSpeechDetected,
+    TranscriberUnavailable,
+    SystemError,
+}
+
+impl std::fmt::Display for AudioIngressReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let code = match self {
+            Self::Disabled => "disabled",
+            Self::ChannelNotAllowed => "channel_not_allowed",
+            Self::FetchFailed => "fetch_failed",
+            Self::MimeRejected => "mime_rejected",
+            Self::Oversize => "oversize",
+            Self::TooLong => "too_long",
+            Self::Corrupted => "corrupted",
+            Self::TranscriptionFailed => "transcription_failed",
+            Self::NoSpeechDetected => "no_speech_detected",
+            Self::TranscriberUnavailable => "transcriber_unavailable",
+            Self::SystemError => "system_error",
+        };
+        f.write_str(code)
+    }
+}
+
+/// Metadata-only event for audio ingress telemetry.
+///
+/// Never includes raw audio bytes, channel URLs, tokens,
+/// or base64 payloads — only routing and sizing metadata.
+#[derive(Debug, Clone)]
+pub struct AudioIngressEvent {
+    pub channel: String,
+    pub outcome: AudioIngressOutcome,
+    pub reason: Option<AudioIngressReason>,
+    pub mime_type: Option<String>,
+    pub byte_len: Option<u64>,
+    pub duration_secs: Option<f64>,
+    pub transcription_duration_ms: Option<u64>,
+}
+
 pub fn redact_observer_payload(value: &str) -> String {
     let trimmed = value.trim();
     if trimmed.is_empty() {
@@ -144,6 +203,8 @@ pub enum ObserverEvent {
     },
     /// Image ingress lifecycle event (metadata only).
     ImageIngress(ImageIngressEvent),
+    /// Audio ingress lifecycle event (metadata only).
+    AudioIngress(AudioIngressEvent),
     /// Mission lifecycle started with deterministic mission id.
     MissionStarted {
         mission_id: String,
@@ -201,6 +262,13 @@ pub trait Observer: Send + Sync + 'static {
     /// Default: forwards to `record_event` as `ObserverEvent::ImageIngress`.
     fn on_image_ingress(&self, event: &ImageIngressEvent) {
         self.record_event(&ObserverEvent::ImageIngress(event.clone()));
+    }
+
+    /// Record an audio ingress lifecycle event.
+    ///
+    /// Default: forwards to `record_event` as `ObserverEvent::AudioIngress`.
+    fn on_audio_ingress(&self, event: &AudioIngressEvent) {
+        self.record_event(&ObserverEvent::AudioIngress(event.clone()));
     }
 
     /// Flush any buffered data (no-op for most backends)
@@ -415,6 +483,124 @@ mod tests {
             byte_len: None,
         });
         assert!(matches!(event, ObserverEvent::ImageIngress(_)));
+    }
+
+    // ── Audio ingress telemetry tests (Task 1.4 — audio-input-support) ──
+
+    #[test]
+    fn audio_ingress_outcome_variants_are_distinct() {
+        assert_ne!(AudioIngressOutcome::Admitted, AudioIngressOutcome::Rejected);
+    }
+
+    #[test]
+    fn audio_ingress_reason_display_produces_snake_case() {
+        assert_eq!(AudioIngressReason::Disabled.to_string(), "disabled");
+        assert_eq!(
+            AudioIngressReason::ChannelNotAllowed.to_string(),
+            "channel_not_allowed"
+        );
+        assert_eq!(AudioIngressReason::FetchFailed.to_string(), "fetch_failed");
+        assert_eq!(
+            AudioIngressReason::MimeRejected.to_string(),
+            "mime_rejected"
+        );
+        assert_eq!(AudioIngressReason::Oversize.to_string(), "oversize");
+        assert_eq!(AudioIngressReason::TooLong.to_string(), "too_long");
+        assert_eq!(AudioIngressReason::Corrupted.to_string(), "corrupted");
+        assert_eq!(
+            AudioIngressReason::TranscriptionFailed.to_string(),
+            "transcription_failed"
+        );
+        assert_eq!(
+            AudioIngressReason::NoSpeechDetected.to_string(),
+            "no_speech_detected"
+        );
+        assert_eq!(
+            AudioIngressReason::TranscriberUnavailable.to_string(),
+            "transcriber_unavailable"
+        );
+        assert_eq!(AudioIngressReason::SystemError.to_string(), "system_error");
+    }
+
+    #[test]
+    fn audio_ingress_event_construction_and_field_access() {
+        let event = AudioIngressEvent {
+            channel: "telegram".into(),
+            outcome: AudioIngressOutcome::Admitted,
+            reason: None,
+            mime_type: Some("audio/ogg".into()),
+            byte_len: Some(50_000),
+            duration_secs: Some(15.5),
+            transcription_duration_ms: Some(3200),
+        };
+        assert_eq!(event.channel, "telegram");
+        assert_eq!(event.outcome, AudioIngressOutcome::Admitted);
+        assert!(event.reason.is_none());
+        assert_eq!(event.mime_type.as_deref(), Some("audio/ogg"));
+        assert_eq!(event.byte_len, Some(50_000));
+        assert_eq!(event.duration_secs, Some(15.5));
+        assert_eq!(event.transcription_duration_ms, Some(3200));
+    }
+
+    #[test]
+    fn audio_ingress_event_rejected_with_reason() {
+        let event = AudioIngressEvent {
+            channel: "telegram".into(),
+            outcome: AudioIngressOutcome::Rejected,
+            reason: Some(AudioIngressReason::Oversize),
+            mime_type: None,
+            byte_len: Some(30_000_000),
+            duration_secs: None,
+            transcription_duration_ms: None,
+        };
+        assert_eq!(event.outcome, AudioIngressOutcome::Rejected);
+        assert_eq!(event.reason, Some(AudioIngressReason::Oversize));
+    }
+
+    #[test]
+    fn audio_ingress_event_is_cloneable() {
+        let event = AudioIngressEvent {
+            channel: "telegram".into(),
+            outcome: AudioIngressOutcome::Rejected,
+            reason: Some(AudioIngressReason::Disabled),
+            mime_type: None,
+            byte_len: None,
+            duration_secs: None,
+            transcription_duration_ms: None,
+        };
+        let cloned = event.clone();
+        assert_eq!(cloned.channel, "telegram");
+        assert_eq!(cloned.outcome, AudioIngressOutcome::Rejected);
+    }
+
+    #[test]
+    fn observer_event_audio_ingress_variant_exists() {
+        let event = ObserverEvent::AudioIngress(AudioIngressEvent {
+            channel: "telegram".into(),
+            outcome: AudioIngressOutcome::Rejected,
+            reason: Some(AudioIngressReason::ChannelNotAllowed),
+            mime_type: None,
+            byte_len: None,
+            duration_secs: None,
+            transcription_duration_ms: None,
+        });
+        assert!(matches!(event, ObserverEvent::AudioIngress(_)));
+    }
+
+    #[test]
+    fn observer_default_on_audio_ingress_forwards_to_record_event() {
+        let observer = DummyObserver::default();
+        let event = AudioIngressEvent {
+            channel: "telegram".into(),
+            outcome: AudioIngressOutcome::Rejected,
+            reason: Some(AudioIngressReason::Disabled),
+            mime_type: None,
+            byte_len: None,
+            duration_secs: None,
+            transcription_duration_ms: None,
+        };
+        observer.on_audio_ingress(&event);
+        assert_eq!(*observer.events.lock(), 1);
     }
 
     #[test]

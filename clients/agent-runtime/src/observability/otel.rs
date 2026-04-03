@@ -198,7 +198,8 @@ impl Observer for OtelObserver {
             | ObserverEvent::MissionCheckpointProgress { .. }
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. } => {}
+            | ObserverEvent::MissionTerminated { .. }
+            | ObserverEvent::AudioIngress(_) => {}
             ObserverEvent::ImageIngress(evt) => {
                 let reason_str = evt
                     .reason

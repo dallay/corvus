@@ -1,0 +1,8 @@
+change: audio-input-support
+current_phase: archive
+completed: [explore, propose, spec, design, tasks, apply, verify, archive]
+next: none
+updated: 2026-04-03
+issue: "#246"
+linear: DALLAY-150
+branch: feature/dallay-150-add-audio-input-support-for-agents-telegram-http-gateway-cli

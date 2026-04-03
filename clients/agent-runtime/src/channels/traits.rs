@@ -14,6 +14,17 @@ pub enum ContentPart {
         file_name: Option<String>,
         declared_bytes: Option<u64>,
     },
+    /// Audio reference before fetch/staging/transcription.
+    Audio {
+        channel_handle: String,
+        source_channel: String,
+        declared_mime: Option<String>,
+        caption_text: Option<String>,
+        file_name: Option<String>,
+        declared_bytes: Option<u64>,
+        /// Channel-reported duration in seconds (e.g., Telegram voice duration).
+        declared_duration_secs: Option<u64>,
+    },
 }
 
 /// A message received from or sent to a channel.
@@ -56,6 +67,9 @@ impl ChannelMessage {
                 ContentPart::Image { caption_text, .. } => {
                     caption_text.as_deref().filter(|c| !c.is_empty())
                 }
+                ContentPart::Audio { caption_text, .. } => {
+                    caption_text.as_deref().filter(|c| !c.is_empty())
+                }
             })
             .collect();
         blocks.join("\n\n")
@@ -73,6 +87,21 @@ impl ChannelMessage {
         self.parts
             .iter()
             .filter(|p| matches!(p, ContentPart::Image { .. }))
+            .collect()
+    }
+
+    /// Whether this message contains at least one audio part.
+    pub fn has_audio_parts(&self) -> bool {
+        self.parts
+            .iter()
+            .any(|p| matches!(p, ContentPart::Audio { .. }))
+    }
+
+    /// Return only the audio parts.
+    pub fn audio_parts(&self) -> Vec<&ContentPart> {
+        self.parts
+            .iter()
+            .filter(|p| matches!(p, ContentPart::Audio { .. }))
             .collect()
     }
 }
@@ -282,6 +311,169 @@ mod tests {
             }],
         };
         assert_eq!(msg.text_projection(), "solo");
+    }
+
+    // ── Audio content part tests (Task 1.1 — audio-input-support) ──
+
+    #[test]
+    fn has_audio_parts_returns_false_for_text_only() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: "hello".into(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![ContentPart::Text {
+                text: "hello".into(),
+            }],
+        };
+        assert!(!msg.has_audio_parts());
+    }
+
+    #[test]
+    fn has_audio_parts_returns_false_for_image_only() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![ContentPart::Image {
+                channel_handle: "f".into(),
+                source_channel: "tg".into(),
+                declared_mime: None,
+                caption_text: None,
+                file_name: None,
+                declared_bytes: None,
+            }],
+        };
+        assert!(!msg.has_audio_parts());
+    }
+
+    #[test]
+    fn has_audio_parts_returns_true_when_audio_present() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "telegram".into(),
+            timestamp: 0,
+            parts: vec![ContentPart::Audio {
+                channel_handle: "file_abc".into(),
+                source_channel: "telegram".into(),
+                declared_mime: Some("audio/ogg".into()),
+                caption_text: None,
+                file_name: None,
+                declared_bytes: Some(12345),
+                declared_duration_secs: Some(5),
+            }],
+        };
+        assert!(msg.has_audio_parts());
+    }
+
+    #[test]
+    fn audio_parts_returns_only_audio() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "telegram".into(),
+            timestamp: 0,
+            parts: vec![
+                ContentPart::Text {
+                    text: "hello".into(),
+                },
+                ContentPart::Audio {
+                    channel_handle: "file_abc".into(),
+                    source_channel: "telegram".into(),
+                    declared_mime: Some("audio/ogg".into()),
+                    caption_text: None,
+                    file_name: None,
+                    declared_bytes: None,
+                    declared_duration_secs: Some(10),
+                },
+                ContentPart::Image {
+                    channel_handle: "img".into(),
+                    source_channel: "tg".into(),
+                    declared_mime: None,
+                    caption_text: None,
+                    file_name: None,
+                    declared_bytes: None,
+                },
+            ],
+        };
+        let audio = msg.audio_parts();
+        assert_eq!(audio.len(), 1);
+        assert!(matches!(audio[0], ContentPart::Audio { .. }));
+    }
+
+    #[test]
+    fn audio_parts_returns_empty_when_no_audio() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: "text".into(),
+            channel: "test".into(),
+            timestamp: 0,
+            parts: vec![ContentPart::Text {
+                text: "text".into(),
+            }],
+        };
+        assert!(msg.audio_parts().is_empty());
+    }
+
+    #[test]
+    fn text_projection_includes_audio_captions() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "telegram".into(),
+            timestamp: 0,
+            parts: vec![
+                ContentPart::Text {
+                    text: "translate this".into(),
+                },
+                ContentPart::Audio {
+                    channel_handle: "file_abc".into(),
+                    source_channel: "telegram".into(),
+                    declared_mime: Some("audio/ogg".into()),
+                    caption_text: Some("please translate".into()),
+                    file_name: None,
+                    declared_bytes: None,
+                    declared_duration_secs: None,
+                },
+            ],
+        };
+        assert_eq!(msg.text_projection(), "translate this\n\nplease translate");
+    }
+
+    #[test]
+    fn text_projection_skips_audio_without_caption() {
+        let msg = ChannelMessage {
+            id: "1".into(),
+            sender: "alice".into(),
+            reply_target: "alice".into(),
+            content: String::new(),
+            channel: "telegram".into(),
+            timestamp: 0,
+            parts: vec![ContentPart::Audio {
+                channel_handle: "file_abc".into(),
+                source_channel: "telegram".into(),
+                declared_mime: Some("audio/ogg".into()),
+                caption_text: None,
+                file_name: None,
+                declared_bytes: None,
+                declared_duration_secs: Some(15),
+            }],
+        };
+        assert_eq!(msg.text_projection(), "");
     }
 
     // ── Multimodal contract tests (Task 1.1) ──────────────────

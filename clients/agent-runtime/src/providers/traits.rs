@@ -1,3 +1,4 @@
+use crate::channels::audio_media::AudioHistoryMeta;
 use crate::channels::media::{ImageHistoryMeta, ImageTransportForm, StagedImage};
 use crate::tools::ToolSpec;
 use async_trait::async_trait;
@@ -13,6 +14,9 @@ pub struct ChatMessage {
     /// Image metadata for history turns (None for text-only or non-history messages).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_metadata: Option<Vec<ImageHistoryMeta>>,
+    /// Audio metadata for history turns (None for non-audio messages).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_metadata: Option<Vec<AudioHistoryMeta>>,
 }
 
 impl ChatMessage {
@@ -21,6 +25,7 @@ impl ChatMessage {
             role: "system".into(),
             content: content.into(),
             image_metadata: None,
+            audio_metadata: None,
         }
     }
 
@@ -29,6 +34,7 @@ impl ChatMessage {
             role: "user".into(),
             content: content.into(),
             image_metadata: None,
+            audio_metadata: None,
         }
     }
 
@@ -41,6 +47,20 @@ impl ChatMessage {
             } else {
                 Some(metadata)
             },
+            audio_metadata: None,
+        }
+    }
+
+    pub fn user_with_audio(content: impl Into<String>, metadata: Vec<AudioHistoryMeta>) -> Self {
+        Self {
+            role: "user".into(),
+            content: content.into(),
+            image_metadata: None,
+            audio_metadata: if metadata.is_empty() {
+                None
+            } else {
+                Some(metadata)
+            },
         }
     }
 
@@ -49,6 +69,7 @@ impl ChatMessage {
             role: "assistant".into(),
             content: content.into(),
             image_metadata: None,
+            audio_metadata: None,
         }
     }
 
@@ -57,6 +78,7 @@ impl ChatMessage {
             role: "tool".into(),
             content: content.into(),
             image_metadata: None,
+            audio_metadata: None,
         }
     }
 }

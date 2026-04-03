@@ -2,17 +2,17 @@ pub mod schema;
 
 #[allow(unused_imports)]
 pub use schema::{
-    default_mcp_capabilities, AccountPoolStrategy, AgentConfig, AuditConfig, AutonomyConfig,
-    BrowserComputerUseConfig, BrowserConfig, ChannelsConfig, ClassificationRule, CodeSessionConfig,
-    ComposioConfig, Config, CostConfig, CronConfig, DelegateAgentConfig, DelegateExecutionMode,
-    DiscordConfig, DockerRuntimeConfig, GatewayConfig, HardwareConfig, HardwareTransport,
-    HeartbeatConfig, HttpRequestConfig, IMessageConfig, IdentityConfig, LarkConfig, MatrixConfig,
-    McpConfig, McpServerConfig, MemoryCerebroConfig, MemoryConfig, MissionConfig, ModelRouteConfig,
-    MultimodalConfig, ObservabilityConfig, PeripheralBoardConfig, PeripheralsConfig,
-    ProviderAccountConfig, ProviderAccountPoolConfig, QueryClassificationConfig, ReliabilityConfig,
-    ResourceLimitsConfig, RuntimeConfig, SandboxBackend, SandboxConfig, SchedulerConfig,
-    SecretsConfig, SecurityConfig, SkillsConfig, SlackConfig, StreamMode, TelegramConfig,
-    TunnelConfig, UpdateConfig, WebSearchConfig, WebhookConfig,
+    default_mcp_capabilities, AccountPoolStrategy, AgentConfig, AudioConfig, AuditConfig,
+    AutonomyConfig, BrowserComputerUseConfig, BrowserConfig, ChannelsConfig, ClassificationRule,
+    CodeSessionConfig, ComposioConfig, Config, CostConfig, CronConfig, DelegateAgentConfig,
+    DelegateExecutionMode, DiscordConfig, DockerRuntimeConfig, GatewayConfig, HardwareConfig,
+    HardwareTransport, HeartbeatConfig, HttpRequestConfig, IMessageConfig, IdentityConfig,
+    LarkConfig, MatrixConfig, McpConfig, McpServerConfig, MemoryCerebroConfig, MemoryConfig,
+    MissionConfig, ModelRouteConfig, MultimodalConfig, ObservabilityConfig, PeripheralBoardConfig,
+    PeripheralsConfig, ProviderAccountConfig, ProviderAccountPoolConfig, QueryClassificationConfig,
+    ReliabilityConfig, ResourceLimitsConfig, RuntimeConfig, SandboxBackend, SandboxConfig,
+    SchedulerConfig, SecretsConfig, SecurityConfig, SkillsConfig, SlackConfig, StreamMode,
+    TelegramConfig, TunnelConfig, UpdateConfig, WebSearchConfig, WebhookConfig,
 };
 
 #[cfg(test)]

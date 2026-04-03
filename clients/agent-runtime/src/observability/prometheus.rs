@@ -187,7 +187,8 @@ impl Observer for PrometheusObserver {
             | ObserverEvent::MissionCheckpointProgress { .. }
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
-            | ObserverEvent::MissionTerminated { .. } => {}
+            | ObserverEvent::MissionTerminated { .. }
+            | ObserverEvent::AudioIngress(_) => {}
             ObserverEvent::ImageIngress(evt) => {
                 let outcome = format!("{:?}", evt.outcome);
                 let reason = evt

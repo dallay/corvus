@@ -1684,6 +1684,7 @@ mod tests {
             role: "user".to_string(),
             content: "hello".to_string(),
             image_metadata: None,
+            audio_metadata: None,
         }];
         let tools = vec![serde_json::json!({
             "type": "function",
