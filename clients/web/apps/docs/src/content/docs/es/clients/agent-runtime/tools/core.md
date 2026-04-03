@@ -17,7 +17,7 @@ Las herramientas core proporcionan la base para la autonomía del agente, permit
 Ejecuta un comando de shell arbitrario dentro del directorio del workspace.
 
 - **Nivel de Seguridad:** De Acción (Con riesgo).
-- **Ejecución:** Se ejecuta a través del [Runtime](../../architecture.md#runtime) configurado (Nativo o Docker).
+- **Ejecución:** Se ejecuta a través del [Runtime](../architecture.md#runtime) configurado (Nativo o Docker).
 - **Restricciones:**
   - Comandos bloqueados: Definidos en `autonomy.forbidden_paths`.
   - Comandos permitidos: Deben estar en `autonomy.allowed_commands` si se configura.

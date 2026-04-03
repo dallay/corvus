@@ -15,7 +15,7 @@ Core tools provide the foundation for agent autonomy, allowing interaction with 
 Executes an arbitrary shell command within the workspace directory.
 
 - **Security Tier:** Action-Bearing (Risk-bearing).
-- **Execution:** Runs via the configured [Runtime](../../architecture.md#runtime) (Native or Docker).
+- **Execution:** Runs via the configured [Runtime](../architecture.md#runtime) (Native or Docker).
 - **Constraints:**
   - Blocked commands: Defined in `autonomy.forbidden_paths`.
   - Allowed commands: Must be in `autonomy.allowed_commands` if configured.

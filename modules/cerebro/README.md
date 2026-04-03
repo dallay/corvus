@@ -18,7 +18,7 @@ Cerebro is a high-performance, agent-agnostic memory service that provides long-
 ## Integration
 
 Agents interact with Cerebro exclusively via the MCP protocol. For detailed migration instructions and MCP schema definitions, see:
-- [Migration Guide](../../clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md)
+- [Migration Guide](../../clients/web/apps/docs/src/content/docs/cerebro/migration.md)
 - [MCP Schema Definitions](../../clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/)
 
 ## Development

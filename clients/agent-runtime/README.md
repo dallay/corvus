@@ -99,7 +99,7 @@ cargo build --release
 cargo install --path . --force
 
 # Cerebro long-term memory runs as a separate MCP service
-# See docs: ../../clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md
+# See docs: ../../clients/web/apps/docs/src/content/docs/cerebro/migration.md
 
 # Quick setup (no prompts)
 corvus onboard --api-key sk-... --provider openrouter
@@ -386,7 +386,7 @@ Legacy tool aliases are preserved during migration:
 
 Docs:
 
-- Migration guide: [../../clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md](../../clients/web/apps/docs/src/content/docs/guides/cerebro/migration.md)
+- Migration guide: [../../clients/web/apps/docs/src/content/docs/cerebro/migration.md](../../clients/web/apps/docs/src/content/docs/cerebro/migration.md)
 - MCP schemas: [../../clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/](../../clients/web/apps/docs/src/content/docs/guides/cerebro/mcp-schema/)
 
 ## Identity System (AIEOS Support)

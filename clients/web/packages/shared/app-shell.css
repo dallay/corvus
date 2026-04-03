@@ -1,5 +1,5 @@
-@import url("./theme.css");
-@import url("./base.css");
+@import "./theme.css";
+@import "./base.css";
 
 /* Shared dark application shell for the Vue apps.
    App-specific layout and visuals should live in each app stylesheet. */
