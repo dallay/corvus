@@ -89,17 +89,21 @@ pub(crate) fn redact_runtime_error(raw: &str) -> String {
 }
 
 /// Create the default tool registry
-pub fn default_tools(security: Arc<SecurityPolicy>) -> Vec<Box<dyn Tool>> {
-    default_tools_with_runtime(security, Arc::new(NativeRuntime::new()))
+pub fn default_tools(
+    security: Arc<SecurityPolicy>,
+    sandbox: Arc<dyn crate::security::Sandbox>,
+) -> Vec<Box<dyn Tool>> {
+    default_tools_with_runtime(security, Arc::new(NativeRuntime::new()), sandbox)
 }
 
 /// Create the default tool registry with explicit runtime adapter.
 pub fn default_tools_with_runtime(
     security: Arc<SecurityPolicy>,
     runtime: Arc<dyn RuntimeAdapter>,
+    sandbox: Arc<dyn crate::security::Sandbox>,
 ) -> Vec<Box<dyn Tool>> {
     vec![
-        Box::new(ShellTool::new(security.clone(), runtime)),
+        Box::new(ShellTool::new(security.clone(), runtime, sandbox)),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security)),
     ]
@@ -109,6 +113,7 @@ fn add_browser_tools(
     tools: &mut Vec<Box<dyn Tool>>,
     security: &Arc<SecurityPolicy>,
     browser_config: &crate::config::BrowserConfig,
+    sidecar_verification_required: bool,
 ) {
     if !browser_config.enabled {
         return;
@@ -118,24 +123,27 @@ fn add_browser_tools(
         security.clone(),
         browser_config.allowed_domains.clone(),
     )));
-    tools.push(Box::new(BrowserTool::new_with_backend(
-        security.clone(),
-        browser_config.allowed_domains.clone(),
-        browser_config.session_name.clone(),
-        browser_config.backend.clone(),
-        browser_config.native_headless,
-        browser_config.native_webdriver_url.clone(),
-        browser_config.native_chrome_path.clone(),
-        ComputerUseConfig {
-            endpoint: browser_config.computer_use.endpoint.clone(),
-            api_key: browser_config.computer_use.api_key.clone(),
-            timeout_ms: browser_config.computer_use.timeout_ms,
-            allow_remote_endpoint: browser_config.computer_use.allow_remote_endpoint,
-            window_allowlist: browser_config.computer_use.window_allowlist.clone(),
-            max_coordinate_x: browser_config.computer_use.max_coordinate_x,
-            max_coordinate_y: browser_config.computer_use.max_coordinate_y,
-        },
-    )));
+    tools.push(Box::new(
+        BrowserTool::new_with_backend(
+            security.clone(),
+            browser_config.allowed_domains.clone(),
+            browser_config.session_name.clone(),
+            browser_config.backend.clone(),
+            browser_config.native_headless,
+            browser_config.native_webdriver_url.clone(),
+            browser_config.native_chrome_path.clone(),
+            ComputerUseConfig {
+                endpoint: browser_config.computer_use.endpoint.clone(),
+                api_key: browser_config.computer_use.api_key.clone(),
+                timeout_ms: browser_config.computer_use.timeout_ms,
+                allow_remote_endpoint: browser_config.computer_use.allow_remote_endpoint,
+                window_allowlist: browser_config.computer_use.window_allowlist.clone(),
+                max_coordinate_x: browser_config.computer_use.max_coordinate_x,
+                max_coordinate_y: browser_config.computer_use.max_coordinate_y,
+            },
+        )
+        .with_sidecar_verification_required(sidecar_verification_required),
+    ));
 }
 
 fn add_http_request_tool(
@@ -261,6 +269,7 @@ fn extend_with_mcp_tools(tools: &mut Vec<Box<dyn Tool>>, root_config: &crate::co
 pub fn all_tools(
     config: Arc<Config>,
     security: &Arc<SecurityPolicy>,
+    sandbox: Arc<dyn crate::security::Sandbox>,
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
     composio_entity_id: Option<&str>,
@@ -275,6 +284,7 @@ pub fn all_tools(
         config,
         security,
         Arc::new(NativeRuntime::new()),
+        sandbox,
         memory,
         composio_key,
         composio_entity_id,
@@ -293,6 +303,7 @@ pub fn all_tools_with_runtime(
     config: Arc<Config>,
     security: &Arc<SecurityPolicy>,
     runtime: Arc<dyn RuntimeAdapter>,
+    sandbox: Arc<dyn crate::security::Sandbox>,
     memory: Arc<dyn Memory>,
     composio_key: Option<&str>,
     composio_entity_id: Option<&str>,
@@ -306,7 +317,7 @@ pub fn all_tools_with_runtime(
     let local_memory_available = memory.name() != "none";
     let cerebro_configured = crate::memory::cerebro_configured(&root_config.memory);
     let mut tools: Vec<Box<dyn Tool>> = vec![
-        Box::new(ShellTool::new(security.clone(), runtime)),
+        Box::new(ShellTool::new(security.clone(), runtime, sandbox)),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security.clone())),
         Box::new(CronAddTool::new(config.clone(), security.clone())),
@@ -354,7 +365,12 @@ pub fn all_tools_with_runtime(
         )));
     }
 
-    add_browser_tools(&mut tools, security, browser_config);
+    add_browser_tools(
+        &mut tools,
+        security,
+        browser_config,
+        root_config.security.sandbox.require,
+    );
     add_http_request_tool(&mut tools, security, http_config);
     add_web_search_tool(&mut tools, security, root_config);
 
@@ -382,13 +398,18 @@ pub fn all_tools_with_runtime(
 mod tests {
     use super::*;
     use crate::config::{BrowserConfig, Config, DelegateExecutionMode, McpConfig, MemoryConfig};
+    use crate::security::{NoopSandbox, Sandbox};
     use crate::test_support::{mock_mcp_server, test_config};
     use tempfile::TempDir;
+
+    fn test_sandbox() -> Arc<dyn Sandbox> {
+        Arc::new(NoopSandbox)
+    }
 
     #[test]
     fn default_tools_has_three() {
         let security = Arc::new(SecurityPolicy::default());
-        let tools = default_tools(security);
+        let tools = default_tools(security, test_sandbox());
         assert_eq!(tools.len(), 3);
     }
 
@@ -415,6 +436,7 @@ mod tests {
         let tools = all_tools(
             Arc::new(Config::default()),
             &security,
+            test_sandbox(),
             mem,
             None,
             None,
@@ -454,6 +476,7 @@ mod tests {
         let tools = all_tools(
             Arc::new(Config::default()),
             &security,
+            test_sandbox(),
             mem,
             None,
             None,
@@ -472,7 +495,7 @@ mod tests {
     #[test]
     fn default_tools_names() {
         let security = Arc::new(SecurityPolicy::default());
-        let tools = default_tools(security);
+        let tools = default_tools(security, test_sandbox());
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"shell"));
         assert!(names.contains(&"file_read"));
@@ -482,7 +505,7 @@ mod tests {
     #[test]
     fn default_tools_all_have_descriptions() {
         let security = Arc::new(SecurityPolicy::default());
-        let tools = default_tools(security);
+        let tools = default_tools(security, test_sandbox());
         for tool in &tools {
             assert!(
                 !tool.description().is_empty(),
@@ -495,7 +518,7 @@ mod tests {
     #[test]
     fn default_tools_all_have_schemas() {
         let security = Arc::new(SecurityPolicy::default());
-        let tools = default_tools(security);
+        let tools = default_tools(security, test_sandbox());
         for tool in &tools {
             let schema = tool.parameters_schema();
             assert!(
@@ -514,7 +537,7 @@ mod tests {
     #[test]
     fn tool_spec_generation() {
         let security = Arc::new(SecurityPolicy::default());
-        let tools = default_tools(security);
+        let tools = default_tools(security, test_sandbox());
         for tool in &tools {
             let spec = tool.spec();
             assert_eq!(spec.name, tool.name());
@@ -600,6 +623,7 @@ mod tests {
         let tools = all_tools(
             Arc::new(Config::default()),
             &security,
+            test_sandbox(),
             mem,
             None,
             None,
@@ -632,6 +656,7 @@ mod tests {
         let tools = all_tools(
             Arc::new(Config::default()),
             &security,
+            test_sandbox(),
             mem,
             None,
             None,
@@ -669,6 +694,7 @@ mod tests {
         let tools = all_tools(
             Arc::new(Config::default()),
             &security,
+            test_sandbox(),
             mem,
             None,
             None,
@@ -708,6 +734,7 @@ mod tests {
         let tools = all_tools(
             Arc::new(Config::default()),
             &security,
+            test_sandbox(),
             mem,
             None,
             None,
@@ -748,6 +775,7 @@ mod tests {
         let tools = all_tools(
             Arc::new(Config::default()),
             &security,
+            test_sandbox(),
             mem,
             None,
             None,

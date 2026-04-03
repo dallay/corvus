@@ -16,7 +16,10 @@ use crate::config::Config;
 use crate::memory::{Memory, MemoryCategory};
 use crate::observability::{redact_observer_payload, Observer, ObserverEvent};
 use crate::providers::{ChatMessage, ChatRequest, ConversationMessage, Provider};
-use crate::security::{AuditLogger, CodeSessionAuditLog, ExecutionOrigin};
+use crate::security::{
+    AuditEvent, AuditEventType, AuditLogger, CodeSessionAuditLog, CommandExecutionLog,
+    ExecutionOrigin,
+};
 use crate::tools::{Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
@@ -24,7 +27,7 @@ use futures_util::future::join_all;
 use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -529,6 +532,21 @@ impl Agent {
         {
             match tool.execute(call.arguments.clone()).await {
                 Ok(r) => {
+                    if call.name == "shell" {
+                        if let Err(e) = self.log_shell_audit_event(call, &r, start.elapsed()) {
+                            return ToolExecutionResult {
+                                name: call.name.clone(),
+                                output: format!("{}\n\n[AUDIT ERROR: {e}]", r.output),
+                                success: r.success,
+                                tool_call_id: call.tool_call_id.clone(),
+                                action: DispatchAction::ApprovalRequired(format!(
+                                    "Audit logging failed: {e}"
+                                )),
+                            };
+                        }
+                    } else if call.name == "browser" {
+                        self.log_browser_security_event(&r);
+                    }
                     if call.name.starts_with("mcp.") && !r.success {
                         tracing::warn!(tool = %call.name, "MCP tool call returned failure status");
                     }
@@ -562,6 +580,113 @@ impl Agent {
             success,
             tool_call_id: call.tool_call_id.clone(),
             action: crate::agent::dispatcher::DispatchAction::Execute,
+        }
+    }
+
+    fn log_shell_audit_event(
+        &self,
+        call: &ParsedToolCall,
+        result: &crate::tools::ToolResult,
+        duration: Duration,
+    ) -> anyhow::Result<()> {
+        let Some(logger) = &self.audit_logger else {
+            return Ok(());
+        };
+
+        let raw_command = call
+            .arguments
+            .get("command")
+            .and_then(|v| v.as_str())
+            .unwrap_or("");
+        let redacted_command = redact_observer_payload(raw_command);
+        let approved = call
+            .arguments
+            .get("approved")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+        let structured = result.structured.as_ref();
+        let risk_level = structured
+            .and_then(|v| v.get("risk_level"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let sandbox_backend = structured
+            .and_then(|v| v.get("sandbox_backend"))
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+
+        let allowed = structured
+            .and_then(|v| v.get("approved"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let duration_ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
+
+        if let Err(error) = logger.log_command_event(CommandExecutionLog {
+            channel: "agent",
+            command: &redacted_command,
+            risk_level,
+            approved,
+            allowed,
+            success: result.success,
+            duration_ms,
+            sandbox_backend,
+        }) {
+            if self.audit_strict {
+                anyhow::bail!("Failed to write shell command audit event: {error}");
+            }
+            tracing::warn!("Failed to write shell command audit event: {error}");
+        }
+
+        Ok(())
+    }
+
+    fn log_browser_security_event(&self, result: &crate::tools::ToolResult) {
+        let Some(logger) = &self.audit_logger else {
+            return;
+        };
+
+        let Some(sidecar_health) = result
+            .structured
+            .as_ref()
+            .and_then(|v| v.get("computer_use"))
+            .and_then(|v| v.get("sidecar_health"))
+            .cloned()
+        else {
+            return;
+        };
+
+        let status = sidecar_health
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let isolation_type = sidecar_health
+            .get("isolation")
+            .and_then(|v| v.get("type"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+        let runtime = sidecar_health
+            .get("isolation")
+            .and_then(|v| v.get("runtime"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown");
+
+        let event = AuditEvent::new(AuditEventType::SecurityEvent)
+            .with_actor("agent".to_string(), None, None)
+            .with_action(
+                format!(
+                    "browser sidecar health status={status} isolation_type={isolation_type} runtime={runtime}"
+                ),
+                "low".to_string(),
+                false,
+                true,
+            );
+
+        if let Err(error) = logger.log(&event) {
+            if self.audit_strict {
+                tracing::error!("Failed to write browser sidecar security audit event: {error}");
+            } else {
+                tracing::warn!("Failed to write browser sidecar security audit event: {error}");
+            }
         }
     }
 

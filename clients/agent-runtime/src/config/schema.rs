@@ -2078,6 +2078,11 @@ pub struct SandboxConfig {
     #[serde(default)]
     pub backend: SandboxBackend,
 
+    /// When true, refuse to start if no OS-level sandbox backend is available.
+    /// When false (default), fall back to NoopSandbox with a warning.
+    #[serde(default)]
+    pub require: bool,
+
     /// Custom Firejail arguments (when backend = firejail)
     #[serde(default)]
     pub firejail_args: Vec<String>,
@@ -2088,6 +2093,7 @@ impl Default for SandboxConfig {
         Self {
             enabled: None, // Auto-detect
             backend: SandboxBackend::Auto,
+            require: false,
             firejail_args: Vec::new(),
         }
     }
@@ -6501,5 +6507,36 @@ allow_image_input = true
         };
         let result = Config::validate_mcp_capability_limits(&server, "mcp.servers[0]");
         assert!(result.is_ok());
+    }
+
+    // ── SandboxConfig.require field (T1) ────────────────────
+
+    #[test]
+    fn sandbox_config_default_require_is_false() {
+        let config = SandboxConfig::default();
+        assert!(!config.require, "require must default to false");
+    }
+
+    #[test]
+    fn sandbox_config_require_serde_roundtrip() {
+        let config = SandboxConfig {
+            enabled: Some(true),
+            backend: SandboxBackend::Auto,
+            require: true,
+            firejail_args: Vec::new(),
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let parsed: SandboxConfig = serde_json::from_str(&json).unwrap();
+        assert!(parsed.require, "require=true must survive serde roundtrip");
+    }
+
+    #[test]
+    fn sandbox_config_missing_require_defaults_to_false() {
+        let json = r#"{"enabled":true,"backend":"auto"}"#;
+        let parsed: SandboxConfig = serde_json::from_str(json).unwrap();
+        assert!(
+            !parsed.require,
+            "missing require field must default to false"
+        );
     }
 }

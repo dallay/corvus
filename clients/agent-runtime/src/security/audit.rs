@@ -188,6 +188,7 @@ pub struct CommandExecutionLog<'a> {
     pub allowed: bool,
     pub success: bool,
     pub duration_ms: u64,
+    pub sandbox_backend: Option<String>,
 }
 
 /// Structured code-session details for audit logging.
@@ -247,7 +248,8 @@ impl AuditLogger {
                 entry.approved,
                 entry.allowed,
             )
-            .with_result(entry.success, None, entry.duration_ms, None);
+            .with_result(entry.success, None, entry.duration_ms, None)
+            .with_security(entry.sandbox_backend);
 
         self.log(&event)
     }
@@ -303,6 +305,7 @@ impl AuditLogger {
             allowed,
             success,
             duration_ms,
+            sandbox_backend: None,
         })
     }
 
@@ -452,6 +455,7 @@ mod tests {
             allowed: true,
             success: true,
             duration_ms: 42,
+            sandbox_backend: Some("none".to_string()),
         })?;
 
         let log_path = tmp.path().join("audit.log");
@@ -462,10 +466,42 @@ mod tests {
         assert_eq!(action.command, Some("echo test".to_string()));
         assert_eq!(action.risk_level, Some("low".to_string()));
         assert!(action.allowed);
+        assert_eq!(parsed.security.sandbox_backend, Some("none".to_string()));
 
         let result = parsed.result.unwrap();
         assert!(result.success);
         assert_eq!(result.duration_ms, Some(42));
+        Ok(())
+    }
+
+    #[test]
+    fn audit_log_command_event_records_real_sandbox_backend() -> Result<()> {
+        let tmp = TempDir::new()?;
+        let config = AuditConfig {
+            enabled: true,
+            max_size_mb: 10,
+            ..Default::default()
+        };
+        let logger = AuditLogger::new(config, tmp.path().to_path_buf())?;
+
+        logger.log_command_event(CommandExecutionLog {
+            channel: "agent",
+            command: "git status",
+            risk_level: "low",
+            approved: false,
+            allowed: true,
+            success: true,
+            duration_ms: 7,
+            sandbox_backend: Some("firejail".to_string()),
+        })?;
+
+        let log_path = tmp.path().join("audit.log");
+        let content = std::fs::read_to_string(&log_path)?;
+        let parsed: AuditEvent = serde_json::from_str(content.trim())?;
+        assert_eq!(
+            parsed.security.sandbox_backend,
+            Some("firejail".to_string())
+        );
         Ok(())
     }
 
