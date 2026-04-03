@@ -1,3 +1,13 @@
+---
+title: Runtime Sandbox Isolation
+description: Security model, backend selection, sidecar verification, and audit expectations for runtime sandbox isolation in Corvus.
+owner: team-platform
+status: canonical
+lastReviewed: 2026-04-03
+appliesTo: main
+docType: guide
+---
+
 # Runtime Sandbox Isolation
 
 Corvus uses **two security layers** for user-triggered execution:

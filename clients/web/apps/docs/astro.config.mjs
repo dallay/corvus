@@ -163,6 +163,13 @@ export default defineConfig({
                 es: "Referencia de la CLI",
               },
             },
+            {
+              label: "Runtime Sandbox Isolation",
+              slug: "guides/runtime-sandbox-isolation",
+              translations: {
+                es: "Aislamiento del Sandbox del Runtime",
+              },
+            },
           ],
         },
         {
