@@ -11,6 +11,10 @@ use async_trait::async_trait;
 use tokio::io::{self, AsyncBufReadExt, BufReader};
 use uuid::Uuid;
 
+/// Error returned when the receiver channel is closed during audio processing.
+#[derive(Debug, Clone, Copy)]
+pub struct ReceiverClosed;
+
 // ── CliChannel ────────────────────────────────────────────────
 
 /// CLI channel — stdin/stdout, always available, zero deps.
@@ -63,18 +67,21 @@ impl CliChannel {
     ///
     /// `staged.cleanup()` is called on **all** exit paths after staging
     /// succeeds to ensure the temp file is always removed.
+    ///
+    /// Returns `Ok(())` on success, `Err(ReceiverClosed)` if the receiver
+    /// channel was closed (so `listen()` knows to stop).
     async fn handle_audio_command(
         &self,
         path: &str,
         tx: &tokio::sync::mpsc::Sender<ChannelMessage>,
-    ) {
+    ) -> Result<(), ReceiverClosed> {
         let started_at = std::time::Instant::now();
 
         // ── Gate 1: audio globally enabled ───────────────────
         if !self.audio_config.enabled {
             println!("Audio input is currently disabled.");
             self.emit_rejected(&AudioRejectionReason::Disabled, None, None);
-            return;
+            return Ok(());
         }
 
         // ── Gate 2: "cli" in allowed_channels ────────────────
@@ -86,7 +93,7 @@ impl CliChannel {
         {
             println!("Audio input is not enabled for CLI.");
             self.emit_rejected(&AudioRejectionReason::ChannelNotAllowed, None, None);
-            return;
+            return Ok(());
         }
 
         // ── Gate 3: transcriber available ────────────────────
@@ -98,47 +105,62 @@ impl CliChannel {
                      Please send text instead."
                 );
                 self.emit_rejected(&AudioRejectionReason::TranscriberUnavailable, None, None);
-                return;
+                return Ok(());
             }
         };
 
-        // ── Pre-check: file metadata (existence + size) ──────
-        let metadata = match tokio::fs::metadata(path).await {
-            Ok(m) => m,
+        // ── Pre-check: file open + metadata (avoid TOCTOU) ───────
+        let file = match tokio::fs::File::open(path).await {
+            Ok(f) => f,
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::NotFound {
                     println!("File not found: {path}");
                 } else {
                     println!("Cannot read file: {path}");
                 }
-                // No AudioIngressEvent — the audio pipeline was never entered.
-                return;
+                return Ok(());
             }
         };
 
-        let file_size = metadata.len();
-        if file_size > self.audio_config.max_audio_bytes {
+        let metadata = match file.metadata().await {
+            Ok(m) => m,
+            Err(_) => {
+                println!("Cannot read file metadata: {path}");
+                return Ok(());
+            }
+        };
+
+        if !metadata.file_type().is_file() {
+            println!("Not a regular file: {path}");
+            return Ok(());
+        }
+
+        // ── Read with capped reader to detect oversize before allocating ──
+        let max_size = self.audio_config.max_audio_bytes;
+        let mut capped_reader = tokio::io::AsyncReadExt::take(file, max_size + 1);
+        let mut bytes = Vec::new();
+        let bytes_read = match tokio::io::AsyncReadExt::read_to_end(&mut capped_reader, &mut bytes).await {
+            Ok(n) => n,
+            Err(_) => {
+                println!("Cannot read file: {path}");
+                return Ok(());
+            }
+        };
+
+        // Check if file was larger than max_size (capped read returned max+1 bytes)
+        if bytes_read > max_size as usize {
             let reason = AudioRejectionReason::Oversize;
             println!(
                 "{}",
                 cli_rejection_message(
                     &reason,
-                    Some(file_size),
-                    Some(self.audio_config.max_audio_bytes)
+                    Some(bytes_read as u64),
+                    Some(max_size)
                 )
             );
-            self.emit_rejected(&reason, Some(file_size), None);
-            return;
+            self.emit_rejected(&reason, Some(bytes_read as u64), None);
+            return Ok(());
         }
-
-        // ── Read bytes ────────────────────────────────────────
-        let bytes = match tokio::fs::read(path).await {
-            Ok(b) => b,
-            Err(_) => {
-                println!("Cannot read file: {path}");
-                return;
-            }
-        };
 
         // ── Stage audio (MIME sniff, SHA-256, temp file) ──────
         let staged = match stage_audio_from_bytes(
@@ -154,16 +176,20 @@ impl CliChannel {
         {
             Ok(s) => s,
             Err(reason) => {
-                println!(
-                    "{}",
-                    cli_rejection_message(
-                        &reason,
+                // For TooLong, show duration limits; for others, show byte limits.
+                let (actual, max) = match &reason {
+                    AudioRejectionReason::TooLong => (
+                        None,
+                        Some(self.audio_config.max_audio_duration_secs),
+                    ),
+                    _ => (
                         Some(bytes.len() as u64),
-                        Some(self.audio_config.max_audio_bytes)
-                    )
-                );
+                        Some(self.audio_config.max_audio_bytes),
+                    ),
+                };
+                println!("{}", cli_rejection_message(&reason, actual, max));
                 self.emit_rejected(&reason, Some(bytes.len() as u64), None);
-                return;
+                return Ok(());
             }
         };
 
@@ -186,7 +212,7 @@ impl CliChannel {
                     )
                 );
                 self.emit_rejected(&reason, Some(staged_byte_len), staged_duration);
-                return;
+                return Ok(());
             }
         };
         staged.cleanup(); // success path
@@ -202,13 +228,17 @@ impl CliChannel {
                 Some(staged_byte_len),
                 transcription_result.duration_secs.or(staged_duration),
             );
-            return;
+            return Ok(());
         }
 
-        // ── Print transcription feedback ──────────────────────
-        println!("[Transcription]: \"{text}\"");
-
-        // ── Emit admitted AudioIngressEvent ───────────────────
+        // ── Send transcribed text to the agent loop ───────────
+        tracing::info!(
+            "Audio transcription complete: {} chars, {}ms",
+            text.len(),
+            elapsed_ms
+        );
+        println!("Transcribed: {}\n", text);
+        // Emit success telemetry
         self.observer.on_audio_ingress(&AudioIngressEvent {
             channel: "cli".to_string(),
             outcome: AudioIngressOutcome::Admitted,
@@ -219,7 +249,6 @@ impl CliChannel {
             transcription_duration_ms: Some(elapsed_ms),
         });
 
-        // ── Send as normal text ChannelMessage ────────────────
         let msg = ChannelMessage {
             id: Uuid::new_v4().to_string(),
             sender: "user".to_string(),
@@ -232,10 +261,11 @@ impl CliChannel {
                 .as_secs(),
             parts: vec![],
         };
-        // Match the error handling in the normal text path: break if receiver is gone.
+        // Match the error handling in the normal text path: return error if receiver is gone.
         if tx.send(msg).await.is_err() {
-            tracing::debug!("CLI receiver channel closed, stopping listen loop");
+            return Err(ReceiverClosed);
         }
+        Ok(())
     }
 
     /// Emit a rejected `AudioIngressEvent` through the observer.
@@ -286,7 +316,10 @@ impl Channel for CliChannel {
             if line.starts_with("/audio") {
                 match parse_audio_command(&line) {
                     Some(Ok(path)) => {
-                        self.handle_audio_command(&path, &tx).await;
+                        if self.handle_audio_command(&path, &tx).await.is_err() {
+                            // Receiver closed during audio processing - stop the loop
+                            break;
+                        }
                     }
                     Some(Err(())) => {
                         println!("Usage: /audio <file-path>");
