@@ -704,9 +704,9 @@ fn build_result(
 
     let mut stats = outcome.stats.clone();
     let mut warnings = outcome.warnings.clone();
-    let mut output = format_output(&outcome.matches, &warnings, &stats, params.context_lines);
+    let initial_output = format_output(&outcome.matches, &warnings, &stats, params.context_lines);
 
-    if output.len() > max_output_bytes {
+    if initial_output.len() > max_output_bytes {
         stats.truncated = true;
         push_warning(
             &mut warnings,
@@ -715,13 +715,12 @@ fn build_result(
                 max_output_bytes
             ),
         );
-        output = format_output(&outcome.matches, &warnings, &stats, params.context_lines);
     }
 
     let structured_matches =
         cap_structured_matches(outcome.matches, &mut stats, &mut warnings, max_output_bytes);
 
-    output = format_output(&structured_matches, &warnings, &stats, params.context_lines);
+    let mut output = format_output(&structured_matches, &warnings, &stats, params.context_lines);
     if output.len() > max_output_bytes {
         output = hard_cap_output(output, max_output_bytes);
     }
