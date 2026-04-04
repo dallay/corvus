@@ -232,7 +232,10 @@ impl CliChannel {
                 .as_secs(),
             parts: vec![],
         };
-        let _ = tx.send(msg).await;
+        // Match the error handling in the normal text path: break if receiver is gone.
+        if tx.send(msg).await.is_err() {
+            tracing::debug!("CLI receiver channel closed, stopping listen loop");
+        }
     }
 
     /// Emit a rejected `AudioIngressEvent` through the observer.

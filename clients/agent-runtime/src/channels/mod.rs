@@ -1384,7 +1384,9 @@ async fn stage_channel_audio(
             // architecture): they transcribe audio before injecting a plain-text
             // ChannelMessage into the agent flow. Raw audio is never routed through
             // this function for those channels.
-            _ => return Ok(Vec::new()),
+            _ => {
+                return Err(audio_media::AudioRejectionReason::ChannelNotAllowed);
+            }
         };
 
         staged.push(audio);
