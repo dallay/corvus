@@ -1,5 +1,6 @@
 pub mod browser;
 pub mod browser_open;
+pub mod code_search;
 pub mod composio;
 pub mod cron_add;
 pub mod cron_list;
@@ -33,6 +34,7 @@ pub mod web_search_tool;
 
 pub use browser::{BrowserTool, ComputerUseConfig};
 pub use browser_open::BrowserOpenTool;
+pub use code_search::CodeSearchTool;
 pub use composio::ComposioTool;
 pub use cron_add::CronAddTool;
 pub use cron_list::CronListTool;
@@ -104,6 +106,7 @@ pub fn default_tools_with_runtime(
 ) -> Vec<Box<dyn Tool>> {
     vec![
         Box::new(ShellTool::new(security.clone(), runtime, sandbox)),
+        Box::new(CodeSearchTool::new(security.clone())),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security)),
     ]
@@ -318,6 +321,7 @@ pub fn all_tools_with_runtime(
     let cerebro_configured = crate::memory::cerebro_configured(&root_config.memory);
     let mut tools: Vec<Box<dyn Tool>> = vec![
         Box::new(ShellTool::new(security.clone(), runtime, sandbox)),
+        Box::new(CodeSearchTool::new(security.clone())),
         Box::new(FileReadTool::new(security.clone())),
         Box::new(FileWriteTool::new(security.clone())),
         Box::new(CronAddTool::new(config.clone(), security.clone())),
@@ -407,10 +411,10 @@ mod tests {
     }
 
     #[test]
-    fn default_tools_has_three() {
+    fn default_tools_has_four() {
         let security = Arc::new(SecurityPolicy::default());
         let tools = default_tools(security, test_sandbox());
-        assert_eq!(tools.len(), 3);
+        assert_eq!(tools.len(), 4);
     }
 
     #[test]
@@ -498,6 +502,7 @@ mod tests {
         let tools = default_tools(security, test_sandbox());
         let names: Vec<&str> = tools.iter().map(|t| t.name()).collect();
         assert!(names.contains(&"shell"));
+        assert!(names.contains(&"code_search"));
         assert!(names.contains(&"file_read"));
         assert!(names.contains(&"file_write"));
     }

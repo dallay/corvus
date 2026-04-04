@@ -115,6 +115,7 @@ tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 futures-util = { version = "0.3", default-features = false, features = ["sink"] }
 futures = "0.3"
 regex = "1.12.3"
+ignore = "0.4"
 const-oid = "0.9"
 x509-cert = { version = "0.2", default-features = false, features = ["pem", "std"] }
 sigstore = { version = "0.13", default-features = false, features = ["bundle", "sigstore-trust-root", "rustls-tls"] }
