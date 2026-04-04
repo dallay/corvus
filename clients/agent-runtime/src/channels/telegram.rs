@@ -3447,4 +3447,126 @@ mod tests {
             "https://api.telegram.org/file/bot123:ABC/photos/file_42.jpg"
         );
     }
+
+    // ── Voice/audio content parts parsing ────────────────────
+
+    #[test]
+    fn build_telegram_content_parts_voice_message() {
+        let message = serde_json::json!({
+            "voice": {
+                "file_id": "voice-file-123",
+                "duration": 10,
+                "file_size": 16000,
+                "mime_type": "audio/ogg"
+            }
+        });
+
+        let parts = build_telegram_content_parts(&message);
+        assert_eq!(parts.len(), 1);
+        match &parts[0] {
+            ContentPart::Audio {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                declared_duration_secs,
+                declared_bytes,
+                file_name,
+                ..
+            } => {
+                assert_eq!(channel_handle, "voice-file-123");
+                assert_eq!(source_channel, "telegram");
+                assert_eq!(declared_mime.as_deref(), Some("audio/ogg"));
+                assert_eq!(*declared_duration_secs, Some(10));
+                assert_eq!(*declared_bytes, Some(16000));
+                assert!(file_name.is_none());
+            }
+            other => panic!("expected Audio part, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_telegram_content_parts_audio_file() {
+        let message = serde_json::json!({
+            "audio": {
+                "file_id": "audio-file-456",
+                "duration": 180,
+                "file_size": 2_500_000,
+                "mime_type": "audio/mpeg",
+                "file_name": "recording.mp3"
+            }
+        });
+
+        let parts = build_telegram_content_parts(&message);
+        assert_eq!(parts.len(), 1);
+        match &parts[0] {
+            ContentPart::Audio {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                declared_duration_secs,
+                declared_bytes,
+                file_name,
+                ..
+            } => {
+                assert_eq!(channel_handle, "audio-file-456");
+                assert_eq!(source_channel, "telegram");
+                assert_eq!(declared_mime.as_deref(), Some("audio/mpeg"));
+                assert_eq!(*declared_duration_secs, Some(180));
+                assert_eq!(*declared_bytes, Some(2_500_000));
+                assert_eq!(file_name.as_deref(), Some("recording.mp3"));
+            }
+            other => panic!("expected Audio part, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_telegram_content_parts_voice_with_caption() {
+        let message = serde_json::json!({
+            "caption": "translate this",
+            "voice": {
+                "file_id": "voice-cap-789",
+                "duration": 5,
+                "file_size": 8000
+            }
+        });
+
+        let parts = build_telegram_content_parts(&message);
+
+        let text_parts: Vec<_> = parts
+            .iter()
+            .filter(|p| matches!(p, ContentPart::Text { .. }))
+            .collect();
+        let audio_parts: Vec<_> = parts
+            .iter()
+            .filter(|p| matches!(p, ContentPart::Audio { .. }))
+            .collect();
+
+        assert_eq!(
+            text_parts.len(),
+            1,
+            "should have one text part from caption"
+        );
+        assert_eq!(
+            audio_parts.len(),
+            1,
+            "should have one audio part from voice"
+        );
+
+        if let ContentPart::Text { text } = text_parts[0] {
+            assert_eq!(text, "translate this");
+        }
+
+        if let ContentPart::Audio {
+            channel_handle,
+            caption_text,
+            declared_mime,
+            ..
+        } = audio_parts[0]
+        {
+            assert_eq!(channel_handle, "voice-cap-789");
+            assert_eq!(caption_text.as_deref(), Some("translate this"));
+            // Voice always gets audio/ogg mime
+            assert_eq!(declared_mime.as_deref(), Some("audio/ogg"));
+        }
+    }
 }

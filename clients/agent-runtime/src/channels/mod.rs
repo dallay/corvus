@@ -6254,4 +6254,421 @@ mod tests {
             elapsed
         );
     }
+
+    // ── build_transcriber tests ──────────────────────────────
+
+    #[test]
+    fn build_transcriber_returns_none_when_audio_disabled() {
+        let config = Config::default(); // audio.enabled is false by default
+        assert!(build_transcriber(&config).is_none());
+    }
+
+    #[test]
+    fn build_transcriber_returns_some_when_audio_enabled() {
+        let mut config = Config::default();
+        config.audio.enabled = true;
+        config.audio.allowed_channels = vec!["telegram".into()];
+        let transcriber = build_transcriber(&config);
+        assert!(
+            transcriber.is_some(),
+            "should return a transcriber when audio is enabled"
+        );
+        assert_eq!(transcriber.unwrap().name(), "whisper-cli");
+    }
+
+    // ── Audio pipeline runtime-context helper ────────────────
+
+    fn make_audio_runtime_context(
+        channel: Arc<dyn Channel>,
+        transcriber: Option<Arc<dyn crate::transcription::traits::Transcriber>>,
+        observer: Arc<dyn Observer>,
+        config: Config,
+    ) -> Arc<ChannelRuntimeContext> {
+        let mut channels_by_name = HashMap::new();
+        channels_by_name.insert(channel.name().to_string(), channel);
+        Arc::new(ChannelRuntimeContext {
+            config: Arc::new(config),
+            channels_by_name: Arc::new(channels_by_name),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(1),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer,
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            transcriber,
+        })
+    }
+
+    // ── gate_audio_config tests ──────────────────────────────
+
+    #[tokio::test]
+    async fn gate_audio_config_returns_ok_when_no_audio_parts() {
+        let channel: Arc<dyn Channel> = Arc::new(RecordingChannel::default());
+        let ctx = make_audio_runtime_context(
+            channel.clone(),
+            None,
+            Arc::new(NoopObserver),
+            Config::default(),
+        );
+        let msg = make_audio_channel_message(vec![traits::ContentPart::Text {
+            text: "hello".into(),
+        }]);
+        let result = gate_audio_config(&ctx, &msg, "s1", Some(&channel)).await;
+        assert!(result.is_ok(), "no audio parts should pass through");
+    }
+
+    #[tokio::test]
+    async fn gate_audio_config_rejects_when_transcriber_unavailable() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let config = make_audio_test_config("test-channel");
+        let ctx = make_audio_runtime_context(
+            channel.clone(),
+            None, // No transcriber
+            Arc::new(AudioRecordingObserver::default()),
+            config,
+        );
+
+        let msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
+            channel_handle: "file123".into(),
+            source_channel: "telegram".into(),
+            declared_mime: Some("audio/ogg".into()),
+            caption_text: None,
+            file_name: None,
+            declared_bytes: Some(64),
+            declared_duration_secs: Some(5),
+        }]);
+
+        let result = gate_audio_config(&ctx, &msg, "s-tx", Some(&channel)).await;
+        assert!(result.is_err(), "should reject when transcriber is None");
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert!(!sent.is_empty(), "rejection message should be sent");
+        assert!(
+            sent[0].contains("not available"),
+            "should mention transcriber unavailable, got: {}",
+            sent[0]
+        );
+    }
+
+    // ── gate_and_stage_audio tests ───────────────────────────
+
+    #[tokio::test]
+    async fn gate_and_stage_audio_returns_empty_guard_when_no_audio() {
+        let channel: Arc<dyn Channel> = Arc::new(RecordingChannel::default());
+        let transcriber: Arc<dyn crate::transcription::traits::Transcriber> =
+            Arc::new(MockTranscriber::new("unused"));
+        let ctx = make_audio_runtime_context(
+            channel.clone(),
+            Some(transcriber),
+            Arc::new(NoopObserver),
+            make_audio_test_config("test-channel"),
+        );
+
+        let msg = make_audio_channel_message(vec![traits::ContentPart::Text {
+            text: "just text".into(),
+        }]);
+
+        let result = gate_and_stage_audio(&ctx, &msg, "s1", Some(&channel)).await;
+        assert!(result.is_ok());
+        assert!(
+            result.unwrap().0.is_empty(),
+            "guard should have no staged audio"
+        );
+    }
+
+    #[tokio::test]
+    async fn gate_and_stage_audio_rejects_multiple_audio_parts() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let transcriber: Arc<dyn crate::transcription::traits::Transcriber> =
+            Arc::new(MockTranscriber::new("unused"));
+        let ctx = make_audio_runtime_context(
+            channel.clone(),
+            Some(transcriber),
+            Arc::new(AudioRecordingObserver::default()),
+            make_audio_test_config("test-channel"),
+        );
+
+        let msg = make_audio_channel_message(vec![
+            traits::ContentPart::Audio {
+                channel_handle: "file1".into(),
+                source_channel: "telegram".into(),
+                declared_mime: Some("audio/ogg".into()),
+                caption_text: None,
+                file_name: None,
+                declared_bytes: Some(64),
+                declared_duration_secs: Some(5),
+            },
+            traits::ContentPart::Audio {
+                channel_handle: "file2".into(),
+                source_channel: "telegram".into(),
+                declared_mime: Some("audio/ogg".into()),
+                caption_text: None,
+                file_name: None,
+                declared_bytes: Some(64),
+                declared_duration_secs: Some(3),
+            },
+        ]);
+
+        let result = gate_and_stage_audio(&ctx, &msg, "s-multi", Some(&channel)).await;
+        assert!(result.is_err(), "multiple audio parts should be rejected");
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert!(!sent.is_empty());
+        assert!(
+            sent[0].contains("one audio"),
+            "should mention single audio limit, got: {}",
+            sent[0]
+        );
+    }
+
+    // ── transcribe_audio tests ───────────────────────────────
+
+    /// Mock transcriber that always fails with a configurable reason.
+    struct FailingMockTranscriber {
+        reason: audio_media::AudioRejectionReason,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::transcription::traits::Transcriber for FailingMockTranscriber {
+        fn name(&self) -> &str {
+            "failing-mock-transcriber"
+        }
+
+        async fn transcribe(
+            &self,
+            _audio: &audio_media::StagedAudio,
+        ) -> Result<
+            crate::transcription::traits::TranscriptionResult,
+            audio_media::AudioRejectionReason,
+        > {
+            Err(self.reason.clone())
+        }
+
+        async fn health_check(&self) -> Result<(), String> {
+            Err("failing".into())
+        }
+    }
+
+    #[tokio::test]
+    async fn transcribe_audio_rejects_empty_transcription_text() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let transcriber: Arc<dyn crate::transcription::traits::Transcriber> =
+            Arc::new(MockTranscriber::new("")); // Empty text
+        let observer = Arc::new(AudioRecordingObserver::default());
+        let ctx = make_audio_runtime_context(
+            channel.clone(),
+            Some(transcriber),
+            observer.clone(),
+            make_audio_test_config("test-channel"),
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        let staged = make_test_staged_audio(tmp.path());
+
+        let msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
+            channel_handle: "file123".into(),
+            source_channel: "telegram".into(),
+            declared_mime: Some("audio/ogg".into()),
+            caption_text: None,
+            file_name: None,
+            declared_bytes: Some(64),
+            declared_duration_secs: Some(5),
+        }]);
+
+        let result = transcribe_audio(
+            &ctx,
+            std::slice::from_ref(&staged),
+            "s-empty",
+            Some(&channel),
+            &msg,
+        )
+        .await;
+
+        assert!(result.is_err(), "empty transcription should be rejected");
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert!(!sent.is_empty());
+        assert!(
+            sent[0].contains("No speech was detected"),
+            "should mention no speech, got: {}",
+            sent[0]
+        );
+
+        // Verify observability event
+        let events = observer.audio_events.lock().unwrap();
+        assert!(!events.is_empty());
+        assert_eq!(
+            events[0].reason,
+            Some(crate::observability::AudioIngressReason::NoSpeechDetected)
+        );
+    }
+
+    #[tokio::test]
+    async fn transcribe_audio_rejects_on_transcriber_error() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let transcriber: Arc<dyn crate::transcription::traits::Transcriber> =
+            Arc::new(FailingMockTranscriber {
+                reason: audio_media::AudioRejectionReason::TranscriptionFailed,
+            });
+        let observer = Arc::new(AudioRecordingObserver::default());
+        let ctx = make_audio_runtime_context(
+            channel.clone(),
+            Some(transcriber),
+            observer.clone(),
+            make_audio_test_config("test-channel"),
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        let staged = make_test_staged_audio(tmp.path());
+
+        let msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
+            channel_handle: "file123".into(),
+            source_channel: "telegram".into(),
+            declared_mime: Some("audio/ogg".into()),
+            caption_text: None,
+            file_name: None,
+            declared_bytes: Some(64),
+            declared_duration_secs: Some(5),
+        }]);
+
+        let result = transcribe_audio(
+            &ctx,
+            std::slice::from_ref(&staged),
+            "s-fail",
+            Some(&channel),
+            &msg,
+        )
+        .await;
+
+        assert!(result.is_err(), "transcription error should be rejected");
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert!(!sent.is_empty());
+        assert!(
+            sent[0].contains("transcription failed"),
+            "should mention transcription failure, got: {}",
+            sent[0]
+        );
+
+        let events = observer.audio_events.lock().unwrap();
+        assert!(!events.is_empty());
+        assert_eq!(
+            events[0].reason,
+            Some(crate::observability::AudioIngressReason::TranscriptionFailed)
+        );
+    }
+
+    #[tokio::test]
+    async fn transcribe_audio_rejects_when_no_transcriber() {
+        let channel_impl = Arc::new(RecordingChannel::default());
+        let channel: Arc<dyn Channel> = channel_impl.clone();
+        let ctx = make_audio_runtime_context(
+            channel.clone(),
+            None, // No transcriber
+            Arc::new(AudioRecordingObserver::default()),
+            make_audio_test_config("test-channel"),
+        );
+
+        let tmp = tempfile::tempdir().unwrap();
+        let staged = make_test_staged_audio(tmp.path());
+
+        let msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
+            channel_handle: "file123".into(),
+            source_channel: "telegram".into(),
+            declared_mime: Some("audio/ogg".into()),
+            caption_text: None,
+            file_name: None,
+            declared_bytes: Some(64),
+            declared_duration_secs: Some(5),
+        }]);
+
+        let result = transcribe_audio(
+            &ctx,
+            std::slice::from_ref(&staged),
+            "s-notx",
+            Some(&channel),
+            &msg,
+        )
+        .await;
+
+        assert!(result.is_err(), "should reject when no transcriber");
+
+        let sent = channel_impl.sent_messages.lock().await;
+        assert!(!sent.is_empty());
+        assert!(sent[0].contains("not available"));
+    }
+
+    // ── audio_rejection_user_text — TooLong duration variants ──
+
+    #[test]
+    fn audio_rejection_user_text_too_long_sub_minute() {
+        let mut config = Config::default();
+        config.audio.max_audio_duration_secs = 45;
+        let text = audio_rejection_user_text(
+            "s-sub",
+            &audio_media::AudioRejectionReason::TooLong,
+            &config,
+        );
+        assert!(
+            text.contains("45 seconds"),
+            "expected '45 seconds', got: {text}"
+        );
+    }
+
+    #[test]
+    fn audio_rejection_user_text_too_long_mixed_minutes_seconds() {
+        let mut config = Config::default();
+        config.audio.max_audio_duration_secs = 90; // 1 min 30 sec
+        let text = audio_rejection_user_text(
+            "s-mix",
+            &audio_media::AudioRejectionReason::TooLong,
+            &config,
+        );
+        assert!(
+            text.contains("1 minute") && text.contains("30 seconds"),
+            "expected '1 minute ... 30 seconds', got: {text}"
+        );
+    }
+
+    #[test]
+    fn audio_rejection_user_text_too_long_exact_minutes() {
+        let mut config = Config::default();
+        config.audio.max_audio_duration_secs = 600; // 10 min exactly
+        let text = audio_rejection_user_text(
+            "s-exact",
+            &audio_media::AudioRejectionReason::TooLong,
+            &config,
+        );
+        assert!(
+            text.contains("10 minutes"),
+            "expected '10 minutes', got: {text}"
+        );
+        assert!(
+            !text.contains("seconds"),
+            "exact minutes should not mention seconds, got: {text}"
+        );
+    }
+
+    #[test]
+    fn audio_rejection_user_text_multiple_audio_parts_variant() {
+        let config = Config::default();
+        let text = audio_rejection_user_text(
+            "s-multi",
+            &audio_media::AudioRejectionReason::MultipleAudioParts,
+            &config,
+        );
+        assert!(text.contains("one audio"), "got: {text}");
+    }
 }

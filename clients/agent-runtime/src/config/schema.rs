@@ -7011,4 +7011,40 @@ default_temperature = 0.7
         assert_eq!(parsed.max_concurrent_transcriptions, 2);
         assert_eq!(parsed.transcription_timeout_secs, 90);
     }
+
+    // ── AudioConfig validation — concurrency/timeout zero ────
+
+    #[test]
+    fn audio_validation_rejects_zero_concurrent_transcriptions() {
+        let config = Config {
+            audio: AudioConfig {
+                max_concurrent_transcriptions: 0,
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_audio_config().expect_err("should fail");
+        assert!(
+            err.to_string().contains("max_concurrent_transcriptions")
+                && err.to_string().contains("greater than 0"),
+            "expected concurrent transcriptions error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn audio_validation_rejects_zero_transcription_timeout() {
+        let config = Config {
+            audio: AudioConfig {
+                transcription_timeout_secs: 0,
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_audio_config().expect_err("should fail");
+        assert!(
+            err.to_string().contains("transcription_timeout_secs")
+                && err.to_string().contains("greater than 0"),
+            "expected transcription timeout error, got: {err}"
+        );
+    }
 }
