@@ -820,4 +820,206 @@ mod tests {
         assert_eq!(cloned.id, msg.id);
         assert_eq!(cloned.content, msg.content);
     }
+
+    // ── expand_home_tilde edge cases ──────────────────────────
+
+    #[test]
+    fn expand_home_tilde_absolute_path_unchanged() {
+        let result = expand_home_tilde_with_home("/absolute/path/to/file.ogg", Some("/home/u"));
+        assert_eq!(result, "/absolute/path/to/file.ogg");
+    }
+
+    #[test]
+    fn expand_home_tilde_relative_path_unchanged() {
+        let result = expand_home_tilde_with_home("relative/path.ogg", Some("/home/u"));
+        assert_eq!(result, "relative/path.ogg");
+    }
+
+    #[test]
+    fn expand_home_tilde_tilde_subdir() {
+        // ~/sub/dir should expand to HOME/sub/dir
+        let result = expand_home_tilde_with_home("~/sub/dir/file.ogg", Some("/home/user"));
+        assert_eq!(result, "/home/user/sub/dir/file.ogg");
+    }
+
+    #[test]
+    fn expand_home_tilde_tilde_not_at_start_unchanged() {
+        // A tilde that is NOT at the start must not be expanded.
+        let result = expand_home_tilde_with_home("/path/to/~hidden.ogg", Some("/home/u"));
+        assert_eq!(result, "/path/to/~hidden.ogg");
+    }
+
+    // ── cli_rejection_message formatting ─────────────────────
+
+    #[test]
+    fn cli_rejection_message_disabled() {
+        let msg = cli_rejection_message(&AudioRejectionReason::Disabled, None, None);
+        assert_eq!(msg, "Audio input is currently disabled.");
+    }
+
+    #[test]
+    fn cli_rejection_message_channel_not_allowed() {
+        let msg = cli_rejection_message(&AudioRejectionReason::ChannelNotAllowed, None, None);
+        assert_eq!(msg, "Audio input is not enabled for CLI.");
+    }
+
+    #[test]
+    fn cli_rejection_message_mime_rejected() {
+        let msg = cli_rejection_message(&AudioRejectionReason::MimeRejected, None, None);
+        assert!(msg.contains("not supported"), "expected unsupported format message, got: {msg}");
+        assert!(msg.contains("OGG"), "message should list OGG, got: {msg}");
+    }
+
+    #[test]
+    fn cli_rejection_message_oversize_with_values() {
+        let msg = cli_rejection_message(&AudioRejectionReason::Oversize, Some(2000), Some(1000));
+        assert!(msg.contains("2000"), "message should contain actual size; got: {msg}");
+        assert!(msg.contains("1000"), "message should contain max size; got: {msg}");
+    }
+
+    #[test]
+    fn cli_rejection_message_oversize_no_actual() {
+        let msg = cli_rejection_message(&AudioRejectionReason::Oversize, None, Some(1000));
+        // Without actual value, message should not contain "bytes)" but should contain max
+        assert!(!msg.contains("("), "message should not include actual size placeholder; got: {msg}");
+        assert!(msg.contains("1000"), "message should still contain max; got: {msg}");
+    }
+
+    #[test]
+    fn cli_rejection_message_toolong_with_values() {
+        let msg = cli_rejection_message(&AudioRejectionReason::TooLong, Some(700), Some(600));
+        assert!(msg.contains("700"), "message should contain actual duration; got: {msg}");
+        assert!(msg.contains("600"), "message should contain max duration; got: {msg}");
+    }
+
+    #[test]
+    fn cli_rejection_message_toolong_uses_default_max_when_none() {
+        let msg = cli_rejection_message(&AudioRejectionReason::TooLong, None, None);
+        // Default max is 600
+        assert!(msg.contains("600"), "message should use default 600s max; got: {msg}");
+    }
+
+    #[test]
+    fn cli_rejection_message_transcriber_unavailable() {
+        let msg = cli_rejection_message(&AudioRejectionReason::TranscriberUnavailable, None, None);
+        assert!(msg.contains("not available"), "expected 'not available'; got: {msg}");
+        assert!(msg.contains("text"), "expected text fallback suggestion; got: {msg}");
+    }
+
+    #[test]
+    fn cli_rejection_message_transcription_failed() {
+        let msg = cli_rejection_message(&AudioRejectionReason::TranscriptionFailed, None, None);
+        assert!(msg.to_lowercase().contains("fail"), "expected failure message; got: {msg}");
+    }
+
+    #[test]
+    fn cli_rejection_message_no_speech_detected() {
+        let msg = cli_rejection_message(&AudioRejectionReason::NoSpeechDetected, None, None);
+        assert_eq!(msg, "No speech detected in the audio file.");
+    }
+
+    #[test]
+    fn cli_rejection_message_fetch_failed_and_corrupted_same() {
+        let msg_fetch = cli_rejection_message(&AudioRejectionReason::FetchFailed, None, None);
+        let msg_corrupted = cli_rejection_message(&AudioRejectionReason::Corrupted, None, None);
+        assert_eq!(msg_fetch, msg_corrupted, "FetchFailed and Corrupted should have same message");
+        assert!(msg_fetch.contains("corrupted") || msg_fetch.contains("Cannot process"),
+            "expected corrupted/process error message; got: {msg_fetch}");
+    }
+
+    #[test]
+    fn cli_rejection_message_multiple_audio_parts() {
+        let msg = cli_rejection_message(&AudioRejectionReason::MultipleAudioParts, None, None);
+        assert!(msg.contains("Multiple") || msg.contains("multiple"),
+            "expected multiple parts message; got: {msg}");
+    }
+
+    #[test]
+    fn cli_rejection_message_system_error() {
+        let msg = cli_rejection_message(&AudioRejectionReason::SystemError, None, None);
+        assert!(msg.contains("system") || msg.contains("System"),
+            "expected system error message; got: {msg}");
+    }
+
+    // ── Happy-path CLI audio pipeline ─────────────────────────
+
+    #[tokio::test]
+    async fn test_cli_audio_happy_path_sends_transcription() {
+        // Create a valid OGG temp file for the pipeline to read.
+        let mut ogg = b"OggS\x00\x02\x00\x00\x00\x00\x00\x00".to_vec();
+        ogg.resize(128, 0u8);
+
+        let tmp_path = std::env::temp_dir()
+            .join("corvus_cli_test_happy_path.ogg");
+        std::fs::write(&tmp_path, &ogg).expect("write test ogg");
+
+        let observer = TestObserver::new();
+        let ch = CliChannel::with_audio(
+            Some(Arc::new(OkTranscriber)),
+            AudioConfig {
+                enabled: true,
+                allowed_channels: vec!["cli".to_string()],
+                ..AudioConfig::default()
+            },
+            Arc::clone(&observer) as Arc<dyn Observer>,
+        );
+
+        let (tx, mut rx) = tokio::sync::mpsc::channel(4);
+        let result = ch.handle_audio_command(tmp_path.to_str().unwrap(), &tx).await;
+        let _ = std::fs::remove_file(&tmp_path);
+
+        assert!(result.is_ok(), "handle_audio_command should not return ReceiverClosed");
+
+        // A ChannelMessage with the transcribed text should appear on tx.
+        let msg = rx.try_recv().expect("expected a ChannelMessage after successful transcription");
+        assert_eq!(msg.content, "hello world");
+        assert_eq!(msg.channel, "cli");
+        assert_eq!(msg.sender, "user");
+
+        // Observer should record exactly one Admitted event.
+        let events = observer.events();
+        assert_eq!(events.len(), 1, "expected exactly one AudioIngressEvent");
+        assert!(
+            matches!(events[0].outcome, crate::observability::AudioIngressOutcome::Admitted),
+            "event should be Admitted; got: {:?}", events[0].outcome
+        );
+        assert_eq!(events[0].channel, "cli");
+        assert!(events[0].mime_type.is_some(), "mime_type should be set on Admitted event");
+        assert!(events[0].byte_len.is_some(), "byte_len should be set on Admitted event");
+    }
+
+    // ── ReceiverClosed propagation ────────────────────────────
+
+    #[tokio::test]
+    async fn test_cli_audio_receiver_closed_returns_err() {
+        // Create a valid OGG file so the pipeline succeeds up to the send step.
+        let mut ogg = b"OggS\x00\x02\x00\x00\x00\x00\x00\x00".to_vec();
+        ogg.resize(128, 0u8);
+        let tmp_path = std::env::temp_dir()
+            .join("corvus_cli_test_receiver_closed.ogg");
+        std::fs::write(&tmp_path, &ogg).expect("write test ogg");
+
+        let observer = TestObserver::new();
+        let ch = CliChannel::with_audio(
+            Some(Arc::new(OkTranscriber)),
+            AudioConfig {
+                enabled: true,
+                allowed_channels: vec!["cli".to_string()],
+                ..AudioConfig::default()
+            },
+            Arc::clone(&observer) as Arc<dyn Observer>,
+        );
+
+        // Drop the receiver so any send() will fail.
+        let (tx, rx) = tokio::sync::mpsc::channel::<ChannelMessage>(4);
+        drop(rx);
+
+        let result = ch.handle_audio_command(tmp_path.to_str().unwrap(), &tx).await;
+        let _ = std::fs::remove_file(&tmp_path);
+
+        assert!(
+            matches!(result, Err(ReceiverClosed)),
+            "should return ReceiverClosed when receiver is dropped"
+        );
+    }
 }
