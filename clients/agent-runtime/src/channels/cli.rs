@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use super::traits::{Channel, ChannelMessage, SendMessage};
-use crate::channels::audio_media::{stage_audio_from_bytes, AudioRejectionReason};
+use crate::channels::audio_media::{stage_audio_from_bytes, AudioRejectionReason, MAX_AUDIO_BYTES};
 use crate::config::AudioConfig;
 use crate::observability::{
     AudioIngressEvent, AudioIngressOutcome, AudioIngressReason, NoopObserver, Observer,
@@ -118,11 +118,16 @@ impl CliChannel {
 
         let file_size = metadata.len();
         if file_size > self.audio_config.max_audio_bytes {
+            let reason = AudioRejectionReason::Oversize;
             println!(
-                "Audio file is too large. Maximum size is {} bytes.",
-                self.audio_config.max_audio_bytes
+                "{}",
+                cli_rejection_message(
+                    &reason,
+                    Some(file_size),
+                    Some(self.audio_config.max_audio_bytes)
+                )
             );
-            self.emit_rejected(&AudioRejectionReason::Oversize, Some(file_size), None);
+            self.emit_rejected(&reason, Some(file_size), None);
             return;
         }
 
@@ -149,7 +154,14 @@ impl CliChannel {
         {
             Ok(s) => s,
             Err(reason) => {
-                println!("{}", cli_rejection_message(&reason, &self.audio_config));
+                println!(
+                    "{}",
+                    cli_rejection_message(
+                        &reason,
+                        Some(bytes.len() as u64),
+                        Some(self.audio_config.max_audio_bytes)
+                    )
+                );
                 self.emit_rejected(&reason, Some(bytes.len() as u64), None);
                 return;
             }
@@ -165,14 +177,21 @@ impl CliChannel {
             Ok(r) => r,
             Err(reason) => {
                 staged.cleanup();
-                println!("{}", cli_rejection_message(&reason, &self.audio_config));
+                println!(
+                    "{}",
+                    cli_rejection_message(
+                        &reason,
+                        Some(staged_byte_len),
+                        Some(self.audio_config.max_audio_bytes)
+                    )
+                );
                 self.emit_rejected(&reason, Some(staged_byte_len), staged_duration);
                 return;
             }
         };
         staged.cleanup(); // success path
 
-        let elapsed_ms = started_at.elapsed().as_millis() as u64;
+        let elapsed_ms = u64::try_from(started_at.elapsed().as_millis()).unwrap_or(u64::MAX);
 
         // ── Empty transcription guard (REQ-14) ────────────────
         let text = transcription_result.text.trim().to_string();
@@ -341,20 +360,32 @@ pub(crate) fn parse_audio_command(input: &str) -> Option<Result<String, ()>> {
     Some(Ok(expand_home_tilde(rest)))
 }
 
+/// Expand a leading `~` to the user's home directory.
+///
+/// If `home` is provided, use it directly. Otherwise, query `$HOME` from the environment.
+/// This overload allows tests to inject a synthetic HOME value without mutating the global environment.
+pub(crate) fn expand_home_tilde_with_home(path: &str, home: Option<&str>) -> String {
+    let home = if let Some(h) = home {
+        h.to_string()
+    } else {
+        std::env::var("HOME").unwrap_or_else(|_| "~".to_string())
+    };
+    if path == "~" {
+        return home;
+    }
+    if let Some(rest) = path.strip_prefix("~/") {
+        return format!("{home}/{rest}");
+    }
+    path.to_string()
+}
+
 /// Expand a leading `~` to the user's home directory (`$HOME`).
 ///
 /// - `~` alone → `$HOME`
 /// - `~/path` → `$HOME/path`
 /// - All other paths returned unchanged.
 pub(crate) fn expand_home_tilde(path: &str) -> String {
-    if path == "~" {
-        return std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
-    }
-    if let Some(rest) = path.strip_prefix("~/") {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
-        return format!("{home}/{rest}");
-    }
-    path.to_string()
+    expand_home_tilde_with_home(path, None)
 }
 
 /// Map an `AudioRejectionReason` to the corresponding `AudioIngressReason`.
@@ -376,7 +407,13 @@ fn audio_rejection_to_ingress_reason(reason: &AudioRejectionReason) -> AudioIngr
 }
 
 /// User-facing error message for a CLI audio rejection reason.
-fn cli_rejection_message(reason: &AudioRejectionReason, audio_config: &AudioConfig) -> String {
+/// If `actual_value` is Some, include it in the message (for Oversize/TooLong).
+/// If `max_value` is Some, include the configured limit.
+fn cli_rejection_message(
+    reason: &AudioRejectionReason,
+    actual_value: Option<u64>,
+    max_value: Option<u64>,
+) -> String {
     match reason {
         AudioRejectionReason::Disabled => "Audio input is currently disabled.".to_string(),
         AudioRejectionReason::ChannelNotAllowed => {
@@ -386,16 +423,23 @@ fn cli_rejection_message(reason: &AudioRejectionReason, audio_config: &AudioConf
             "That audio format is not supported. Supported formats: OGG, MP3, WAV, M4A.".to_string()
         }
         AudioRejectionReason::Oversize => {
-            format!(
-                "Audio file is too large. Maximum size is {} bytes.",
-                audio_config.max_audio_bytes
-            )
+            let max = max_value.unwrap_or(MAX_AUDIO_BYTES);
+            if let Some(actual) = actual_value {
+                format!("Audio file is too large ({actual} bytes). Maximum size is {max} bytes.",)
+            } else {
+                format!("Audio file is too large. Maximum size is {max} bytes.")
+            }
         }
         AudioRejectionReason::TooLong => {
-            format!(
-                "Audio file is too long. Maximum duration is {} seconds.",
-                audio_config.max_audio_duration_secs
-            )
+            let max = max_value.unwrap_or(600);
+            if let Some(actual) = actual_value {
+                format!(
+                    "Audio file is too long ({} seconds). Maximum duration is {max} seconds.",
+                    actual
+                )
+            } else {
+                format!("Audio file is too long. Maximum duration is {max} seconds.")
+            }
         }
         AudioRejectionReason::TranscriberUnavailable => {
             "Audio transcription is not available right now. Please send text instead.".to_string()
@@ -477,14 +521,16 @@ mod tests {
             "test"
         }
 
-        fn on_event(&self, _event: &crate::observability::ObserverEvent) {}
+        fn record_event(&self, _event: &crate::observability::ObserverEvent) {}
 
-        fn on_metric(&self, _metric: &crate::observability::ObserverMetric) {}
-
-        fn on_image_ingress(&self, _event: &crate::observability::ImageIngressEvent) {}
+        fn record_metric(&self, _metric: &crate::observability::ObserverMetric) {}
 
         fn on_audio_ingress(&self, event: &AudioIngressEvent) {
             self.audio_events.lock().unwrap().push(event.clone());
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
         }
     }
 
@@ -522,17 +568,15 @@ mod tests {
 
     #[test]
     fn test_cli_audio_tilde_expansion() {
-        // Set HOME to a known value for the test.
-        std::env::set_var("HOME", "/home/testuser");
-        let result = parse_audio_command("/audio ~/test.ogg");
-        assert_eq!(result, Some(Ok("/home/testuser/test.ogg".to_string())));
+        // Use the home-aware helper to avoid global env mutation.
+        let result = expand_home_tilde_with_home("~/test.ogg", Some("/home/testuser"));
+        assert_eq!(result, "/home/testuser/test.ogg".to_string());
     }
 
     #[test]
     fn test_cli_audio_tilde_alone() {
-        std::env::set_var("HOME", "/home/testuser");
-        let result = parse_audio_command("/audio ~");
-        assert_eq!(result, Some(Ok("/home/testuser".to_string())));
+        let result = expand_home_tilde_with_home("~", Some("/home/testuser"));
+        assert_eq!(result, "/home/testuser".to_string());
     }
 
     #[test]

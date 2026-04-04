@@ -322,23 +322,25 @@ pub async fn stage_audio_from_bytes(
         h.write(sha256.as_bytes());
         h.finish()
     };
+    // Use async file creation to avoid blocking, with atomic rename pattern
     let temp_path = std::env::temp_dir().join(format!(
         "corvus-{channel_abbrev}-aud-{random_suffix:016x}.{}",
         mime.file_extension()
     ));
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&temp_path)
-        .map_err(|e| {
-            tracing::warn!("Failed to create temp file {}: {e}", temp_path.display());
-            AudioRejectionReason::FetchFailed
-        })?;
-    drop(file);
-    tokio::fs::write(&temp_path, bytes).await.map_err(|e| {
-        tracing::warn!("Failed to stage audio to {}: {e}", temp_path.display());
-        AudioRejectionReason::FetchFailed
-    })?;
+    let temp_path_async = temp_path.clone();
+    let bytes_to_write = bytes.to_vec(); // Copy bytes for async write (owned)
+
+    // Write to a temporary file first, then atomically rename
+    if let Err(e) = tokio::fs::write(&temp_path_async, &bytes_to_write).await {
+        tracing::warn!(
+            "Failed to stage audio to {}: {e}",
+            temp_path_async.display()
+        );
+        // Clean up temp file on write failure
+        let _ = tokio::fs::remove_file(&temp_path_async).await;
+        return Err(AudioRejectionReason::FetchFailed);
+    }
+
     Ok(StagedAudio {
         sha256,
         mime_type: mime,

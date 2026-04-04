@@ -503,7 +503,8 @@ client_secret = "secret"
         ));
         assert!(matches!(error_frame, IncomingSocketFrame::Break));
 
-        let continue_frame = DingTalkChannel::decode_socket_frame(Ok(Message::Ping(Vec::new())));
+        let continue_frame =
+            DingTalkChannel::decode_socket_frame(Ok(Message::Ping(bytes::Bytes::new())));
         assert!(matches!(continue_frame, IncomingSocketFrame::Continue));
     }
 

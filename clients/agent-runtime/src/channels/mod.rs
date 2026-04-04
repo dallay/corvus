@@ -1081,7 +1081,9 @@ fn duration_f64_to_ms(secs: f64) -> u64 {
 }
 
 /// Build a transcriber from config when audio is enabled.
-fn build_transcriber(config: &Config) -> Option<Arc<dyn Transcriber>> {
+/// Build a transcriber from config. Returns None if audio is disabled.
+/// This is pub(crate) so the gateway can reuse it.
+pub(crate) fn build_transcriber(config: &Config) -> Option<Arc<dyn Transcriber>> {
     if !config.audio.enabled {
         return None;
     }
@@ -1382,7 +1384,6 @@ async fn stage_channel_audio(
             // architecture): they transcribe audio before injecting a plain-text
             // ChannelMessage into the agent flow. Raw audio is never routed through
             // this function for those channels.
-            "gateway" | "cli" => return Ok(Vec::new()),
             _ => return Ok(Vec::new()),
         };
 

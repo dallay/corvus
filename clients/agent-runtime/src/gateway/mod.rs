@@ -1220,7 +1220,7 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         whatsapp_app_secret,
         channel_runtime_handle,
         observer,
-        transcriber: None,
+        transcriber: crate::channels::build_transcriber(&config),
         audio_config: config.audio.clone(),
     };
 
@@ -1989,13 +1989,11 @@ fn audio_rejection_to_response(
     use crate::channels::audio_media::AudioRejectionReason as R;
     let status = match reason {
         R::Disabled | R::ChannelNotAllowed => StatusCode::FORBIDDEN,
-        R::MimeRejected | R::Corrupted | R::MultipleAudioParts | R::FetchFailed => {
-            StatusCode::BAD_REQUEST
-        }
+        R::MimeRejected | R::Corrupted | R::MultipleAudioParts => StatusCode::BAD_REQUEST,
+        R::FetchFailed | R::SystemError => StatusCode::INTERNAL_SERVER_ERROR, // Server-side failures
         R::Oversize | R::TooLong => StatusCode::PAYLOAD_TOO_LARGE,
         R::TranscriptionFailed | R::NoSpeechDetected => StatusCode::UNPROCESSABLE_ENTITY,
         R::TranscriberUnavailable => StatusCode::SERVICE_UNAVAILABLE,
-        R::SystemError => StatusCode::INTERNAL_SERVER_ERROR,
     };
     (
         status,
@@ -2193,7 +2191,7 @@ async fn handle_chat_audio(
         match tokio::time::timeout(timeout_dur, transcriber.transcribe(&staged)).await {
             Ok(Ok(r)) => r,
             Ok(Err(reason)) => {
-                let elapsed_ms = t_start.elapsed().as_millis() as u64;
+                let elapsed_ms = u64::try_from(t_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                 state.observer.on_audio_ingress(&AudioIngressEvent {
                     channel: "gateway".to_string(),
                     outcome: AudioIngressOutcome::Rejected,
@@ -2207,7 +2205,7 @@ async fn handle_chat_audio(
                 return Err(audio_rejection_to_response(&reason));
             }
             Err(_timeout) => {
-                let elapsed_ms = t_start.elapsed().as_millis() as u64;
+                let elapsed_ms = u64::try_from(t_start.elapsed().as_millis()).unwrap_or(u64::MAX);
                 state.observer.on_audio_ingress(&AudioIngressEvent {
                     channel: "gateway".to_string(),
                     outcome: AudioIngressOutcome::Rejected,
@@ -2225,7 +2223,7 @@ async fn handle_chat_audio(
             }
         };
 
-    let transcription_ms = t_start.elapsed().as_millis() as u64;
+    let transcription_ms = u64::try_from(t_start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
     // ── 8. Emit success telemetry ────────────────────────────────────────
     state.observer.on_audio_ingress(&AudioIngressEvent {
