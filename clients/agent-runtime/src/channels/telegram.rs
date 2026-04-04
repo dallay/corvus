@@ -1,3 +1,4 @@
+use super::audio_media;
 use super::media;
 use super::traits::{Channel, ChannelMessage, ContentPart, SendMessage};
 use crate::config::{Config, StreamMode};
@@ -58,6 +59,52 @@ fn build_telegram_content_parts(message: &serde_json::Value) -> Vec<ContentPart>
 
     // Document → Image part ONLY if MIME is allowed image
     build_document_image_part(message, caption.as_ref(), &mut parts);
+
+    // Voice note → Audio part (always OGG/Opus)
+    if let Some(voice) = message.get("voice") {
+        let file_id = voice
+            .get("file_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let duration = voice.get("duration").and_then(serde_json::Value::as_u64);
+        let file_size = voice.get("file_size").and_then(serde_json::Value::as_u64);
+        parts.push(ContentPart::Audio {
+            channel_handle: file_id.to_string(),
+            source_channel: "telegram".to_string(),
+            declared_mime: Some("audio/ogg".to_string()),
+            caption_text: caption.clone(),
+            file_name: None,
+            declared_bytes: file_size,
+            declared_duration_secs: duration,
+        });
+    }
+
+    // Audio file → Audio part (has mime_type field)
+    if let Some(audio) = message.get("audio") {
+        let file_id = audio
+            .get("file_id")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let mime = audio
+            .get("mime_type")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from);
+        let duration = audio.get("duration").and_then(serde_json::Value::as_u64);
+        let file_size = audio.get("file_size").and_then(serde_json::Value::as_u64);
+        let file_name = audio
+            .get("file_name")
+            .and_then(serde_json::Value::as_str)
+            .map(String::from);
+        parts.push(ContentPart::Audio {
+            channel_handle: file_id.to_string(),
+            source_channel: "telegram".to_string(),
+            declared_mime: mime,
+            caption_text: caption.clone(),
+            file_name,
+            declared_bytes: file_size,
+            declared_duration_secs: duration,
+        });
+    }
 
     parts
 }
@@ -679,11 +726,6 @@ impl TelegramChannel {
             None => return,
         };
 
-        let text = match extract_message_text_for_command_handling(message) {
-            Some(t) => t,
-            None => return,
-        };
-
         let (normalized_username, normalized_user_id, chat_id) =
             extract_user_info_from_message(message);
 
@@ -704,13 +746,34 @@ impl TelegramChannel {
             return;
         }
 
-        self.process_telegram_message(
-            &text,
-            &chat_id,
-            &normalized_username,
-            normalized_user_id.as_deref(),
-        )
-        .await;
+        // If text projection is available, attempt bind-code extraction before
+        // falling through to the unauthorized notification.
+        // For media-only messages (audio/image without text), skip bind-code
+        // parsing and send the unauthorized notification directly.
+        match extract_message_text_for_command_handling(message) {
+            Some(text) => {
+                self.process_telegram_message(
+                    &text,
+                    &chat_id,
+                    &normalized_username,
+                    normalized_user_id.as_deref(),
+                )
+                .await;
+            }
+            None => {
+                // Media-only update (e.g. audio/image with no caption) —
+                // still notify the sender that they are not authorized.
+                let parts = build_telegram_content_parts(message);
+                if !parts.is_empty() {
+                    self.send_unauthorized_notification(
+                        &chat_id,
+                        &normalized_username,
+                        normalized_user_id.as_deref(),
+                    )
+                    .await;
+                }
+            }
+        }
     }
 
     async fn process_telegram_message(
@@ -1668,6 +1731,152 @@ impl TelegramChannel {
             byte_len,
             temp_path,
             transport_form: media::ImageTransportForm::InlineBytes,
+            channel_origin: "telegram".to_string(),
+        })
+    }
+
+    /// Fetch audio bytes from Telegram, validate, stage to temp,
+    /// and return a `StagedAudio` or rejection reason.
+    pub async fn fetch_and_stage_audio(
+        &self,
+        file_id: &str,
+        declared_mime: Option<&str>,
+        declared_duration_secs: Option<u64>,
+        declared_bytes: Option<u64>,
+        max_bytes: u64,
+        max_duration_secs: u64,
+    ) -> Result<audio_media::StagedAudio, audio_media::AudioRejectionReason> {
+        // 1. Pre-flight duration check (from Telegram API declared duration)
+        if let Some(dur) = declared_duration_secs {
+            audio_media::validate_audio_duration(dur, max_duration_secs)?;
+        }
+
+        // 2. Pre-flight size check (from Telegram API declared size)
+        if let Some(bytes) = declared_bytes {
+            audio_media::validate_audio_size(bytes, max_bytes)?;
+        }
+
+        // 3. Call getFile to resolve file_path
+        let get_file_body = serde_json::json!({
+            "file_id": file_id,
+        });
+        let resp = self
+            .client
+            .post(self.api_url("getFile"))
+            .json(&get_file_body)
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::warn!(
+                    "Telegram getFile failed for audio {}: {}",
+                    &file_id[..file_id.len().min(8)],
+                    self.sanitize_error(&e)
+                );
+                audio_media::AudioRejectionReason::FetchFailed
+            })?;
+
+        let data: serde_json::Value = resp.json().await.map_err(|e| {
+            tracing::warn!("Telegram getFile response parse error: {e}");
+            audio_media::AudioRejectionReason::FetchFailed
+        })?;
+
+        let file_path = data
+            .get("result")
+            .and_then(|r| r.get("file_path"))
+            .and_then(serde_json::Value::as_str)
+            .ok_or_else(|| {
+                tracing::warn!("Telegram getFile: missing file_path in response");
+                audio_media::AudioRejectionReason::FetchFailed
+            })?;
+
+        // 4. Download bytes with streaming size limit
+        let download_url = self.file_download_url(file_path);
+        let dl_resp = self.client.get(&download_url).send().await.map_err(|e| {
+            tracing::warn!(
+                "Telegram audio download failed: {}",
+                self.sanitize_error(&e)
+            );
+            audio_media::AudioRejectionReason::FetchFailed
+        })?;
+
+        let status = dl_resp.status();
+        if !status.is_success() {
+            tracing::warn!("Telegram audio download HTTP {status}");
+            return Err(audio_media::AudioRejectionReason::FetchFailed);
+        }
+
+        // Check Content-Length header for early reject
+        if let Some(cl) = dl_resp.content_length() {
+            audio_media::validate_audio_size(cl, max_bytes)?;
+        }
+
+        // Stream body with per-chunk size validation
+        let mut bytes = Vec::new();
+        let mut stream = dl_resp.bytes_stream();
+        while let Some(chunk_result) = stream.next().await {
+            let chunk = chunk_result.map_err(|e| {
+                tracing::warn!(
+                    "Telegram audio download stream error: {}",
+                    self.sanitize_error(&e)
+                );
+                audio_media::AudioRejectionReason::FetchFailed
+            })?;
+            // Validate size BEFORE extending buffer to prevent OOM from oversized chunks
+            let new_len = bytes.len() + chunk.len();
+            audio_media::validate_audio_size(new_len as u64, max_bytes)?;
+            bytes.extend_from_slice(&chunk);
+        }
+        let byte_len = bytes.len() as u64;
+
+        // 5. Validate MIME via magic-byte sniffing
+        let mime = audio_media::validate_audio_mime(declared_mime, &bytes)?;
+
+        // 6. Compute SHA-256 and stage to temp file
+        use sha2::Digest;
+        let sha256 = {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(&bytes);
+            hex::encode(hasher.finalize())
+        };
+
+        // Build a unique temp path with a random suffix to avoid
+        // predictable filenames (race / symlink attacks). We use
+        // create_new(true) so the open fails if the path already exists.
+        let random_suffix: u64 = {
+            use std::collections::hash_map::RandomState;
+            use std::hash::{BuildHasher, Hasher};
+            let s = RandomState::new();
+            let mut h = s.build_hasher();
+            h.write(sha256.as_bytes());
+            h.finish()
+        };
+        let temp_path = std::env::temp_dir().join(format!(
+            "corvus-tg-aud-{random_suffix:016x}.{}",
+            mime.file_extension()
+        ));
+
+        // create_new ensures atomic creation — fails if file exists.
+        let file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&temp_path)
+            .map_err(|e| {
+                tracing::warn!("Failed to create temp file {}: {e}", temp_path.display());
+                audio_media::AudioRejectionReason::FetchFailed
+            })?;
+        drop(file);
+
+        tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
+            tracing::warn!("Failed to stage audio to {}: {e}", temp_path.display());
+            audio_media::AudioRejectionReason::FetchFailed
+        })?;
+
+        Ok(audio_media::StagedAudio {
+            sha256,
+            mime_type: mime,
+            byte_len,
+            duration_secs: declared_duration_secs.map(|d| d as f64),
+            temp_path,
             channel_origin: "telegram".to_string(),
         })
     }
@@ -2904,7 +3113,7 @@ mod tests {
         assert_eq!(msg.parts.len(), 1);
         match &msg.parts[0] {
             ContentPart::Text { text } => assert_eq!(text, "hello world"),
-            ContentPart::Image { .. } => panic!("expected Text part"),
+            _ => panic!("expected Text part"),
         }
     }
 
@@ -2967,7 +3176,7 @@ mod tests {
                 assert!(file_name.is_none());
                 assert_eq!(*declared_bytes, Some(50000));
             }
-            ContentPart::Text { .. } => panic!("expected Image part"),
+            _ => panic!("expected Image part"),
         }
     }
 
@@ -2998,7 +3207,7 @@ mod tests {
             ContentPart::Text { text } => {
                 assert_eq!(text, "Look at this!");
             }
-            ContentPart::Image { .. } => panic!("expected Text part first"),
+            _ => panic!("expected Text part first"),
         }
 
         // Second part: Image with caption_text set
@@ -3011,7 +3220,7 @@ mod tests {
                 assert_eq!(channel_handle, "only_id");
                 assert_eq!(caption_text.as_deref(), Some("Look at this!"));
             }
-            ContentPart::Text { .. } => panic!("expected Image part second"),
+            _ => panic!("expected Image part second"),
         }
     }
 
@@ -3051,7 +3260,7 @@ mod tests {
                 assert_eq!(file_name.as_deref(), Some("screenshot.png"));
                 assert_eq!(*declared_bytes, Some(120_000));
             }
-            ContentPart::Text { .. } => panic!("expected Image part"),
+            _ => panic!("expected Image part"),
         }
     }
 
@@ -3106,7 +3315,7 @@ mod tests {
         assert_eq!(msg.parts.len(), 1);
         match &msg.parts[0] {
             ContentPart::Text { text } => assert_eq!(text, "Quarterly report attached"),
-            ContentPart::Image { .. } => panic!("expected Text part"),
+            _ => panic!("expected Text part"),
         }
     }
 
@@ -3159,7 +3368,7 @@ mod tests {
             ContentPart::Image { declared_mime, .. } => {
                 assert_eq!(declared_mime.as_deref(), Some("image/webp"));
             }
-            ContentPart::Text { .. } => panic!("expected Image part"),
+            _ => panic!("expected Image part"),
         }
     }
 
@@ -3215,7 +3424,7 @@ mod tests {
                 assert_eq!(channel_handle, "biggest");
                 assert_eq!(*declared_bytes, Some(99999));
             }
-            ContentPart::Text { .. } => panic!("expected Image part"),
+            _ => panic!("expected Image part"),
         }
     }
 
@@ -3237,5 +3446,127 @@ mod tests {
             download,
             "https://api.telegram.org/file/bot123:ABC/photos/file_42.jpg"
         );
+    }
+
+    // ── Voice/audio content parts parsing ────────────────────
+
+    #[test]
+    fn build_telegram_content_parts_voice_message() {
+        let message = serde_json::json!({
+            "voice": {
+                "file_id": "voice-file-123",
+                "duration": 10,
+                "file_size": 16000,
+                "mime_type": "audio/ogg"
+            }
+        });
+
+        let parts = build_telegram_content_parts(&message);
+        assert_eq!(parts.len(), 1);
+        match &parts[0] {
+            ContentPart::Audio {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                declared_duration_secs,
+                declared_bytes,
+                file_name,
+                ..
+            } => {
+                assert_eq!(channel_handle, "voice-file-123");
+                assert_eq!(source_channel, "telegram");
+                assert_eq!(declared_mime.as_deref(), Some("audio/ogg"));
+                assert_eq!(*declared_duration_secs, Some(10));
+                assert_eq!(*declared_bytes, Some(16000));
+                assert!(file_name.is_none());
+            }
+            other => panic!("expected Audio part, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_telegram_content_parts_audio_file() {
+        let message = serde_json::json!({
+            "audio": {
+                "file_id": "audio-file-456",
+                "duration": 180,
+                "file_size": 2_500_000,
+                "mime_type": "audio/mpeg",
+                "file_name": "recording.mp3"
+            }
+        });
+
+        let parts = build_telegram_content_parts(&message);
+        assert_eq!(parts.len(), 1);
+        match &parts[0] {
+            ContentPart::Audio {
+                channel_handle,
+                source_channel,
+                declared_mime,
+                declared_duration_secs,
+                declared_bytes,
+                file_name,
+                ..
+            } => {
+                assert_eq!(channel_handle, "audio-file-456");
+                assert_eq!(source_channel, "telegram");
+                assert_eq!(declared_mime.as_deref(), Some("audio/mpeg"));
+                assert_eq!(*declared_duration_secs, Some(180));
+                assert_eq!(*declared_bytes, Some(2_500_000));
+                assert_eq!(file_name.as_deref(), Some("recording.mp3"));
+            }
+            other => panic!("expected Audio part, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn build_telegram_content_parts_voice_with_caption() {
+        let message = serde_json::json!({
+            "caption": "translate this",
+            "voice": {
+                "file_id": "voice-cap-789",
+                "duration": 5,
+                "file_size": 8000
+            }
+        });
+
+        let parts = build_telegram_content_parts(&message);
+
+        let text_parts: Vec<_> = parts
+            .iter()
+            .filter(|p| matches!(p, ContentPart::Text { .. }))
+            .collect();
+        let audio_parts: Vec<_> = parts
+            .iter()
+            .filter(|p| matches!(p, ContentPart::Audio { .. }))
+            .collect();
+
+        assert_eq!(
+            text_parts.len(),
+            1,
+            "should have one text part from caption"
+        );
+        assert_eq!(
+            audio_parts.len(),
+            1,
+            "should have one audio part from voice"
+        );
+
+        if let ContentPart::Text { text } = text_parts[0] {
+            assert_eq!(text, "translate this");
+        }
+
+        if let ContentPart::Audio {
+            channel_handle,
+            caption_text,
+            declared_mime,
+            ..
+        } = audio_parts[0]
+        {
+            assert_eq!(channel_handle, "voice-cap-789");
+            assert_eq!(caption_text.as_deref(), Some("translate this"));
+            // Voice always gets audio/ogg mime
+            assert_eq!(declared_mime.as_deref(), Some("audio/ogg"));
+        }
     }
 }

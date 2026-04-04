@@ -26,6 +26,9 @@ pub struct PrometheusObserver {
 
     // Image ingress
     image_ingress: IntCounterVec,
+
+    // Audio ingress
+    audio_ingress: IntCounterVec,
 }
 
 impl PrometheusObserver {
@@ -114,7 +117,17 @@ impl PrometheusObserver {
         )
         .expect("valid metric");
 
+        let audio_ingress = IntCounterVec::new(
+            prometheus::Opts::new(
+                "corvus_audio_ingress_total",
+                "Audio ingress lifecycle events",
+            ),
+            &["channel", "outcome", "reason"],
+        )
+        .expect("valid metric");
+
         // Register all metrics
+        registry.register(Box::new(audio_ingress.clone())).ok();
         registry.register(Box::new(image_ingress.clone())).ok();
         registry.register(Box::new(agent_starts.clone())).ok();
         registry.register(Box::new(tool_calls.clone())).ok();
@@ -142,6 +155,7 @@ impl PrometheusObserver {
             active_sessions,
             queue_depth,
             image_ingress,
+            audio_ingress,
         }
     }
 
@@ -188,6 +202,17 @@ impl Observer for PrometheusObserver {
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
             | ObserverEvent::MissionTerminated { .. } => {}
+            ObserverEvent::AudioIngress(evt) => {
+                let outcome = format!("{:?}", evt.outcome);
+                let reason = evt
+                    .reason
+                    .as_ref()
+                    .map(|r| r.to_string())
+                    .unwrap_or_default();
+                self.audio_ingress
+                    .with_label_values(&[&evt.channel, &outcome, &reason])
+                    .inc();
+            }
             ObserverEvent::ImageIngress(evt) => {
                 let outcome = format!("{:?}", evt.outcome);
                 let reason = evt

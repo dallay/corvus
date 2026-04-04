@@ -70,6 +70,7 @@ pub mod skills;
 #[cfg(test)]
 pub mod test_support;
 pub mod tools;
+pub mod transcription;
 pub mod tunnel;
 pub mod update;
 pub mod util;

@@ -121,6 +121,9 @@ pub struct Config {
 
     #[serde(default)]
     pub multimodal: MultimodalConfig,
+
+    #[serde(default)]
+    pub audio: AudioConfig,
 }
 
 // ── Delegate Agents ──────────────────────────────────────────────
@@ -291,6 +294,93 @@ pub struct MultimodalConfig {
     /// Operator override for the default 10 MiB limit.
     #[serde(default)]
     pub max_image_bytes: Option<u64>,
+}
+
+// ── Audio input rollout controls ────────────────────────────────
+
+/// Phase-1 valid channel names for audio ingress.
+const PHASE1_VALID_AUDIO_CHANNELS: &[&str] = &["telegram"];
+
+// Hard ceilings imported from the canonical definition in audio_media.
+use crate::channels::audio_media::{MAX_AUDIO_BYTES_CEILING, MAX_AUDIO_DURATION_SECS_CEILING};
+
+/// Audio input processing and transcription controls.
+///
+/// Default-deny: `enabled = false` means no channel processes audio.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AudioConfig {
+    /// Global kill switch for audio ingress (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Channel allowlist for audio ingress.
+    #[serde(default)]
+    pub allowed_channels: Vec<String>,
+    /// Maximum audio file size in bytes (default: 25 MiB).
+    #[serde(default = "default_max_audio_bytes")]
+    pub max_audio_bytes: u64,
+    /// Maximum audio duration in seconds (default: 600 = 10 min).
+    #[serde(default = "default_max_audio_duration_secs")]
+    pub max_audio_duration_secs: u64,
+    /// Whisper model name (default: "base").
+    #[serde(default = "default_transcription_model")]
+    pub transcription_model: String,
+    /// Language hint for transcription (default: "es").
+    #[serde(default = "default_transcription_language")]
+    pub transcription_language: String,
+    /// Path to whisper.cpp binary (default: "whisper-cli").
+    #[serde(default = "default_whisper_binary")]
+    pub whisper_binary: String,
+    /// Max concurrent transcriptions (default: 1).
+    #[serde(default = "default_max_concurrent_transcriptions")]
+    pub max_concurrent_transcriptions: usize,
+    /// Per-transcription timeout in seconds (default: 120).
+    #[serde(default = "default_transcription_timeout_secs")]
+    pub transcription_timeout_secs: u64,
+}
+
+fn default_max_audio_bytes() -> u64 {
+    26_214_400 // 25 MiB
+}
+
+fn default_max_audio_duration_secs() -> u64 {
+    600 // 10 minutes
+}
+
+fn default_transcription_model() -> String {
+    "base".into()
+}
+
+fn default_transcription_language() -> String {
+    "es".into()
+}
+
+fn default_whisper_binary() -> String {
+    "whisper-cli".into()
+}
+
+fn default_max_concurrent_transcriptions() -> usize {
+    1
+}
+
+fn default_transcription_timeout_secs() -> u64 {
+    120
+}
+
+impl Default for AudioConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allowed_channels: Vec::new(),
+            max_audio_bytes: default_max_audio_bytes(),
+            max_audio_duration_secs: default_max_audio_duration_secs(),
+            transcription_model: default_transcription_model(),
+            transcription_language: default_transcription_language(),
+            whisper_binary: default_whisper_binary(),
+            max_concurrent_transcriptions: default_max_concurrent_transcriptions(),
+            transcription_timeout_secs: default_transcription_timeout_secs(),
+        }
+    }
 }
 
 // ── Hardware Config (wizard-driven) ─────────────────────────────
@@ -2283,6 +2373,7 @@ impl Default for Config {
             query_classification: QueryClassificationConfig::default(),
             skills: SkillsConfig::default(),
             multimodal: MultimodalConfig::default(),
+            audio: AudioConfig::default(),
         }
     }
 }
@@ -3023,7 +3114,8 @@ impl Config {
         self.validate_code_session_config()?;
         self.validate_account_pools()?;
         self.validate_skills_config()?;
-        self.validate_multimodal_config()
+        self.validate_multimodal_config()?;
+        self.validate_audio_config()
     }
 
     fn validate_agent_profile(&self) -> Result<()> {
@@ -3214,6 +3306,69 @@ impl Config {
         } else {
             tracing::info!("Multimodal enabled: max_image_bytes={effective} (default)");
         }
+
+        Ok(())
+    }
+
+    fn validate_audio_config(&self) -> Result<()> {
+        let ac = &self.audio;
+
+        // Validate bounds regardless of enabled state
+        if ac.max_audio_bytes == 0 {
+            anyhow::bail!("audio.max_audio_bytes must be greater than 0");
+        }
+        if ac.max_audio_bytes > MAX_AUDIO_BYTES_CEILING {
+            anyhow::bail!(
+                "audio.max_audio_bytes={} exceeds the 100 MiB ceiling ({})",
+                ac.max_audio_bytes,
+                MAX_AUDIO_BYTES_CEILING,
+            );
+        }
+        if ac.max_audio_duration_secs == 0 {
+            anyhow::bail!("audio.max_audio_duration_secs must be greater than 0");
+        }
+        if ac.max_audio_duration_secs > MAX_AUDIO_DURATION_SECS_CEILING {
+            anyhow::bail!(
+                "audio.max_audio_duration_secs={} exceeds the 1 hour ceiling ({})",
+                ac.max_audio_duration_secs,
+                MAX_AUDIO_DURATION_SECS_CEILING,
+            );
+        }
+
+        if ac.max_concurrent_transcriptions == 0 {
+            anyhow::bail!("audio.max_concurrent_transcriptions must be greater than 0");
+        }
+        if ac.transcription_timeout_secs == 0 {
+            anyhow::bail!("audio.transcription_timeout_secs must be greater than 0");
+        }
+
+        if !ac.enabled {
+            return Ok(());
+        }
+
+        if ac.allowed_channels.is_empty() {
+            anyhow::bail!("audio.allowed_channels must be non-empty when audio is enabled");
+        }
+
+        for ch in &ac.allowed_channels {
+            if !PHASE1_VALID_AUDIO_CHANNELS.contains(&ch.as_str()) {
+                tracing::warn!(
+                    "audio.allowed_channels contains '{}' which is not a Phase 1 audio channel \
+                     (telegram) — it will be fail-closed at runtime",
+                    ch,
+                );
+            }
+        }
+
+        tracing::info!(
+            "Audio enabled: allowed_channels={:?}, max_bytes={}, max_duration={}s, \
+             model={}, language={}",
+            ac.allowed_channels,
+            ac.max_audio_bytes,
+            ac.max_audio_duration_secs,
+            ac.transcription_model,
+            ac.transcription_language,
+        );
 
         Ok(())
     }
@@ -3826,6 +3981,7 @@ default_temperature = 0.7
             hardware: HardwareConfig::default(),
             skills: SkillsConfig::default(),
             multimodal: MultimodalConfig::default(),
+            audio: AudioConfig::default(),
         };
 
         let toml_str = toml::to_string_pretty(&config).unwrap();
@@ -4151,6 +4307,7 @@ tool_dispatcher = "xml"
             hardware: HardwareConfig::default(),
             skills: SkillsConfig::default(),
             multimodal: MultimodalConfig::default(),
+            audio: AudioConfig::default(),
         };
 
         config.save().unwrap();
@@ -6537,6 +6694,357 @@ allow_image_input = true
         assert!(
             !parsed.require,
             "missing require field must default to false"
+        );
+    }
+
+    // ── AudioConfig tests (Task 1.2 — audio-input-support) ──
+
+    #[test]
+    fn audio_config_empty_toml_section_uses_defaults() {
+        let toml_str = "";
+        let parsed: AudioConfig = toml::from_str(toml_str).unwrap();
+        assert!(!parsed.enabled);
+        assert!(parsed.allowed_channels.is_empty());
+        assert_eq!(parsed.max_audio_bytes, 26_214_400);
+        assert_eq!(parsed.max_audio_duration_secs, 600);
+        assert_eq!(parsed.transcription_model, "base");
+        assert_eq!(parsed.transcription_language, "es");
+        assert_eq!(parsed.whisper_binary, "whisper-cli");
+        assert_eq!(parsed.max_concurrent_transcriptions, 1);
+        assert_eq!(parsed.transcription_timeout_secs, 120);
+    }
+
+    #[test]
+    fn audio_config_full_toml_roundtrip() {
+        let toml_str = r#"
+enabled = true
+allowed_channels = ["telegram"]
+max_audio_bytes = 5242880
+max_audio_duration_secs = 300
+transcription_model = "small"
+transcription_language = "en"
+whisper_binary = "/usr/local/bin/whisper-cli"
+max_concurrent_transcriptions = 2
+transcription_timeout_secs = 60
+"#;
+        let parsed: AudioConfig = toml::from_str(toml_str).unwrap();
+        assert!(parsed.enabled);
+        assert_eq!(parsed.allowed_channels, vec!["telegram".to_string()]);
+        assert_eq!(parsed.max_audio_bytes, 5_242_880);
+        assert_eq!(parsed.max_audio_duration_secs, 300);
+        assert_eq!(parsed.transcription_model, "small");
+        assert_eq!(parsed.transcription_language, "en");
+        assert_eq!(parsed.whisper_binary, "/usr/local/bin/whisper-cli");
+        assert_eq!(parsed.max_concurrent_transcriptions, 2);
+        assert_eq!(parsed.transcription_timeout_secs, 60);
+    }
+
+    #[test]
+    fn audio_config_default_impl_matches_documented_defaults() {
+        let cfg = AudioConfig::default();
+        assert!(!cfg.enabled);
+        assert!(cfg.allowed_channels.is_empty());
+        assert_eq!(cfg.max_audio_bytes, 26_214_400);
+        assert_eq!(cfg.max_audio_duration_secs, 600);
+        assert_eq!(cfg.transcription_model, "base");
+        assert_eq!(cfg.transcription_language, "es");
+        assert_eq!(cfg.whisper_binary, "whisper-cli");
+        assert_eq!(cfg.max_concurrent_transcriptions, 1);
+        assert_eq!(cfg.transcription_timeout_secs, 120);
+    }
+
+    #[test]
+    fn config_with_no_audio_section_gets_default_audio() {
+        let config = Config::default();
+        assert!(!config.audio.enabled);
+        assert!(config.audio.allowed_channels.is_empty());
+    }
+
+    // ── Audio config validation tests (Task 1.3 — audio-input-support) ──
+
+    #[test]
+    fn audio_validation_passes_when_disabled() {
+        let config = Config {
+            audio: AudioConfig {
+                enabled: false,
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        assert!(config.validate_audio_config().is_ok());
+    }
+
+    #[test]
+    fn audio_validation_rejects_enabled_with_empty_channels() {
+        let config = Config {
+            audio: AudioConfig {
+                enabled: true,
+                allowed_channels: Vec::new(),
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_audio_config().expect_err("should fail");
+        assert!(
+            err.to_string().contains("allowed_channels"),
+            "expected 'allowed_channels' error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn audio_validation_passes_with_valid_config() {
+        let config = Config {
+            audio: AudioConfig {
+                enabled: true,
+                allowed_channels: vec!["telegram".into()],
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        assert!(config.validate_audio_config().is_ok());
+    }
+
+    #[test]
+    fn audio_validation_rejects_zero_max_audio_bytes() {
+        let config = Config {
+            audio: AudioConfig {
+                max_audio_bytes: 0,
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_audio_config().expect_err("should fail");
+        assert!(
+            err.to_string().contains("greater than 0"),
+            "expected 'greater than 0' error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn audio_validation_rejects_bytes_exceeding_ceiling() {
+        let config = Config {
+            audio: AudioConfig {
+                max_audio_bytes: 200 * 1024 * 1024, // 200 MiB
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_audio_config().expect_err("should fail");
+        assert!(
+            err.to_string().contains("100 MiB ceiling"),
+            "expected '100 MiB ceiling' error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn audio_validation_rejects_zero_duration() {
+        let config = Config {
+            audio: AudioConfig {
+                max_audio_duration_secs: 0,
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_audio_config().expect_err("should fail");
+        assert!(
+            err.to_string().contains("greater than 0"),
+            "expected 'greater than 0' error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn audio_validation_rejects_duration_exceeding_ceiling() {
+        let config = Config {
+            audio: AudioConfig {
+                max_audio_duration_secs: 7200, // 2 hours
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_audio_config().expect_err("should fail");
+        assert!(
+            err.to_string().contains("1 hour ceiling"),
+            "expected '1 hour ceiling' error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn audio_validation_warns_but_passes_for_non_phase1_channels() {
+        let config = Config {
+            audio: AudioConfig {
+                enabled: true,
+                allowed_channels: vec!["telegram".into(), "discord".into()],
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        // Non-Phase-1 channels warn but don't reject
+        assert!(config.validate_audio_config().is_ok());
+    }
+
+    #[test]
+    fn audio_validation_accepts_bytes_at_ceiling() {
+        let config = Config {
+            audio: AudioConfig {
+                max_audio_bytes: MAX_AUDIO_BYTES_CEILING, // exactly 100 MiB
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        assert!(config.validate_audio_config().is_ok());
+    }
+
+    #[test]
+    fn audio_validation_accepts_duration_at_ceiling() {
+        let config = Config {
+            audio: AudioConfig {
+                max_audio_duration_secs: MAX_AUDIO_DURATION_SECS_CEILING, // exactly 1 hour
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        assert!(config.validate_audio_config().is_ok());
+    }
+
+    // ── AudioConfig default values (coverage) ────────────────
+
+    #[test]
+    fn audio_config_default_values_are_correct() {
+        let ac = AudioConfig::default();
+        assert!(!ac.enabled);
+        assert!(ac.allowed_channels.is_empty());
+        assert_eq!(ac.max_audio_bytes, 26_214_400); // 25 MiB
+        assert_eq!(ac.max_audio_duration_secs, 600); // 10 min
+        assert_eq!(ac.transcription_model, "base");
+        assert_eq!(ac.transcription_language, "es");
+        assert_eq!(ac.whisper_binary, "whisper-cli");
+        assert_eq!(ac.max_concurrent_transcriptions, 1);
+        assert_eq!(ac.transcription_timeout_secs, 120);
+    }
+
+    // ── AudioConfig serde deserialization ─────────────────────
+
+    #[test]
+    fn audio_config_toml_deserialization_with_all_fields() {
+        let toml_str = r#"
+default_temperature = 0.7
+
+[audio]
+enabled = true
+allowed_channels = ["telegram"]
+max_audio_bytes = 52428800
+max_audio_duration_secs = 300
+transcription_model = "large-v3"
+transcription_language = "en"
+whisper_binary = "/usr/local/bin/whisper-cli"
+max_concurrent_transcriptions = 4
+transcription_timeout_secs = 60
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(parsed.audio.enabled);
+        assert_eq!(parsed.audio.allowed_channels, vec!["telegram"]);
+        assert_eq!(parsed.audio.max_audio_bytes, 52_428_800);
+        assert_eq!(parsed.audio.max_audio_duration_secs, 300);
+        assert_eq!(parsed.audio.transcription_model, "large-v3");
+        assert_eq!(parsed.audio.transcription_language, "en");
+        assert_eq!(parsed.audio.whisper_binary, "/usr/local/bin/whisper-cli");
+        assert_eq!(parsed.audio.max_concurrent_transcriptions, 4);
+        assert_eq!(parsed.audio.transcription_timeout_secs, 60);
+    }
+
+    #[test]
+    fn audio_config_toml_missing_optional_fields_use_defaults() {
+        let toml_str = r#"
+default_temperature = 0.7
+
+[audio]
+enabled = true
+allowed_channels = ["telegram"]
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(parsed.audio.enabled);
+        assert_eq!(parsed.audio.allowed_channels, vec!["telegram"]);
+        // All other fields should fall back to defaults
+        assert_eq!(parsed.audio.max_audio_bytes, 26_214_400);
+        assert_eq!(parsed.audio.max_audio_duration_secs, 600);
+        assert_eq!(parsed.audio.transcription_model, "base");
+        assert_eq!(parsed.audio.transcription_language, "es");
+        assert_eq!(parsed.audio.whisper_binary, "whisper-cli");
+        assert_eq!(parsed.audio.max_concurrent_transcriptions, 1);
+        assert_eq!(parsed.audio.transcription_timeout_secs, 120);
+    }
+
+    #[test]
+    fn audio_config_toml_no_section_gets_defaults() {
+        let toml_str = r#"
+default_temperature = 0.7
+"#;
+        let parsed: Config = toml::from_str(toml_str).unwrap();
+        assert!(!parsed.audio.enabled);
+        assert!(parsed.audio.allowed_channels.is_empty());
+        assert_eq!(parsed.audio.max_audio_bytes, 26_214_400);
+        assert_eq!(parsed.audio.transcription_model, "base");
+    }
+
+    #[test]
+    fn audio_config_serde_roundtrip() {
+        let ac = AudioConfig {
+            enabled: true,
+            allowed_channels: vec!["telegram".into(), "discord".into()],
+            max_audio_bytes: 10_000_000,
+            max_audio_duration_secs: 120,
+            transcription_model: "small".into(),
+            transcription_language: "fr".into(),
+            whisper_binary: "/opt/whisper".into(),
+            max_concurrent_transcriptions: 2,
+            transcription_timeout_secs: 90,
+        };
+        let toml_str = toml::to_string(&ac).unwrap();
+        let parsed: AudioConfig = toml::from_str(&toml_str).unwrap();
+        assert!(parsed.enabled);
+        assert_eq!(parsed.allowed_channels, vec!["telegram", "discord"]);
+        assert_eq!(parsed.max_audio_bytes, 10_000_000);
+        assert_eq!(parsed.max_audio_duration_secs, 120);
+        assert_eq!(parsed.transcription_model, "small");
+        assert_eq!(parsed.transcription_language, "fr");
+        assert_eq!(parsed.whisper_binary, "/opt/whisper");
+        assert_eq!(parsed.max_concurrent_transcriptions, 2);
+        assert_eq!(parsed.transcription_timeout_secs, 90);
+    }
+
+    // ── AudioConfig validation — concurrency/timeout zero ────
+
+    #[test]
+    fn audio_validation_rejects_zero_concurrent_transcriptions() {
+        let config = Config {
+            audio: AudioConfig {
+                max_concurrent_transcriptions: 0,
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_audio_config().expect_err("should fail");
+        assert!(
+            err.to_string().contains("max_concurrent_transcriptions")
+                && err.to_string().contains("greater than 0"),
+            "expected concurrent transcriptions error, got: {err}"
+        );
+    }
+
+    #[test]
+    fn audio_validation_rejects_zero_transcription_timeout() {
+        let config = Config {
+            audio: AudioConfig {
+                transcription_timeout_secs: 0,
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        let err = config.validate_audio_config().expect_err("should fail");
+        assert!(
+            err.to_string().contains("transcription_timeout_secs")
+                && err.to_string().contains("greater than 0"),
+            "expected transcription timeout error, got: {err}"
         );
     }
 }

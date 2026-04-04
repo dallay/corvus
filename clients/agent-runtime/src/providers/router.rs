@@ -462,6 +462,7 @@ mod tests {
             role: "user".to_string(),
             content: "use tools".to_string(),
             image_metadata: None,
+            audio_metadata: None,
         }];
         let tools = vec![serde_json::json!({
             "type": "function",
@@ -494,6 +495,7 @@ mod tests {
             role: "user".to_string(),
             content: "reason about this".to_string(),
             image_metadata: None,
+            audio_metadata: None,
         }];
         let tools = vec![serde_json::json!({"type": "function", "function": {"name": "test"}})];
 

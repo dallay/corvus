@@ -189,6 +189,18 @@ impl Observer for LogObserver {
                     "image.ingress"
                 );
             }
+            ObserverEvent::AudioIngress(event) => {
+                info!(
+                    channel = %event.channel,
+                    outcome = ?event.outcome,
+                    reason = ?event.reason,
+                    mime_type = ?event.mime_type,
+                    byte_len = ?event.byte_len,
+                    duration_secs = ?event.duration_secs,
+                    transcription_ms = ?event.transcription_duration_ms,
+                    "audio.ingress"
+                );
+            }
         }
     }
 

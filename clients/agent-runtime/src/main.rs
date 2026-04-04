@@ -71,6 +71,7 @@ mod skills;
 #[cfg(test)]
 mod test_support;
 mod tools;
+mod transcription;
 mod tunnel;
 mod update;
 mod util;
@@ -714,6 +715,7 @@ async fn main() -> Result<()> {
     handle_cli_command(cli.command, config).await
 }
 
+#[allow(clippy::large_futures)]
 async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
     match command {
         Commands::Onboard { .. } => anyhow::bail!("Onboard command should not reach dispatch"),
