@@ -986,10 +986,9 @@ mod tests {
         let payload = ogg_payload();
         // max_duration_secs is 0 (would normally reject anything), but since
         // declared_duration_secs is None the check must be bypassed.
-        let audio =
-            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 0, "telegram")
-                .await
-                .expect("None duration should skip duration check even if max is 0");
+        let audio = stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 0, "telegram")
+            .await
+            .expect("None duration should skip duration check even if max is 0");
         assert!(audio.duration_secs.is_none());
         let _ = std::fs::remove_file(&audio.temp_path);
     }
@@ -1026,15 +1025,16 @@ mod tests {
     #[tokio::test]
     async fn stage_audio_from_bytes_sha256_is_deterministic() {
         let payload = ogg_payload();
-        let a1 =
-            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
-                .await
-                .expect("first staging should succeed");
-        let a2 =
-            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
-                .await
-                .expect("second staging should succeed");
-        assert_eq!(a1.sha256, a2.sha256, "same content must produce same SHA-256");
+        let a1 = stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
+            .await
+            .expect("first staging should succeed");
+        let a2 = stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
+            .await
+            .expect("second staging should succeed");
+        assert_eq!(
+            a1.sha256, a2.sha256,
+            "same content must produce same SHA-256"
+        );
         let _ = std::fs::remove_file(&a1.temp_path);
         let _ = std::fs::remove_file(&a2.temp_path);
     }
