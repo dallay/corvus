@@ -891,7 +891,7 @@ mod tests {
         let msg = cli_rejection_message(&AudioRejectionReason::Oversize, None, Some(1000));
         // Without actual value, message should not contain "bytes)" but should contain max
         assert!(
-            !msg.contains("("),
+            !msg.contains('('),
             "message should not include actual size placeholder; got: {msg}"
         );
         assert!(
