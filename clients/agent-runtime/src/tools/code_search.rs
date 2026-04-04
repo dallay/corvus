@@ -105,6 +105,7 @@ impl Tool for CodeSearchTool {
     fn parameters_schema(&self) -> serde_json::Value {
         json!({
             "type": "object",
+            "additionalProperties": false,
             "properties": {
                 "pattern": {
                     "type": "string",
@@ -261,7 +262,30 @@ impl Tool for CodeSearchTool {
 
 impl SearchParams {
     fn from_args(args: &Value) -> Result<Self, String> {
-        let pattern = args
+        const ALLOWED_KEYS: &[&str] = &[
+            "pattern",
+            "path",
+            "include",
+            "exclude",
+            "is_regex",
+            "case_sensitive",
+            "max_results",
+            "context_lines",
+            "whole_word",
+        ];
+
+        let object = args
+            .as_object()
+            .ok_or_else(|| "Tool arguments must be a JSON object".to_string())?;
+
+        if let Some(unexpected) = object
+            .keys()
+            .find(|key| !ALLOWED_KEYS.contains(&key.as_str()))
+        {
+            return Err(format!("Unknown parameter: {unexpected}"));
+        }
+
+        let pattern = object
             .get("pattern")
             .and_then(Value::as_str)
             .ok_or_else(|| "Missing required parameter: pattern".to_string())?
@@ -278,14 +302,14 @@ impl SearchParams {
         }
 
         let max_results = parse_usize_with_bounds(
-            args.get("max_results"),
+            object.get("max_results"),
             "max_results",
             DEFAULT_MAX_RESULTS,
             1,
             MAX_MAX_RESULTS,
         )?;
         let context_lines = parse_usize_with_bounds(
-            args.get("context_lines"),
+            object.get("context_lines"),
             "context_lines",
             DEFAULT_CONTEXT_LINES,
             0,
@@ -294,18 +318,18 @@ impl SearchParams {
 
         Ok(Self {
             pattern,
-            path: args
+            path: object
                 .get("path")
                 .and_then(Value::as_str)
                 .unwrap_or(".")
                 .to_string(),
-            include: parse_string_array(args.get("include"), "include")?,
-            exclude: parse_string_array(args.get("exclude"), "exclude")?,
-            is_regex: parse_bool(args.get("is_regex"), "is_regex", false)?,
-            case_sensitive: parse_bool(args.get("case_sensitive"), "case_sensitive", true)?,
+            include: parse_string_array(object.get("include"), "include")?,
+            exclude: parse_string_array(object.get("exclude"), "exclude")?,
+            is_regex: parse_bool(object.get("is_regex"), "is_regex", false)?,
+            case_sensitive: parse_bool(object.get("case_sensitive"), "case_sensitive", true)?,
             max_results,
             context_lines,
-            whole_word: parse_bool(args.get("whole_word"), "whole_word", false)?,
+            whole_word: parse_bool(object.get("whole_word"), "whole_word", false)?,
         })
     }
 }
@@ -650,8 +674,12 @@ fn tool_error(error: String) -> ToolResult {
     ToolResult {
         success: false,
         output: String::new(),
-        error: Some(error),
-        structured: None,
+        error: Some(error.clone()),
+        structured: Some(json!({
+            "error": {
+                "message": error,
+            }
+        })),
     }
 }
 
@@ -693,8 +721,20 @@ fn build_result(
         }
     }
 
+    let structured_matches = cap_structured_matches(
+        outcome.matches,
+        &mut stats,
+        &mut warnings,
+        max_output_bytes,
+    );
+
+    output = format_output(&structured_matches, &warnings, &stats, params.context_lines);
+    if output.len() > max_output_bytes {
+        output = hard_cap_output(output, max_output_bytes);
+    }
+
     let structured = json!({
-        "matches": outcome.matches,
+        "matches": structured_matches,
         "stats": stats,
     });
 
@@ -703,6 +743,43 @@ fn build_result(
         output,
         error: None,
         structured: Some(structured),
+    }
+}
+
+fn cap_structured_matches(
+    mut matches: Vec<SearchMatch>,
+    stats: &mut SearchStats,
+    warnings: &mut Vec<String>,
+    max_output_bytes: usize,
+) -> Vec<SearchMatch> {
+    loop {
+        let structured = json!({
+            "matches": &matches,
+            "stats": stats,
+        });
+
+        let serialized_len = serde_json::to_vec(&structured)
+            .map(|bytes| bytes.len())
+            .unwrap_or(0);
+
+        if serialized_len <= max_output_bytes {
+            return matches;
+        }
+
+        stats.truncated = true;
+        push_warning(
+            warnings,
+            format!(
+                "Structured results truncated at {} bytes. Narrow your search with 'path' or 'include' filters.",
+                max_output_bytes
+            ),
+        );
+
+        if matches.is_empty() {
+            return matches;
+        }
+
+        matches.pop();
     }
 }
 

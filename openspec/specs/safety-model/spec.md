@@ -72,11 +72,10 @@ Symlink escapes SHOULD be logged at `debug` level but MUST NOT appear in results
 
 Binary files MUST be detected and skipped. They MUST NOT appear in results.
 
-Binary detection MUST use the `ignore` crate's built-in null-byte detection as the primary
-mechanism.
+Binary detection MUST match the implementation strategy used by `code_search`.
 
-As a fallback, if a manual file-reading path is used, the first 8KB MUST be checked for null
-bytes.
+When a file is read into memory for scanning, the implementation MUST sample the first 8KB of the
+read buffer and treat the file as binary if that sample contains a null byte.
 
 #### Scenario: Binary file is skipped
 

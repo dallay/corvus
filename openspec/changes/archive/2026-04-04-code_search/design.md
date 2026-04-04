@@ -7,7 +7,7 @@
 
 | Field  | Value              |
 |--------|--------------------|
-| Status | DRAFT              |
+| Status | ARCHIVED           |
 | Author | AI-assisted design |
 | Date   | 2026-04-04         |
 | Linear | DALLAY-200         |

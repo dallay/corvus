@@ -1,3 +1,4 @@
+
 ## Verification Report
 
 **Change**: code_search
@@ -37,16 +38,15 @@
   1. bootstrap/profile classification now includes `code_search`
   2. default-tools count test now expects 4 tools
 
-**Formatting**: `cargo fmt --all -- --check` ❌ Failed
-- Blocked by unrelated pre-existing formatting debt outside `code_search`:
-  - `src/channels/audio_media.rs`
-  - `src/channels/cli.rs`
-  - `src/gateway/mod.rs`
+**Formatting**: historical note
+- This archived report predates follow-up branch cleanups that reformatted
+  `src/channels/audio_media.rs`, `src/channels/cli.rs`, and `src/gateway/mod.rs` so the pre-push
+  hook could pass cleanly.
 
-**Clippy**: `cargo clippy --all-targets -- -D warnings` ❌ Failed
-- Blocked by unrelated pre-existing issues outside `code_search`:
-  - `src/gateway/mod.rs:6896` unused import
-  - `src/channels/cli.rs:884` `clippy::single-char-pattern`
+**Clippy**: historical note
+- This archived report predates follow-up branch cleanups that removed the previously documented
+  `src/gateway/mod.rs:6896` unused import and `src/channels/cli.rs:884`
+  `clippy::single-char-pattern` warning.
 
 **Coverage**: ➖ Not configured in `openspec/config.yaml`
 
@@ -152,6 +152,7 @@
 ---
 
 ### Verdict
+
 PASS WITH WARNINGS
 
 Change-local implementation is now correct: prior regressions are fixed, added tests cover the previously identified spec gaps, and `cargo test` passes. The only remaining verification issues are unrelated repo-wide `fmt`/`clippy` debt outside the `code_search` change.

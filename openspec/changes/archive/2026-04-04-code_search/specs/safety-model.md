@@ -39,17 +39,19 @@ URL-encoded traversal sequences (`%2f`, `%2e`) MUST be rejected via `is_path_all
 The `path` parameter MUST be validated using the same security chain as `file_read`:
 
 1. `is_path_allowed(path)` — validate the raw relative path
-2. `workspace_dir.join(path)` — resolve to absolute
-3. `canonicalize()` — resolve symlinks and normalize
-4. `is_resolved_path_allowed()` — validate the resolved absolute path
+2. `record_action(...)` — consume budget after the raw-path check and before path resolution
+3. `workspace_dir.join(path)` — resolve to absolute
+4. `canonicalize()` — resolve symlinks and normalize
+5. `is_resolved_path_allowed(...)` — validate the resolved absolute path
 
-This chain MUST be applied to the search root path at invocation start.
+This chain MUST be applied to the search root path at invocation start, matching the placement
+of `record_action()` in `file_read.rs` so pre-canonicalization rejections still consume budget.
 
 #### Scenario: Security chain is applied to search root
 
 - GIVEN a workspace with a valid `src/` directory
 - WHEN `code_search` is invoked with `{ "pattern": "fn", "path": "src" }`
-- THEN the path MUST pass through `is_path_allowed`, `canonicalize`, and `is_resolved_path_allowed`
+- THEN the path MUST pass through `is_path_allowed`, `record_action`, `canonicalize`, and `is_resolved_path_allowed`
 - AND if any check fails, the result MUST have `success: false`
 
 ### REQ-SAFE-003: Symlink Escape Prevention

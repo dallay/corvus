@@ -160,7 +160,12 @@ Binary files never appear in results.
 ### Rate limiting
 
 - A single `code_search` invocation counts as ONE action via `record_action()`.
-- The `is_rate_limited()` check runs before any I/O.
+- The search root follows the same ordering as `file_read`: `is_rate_limited()` →
+  `is_path_allowed(path)` → `record_action()` → `canonicalize()` →
+  `is_resolved_path_allowed()`.
+- This ordering is intentional: `record_action()` happens after raw-path validation but before
+  `canonicalize()` so pre-canonicalization rejections still consume budget and do not create a
+  timing side channel for path probing.
 - Individual file reads within the search do NOT increment the action counter.
 
 ### Resource limits
@@ -356,8 +361,8 @@ LLM function call
 CodeSearchTool::execute(args)
        │
        ├─ 1. Validate params (pattern, path, limits)
-       ├─ 2. is_rate_limited() → record_action()
-       ├─ 3. is_path_allowed(path) → canonicalize → is_resolved_path_allowed
+       ├─ 2. is_rate_limited() → is_path_allowed(path) → record_action()
+       ├─ 3. canonicalize → is_resolved_path_allowed
        │
        ▼
  Build ignore::WalkBuilder

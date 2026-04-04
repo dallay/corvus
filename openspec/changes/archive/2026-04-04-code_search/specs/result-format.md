@@ -12,7 +12,7 @@ content truncation, summary lines, and truncation warnings.
 
 The `output` field MUST contain a human-readable grep-like format with one match per line:
 
-```
+```text
 file:line:column: content
 ```
 
@@ -106,7 +106,7 @@ This MUST prevent minified files from producing oversized match content.
 
 The `output` field MUST append a summary line after all matches:
 
-```
+```text
 Found {total_matches} matches in {files_matched} files ({files_searched} files searched, {duration_ms}ms)
 ```
 
@@ -122,7 +122,7 @@ Found {total_matches} matches in {files_matched} files ({files_searched} files s
 When results are truncated (by `max_results` or the 10K file scan limit), the `output` field
 MUST include a truncation warning line:
 
-```
+```text
 Results truncated at {N} matches. Narrow your search with 'path' or 'include' filters.
 ```
 

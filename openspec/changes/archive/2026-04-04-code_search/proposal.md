@@ -48,9 +48,10 @@ Implement a single new tool following the established `Tool` trait pattern:
 1. **Parameter validation** — Validate pattern length (≤1000 chars), path relativity, and regex
    compilation. Construct the final regex following the order: escape (if literal) → case flag →
    word boundary wrapping.
-2. **Security checks** — `is_rate_limited()` / `record_action()` before any I/O.
-   `is_path_allowed()` → `canonicalize()` → `is_resolved_path_allowed()` on the search root path,
-   same chain as `file_read`.
+2. **Security checks** — follow the same search-root ordering as `file_read` to avoid
+   pre-canonicalization timing probes:
+   `is_rate_limited()` → `is_path_allowed()` → `record_action()` → `canonicalize()` →
+   `is_resolved_path_allowed()`.
 3. **Directory walking** — `ignore::WalkBuilder` rooted at `workspace_dir.join(path)` with
    include/exclude globs. The `ignore` crate handles `.gitignore`, nested overrides, hidden
    directory exclusion, and binary detection natively.

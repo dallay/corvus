@@ -991,7 +991,12 @@ mod tests {
         let mut ogg = b"OggS\x00\x02\x00\x00\x00\x00\x00\x00".to_vec();
         ogg.resize(128, 0u8);
 
-        let tmp_path = std::env::temp_dir().join("corvus_cli_test_happy_path.ogg");
+        let tmp = tempfile::Builder::new()
+            .prefix("corvus_cli_test_happy_path_")
+            .suffix(".ogg")
+            .tempfile()
+            .expect("create unique temp ogg");
+        let tmp_path = tmp.path().to_path_buf();
         std::fs::write(&tmp_path, &ogg).expect("write test ogg");
 
         let observer = TestObserver::new();
@@ -1009,8 +1014,6 @@ mod tests {
         let result = ch
             .handle_audio_command(tmp_path.to_str().unwrap(), &tx)
             .await;
-        let _ = std::fs::remove_file(&tmp_path);
-
         assert!(
             result.is_ok(),
             "handle_audio_command should not return ReceiverClosed"
@@ -1053,7 +1056,12 @@ mod tests {
         // Create a valid OGG file so the pipeline succeeds up to the send step.
         let mut ogg = b"OggS\x00\x02\x00\x00\x00\x00\x00\x00".to_vec();
         ogg.resize(128, 0u8);
-        let tmp_path = std::env::temp_dir().join("corvus_cli_test_receiver_closed.ogg");
+        let tmp = tempfile::Builder::new()
+            .prefix("corvus_cli_test_receiver_closed_")
+            .suffix(".ogg")
+            .tempfile()
+            .expect("create unique temp ogg");
+        let tmp_path = tmp.path().to_path_buf();
         std::fs::write(&tmp_path, &ogg).expect("write test ogg");
 
         let observer = TestObserver::new();
@@ -1074,8 +1082,6 @@ mod tests {
         let result = ch
             .handle_audio_command(tmp_path.to_str().unwrap(), &tx)
             .await;
-        let _ = std::fs::remove_file(&tmp_path);
-
         assert!(
             matches!(result, Err(ReceiverClosed)),
             "should return ReceiverClosed when receiver is dropped"
