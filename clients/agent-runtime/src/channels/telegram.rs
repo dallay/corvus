@@ -1821,8 +1821,10 @@ impl TelegramChannel {
                 );
                 audio_media::AudioRejectionReason::FetchFailed
             })?;
+            // Validate size BEFORE extending buffer to prevent OOM from oversized chunks
+            let new_len = bytes.len() + chunk.len();
+            audio_media::validate_audio_size(new_len as u64, max_bytes)?;
             bytes.extend_from_slice(&chunk);
-            audio_media::validate_audio_size(bytes.len() as u64, max_bytes)?;
         }
         let byte_len = bytes.len() as u64;
 
