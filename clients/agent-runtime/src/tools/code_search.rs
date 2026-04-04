@@ -716,9 +716,6 @@ fn build_result(
             ),
         );
         output = format_output(&outcome.matches, &warnings, &stats, params.context_lines);
-        if output.len() > max_output_bytes {
-            output = hard_cap_output(output, max_output_bytes);
-        }
     }
 
     let structured_matches =
