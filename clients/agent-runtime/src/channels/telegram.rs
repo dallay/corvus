@@ -1826,59 +1826,17 @@ impl TelegramChannel {
             audio_media::validate_audio_size(new_len as u64, max_bytes)?;
             bytes.extend_from_slice(&chunk);
         }
-        let byte_len = bytes.len() as u64;
-
-        // 5. Validate MIME via magic-byte sniffing
-        let mime = audio_media::validate_audio_mime(declared_mime, &bytes)?;
-
-        // 6. Compute SHA-256 and stage to temp file
-        use sha2::Digest;
-        let sha256 = {
-            let mut hasher = sha2::Sha256::new();
-            hasher.update(&bytes);
-            hex::encode(hasher.finalize())
-        };
-
-        // Build a unique temp path with a random suffix to avoid
-        // predictable filenames (race / symlink attacks). We use
-        // create_new(true) so the open fails if the path already exists.
-        let random_suffix: u64 = {
-            use std::collections::hash_map::RandomState;
-            use std::hash::{BuildHasher, Hasher};
-            let s = RandomState::new();
-            let mut h = s.build_hasher();
-            h.write(sha256.as_bytes());
-            h.finish()
-        };
-        let temp_path = std::env::temp_dir().join(format!(
-            "corvus-tg-aud-{random_suffix:016x}.{}",
-            mime.file_extension()
-        ));
-
-        // create_new ensures atomic creation — fails if file exists.
-        let file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&temp_path)
-            .map_err(|e| {
-                tracing::warn!("Failed to create temp file {}: {e}", temp_path.display());
-                audio_media::AudioRejectionReason::FetchFailed
-            })?;
-        drop(file);
-
-        tokio::fs::write(&temp_path, &bytes).await.map_err(|e| {
-            tracing::warn!("Failed to stage audio to {}: {e}", temp_path.display());
-            audio_media::AudioRejectionReason::FetchFailed
-        })?;
-
-        Ok(audio_media::StagedAudio {
-            sha256,
-            mime_type: mime,
-            byte_len,
-            duration_secs: declared_duration_secs.map(|d| d as f64),
-            temp_path,
-            channel_origin: "telegram".to_string(),
-        })
+        // 5. Validate, stage, and return via shared utility.
+        audio_media::stage_audio_from_bytes(
+            &bytes,
+            "tg",
+            declared_mime,
+            declared_duration_secs,
+            max_bytes,
+            max_duration_secs,
+            "telegram",
+        )
+        .await
     }
 
     async fn send_typing_action(&self, chat_id: &str) {

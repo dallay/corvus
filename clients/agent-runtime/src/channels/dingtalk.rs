@@ -123,7 +123,7 @@ impl DingTalkChannel {
             .and_then(|value| value.as_str())
             .unwrap_or("");
         let pong = Self::build_pong_response(message_id, opaque);
-        match write.send(Message::Text(pong)).await {
+        match write.send(Message::Text(pong.into())).await {
             Ok(()) => true,
             Err(e) => {
                 tracing::warn!("DingTalk: failed to send pong: {:?}", e);
@@ -226,7 +226,7 @@ impl DingTalkChannel {
 
                 let message_id = Self::extract_message_id(frame);
                 let ack = Self::build_ack_response(message_id);
-                if let Err(error) = write.send(Message::Text(ack)).await {
+                if let Err(error) = write.send(Message::Text(ack.into())).await {
                     tracing::warn!("DingTalk: failed to send ack: {:?}", error);
                     return false;
                 }
@@ -503,7 +503,8 @@ client_secret = "secret"
         ));
         assert!(matches!(error_frame, IncomingSocketFrame::Break));
 
-        let continue_frame = DingTalkChannel::decode_socket_frame(Ok(Message::Ping(Vec::new())));
+        let continue_frame =
+            DingTalkChannel::decode_socket_frame(Ok(Message::Ping(bytes::Bytes::new())));
         assert!(matches!(continue_frame, IncomingSocketFrame::Continue));
     }
 

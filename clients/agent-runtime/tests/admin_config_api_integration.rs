@@ -88,6 +88,8 @@ fn state_with_config(config: Config) -> AppState {
         whatsapp_app_secret: None,
         channel_runtime_handle: None,
         observer: Arc::new(corvus::observability::NoopObserver),
+        transcriber: None,
+        audio_config: corvus::config::AudioConfig::default(),
     }
 }
 

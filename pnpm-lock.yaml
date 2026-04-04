@@ -97,7 +97,7 @@ importers:
   .:
     devDependencies:
       '@astrojs/check':
-        specifier: 'catalog:'
+        specifier: ^0.9.8
         version: 0.9.8(prettier@3.8.1)(typescript@5.9.3)
       typescript:
         specifier: ^5.9.3

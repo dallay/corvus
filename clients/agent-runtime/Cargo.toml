@@ -128,7 +128,7 @@ tokio-rustls = "0.26.4"
 webpki-roots = "1.0.6"
 
 # HTTP server (gateway) — replaces raw TCP for proper HTTP/1.1 compliance
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "query", "ws", "multipart"] }
 tower = { version = "0.5", default-features = false }
 tower-http = { version = "0.6", default-features = false, features = ["limit", "timeout"] }
 http-body-util = "0.1"
@@ -210,6 +210,7 @@ wat = "=1.245.1"
 rcgen = "0.14"
 secrecy = "0.10"
 http = "1.4.0"
+tower = { version = "0.5", features = ["util"] }
 
 [[bench]]
 name = "agent_benchmarks"

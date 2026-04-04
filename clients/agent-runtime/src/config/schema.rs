@@ -298,8 +298,8 @@ pub struct MultimodalConfig {
 
 // ── Audio input rollout controls ────────────────────────────────
 
-/// Phase-1 valid channel names for audio ingress.
-const PHASE1_VALID_AUDIO_CHANNELS: &[&str] = &["telegram"];
+/// Valid channel names for audio ingress.
+const VALID_AUDIO_CHANNELS: &[&str] = &["telegram", "gateway", "cli"];
 
 // Hard ceilings imported from the canonical definition in audio_media.
 use crate::channels::audio_media::{MAX_AUDIO_BYTES_CEILING, MAX_AUDIO_DURATION_SECS_CEILING};
@@ -3351,10 +3351,10 @@ impl Config {
         }
 
         for ch in &ac.allowed_channels {
-            if !PHASE1_VALID_AUDIO_CHANNELS.contains(&ch.as_str()) {
+            if !VALID_AUDIO_CHANNELS.contains(&ch.as_str()) {
                 tracing::warn!(
-                    "audio.allowed_channels contains '{}' which is not a Phase 1 audio channel \
-                     (telegram) — it will be fail-closed at runtime",
+                    "audio.allowed_channels contains '{}' which is not a recognised audio \
+                     channel (telegram, gateway, cli) — it will be fail-closed at runtime",
                     ch,
                 );
             }
@@ -7045,6 +7045,58 @@ default_temperature = 0.7
             err.to_string().contains("transcription_timeout_secs")
                 && err.to_string().contains("greater than 0"),
             "expected transcription timeout error, got: {err}"
+        );
+    }
+
+    // ── VALID_AUDIO_CHANNELS expansion (T1.6) ────────────────
+
+    #[test]
+    fn audio_validation_accepts_gateway_channel() {
+        let config = Config {
+            audio: AudioConfig {
+                enabled: true,
+                allowed_channels: vec!["gateway".into()],
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        // "gateway" is now a recognised channel — validation must pass without warning
+        assert!(
+            config.validate_audio_config().is_ok(),
+            "gateway should be a recognised audio channel"
+        );
+    }
+
+    #[test]
+    fn audio_validation_accepts_cli_channel() {
+        let config = Config {
+            audio: AudioConfig {
+                enabled: true,
+                allowed_channels: vec!["cli".into()],
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        // "cli" is now a recognised channel — validation must pass without warning
+        assert!(
+            config.validate_audio_config().is_ok(),
+            "cli should be a recognised audio channel"
+        );
+    }
+
+    #[test]
+    fn audio_validation_accepts_all_known_channels_together() {
+        let config = Config {
+            audio: AudioConfig {
+                enabled: true,
+                allowed_channels: vec!["telegram".into(), "gateway".into(), "cli".into()],
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        assert!(
+            config.validate_audio_config().is_ok(),
+            "all three recognised channels together must pass validation"
         );
     }
 }
