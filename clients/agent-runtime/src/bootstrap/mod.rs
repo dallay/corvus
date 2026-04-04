@@ -31,6 +31,7 @@ const LITE_TOOL_ALLOWLIST: &[&str] = &["shell", "file_read", "file_write"];
 const CODE_TOOL_ALLOWLIST: &[&str] = &[
     "browser",
     "browser_open",
+    "code_search",
     "delegate",
     "file_read",
     "file_write",

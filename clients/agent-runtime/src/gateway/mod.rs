@@ -6893,8 +6893,6 @@ mod tests {
 
     #[tokio::test]
     async fn audio_oversize_content_returns_413() {
-        use crate::channels::audio_media::AudioRejectionReason;
-
         // Set max_audio_bytes to a tiny value so that minimal_wav() exceeds it.
         let mut audio_cfg = crate::config::AudioConfig::default();
         audio_cfg.enabled = true;
