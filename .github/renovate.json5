@@ -9,7 +9,24 @@
     ":pinDevDependencies",
     "helpers:pinGitHubActionDigests"
   ],
-  "enabledManagers": [],
+
+  // Explicitly list only the managers needed by this monorepo.
+  // An empty array [] would disable ALL managers; listing them limits scope
+  // and reduces peak memory usage during a Renovate run.
+  "enabledManagers": [
+    "cargo",
+    "dockerfile",
+    "docker-compose",
+    "github-actions",
+    "gradle",
+    "gradle-wrapper",
+    "npm"
+  ],
+
+  // Cache API lookups to disk between runs — critical for large monorepos
+  // operating under the 4 GB memory constraint of the free Renovate tier.
+  "repositoryCache": "enabled",
+
   "reviewers": ["yacosta738"],
   "timezone": "America/Havana",
   "schedule": [
@@ -18,9 +35,9 @@
     "every weekend"
   ],
   "automergeSchedule": ["before 4am on the first day of the month"],
-  "prConcurrentLimit": 1,
-  "prHourlyLimit": 1,
-  "branchConcurrentLimit": 1,
+  "prConcurrentLimit": 3,
+  "prHourlyLimit": 2,
+  "branchConcurrentLimit": 3,
   "prCreation": "immediate",
   "platformAutomerge": true,
   "rebaseWhen": "auto",
@@ -39,11 +56,25 @@
     "node": ">=22.0.0",
     "pnpm": ">=10.28.0"
   },
+
+  // Skip directories that contain generated files or build artifacts so
+  // Renovate does not waste time scanning them.
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/build/**",
+    "**/dist/**",
+    "**/.gradle/**",
+    "**/target/**",
+    "**/out/**"
+  ],
+
   "lockFileMaintenance": {
     "enabled": true,
     "schedule": ["before 5am on the first day of the month"]
   },
+
   "ignoreDeps": ["AddNullMarkedToClass:MissingSummary"],
+
   "vulnerabilityAlerts": {
     "enabled": true,
     "labels": ["security"],
@@ -51,6 +82,7 @@
     "automerge": false,
     "osvVulnerabilityAlerts": true
   },
+
   "packageRules": [
     {
       "description": "Automerge non-breaking updates for stable versions",
@@ -177,7 +209,9 @@
     },
     {
       "description": "0.x versions - treat as major",
-      "matchCurrentVersion": "/^0\./",
+      // Fixed: was "/^0\./" which is invalid JSON (invalid \\escape).
+      // In JSON/JSON5 strings, a literal backslash must be written as \\\\.
+      "matchCurrentVersion": "/^0\\./",
       "matchUpdateTypes": ["minor", "patch"],
       "automerge": false,
       "minimumReleaseAge": "5 days",
