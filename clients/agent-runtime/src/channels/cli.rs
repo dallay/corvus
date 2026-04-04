@@ -139,24 +139,21 @@ impl CliChannel {
         let max_size = self.audio_config.max_audio_bytes;
         let mut capped_reader = tokio::io::AsyncReadExt::take(file, max_size + 1);
         let mut bytes = Vec::new();
-        let bytes_read = match tokio::io::AsyncReadExt::read_to_end(&mut capped_reader, &mut bytes).await {
-            Ok(n) => n,
-            Err(_) => {
-                println!("Cannot read file: {path}");
-                return Ok(());
-            }
-        };
+        let bytes_read =
+            match tokio::io::AsyncReadExt::read_to_end(&mut capped_reader, &mut bytes).await {
+                Ok(n) => n,
+                Err(_) => {
+                    println!("Cannot read file: {path}");
+                    return Ok(());
+                }
+            };
 
         // Check if file was larger than max_size (capped read returned max+1 bytes)
-        if bytes_read > max_size as usize {
+        if bytes_read > usize::try_from(max_size).unwrap_or(usize::MAX) {
             let reason = AudioRejectionReason::Oversize;
             println!(
                 "{}",
-                cli_rejection_message(
-                    &reason,
-                    Some(bytes_read as u64),
-                    Some(max_size)
-                )
+                cli_rejection_message(&reason, Some(bytes_read as u64), Some(max_size))
             );
             self.emit_rejected(&reason, Some(bytes_read as u64), None);
             return Ok(());
@@ -178,10 +175,9 @@ impl CliChannel {
             Err(reason) => {
                 // For TooLong, show duration limits; for others, show byte limits.
                 let (actual, max) = match &reason {
-                    AudioRejectionReason::TooLong => (
-                        None,
-                        Some(self.audio_config.max_audio_duration_secs),
-                    ),
+                    AudioRejectionReason::TooLong => {
+                        (None, Some(self.audio_config.max_audio_duration_secs))
+                    }
                     _ => (
                         Some(bytes.len() as u64),
                         Some(self.audio_config.max_audio_bytes),
@@ -648,7 +644,7 @@ mod tests {
         );
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
-        ch.handle_audio_command("/tmp/fake.ogg", &tx).await;
+        let _ = ch.handle_audio_command("/tmp/fake.ogg", &tx).await;
 
         // No message should be sent on tx
         assert!(
@@ -681,7 +677,7 @@ mod tests {
         );
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
-        ch.handle_audio_command("/tmp/fake.ogg", &tx).await;
+        let _ = ch.handle_audio_command("/tmp/fake.ogg", &tx).await;
 
         assert!(
             rx.try_recv().is_err(),
@@ -713,7 +709,8 @@ mod tests {
         );
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
-        ch.handle_audio_command("/nonexistent_corvus_test_path_xyz_987/audio.ogg", &tx)
+        let _ = ch
+            .handle_audio_command("/nonexistent_corvus_test_path_xyz_987/audio.ogg", &tx)
             .await;
 
         // No ChannelMessage and no AudioIngressEvent (pre-pipeline failure)
@@ -739,7 +736,7 @@ mod tests {
         );
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(4);
-        ch.handle_audio_command("/tmp/fake.ogg", &tx).await;
+        let _ = ch.handle_audio_command("/tmp/fake.ogg", &tx).await;
 
         assert!(rx.try_recv().is_err());
         let events = observer.events();
