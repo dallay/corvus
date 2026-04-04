@@ -1,112 +1,112 @@
 {
-  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": [
+  $schema: "https://docs.renovatebot.com/renovate-schema.json",
+  extends: [
     "config:recommended",
     "group:monorepos",
     ":dependencyDashboard",
     ":semanticCommits",
     ":semanticCommitTypeAll(chore)",
     ":pinDevDependencies",
-    "helpers:pinGitHubActionDigests"
+    "helpers:pinGitHubActionDigests",
   ],
 
   // Explicitly list only the managers needed by this monorepo.
   // An empty array [] would disable ALL managers; listing them limits scope
   // and reduces peak memory usage during a Renovate run.
-  "enabledManagers": [
+  enabledManagers: [
     "cargo",
     "dockerfile",
     "docker-compose",
     "github-actions",
     "gradle",
     "gradle-wrapper",
-    "npm"
+    "npm",
   ],
 
   // Cache API lookups to disk between runs — critical for large monorepos
   // operating under the 4 GB memory constraint of the free Renovate tier.
-  "repositoryCache": "enabled",
+  repositoryCache: "enabled",
 
-  "reviewers": ["yacosta738"],
-  "timezone": "America/Havana",
-  "schedule": [
+  reviewers: ["yacosta738"],
+  timezone: "America/Havana",
+  schedule: [
     "after 10pm every weekday",
     "before 5am every weekday",
-    "every weekend"
+    "every weekend",
   ],
-  "automergeSchedule": ["before 4am on the first day of the month"],
-  "prConcurrentLimit": 3,
-  "prHourlyLimit": 2,
-  "branchConcurrentLimit": 3,
-  "prCreation": "immediate",
-  "platformAutomerge": true,
-  "rebaseWhen": "auto",
-  "recreateWhen": "auto",
-  "updateNotScheduled": true,
-  "configMigration": true,
-  "rangeStrategy": "bump",
-  "separateMinorPatch": false,
-  "separateMultipleMajor": true,
-  "ignoreUnstable": true,
-  "pinDigests": true,
-  "labels": ["dependencies"],
-  "addLabels": ["renovate"],
-  "postUpdateOptions": [],
-  "constraints": {
-    "node": ">=22.0.0",
-    "pnpm": ">=10.28.0"
+  automergeSchedule: ["before 4am on the first day of the month"],
+  prConcurrentLimit: 3,
+  prHourlyLimit: 2,
+  branchConcurrentLimit: 3,
+  prCreation: "immediate",
+  platformAutomerge: true,
+  rebaseWhen: "auto",
+  recreateWhen: "auto",
+  updateNotScheduled: true,
+  configMigration: true,
+  rangeStrategy: "bump",
+  separateMinorPatch: false,
+  separateMultipleMajor: true,
+  ignoreUnstable: true,
+  pinDigests: true,
+  labels: ["dependencies"],
+  addLabels: ["renovate"],
+  postUpdateOptions: [],
+  constraints: {
+    node: ">=22.0.0",
+    pnpm: ">=10.28.0",
   },
 
   // Skip directories that contain generated files or build artifacts so
   // Renovate does not waste time scanning them.
-  "ignorePaths": [
+  ignorePaths: [
     "**/node_modules/**",
     "**/build/**",
     "**/dist/**",
     "**/.gradle/**",
     "**/target/**",
-    "**/out/**"
+    "**/out/**",
   ],
 
-  "lockFileMaintenance": {
-    "enabled": true,
-    "schedule": ["before 5am on the first day of the month"]
+  lockFileMaintenance: {
+    enabled: true,
+    schedule: ["before 5am on the first day of the month"],
   },
 
-  "ignoreDeps": ["AddNullMarkedToClass:MissingSummary"],
+  ignoreDeps: ["AddNullMarkedToClass:MissingSummary"],
 
-  "vulnerabilityAlerts": {
-    "enabled": true,
-    "labels": ["security"],
-    "assignees": ["yacosta738"],
-    "automerge": false,
-    "osvVulnerabilityAlerts": true
+  vulnerabilityAlerts: {
+    enabled: true,
+    labels: ["security"],
+    assignees: ["yacosta738"],
+    automerge: false,
+    osvVulnerabilityAlerts: true,
   },
 
-  "packageRules": [
+  packageRules: [
     {
-      "description": "Automerge non-breaking updates for stable versions",
-      "matchUpdateTypes": ["minor", "patch", "pin", "digest"],
-      "matchCurrentVersion": "!/^0/",
-      "automerge": true,
-      "automergeType": "pr",
-      "platformAutomerge": true,
-      "prPriority": 1
+      description: "Automerge non-breaking updates for stable versions",
+      matchUpdateTypes: ["minor", "patch", "pin", "digest"],
+      matchCurrentVersion: "!/^0/",
+      automerge: true,
+      automergeType: "pr",
+      platformAutomerge: true,
+      prPriority: 1,
     },
     {
-      "description": "Kotlin ecosystem - batch updates",
-      "extends": ["monorepo:kotlin"],
-      "groupName": "Kotlin monorepo",
-      "matchUpdateTypes": ["digest", "patch", "minor", "major"],
-      "schedule": ["before 5am on the first day of the month"],
-      "minimumReleaseAge": "3 days",
-      "prPriority": 2
+      description: "Kotlin ecosystem - batch updates",
+      extends: ["monorepo:kotlin"],
+      groupName: "Kotlin monorepo",
+      matchUpdateTypes: ["digest", "patch", "minor", "major"],
+      schedule: ["before 5am on the first day of the month"],
+      minimumReleaseAge: "3 days",
+      prPriority: 2,
     },
     {
-      "description": "Compose Multiplatform & AndroidX",
-      "matchManagers": ["gradle"],
-      "groupName": "Compose & AndroidX",
-      "matchPackageNames": [
+      description: "Compose Multiplatform & AndroidX",
+      matchManagers: ["gradle"],
+      groupName: "Compose & AndroidX",
+      matchPackageNames: [
         "org.jetbrains.compose:{/,}**",
         "androidx.compose:{/,}**",
         "androidx.activity:{/,}**",
@@ -116,56 +116,56 @@
         "org.jetbrains.compose.foundation:{/,}**",
         "org.jetbrains.compose.material3:{/,}**",
         "org.jetbrains.compose.runtime:{/,}**",
-        "org.jetbrains.compose.ui:{/,}**"
+        "org.jetbrains.compose.ui:{/,}**",
       ],
-      "minimumReleaseAge": "3 days",
-      "prPriority": 2
+      minimumReleaseAge: "3 days",
+      prPriority: 2,
     },
     {
-      "description": "Rust ecosystem - batch updates",
-      "matchManagers": ["cargo"],
-      "groupName": "Rust dependencies",
-      "semanticCommitType": "chore",
-      "minimumReleaseAge": "3 days"
+      description: "Rust ecosystem - batch updates",
+      matchManagers: ["cargo"],
+      groupName: "Rust dependencies",
+      semanticCommitType: "chore",
+      minimumReleaseAge: "3 days",
     },
     {
-      "description": "Web ecosystem - batch updates",
-      "matchManagers": ["npm"],
-      "groupName": "Web dependencies",
-      "semanticCommitType": "chore",
-      "minimumReleaseAge": "2 days"
+      description: "Web ecosystem - batch updates",
+      matchManagers: ["npm"],
+      groupName: "Web dependencies",
+      semanticCommitType: "chore",
+      minimumReleaseAge: "2 days",
     },
     {
-      "description": "Gradle wrapper - cautious updates with lockfile refresh",
-      "matchPackageNames": ["gradle"],
-      "matchManagers": ["gradle-wrapper"],
-      "groupName": "Gradle wrapper",
-      "minimumReleaseAge": "7 days",
-      "automerge": false,
-      "prBodyNotes": [
+      description: "Gradle wrapper - cautious updates with lockfile refresh",
+      matchPackageNames: ["gradle"],
+      matchManagers: ["gradle-wrapper"],
+      groupName: "Gradle wrapper",
+      minimumReleaseAge: "7 days",
+      automerge: false,
+      prBodyNotes: [
         "⚠️ **Gradle wrapper updates should be tested carefully.**",
-        "Run `./gradlew wrapper --gradle-version <version>` locally to verify."
-      ]
-    },
-    {
-      "description": "Spring ecosystem - manual review required",
-      "groupName": "Spring Framework & Boot",
-      "matchPackageNames": [
-        "org.springframework.boot:{/,}**",
-        "org.springframework:{/,}**"
+        "Run `./gradlew wrapper --gradle-version <version>` locally to verify.",
       ],
-      "matchUpdateTypes": ["minor", "patch", "major"],
-      "semanticCommitType": "fix",
-      "automerge": false,
-      "minimumReleaseAge": "5 days",
-      "prPriority": 3
     },
     {
-      "description": "Gradle tooling & plugins - batch updates",
-      "matchManagers": ["gradle"],
-      "groupName": "Gradle build tooling",
-      "minimumReleaseAge": "3 days",
-      "matchPackageNames": [
+      description: "Spring ecosystem - manual review required",
+      groupName: "Spring Framework & Boot",
+      matchPackageNames: [
+        "org.springframework.boot:{/,}**",
+        "org.springframework:{/,}**",
+      ],
+      matchUpdateTypes: ["minor", "patch", "major"],
+      semanticCommitType: "fix",
+      automerge: false,
+      minimumReleaseAge: "5 days",
+      prPriority: 3,
+    },
+    {
+      description: "Gradle tooling & plugins - batch updates",
+      matchManagers: ["gradle"],
+      groupName: "Gradle build tooling",
+      minimumReleaseAge: "3 days",
+      matchPackageNames: [
         "!org.jetbrains.compose:{/,}**",
         "!androidx.compose:{/,}**",
         "!androidx.activity:{/,}**",
@@ -177,52 +177,52 @@
         "!org.jetbrains.compose.runtime:{/,}**",
         "!org.jetbrains.compose.ui:{/,}**",
         "!org.springframework.boot:{/,}**",
-        "!org.springframework:{/,}**"
-      ]
+        "!org.springframework:{/,}**",
+      ],
     },
     {
-      "description": "GitHub Actions - batch updates",
-      "matchManagers": ["github-actions"],
-      "groupName": "GitHub Actions",
-      "schedule": ["before 5am on the first day of the month"],
-      "automerge": true,
-      "semanticCommitType": "ci",
-      "pinDigests": true,
-      "minimumReleaseAge": "1 day",
-      "prPriority": 0
+      description: "GitHub Actions - batch updates",
+      matchManagers: ["github-actions"],
+      groupName: "GitHub Actions",
+      schedule: ["before 5am on the first day of the month"],
+      automerge: true,
+      semanticCommitType: "ci",
+      pinDigests: true,
+      minimumReleaseAge: "1 day",
+      prPriority: 0,
     },
     {
-      "description": "Docker images - manual review",
-      "matchDatasources": ["docker"],
-      "groupName": "Docker images",
-      "schedule": ["before 5am on the first day of the month"],
-      "automerge": false,
-      "semanticCommitType": "chore"
+      description: "Docker images - manual review",
+      matchDatasources: ["docker"],
+      groupName: "Docker images",
+      schedule: ["before 5am on the first day of the month"],
+      automerge: false,
+      semanticCommitType: "chore",
     },
     {
-      "description": "Major updates - delay for stability",
-      "matchUpdateTypes": ["major"],
-      "minimumReleaseAge": "3 days",
-      "automerge": false,
-      "prPriority": -1,
-      "addLabels": ["major-update"]
+      description: "Major updates - delay for stability",
+      matchUpdateTypes: ["major"],
+      minimumReleaseAge: "3 days",
+      automerge: false,
+      prPriority: -1,
+      addLabels: ["major-update"],
     },
     {
-      "description": "0.x versions - treat as major",
+      description: "0.x versions - treat as major",
       // Fixed: was "/^0\./" which is invalid JSON (invalid \\escape).
       // In JSON/JSON5 strings, a literal backslash must be written as \\\\.
-      "matchCurrentVersion": "/^0\\./",
-      "matchUpdateTypes": ["minor", "patch"],
-      "automerge": false,
-      "minimumReleaseAge": "5 days",
-      "addLabels": ["unstable-dependency"]
+      matchCurrentVersion: "/^0\\./",
+      matchUpdateTypes: ["minor", "patch"],
+      automerge: false,
+      minimumReleaseAge: "5 days",
+      addLabels: ["unstable-dependency"],
     },
     {
-      "description": "Ignore platform-specific Corvus binaries (released together)",
-      "enabled": false,
-      "matchPackageNames": [
-        "/^@dallay/corvus-(darwin|linux|windows)-(x64|arm64)$/"
-      ]
-    }
-  ]
+      description: "Ignore platform-specific Corvus binaries (released together)",
+      enabled: false,
+      matchPackageNames: [
+        "/^@dallay/corvus-(darwin|linux|windows)-(x64|arm64)$/",
+      ],
+    },
+  ],
 }
