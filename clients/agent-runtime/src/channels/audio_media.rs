@@ -118,10 +118,17 @@ pub fn validate_audio_mime(
     }
 
     // MP3: MPEG sync word — first byte 0xFF, second byte has top 3 bits
-    // set (0xE0 mask). This covers all valid MPEG audio frame headers
-    // (MPEG-1/2/2.5, all layers).
-    if sniffed_bytes.len() >= 2 && sniffed_bytes[0] == 0xFF && (sniffed_bytes[1] & 0xE0) == 0xE0 {
-        return Ok(AllowedAudioMime::Mp3);
+    // set (0xE0 mask), non-zero layer bits (bits 1-2 != 0b00 = reserved),
+    // and non-reserved version bits (bits 3-4 != 0b01 = reserved).
+    // This excludes ADTS AAC headers and reserved MPEG frames.
+    if sniffed_bytes.len() >= 2 && sniffed_bytes[0] == 0xFF {
+        let b = sniffed_bytes[1];
+        let sync_ok = (b & 0xE0) == 0xE0;
+        let layer_ok = (b & 0x06) != 0; // layer bits != reserved (0b00)
+        let version_ok = ((b >> 3) & 0x03) != 0x01; // version bits != reserved (0b01)
+        if sync_ok && layer_ok && version_ok {
+            return Ok(AllowedAudioMime::Mp3);
+        }
     }
 
     // WAV: bytes 0-3 = "RIFF", bytes 8-11 = "WAVE"
@@ -238,15 +245,13 @@ impl AudioHistoryMeta {
 
     /// Render as a synthetic context string for history injection.
     ///
-    /// Example: `"[Prior audio: audio/ogg, 50000 bytes, sha256:a1b2c3d4e5f6a7b8, 45s. Transcription: Hola...]"`
+    /// Only includes modality, duration, transcription, and caption.
+    /// Internal metadata (sha256, byte_len) is kept in the struct but not
+    /// injected into model-facing history to reduce token consumption.
+    ///
+    /// Example: `"[Prior audio: audio/ogg, 45s. Transcription: Hola...]"`
     pub fn to_context_string(&self) -> String {
-        let prefix_len = 16.min(self.sha256.len());
-        let mut s = format!(
-            "[Prior audio: {}, {} bytes, sha256:{}",
-            self.mime,
-            self.byte_len,
-            &self.sha256[..prefix_len]
-        );
+        let mut s = format!("[Prior audio: {}", self.mime);
         if let Some(dur) = self.duration_secs {
             use std::fmt::Write;
             let _ = write!(s, ", {dur:.0}s");
@@ -425,9 +430,23 @@ mod tests {
     }
 
     #[test]
-    fn validate_audio_mime_detects_mp3_sync_e0() {
-        // 0xE0 is the minimum valid second byte (top 3 bits set)
+    fn validate_audio_mime_rejects_reserved_mpeg_layer_bits() {
+        // 0xE0 has layer bits = 0b00 (reserved) — must be rejected
         let bytes = [0xFF, 0xE0, 0x00, 0x00];
+        assert!(validate_audio_mime(None, &bytes).is_err());
+    }
+
+    #[test]
+    fn validate_audio_mime_rejects_adts_aac_header() {
+        // 0xFF 0xF1 is ADTS AAC (layer bits = 0b00), not MP3
+        let bytes = [0xFF, 0xF1, 0x00, 0x00];
+        assert!(validate_audio_mime(None, &bytes).is_err());
+    }
+
+    #[test]
+    fn validate_audio_mime_detects_mp3_layer3() {
+        // 0xFF 0xFB = MPEG1 Layer3 (valid MP3)
+        let bytes = [0xFF, 0xFB, 0x90, 0x00];
         assert_eq!(validate_audio_mime(None, &bytes), Ok(AllowedAudioMime::Mp3));
     }
 
@@ -686,10 +705,13 @@ mod tests {
         };
 
         let ctx = meta.to_context_string();
-        assert!(ctx.starts_with("[Prior audio: audio/ogg, 50000 bytes, sha256:a1b2c3d4e5f6a7b8"));
+        assert!(ctx.starts_with("[Prior audio: audio/ogg"));
         assert!(ctx.contains(", 45s"));
         assert!(ctx.contains("Transcription: Hola, ¿cómo estás?"));
         assert!(ctx.ends_with(']'));
+        // sha256 and byte_len should NOT be in model-facing context
+        assert!(!ctx.contains("sha256"));
+        assert!(!ctx.contains("50000 bytes"));
     }
 
     #[test]
@@ -722,14 +744,12 @@ mod tests {
         };
 
         let ctx = meta.to_context_string();
-        // When duration is None, the context string must not contain
-        // a duration component like ", 45s" between the sha256 and
-        // the transcription label.
-        let after_sha = ctx.split("sha256:deadbeef12345678").nth(1).unwrap();
-        assert!(
-            after_sha.starts_with(". Transcription:"),
-            "expected no duration segment, got: {after_sha}"
-        );
+        // When duration is None, should go straight to transcription
+        assert!(ctx.starts_with("[Prior audio: audio/mpeg"));
+        assert!(!ctx.contains("sha256"));
+        assert!(!ctx.contains("1024 bytes"));
+        assert!(ctx.contains("Transcription: Hello"));
+        assert!(ctx.ends_with(']'));
     }
 
     #[test]

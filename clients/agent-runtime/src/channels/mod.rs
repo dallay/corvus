@@ -638,6 +638,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
     );
 
     let session_id = channel_session_id(&msg);
+    let started_at = Instant::now();
 
     // ── Audio pipeline (before memory enrichment) ────────
     let audio_history_metas = if msg.has_audio_parts() {
@@ -743,7 +744,6 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
 
     // ── Provider dispatch ────────────────────────────────
     println!("  ⏳ Processing message...");
-    let started_at = Instant::now();
 
     let history_key = format!("{}_{}", msg.channel, msg.sender);
     let prior_turns = ctx
@@ -1120,8 +1120,10 @@ fn audio_rejection_to_ingress_reason(
         audio_media::AudioRejectionReason::TranscriberUnavailable => {
             AudioIngressReason::TranscriberUnavailable
         }
-        audio_media::AudioRejectionReason::MultipleAudioParts
-        | audio_media::AudioRejectionReason::SystemError => AudioIngressReason::SystemError,
+        audio_media::AudioRejectionReason::MultipleAudioParts => {
+            AudioIngressReason::MultipleAudioParts
+        }
+        audio_media::AudioRejectionReason::SystemError => AudioIngressReason::SystemError,
     }
 }
 
@@ -1171,8 +1173,23 @@ fn audio_rejection_user_text(
             format!("That audio file is too large to process. Maximum size: {max_mb} MB.")
         }
         audio_media::AudioRejectionReason::TooLong => {
-            let max_min = config.audio.max_audio_duration_secs / 60;
-            format!("That audio is too long to process. Maximum duration: {max_min} minutes.")
+            let secs = config.audio.max_audio_duration_secs;
+            if secs >= 60 && secs.is_multiple_of(60) {
+                let mins = secs / 60;
+                format!(
+                    "That audio is too long to process. Maximum duration: {mins} minute{}.",
+                    if mins == 1 { "" } else { "s" }
+                )
+            } else if secs >= 60 {
+                let mins = secs / 60;
+                let rem = secs % 60;
+                format!("That audio is too long to process. Maximum duration: {mins} minute{} {rem} second{}.", if mins == 1 { "" } else { "s" }, if rem == 1 { "" } else { "s" })
+            } else {
+                format!(
+                    "That audio is too long to process. Maximum duration: {secs} second{}.",
+                    if secs == 1 { "" } else { "s" }
+                )
+            }
         }
         audio_media::AudioRejectionReason::Corrupted => {
             "That audio file appears to be corrupted and cannot be processed.".to_string()
@@ -5907,7 +5924,7 @@ mod tests {
             ),
             (
                 audio_media::AudioRejectionReason::MultipleAudioParts,
-                AudioIngressReason::SystemError,
+                AudioIngressReason::MultipleAudioParts,
             ),
             (
                 audio_media::AudioRejectionReason::SystemError,

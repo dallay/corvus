@@ -84,6 +84,7 @@ pub enum AudioIngressReason {
     TranscriptionFailed,
     NoSpeechDetected,
     TranscriberUnavailable,
+    MultipleAudioParts,
     SystemError,
 }
 
@@ -100,6 +101,7 @@ impl std::fmt::Display for AudioIngressReason {
             Self::TranscriptionFailed => "transcription_failed",
             Self::NoSpeechDetected => "no_speech_detected",
             Self::TranscriberUnavailable => "transcriber_unavailable",
+            Self::MultipleAudioParts => "multiple_audio_parts",
             Self::SystemError => "system_error",
         };
         f.write_str(code)
