@@ -6760,4 +6760,175 @@ mod tests {
             "duration_secs should serialize as null"
         );
     }
+
+    // ── audio_rejection_to_response: status-code mapping ──────────────────
+
+    #[test]
+    fn audio_rejection_disabled_returns_403() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::Disabled);
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn audio_rejection_channel_not_allowed_returns_403() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::ChannelNotAllowed);
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn audio_rejection_mime_returns_400() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::MimeRejected);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn audio_rejection_corrupted_returns_400() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::Corrupted);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn audio_rejection_multiple_parts_returns_400() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::MultipleAudioParts);
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn audio_rejection_fetch_failed_returns_500() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::FetchFailed);
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn audio_rejection_system_error_returns_500() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::SystemError);
+        assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn audio_rejection_oversize_returns_413() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::Oversize);
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[test]
+    fn audio_rejection_toolong_returns_413() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::TooLong);
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[test]
+    fn audio_rejection_transcription_failed_returns_422() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::TranscriptionFailed);
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[test]
+    fn audio_rejection_no_speech_returns_422() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::NoSpeechDetected);
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[test]
+    fn audio_rejection_transcriber_unavailable_returns_503() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (status, _) = audio_rejection_to_response(&R::TranscriberUnavailable);
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[test]
+    fn audio_rejection_response_body_has_error_key() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        let (_, Json(body)) = audio_rejection_to_response(&R::MimeRejected);
+        assert!(
+            body.get("error").is_some(),
+            "response body should have 'error' key; got: {body:?}"
+        );
+    }
+
+    // ── rejection_to_ingress_reason: exhaustive variant mapping ──────────
+
+    #[test]
+    fn rejection_to_ingress_reason_all_variants() {
+        use crate::channels::audio_media::AudioRejectionReason as R;
+        use crate::observability::AudioIngressReason as IR;
+
+        let cases: &[(R, IR)] = &[
+            (R::Disabled, IR::Disabled),
+            (R::ChannelNotAllowed, IR::ChannelNotAllowed),
+            (R::FetchFailed, IR::FetchFailed),
+            (R::MimeRejected, IR::MimeRejected),
+            (R::Oversize, IR::Oversize),
+            (R::TooLong, IR::TooLong),
+            (R::Corrupted, IR::Corrupted),
+            (R::TranscriptionFailed, IR::TranscriptionFailed),
+            (R::NoSpeechDetected, IR::NoSpeechDetected),
+            (R::TranscriberUnavailable, IR::TranscriberUnavailable),
+            (R::MultipleAudioParts, IR::MultipleAudioParts),
+            (R::SystemError, IR::SystemError),
+        ];
+        for (rejection, expected_ingress) in cases {
+            let got = rejection_to_ingress_reason(rejection);
+            // Compare via Debug representation since AudioIngressReason may not implement PartialEq
+            assert_eq!(
+                format!("{got:?}"),
+                format!("{expected_ingress:?}"),
+                "mapping mismatch for {rejection:?}"
+            );
+        }
+    }
+
+    // ── HTTP 413 via audio route (oversize audio payload) ────────────────
+
+    #[tokio::test]
+    async fn audio_oversize_content_returns_413() {
+        use crate::channels::audio_media::AudioRejectionReason;
+
+        // Set max_audio_bytes to a tiny value so that minimal_wav() exceeds it.
+        let mut audio_cfg = crate::config::AudioConfig::default();
+        audio_cfg.enabled = true;
+        audio_cfg.allowed_channels = vec!["gateway".to_string()];
+        audio_cfg.max_audio_bytes = 10; // 10 bytes — less than any valid WAV header
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(10_000, 10_000, 10_000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: Some(Arc::new(MockTranscriber::ok("x"))),
+            audio_config: audio_cfg,
+        };
+
+        let bnd = "b_oversize";
+        let body = mp_single_audio(bnd, &minimal_wav(), "audio/wav");
+        let status = audio_status(
+            build_audio_router(state),
+            body,
+            &format!("multipart/form-data; boundary={bnd}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    }
 }

@@ -958,4 +958,104 @@ mod tests {
         assert_eq!(audio.sha256, expected);
         let _ = std::fs::remove_file(&audio.temp_path);
     }
+
+    // ── stage_audio_from_bytes — additional boundary/edge cases ──────────
+
+    /// Duration exactly at the maximum (equal, not over) must be accepted.
+    #[tokio::test]
+    async fn stage_audio_from_bytes_duration_exactly_at_max_passes() {
+        let payload = ogg_payload();
+        let audio = stage_audio_from_bytes(
+            &payload,
+            "tg",
+            None,
+            Some(600), // exactly equal to max
+            1024 * 1024,
+            600,
+            "telegram",
+        )
+        .await
+        .expect("duration equal to max should be accepted");
+        assert_eq!(audio.duration_secs, Some(600.0));
+        let _ = std::fs::remove_file(&audio.temp_path);
+    }
+
+    /// When declared_duration_secs is None the duration check is skipped entirely.
+    #[tokio::test]
+    async fn stage_audio_from_bytes_none_duration_skips_check() {
+        let payload = ogg_payload();
+        // max_duration_secs is 0 (would normally reject anything), but since
+        // declared_duration_secs is None the check must be bypassed.
+        let audio =
+            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 0, "telegram")
+                .await
+                .expect("None duration should skip duration check even if max is 0");
+        assert!(audio.duration_secs.is_none());
+        let _ = std::fs::remove_file(&audio.temp_path);
+    }
+
+    /// A minimal valid WAV file must be accepted and yield Wav MIME type.
+    #[tokio::test]
+    async fn stage_audio_from_bytes_accepts_wav() {
+        // Minimal WAV: RIFF magic + WAVE marker (44-byte PCM header with 0 data).
+        let mut wav: Vec<u8> = Vec::with_capacity(44);
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&36u32.to_le_bytes());
+        wav.extend_from_slice(b"WAVE");
+        wav.extend_from_slice(b"fmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+        wav.extend_from_slice(&16000u32.to_le_bytes());
+        wav.extend_from_slice(&32000u32.to_le_bytes());
+        wav.extend_from_slice(&2u16.to_le_bytes());
+        wav.extend_from_slice(&16u16.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&0u32.to_le_bytes());
+
+        let audio = stage_audio_from_bytes(&wav, "gw", None, None, 1024 * 1024, 600, "gateway")
+            .await
+            .expect("valid WAV should be accepted");
+        assert_eq!(audio.mime_type, AllowedAudioMime::Wav);
+        assert_eq!(audio.channel_origin, "gateway");
+        assert_eq!(audio.byte_len, wav.len() as u64);
+        let _ = std::fs::remove_file(&audio.temp_path);
+    }
+
+    /// Two identical payloads must produce the same SHA-256 (deterministic).
+    #[tokio::test]
+    async fn stage_audio_from_bytes_sha256_is_deterministic() {
+        let payload = ogg_payload();
+        let a1 =
+            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
+                .await
+                .expect("first staging should succeed");
+        let a2 =
+            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
+                .await
+                .expect("second staging should succeed");
+        assert_eq!(a1.sha256, a2.sha256, "same content must produce same SHA-256");
+        let _ = std::fs::remove_file(&a1.temp_path);
+        let _ = std::fs::remove_file(&a2.temp_path);
+    }
+
+    /// channel_abbrev appears in the temp file name (helps debugging).
+    #[tokio::test]
+    async fn stage_audio_from_bytes_channel_abbrev_in_temp_path() {
+        let payload = ogg_payload();
+        let audio =
+            stage_audio_from_bytes(&payload, "myabbrev", None, None, 1024 * 1024, 600, "test")
+                .await
+                .expect("should succeed");
+        let file_name = audio
+            .temp_path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("");
+        assert!(
+            file_name.contains("myabbrev"),
+            "temp file name should contain the channel abbreviation; got: {file_name}"
+        );
+        let _ = std::fs::remove_file(&audio.temp_path);
+    }
 }
