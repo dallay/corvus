@@ -721,12 +721,8 @@ fn build_result(
         }
     }
 
-    let structured_matches = cap_structured_matches(
-        outcome.matches,
-        &mut stats,
-        &mut warnings,
-        max_output_bytes,
-    );
+    let structured_matches =
+        cap_structured_matches(outcome.matches, &mut stats, &mut warnings, max_output_bytes);
 
     output = format_output(&structured_matches, &warnings, &stats, params.context_lines);
     if output.len() > max_output_bytes {
