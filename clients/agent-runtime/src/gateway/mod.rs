@@ -22,7 +22,7 @@ use crate::security::pairing::{constant_time_eq, is_public_bind, PairingGuard};
 use anyhow::{Context, Result};
 use axum::{
     body::Bytes,
-    extract::{ConnectInfo, Query, State},
+    extract::{ConnectInfo, DefaultBodyLimit, Multipart, Query, State},
     http::{header, HeaderMap, StatusCode},
     response::{
         sse::{Event, Sse},
@@ -1000,6 +1000,10 @@ pub struct AppState {
     pub channel_runtime_handle: Option<crate::channels::ChannelRuntimeHandle>,
     /// Observability backend for metrics scraping
     pub observer: Arc<dyn crate::observability::Observer>,
+    /// Optional audio transcriber for gateway audio ingress (Phase 2).
+    pub transcriber: Option<Arc<dyn crate::transcription::traits::Transcriber>>,
+    /// Audio ingress configuration (snapshotted from `Config` at startup).
+    pub audio_config: crate::config::AudioConfig,
 }
 
 /// Start a tunnel (if configured) and return its public URL on success.
@@ -1216,6 +1220,8 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         whatsapp_app_secret,
         channel_runtime_handle,
         observer,
+        transcriber: None,
+        audio_config: config.audio.clone(),
     };
 
     // Build router with middleware
@@ -1257,6 +1263,11 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .route("/web/chat/stream", post(handle_chat_stream))
         .route("/whatsapp", get(handle_whatsapp_verify))
         .route("/whatsapp", post(handle_whatsapp_message))
+        .merge(
+            Router::new()
+                .route("/web/chat/audio", post(handle_chat_audio))
+                .layer(DefaultBodyLimit::max(25 * 1024 * 1024)),
+        )
         .with_state(state)
         .layer(RequestBodyLimitLayer::new(MAX_BODY_SIZE))
         .layer(TimeoutLayer::with_status_code(
@@ -1956,6 +1967,300 @@ async fn handle_chat_stream(
             )),
         ]
     };
+
+    Ok(Sse::new(futures::stream::iter(events)))
+}
+
+// ── Audio gateway handler types and helpers ──────────────────────────────────
+
+/// SSE payload for the `transcription` event emitted by `POST /web/chat/audio`.
+#[derive(Debug, serde::Serialize)]
+struct AudioTranscriptionEvent {
+    text: String,
+    language: Option<String>,
+    duration_secs: Option<f64>,
+}
+
+/// Map an [`crate::channels::audio_media::AudioRejectionReason`] to an HTTP
+/// status code and JSON error body for the audio handler.
+fn audio_rejection_to_response(
+    reason: &crate::channels::audio_media::AudioRejectionReason,
+) -> WebhookResponse {
+    use crate::channels::audio_media::AudioRejectionReason as R;
+    let status = match reason {
+        R::Disabled | R::ChannelNotAllowed => StatusCode::FORBIDDEN,
+        R::MimeRejected | R::Corrupted | R::MultipleAudioParts | R::FetchFailed => {
+            StatusCode::BAD_REQUEST
+        }
+        R::Oversize | R::TooLong => StatusCode::PAYLOAD_TOO_LARGE,
+        R::TranscriptionFailed | R::NoSpeechDetected => StatusCode::UNPROCESSABLE_ENTITY,
+        R::TranscriberUnavailable => StatusCode::SERVICE_UNAVAILABLE,
+        R::SystemError => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    (
+        status,
+        Json(serde_json::json!({"error": reason.to_string()})),
+    )
+}
+
+/// Map [`crate::channels::audio_media::AudioRejectionReason`] to the
+/// observability [`crate::observability::AudioIngressReason`].
+fn rejection_to_ingress_reason(
+    r: &crate::channels::audio_media::AudioRejectionReason,
+) -> crate::observability::AudioIngressReason {
+    use crate::channels::audio_media::AudioRejectionReason as R;
+    use crate::observability::AudioIngressReason;
+    match r {
+        R::Disabled => AudioIngressReason::Disabled,
+        R::ChannelNotAllowed => AudioIngressReason::ChannelNotAllowed,
+        R::FetchFailed => AudioIngressReason::FetchFailed,
+        R::MimeRejected => AudioIngressReason::MimeRejected,
+        R::Oversize => AudioIngressReason::Oversize,
+        R::TooLong => AudioIngressReason::TooLong,
+        R::Corrupted => AudioIngressReason::Corrupted,
+        R::TranscriptionFailed => AudioIngressReason::TranscriptionFailed,
+        R::NoSpeechDetected => AudioIngressReason::NoSpeechDetected,
+        R::TranscriberUnavailable => AudioIngressReason::TranscriberUnavailable,
+        R::MultipleAudioParts => AudioIngressReason::MultipleAudioParts,
+        R::SystemError => AudioIngressReason::SystemError,
+    }
+}
+
+/// POST /web/chat/audio — multipart audio upload → transcription → SSE.
+///
+/// Body limit: 25 MiB (overridden per-route via nested `audio_router`).
+/// Auth: identical bearer-token / pairing rules as `/web/chat/stream`.
+async fn handle_chat_audio(
+    State(state): State<AppState>,
+    ConnectInfo(peer_addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<
+    Sse<impl futures::stream::Stream<Item = Result<Event, std::convert::Infallible>>>,
+    WebhookResponse,
+> {
+    use crate::channels::audio_media::{stage_audio_from_bytes, AudioRejectionReason};
+    use crate::observability::{AudioIngressEvent, AudioIngressOutcome};
+
+    // ── 1. Auth ──────────────────────────────────────────────────────────
+    if let Some(rejection) = webhook_auth_rejection(&state, peer_addr, &headers) {
+        return Err(rejection);
+    }
+
+    let audio_config = state.audio_config.clone();
+
+    // ── 2. Gate: audio globally enabled ─────────────────────────────────
+    if !audio_config.enabled {
+        state.observer.on_audio_ingress(&AudioIngressEvent {
+            channel: "gateway".to_string(),
+            outcome: AudioIngressOutcome::Rejected,
+            reason: Some(crate::observability::AudioIngressReason::Disabled),
+            mime_type: None,
+            byte_len: None,
+            duration_secs: None,
+            transcription_duration_ms: None,
+        });
+        return Err(audio_rejection_to_response(&AudioRejectionReason::Disabled));
+    }
+
+    // ── 3. Gate: gateway channel in allow-list ───────────────────────────
+    if !audio_config.allowed_channels.iter().any(|c| c == "gateway") {
+        state.observer.on_audio_ingress(&AudioIngressEvent {
+            channel: "gateway".to_string(),
+            outcome: AudioIngressOutcome::Rejected,
+            reason: Some(crate::observability::AudioIngressReason::ChannelNotAllowed),
+            mime_type: None,
+            byte_len: None,
+            duration_secs: None,
+            transcription_duration_ms: None,
+        });
+        return Err(audio_rejection_to_response(
+            &AudioRejectionReason::ChannelNotAllowed,
+        ));
+    }
+
+    // ── 4. Gate: transcriber configured ─────────────────────────────────
+    let transcriber = match state.transcriber.clone() {
+        Some(t) => t,
+        None => {
+            state.observer.on_audio_ingress(&AudioIngressEvent {
+                channel: "gateway".to_string(),
+                outcome: AudioIngressOutcome::Rejected,
+                reason: Some(crate::observability::AudioIngressReason::TranscriberUnavailable),
+                mime_type: None,
+                byte_len: None,
+                duration_secs: None,
+                transcription_duration_ms: None,
+            });
+            return Err(audio_rejection_to_response(
+                &AudioRejectionReason::TranscriberUnavailable,
+            ));
+        }
+    };
+
+    // ── 5. Extract multipart fields ──────────────────────────────────────
+    let mut audio_bytes_opt: Option<Vec<u8>> = None;
+    let mut declared_mime: Option<String> = None;
+    let mut audio_part_count: u32 = 0;
+
+    loop {
+        let field = match multipart.next_field().await {
+            Ok(Some(f)) => f,
+            Ok(None) => break,
+            Err(_) => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({"error": "multipart_parse_error"})),
+                ));
+            }
+        };
+
+        match field.name() {
+            Some("audio") => {
+                audio_part_count += 1;
+                if audio_part_count > 1 {
+                    state.observer.on_audio_ingress(&AudioIngressEvent {
+                        channel: "gateway".to_string(),
+                        outcome: AudioIngressOutcome::Rejected,
+                        reason: Some(crate::observability::AudioIngressReason::MultipleAudioParts),
+                        mime_type: None,
+                        byte_len: None,
+                        duration_secs: None,
+                        transcription_duration_ms: None,
+                    });
+                    return Err(audio_rejection_to_response(
+                        &AudioRejectionReason::MultipleAudioParts,
+                    ));
+                }
+                declared_mime = field.content_type().map(str::to_string);
+                let bytes = field.bytes().await.map_err(|_| {
+                    (
+                        StatusCode::BAD_REQUEST,
+                        Json(serde_json::json!({"error": "multipart_read_error"})),
+                    )
+                })?;
+                audio_bytes_opt = Some(bytes.to_vec());
+            }
+            _ => {
+                // Drain unrecognised fields silently.
+                let _ = field.bytes().await;
+            }
+        }
+    }
+
+    let audio_bytes = match audio_bytes_opt {
+        Some(b) => b,
+        None => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "missing_audio_field"})),
+            ));
+        }
+    };
+
+    // ── 6. Stage audio (validate, hash, temp-write) ──────────────────────
+    let staged = match stage_audio_from_bytes(
+        &audio_bytes,
+        "gw",
+        declared_mime.as_deref(),
+        None,
+        audio_config.max_audio_bytes,
+        audio_config.max_audio_duration_secs,
+        "gateway",
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(reason) => {
+            state.observer.on_audio_ingress(&AudioIngressEvent {
+                channel: "gateway".to_string(),
+                outcome: AudioIngressOutcome::Rejected,
+                reason: Some(rejection_to_ingress_reason(&reason)),
+                mime_type: declared_mime.clone(),
+                byte_len: Some(audio_bytes.len() as u64),
+                duration_secs: None,
+                transcription_duration_ms: None,
+            });
+            return Err(audio_rejection_to_response(&reason));
+        }
+    };
+
+    // ── 7. Transcribe with timeout ───────────────────────────────────────
+    let timeout_dur = Duration::from_secs(audio_config.transcription_timeout_secs + 60);
+    let t_start = Instant::now();
+
+    let transcription_result =
+        match tokio::time::timeout(timeout_dur, transcriber.transcribe(&staged)).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(reason)) => {
+                let elapsed_ms = t_start.elapsed().as_millis() as u64;
+                state.observer.on_audio_ingress(&AudioIngressEvent {
+                    channel: "gateway".to_string(),
+                    outcome: AudioIngressOutcome::Rejected,
+                    reason: Some(rejection_to_ingress_reason(&reason)),
+                    mime_type: Some(staged.mime_type.as_str().to_string()),
+                    byte_len: Some(staged.byte_len),
+                    duration_secs: staged.duration_secs,
+                    transcription_duration_ms: Some(elapsed_ms),
+                });
+                staged.cleanup();
+                return Err(audio_rejection_to_response(&reason));
+            }
+            Err(_timeout) => {
+                let elapsed_ms = t_start.elapsed().as_millis() as u64;
+                state.observer.on_audio_ingress(&AudioIngressEvent {
+                    channel: "gateway".to_string(),
+                    outcome: AudioIngressOutcome::Rejected,
+                    reason: Some(crate::observability::AudioIngressReason::TranscriptionFailed),
+                    mime_type: Some(staged.mime_type.as_str().to_string()),
+                    byte_len: Some(staged.byte_len),
+                    duration_secs: staged.duration_secs,
+                    transcription_duration_ms: Some(elapsed_ms),
+                });
+                staged.cleanup();
+                return Err((
+                    StatusCode::GATEWAY_TIMEOUT,
+                    Json(serde_json::json!({"error": "transcription_timeout"})),
+                ));
+            }
+        };
+
+    let transcription_ms = t_start.elapsed().as_millis() as u64;
+
+    // ── 8. Emit success telemetry ────────────────────────────────────────
+    state.observer.on_audio_ingress(&AudioIngressEvent {
+        channel: "gateway".to_string(),
+        outcome: AudioIngressOutcome::Admitted,
+        reason: None,
+        mime_type: Some(staged.mime_type.as_str().to_string()),
+        byte_len: Some(staged.byte_len),
+        duration_secs: staged.duration_secs,
+        transcription_duration_ms: Some(transcription_ms),
+    });
+
+    // ── 9. Cleanup staged temp file (best-effort; on all exit paths) ─────
+    staged.cleanup();
+
+    // ── 10. Build SSE event stream ───────────────────────────────────────
+    let event_payload = AudioTranscriptionEvent {
+        text: transcription_result.text,
+        language: transcription_result.language,
+        duration_secs: transcription_result.duration_secs,
+    };
+    let transcription_data = serde_json::to_string(&event_payload).unwrap_or_else(|e| {
+        tracing::error!("Failed to serialize AudioTranscriptionEvent: {e}");
+        serde_json::json!({"text": "", "language": null, "duration_secs": null}).to_string()
+    });
+    let message_id = Uuid::new_v4().to_string();
+
+    let events: Vec<Result<Event, std::convert::Infallible>> = vec![
+        Ok(Event::default()
+            .event("transcription")
+            .data(transcription_data)),
+        Ok(Event::default()
+            .event("done")
+            .data(serde_json::json!({"message_id": message_id}).to_string())),
+    ];
 
     Ok(Sse::new(futures::stream::iter(events)))
 }
@@ -2681,6 +2986,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -2723,6 +3030,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_metrics(State(state)).await.into_response();
@@ -3365,6 +3674,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_admin_get_config(State(state), HeaderMap::new())
@@ -3395,6 +3706,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -3435,6 +3748,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut pair_headers = HeaderMap::new();
@@ -3588,6 +3903,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -3635,6 +3952,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -3684,6 +4003,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let _approve = EnvVarGuard::set("CORVUS_UNIFIED_APPROVE", "1");
@@ -3723,6 +4044,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -3769,6 +4092,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -3828,6 +4153,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -3873,6 +4200,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -3907,6 +4236,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -3938,6 +4269,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -3970,6 +4303,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -4010,6 +4345,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -4068,6 +4405,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -4142,6 +4481,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -4219,6 +4560,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -4277,6 +4620,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_webhook(
@@ -4320,6 +4665,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_webhook(
@@ -4364,6 +4711,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -4436,6 +4785,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -4515,6 +4866,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -4584,6 +4937,8 @@ mod tests {
                 whatsapp_app_secret: None,
                 channel_runtime_handle: None,
                 observer: Arc::new(crate::observability::NoopObserver),
+                transcriber: None,
+                audio_config: crate::config::AudioConfig::default(),
             };
 
             let mut headers = HeaderMap::new();
@@ -4668,6 +5023,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_webhook(
@@ -4717,6 +5074,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -4763,6 +5122,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_webhook(
@@ -4804,6 +5165,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_webhook(
@@ -4844,6 +5207,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let (dispatcher_response, dispatcher_events) = {
@@ -4896,6 +5261,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let (legacy_response, legacy_events) = {
@@ -4957,6 +5324,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let (response, events) = capture_tracing_events(|| async {
@@ -5027,6 +5396,8 @@ mod tests {
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response_off = {
@@ -5070,6 +5441,8 @@ mod tests {
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response_on = {
@@ -5139,6 +5512,8 @@ mod tests {
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
             channel_runtime_handle: Some(crate::channels::ChannelRuntimeHandle::new(tx)),
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -5212,6 +5587,8 @@ mod tests {
             whatsapp_app_secret: Some(Arc::from("wa-secret")),
             channel_runtime_handle: Some(crate::channels::ChannelRuntimeHandle::new(tx)),
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -5255,6 +5632,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let headers = HeaderMap::new();
@@ -5315,6 +5694,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_webhook(
@@ -5388,6 +5769,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_webhook(
@@ -5428,6 +5811,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -5471,6 +5856,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let mut headers = HeaderMap::new();
@@ -5515,6 +5902,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
 
         let response = handle_webhook(
@@ -6012,5 +6401,365 @@ mod tests {
         assert!(!validate_runtime_kind("invalid"));
         assert!(!validate_runtime_kind(""));
         assert!(!validate_runtime_kind("kubernetes"));
+    }
+
+    // ── Audio ingress integration tests (T2.5) + serialization tests (T2.6) ──
+
+    /// Mock transcriber with a pre-configured success or error result.
+    struct MockTranscriber {
+        result: std::sync::Arc<
+            Result<
+                crate::transcription::traits::TranscriptionResult,
+                crate::channels::audio_media::AudioRejectionReason,
+            >,
+        >,
+    }
+
+    impl MockTranscriber {
+        fn ok(text: &str) -> Self {
+            Self {
+                result: std::sync::Arc::new(Ok(
+                    crate::transcription::traits::TranscriptionResult {
+                        text: text.to_string(),
+                        language: Some("es".to_string()),
+                        duration_secs: Some(1.0),
+                        confidence: Some(0.9),
+                        processing_ms: Some(80),
+                    },
+                )),
+            }
+        }
+
+        fn err(reason: crate::channels::audio_media::AudioRejectionReason) -> Self {
+            Self {
+                result: std::sync::Arc::new(Err(reason)),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl crate::transcription::traits::Transcriber for MockTranscriber {
+        fn name(&self) -> &str {
+            "mock"
+        }
+
+        async fn transcribe(
+            &self,
+            _audio: &crate::channels::audio_media::StagedAudio,
+        ) -> Result<
+            crate::transcription::traits::TranscriptionResult,
+            crate::channels::audio_media::AudioRejectionReason,
+        > {
+            (*self.result).clone()
+        }
+
+        async fn health_check(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    /// Build an AppState suitable for audio gateway tests.
+    fn audio_test_state(
+        enabled: bool,
+        allow_gateway: bool,
+        transcriber: Option<Arc<dyn crate::transcription::traits::Transcriber>>,
+    ) -> AppState {
+        let mut audio_cfg = crate::config::AudioConfig::default();
+        audio_cfg.enabled = enabled;
+        if allow_gateway {
+            audio_cfg.allowed_channels = vec!["gateway".to_string()];
+        }
+        AppState {
+            config: Arc::new(Mutex::new(Config::default())),
+            provider: Arc::new(MockProvider::default()),
+            model: "test".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(10_000, 10_000, 10_000)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber,
+            audio_config: audio_cfg,
+        }
+    }
+
+    /// Build the audio sub-router identical to the production wiring.
+    fn build_audio_router(state: AppState) -> Router {
+        Router::new()
+            .route("/web/chat/audio", post(handle_chat_audio))
+            .layer(DefaultBodyLimit::max(25 * 1024 * 1024))
+            .with_state(state)
+    }
+
+    /// Minimal valid WAV: RIFF magic + WAVE marker + fmt chunk, 0 data bytes.
+    fn minimal_wav() -> Vec<u8> {
+        let mut v: Vec<u8> = Vec::with_capacity(44);
+        v.extend_from_slice(b"RIFF");
+        v.extend_from_slice(&36u32.to_le_bytes()); // chunk size (header only)
+        v.extend_from_slice(b"WAVE");
+        v.extend_from_slice(b"fmt ");
+        v.extend_from_slice(&16u32.to_le_bytes()); // subchunk1 size = 16
+        v.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        v.extend_from_slice(&1u16.to_le_bytes()); // mono
+        v.extend_from_slice(&16000u32.to_le_bytes()); // 16 kHz
+        v.extend_from_slice(&32000u32.to_le_bytes()); // byte rate
+        v.extend_from_slice(&2u16.to_le_bytes()); // block align
+        v.extend_from_slice(&16u16.to_le_bytes()); // 16-bit
+        v.extend_from_slice(b"data");
+        v.extend_from_slice(&0u32.to_le_bytes()); // 0 audio samples
+        v
+    }
+
+    fn mp_single_audio(boundary: &str, data: &[u8], mime: &str) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        b.extend_from_slice(
+            b"Content-Disposition: form-data; name=\"audio\"; filename=\"a.wav\"\r\n",
+        );
+        b.extend_from_slice(format!("Content-Type: {mime}\r\n").as_bytes());
+        b.extend_from_slice(b"\r\n");
+        b.extend_from_slice(data);
+        b.extend_from_slice(b"\r\n");
+        b.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        b
+    }
+
+    fn mp_no_audio(boundary: &str) -> Vec<u8> {
+        let mut b = Vec::new();
+        b.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+        b.extend_from_slice(b"Content-Disposition: form-data; name=\"other\"\r\n");
+        b.extend_from_slice(b"\r\n");
+        b.extend_from_slice(b"value\r\n");
+        b.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        b
+    }
+
+    fn mp_double_audio(boundary: &str, data: &[u8]) -> Vec<u8> {
+        let mut b = Vec::new();
+        for _ in 0..2 {
+            b.extend_from_slice(format!("--{boundary}\r\n").as_bytes());
+            b.extend_from_slice(
+                b"Content-Disposition: form-data; name=\"audio\"; filename=\"a.wav\"\r\n",
+            );
+            b.extend_from_slice(b"Content-Type: audio/wav\r\n");
+            b.extend_from_slice(b"\r\n");
+            b.extend_from_slice(data);
+            b.extend_from_slice(b"\r\n");
+        }
+        b.extend_from_slice(format!("--{boundary}--\r\n").as_bytes());
+        b
+    }
+
+    /// Send a POST /web/chat/audio via oneshot and return the HTTP status.
+    async fn audio_status(router: Router, body: Vec<u8>, ct: &str) -> StatusCode {
+        use axum::extract::ConnectInfo;
+        use tower::ServiceExt;
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/audio")
+            .header("content-type", ct)
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(body))
+            .unwrap();
+
+        router.oneshot(req).await.unwrap().status()
+    }
+
+    // ── T2.5: Integration tests ────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn audio_disabled_returns_403() {
+        let s = audio_test_state(false, true, Some(Arc::new(MockTranscriber::ok("x"))));
+        let bnd = "b1";
+        let body = mp_single_audio(bnd, &minimal_wav(), "audio/wav");
+        let status = audio_status(
+            build_audio_router(s),
+            body,
+            &format!("multipart/form-data; boundary={bnd}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn audio_channel_not_allowed_returns_403() {
+        let s = audio_test_state(true, false, Some(Arc::new(MockTranscriber::ok("x"))));
+        let bnd = "b2";
+        let body = mp_single_audio(bnd, &minimal_wav(), "audio/wav");
+        let status = audio_status(
+            build_audio_router(s),
+            body,
+            &format!("multipart/form-data; boundary={bnd}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn audio_no_transcriber_returns_503() {
+        let s = audio_test_state(true, true, None);
+        let bnd = "b3";
+        let body = mp_single_audio(bnd, &minimal_wav(), "audio/wav");
+        let status = audio_status(
+            build_audio_router(s),
+            body,
+            &format!("multipart/form-data; boundary={bnd}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn audio_missing_field_returns_400() {
+        let s = audio_test_state(true, true, Some(Arc::new(MockTranscriber::ok("x"))));
+        let bnd = "b4";
+        let body = mp_no_audio(bnd);
+        let status = audio_status(
+            build_audio_router(s),
+            body,
+            &format!("multipart/form-data; boundary={bnd}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn audio_multiple_parts_returns_400() {
+        let s = audio_test_state(true, true, Some(Arc::new(MockTranscriber::ok("x"))));
+        let bnd = "b5";
+        let body = mp_double_audio(bnd, &minimal_wav());
+        let status = audio_status(
+            build_audio_router(s),
+            body,
+            &format!("multipart/form-data; boundary={bnd}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn audio_transcription_failed_returns_422() {
+        use crate::channels::audio_media::AudioRejectionReason;
+        let s = audio_test_state(
+            true,
+            true,
+            Some(Arc::new(MockTranscriber::err(
+                AudioRejectionReason::TranscriptionFailed,
+            ))),
+        );
+        let bnd = "b6";
+        let body = mp_single_audio(bnd, &minimal_wav(), "audio/wav");
+        let status = audio_status(
+            build_audio_router(s),
+            body,
+            &format!("multipart/form-data; boundary={bnd}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn audio_no_speech_detected_returns_422() {
+        use crate::channels::audio_media::AudioRejectionReason;
+        let s = audio_test_state(
+            true,
+            true,
+            Some(Arc::new(MockTranscriber::err(
+                AudioRejectionReason::NoSpeechDetected,
+            ))),
+        );
+        let bnd = "b7";
+        let body = mp_single_audio(bnd, &minimal_wav(), "audio/wav");
+        let status = audio_status(
+            build_audio_router(s),
+            body,
+            &format!("multipart/form-data; boundary={bnd}"),
+        )
+        .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    }
+
+    #[tokio::test]
+    async fn audio_success_sse_contains_transcription_and_done() {
+        use axum::extract::ConnectInfo;
+        use tower::ServiceExt;
+
+        let s = audio_test_state(
+            true,
+            true,
+            Some(Arc::new(MockTranscriber::ok("hello world"))),
+        );
+        let bnd = "b8";
+        let body_bytes = mp_single_audio(bnd, &minimal_wav(), "audio/wav");
+
+        let req = http::Request::builder()
+            .method("POST")
+            .uri("/web/chat/audio")
+            .header(
+                "content-type",
+                format!("multipart/form-data; boundary={bnd}"),
+            )
+            .extension(ConnectInfo(SocketAddr::from(([127, 0, 0, 1], 9999))))
+            .body(axum::body::Body::from(body_bytes))
+            .unwrap();
+
+        let resp = build_audio_router(s).oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let collected = resp.into_body().collect().await.unwrap();
+        let body_str = std::str::from_utf8(&collected.to_bytes())
+            .unwrap()
+            .to_owned();
+        assert!(
+            body_str.contains("transcription"),
+            "SSE body should contain transcription event; got: {body_str}"
+        );
+        assert!(
+            body_str.contains("hello world"),
+            "SSE body should contain transcribed text; got: {body_str}"
+        );
+        assert!(
+            body_str.contains("done"),
+            "SSE body should contain done event; got: {body_str}"
+        );
+    }
+
+    // ── T2.6: AudioTranscriptionEvent JSON serialization ──────────────────
+
+    #[test]
+    fn audio_transcription_event_all_fields_serialize() {
+        let ev = AudioTranscriptionEvent {
+            text: "hola".to_string(),
+            language: Some("es".to_string()),
+            duration_secs: Some(3.0),
+        };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(v["text"], "hola");
+        assert_eq!(v["language"], "es");
+        assert_eq!(v["duration_secs"], 3.0);
+    }
+
+    #[test]
+    fn audio_transcription_event_none_fields_are_null() {
+        let ev = AudioTranscriptionEvent {
+            text: "hi".to_string(),
+            language: None,
+            duration_secs: None,
+        };
+        let v = serde_json::to_value(&ev).unwrap();
+        assert_eq!(v["text"], "hi");
+        assert!(v["language"].is_null(), "language should serialize as null");
+        assert!(
+            v["duration_secs"].is_null(),
+            "duration_secs should serialize as null"
+        );
     }
 }

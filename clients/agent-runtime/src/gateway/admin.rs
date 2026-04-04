@@ -2400,6 +2400,8 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
         };
         (state, mem)
     }

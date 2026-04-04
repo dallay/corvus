@@ -283,6 +283,72 @@ impl AudioHistoryMeta {
     }
 }
 
+// ── stage_audio_from_bytes ────────────────────────────────────
+
+/// Validate, hash, and atomically stage raw audio bytes to a temp file.
+///
+/// Shared by every ingress channel (Telegram, gateway, CLI).  The caller
+/// supplies the channel-specific size/duration ceilings; this function owns
+/// the canonical validation order: empty → size → duration → MIME → SHA-256
+/// → temp-file write.
+pub async fn stage_audio_from_bytes(
+    bytes: &[u8],
+    channel_abbrev: &str,
+    declared_mime: Option<&str>,
+    declared_duration_secs: Option<u64>,
+    max_bytes: u64,
+    max_duration_secs: u64,
+    channel_origin: &str,
+) -> Result<StagedAudio, AudioRejectionReason> {
+    if bytes.is_empty() {
+        return Err(AudioRejectionReason::MimeRejected);
+    }
+    validate_audio_size(bytes.len() as u64, max_bytes)?;
+    if let Some(dur) = declared_duration_secs {
+        validate_audio_duration(dur, max_duration_secs)?;
+    }
+    let mime = validate_audio_mime(declared_mime, bytes)?;
+    use sha2::Digest;
+    let sha256 = {
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(bytes);
+        hex::encode(hasher.finalize())
+    };
+    let random_suffix: u64 = {
+        use std::collections::hash_map::RandomState;
+        use std::hash::{BuildHasher, Hasher};
+        let s = RandomState::new();
+        let mut h = s.build_hasher();
+        h.write(sha256.as_bytes());
+        h.finish()
+    };
+    let temp_path = std::env::temp_dir().join(format!(
+        "corvus-{channel_abbrev}-aud-{random_suffix:016x}.{}",
+        mime.file_extension()
+    ));
+    let file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&temp_path)
+        .map_err(|e| {
+            tracing::warn!("Failed to create temp file {}: {e}", temp_path.display());
+            AudioRejectionReason::FetchFailed
+        })?;
+    drop(file);
+    tokio::fs::write(&temp_path, bytes).await.map_err(|e| {
+        tracing::warn!("Failed to stage audio to {}: {e}", temp_path.display());
+        AudioRejectionReason::FetchFailed
+    })?;
+    Ok(StagedAudio {
+        sha256,
+        mime_type: mime,
+        byte_len: bytes.len() as u64,
+        duration_secs: declared_duration_secs.map(|d| d as f64),
+        temp_path,
+        channel_origin: channel_origin.to_string(),
+    })
+}
+
 // ── Tests ─────────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -770,5 +836,124 @@ mod tests {
         let after_label = ctx.split("Transcription: ").nth(1).unwrap();
         let transcription_part = after_label.trim_end_matches(']');
         assert_eq!(transcription_part.len(), 200);
+    }
+
+    // ── stage_audio_from_bytes (T1.5) ────────────────────────
+
+    fn ogg_payload() -> Vec<u8> {
+        let mut v = b"OggS\x00\x02\x00\x00\x00\x00\x00\x00".to_vec();
+        v.resize(128, 0u8);
+        v
+    }
+
+    fn mp3_payload() -> Vec<u8> {
+        let mut v = b"ID3\x04\x00\x00\x00\x00".to_vec();
+        v.resize(128, 0u8);
+        v
+    }
+
+    #[tokio::test]
+    async fn stage_audio_from_bytes_rejects_empty() {
+        let result =
+            stage_audio_from_bytes(&[], "tg", None, None, 1024 * 1024, 600, "telegram").await;
+        assert_eq!(result.unwrap_err(), AudioRejectionReason::MimeRejected);
+    }
+
+    #[tokio::test]
+    async fn stage_audio_from_bytes_rejects_oversized() {
+        let payload = ogg_payload();
+        let result = stage_audio_from_bytes(&payload, "tg", None, None, 10, 600, "telegram").await;
+        assert_eq!(result.unwrap_err(), AudioRejectionReason::Oversize);
+    }
+
+    #[tokio::test]
+    async fn stage_audio_from_bytes_rejects_long_duration() {
+        let payload = ogg_payload();
+        let result = stage_audio_from_bytes(
+            &payload,
+            "tg",
+            None,
+            Some(601),
+            1024 * 1024,
+            600,
+            "telegram",
+        )
+        .await;
+        assert_eq!(result.unwrap_err(), AudioRejectionReason::TooLong);
+    }
+
+    #[tokio::test]
+    async fn stage_audio_from_bytes_rejects_unknown_magic() {
+        let payload = vec![0x00u8; 64];
+        let result =
+            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram").await;
+        assert_eq!(result.unwrap_err(), AudioRejectionReason::MimeRejected);
+    }
+
+    #[tokio::test]
+    async fn stage_audio_from_bytes_accepts_ogg() {
+        let payload = ogg_payload();
+        let audio =
+            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
+                .await
+                .expect("should accept valid OGG");
+        assert_eq!(audio.mime_type, AllowedAudioMime::OggOpus);
+        assert_eq!(audio.byte_len, payload.len() as u64);
+        let _ = std::fs::remove_file(&audio.temp_path);
+    }
+
+    #[tokio::test]
+    async fn stage_audio_from_bytes_accepts_mp3_id3() {
+        let payload = mp3_payload();
+        let audio =
+            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
+                .await
+                .expect("should accept valid MP3 ID3");
+        assert_eq!(audio.mime_type, AllowedAudioMime::Mp3);
+        assert_eq!(audio.byte_len, payload.len() as u64);
+        let _ = std::fs::remove_file(&audio.temp_path);
+    }
+
+    #[tokio::test]
+    async fn stage_audio_from_bytes_writes_temp_file() {
+        let payload = ogg_payload();
+        let audio =
+            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
+                .await
+                .expect("should succeed");
+        assert!(
+            audio.temp_path.exists(),
+            "temp file must exist after staging"
+        );
+        let on_disk = std::fs::read(&audio.temp_path).expect("temp file must be readable");
+        assert_eq!(on_disk, payload);
+        let _ = std::fs::remove_file(&audio.temp_path);
+    }
+
+    #[tokio::test]
+    async fn stage_audio_from_bytes_sets_channel_origin() {
+        let payload = ogg_payload();
+        let audio = stage_audio_from_bytes(&payload, "gw", None, None, 1024 * 1024, 600, "gateway")
+            .await
+            .expect("should succeed");
+        assert_eq!(audio.channel_origin, "gateway");
+        let _ = std::fs::remove_file(&audio.temp_path);
+    }
+
+    #[tokio::test]
+    async fn stage_audio_from_bytes_sha256_is_correct() {
+        let payload = ogg_payload();
+        let audio =
+            stage_audio_from_bytes(&payload, "tg", None, None, 1024 * 1024, 600, "telegram")
+                .await
+                .expect("should succeed");
+        assert_eq!(audio.sha256.len(), 64);
+        assert!(audio.sha256.chars().all(|c| c.is_ascii_hexdigit()));
+        use sha2::Digest;
+        let mut hasher = sha2::Sha256::new();
+        hasher.update(&payload);
+        let expected = hex::encode(hasher.finalize());
+        assert_eq!(audio.sha256, expected);
+        let _ = std::fs::remove_file(&audio.temp_path);
     }
 }

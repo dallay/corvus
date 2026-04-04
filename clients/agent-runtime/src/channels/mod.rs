@@ -1378,6 +1378,11 @@ async fn stage_channel_audio(
                     )
                     .await?
             }
+            // "gateway" and "cli" handle audio entirely pre-pipeline (Option A
+            // architecture): they transcribe audio before injecting a plain-text
+            // ChannelMessage into the agent flow. Raw audio is never routed through
+            // this function for those channels.
+            "gateway" | "cli" => return Ok(Vec::new()),
             _ => return Ok(Vec::new()),
         };
 

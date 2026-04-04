@@ -14,6 +14,16 @@ use super::traits::{Transcriber, TranscriptionResult};
 /// Spawns the whisper CLI binary as an external process (zero Rust
 /// dependency impact). The concurrency semaphore prevents CPU overload
 /// from multiple simultaneous transcription processes.
+///
+/// # Cross-channel semaphore sharing
+///
+/// A single `WhisperCliTranscriber` instance is constructed at startup and
+/// shared across ALL audio-capable channels (Telegram, gateway, CLI) via
+/// `Arc<dyn Transcriber>`. Because every channel holds a clone of the same
+/// `Arc`, they all acquire permits from the **same** `semaphore` field,
+/// enforcing a unified `max_concurrent_transcriptions` budget regardless of
+/// which channel originates the audio. No additional synchronisation is
+/// required — `Arc` guarantees a single allocation shared by reference.
 pub struct WhisperCliTranscriber {
     binary_path: String,
     model_path: PathBuf,
