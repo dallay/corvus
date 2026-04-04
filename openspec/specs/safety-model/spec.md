@@ -18,7 +18,9 @@ used by `file_read`.
 
 Null bytes (`\0`) in any path component MUST be rejected.
 
-URL-encoded traversal sequences (`%2f`, `%2e`) MUST be rejected via `is_path_allowed`.
+`SecurityPolicy::is_path_allowed` MUST reject URL-encoded sequences that decode to path
+traversal (for example, encoded slashes like `%2f` combined with encoded or decoded `..`
+segments), rather than rejecting every literal `%2e` byte sequence.
 
 #### Scenario: Path traversal attempt is rejected
 
@@ -94,7 +96,7 @@ The `is_rate_limited()` check MUST run before any file I/O.
 
 Individual file reads within the search MUST NOT increment the action counter.
 
-#### Scenario: Rate limited invocation is rejected
+#### Scenario: Rate-limited invocation is rejected
 
 - GIVEN an agent that has exhausted its rate limit budget
 - WHEN `code_search` is invoked with any valid parameters
