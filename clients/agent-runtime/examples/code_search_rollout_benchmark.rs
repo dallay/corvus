@@ -34,17 +34,17 @@ impl QueryKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResultShape {
-    SmallHit,
-    LargeHit,
-    NoHit,
+    Small,
+    Large,
+    Miss,
 }
 
 impl ResultShape {
     fn as_str(self) -> &'static str {
         match self {
-            Self::SmallHit => "small-hit",
-            Self::LargeHit => "large-hit",
-            Self::NoHit => "no-hit",
+            Self::Small => "small-hit",
+            Self::Large => "large-hit",
+            Self::Miss => "no-hit",
         }
     }
 }
@@ -323,7 +323,7 @@ fn fixture_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "literal_small_hit",
             query_kind: QueryKind::Literal,
-            result_shape: ResultShape::SmallHit,
+            result_shape: ResultShape::Small,
             pattern: "fixture_small_literal_unique",
             path: "src",
             case_sensitive: true,
@@ -332,7 +332,7 @@ fn fixture_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "literal_large_hit",
             query_kind: QueryKind::Literal,
-            result_shape: ResultShape::LargeHit,
+            result_shape: ResultShape::Large,
             pattern: "fixture_large_literal_shared",
             path: "src",
             case_sensitive: true,
@@ -341,7 +341,7 @@ fn fixture_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "literal_no_hit",
             query_kind: QueryKind::Literal,
-            result_shape: ResultShape::NoHit,
+            result_shape: ResultShape::Miss,
             pattern: "fixture_literal_rollout_no_hit",
             path: "src",
             case_sensitive: true,
