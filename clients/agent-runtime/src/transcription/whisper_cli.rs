@@ -462,7 +462,11 @@ mod tests {
         fs::write(&model_path, b"fake-model").unwrap();
         let staged = make_test_staged_audio(dir.path());
 
-        let script_path = write_fake_whisper_script(&dir, "fake-whisper.sh", &format!(r#"#!/bin/sh
+        let script_path = write_fake_whisper_script(
+            &dir,
+            "fake-whisper.sh",
+            &format!(
+                r#"#!/bin/sh
 set -eu
 
 # Validate exact whisper-cli argument contract
@@ -475,7 +479,11 @@ if [ "$#" -ne 7 ] || [ "$1" != "-m" ] || [ "$2" != "{model}" ] || \
 fi
 
 printf 'Known mock transcription\n'
-"#, model = model_path.display(), file = staged.temp_path.display()));
+"#,
+                model = model_path.display(),
+                file = staged.temp_path.display()
+            ),
+        );
 
         let transcriber = WhisperCliTranscriber::new_for_tests(
             script_path.display().to_string(),
