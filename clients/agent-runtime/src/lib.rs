@@ -64,6 +64,7 @@ pub mod pre_execution;
 pub mod providers;
 pub mod rag;
 pub mod runtime;
+pub mod search;
 pub mod security;
 pub mod service;
 pub mod skills;

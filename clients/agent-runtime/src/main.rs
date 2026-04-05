@@ -64,6 +64,7 @@ mod peripherals;
 mod pre_execution;
 mod providers;
 mod runtime;
+mod search;
 mod security;
 mod service;
 mod skillforge;

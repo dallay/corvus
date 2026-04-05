@@ -1,15 +1,17 @@
 use super::traits::{Tool, ToolResult};
+use crate::search::discovery::{
+    discover_searchable_files, validate_search_root, DiscoveryRules as SearchDiscoveryRules,
+};
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
-use ignore::overrides::OverrideBuilder;
-use ignore::WalkBuilder;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
-use std::fs;
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+#[cfg(test)]
+use std::fs;
 
 const MAX_PATTERN_LENGTH: usize = 1000;
 const DEFAULT_MAX_RESULTS: usize = 100;
@@ -191,59 +193,16 @@ impl Tool for CodeSearchTool {
             ));
         }
 
-        let full_path = self.security.workspace_dir.join(&params.path);
-        let resolved_root = match fs::canonicalize(&full_path) {
-            Ok(path) => path,
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                return Ok(tool_error(format!(
-                    "Search path not found: {}",
-                    params.path
-                )));
-            }
-            Err(error) => {
-                return Ok(tool_error(format!(
-                    "Failed to resolve search path: {error}"
-                )));
-            }
-        };
-
-        if !self.security.is_resolved_path_allowed(&resolved_root) {
-            return Ok(tool_error(format!(
-                "Resolved path escapes workspace: {}",
-                resolved_root.display()
-            )));
-        }
-
-        let metadata = match fs::metadata(&resolved_root) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                return Ok(tool_error(format!(
-                    "Failed to read search path metadata: {error}"
-                )));
-            }
-        };
-
-        if !metadata.is_dir() {
-            return Ok(tool_error(format!(
-                "Search path is not a directory: {}",
-                params.path
-            )));
-        }
-
-        let workspace_root = self
-            .security
-            .workspace_dir
-            .canonicalize()
-            .unwrap_or_else(|_| self.security.workspace_dir.clone());
         let security = self.security.clone();
         let params_for_search = params.clone();
-        let search_root = resolved_root.clone();
+
+        if let Err(error) = validate_search_root(&self.security, &params.path) {
+            return Ok(tool_error(error.to_string()));
+        }
 
         let outcome = tokio::task::spawn_blocking(move || {
             search_workspace(
                 security,
-                workspace_root,
-                search_root,
                 params_for_search,
                 compiled_pattern,
                 DEFAULT_LIMITS,
@@ -413,8 +372,6 @@ fn build_pattern_string(params: &SearchParams) -> Result<String, String> {
 
 fn search_workspace(
     security: Arc<SecurityPolicy>,
-    workspace_root: PathBuf,
-    search_root: PathBuf,
     params: SearchParams,
     regex: Regex,
     limits: SearchLimits,
@@ -427,69 +384,33 @@ fn search_workspace(
     let mut warnings = Vec::new();
     let mut truncated = false;
 
-    let mut builder = WalkBuilder::new(&search_root);
-    builder.standard_filters(true);
-    builder.git_ignore(true);
-    builder.git_global(true);
-    builder.git_exclude(true);
-    builder.parents(true);
-    builder.follow_links(false);
-    builder.require_git(false);
+    let discovered = match discover_searchable_files(
+        &security,
+        &params.path,
+        &params.include,
+        &params.exclude,
+        SearchDiscoveryRules {
+            max_file_size_bytes: limits.max_file_size_bytes,
+            ..SearchDiscoveryRules::default()
+        },
+    ) {
+        Ok(discovered) => discovered,
+        Err(error) => {
+            return SearchOutcome {
+                matches: Vec::new(),
+                stats: SearchStats {
+                    files_searched: 0,
+                    files_matched: 0,
+                    total_matches: 0,
+                    truncated: false,
+                    duration_ms: 0,
+                },
+                warnings: vec![error.to_string()],
+            };
+        }
+    };
 
-    if !params.include.is_empty() || !params.exclude.is_empty() {
-        let mut overrides = OverrideBuilder::new(&search_root);
-        for include in &params.include {
-            if let Err(error) = overrides.add(include) {
-                return SearchOutcome {
-                    matches: Vec::new(),
-                    stats: SearchStats {
-                        files_searched: 0,
-                        files_matched: 0,
-                        total_matches: 0,
-                        truncated: false,
-                        duration_ms: 0,
-                    },
-                    warnings: vec![format!("Invalid include glob '{include}': {error}")],
-                };
-            }
-        }
-        for exclude in &params.exclude {
-            let exclude_pattern = format!("!{exclude}");
-            if let Err(error) = overrides.add(&exclude_pattern) {
-                return SearchOutcome {
-                    matches: Vec::new(),
-                    stats: SearchStats {
-                        files_searched: 0,
-                        files_matched: 0,
-                        total_matches: 0,
-                        truncated: false,
-                        duration_ms: 0,
-                    },
-                    warnings: vec![format!("Invalid exclude glob '{exclude}': {error}")],
-                };
-            }
-        }
-        match overrides.build() {
-            Ok(overrides) => {
-                builder.overrides(overrides);
-            }
-            Err(error) => {
-                return SearchOutcome {
-                    matches: Vec::new(),
-                    stats: SearchStats {
-                        files_searched: 0,
-                        files_matched: 0,
-                        total_matches: 0,
-                        truncated: false,
-                        duration_ms: 0,
-                    },
-                    warnings: vec![format!("Invalid search glob override: {error}")],
-                };
-            }
-        }
-    }
-
-    'walk: for entry in builder.build() {
+    'walk: for entry in discovered {
         if start.elapsed() >= limits.timeout {
             truncated = true;
             push_warning(
@@ -500,21 +421,6 @@ fn search_workspace(
                 ),
             );
             break;
-        }
-
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(error) => {
-                tracing::debug!(error = %error, "code_search skipped unreadable entry");
-                continue;
-            }
-        };
-
-        let Some(file_type) = entry.file_type() else {
-            continue;
-        };
-        if !file_type.is_file() {
-            continue;
         }
 
         if files_searched >= limits.max_files_scanned {
@@ -529,49 +435,11 @@ fn search_workspace(
             break;
         }
 
-        let entry_path = entry.into_path();
-        let resolved_path = match fs::canonicalize(&entry_path) {
-            Ok(path) => path,
-            Err(error) => {
-                tracing::debug!(path = %entry_path.display(), error = %error, "code_search skipped unresolved path");
-                continue;
-            }
-        };
-
-        if !security.is_resolved_path_allowed(&resolved_path) {
-            tracing::debug!(path = %resolved_path.display(), "code_search skipped path escaping workspace");
-            continue;
-        }
-
-        let metadata = match fs::metadata(&resolved_path) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                tracing::debug!(path = %resolved_path.display(), error = %error, "code_search skipped path with unreadable metadata");
-                continue;
-            }
-        };
-
         files_searched += 1;
 
-        if metadata.len() > limits.max_file_size_bytes {
-            continue;
-        }
-
-        let bytes = match fs::read(&resolved_path) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                tracing::debug!(path = %resolved_path.display(), error = %error, "code_search skipped unreadable file");
-                continue;
-            }
-        };
-
-        if is_binary_file(&bytes) {
-            continue;
-        }
-
-        let contents = String::from_utf8_lossy(&bytes);
+        let contents = String::from_utf8_lossy(&entry.bytes);
         let lines: Vec<&str> = contents.lines().collect();
-        let relative_file = relative_path_for_output(&workspace_root, &resolved_path);
+        let relative_file = entry.file.relative_path.clone();
         let mut file_match_count = 0usize;
         let mut matched_this_file = false;
 
@@ -628,19 +496,6 @@ fn search_workspace(
         },
         warnings,
     }
-}
-
-fn relative_path_for_output(workspace_root: &Path, resolved_path: &Path) -> String {
-    resolved_path
-        .strip_prefix(workspace_root)
-        .unwrap_or(resolved_path)
-        .to_string_lossy()
-        .replace('\\', "/")
-}
-
-fn is_binary_file(bytes: &[u8]) -> bool {
-    let sample_len = bytes.len().min(8 * 1024);
-    bytes[..sample_len].contains(&0)
 }
 
 fn collect_context(
@@ -1686,11 +1541,8 @@ mod tests {
         });
         let params = SearchParams::from_args(&json!({"pattern": "hello"})).unwrap();
         let regex = Regex::new(&build_pattern_string(&params).unwrap()).unwrap();
-        let workspace_root = security.workspace_dir.canonicalize().unwrap();
         let outcome = search_workspace(
             security,
-            workspace_root,
-            dir.path().canonicalize().unwrap(),
             params,
             regex,
             SearchLimits {
@@ -1718,11 +1570,8 @@ mod tests {
         });
         let params = SearchParams::from_args(&json!({"pattern": "hello"})).unwrap();
         let regex = Regex::new(&build_pattern_string(&params).unwrap()).unwrap();
-        let workspace_root = security.workspace_dir.canonicalize().unwrap();
         let outcome = search_workspace(
             security,
-            workspace_root,
-            dir.path().canonicalize().unwrap(),
             params,
             regex,
             SearchLimits {
