@@ -1,5 +1,5 @@
-@import "@corvus/shared/theme.css";
-@import "@corvus/shared/base.css";
+@import url("@corvus/shared/theme.css");
+@import url("@corvus/shared/base.css");
 
 :root {
   --surface: rgb(10 15 25 / 84%);
