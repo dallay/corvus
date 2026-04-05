@@ -1,6 +1,7 @@
 ---
 title: code_search
 summary: Rollout guidance, benchmark evidence, and current behavior for the native code_search tool.
+description: Benchmark-backed rollout guide for native code_search, including fallback behavior, limitations, and when to prefer it over shell search.
 owner: team-runtime
 status: canonical
 lastReviewed: 2026-04-05
