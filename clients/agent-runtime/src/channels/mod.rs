@@ -1139,7 +1139,7 @@ fn emit_audio_ingress(
         byte_len,
         duration_secs,
         transcription_duration_ms,
-        });
+    });
 }
 
 fn emit_audio_admission(

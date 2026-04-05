@@ -4,8 +4,8 @@ pub(crate) mod sqlite;
 pub(crate) mod trigram;
 
 // Public API re-exports
-pub use index::{LoadedIndex, RefreshAction, WorkspaceTrigramIndex};
 pub use discovery::{DiscoveredFile, DiscoveryRules};
+pub use index::{LoadedIndex, RefreshAction, WorkspaceTrigramIndex};
 
 #[cfg(test)]
 mod tests;
