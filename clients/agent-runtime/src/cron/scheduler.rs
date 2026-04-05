@@ -381,6 +381,13 @@ async fn run_job_command_with_timeout(
         );
     }
 
+    if let Some(path) = forbidden_path_argument(security, &job.command) {
+        return (
+            false,
+            format!("blocked by security policy: forbidden path argument: {path}"),
+        );
+    }
+
     if !security.is_command_allowed(&job.command) {
         return (
             false,
@@ -388,13 +395,6 @@ async fn run_job_command_with_timeout(
                 "blocked by security policy: command not allowed: {}",
                 job.command
             ),
-        );
-    }
-
-    if let Some(path) = forbidden_path_argument(security, &job.command) {
-        return (
-            false,
-            format!("blocked by security policy: forbidden path argument: {path}"),
         );
     }
 

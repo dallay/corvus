@@ -367,10 +367,6 @@ impl SecurityPolicy {
         command: &str,
         approved: bool,
     ) -> Result<CommandRiskLevel, String> {
-        if !self.is_command_allowed(command) {
-            return Err(format!("Command not allowed by security policy: {command}"));
-        }
-
         let risk = self.command_risk_level(command);
 
         if risk == CommandRiskLevel::High {
@@ -383,6 +379,10 @@ impl SecurityPolicy {
                         .into(),
                 );
             }
+        }
+
+        if !self.is_command_allowed(command) {
+            return Err(format!("Command not allowed by security policy: {command}"));
         }
 
         if risk == CommandRiskLevel::Medium
@@ -428,12 +428,6 @@ impl SecurityPolicy {
             || command.contains('<')
             || command.contains('>')
             || command.contains('\\')
-            || command.contains('*')
-            || command.contains('?')
-            || command.contains('[')
-            || command.contains(']')
-            || command.contains('{')
-            || command.contains('}')
             || self.contains_dangerous_commands(command)
             || contains_single_ampersand(command)
     }
@@ -474,6 +468,14 @@ impl SecurityPolicy {
             .allowed_commands
             .iter()
             .any(|allowed| allowed == base_raw)
+        {
+            return false;
+        }
+
+        if base_raw != "find"
+            && ['*', '?', '[', ']', '{', '}']
+                .iter()
+                .any(|ch| segment.contains(*ch))
         {
             return false;
         }
@@ -543,6 +545,11 @@ impl SecurityPolicy {
     pub fn is_path_allowed(&self, path: &str) -> bool {
         // Block null bytes (can truncate paths in C-backed syscalls)
         if path.contains('\0') {
+            return false;
+        }
+
+        // Block raw percent-encoding to avoid ambiguous/dangerous path forms.
+        if path.contains('%') {
             return false;
         }
 
