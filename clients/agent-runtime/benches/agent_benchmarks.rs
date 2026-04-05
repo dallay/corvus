@@ -1,3 +1,9 @@
+//! Criterion microbenchmarks for hot-loop `code_search` behavior.
+//!
+//! These benches are intentionally scoped to low-level timing only. For rollout evidence
+//! (shell baseline, no-index/cold-build/warm-index comparisons, parity checks, and docs-ready
+//! reporting), run `cargo run --example code_search_rollout_benchmark --manifest-path clients/agent-runtime/Cargo.toml`.
+
 use corvus::security::{AutonomyLevel, SecurityPolicy};
 use corvus::tools::traits::Tool;
 use corvus::tools::CodeSearchTool;

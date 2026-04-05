@@ -12,6 +12,21 @@ docType: reference
 
 Las herramientas core proporcionan la base para la autonomía del agente, permitiendo la interacción con el sistema operativo host y el espacio de trabajo local.
 
+## `code_search`
+
+Busca coincidencias literales o regex dentro del workspace y devuelve tanto salida legible para humanos como datos estructurados de coincidencias.
+
+- **Nivel de Seguridad:** Solo Lectura (Segura).
+- **Ejecución:** Herramienta nativa del runtime con reducción opcional de candidatos por índice para consultas literales y verificación obligatoria en vivo sobre el contenido actual.
+- **Limitación actual:** La corrección regex está soportada, pero la reducción de candidatos por índice **no** soporta regex en v1. El planning regex cae en fallback con `query_regex_not_supported` hacia discovery más live verification.
+- **Evidencia de rollout:** Consulta la página dedicada de [`code_search`](code-search.md) para resultados medidos shell-vs-native, etiquetas de fallback y guía de recomendación.
+
+### Parámetros
+
+Consulta la página dedicada de [`code_search`](code-search.md) para el contrato completo de parámetros, la metodología del benchmark y la guía de rollout.
+
+---
+
 ## `shell`
 
 Ejecuta un comando de shell arbitrario dentro del directorio del workspace.

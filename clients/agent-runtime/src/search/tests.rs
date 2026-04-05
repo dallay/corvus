@@ -683,6 +683,7 @@ fn candidate_planner_marks_regex_and_short_patterns_unavailable() {
         )
         .unwrap();
     assert_eq!(regex_plan.coverage, CandidateCoverage::Unavailable);
+    assert_eq!(regex_plan.reason, "query_regex_not_supported");
 
     let short_plan = index
         .plan_candidates(

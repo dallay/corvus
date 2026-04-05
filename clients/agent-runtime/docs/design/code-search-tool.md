@@ -18,6 +18,12 @@ workspace sandboxing. v1 uses brute-force directory walking via the `ignore` cra
 The tool returns both a human-readable grep-like `output` string and a machine-readable
 `structured` JSON payload, consistent with the `ToolResult` contract.
 
+> Implementation note (2026-04-05): the current runtime behavior is no longer purely brute-force.
+> Safe literal queries may use workspace trigram index narrowing when a compatible index exists,
+> while regex requests still fall back from planning with `query_regex_not_supported` to
+> discovery plus live verification. For rollout evidence and the canonical behavior summary, see
+> `docs/clients/agent-runtime/tools/code-search.md`.
+
 ## 1. Tool Schema (API Shape)
 
 Tool name: `code_search`
