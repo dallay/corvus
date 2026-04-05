@@ -1,6 +1,6 @@
 use crate::search::discovery::DiscoveredFile;
 use anyhow::Context;
-use rusqlite::{params, Connection, OptionalExtension, Transaction};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, Transaction};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -158,6 +158,77 @@ pub fn read_files(conn: &Connection) -> anyhow::Result<BTreeMap<String, Persiste
         files.insert(record.relative_path.clone(), record);
     }
     Ok(files)
+}
+
+pub fn read_candidate_paths(
+    conn: &Connection,
+    required_trigrams: &[[u8; 3]],
+    relative_root_prefix: Option<&str>,
+) -> anyhow::Result<Vec<String>> {
+    if required_trigrams.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let normalized_root = relative_root_prefix
+        .map(str::trim)
+        .filter(|root| !root.is_empty() && *root != ".")
+        .map(|root| root.trim_matches('/').to_string());
+
+    let mut sql = String::from(
+        "SELECT f.relative_path
+         FROM files f
+         JOIN trigram_postings p ON p.file_id = f.file_id
+         WHERE p.trigram IN (",
+    );
+    for index in 0..required_trigrams.len() {
+        if index > 0 {
+            sql.push_str(", ");
+        }
+        sql.push('?');
+    }
+    sql.push(')');
+    if normalized_root.is_some() {
+        sql.push_str(" AND (f.relative_path = ? OR f.relative_path LIKE ?)");
+    }
+    sql.push_str(
+        " GROUP BY f.file_id, f.relative_path
+          HAVING COUNT(DISTINCT p.trigram) = ?
+          ORDER BY f.relative_path ASC",
+    );
+
+    let mut params: Vec<rusqlite::types::Value> = required_trigrams
+        .iter()
+        .map(|trigram| rusqlite::types::Value::Blob(trigram.to_vec()))
+        .collect();
+    if let Some(root) = normalized_root {
+        params.push(rusqlite::types::Value::Text(root.clone()));
+        params.push(rusqlite::types::Value::Text(format!("{root}/%")));
+    }
+    params.push(rusqlite::types::Value::Integer(
+        i64::try_from(required_trigrams.len()).unwrap_or(i64::MAX),
+    ));
+
+    let mut stmt = conn
+        .prepare(&sql)
+        .context("failed to prepare candidate path query")?;
+    let rows = stmt
+        .query_map(params_from_iter(params.iter()), |row| {
+            row.get::<_, String>(0)
+        })
+        .context("failed to execute candidate path query")?;
+
+    let mut paths = Vec::new();
+    for row in rows {
+        paths.push(row.context("failed to decode candidate path row")?);
+    }
+    Ok(paths)
+}
+
+pub fn read_index_file_count(conn: &Connection) -> anyhow::Result<usize> {
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM files", [], |row| row.get(0))
+        .context("failed to count indexed files")?;
+    Ok(usize::try_from(count).unwrap_or(usize::MAX))
 }
 
 pub fn replace_file_tx(

@@ -7,7 +7,10 @@ pub(crate) mod trigram;
 #[allow(unused_imports)]
 pub use discovery::{DiscoveredFile, DiscoveryRules};
 #[allow(unused_imports)]
-pub use index::{LoadedIndex, RefreshAction, WorkspaceTrigramIndex};
+pub use index::{
+    CandidateCoverage, CandidatePlan, CandidateRequest, LoadedIndex, RefreshAction,
+    WorkspaceTrigramIndex,
+};
 
 #[cfg(test)]
 mod tests;
