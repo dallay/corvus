@@ -15,10 +15,10 @@ docType: guide
 
 ## Current verified behavior
 
-- Literal queries **may** use indexed candidate narrowing when a compatible workspace trigram index is available and fresh.
-- Regex queries are **supported for correctness and safety**, but indexed candidate narrowing does **not** support regex in v1.
-- When indexed planning cannot narrow candidates for regex, the planner returns `query_regex_not_supported` and execution is labeled as `fallback_discovery_live_verification`.
-- When no compatible index exists, the planner returns `index_unavailable` and execution is labeled `index_unavailable`.
+- Indexed planning is attempted only for queries eligible for workspace trigram index narrowing: compatible literal queries when a compatible, fresh trigram index exists.
+- Regex queries are **supported for correctness and safety**, but trigram index narrowing does **not** support regex in v1.
+- Regex planning returns `query_regex_not_supported` before index loading, and execution is labeled `fallback_discovery_live_verification` while continuing through discovery plus live verification.
+- `index_unavailable` applies only when an otherwise index-eligible literal query cannot find a compatible trigram index; those runs are labeled `index_unavailable` and continue through discovery plus live verification.
 - Final matches always come from live verification of current file contents. Indexed candidates are never treated as authoritative results by themselves.
 
 ## What this page is for
@@ -75,7 +75,7 @@ This rollout harness only makes recommendation claims for rows where parity pass
 #### Current repo snapshot
 
 - workspace kind: `repo_snapshot`
-- workspace root: `/Users/acosta/Dev/corvus`
+- workspace root: `<redacted>`
 - commit SHA: `82fa4896`
 - file count: `234763`
 - benchmarked at: `2026-04-05T19:47:11.665525+00:00`
@@ -159,13 +159,13 @@ The rollout runner records these six representative cases in both workspaces:
 
 ### SHOULD prefer native `code_search`
 
-Use native `code_search` for the measured regex cases and for fixture-scale searches where you want structured output plus verified parity.
+Prefer native `code_search` for measured regex runs when parity passes and execution stays in `native_no_index` or `native_warm_index` fallback mode. Do **not** extend this recommendation to `native_cold_build`, where the current measured repo-snapshot rows still favor shell because index construction dominates the run.
 
 Why:
 
-- every published row passed canonical parity,
-- regex rows are correctly labeled as fallback (`query_regex_not_supported` → discovery + live verification), not as regex-aware indexed narrowing,
-- even in the large repo snapshot, measured regex fallback rows were materially faster than the shell baseline in this local debug run.
+- every published recommendation row passed canonical parity,
+- the supported regex rows are explicitly labeled as fallback (`query_regex_not_supported` → discovery plus live verification), not as regex-aware trigram index narrowing,
+- the measured `native_no_index` and `native_warm_index` regex rows were materially faster than the shell baseline in this local debug run, while `native_cold_build` remained the exception.
 
 ### MAY prefer native `code_search`
 

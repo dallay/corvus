@@ -122,8 +122,8 @@ Benchmark runner
     ▼
 Recorded results table
     │
-    ├── docs/clients/agent-runtime/tools/code-search.md
-    └── docs/es/clients/agent-runtime/tools/code-search.md
+    ├── clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/code-search.md
+    └── clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/code-search.md
             │
             ▼
 Rollout guidance derived from measured evidence
@@ -281,12 +281,12 @@ tradeoffs explicit.
 | `clients/agent-runtime/examples/code_search_rollout_benchmark.rs` | Create | Dedicated rollout benchmark runner that prepares scenarios, executes shell/native states, records timings, labels plan mode, and checks parity. |
 | `clients/agent-runtime/benches/agent_benchmarks.rs` | Modify | Add a short note or companion entrypoint reference if needed so low-level microbenches and rollout benchmarks are clearly separated. |
 | `clients/agent-runtime/docs/design/code-search-tool.md` | Modify | Align the internal design doc with the implemented indexed-planning reality and point readers to the canonical rollout documentation for current behavior. |
-| `docs/clients/agent-runtime/tools/code-search.md` | Create | Canonical English documentation for current behavior, benchmark methodology, recorded results, rollout guidance, fallback reasons, and deferred optimizations. |
-| `docs/clients/agent-runtime/tools/core.md` | Modify | Add `code_search` to the core tools reference and link to the dedicated page. |
-| `docs/clients/agent-runtime/tools/index.mdx` | Modify | Link the dedicated `code_search` page from the tools index. |
-| `docs/es/clients/agent-runtime/tools/code-search.md` | Create | Spanish companion page with the same behavior limits, benchmark summary, rollout guidance, and deferred-work separation. |
-| `docs/es/clients/agent-runtime/tools/core.md` | Modify | Add the Spanish `code_search` reference and link to the dedicated page. |
-| `docs/es/clients/agent-runtime/tools/index.mdx` | Modify | Add the Spanish navigation link for the dedicated `code_search` page. |
+| `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/code-search.md` | Create | Canonical English documentation for current behavior, benchmark methodology, recorded results, rollout guidance, fallback reasons, and deferred optimizations. |
+| `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/core.md` | Modify | Add `code_search` to the core tools reference and link to the dedicated page. |
+| `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/index.mdx` | Modify | Link the dedicated `code_search` page from the tools index. |
+| `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/code-search.md` | Create | Spanish companion page with the same behavior limits, benchmark summary, rollout guidance, and deferred-work separation. |
+| `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/core.md` | Modify | Add the Spanish `code_search` reference and link to the dedicated page. |
+| `clients/web/apps/docs/src/content/docs/es/clients/agent-runtime/tools/index.mdx` | Modify | Add the Spanish navigation link for the dedicated `code_search` page. |
 
 ## Interfaces / Contracts
 

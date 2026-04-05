@@ -12,8 +12,11 @@
 Add a native `code_search` tool to the Corvus agent runtime that performs workspace-scoped text
 and regex search across source files. The tool follows the same `Tool` trait pattern as
 `file_read` and reuses the existing `SecurityPolicy` for path validation, rate limiting, and
-workspace sandboxing. v1 uses brute-force directory walking via the `ignore` crate (for
-`.gitignore` awareness) combined with the `regex` crate for pattern matching. No index is built.
+workspace sandboxing. v1 uses directory discovery via the `ignore` crate (for `.gitignore`
+awareness) combined with the `regex` crate for matching and live verification. Compatible literal
+queries may use workspace trigram index narrowing when a compatible index exists, while regex
+queries fall back from planning with `query_regex_not_supported` to discovery plus live
+verification.
 
 The tool returns both a human-readable grep-like `output` string and a machine-readable
 `structured` JSON payload, consistent with the `ToolResult` contract.
@@ -22,7 +25,7 @@ The tool returns both a human-readable grep-like `output` string and a machine-r
 > Safe literal queries may use workspace trigram index narrowing when a compatible index exists,
 > while regex requests still fall back from planning with `query_regex_not_supported` to
 > discovery plus live verification. For rollout evidence and the canonical behavior summary, see
-> `docs/clients/agent-runtime/tools/code-search.md`.
+> `clients/web/apps/docs/src/content/docs/clients/agent-runtime/tools/code-search.md`.
 
 ## 1. Tool Schema (API Shape)
 
@@ -486,47 +489,56 @@ with temp directories and `test_security()` / `test_security_with()` helpers.
 
 ## 7. Freshness Strategy
 
-v1 has no index, no cache, and no in-memory result store. Every `code_search` invocation walks
-the workspace directory from scratch and reads each file from disk at the moment of execution.
+v1 may use workspace trigram index narrowing for compatible literal queries, but final matches
+still come from live verification against current file contents. Regex queries do not use trigram
+index narrowing in v1: planning returns `query_regex_not_supported`, then execution continues via
+discovery plus live verification. When an otherwise index-eligible literal query has no compatible
+index available, planning reports `index_unavailable` and execution also continues via discovery
+plus live verification.
 
 ### Guarantee: reads reflect the latest writes
 
-Because there is no intermediate data store that could become stale, the agent can rely on the
-following read-after-write ordering for files that a later `code_search` is still allowed to scan:
+Because live verification is authoritative, the agent can rely on the following read-after-write
+ordering for files that a later `code_search` is still allowed to scan:
 
 1. `file_write` completes the write through the runtime's file tool path (without promising an
    explicit `fsync`).
-2. The next `code_search` invocation opens that same file from the OS filesystem.
-3. The match result reflects the content written in step 1.
+2. The next `code_search` invocation plans candidates (indexed trigram index narrowing for an
+   eligible literal query when available, or fallback planning for regex / index-unavailable
+   cases).
+3. Candidate files are read from the OS filesystem during discovery plus live verification.
+4. The match result reflects the content written in step 1.
 
 This guarantee is scoped to files that the subsequent `code_search` is allowed to scan (i.e.,
 within the invoked `path` and `include` filters, and not excluded by `exclude` patterns,
 `.gitignore` rules, binary detection, or resource limits). Binary detection, ignore rules, and
-resource limits can prevent the search from seeing the fresh write even under v1's "always read
-from disk" model. No warm-up, index rebuild, or explicit invalidation step is needed between a
-write and a subsequent search for files within the search scope.
+resource limits can prevent the search from seeing the fresh write even when live verification is
+working correctly. No manual warm-up step is needed between a write and a later search; the
+runtime either refreshes eligible trigram index narrowing state or falls back to discovery plus
+live verification.
 
 ### Implications for agent workflows
 
 - An agent that writes a file and immediately searches for a symbol it just added can expect
   `code_search` to observe that content when the file remains inside the requested
   `path`/`include` scope, is not ignored, is not detected as binary, and is not skipped by size or
-  other resource limits — there is no propagation delay for eligible files.
+  other resource limits — indexed trigram index narrowing is optional, but live verification stays
+  authoritative.
+- Regex searches keep the same freshness contract because `query_regex_not_supported` routes them
+  through discovery plus live verification instead of regex-aware narrowing.
 - Concurrent writes from other processes may or may not be visible depending on OS buffering,
   but this is outside the scope of the agent's execution model (agents are single-threaded in
   their tool-call loop).
 - The 30-second execution timeout is a per-invocation bound, not a freshness window.
 
-### Why v2 requires an explicit freshness strategy
+### Future freshness work
 
-If a future version adds a persistent trigram index (v2+), the index will become a second source
-of truth that can diverge from the filesystem. That version must define:
+Future search work may still need explicit freshness strategy for more advanced planner features,
+including:
 
-- **Write-through**: every `file_write` call triggers an index update for the affected file.
-- **Invalidation horizon**: maximum age a cached index entry may have before re-reading the file.
-- **Rebuild trigger**: conditions under which the full index is discarded and rebuilt.
-
-Until then, v1's "always read from disk" model is the simplest possible freshness guarantee.
+- regex-aware index narrowing,
+- case-insensitive or whole-word-aware narrowed plans,
+- additional cached planner state beyond the current trigram index narrowing flow.
 
 ## Migration / Rollout
 
@@ -540,20 +552,22 @@ No migration required. The tool is additive:
 
 ## v1 vs Future Scope
 
-### v1 (this design)
+### v1 (current runtime behavior)
 
-- Brute-force directory walk + regex/literal scan
-- `.gitignore`-aware via `ignore` crate
+- `.gitignore`-aware discovery via `ignore` crate
 - Structured results with context lines
+- Trigram index narrowing for compatible literal queries when a compatible index exists
+- Regex planning fallback via `query_regex_not_supported` to discovery plus live verification
 - All safety constraints defined above
 - Single-line matching only (pattern matches within one line)
 
 ### v2+ (future — explicitly NOT in v1)
 
-- Sparse n-gram index for sub-100ms searches on large repos
-- Probabilistic bloom/mask filters for fast rejection
+- Regex-aware index narrowing
+- Case-insensitive or whole-word-aware narrowed plans
+- Probabilistic bloom/mask filters for faster rejection
 - `mmap`-based file reading for reduced memory pressure
-- Incremental index updates on file watch events
+- Additional incremental planner/index optimizations beyond the current trigram index narrowing flow
 - Multi-line pattern matching (spanning line boundaries)
 - Search history / caching layer
 - AST-aware search (search by symbol kind: function, class, etc.)

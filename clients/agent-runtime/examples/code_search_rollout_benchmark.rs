@@ -161,7 +161,6 @@ struct WorkspaceReport {
 #[derive(Debug, Clone)]
 struct EnvironmentMetadata {
     workspace_label: String,
-    workspace_root: PathBuf,
     workspace_kind: &'static str,
     file_count: usize,
     os: String,
@@ -351,7 +350,7 @@ fn fixture_cases() -> Vec<BenchmarkCase> {
             id: "regex_small_hit",
             query_kind: QueryKind::Regex,
             result_shape: ResultShape::Small,
-            pattern: "fixture_regex_unique_target",
+            pattern: "fixture_regex_unique_.+",
             path: "src",
             case_sensitive: true,
             whole_word: false,
@@ -360,7 +359,7 @@ fn fixture_cases() -> Vec<BenchmarkCase> {
             id: "regex_large_hit",
             query_kind: QueryKind::Regex,
             result_shape: ResultShape::Large,
-            pattern: "fixture_regex_bulk_case_",
+            pattern: "fixture_regex_bulk_case_.+",
             path: "src",
             case_sensitive: true,
             whole_word: false,
@@ -369,7 +368,7 @@ fn fixture_cases() -> Vec<BenchmarkCase> {
             id: "regex_no_hit",
             query_kind: QueryKind::Regex,
             result_shape: ResultShape::Miss,
-            pattern: "fixture_regex_rollout_no_match_20260405",
+            pattern: "fixture_regex_rollout_no_match_.+",
             path: "src",
             case_sensitive: true,
             whole_word: false,
@@ -410,7 +409,7 @@ fn repo_cases() -> Vec<BenchmarkCase> {
             id: "regex_small_hit",
             query_kind: QueryKind::Regex,
             result_shape: ResultShape::Small,
-            pattern: "ToolResult",
+            pattern: "pub +struct +ToolResult",
             path: "clients/agent-runtime/src/tools",
             case_sensitive: true,
             whole_word: false,
@@ -419,7 +418,7 @@ fn repo_cases() -> Vec<BenchmarkCase> {
             id: "regex_large_hit",
             query_kind: QueryKind::Regex,
             result_shape: ResultShape::Large,
-            pattern: "output:",
+            pattern: "output( .+)? *:",
             path: "clients/agent-runtime/src/tools",
             case_sensitive: true,
             whole_word: false,
@@ -428,7 +427,7 @@ fn repo_cases() -> Vec<BenchmarkCase> {
             id: "regex_no_hit",
             query_kind: QueryKind::Regex,
             result_shape: ResultShape::Miss,
-            pattern: "code_search_rollout_regex_no_match_20260405",
+            pattern: "code_search_rollout_regex_no_match_.+",
             path: "clients/agent-runtime/src/tools",
             case_sensitive: true,
             whole_word: false,
@@ -1005,10 +1004,23 @@ fn percentile_ms(durations: &[Duration], percentile: usize) -> u64 {
     if durations.is_empty() {
         return 0;
     }
-    let mut values: Vec<u128> = durations.iter().map(Duration::as_millis).collect();
-    values.sort_unstable();
-    let index = ((values.len() - 1) * percentile) / 100;
-    u64::try_from(values[index]).unwrap_or(u64::MAX)
+    let mut values: Vec<f64> = durations
+        .iter()
+        .map(|duration| duration.as_millis() as f64)
+        .collect();
+    values.sort_by(|left, right| left.partial_cmp(right).unwrap_or(std::cmp::Ordering::Equal));
+
+    let rank = (percentile as f64 / 100.0) * (values.len().saturating_sub(1) as f64);
+    let lower_index = rank.floor() as usize;
+    let upper_index = rank.ceil() as usize;
+    let weight = rank - lower_index as f64;
+    let interpolated = if lower_index == upper_index {
+        values[lower_index]
+    } else {
+        values[lower_index] + (values[upper_index] - values[lower_index]) * weight
+    };
+
+    interpolated.round().clamp(0.0, u64::MAX as f64) as u64
 }
 
 fn clear_index_artifacts(index: &WorkspaceTrigramIndex) -> Result<()> {
@@ -1033,7 +1045,6 @@ fn clear_index_artifacts(index: &WorkspaceTrigramIndex) -> Result<()> {
 fn capture_environment_metadata(workspace: &WorkspaceContext) -> Result<EnvironmentMetadata> {
     Ok(EnvironmentMetadata {
         workspace_label: workspace.label.clone(),
-        workspace_root: workspace.root.clone(),
         workspace_kind: workspace.kind,
         file_count: count_files(&workspace.root)?,
         os: env::consts::OS.to_string(),
@@ -1113,10 +1124,7 @@ fn print_workspace_report(report: &WorkspaceReport) {
     );
     println!();
     println!("- workspace_kind: {}", report.metadata.workspace_kind);
-    println!(
-        "- workspace_root: {}",
-        report.metadata.workspace_root.display()
-    );
+    println!("- workspace_root: <redacted>");
     println!("- file_count: {}", report.metadata.file_count);
     println!("- os: {}", report.metadata.os);
     println!("- arch: {}", report.metadata.arch);
@@ -1225,6 +1233,19 @@ mod tests {
             build_grep_command(&case),
             "grep -R -n -H -E -i -w -e 'output:' -- 'src/lib' || true"
         );
+    }
+
+    #[test]
+    fn percentile_ms_interpolates_between_neighboring_samples() {
+        let durations = [
+            Duration::from_millis(10),
+            Duration::from_millis(20),
+            Duration::from_millis(30),
+            Duration::from_millis(40),
+        ];
+
+        assert_eq!(percentile_ms(&durations, 95), 39);
+        assert_eq!(percentile_ms(&durations, 50), 25);
     }
 
     #[test]

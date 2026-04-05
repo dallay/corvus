@@ -15,10 +15,10 @@ docType: guide
 
 ## Comportamiento verificado actual
 
-- Las consultas literales **pueden** usar reducción de candidatos por índice cuando existe un índice trigram compatible y fresco.
-- Las consultas regex están **soportadas para corrección y seguridad**, pero la reducción de candidatos por índice **no** soporta regex en v1.
-- Cuando el planner no puede reducir candidatos para regex, devuelve `query_regex_not_supported` y la ejecución se etiqueta como `fallback_discovery_live_verification`.
-- Cuando no existe un índice compatible, el planner devuelve `index_unavailable` y la ejecución se etiqueta como `index_unavailable`.
+- El planning indexado solo se intenta para consultas elegibles para reducción por índice trigram: consultas literales compatibles cuando existe un índice trigram compatible y fresco.
+- Las consultas regex están **soportadas para corrección y seguridad**, pero la reducción de candidatos trigram por índice **no** soporta regex en v1.
+- El planning regex devuelve `query_regex_not_supported` antes de cargar índice, y la ejecución se etiqueta como `fallback_discovery_live_verification` mientras continúa por discovery más live verification.
+- `index_unavailable` aplica solo cuando una consulta literal que sí sería elegible para índice no encuentra un índice trigram compatible; esas corridas se etiquetan como `index_unavailable` y continúan por discovery más live verification.
 - Las coincidencias finales siempre salen de la verificación en vivo del contenido actual. Los candidatos indexados por sí solos nunca son resultados autoritativos.
 
 ## Para qué sirve esta página
@@ -75,7 +75,7 @@ Este harness de rollout solo hace recomendaciones sobre filas donde la paridad p
 #### Snapshot actual del repo
 
 - tipo de workspace: `repo_snapshot`
-- raíz del workspace: `/Users/acosta/Dev/corvus`
+- raíz del workspace: `<redacted>`
 - commit SHA: `82fa4896`
 - cantidad de archivos: `234763`
 - fecha del benchmark: `2026-04-05T19:47:11.665525+00:00`
@@ -159,13 +159,13 @@ El runner de rollout registra estos seis casos representativos en ambos workspac
 
 ### SHOULD prefer native `code_search`
 
-Usa `code_search` nativo para los casos regex medidos y para búsquedas de tamaño fixture donde quieras salida estructurada con paridad verificada.
+Prefiere `code_search` nativo para corridas regex medidas cuando la paridad pasa y la ejecución se queda en fallback `native_no_index` o `native_warm_index`. No extiendas esta recomendación a `native_cold_build`, donde las filas medidas del snapshot del repo todavía favorecen a shell porque la construcción del índice domina la corrida.
 
 Por qué:
 
-- todas las filas publicadas pasaron la paridad canónica,
-- las filas regex están etiquetadas correctamente como fallback (`query_regex_not_supported` → discovery + live verification), no como reducción regex-aware por índice,
-- incluso en el snapshot grande del repo, las filas regex en fallback fueron materialmente más rápidas que el baseline de shell en esta corrida local en `debug`.
+- cada fila usada para recomendar pasó la paridad canónica,
+- las filas regex soportadas están etiquetadas explícitamente como fallback (`query_regex_not_supported` → discovery más live verification), no como reducción trigram regex-aware por índice,
+- en esta corrida local en `debug`, las filas regex de `native_no_index` y `native_warm_index` fueron materialmente más rápidas que el baseline de shell, mientras `native_cold_build` quedó como la excepción.
 
 ### MAY prefer native `code_search`
 

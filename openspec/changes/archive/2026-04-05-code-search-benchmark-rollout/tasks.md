@@ -21,5 +21,5 @@
 
 ## Phase 4: Final Verification
 
-- [x] 4.1 Run targeted Rust validation for the new runner and search coverage in `clients/agent-runtime` and fix any parity, planner-label, or example-test regressions before marking the change complete.
+- [x] 4.1 Run Rust validation for `clients/agent-runtime/**/*.rs` with `cargo fmt --all -- --check`, `cargo clippy --all-targets -- -D warnings`, and `cargo test`, or record an explicit skip rationale for any omitted check; fix any parity, planner-label, or example-test regressions before marking the change complete.
 - [x] 4.2 Review the English and Spanish docs against `openspec/changes/code-search-benchmark-rollout/specs/code-search-rollout/spec.md` and confirm they never imply indexed regex narrowing or blanket shell deprecation.

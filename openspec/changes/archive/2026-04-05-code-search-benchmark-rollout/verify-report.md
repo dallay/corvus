@@ -17,21 +17,25 @@ All tasks in `openspec/changes/code-search-benchmark-rollout/tasks.md` are marke
 
 ### Executed during verification
 
-1. `cargo test --manifest-path clients/agent-runtime/Cargo.toml --example code_search_rollout_benchmark`
+1. `cargo fmt --manifest-path clients/agent-runtime/Cargo.toml --all -- --check`
    - Result: ✅ passed
-   - Evidence: 6/6 example tests passed, including shell-command generation, plan-mode labeling, canonicalization, and fixture smoke parity.
+   - Evidence: formatting re-check completed successfully for `clients/agent-runtime/**/*.rs` during re-verification.
 
-2. `cargo test --manifest-path clients/agent-runtime/Cargo.toml candidate_planner_marks_regex_and_short_patterns_unavailable`
+2. `cargo clippy --manifest-path clients/agent-runtime/Cargo.toml --all-targets -- -D warnings`
    - Result: ✅ passed
-   - Evidence: targeted planner regression passed; verified `query_regex_not_supported` remains the planner reason for regex.
+   - Evidence: Clippy completed cleanly for `clients/agent-runtime/**/*.rs`, including the rollout benchmark example target after removing the leaked absolute-path output and fixing the percentile / regex benchmark findings.
 
-3. `cargo run --manifest-path clients/agent-runtime/Cargo.toml --example code_search_rollout_benchmark -- --workspace fixture --samples 1 --cold-build-samples 1`
+3. `cargo test --manifest-path clients/agent-runtime/Cargo.toml`
+   - Result: ✅ passed
+   - Evidence: full `clients/agent-runtime` test coverage passed, including the main lib test binaries (`3402` and `3429` passing tests) plus the rollout benchmark example tests.
+
+4. `cargo run --manifest-path clients/agent-runtime/Cargo.toml --example code_search_rollout_benchmark -- --workspace fixture --samples 1 --cold-build-samples 1`
    - Result: ✅ passed
    - Evidence: fixture benchmark executed end-to-end, emitted shell/native rows for literal and regex cases, and labeled regex rows as `fallback_discovery_live_verification` with `query_regex_not_supported`.
 
-4. `cargo fmt --manifest-path clients/agent-runtime/Cargo.toml --all -- --check`
+5. `node ../../../../scripts/validate-docs-metadata.mjs`
    - Result: ✅ passed
-   - Evidence: formatting re-check completed successfully during re-verification.
+   - Evidence: documentation metadata validation passed for the English and Spanish `code_search` rollout pages after the required frontmatter fixes.
 
 ### Not rerun during verification
 
