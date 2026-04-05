@@ -5,7 +5,7 @@
 
 ---
 
-### Completeness
+## Completeness
 
 | Metric | Value |
 |--------|-------|
@@ -21,7 +21,7 @@ All tasks in `tasks.md` are now marked complete. Task `4.4` correctly records th
 
 ---
 
-### Build & Tests Execution
+## Build & Tests Execution
 
 **Build / format / lint evidence**
 
@@ -57,7 +57,7 @@ Notes:
 
 ---
 
-### Spec Compliance Matrix
+## Spec Compliance Matrix
 
 | Requirement | Scenario | Test | Result |
 |-------------|----------|------|--------|
@@ -83,7 +83,7 @@ Notes:
 
 ---
 
-### Correctness (Static — Structural Evidence)
+## Correctness (Static — Structural Evidence)
 
 | Requirement | Status | Notes |
 |------------|--------|-------|
@@ -96,7 +96,7 @@ Notes:
 
 ---
 
-### Coherence (Design)
+## Coherence (Design)
 
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
@@ -110,7 +110,7 @@ Notes:
 
 ---
 
-### Issues Found
+## Issues Found
 
 **CRITICAL** (must fix before archive):
 
@@ -128,7 +128,7 @@ None
 
 ---
 
-### Verdict
+## Verdict
 
 PASS WITH WARNINGS
 

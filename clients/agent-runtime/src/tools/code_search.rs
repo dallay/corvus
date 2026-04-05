@@ -1,6 +1,7 @@
 use super::traits::{Tool, ToolResult};
 use crate::search::discovery::{
-    discover_searchable_files, validate_search_root, DiscoveryRules as SearchDiscoveryRules,
+    discover_searchable_files_with_stats, validate_search_root,
+    DiscoveryRules as SearchDiscoveryRules,
 };
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
@@ -384,7 +385,7 @@ fn search_workspace(
     let mut warnings = Vec::new();
     let mut truncated = false;
 
-    let discovered = match discover_searchable_files(
+    let discovered = match discover_searchable_files_with_stats(
         &security,
         &params.path,
         &params.include,
@@ -411,7 +412,18 @@ fn search_workspace(
         }
     };
 
-    'walk: for entry in discovered {
+    if discovered.hit_max_files {
+        truncated = true;
+        push_warning(
+            &mut warnings,
+            format!(
+                "Search stopped after visiting {} files. Narrow your search with 'path' or 'include' filters.",
+                discovered.visited_files
+            ),
+        );
+    }
+
+    'walk: for entry in discovered.files {
         if start.elapsed() >= limits.timeout {
             truncated = true;
             push_warning(
@@ -419,18 +431,6 @@ fn search_workspace(
                 format!(
                     "Search timed out after {}ms. Partial results returned.",
                     limits.timeout.as_millis()
-                ),
-            );
-            break;
-        }
-
-        if files_searched >= limits.max_files_scanned {
-            truncated = true;
-            push_warning(
-                &mut warnings,
-                format!(
-                    "Search stopped after {} files. Narrow your search with 'path' or 'include' filters.",
-                    limits.max_files_scanned
                 ),
             );
             break;

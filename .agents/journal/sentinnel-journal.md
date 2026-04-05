@@ -14,5 +14,5 @@
 **Action:**
 1. ✅ Implemented iterative URL decoding (3 levels) in `is_path_allowed` and block residual `%` and `\`.
 2. ✅ Enforced exact command matching in `is_segment_valid` to block `./cmd` bypasses.
-3. ✅ Validated all command arguments against path traversal and forbidden path rules.
+3. ✅ Validated path-like command arguments against path traversal and forbidden path rules.
 4. ✅ Expanded `contains_blocked_operators` to include backslash; glob chars blocked in `is_segment_valid`.

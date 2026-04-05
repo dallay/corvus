@@ -58,14 +58,18 @@ impl WorkspaceTrigramIndex {
 
     /// Ensure the workspace directory of this index matches the security policy's workspace.
     fn ensure_workspace_matches(&self, security: &SecurityPolicy) -> anyhow::Result<()> {
-        let index_workspace = self
-            .workspace_dir
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize index workspace dir '{}'", self.workspace_dir.display()))?;
-        let security_workspace = security
-            .workspace_dir
-            .canonicalize()
-            .with_context(|| format!("failed to canonicalize security workspace dir '{}'", security.workspace_dir.display()))?;
+        let index_workspace = self.workspace_dir.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize index workspace dir '{}'",
+                self.workspace_dir.display()
+            )
+        })?;
+        let security_workspace = security.workspace_dir.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize security workspace dir '{}'",
+                security.workspace_dir.display()
+            )
+        })?;
         anyhow::ensure!(
             index_workspace == security_workspace,
             "workspace mismatch: index expects '{}' but security policy uses '{}'",
@@ -76,6 +80,12 @@ impl WorkspaceTrigramIndex {
     }
 
     pub fn load(&self) -> anyhow::Result<LoadedIndex> {
+        if !self.db_path.exists() {
+            bail!(
+                "workspace trigram index is missing at '{}'; run refresh_or_rebuild first",
+                self.db_path.display()
+            );
+        }
         let conn = open_connection(&self.db_path)?;
         let decision = self.compatibility_decision(&conn)?;
         if decision.action == RefreshAction::Rebuild {
@@ -364,14 +374,12 @@ fn acquire_build_lock(state_dir: &Path) -> anyhow::Result<File> {
     })?;
 
     // Try to acquire exclusive lock with short timeout (matching SQLite busy_timeout)
-    lock_file
-        .try_lock_exclusive()
-        .with_context(|| {
-            format!(
-                "index build already in progress (lock held at '{}')",
-                lock_path.display()
-            )
-        })?;
+    lock_file.try_lock_exclusive().with_context(|| {
+        format!(
+            "index build already in progress (lock held at '{}')",
+            lock_path.display()
+        )
+    })?;
 
     Ok(lock_file)
 }
@@ -454,16 +462,43 @@ fn publish_index_db(temp_db_path: &Path, db_path: &Path) -> anyhow::Result<()> {
 
 #[cfg(windows)]
 fn publish_index_db(temp_db_path: &Path, db_path: &Path) -> anyhow::Result<()> {
-    if db_path.exists() {
-        fs::remove_file(db_path)
-            .with_context(|| format!("failed to remove previous index '{}'", db_path.display()))?;
+    let backup_path = db_path.with_extension("db.bak");
+
+    if backup_path.exists() {
+        let _ = fs::remove_file(&backup_path);
     }
-    fs::rename(temp_db_path, db_path).with_context(|| {
-        format!(
-            "failed to publish workspace trigram index from '{}' to '{}'",
-            temp_db_path.display(),
-            db_path.display()
-        )
-    })?;
+
+    if db_path.exists() {
+        fs::rename(db_path, &backup_path).with_context(|| {
+            format!(
+                "failed to move previous workspace trigram index '{}' to backup '{}'",
+                db_path.display(),
+                backup_path.display()
+            )
+        })?;
+    }
+
+    if let Err(error) = fs::rename(temp_db_path, db_path) {
+        if backup_path.exists() {
+            let _ = fs::rename(&backup_path, db_path);
+        }
+        return Err(error).with_context(|| {
+            format!(
+                "failed to publish workspace trigram index from '{}' to '{}'",
+                temp_db_path.display(),
+                db_path.display()
+            )
+        });
+    }
+
+    if backup_path.exists() {
+        fs::remove_file(&backup_path).with_context(|| {
+            format!(
+                "failed to remove workspace trigram backup '{}' after publish",
+                backup_path.display()
+            )
+        })?;
+    }
+
     Ok(())
 }

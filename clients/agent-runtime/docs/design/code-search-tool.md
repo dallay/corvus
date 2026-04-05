@@ -485,10 +485,11 @@ the workspace directory from scratch and reads each file from disk at the moment
 
 ### Guarantee: reads reflect the latest writes
 
-Because there is no intermediate data store that could become stale, the agent can always rely
-on the following ordering:
+Because there is no intermediate data store that could become stale, the agent can rely on the
+following read-after-write ordering for files that a later `code_search` is still allowed to scan:
 
-1. `file_write` completes and flushes the file to disk.
+1. `file_write` completes the write through the runtime's file tool path (without promising an
+   explicit `fsync`).
 2. The next `code_search` invocation opens that same file from the OS filesystem.
 3. The match result reflects the content written in step 1.
 
@@ -501,10 +502,10 @@ write and a subsequent search for files within the search scope.
 
 ### Implications for agent workflows
 
-- An agent that writes a file and immediately searches for a symbol it just added **will find
-  it** if the file falls within the `code_search` scope (matching `path`/`include` filters, not
-  ignored, not detected as binary, and within size limits) — there is no propagation delay for
-  eligible files.
+- An agent that writes a file and immediately searches for a symbol it just added can expect
+  `code_search` to observe that content when the file remains inside the requested
+  `path`/`include` scope, is not ignored, is not detected as binary, and is not skipped by size or
+  other resource limits — there is no propagation delay for eligible files.
 - Concurrent writes from other processes may or may not be visible depending on OS buffering,
   but this is outside the scope of the agent's execution model (agents are single-threaded in
   their tool-call loop).

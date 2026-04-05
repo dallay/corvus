@@ -467,25 +467,12 @@ mod tests {
             r#"#!/bin/sh
 set -eu
 
-# Validate expected whisper-cli argument contract
-has_model=false
-has_file=false
-has_lang=false
-has_no_timestamps=false
-
-while [ $# -gt 0 ]; do
-  case "$1" in
-    -m) has_model=true; shift 2 ;;
-    -f) has_file=true; shift 2 ;;
-    -l) has_lang=true; shift 2 ;;
-    --no-timestamps) has_no_timestamps=true; shift ;;
-    *) shift ;;
-  esac
-done
-
-if [ "$has_model" = "false" ] || [ "$has_file" = "false" ] || \
-   [ "$has_lang" = "false" ] || [ "$has_no_timestamps" = "false" ]; then
-  echo "ERROR: fake whisper script did not receive expected flags (-m, -f, -l, --no-timestamps)" >&2
+# Validate exact whisper-cli argument contract
+if [ "$#" -ne 7 ] || [ "$1" != "-m" ] || [ -z "$2" ] || \
+   [ "$3" != "-f" ] || [ -z "$4" ] || \
+   [ "$5" != "-l" ] || [ -z "$6" ] || \
+   [ "$7" != "--no-timestamps" ]; then
+  echo "ERROR: fake whisper script expected '-m <model> -f <file> -l <lang> --no-timestamps', got: $*" >&2
   exit 1
 fi
 

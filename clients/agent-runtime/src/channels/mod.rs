@@ -670,16 +670,7 @@ async fn process_channel_message(ctx: Arc<ChannelRuntimeContext>, mut msg: trait
 
         // Emit admitted event
         for (audio, tx) in audio_guard.0.iter().zip(transcriptions.iter()) {
-            emit_audio_ingress(
-                ctx.observer.as_ref(),
-                &msg.channel,
-                crate::observability::AudioIngressOutcome::Admitted,
-                None,
-                Some(audio.mime_type.as_str().to_string()),
-                Some(audio.byte_len),
-                audio.duration_secs,
-                tx.processing_ms,
-            );
+            emit_audio_admission(ctx.observer.as_ref(), &msg.channel, audio, tx);
         }
 
         // audio_guard drops at end of this block, cleaning up temp files
@@ -1148,7 +1139,25 @@ fn emit_audio_ingress(
         byte_len,
         duration_secs,
         transcription_duration_ms,
-    });
+        });
+}
+
+fn emit_audio_admission(
+    observer: &dyn Observer,
+    channel: &str,
+    audio: &audio_media::StagedAudio,
+    tx: &crate::transcription::traits::TranscriptionResult,
+) {
+    emit_audio_ingress(
+        observer,
+        channel,
+        crate::observability::AudioIngressOutcome::Admitted,
+        None,
+        Some(audio.mime_type.as_str().to_string()),
+        Some(audio.byte_len),
+        audio.duration_secs,
+        tx.processing_ms,
+    );
 }
 
 /// Map an `AudioRejectionReason` to a user-facing error message.
@@ -5561,18 +5570,8 @@ printf 'Known mock transcription\n'
             .await
             .expect("mock whisper should succeed");
 
-        // Emit audio admission events (mimicking the real pipeline path in process_channel_message)
         for (audio, tx) in guard.0.iter().zip(transcriptions.iter()) {
-            emit_audio_ingress(
-                runtime_ctx.observer.as_ref(),
-                &msg.channel,
-                crate::observability::AudioIngressOutcome::Admitted,
-                None,
-                Some(audio.mime_type.as_str().to_string()),
-                Some(audio.byte_len),
-                audio.duration_secs,
-                tx.processing_ms,
-            );
+            emit_audio_admission(runtime_ctx.observer.as_ref(), &msg.channel, audio, tx);
         }
 
         let history_metas = inject_transcription(&mut msg, &guard.0, &transcriptions);

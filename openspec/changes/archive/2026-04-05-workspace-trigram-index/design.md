@@ -450,7 +450,6 @@ The index MUST NOT expand filesystem reach beyond the current runtime policy.
 The following are explicitly deferred to keep the first index layer small and reversible:
 
 - Serving `code_search` queries from the trigram index
-- Incremental per-file refresh/update/delete
 - File watch mode or background rebuild daemons
 - Position storage for snippets/highlighting
 - Case-folded/normalized alternate trigram representations

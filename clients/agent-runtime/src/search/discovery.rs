@@ -41,6 +41,13 @@ pub struct DiscoveredFileContent {
     pub bytes: Vec<u8>,
 }
 
+#[derive(Debug, Clone)]
+pub struct DiscoveryResult {
+    pub files: Vec<DiscoveredFileContent>,
+    pub visited_files: usize,
+    pub hit_max_files: bool,
+}
+
 pub fn validate_search_root(
     security: &SecurityPolicy,
     relative_root: &str,
@@ -102,7 +109,9 @@ pub fn normalize_relative_path(
 pub fn is_index_artifact_path(relative_path: &str) -> bool {
     let normalized = relative_path.trim_start_matches("./").replace('\\', "/");
     normalized == "state/code-search/index.db"
+        || normalized == "state/code-search/.index-build.lock"
         || normalized.starts_with("state/code-search/index.db-")
+        || normalized.starts_with("state/code-search/.index-build.lock.")
         || normalized.starts_with("state/code-search/.index.db.tmp-")
 }
 
@@ -116,8 +125,7 @@ pub fn is_binary_file(bytes: &[u8]) -> bool {
         // UTF-16 LE/BE BOM
         return false;
     }
-    if bytes.starts_with(&[0xFF, 0xFE, 0x00, 0x00])
-        || bytes.starts_with(&[0x00, 0x00, 0xFE, 0xFF])
+    if bytes.starts_with(&[0xFF, 0xFE, 0x00, 0x00]) || bytes.starts_with(&[0x00, 0x00, 0xFE, 0xFF])
     {
         // UTF-32 LE/BE BOM
         return false;
@@ -135,6 +143,18 @@ pub fn discover_searchable_files(
     exclude: &[String],
     rules: DiscoveryRules,
 ) -> anyhow::Result<Vec<DiscoveredFileContent>> {
+    let result =
+        discover_searchable_files_with_stats(security, relative_root, include, exclude, rules)?;
+    Ok(result.files)
+}
+
+pub fn discover_searchable_files_with_stats(
+    security: &SecurityPolicy,
+    relative_root: &str,
+    include: &[String],
+    exclude: &[String],
+    rules: DiscoveryRules,
+) -> anyhow::Result<DiscoveryResult> {
     let (workspace_root, search_root) = validate_search_root(security, relative_root)?;
     let mut builder = WalkBuilder::new(&search_root);
     builder.standard_filters(true);
@@ -163,16 +183,10 @@ pub fn discover_searchable_files(
     }
 
     let mut discovered = Vec::new();
+    let mut visited_files = 0usize;
+    let mut hit_max_files = false;
 
     for entry in builder.build() {
-        // Enforce max_files limit to prevent unbounded materialization
-        if let Some(max_files) = rules.max_files {
-            if discovered.len() >= max_files {
-                tracing::debug!(max_files, "search discovery stopped at file limit");
-                break;
-            }
-        }
-
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
@@ -186,6 +200,19 @@ pub fn discover_searchable_files(
         };
         if !file_type.is_file() {
             continue;
+        }
+
+        visited_files += 1;
+        if let Some(max_files) = rules.max_files {
+            if visited_files > max_files {
+                hit_max_files = true;
+                tracing::debug!(
+                    max_files,
+                    visited_files,
+                    "search discovery stopped at file visit limit"
+                );
+                break;
+            }
         }
 
         let entry_path = entry.into_path();
@@ -259,7 +286,11 @@ pub fn discover_searchable_files(
     }
 
     discovered.sort_by(|left, right| left.file.relative_path.cmp(&right.file.relative_path));
-    Ok(discovered)
+    Ok(DiscoveryResult {
+        files: discovered,
+        visited_files,
+        hit_max_files,
+    })
 }
 
 pub fn discover_indexable_files(

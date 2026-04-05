@@ -480,7 +480,17 @@ impl SecurityPolicy {
             return false;
         }
 
-        let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
+        let normalized_args = match words
+            .map(normalize_arg_for_path_checks)
+            .collect::<Option<Vec<_>>>()
+        {
+            Some(args) => args,
+            None => return false,
+        };
+        let args: Vec<String> = normalized_args
+            .iter()
+            .map(|arg| arg.to_ascii_lowercase())
+            .collect();
 
         // Helper to identify tokens that likely represent paths
         fn is_likely_path(arg: &str) -> bool {
@@ -493,7 +503,7 @@ impl SecurityPolicy {
         // Ensure no argument is a forbidden path or a traversal attempt.
         // We only check arguments that look like paths to avoid false positives
         // on non-path tokens (e.g., git diff patterns, grep globs, brace literals).
-        for arg in &args {
+        for arg in &normalized_args {
             if !is_likely_path(arg) {
                 continue;
             }
@@ -689,6 +699,27 @@ fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+fn strip_matching_quotes(token: &str) -> &str {
+    if token.len() >= 2 {
+        let first = token.as_bytes()[0];
+        let last = token.as_bytes()[token.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return &token[1..token.len() - 1];
+        }
+    }
+    token
+}
+
+fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
+    let dequoted = strip_matching_quotes(token);
+    if dequoted.contains('$') || dequoted.starts_with('~') {
+        return shellexpand::full(dequoted)
+            .ok()
+            .map(|value| value.into_owned());
+    }
+    Some(dequoted.to_string())
 }
 
 /// Check whether `expanded` path starts with any of the forbidden paths.
