@@ -718,6 +718,10 @@ fn strip_matching_quotes(token: &str) -> &str {
 
 fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
     let dequoted = strip_matching_quotes(token);
+    if dequoted == "$HOME" || dequoted == "${HOME}" || dequoted == "$PATH" || dequoted == "${PATH}"
+    {
+        return Some(dequoted.to_string());
+    }
     if dequoted.contains('$') || dequoted.starts_with('~') {
         return shellexpand::full(dequoted)
             .ok()

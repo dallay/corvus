@@ -228,10 +228,13 @@ fn load_returns_existing_compatible_index() {
     index.build(test_security(&workspace)).unwrap();
     let loaded = index.load().unwrap();
 
-    assert_eq!(
-        loaded.db_path,
-        workspace.path().join("state/code-search/index.db")
-    );
+    let expected = workspace
+        .path()
+        .canonicalize()
+        .unwrap()
+        .join("state/code-search/index.db");
+
+    assert_eq!(loaded.db_path, expected);
 }
 
 #[test]
