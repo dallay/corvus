@@ -350,7 +350,7 @@ fn fixture_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "regex_small_hit",
             query_kind: QueryKind::Regex,
-            result_shape: ResultShape::SmallHit,
+            result_shape: ResultShape::Small,
             pattern: "fixture_regex_unique_target",
             path: "src",
             case_sensitive: true,
@@ -359,7 +359,7 @@ fn fixture_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "regex_large_hit",
             query_kind: QueryKind::Regex,
-            result_shape: ResultShape::LargeHit,
+            result_shape: ResultShape::Large,
             pattern: "fixture_regex_bulk_case_",
             path: "src",
             case_sensitive: true,
@@ -368,7 +368,7 @@ fn fixture_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "regex_no_hit",
             query_kind: QueryKind::Regex,
-            result_shape: ResultShape::NoHit,
+            result_shape: ResultShape::Miss,
             pattern: "fixture_regex_rollout_no_match_20260405",
             path: "src",
             case_sensitive: true,
