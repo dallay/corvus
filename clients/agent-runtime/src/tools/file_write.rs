@@ -1,7 +1,10 @@
 use super::traits::{Tool, ToolResult};
+use crate::search::discovery::normalize_relative_path;
+use crate::search::WorkspaceTrigramIndex;
 use crate::security::SecurityPolicy;
 use async_trait::async_trait;
 use serde_json::json;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 /// Write file contents with path sandboxing
@@ -156,12 +159,25 @@ impl Tool for FileWriteTool {
         }
 
         match tokio::fs::write(&resolved_target, content).await {
-            Ok(()) => Ok(ToolResult {
-                success: true,
-                output: format!("Written {} bytes to {path}", content.len()),
-                error: None,
-                structured: None,
-            }),
+            Ok(()) => {
+                if let Err(error) = sync_index_after_write(
+                    self.security.clone(),
+                    self.security.workspace_dir.clone(),
+                    resolved_target.clone(),
+                    path.to_string(),
+                )
+                .await
+                {
+                    tracing::debug!(path, error = %error, "file write index sync skipped after successful write");
+                }
+
+                Ok(ToolResult {
+                    success: true,
+                    output: format!("Written {} bytes to {path}", content.len()),
+                    error: None,
+                    structured: None,
+                })
+            }
             Err(e) => Ok(ToolResult {
                 success: false,
                 output: String::new(),
@@ -172,10 +188,39 @@ impl Tool for FileWriteTool {
     }
 }
 
+async fn sync_index_after_write(
+    security: Arc<SecurityPolicy>,
+    workspace_dir: PathBuf,
+    resolved_target: PathBuf,
+    requested_path: String,
+) -> anyhow::Result<()> {
+    let relative_path = match tokio::fs::canonicalize(&resolved_target).await {
+        Ok(canonical_target) => {
+            let workspace_root = tokio::fs::canonicalize(&workspace_dir)
+                .await
+                .unwrap_or(workspace_dir.clone());
+            normalize_relative_path(&workspace_root, &canonical_target)?
+        }
+        Err(_) => requested_path.trim_start_matches("./").replace('\\', "/"),
+    };
+
+    tokio::task::spawn_blocking(move || {
+        WorkspaceTrigramIndex::for_workspace(&workspace_dir)
+            .sync_written_path(&security, &relative_path)
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("index sync task failed: {error}"))??;
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::search::index::WorkspaceTrigramIndex;
     use crate::security::{AutonomyLevel, SecurityPolicy};
+    use crate::tools::code_search::CodeSearchTool;
+    use rusqlite::params;
 
     fn test_security(workspace: std::path::PathBuf) -> Arc<SecurityPolicy> {
         Arc::new(SecurityPolicy {
@@ -473,6 +518,69 @@ mod tests {
             .await
             .unwrap();
         assert!(!result.success, "paths with null bytes must be blocked");
+
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+    }
+
+    #[tokio::test]
+    async fn file_write_keeps_indexed_path_searchable_without_manual_rebuild() {
+        let dir = std::env::temp_dir().join("corvus_test_file_write_search_index_freshness");
+        let _ = tokio::fs::remove_dir_all(&dir).await;
+        tokio::fs::create_dir_all(&dir).await.unwrap();
+        let file_path = dir.join("main.rs");
+        tokio::fs::write(&file_path, "abcOLDxyz\n").await.unwrap();
+
+        let security = test_security(dir.clone());
+        WorkspaceTrigramIndex::for_workspace(&dir)
+            .build(security.clone())
+            .unwrap();
+
+        let write_tool = FileWriteTool::new(security.clone());
+        let write_result = write_tool
+            .execute(json!({"path": "main.rs", "content": "abcNEWxyz\n"}))
+            .await
+            .unwrap();
+        assert!(
+            write_result.success,
+            "unexpected error: {:?}",
+            write_result.error
+        );
+
+        let modified_unix_ms = i64::try_from(
+            std::fs::metadata(&file_path)
+                .unwrap()
+                .modified()
+                .unwrap()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+        let conn = rusqlite::Connection::open(dir.join("state/code-search/index.db")).unwrap();
+        conn.execute(
+            "UPDATE files SET size_bytes = ?1, modified_unix_ms = ?2 WHERE relative_path = 'main.rs'",
+            params![10_i64, modified_unix_ms],
+        )
+        .unwrap();
+        drop(conn);
+
+        let search_tool = CodeSearchTool::new(security);
+        let search_result = search_tool
+            .execute(json!({"pattern": "NEW"}))
+            .await
+            .unwrap();
+
+        assert!(
+            search_result.success,
+            "unexpected error: {:?}",
+            search_result.error
+        );
+        let matches = search_result.structured.unwrap()["matches"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["file"], "main.rs");
 
         let _ = tokio::fs::remove_dir_all(&dir).await;
     }

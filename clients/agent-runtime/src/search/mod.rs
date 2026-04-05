@@ -8,8 +8,8 @@ pub(crate) mod trigram;
 pub use discovery::{DiscoveredFile, DiscoveryRules};
 #[allow(unused_imports)]
 pub use index::{
-    CandidateCoverage, CandidatePlan, CandidateRequest, LoadedIndex, RefreshAction,
-    WorkspaceTrigramIndex,
+    CandidateCoverage, CandidatePlan, CandidateRequest, LoadedIndex, PathSyncOutcome,
+    RefreshAction, WorkspaceTrigramIndex,
 };
 
 #[cfg(test)]

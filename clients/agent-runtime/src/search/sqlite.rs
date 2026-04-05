@@ -134,30 +134,60 @@ pub fn write_metadata_tx(
 }
 
 pub fn read_files(conn: &Connection) -> anyhow::Result<BTreeMap<String, PersistedFileRecord>> {
-    let mut stmt = conn
-        .prepare(
-            "SELECT relative_path, size_bytes, modified_unix_ms, trigram_count, content_sha256
-             FROM files",
-        )
-        .context("failed to prepare files query")?;
-    let rows = stmt
-        .query_map([], |row| {
-            Ok(PersistedFileRecord {
-                relative_path: row.get(0)?,
-                size_bytes: row.get::<_, i64>(1)?.try_into().unwrap_or(u64::MAX),
-                modified_unix_ms: row.get(2)?,
-                trigram_count: row.get::<_, i64>(3)?.try_into().unwrap_or(u32::MAX),
-                content_sha256: row.get(4)?,
-            })
-        })
-        .context("failed to read file rows")?;
+    read_scoped_files(conn, None)
+}
 
+pub fn read_scoped_files(
+    conn: &Connection,
+    relative_root_prefix: Option<&str>,
+) -> anyhow::Result<BTreeMap<String, PersistedFileRecord>> {
+    let normalized_root = relative_root_prefix
+        .map(str::trim)
+        .filter(|root| !root.is_empty() && *root != ".")
+        .map(|root| root.trim_matches('/').to_string());
+
+    let sql = if normalized_root.is_some() {
+        "SELECT relative_path, size_bytes, modified_unix_ms, trigram_count, content_sha256
+         FROM files
+         WHERE relative_path = ?1 OR relative_path LIKE ?2"
+    } else {
+        "SELECT relative_path, size_bytes, modified_unix_ms, trigram_count, content_sha256
+         FROM files"
+    };
+    let mut stmt = conn.prepare(sql).context("failed to prepare files query")?;
     let mut files = BTreeMap::new();
-    for row in rows {
-        let record = row.context("failed to decode file row")?;
-        files.insert(record.relative_path.clone(), record);
+    if let Some(root) = normalized_root {
+        let rows = stmt
+            .query_map(
+                params![root, format!("{root}/%")],
+                map_persisted_file_record,
+            )
+            .context("failed to read file rows")?;
+        for row in rows {
+            let record = row.context("failed to decode file row")?;
+            files.insert(record.relative_path.clone(), record);
+        }
+    } else {
+        let rows = stmt
+            .query_map([], map_persisted_file_record)
+            .context("failed to read file rows")?;
+        for row in rows {
+            let record = row.context("failed to decode file row")?;
+            files.insert(record.relative_path.clone(), record);
+        }
     }
+
     Ok(files)
+}
+
+fn map_persisted_file_record(row: &rusqlite::Row<'_>) -> rusqlite::Result<PersistedFileRecord> {
+    Ok(PersistedFileRecord {
+        relative_path: row.get(0)?,
+        size_bytes: row.get::<_, i64>(1)?.try_into().unwrap_or(u64::MAX),
+        modified_unix_ms: row.get(2)?,
+        trigram_count: row.get::<_, i64>(3)?.try_into().unwrap_or(u32::MAX),
+        content_sha256: row.get(4)?,
+    })
 }
 
 pub fn read_candidate_paths(

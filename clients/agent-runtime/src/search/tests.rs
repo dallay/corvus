@@ -41,6 +41,28 @@ fn metadata_value(workspace: &TempDir, key: &str) -> String {
     .unwrap()
 }
 
+fn plan_for_literal(
+    index: &WorkspaceTrigramIndex,
+    security: &Arc<SecurityPolicy>,
+    pattern: &str,
+) -> super::index::CandidatePlan {
+    index
+        .plan_candidates(
+            security,
+            &CandidateRequest {
+                relative_root: ".".to_string(),
+                include: Vec::new(),
+                exclude: Vec::new(),
+                raw_pattern: pattern.to_string(),
+                is_regex: false,
+                case_sensitive: true,
+                whole_word: false,
+            },
+            DiscoveryRules::default().max_file_size_bytes,
+        )
+        .unwrap()
+}
+
 fn trigram_rows(workspace: &TempDir) -> Vec<(Vec<u8>, String, i64)> {
     let conn = Connection::open(workspace.path().join("state/code-search/index.db")).unwrap();
     let mut stmt = conn
@@ -534,6 +556,103 @@ fn candidate_planner_marks_stale_index_as_partial() {
             DiscoveryRules::default().max_file_size_bytes,
         )
         .unwrap();
+
+    assert_eq!(plan.coverage, CandidateCoverage::Partial);
+    assert!(plan.reason.contains("parity") || plan.reason.contains("stale"));
+}
+
+#[test]
+fn candidate_planner_marks_deleted_indexed_path_as_partial() {
+    let workspace = TempDir::new().unwrap();
+    std::fs::write(workspace.path().join("old.rs"), "needle\n").unwrap();
+    std::fs::write(workspace.path().join("keep.rs"), "other\n").unwrap();
+
+    let security = test_security(&workspace);
+    let index = WorkspaceTrigramIndex::for_workspace(workspace.path());
+    index.build(security.clone()).unwrap();
+    std::fs::remove_file(workspace.path().join("old.rs")).unwrap();
+
+    let plan = plan_for_literal(&index, &security, "needle");
+
+    assert_eq!(plan.coverage, CandidateCoverage::Partial);
+    assert!(plan.reason.contains("parity") || plan.reason.contains("stale"));
+}
+
+#[test]
+fn candidate_planner_marks_changed_indexed_content_as_partial() {
+    let workspace = TempDir::new().unwrap();
+    std::fs::write(
+        workspace.path().join("main.rs"),
+        "const VALUE: &str = \"needle\";\n",
+    )
+    .unwrap();
+
+    let security = test_security(&workspace);
+    let index = WorkspaceTrigramIndex::for_workspace(workspace.path());
+    index.build(security.clone()).unwrap();
+    std::fs::write(
+        workspace.path().join("main.rs"),
+        "const VALUE: &str = \"other\";\n",
+    )
+    .unwrap();
+
+    let plan = plan_for_literal(&index, &security, "needle");
+
+    assert_eq!(plan.coverage, CandidateCoverage::Partial);
+    assert!(plan.reason.contains("parity") || plan.reason.contains("stale"));
+}
+
+#[test]
+fn candidate_planner_marks_renamed_path_drift_as_partial() {
+    let workspace = TempDir::new().unwrap();
+    std::fs::write(workspace.path().join("legacy.rs"), "needle\n").unwrap();
+
+    let security = test_security(&workspace);
+    let index = WorkspaceTrigramIndex::for_workspace(workspace.path());
+    index.build(security.clone()).unwrap();
+    std::fs::rename(
+        workspace.path().join("legacy.rs"),
+        workspace.path().join("current.rs"),
+    )
+    .unwrap();
+
+    let plan = plan_for_literal(&index, &security, "needle");
+
+    assert_eq!(plan.coverage, CandidateCoverage::Partial);
+    assert!(plan.reason.contains("parity") || plan.reason.contains("stale"));
+}
+
+#[test]
+fn candidate_planner_uses_hash_guard_when_size_and_mtime_match() {
+    let workspace = TempDir::new().unwrap();
+    let file_path = workspace.path().join("main.rs");
+    std::fs::write(&file_path, "abcOLDxyz\n").unwrap();
+
+    let security = test_security(&workspace);
+    let index = WorkspaceTrigramIndex::for_workspace(workspace.path());
+    index.build(security.clone()).unwrap();
+
+    std::fs::write(&file_path, "abcNEWxyz\n").unwrap();
+    let modified_unix_ms = i64::try_from(
+        std::fs::metadata(&file_path)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis(),
+    )
+    .unwrap();
+
+    let conn = Connection::open(workspace.path().join("state/code-search/index.db")).unwrap();
+    conn.execute(
+        "UPDATE files SET size_bytes = ?1, modified_unix_ms = ?2 WHERE relative_path = 'main.rs'",
+        rusqlite::params![10_i64, modified_unix_ms],
+    )
+    .unwrap();
+    drop(conn);
+
+    let plan = plan_for_literal(&index, &security, "NEW");
 
     assert_eq!(plan.coverage, CandidateCoverage::Partial);
     assert!(plan.reason.contains("parity") || plan.reason.contains("stale"));

@@ -973,6 +973,7 @@ mod tests {
     use super::*;
     use crate::search::index::WorkspaceTrigramIndex;
     use crate::security::{AutonomyLevel, SecurityPolicy};
+    use rusqlite::params;
     use serde_json::json;
     use tempfile::TempDir;
 
@@ -1888,6 +1889,49 @@ mod tests {
             .as_array()
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn code_search_falls_back_when_indexed_entry_is_hash_stale() {
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("alpha.rs");
+        tokio::fs::write(&file_path, "abcOLDxyz\n").await.unwrap();
+
+        let security = test_security(&dir);
+        WorkspaceTrigramIndex::for_workspace(dir.path())
+            .build(security.clone())
+            .unwrap();
+
+        tokio::fs::write(&file_path, "abcNEWxyz\n").await.unwrap();
+        let modified_unix_ms = i64::try_from(
+            std::fs::metadata(&file_path)
+                .unwrap()
+                .modified()
+                .unwrap()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_millis(),
+        )
+        .unwrap();
+        let conn =
+            rusqlite::Connection::open(dir.path().join("state/code-search/index.db")).unwrap();
+        conn.execute(
+            "UPDATE files SET size_bytes = ?1, modified_unix_ms = ?2 WHERE relative_path = 'alpha.rs'",
+            params![10_i64, modified_unix_ms],
+        )
+        .unwrap();
+        drop(conn);
+
+        let tool = CodeSearchTool::new(security);
+        let result = tool.execute(json!({"pattern": "NEW"})).await.unwrap();
+
+        assert!(result.success, "unexpected error: {:?}", result.error);
+        let matches = result.structured.unwrap()["matches"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["file"], "alpha.rs");
     }
 
     #[tokio::test]
