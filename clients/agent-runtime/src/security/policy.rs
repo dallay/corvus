@@ -494,7 +494,7 @@ impl SecurityPolicy {
 
         // Helper to identify tokens that likely represent paths
         fn is_likely_path(arg: &str) -> bool {
-            arg.contains('/')
+            (arg.contains('/') && !arg.contains(':'))
                 || arg.starts_with('~')
                 || arg.starts_with('.')
                 || arg.contains(std::path::MAIN_SEPARATOR)
@@ -1753,7 +1753,7 @@ mod tests {
     fn is_path_allowed_blocks_dangerous_chars() {
         let p = default_policy();
         assert!(!p.is_path_allowed("file\\.txt"));
-        assert!(!p.is_path_allowed("file%20.txt")); // % is blocked
+        assert!(!p.is_path_allowed("..%2fetc%2fpasswd")); // encoded traversal is blocked
     }
 
     #[test]

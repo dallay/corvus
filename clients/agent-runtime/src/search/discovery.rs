@@ -202,9 +202,8 @@ pub fn discover_searchable_files_with_stats(
             continue;
         }
 
-        visited_files += 1;
         if let Some(max_files) = rules.max_files {
-            if visited_files > max_files {
+            if visited_files >= max_files {
                 hit_max_files = true;
                 tracing::debug!(
                     max_files,
@@ -214,6 +213,7 @@ pub fn discover_searchable_files_with_stats(
                 break;
             }
         }
+        visited_files += 1;
 
         let entry_path = entry.into_path();
         let resolved_path = match fs::canonicalize(&entry_path) {
