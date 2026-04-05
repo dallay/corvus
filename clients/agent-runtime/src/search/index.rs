@@ -43,8 +43,8 @@ pub enum RefreshAction {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceTrigramIndex {
-    pub workspace_dir: PathBuf,
-    pub db_path: PathBuf,
+    workspace_dir: PathBuf,
+    db_path: PathBuf,
 }
 
 impl WorkspaceTrigramIndex {
@@ -53,6 +53,14 @@ impl WorkspaceTrigramIndex {
             workspace_dir: workspace_dir.to_path_buf(),
             db_path: workspace_dir.join("state/code-search/index.db"),
         }
+    }
+
+    pub fn workspace_dir(&self) -> &Path {
+        &self.workspace_dir
+    }
+
+    pub fn db_path(&self) -> &Path {
+        &self.db_path
     }
 
     /// Ensure the workspace directory of this index matches the security policy's workspace.
@@ -78,14 +86,42 @@ impl WorkspaceTrigramIndex {
         Ok(())
     }
 
+    fn checked_state_paths(&self) -> anyhow::Result<CheckedStatePaths> {
+        let workspace_root = self.workspace_dir.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize workspace root '{}'",
+                self.workspace_dir.display()
+            )
+        })?;
+
+        let state_root = workspace_root.join("state");
+        let state_dir = state_root.join("code-search");
+        let db_path = state_dir.join("index.db");
+
+        reject_if_symlink(&state_root, "state root")?;
+        reject_if_symlink(&state_dir, "code search state dir")?;
+        reject_if_symlink(&db_path, "index db")?;
+
+        anyhow::ensure!(state_root.starts_with(&workspace_root));
+        anyhow::ensure!(state_dir.starts_with(&workspace_root));
+        anyhow::ensure!(db_path.starts_with(&workspace_root));
+
+        Ok(CheckedStatePaths {
+            workspace_root,
+            state_dir,
+            db_path,
+        })
+    }
+
     pub fn load(&self) -> anyhow::Result<LoadedIndex> {
-        if !self.db_path.exists() {
+        let checked = self.checked_state_paths()?;
+        if !checked.db_path.exists() {
             bail!(
                 "workspace trigram index is missing at '{}'; run refresh_or_rebuild first",
-                self.db_path.display()
+                checked.db_path.display()
             );
         }
-        let conn = open_connection(&self.db_path)?;
+        let conn = open_connection(&checked.db_path)?;
         let decision = self.compatibility_decision(&conn)?;
         if decision.action == RefreshAction::Rebuild {
             bail!(
@@ -94,41 +130,43 @@ impl WorkspaceTrigramIndex {
             );
         }
         Ok(LoadedIndex {
-            db_path: self.db_path.clone(),
+            db_path: checked.db_path,
         })
     }
 
     pub fn build(&self, security: Arc<SecurityPolicy>) -> anyhow::Result<IndexBuildReport> {
         self.ensure_workspace_matches(&security)?;
 
-        let state_dir = self
-            .db_path
-            .parent()
-            .context("workspace trigram index path has no parent directory")?;
-        fs::create_dir_all(state_dir).with_context(|| {
+        let checked = self.checked_state_paths()?;
+        fs::create_dir_all(&checked.state_dir).with_context(|| {
             format!(
                 "failed to create index state directory '{}'",
-                state_dir.display()
+                checked.state_dir.display()
             )
         })?;
 
         // Acquire exclusive build lock before expensive work
-        let _lock = acquire_build_lock(state_dir)?;
+        let _lock = acquire_build_lock(&checked.state_dir)?;
 
-        self.build_locked(&security)
+        self.build_locked(&security, &checked)
     }
 
-    fn build_locked(&self, security: &SecurityPolicy) -> anyhow::Result<IndexBuildReport> {
-        let discovered = discover_indexable_files(security, DiscoveryRules::default())?;
+    fn build_locked(
+        &self,
+        security: &SecurityPolicy,
+        checked: &CheckedStatePaths,
+    ) -> anyhow::Result<IndexBuildReport> {
+        let discovered = discover_indexable_files(
+            security,
+            DiscoveryRules {
+                use_workspace_local_ignores_only: true,
+                ..DiscoveryRules::default()
+            },
+        )?;
         let built_at = Utc::now().to_rfc3339();
-        let workspace_fingerprint = workspace_fingerprint(&self.workspace_dir)?;
+        let workspace_fingerprint = workspace_fingerprint(&checked.workspace_root)?;
 
-        let state_dir = self
-            .db_path
-            .parent()
-            .context("workspace trigram index path has no parent directory")?;
-
-        let temp_db_path = create_temp_db_path(state_dir);
+        let temp_db_path = create_temp_db_path(&checked.state_dir);
         let build_result = self.build_into_path(
             &temp_db_path,
             &discovered,
@@ -144,7 +182,7 @@ impl WorkspaceTrigramIndex {
             }
         };
 
-        publish_index_db(&temp_db_path, &self.db_path)?;
+        publish_index_db(&temp_db_path, &checked.db_path)?;
 
         Ok(build_report)
     }
@@ -155,45 +193,48 @@ impl WorkspaceTrigramIndex {
     ) -> anyhow::Result<IndexBuildReport> {
         self.ensure_workspace_matches(&security)?;
 
-        let state_dir = self
-            .db_path
-            .parent()
-            .context("workspace trigram index path has no parent directory")?;
-        fs::create_dir_all(state_dir).with_context(|| {
+        let checked = self.checked_state_paths()?;
+        fs::create_dir_all(&checked.state_dir).with_context(|| {
             format!(
                 "failed to create index state directory '{}'",
-                state_dir.display()
+                checked.state_dir.display()
             )
         })?;
 
         // Acquire exclusive build lock before any work
-        let _lock = acquire_build_lock(state_dir)?;
+        let _lock = acquire_build_lock(&checked.state_dir)?;
 
-        if !self.db_path.exists() {
-            return self.build_locked(&security);
+        if !checked.db_path.exists() {
+            return self.build_locked(&security, &checked);
         }
 
-        let conn = match open_connection(&self.db_path) {
+        let conn = match open_connection(&checked.db_path) {
             Ok(conn) => conn,
-            Err(_) => return self.build_locked(&security),
+            Err(_) => return self.build_locked(&security, &checked),
         };
 
         let decision = match self.compatibility_decision(&conn) {
             Ok(decision) => decision,
             Err(_) => {
                 drop(conn);
-                return self.build_locked(&security);
+                return self.build_locked(&security, &checked);
             }
         };
 
         if decision.action == RefreshAction::Rebuild {
             drop(conn);
-            return self.build_locked(&security);
+            return self.build_locked(&security, &checked);
         }
 
         let metadata = read_metadata(&conn)?;
         let existing_files = read_files(&conn)?;
-        let discovered = discover_indexable_files(&security, DiscoveryRules::default())?;
+        let discovered = discover_indexable_files(
+            &security,
+            DiscoveryRules {
+                use_workspace_local_ignores_only: true,
+                ..DiscoveryRules::default()
+            },
+        )?;
         let current_rows = prepare_current_rows(&discovered)?;
 
         let removed_paths: Vec<_> = existing_files
@@ -226,7 +267,7 @@ impl WorkspaceTrigramIndex {
 
         let built_at = Utc::now().to_rfc3339();
         let mut next_metadata =
-            build_metadata(&workspace_fingerprint(&self.workspace_dir)?, &built_at);
+            build_metadata(&workspace_fingerprint(&checked.workspace_root)?, &built_at);
         next_metadata.insert("build_state".to_string(), BUILD_STATE_READY.to_string());
 
         let tx = conn
@@ -333,7 +374,8 @@ impl WorkspaceTrigramIndex {
             reasons.push("build state is not ready".to_string());
         }
 
-        let expected_fingerprint = workspace_fingerprint(&self.workspace_dir)?;
+        let checked = self.checked_state_paths()?;
+        let expected_fingerprint = workspace_fingerprint(&checked.workspace_root)?;
         if metadata.get("workspace_fingerprint").map(String::as_str)
             != Some(expected_fingerprint.as_str())
         {
@@ -361,10 +403,30 @@ struct CurrentRow {
     trigrams: BTreeMap<[u8; 3], u32>,
 }
 
+#[derive(Debug, Clone)]
+struct CheckedStatePaths {
+    workspace_root: PathBuf,
+    state_dir: PathBuf,
+    db_path: PathBuf,
+}
+
+fn reject_if_symlink(path: &Path, label: &str) -> anyhow::Result<()> {
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        anyhow::ensure!(
+            !metadata.file_type().is_symlink(),
+            "{} '{}' must not be a symlink",
+            label,
+            path.display()
+        );
+    }
+    Ok(())
+}
+
 /// Acquire an exclusive workspace-wide lock for index building.
 /// Returns the lock file handle which must be kept alive until the build completes.
 fn acquire_build_lock(state_dir: &Path) -> anyhow::Result<File> {
     let lock_path = state_dir.join(".index-build.lock");
+    reject_if_symlink(&lock_path, "index build lock")?;
     let lock_file = File::create(&lock_path).with_context(|| {
         format!(
             "failed to create index build lock file at '{}'",

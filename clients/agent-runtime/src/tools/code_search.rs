@@ -93,6 +93,7 @@ struct SearchOutcome {
     matches: Vec<SearchMatch>,
     stats: SearchStats,
     warnings: Vec<String>,
+    fatal_error: Option<String>,
 }
 
 #[async_trait]
@@ -408,6 +409,7 @@ fn search_workspace(
                     duration_ms: 0,
                 },
                 warnings: vec![error.to_string()],
+                fatal_error: Some(error.to_string()),
             };
         }
     };
@@ -496,6 +498,7 @@ fn search_workspace(
             duration_ms: u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX),
         },
         warnings,
+        fatal_error: None,
     }
 }
 
@@ -550,6 +553,21 @@ fn build_result(
     params: &SearchParams,
     max_output_bytes: usize,
 ) -> ToolResult {
+    if let Some(error) = outcome.fatal_error {
+        return ToolResult {
+            success: false,
+            output: outcome.warnings.join("\n"),
+            error: Some(error.clone()),
+            structured: Some(json!({
+                "error": {
+                    "message": error,
+                    "warnings": outcome.warnings,
+                },
+                "stats": outcome.stats,
+            })),
+        };
+    }
+
     if let Some(glob_warning) = outcome.warnings.iter().find(|warning| {
         warning.starts_with("Invalid include glob")
             || warning.starts_with("Invalid exclude glob")

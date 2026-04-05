@@ -3,6 +3,7 @@ use anyhow::{bail, Context};
 use ignore::overrides::OverrideBuilder;
 use ignore::WalkBuilder;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
@@ -14,6 +15,7 @@ pub struct DiscoveryRules {
     pub follow_links: bool,
     pub include_hidden: bool,
     pub max_files: Option<usize>,
+    pub use_workspace_local_ignores_only: bool,
 }
 
 impl Default for DiscoveryRules {
@@ -23,6 +25,7 @@ impl Default for DiscoveryRules {
             follow_links: false,
             include_hidden: false,
             max_files: None,
+            use_workspace_local_ignores_only: false,
         }
     }
 }
@@ -159,9 +162,9 @@ pub fn discover_searchable_files_with_stats(
     let mut builder = WalkBuilder::new(&search_root);
     builder.standard_filters(true);
     builder.git_ignore(true);
-    builder.git_global(true);
-    builder.git_exclude(true);
-    builder.parents(true);
+    builder.git_global(!rules.use_workspace_local_ignores_only);
+    builder.git_exclude(!rules.use_workspace_local_ignores_only);
+    builder.parents(!rules.use_workspace_local_ignores_only);
     builder.follow_links(rules.follow_links);
     builder.hidden(!rules.include_hidden);
     builder.require_git(false);
@@ -229,18 +232,6 @@ pub fn discover_searchable_files_with_stats(
             continue;
         }
 
-        let metadata = match fs::metadata(&resolved_path) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable metadata");
-                continue;
-            }
-        };
-
-        if !metadata.is_file() || metadata.len() > rules.max_file_size_bytes {
-            continue;
-        }
-
         let relative_path = match normalize_relative_path(&workspace_root, &resolved_path) {
             Ok(relative_path) => relative_path,
             Err(error) => {
@@ -253,13 +244,31 @@ pub fn discover_searchable_files_with_stats(
             continue;
         }
 
-        let bytes = match fs::read(&resolved_path) {
-            Ok(bytes) => bytes,
+        let mut file = match fs::OpenOptions::new().read(true).open(&resolved_path) {
+            Ok(file) => file,
             Err(error) => {
                 tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable file");
                 continue;
             }
         };
+
+        let metadata = match file.metadata() {
+            Ok(metadata) => metadata,
+            Err(error) => {
+                tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable metadata");
+                continue;
+            }
+        };
+
+        if !metadata.is_file() || metadata.len() > rules.max_file_size_bytes {
+            continue;
+        }
+
+        let mut bytes = Vec::with_capacity(metadata.len().try_into().unwrap_or(0));
+        if let Err(error) = file.read_to_end(&mut bytes) {
+            tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable file contents");
+            continue;
+        }
 
         if is_binary_file(&bytes) {
             continue;
@@ -297,7 +306,16 @@ pub fn discover_indexable_files(
     security: &SecurityPolicy,
     rules: DiscoveryRules,
 ) -> anyhow::Result<Vec<DiscoveredFileContent>> {
-    let discovered = discover_searchable_files(security, ".", &[], &[], rules)?;
+    let discovered = discover_searchable_files(
+        security,
+        ".",
+        &[],
+        &[],
+        DiscoveryRules {
+            use_workspace_local_ignores_only: true,
+            ..rules
+        },
+    )?;
     Ok(discovered
         .into_iter()
         .filter(|entry| std::str::from_utf8(&entry.bytes).is_ok())

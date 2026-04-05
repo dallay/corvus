@@ -1155,7 +1155,7 @@ fn emit_audio_admission(
         None,
         Some(audio.mime_type.as_str().to_string()),
         Some(audio.byte_len),
-        audio.duration_secs,
+        tx.duration_secs.or(audio.duration_secs),
         tx.processing_ms,
     );
 }

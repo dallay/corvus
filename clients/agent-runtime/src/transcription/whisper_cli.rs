@@ -460,25 +460,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let model_path = dir.path().join("ggml-base.bin");
         fs::write(&model_path, b"fake-model").unwrap();
+        let staged = make_test_staged_audio(dir.path());
 
-        let script_path = write_fake_whisper_script(
-            &dir,
-            "fake-whisper.sh",
-            r#"#!/bin/sh
+        let script_path = write_fake_whisper_script(&dir, "fake-whisper.sh", &format!(r#"#!/bin/sh
 set -eu
 
 # Validate exact whisper-cli argument contract
-if [ "$#" -ne 7 ] || [ "$1" != "-m" ] || [ -z "$2" ] || \
-   [ "$3" != "-f" ] || [ -z "$4" ] || \
-   [ "$5" != "-l" ] || [ -z "$6" ] || \
+if [ "$#" -ne 7 ] || [ "$1" != "-m" ] || [ "$2" != "{model}" ] || \
+   [ "$3" != "-f" ] || [ "$4" != "{file}" ] || \
+   [ "$5" != "-l" ] || [ "$6" != "es" ] || \
    [ "$7" != "--no-timestamps" ]; then
-  echo "ERROR: fake whisper script expected '-m <model> -f <file> -l <lang> --no-timestamps', got: $*" >&2
+  echo "ERROR: fake whisper script expected '-m {model} -f {file} -l es --no-timestamps', got: $*" >&2
   exit 1
 fi
 
 printf 'Known mock transcription\n'
-"#,
-        );
+"#, model = model_path.display(), file = staged.temp_path.display()));
 
         let transcriber = WhisperCliTranscriber::new_for_tests(
             script_path.display().to_string(),
@@ -487,7 +484,6 @@ printf 'Known mock transcription\n'
             5,
             1,
         );
-        let staged = make_test_staged_audio(dir.path());
 
         let result = transcriber.transcribe(&staged).await.unwrap();
 

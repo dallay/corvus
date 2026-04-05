@@ -505,16 +505,14 @@ impl SecurityPolicy {
         // Ensure no argument is a forbidden path or a traversal attempt.
         // We only check arguments that look like paths to avoid false positives
         // on non-path tokens (e.g., git diff patterns, grep globs, brace literals).
-        for (raw_arg, arg) in raw_args.iter().zip(normalized_args.iter()) {
-            if raw_arg.starts_with('$') {
-                continue;
-            }
-
+        for (_raw_arg, arg) in raw_args.iter().zip(normalized_args.iter()) {
             if !is_likely_path(arg) {
                 continue;
             }
 
-            if arg.contains("..")
+            if Path::new(arg)
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
                 || (self.workspace_only && (arg.starts_with('/') || arg.starts_with('~')))
             {
                 return false;
@@ -1260,6 +1258,19 @@ mod tests {
         assert!(p.is_command_allowed("find . -name '*.txt'"));
         assert!(p.is_command_allowed("git status"));
         assert!(p.is_command_allowed("git add ."));
+    }
+
+    #[test]
+    fn command_argument_env_paths_still_respect_forbidden_and_workspace_rules() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("cat $HOME/foo"));
+        assert!(!p.is_command_allowed("cat ${HOME}/foo"));
+    }
+
+    #[test]
+    fn command_argument_path_checks_allow_double_dot_in_filename() {
+        let p = default_policy();
+        assert!(p.is_command_allowed("cat my..file.rs"));
     }
 
     #[test]
