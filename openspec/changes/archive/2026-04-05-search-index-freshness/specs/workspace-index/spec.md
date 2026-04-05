@@ -1,53 +1,6 @@
-# Workspace Index Specification
+# Delta for Workspace Index
 
-## Purpose
-
-Defines the first-version persistent workspace corpus index for `clients/agent-runtime`, including
-the SQLite-backed storage contract, compatibility metadata, and build/load/refresh/rebuild
-behavior for a deterministic trigram index.
-
-## Requirements
-
-### Requirement: REQ-WIDX-001 SQLite Index Logical Contract
-
-The system MUST persist the workspace trigram index in SQLite as a logical contract with enough
-structure to recover corpus membership and trigram data without re-scanning the full workspace on
-every load.
-
-The persisted index MUST contain behaviorally distinct records for:
-
-- index metadata,
-- corpus file entries keyed by workspace-relative path,
-- trigram data associated with indexed files,
-- build lifecycle state sufficient to distinguish complete indexes from interrupted ones.
-
-The contract MAY evolve internally, but a compatible index MUST preserve these logical record types
-and their meanings.
-
-#### Scenario: Initial build persists required logical record types
-
-- GIVEN a workspace with indexable text files
-- WHEN the workspace trigram index is built for the first time
-- THEN the SQLite database MUST contain metadata describing the index build
-- AND it MUST contain corpus file entries keyed by workspace-relative path
-- AND it MUST contain trigram data for the admitted files
-- AND it MUST record that the build completed successfully
-
-### Requirement: REQ-WIDX-002 Workspace-Relative File Identity
-
-Every persisted corpus entry MUST use a workspace-relative file path as its stable identity.
-
-Absolute workspace paths MUST NOT be stored as file identities in corpus-entry records, trigram
-records, or externally visible index metadata. The index MAY retain non-file metadata needed to
-identify the owning workspace, but stored file entries themselves MUST remain relative.
-
-#### Scenario: Persisted file entries are stored as relative paths only
-
-- GIVEN a workspace rooted at `/workspace`
-- AND a file `/workspace/src/main.rs` is admitted to the corpus
-- WHEN the workspace trigram index is persisted
-- THEN the stored file identity MUST be `src/main.rs`
-- AND `/workspace/src/main.rs` MUST NOT be stored as the file identity in index rows
+## MODIFIED Requirements
 
 ### Requirement: REQ-WIDX-003 Compatibility and Freshness Metadata
 
@@ -72,15 +25,6 @@ Known v1 limits MUST be documented: freshness is path-based rather than watcher-
 handling is modeled as delete plus add, and timestamp values alone are insufficient to prove that a
 file is unchanged.
 
-#### Scenario: Compatible metadata allows existing index load
-
-- GIVEN an existing SQLite index whose format version is supported
-- AND the index metadata identifies the current workspace
-- AND the previous build state is complete
-- WHEN the runtime opens the workspace trigram index
-- THEN the runtime MUST treat the on-disk index as loadable
-- AND it MUST proceed to freshness checks instead of forcing a full rebuild immediately
-
 #### Scenario: Freshness metadata records the v1 trust signals
 
 - GIVEN a completed workspace index for the active workspace
@@ -96,21 +40,6 @@ file is unchanged.
 - WHEN the runtime evaluates whether persisted corpus entries remain fresh
 - THEN it MAY use git-derived information as a diagnostic signal
 - BUT it MUST NOT trust persisted entries solely because git state appears unchanged
-
-### Requirement: REQ-WIDX-004 Initial Build Behavior
-
-When no compatible completed index exists for the active workspace, the runtime MUST perform an
-initial build from the discovered workspace corpus.
-
-An initial build MUST populate metadata, corpus entries, and trigram data within a lifecycle that
-can later be recognized as complete or incomplete.
-
-#### Scenario: Missing index triggers first build
-
-- GIVEN a workspace with no existing trigram index database
-- WHEN the runtime requests the workspace trigram index
-- THEN the runtime MUST build a new SQLite-backed index from the admitted corpus
-- AND the resulting index MUST be marked complete only after build success
 
 ### Requirement: REQ-WIDX-005 Compatible Load and Refresh Behavior
 
@@ -189,42 +118,6 @@ indexed file after the rename.
 - AND it MUST treat `src/current.rs` as newly added content to refresh or index
 - AND it MUST NOT require explicit rename tracking to stay correct
 
-### Requirement: REQ-WIDX-007 Forced Rebuild on Incompatible or Incomplete State
-
-The runtime MUST force a full rebuild instead of trusting an existing index when the persisted state
-is incompatible or incomplete.
-
-A full rebuild MUST be triggered when at least one of the following is true:
-
-- the stored index format version is unsupported,
-- the stored workspace identity does not match the active workspace,
-- the stored build lifecycle state is incomplete or interrupted.
-
-During a forced rebuild, previously persisted corpus and trigram data from the incompatible or
-incomplete index MUST NOT be treated as authoritative.
-
-#### Scenario: Version mismatch forces rebuild
-
-- GIVEN an existing SQLite index whose stored format version is not supported by the runtime
-- WHEN the runtime opens the workspace trigram index
-- THEN the runtime MUST discard that index as incompatible
-- AND it MUST rebuild the index from the current admitted workspace corpus
-
-#### Scenario: Workspace mismatch forces rebuild
-
-- GIVEN an existing SQLite index file copied from a different workspace
-- WHEN the runtime opens the workspace trigram index for the current workspace
-- THEN the runtime MUST detect the workspace mismatch from persisted metadata
-- AND it MUST perform a full rebuild for the current workspace instead of loading foreign entries
-
-#### Scenario: Incomplete prior build forces rebuild
-
-- GIVEN an existing SQLite index whose persisted lifecycle state indicates an interrupted or
-  incomplete build
-- WHEN the runtime opens the workspace trigram index
-- THEN the runtime MUST treat that index as unusable
-- AND it MUST perform a full rebuild before the index is considered available
-
 ### Requirement: REQ-WIDX-008 Verification Coverage
 
 The workspace trigram index MUST have automated verification that proves build, load, refresh,
@@ -269,46 +162,7 @@ At minimum, automated tests MUST cover:
   complete coverage
 - AND they MUST prove successful agent writes and safe fallback or refresh behavior for stale paths
 
-### Requirement: REQ-WIDX-009 Indexed Candidate Files Are Advisory and Deterministic
-
-The system MUST use the local workspace trigram index only to derive workspace-relative candidate
-files for `code_search`.
-
-Indexed candidate extraction MUST NOT create externally visible matches on its own. It MUST return
-candidate file identities in deterministic workspace-relative path order so downstream verification
-can preserve stable processing.
-
-#### Scenario: Index returns advisory candidate files only
-
-- GIVEN a compatible workspace trigram index
-- AND a search request whose pattern can safely produce required trigrams
-- WHEN the system derives candidate files from the index
-- THEN it MUST return only workspace-relative file identities as candidate inputs
-- AND it MUST NOT treat any indexed candidate as a reported match before live file-content
-  verification occurs
-
-#### Scenario: Candidate files are ordered deterministically
-
-- GIVEN a compatible workspace trigram index containing candidate files `src/z.rs`, `src/a.rs`, and
-  `src/m.rs`
-- WHEN the system derives candidate files for the same request on repeated runs
-- THEN the candidate file list MUST be returned in the order `src/a.rs`, `src/m.rs`, `src/z.rs`
-- AND that ordering MUST remain stable across repeated runs on unchanged workspace contents
-
-### Requirement: REQ-WIDX-010 Candidate Extraction Must Signal When It Cannot Safely Narrow Search
-
-The index query surface MUST report when candidate extraction cannot safely narrow the verification
-set for the active request.
-
-When the active request cannot produce a trustworthy candidate reduction, the system MUST NOT claim
-that the derived candidate set is complete.
-
-#### Scenario: Query without trustworthy trigram reduction is not treated as complete
-
-- GIVEN a search request whose semantics do not yield a trustworthy required trigram set
-- WHEN the system evaluates whether to derive indexed candidates
-- THEN it MUST signal that indexed candidate extraction cannot safely narrow the request
-- AND it MUST leave final correctness to the safe fallback search path
+## ADDED Requirements
 
 ### Requirement: REQ-WIDX-011 Indexed Candidate Freshness Guard
 

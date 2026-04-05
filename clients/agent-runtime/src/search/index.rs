@@ -1,10 +1,10 @@
 use crate::search::discovery::{
-    discover_indexable_files, discover_searchable_files_with_stats, DiscoveryRules,
-    DiscoveryRules as SearchDiscoveryRules,
+    discover_indexable_files, discover_indexable_path, discover_searchable_files_with_stats,
+    DiscoveryRules, DiscoveryRules as SearchDiscoveryRules,
 };
 use crate::search::sqlite::{
     create_temp_db_path, delete_file_tx, init_schema, open_connection, read_candidate_paths,
-    read_files, read_index_file_count, read_metadata, replace_file_tx, required_tables_exist,
+    read_files, read_metadata, read_scoped_files, replace_file_tx, required_tables_exist,
     write_metadata_tx, PersistedFileRecord, BUILDER_VERSION, BUILD_STATE_BUILDING,
     BUILD_STATE_READY, DISCOVERY_RULES_VERSION, FORMAT_VERSION, REQUIRED_METADATA_KEYS,
     SCHEMA_VERSION,
@@ -74,6 +74,14 @@ pub struct CandidatePlan {
     pub coverage: CandidateCoverage,
     pub ordered_paths: Vec<String>,
     pub reason: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathSyncOutcome {
+    Updated,
+    Removed,
+    SkippedIndexUnavailable,
+    SkippedIncompatible,
 }
 
 impl WorkspaceTrigramIndex {
@@ -236,24 +244,17 @@ impl WorkspaceTrigramIndex {
             .collect();
         ordered_paths.retain(|path| discovered_paths.contains(path));
 
-        let indexed_files = read_files(&conn)?;
-        let indexed_file_count = read_index_file_count(&conn)?;
-        let parity_complete = indexed_file_count >= discovered_paths.len()
-            && discovered.files.iter().all(|entry| {
-                indexed_files
-                    .get(&entry.file.relative_path)
-                    .map(|record| {
-                        record.size_bytes == entry.file.size_bytes
-                            && record.modified_unix_ms == entry.file.modified_unix_ms
-                            && record.modified_unix_ms != 0
-                    })
-                    .unwrap_or(false)
-            });
+        let discovered_rows = prepare_current_rows(&discovered.files)?;
+        let indexed_files = read_scoped_files(&conn, root_prefix.as_deref())?;
+        let freshness_complete = scope_rows_match(&discovered_rows, &indexed_files);
 
-        let (coverage, reason) = if parity_complete {
+        let (coverage, reason) = if freshness_complete {
             (CandidateCoverage::Complete, "indexed_candidates_complete")
         } else {
-            (CandidateCoverage::Partial, "index_parity_requires_fallback")
+            (
+                CandidateCoverage::Partial,
+                "index_scope_stale_requires_fallback",
+            )
         };
 
         Ok(CandidatePlan {
@@ -425,6 +426,76 @@ impl WorkspaceTrigramIndex {
         })
     }
 
+    pub fn sync_written_path(
+        &self,
+        security: &SecurityPolicy,
+        relative_path: &str,
+    ) -> anyhow::Result<PathSyncOutcome> {
+        self.ensure_workspace_matches(security)?;
+
+        let checked = self.checked_state_paths()?;
+        if !checked.db_path.exists() {
+            return Ok(PathSyncOutcome::SkippedIndexUnavailable);
+        }
+
+        fs::create_dir_all(&checked.state_dir).with_context(|| {
+            format!(
+                "failed to create index state directory '{}'",
+                checked.state_dir.display()
+            )
+        })?;
+
+        let _lock = acquire_build_lock(&checked.state_dir)?;
+        let conn = match open_connection(&checked.db_path) {
+            Ok(conn) => conn,
+            Err(_) => return Ok(PathSyncOutcome::SkippedIndexUnavailable),
+        };
+
+        let decision = self.compatibility_decision(&conn)?;
+        if decision.action == RefreshAction::Rebuild {
+            return Ok(PathSyncOutcome::SkippedIncompatible);
+        }
+
+        let built_at = Utc::now().to_rfc3339();
+        let mut metadata = read_metadata(&conn)?;
+        metadata.insert("built_at".to_string(), built_at);
+        metadata.insert("build_state".to_string(), BUILD_STATE_READY.to_string());
+
+        let discovered = discover_indexable_path(
+            security,
+            relative_path,
+            DiscoveryRules {
+                use_workspace_local_ignores_only: true,
+                ..DiscoveryRules::default()
+            },
+        )?;
+
+        let tx = conn
+            .unchecked_transaction()
+            .context("failed to open workspace trigram path sync transaction")?;
+        let outcome = if let Some(discovered) = discovered {
+            let mut rows = prepare_current_rows(&[discovered])?;
+            let current = rows
+                .remove(relative_path)
+                .with_context(|| format!("failed to prepare current row for '{relative_path}'"))?;
+            replace_file_tx(
+                &tx,
+                &current.file,
+                &current.record.content_sha256,
+                &current.trigrams,
+            )?;
+            PathSyncOutcome::Updated
+        } else {
+            delete_file_tx(&tx, relative_path)?;
+            PathSyncOutcome::Removed
+        };
+        write_metadata_tx(&tx, &metadata)?;
+        tx.commit()
+            .context("failed to commit workspace trigram path sync transaction")?;
+
+        Ok(outcome)
+    }
+
     fn build_into_path(
         &self,
         db_path: &Path,
@@ -523,6 +594,34 @@ impl WorkspaceTrigramIndex {
             })
         }
     }
+}
+
+fn scope_rows_match(
+    discovered_rows: &BTreeMap<String, CurrentRow>,
+    indexed_rows: &BTreeMap<String, PersistedFileRecord>,
+) -> bool {
+    if discovered_rows.len() != indexed_rows.len() {
+        return false;
+    }
+
+    discovered_rows.iter().all(|(path, current)| {
+        indexed_rows
+            .get(path)
+            .map(|persisted| persisted_record_matches_current(persisted, &current.record))
+            .unwrap_or(false)
+    })
+}
+
+fn persisted_record_matches_current(
+    persisted: &PersistedFileRecord,
+    current: &PersistedFileRecord,
+) -> bool {
+    persisted.relative_path == current.relative_path
+        && persisted.size_bytes == current.size_bytes
+        && persisted.modified_unix_ms == current.modified_unix_ms
+        && persisted.modified_unix_ms != 0
+        && current.modified_unix_ms != 0
+        && persisted.content_sha256 == current.content_sha256
 }
 
 fn normalized_relative_root(relative_root: &str) -> Option<String> {

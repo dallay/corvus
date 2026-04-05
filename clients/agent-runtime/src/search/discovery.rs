@@ -219,79 +219,13 @@ pub fn discover_searchable_files_with_stats(
         visited_files += 1;
 
         let entry_path = entry.into_path();
-        let resolved_path = match fs::canonicalize(&entry_path) {
-            Ok(path) => path,
-            Err(error) => {
-                tracing::debug!(path = %entry_path.display(), error = %error, "search discovery skipped unresolved path");
-                continue;
-            }
+        let Some(discovered_file) =
+            discover_file_path(security, &workspace_root, &entry_path, rules)
+        else {
+            continue;
         };
 
-        if !security.is_resolved_path_allowed(&resolved_path) {
-            tracing::debug!(path = %resolved_path.display(), "search discovery skipped path escaping workspace");
-            continue;
-        }
-
-        let relative_path = match normalize_relative_path(&workspace_root, &resolved_path) {
-            Ok(relative_path) => relative_path,
-            Err(error) => {
-                tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped non-workspace path");
-                continue;
-            }
-        };
-
-        if is_index_artifact_path(&relative_path) {
-            continue;
-        }
-
-        let mut file = match fs::OpenOptions::new().read(true).open(&resolved_path) {
-            Ok(file) => file,
-            Err(error) => {
-                tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable file");
-                continue;
-            }
-        };
-
-        let metadata = match file.metadata() {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable metadata");
-                continue;
-            }
-        };
-
-        if !metadata.is_file() || metadata.len() > rules.max_file_size_bytes {
-            continue;
-        }
-
-        let mut bytes = Vec::with_capacity(metadata.len().try_into().unwrap_or(0));
-        if let Err(error) = file.read_to_end(&mut bytes) {
-            tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable file contents");
-            continue;
-        }
-
-        if is_binary_file(&bytes) {
-            continue;
-        }
-
-        // Note: modified_unix_ms = 0 signals unknown modification time (metadata read failure).
-        // Downstream freshness checks must treat 0 as stale/unknown to force re-indexing.
-        let modified_unix_ms = metadata
-            .modified()
-            .ok()
-            .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-            .and_then(|duration| i64::try_from(duration.as_millis()).ok())
-            .unwrap_or(0);
-
-        discovered.push(DiscoveredFileContent {
-            file: DiscoveredFile {
-                resolved_path,
-                relative_path,
-                size_bytes: metadata.len(),
-                modified_unix_ms,
-            },
-            bytes,
-        });
+        discovered.push(discovered_file);
     }
 
     discovered.sort_by(|left, right| left.file.relative_path.cmp(&right.file.relative_path));
@@ -300,6 +234,77 @@ pub fn discover_searchable_files_with_stats(
         visited_files,
         hit_max_files,
     })
+}
+
+pub fn discover_indexable_path(
+    security: &SecurityPolicy,
+    relative_path: &str,
+    rules: DiscoveryRules,
+) -> anyhow::Result<Option<DiscoveredFileContent>> {
+    if !security.is_path_allowed(relative_path) {
+        return Ok(None);
+    }
+
+    let workspace_root = security
+        .workspace_dir
+        .canonicalize()
+        .unwrap_or_else(|_| security.workspace_dir.clone());
+    let full_path = security.workspace_dir.join(relative_path);
+    let metadata = match fs::metadata(&full_path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to inspect indexable path '{relative_path}'"));
+        }
+    };
+
+    if !metadata.is_file() {
+        return Ok(None);
+    }
+
+    let mut builder = WalkBuilder::new(&full_path);
+    builder.standard_filters(true);
+    builder.git_ignore(true);
+    builder.git_global(!rules.use_workspace_local_ignores_only);
+    builder.git_exclude(!rules.use_workspace_local_ignores_only);
+    builder.parents(!rules.use_workspace_local_ignores_only);
+    builder.follow_links(rules.follow_links);
+    builder.hidden(!rules.include_hidden);
+    builder.require_git(false);
+
+    for entry in builder.build() {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(error) => {
+                tracing::debug!(error = %error, path = %full_path.display(), "path discovery skipped unreadable entry");
+                continue;
+            }
+        };
+        let Some(file_type) = entry.file_type() else {
+            continue;
+        };
+        if !file_type.is_file() {
+            continue;
+        }
+
+        let Some(discovered) =
+            discover_file_path(security, &workspace_root, &entry.into_path(), rules)
+        else {
+            continue;
+        };
+
+        if discovered.file.relative_path
+            == relative_path.trim_start_matches("./").replace('\\', "/")
+        {
+            if std::str::from_utf8(&discovered.bytes).is_ok() {
+                return Ok(Some(discovered));
+            }
+            return Ok(None);
+        }
+    }
+
+    Ok(None)
 }
 
 pub fn discover_indexable_files(
@@ -320,4 +325,83 @@ pub fn discover_indexable_files(
         .into_iter()
         .filter(|entry| std::str::from_utf8(&entry.bytes).is_ok())
         .collect())
+}
+
+fn discover_file_path(
+    security: &SecurityPolicy,
+    workspace_root: &Path,
+    entry_path: &Path,
+    rules: DiscoveryRules,
+) -> Option<DiscoveredFileContent> {
+    let resolved_path = match fs::canonicalize(entry_path) {
+        Ok(path) => path,
+        Err(error) => {
+            tracing::debug!(path = %entry_path.display(), error = %error, "search discovery skipped unresolved path");
+            return None;
+        }
+    };
+
+    if !security.is_resolved_path_allowed(&resolved_path) {
+        tracing::debug!(path = %resolved_path.display(), "search discovery skipped path escaping workspace");
+        return None;
+    }
+
+    let relative_path = match normalize_relative_path(workspace_root, &resolved_path) {
+        Ok(relative_path) => relative_path,
+        Err(error) => {
+            tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped non-workspace path");
+            return None;
+        }
+    };
+
+    if is_index_artifact_path(&relative_path) {
+        return None;
+    }
+
+    let mut file = match fs::OpenOptions::new().read(true).open(&resolved_path) {
+        Ok(file) => file,
+        Err(error) => {
+            tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable file");
+            return None;
+        }
+    };
+
+    let metadata = match file.metadata() {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable metadata");
+            return None;
+        }
+    };
+
+    if !metadata.is_file() || metadata.len() > rules.max_file_size_bytes {
+        return None;
+    }
+
+    let mut bytes = Vec::with_capacity(metadata.len().try_into().unwrap_or(0));
+    if let Err(error) = file.read_to_end(&mut bytes) {
+        tracing::debug!(path = %resolved_path.display(), error = %error, "search discovery skipped unreadable file contents");
+        return None;
+    }
+
+    if is_binary_file(&bytes) {
+        return None;
+    }
+
+    let modified_unix_ms = metadata
+        .modified()
+        .ok()
+        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
+        .and_then(|duration| i64::try_from(duration.as_millis()).ok())
+        .unwrap_or(0);
+
+    Some(DiscoveredFileContent {
+        file: DiscoveredFile {
+            resolved_path,
+            relative_path,
+            size_bytes: metadata.len(),
+            modified_unix_ms,
+        },
+        bytes,
+    })
 }
