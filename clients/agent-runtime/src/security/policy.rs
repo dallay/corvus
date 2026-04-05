@@ -482,9 +482,22 @@ impl SecurityPolicy {
 
         let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
 
+        // Helper to identify tokens that likely represent paths
+        fn is_likely_path(arg: &str) -> bool {
+            arg.contains('/')
+                || arg.starts_with('~')
+                || arg.starts_with('.')
+                || arg.contains(std::path::MAIN_SEPARATOR)
+        }
+
         // Ensure no argument is a forbidden path or a traversal attempt.
-        // We only check arguments that look like paths to avoid false positives.
+        // We only check arguments that look like paths to avoid false positives
+        // on non-path tokens (e.g., git diff patterns, grep globs, brace literals).
         for arg in &args {
+            if !is_likely_path(arg) {
+                continue;
+            }
+
             if arg.contains("..")
                 || (self.workspace_only && (arg.starts_with('/') || arg.starts_with('~')))
             {
@@ -548,11 +561,6 @@ impl SecurityPolicy {
             return false;
         }
 
-        // Block raw percent-encoding to avoid ambiguous/dangerous path forms.
-        if path.contains('%') {
-            return false;
-        }
-
         // Iterative URL decoding to prevent bypasses like %252e%252e (double-encoded "..")
         let mut decoded = path.to_string();
         for _ in 0..3 {
@@ -568,7 +576,7 @@ impl SecurityPolicy {
             return false;
         }
 
-        // Block residual percent signs (incomplete or malicious encoding)
+        // Block residual percent signs after decoding (incomplete or malicious encoding)
         if decoded.contains('%') {
             return false;
         }

@@ -492,13 +492,19 @@ on the following ordering:
 2. The next `code_search` invocation opens that same file from the OS filesystem.
 3. The match result reflects the content written in step 1.
 
-This is a hard guarantee as long as both tools operate on the same filesystem mount. No warm-up,
-index rebuild, or explicit invalidation step is needed between a write and a subsequent search.
+This guarantee is scoped to files that the subsequent `code_search` is allowed to scan (i.e.,
+within the invoked `path` and `include` filters, and not excluded by `exclude` patterns,
+`.gitignore` rules, binary detection, or resource limits). Binary detection, ignore rules, and
+resource limits can prevent the search from seeing the fresh write even under v1's "always read
+from disk" model. No warm-up, index rebuild, or explicit invalidation step is needed between a
+write and a subsequent search for files within the search scope.
 
 ### Implications for agent workflows
 
 - An agent that writes a file and immediately searches for a symbol it just added **will find
-  it** — there is no propagation delay.
+  it** if the file falls within the `code_search` scope (matching `path`/`include` filters, not
+  ignored, not detected as binary, and within size limits) — there is no propagation delay for
+  eligible files.
 - Concurrent writes from other processes may or may not be visible depending on OS buffering,
   but this is outside the scope of the agent's execution model (agents are single-threaded in
   their tool-call loop).

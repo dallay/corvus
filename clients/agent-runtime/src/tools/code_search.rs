@@ -391,6 +391,7 @@ fn search_workspace(
         &params.exclude,
         SearchDiscoveryRules {
             max_file_size_bytes: limits.max_file_size_bytes,
+            max_files: Some(limits.max_files_scanned),
             ..SearchDiscoveryRules::default()
         },
     ) {

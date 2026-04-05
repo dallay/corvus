@@ -2880,6 +2880,7 @@ mod tests {
     use crate::providers::traits::ProviderCapabilities;
     use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
     use crate::tools::{Tool, ToolResult};
+    #[cfg(unix)]
     use crate::transcription::whisper_cli::WhisperCliTranscriber;
     use std::collections::HashMap;
     #[cfg(unix)]
@@ -5560,6 +5561,7 @@ printf 'Known mock transcription\n'
             .await
             .expect("mock whisper should succeed");
 
+        // Emit audio admission events (mimicking the real pipeline path in process_channel_message)
         for (audio, tx) in guard.0.iter().zip(transcriptions.iter()) {
             emit_audio_ingress(
                 runtime_ctx.observer.as_ref(),

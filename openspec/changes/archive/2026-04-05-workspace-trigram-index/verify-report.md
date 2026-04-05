@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: workspace-trigram-index
 **Version**: N/A
@@ -6,6 +6,7 @@
 ---
 
 ### Completeness
+
 | Metric | Value |
 |--------|-------|
 | Tasks total | 16 |
@@ -23,6 +24,7 @@ All tasks in `tasks.md` are now marked complete. Task `4.4` correctly records th
 ### Build & Tests Execution
 
 **Build / format / lint evidence**
+
 
 - `cargo fmt --all -- --check` → ✅ Passed
 - `cargo clippy --all-targets -- -D warnings` → ⚠️ Failed due to pre-existing unrelated warning in `src/channels/telegram.rs:3479` (`clippy::unreadable_literal` on `-100123456`)
@@ -77,11 +79,12 @@ Notes:
 | REQ-WIDX-008 | Automated tests prove lifecycle behavior | `cargo test search::tests:: -- --nocapture` + named lifecycle tests above | ✅ COMPLIANT |
 | REQ-WIDX-008 | Automated tests prove deterministic exclusions | `search/tests.rs > repeated_refresh_keeps_deterministic_membership`; exclusion tests above | ✅ COMPLIANT |
 
-**Compliance summary**: 14/17 scenarios compliant, 3/17 partial, 0 failing, 0 untested.
+**Compliance summary**: 15/17 scenarios compliant, 2/17 partial, 0 failing, 0 untested.
 
 ---
 
 ### Correctness (Static — Structural Evidence)
+
 | Requirement | Status | Notes |
 |------------|--------|-------|
 | Shared workspace corpus discovery | ✅ Implemented | Discovery root is canonicalized and policy-checked before walking, resolved entries are revalidated, normalized to workspace-relative paths, and sorted deterministically in `search/discovery.rs:42-245`. |
@@ -94,6 +97,7 @@ Notes:
 ---
 
 ### Coherence (Design)
+
 | Decision | Followed? | Notes |
 |----------|-----------|-------|
 | Add reusable `search` module | ✅ Yes | `src/search/{mod,discovery,trigram,sqlite,index}.rs` added and exported from `src/lib.rs`. |
@@ -109,6 +113,7 @@ Notes:
 ### Issues Found
 
 **CRITICAL** (must fix before archive):
+
 None
 
 **WARNING** (should fix):
@@ -124,6 +129,7 @@ None
 ---
 
 ### Verdict
+
 PASS WITH WARNINGS
 
 Change-local implementation matches the approved workspace-index contract and the local artifact issues are resolved; the only remaining blocking signal is unrelated repo-wide clippy debt outside this change.

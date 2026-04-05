@@ -466,6 +466,29 @@ mod tests {
             "fake-whisper.sh",
             r#"#!/bin/sh
 set -eu
+
+# Validate expected whisper-cli argument contract
+has_model=false
+has_file=false
+has_lang=false
+has_no_timestamps=false
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -m) has_model=true; shift 2 ;;
+    -f) has_file=true; shift 2 ;;
+    -l) has_lang=true; shift 2 ;;
+    --no-timestamps) has_no_timestamps=true; shift ;;
+    *) shift ;;
+  esac
+done
+
+if [ "$has_model" = "false" ] || [ "$has_file" = "false" ] || \
+   [ "$has_lang" = "false" ] || [ "$has_no_timestamps" = "false" ]; then
+  echo "ERROR: fake whisper script did not receive expected flags (-m, -f, -l, --no-timestamps)" >&2
+  exit 1
+fi
+
 printf 'Known mock transcription\n'
 "#,
         );

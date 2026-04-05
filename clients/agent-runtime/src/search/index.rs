@@ -9,11 +9,13 @@ use crate::search::trigram::{trigram_counts, validate_utf8_text};
 use crate::security::SecurityPolicy;
 use anyhow::{bail, Context};
 use chrono::Utc;
+use fs2::FileExt;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
-use std::fs;
+use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LoadedIndex {
@@ -54,6 +56,25 @@ impl WorkspaceTrigramIndex {
         }
     }
 
+    /// Ensure the workspace directory of this index matches the security policy's workspace.
+    fn ensure_workspace_matches(&self, security: &SecurityPolicy) -> anyhow::Result<()> {
+        let index_workspace = self
+            .workspace_dir
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize index workspace dir '{}'", self.workspace_dir.display()))?;
+        let security_workspace = security
+            .workspace_dir
+            .canonicalize()
+            .with_context(|| format!("failed to canonicalize security workspace dir '{}'", security.workspace_dir.display()))?;
+        anyhow::ensure!(
+            index_workspace == security_workspace,
+            "workspace mismatch: index expects '{}' but security policy uses '{}'",
+            index_workspace.display(),
+            security_workspace.display()
+        );
+        Ok(())
+    }
+
     pub fn load(&self) -> anyhow::Result<LoadedIndex> {
         let conn = open_connection(&self.db_path)?;
         let decision = self.compatibility_decision(&conn)?;
@@ -69,9 +90,7 @@ impl WorkspaceTrigramIndex {
     }
 
     pub fn build(&self, security: Arc<SecurityPolicy>) -> anyhow::Result<IndexBuildReport> {
-        let discovered = discover_indexable_files(&security, DiscoveryRules::default())?;
-        let built_at = Utc::now().to_rfc3339();
-        let workspace_fingerprint = workspace_fingerprint(&self.workspace_dir)?;
+        self.ensure_workspace_matches(&security)?;
 
         let state_dir = self
             .db_path
@@ -83,6 +102,22 @@ impl WorkspaceTrigramIndex {
                 state_dir.display()
             )
         })?;
+
+        // Acquire exclusive build lock before expensive work
+        let _lock = acquire_build_lock(state_dir)?;
+
+        self.build_locked(&security)
+    }
+
+    fn build_locked(&self, security: &SecurityPolicy) -> anyhow::Result<IndexBuildReport> {
+        let discovered = discover_indexable_files(security, DiscoveryRules::default())?;
+        let built_at = Utc::now().to_rfc3339();
+        let workspace_fingerprint = workspace_fingerprint(&self.workspace_dir)?;
+
+        let state_dir = self
+            .db_path
+            .parent()
+            .context("workspace trigram index path has no parent directory")?;
 
         let temp_db_path = create_temp_db_path(state_dir);
         let build_result = self.build_into_path(
@@ -109,26 +144,42 @@ impl WorkspaceTrigramIndex {
         &self,
         security: Arc<SecurityPolicy>,
     ) -> anyhow::Result<IndexBuildReport> {
+        self.ensure_workspace_matches(&security)?;
+
+        let state_dir = self
+            .db_path
+            .parent()
+            .context("workspace trigram index path has no parent directory")?;
+        fs::create_dir_all(state_dir).with_context(|| {
+            format!(
+                "failed to create index state directory '{}'",
+                state_dir.display()
+            )
+        })?;
+
+        // Acquire exclusive build lock before any work
+        let _lock = acquire_build_lock(state_dir)?;
+
         if !self.db_path.exists() {
-            return self.build(security);
+            return self.build_locked(&security);
         }
 
         let conn = match open_connection(&self.db_path) {
             Ok(conn) => conn,
-            Err(_) => return self.build(security),
+            Err(_) => return self.build_locked(&security),
         };
 
         let decision = match self.compatibility_decision(&conn) {
             Ok(decision) => decision,
             Err(_) => {
                 drop(conn);
-                return self.build(security);
+                return self.build_locked(&security);
             }
         };
 
         if decision.action == RefreshAction::Rebuild {
             drop(conn);
-            return self.build(security);
+            return self.build_locked(&security);
         }
 
         let metadata = read_metadata(&conn)?;
@@ -144,7 +195,12 @@ impl WorkspaceTrigramIndex {
         let changed_paths: Vec<_> = current_rows
             .iter()
             .filter(|(path, current)| match existing_files.get(*path) {
-                Some(existing) => existing != &current.record,
+                Some(existing) => {
+                    // Treat modified_unix_ms = 0 as unknown/stale, forcing re-index
+                    existing.modified_unix_ms == 0
+                        || current.record.modified_unix_ms == 0
+                        || existing != &current.record
+                }
                 None => true,
             })
             .map(|(path, _)| path.clone())
@@ -294,6 +350,30 @@ struct CurrentRow {
     file: crate::search::discovery::DiscoveredFile,
     record: PersistedFileRecord,
     trigrams: BTreeMap<[u8; 3], u32>,
+}
+
+/// Acquire an exclusive workspace-wide lock for index building.
+/// Returns the lock file handle which must be kept alive until the build completes.
+fn acquire_build_lock(state_dir: &Path) -> anyhow::Result<File> {
+    let lock_path = state_dir.join(".index-build.lock");
+    let lock_file = File::create(&lock_path).with_context(|| {
+        format!(
+            "failed to create index build lock file at '{}'",
+            lock_path.display()
+        )
+    })?;
+
+    // Try to acquire exclusive lock with short timeout (matching SQLite busy_timeout)
+    lock_file
+        .try_lock_exclusive()
+        .with_context(|| {
+            format!(
+                "index build already in progress (lock held at '{}')",
+                lock_path.display()
+            )
+        })?;
+
+    Ok(lock_file)
 }
 
 fn build_metadata(workspace_fingerprint: &str, built_at: &str) -> BTreeMap<String, String> {

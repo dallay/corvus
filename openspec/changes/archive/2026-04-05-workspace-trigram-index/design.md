@@ -237,7 +237,6 @@ pub struct IndexRefreshDecision {
 
 pub enum RefreshAction {
     LoadExisting,
-    RefreshExisting,
     Rebuild,
 }
 
@@ -262,6 +261,9 @@ Contract notes:
 - `WorkspaceTrigramIndex` is runtime capability code, not a `Tool` implementation.
 - `code_search` continues exposing the user-facing tool API and may later decide whether to use the
   index or scan directly.
+- `refresh_or_rebuild()` performs incremental per-file replace and delete in place (not a separate
+  `RefreshExisting` action); the enum only exposes `LoadExisting` and `Rebuild` to represent the
+  decision outcome.
 
 ## Discovery Pipeline
 

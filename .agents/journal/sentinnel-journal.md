@@ -12,7 +12,7 @@
 4. Shell metacharacters like glob symbols (`*`, `?`) and backslashes (`\`) were not blocked, enabling potential obfuscation and escaping.
 
 **Action:**
-1. Implement iterative URL decoding (3 levels) in `is_path_allowed` and block residual `%` and `\`.
-2. Enforce exact command matching in `is_segment_valid` to block `./cmd` bypasses.
-3. Validate all command arguments against path traversal and forbidden path rules.
-4. Expand `contains_blocked_operators` to include glob and escape characters.
+1. ✅ Implemented iterative URL decoding (3 levels) in `is_path_allowed` and block residual `%` and `\`.
+2. ✅ Enforced exact command matching in `is_segment_valid` to block `./cmd` bypasses.
+3. ✅ Validated all command arguments against path traversal and forbidden path rules.
+4. ✅ Expanded `contains_blocked_operators` to include backslash; glob chars blocked in `is_segment_valid`.

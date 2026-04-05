@@ -13,6 +13,7 @@ pub struct DiscoveryRules {
     pub max_file_size_bytes: u64,
     pub follow_links: bool,
     pub include_hidden: bool,
+    pub max_files: Option<usize>,
 }
 
 impl Default for DiscoveryRules {
@@ -21,6 +22,7 @@ impl Default for DiscoveryRules {
             max_file_size_bytes: DEFAULT_MAX_FILE_SIZE_BYTES,
             follow_links: false,
             include_hidden: false,
+            max_files: None,
         }
     }
 }
@@ -105,6 +107,23 @@ pub fn is_index_artifact_path(relative_path: &str) -> bool {
 }
 
 pub fn is_binary_file(bytes: &[u8]) -> bool {
+    // Check for text BOMs first (UTF-8, UTF-16, UTF-32)
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        // UTF-8 BOM
+        return false;
+    }
+    if bytes.starts_with(&[0xFF, 0xFE]) || bytes.starts_with(&[0xFE, 0xFF]) {
+        // UTF-16 LE/BE BOM
+        return false;
+    }
+    if bytes.starts_with(&[0xFF, 0xFE, 0x00, 0x00])
+        || bytes.starts_with(&[0x00, 0x00, 0xFE, 0xFF])
+    {
+        // UTF-32 LE/BE BOM
+        return false;
+    }
+
+    // Fall back to null-byte heuristic
     let sample_len = bytes.len().min(8 * 1024);
     bytes[..sample_len].contains(&0)
 }
@@ -146,6 +165,14 @@ pub fn discover_searchable_files(
     let mut discovered = Vec::new();
 
     for entry in builder.build() {
+        // Enforce max_files limit to prevent unbounded materialization
+        if let Some(max_files) = rules.max_files {
+            if discovered.len() >= max_files {
+                tracing::debug!(max_files, "search discovery stopped at file limit");
+                break;
+            }
+        }
+
         let entry = match entry {
             Ok(entry) => entry,
             Err(error) => {
@@ -211,6 +238,8 @@ pub fn discover_searchable_files(
             continue;
         }
 
+        // Note: modified_unix_ms = 0 signals unknown modification time (metadata read failure).
+        // Downstream freshness checks must treat 0 as stale/unknown to force re-indexing.
         let modified_unix_ms = metadata
             .modified()
             .ok()
