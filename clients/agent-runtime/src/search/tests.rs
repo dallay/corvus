@@ -1,6 +1,9 @@
 use super::discovery::{discover_indexable_files, discover_searchable_files, DiscoveryRules};
-use super::index::WorkspaceTrigramIndex;
-use super::sqlite::{BUILD_STATE_BUILDING, BUILD_STATE_READY, FORMAT_VERSION};
+use super::index::{CandidateCoverage, CandidateRequest, WorkspaceTrigramIndex};
+use super::sqlite::{
+    read_candidate_paths, read_index_file_count, BUILD_STATE_BUILDING, BUILD_STATE_READY,
+    FORMAT_VERSION,
+};
 use super::trigram::trigram_counts;
 use crate::security::{AutonomyLevel, SecurityPolicy};
 use rusqlite::Connection;
@@ -443,4 +446,139 @@ fn searchable_discovery_respects_scope() {
         .map(|entry| entry.file.relative_path.as_str())
         .collect();
     assert_eq!(paths, vec!["src/lib.rs"]);
+}
+
+#[test]
+fn sqlite_candidate_paths_intersect_trigrams_and_sort_lexically() {
+    let workspace = TempDir::new().unwrap();
+    std::fs::create_dir_all(workspace.path().join("src/bin")).unwrap();
+    std::fs::write(workspace.path().join("src/z.rs"), "needle here\n").unwrap();
+    std::fs::write(workspace.path().join("src/a.rs"), "needle here\n").unwrap();
+    std::fs::write(workspace.path().join("src/bin/tool.rs"), "needle here\n").unwrap();
+    std::fs::write(workspace.path().join("notes.txt"), "needless\n").unwrap();
+
+    let index = WorkspaceTrigramIndex::for_workspace(workspace.path());
+    index.build(test_security(&workspace)).unwrap();
+    let loaded = index.load().unwrap();
+    let conn = Connection::open(loaded.db_path).unwrap();
+
+    let candidates = read_candidate_paths(
+        &conn,
+        &[[b'n', b'e', b'e'], [b'e', b'e', b'd'], [b'd', b'l', b'e']],
+        Some("src"),
+    )
+    .unwrap();
+
+    assert_eq!(candidates, vec!["src/a.rs", "src/bin/tool.rs", "src/z.rs"]);
+    assert_eq!(read_index_file_count(&conn).unwrap(), 4);
+}
+
+#[test]
+fn candidate_planner_returns_complete_for_safe_literal_query() {
+    let workspace = TempDir::new().unwrap();
+    std::fs::create_dir_all(workspace.path().join("src")).unwrap();
+    std::fs::write(
+        workspace.path().join("src/z.rs"),
+        "const VALUE: &str = \"needle\";\n",
+    )
+    .unwrap();
+    std::fs::write(workspace.path().join("src/a.rs"), "fn needle() {}\n").unwrap();
+    std::fs::write(workspace.path().join("src/m.rs"), "fn other() {}\n").unwrap();
+
+    let security = test_security(&workspace);
+    let index = WorkspaceTrigramIndex::for_workspace(workspace.path());
+    index.build(security.clone()).unwrap();
+
+    let plan = index
+        .plan_candidates(
+            &security,
+            &CandidateRequest {
+                relative_root: "src".to_string(),
+                include: Vec::new(),
+                exclude: Vec::new(),
+                raw_pattern: "needle".to_string(),
+                is_regex: false,
+                case_sensitive: true,
+                whole_word: false,
+            },
+            DiscoveryRules::default().max_file_size_bytes,
+        )
+        .unwrap();
+
+    assert_eq!(plan.coverage, CandidateCoverage::Complete);
+    assert_eq!(plan.ordered_paths, vec!["src/a.rs", "src/z.rs"]);
+}
+
+#[test]
+fn candidate_planner_marks_stale_index_as_partial() {
+    let workspace = TempDir::new().unwrap();
+    std::fs::write(workspace.path().join("main.rs"), "needle\n").unwrap();
+
+    let security = test_security(&workspace);
+    let index = WorkspaceTrigramIndex::for_workspace(workspace.path());
+    index.build(security.clone()).unwrap();
+    std::fs::write(workspace.path().join("later.rs"), "needle\n").unwrap();
+
+    let plan = index
+        .plan_candidates(
+            &security,
+            &CandidateRequest {
+                relative_root: ".".to_string(),
+                include: Vec::new(),
+                exclude: Vec::new(),
+                raw_pattern: "needle".to_string(),
+                is_regex: false,
+                case_sensitive: true,
+                whole_word: false,
+            },
+            DiscoveryRules::default().max_file_size_bytes,
+        )
+        .unwrap();
+
+    assert_eq!(plan.coverage, CandidateCoverage::Partial);
+    assert!(plan.reason.contains("parity") || plan.reason.contains("stale"));
+}
+
+#[test]
+fn candidate_planner_marks_regex_and_short_patterns_unavailable() {
+    let workspace = TempDir::new().unwrap();
+    std::fs::write(workspace.path().join("main.rs"), "needle\n").unwrap();
+
+    let security = test_security(&workspace);
+    let index = WorkspaceTrigramIndex::for_workspace(workspace.path());
+    index.build(security.clone()).unwrap();
+
+    let regex_plan = index
+        .plan_candidates(
+            &security,
+            &CandidateRequest {
+                relative_root: ".".to_string(),
+                include: Vec::new(),
+                exclude: Vec::new(),
+                raw_pattern: "need.*".to_string(),
+                is_regex: true,
+                case_sensitive: true,
+                whole_word: false,
+            },
+            DiscoveryRules::default().max_file_size_bytes,
+        )
+        .unwrap();
+    assert_eq!(regex_plan.coverage, CandidateCoverage::Unavailable);
+
+    let short_plan = index
+        .plan_candidates(
+            &security,
+            &CandidateRequest {
+                relative_root: ".".to_string(),
+                include: Vec::new(),
+                exclude: Vec::new(),
+                raw_pattern: "ab".to_string(),
+                is_regex: false,
+                case_sensitive: true,
+                whole_word: false,
+            },
+            DiscoveryRules::default().max_file_size_bytes,
+        )
+        .unwrap();
+    assert_eq!(short_plan.coverage, CandidateCoverage::Unavailable);
 }

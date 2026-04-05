@@ -46,25 +46,34 @@ The `structured` field MUST contain a JSON object with two top-level keys:
 
 ### REQ-RESULT-003: Match Object Schema
 
-Each element in the `matches` array MUST be an object with the following fields:
+Each element in the `matches` array MUST be an object describing a match verified against live file
+contents with the following fields:
 
-| Field            | Type     | Description                                             |
-|------------------|----------|---------------------------------------------------------|
-| `file`           | string   | Workspace-relative file path                            |
-| `line`           | integer  | 1-based line number                                     |
-| `column`         | integer  | 1-based column (byte offset within line)                |
-| `content`        | string   | The full matched line (truncated to 500 chars max)      |
-| `context_before` | string[] | Lines before match (length = `context_lines` parameter) |
-| `context_after`  | string[] | Lines after match (length = `context_lines` parameter)  |
+| Field            | Type     | Description                                                  |
+|------------------|----------|--------------------------------------------------------------|
+| `file`           | string   | Workspace-relative file path                                 |
+| `line`           | integer  | 1-based starting line number                                 |
+| `column`         | integer  | 1-based starting column (byte offset within the line)        |
+| `content`        | string   | The full matched line (truncated to 500 chars max)           |
+| `context_before` | string[] | Lines before match (length = `context_lines` parameter)      |
+| `context_after`  | string[] | Lines after match (length = `context_lines` parameter)       |
+| `line_end`       | integer  | 1-based ending line number for the verified match range      |
+| `column_end`     | integer  | 1-based ending column for the verified match range           |
+| `byte_start`     | integer  | 0-based starting byte offset within the file                 |
+| `byte_end`       | integer  | 0-based ending byte offset within the file                   |
+| `preview`        | string   | Machine-readable preview text for the verified match snippet |
 
-#### Scenario: Match object contains all required fields
+The structured match payload MUST expose verified location and preview data without making indexed
+candidate extraction observable as a source of truth.
 
-- GIVEN a workspace file with a matching line
-- WHEN `code_search` is invoked with valid parameters
+#### Scenario: Match object includes verified range and preview fields
+
+- GIVEN a workspace file with a verified match
+- WHEN `code_search` returns structured results
 - THEN each match object MUST contain `file`, `line`, `column`, `content`, `context_before`, and
   `context_after`
-- AND `line` MUST be a positive integer (1-based)
-- AND `column` MUST be a positive integer (1-based)
+- AND it MUST also contain `line_end`, `column_end`, `byte_start`, `byte_end`, and `preview`
+- AND the added fields MUST describe the same verified match range returned by live verification
 
 ### REQ-RESULT-004: Stats Object Schema
 
@@ -119,8 +128,8 @@ Found {total_matches} matches in {files_matched} files ({files_searched} files s
 
 ### REQ-RESULT-007: Truncation Warning
 
-When results are truncated (by `max_results` or the 10K file scan limit), the `output` field
-MUST include a truncation warning line:
+When results are truncated by `max_results` or another result cap, the `output` field MUST include
+a truncation warning line:
 
 ```
 Results truncated at {N} matches. Narrow your search with 'path' or 'include' filters.
@@ -128,13 +137,17 @@ Results truncated at {N} matches. Narrow your search with 'path' or 'include' fi
 
 The `stats.truncated` field MUST be `true` when any truncation occurs.
 
-#### Scenario: Truncated results include warning and truncated flag
+Result caps MUST apply to verified matches after deterministic ordering and live verification, not
+merely to raw indexed candidates.
 
-- GIVEN a workspace with more than 10 matches for a pattern
-- WHEN `code_search` is invoked with `{ "pattern": "common", "max_results": 10 }`
-- THEN the `output` field MUST contain a truncation warning line
-- AND `stats.truncated` MUST be `true`
-- AND the `matches` array MUST contain at most 10 elements
+#### Scenario: Verified match cap applies after candidate verification
+
+- GIVEN indexed candidate extraction returns more candidate files than the requested `max_results`
+- AND live verification finds matches in those files
+- WHEN `code_search` applies `max_results`
+- THEN the cap MUST be applied to the ordered verified matches
+- AND the `matches` array MUST contain at most `max_results` verified matches
+- AND candidate files without verified matches MUST NOT count toward the cap
 
 ### REQ-RESULT-008: Context Lines in Output
 
@@ -173,3 +186,17 @@ When no matches are found, the tool MUST return `success: true` with:
 - AND `stats.files_matched` MUST be 0
 - AND `stats.truncated` MUST be `false`
 - AND the summary line MUST indicate 0 matches found
+
+### REQ-RESULT-010: Deterministic Verified Match Ordering
+
+The system MUST return verified matches in deterministic order.
+
+Verified matches MUST be ordered first by workspace-relative file path, then by verified match
+location within the file.
+
+#### Scenario: Verified matches are stable across repeated runs
+
+- GIVEN an unchanged workspace and the same `code_search` request
+- WHEN the search is executed repeatedly
+- THEN the returned `matches` array MUST appear in the same order on every run
+- AND matches from the same file MUST appear in ascending verified location order

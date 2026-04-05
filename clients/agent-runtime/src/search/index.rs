@@ -1,9 +1,13 @@
-use crate::search::discovery::{discover_indexable_files, DiscoveryRules};
+use crate::search::discovery::{
+    discover_indexable_files, discover_searchable_files_with_stats, DiscoveryRules,
+    DiscoveryRules as SearchDiscoveryRules,
+};
 use crate::search::sqlite::{
-    create_temp_db_path, delete_file_tx, init_schema, open_connection, read_files, read_metadata,
-    replace_file_tx, required_tables_exist, write_metadata_tx, PersistedFileRecord,
-    BUILDER_VERSION, BUILD_STATE_BUILDING, BUILD_STATE_READY, DISCOVERY_RULES_VERSION,
-    FORMAT_VERSION, REQUIRED_METADATA_KEYS, SCHEMA_VERSION,
+    create_temp_db_path, delete_file_tx, init_schema, open_connection, read_candidate_paths,
+    read_files, read_index_file_count, read_metadata, replace_file_tx, required_tables_exist,
+    write_metadata_tx, PersistedFileRecord, BUILDER_VERSION, BUILD_STATE_BUILDING,
+    BUILD_STATE_READY, DISCOVERY_RULES_VERSION, FORMAT_VERSION, REQUIRED_METADATA_KEYS,
+    SCHEMA_VERSION,
 };
 use crate::search::trigram::{trigram_counts, validate_utf8_text};
 use crate::security::SecurityPolicy;
@@ -11,7 +15,7 @@ use anyhow::{bail, Context};
 use chrono::Utc;
 use fs2::FileExt;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -45,6 +49,31 @@ pub enum RefreshAction {
 pub struct WorkspaceTrigramIndex {
     workspace_dir: PathBuf,
     db_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CandidateCoverage {
+    Complete,
+    Partial,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CandidateRequest {
+    pub relative_root: String,
+    pub include: Vec<String>,
+    pub exclude: Vec<String>,
+    pub raw_pattern: String,
+    pub is_regex: bool,
+    pub case_sensitive: bool,
+    pub whole_word: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CandidatePlan {
+    pub coverage: CandidateCoverage,
+    pub ordered_paths: Vec<String>,
+    pub reason: String,
 }
 
 impl WorkspaceTrigramIndex {
@@ -131,6 +160,106 @@ impl WorkspaceTrigramIndex {
         }
         Ok(LoadedIndex {
             db_path: checked.db_path,
+        })
+    }
+
+    pub fn plan_candidates(
+        &self,
+        security: &SecurityPolicy,
+        request: &CandidateRequest,
+        max_file_size_bytes: u64,
+    ) -> anyhow::Result<CandidatePlan> {
+        self.ensure_workspace_matches(security)?;
+
+        let required_trigrams = match extract_required_trigrams(request) {
+            Ok(required_trigrams) => required_trigrams,
+            Err(reason) => {
+                return Ok(CandidatePlan {
+                    coverage: CandidateCoverage::Unavailable,
+                    ordered_paths: Vec::new(),
+                    reason,
+                });
+            }
+        };
+
+        let loaded = match self.load() {
+            Ok(loaded) => loaded,
+            Err(_) => {
+                return Ok(CandidatePlan {
+                    coverage: CandidateCoverage::Unavailable,
+                    ordered_paths: Vec::new(),
+                    reason: "index_unavailable".to_string(),
+                });
+            }
+        };
+
+        let conn = match open_connection(&loaded.db_path) {
+            Ok(conn) => conn,
+            Err(_) => {
+                return Ok(CandidatePlan {
+                    coverage: CandidateCoverage::Unavailable,
+                    ordered_paths: Vec::new(),
+                    reason: "index_query_failed".to_string(),
+                });
+            }
+        };
+
+        let root_prefix = normalized_relative_root(&request.relative_root);
+        let mut ordered_paths =
+            match read_candidate_paths(&conn, &required_trigrams, root_prefix.as_deref()) {
+                Ok(paths) => paths,
+                Err(_) => {
+                    return Ok(CandidatePlan {
+                        coverage: CandidateCoverage::Unavailable,
+                        ordered_paths: Vec::new(),
+                        reason: "index_query_failed".to_string(),
+                    });
+                }
+            };
+
+        let discovered = discover_searchable_files_with_stats(
+            security,
+            &request.relative_root,
+            &request.include,
+            &request.exclude,
+            SearchDiscoveryRules {
+                max_file_size_bytes,
+                max_files: None,
+                ..SearchDiscoveryRules::default()
+            },
+        )?;
+
+        let discovered_paths: BTreeSet<String> = discovered
+            .files
+            .iter()
+            .map(|entry| entry.file.relative_path.clone())
+            .collect();
+        ordered_paths.retain(|path| discovered_paths.contains(path));
+
+        let indexed_files = read_files(&conn)?;
+        let indexed_file_count = read_index_file_count(&conn)?;
+        let parity_complete = indexed_file_count >= discovered_paths.len()
+            && discovered.files.iter().all(|entry| {
+                indexed_files
+                    .get(&entry.file.relative_path)
+                    .map(|record| {
+                        record.size_bytes == entry.file.size_bytes
+                            && record.modified_unix_ms == entry.file.modified_unix_ms
+                            && record.modified_unix_ms != 0
+                    })
+                    .unwrap_or(false)
+            });
+
+        let (coverage, reason) = if parity_complete {
+            (CandidateCoverage::Complete, "indexed_candidates_complete")
+        } else {
+            (CandidateCoverage::Partial, "index_parity_requires_fallback")
+        };
+
+        Ok(CandidatePlan {
+            coverage,
+            ordered_paths,
+            reason: reason.to_string(),
         })
     }
 
@@ -394,6 +523,42 @@ impl WorkspaceTrigramIndex {
             })
         }
     }
+}
+
+fn normalized_relative_root(relative_root: &str) -> Option<String> {
+    let trimmed = relative_root.trim();
+    if trimmed.is_empty() || trimmed == "." {
+        None
+    } else {
+        Some(trimmed.trim_matches('/').to_string())
+    }
+}
+
+fn extract_required_trigrams(request: &CandidateRequest) -> Result<Vec<[u8; 3]>, String> {
+    if request.is_regex {
+        return Err("query_regex_not_supported".to_string());
+    }
+    if !request.case_sensitive {
+        return Err("query_case_insensitive_not_supported".to_string());
+    }
+    if request.whole_word {
+        return Err("query_whole_word_not_supported".to_string());
+    }
+
+    let bytes = request.raw_pattern.as_bytes();
+    if bytes.len() < 3 {
+        return Err("query_pattern_too_short".to_string());
+    }
+
+    let mut trigrams = BTreeSet::new();
+    for window in bytes.windows(3) {
+        trigrams.insert([window[0], window[1], window[2]]);
+    }
+    if trigrams.is_empty() {
+        return Err("query_pattern_too_short".to_string());
+    }
+
+    Ok(trigrams.into_iter().collect())
 }
 
 #[derive(Debug, Clone)]

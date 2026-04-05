@@ -1,13 +1,18 @@
 use super::traits::{Tool, ToolResult};
 use crate::search::discovery::{
-    discover_searchable_files_with_stats, validate_search_root,
-    DiscoveryRules as SearchDiscoveryRules,
+    discover_searchable_files_with_stats, is_binary_file, normalize_relative_path,
+    validate_search_root, DiscoveryRules as SearchDiscoveryRules,
 };
+use crate::search::{CandidateCoverage, CandidateRequest, WorkspaceTrigramIndex};
 use crate::security::SecurityPolicy;
+use anyhow::Context;
 use async_trait::async_trait;
 use regex::Regex;
 use serde::Serialize;
 use serde_json::{json, Value};
+use std::fs::OpenOptions;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -77,6 +82,11 @@ struct SearchMatch {
     content: String,
     context_before: Vec<String>,
     context_after: Vec<String>,
+    line_end: usize,
+    column_end: usize,
+    byte_start: usize,
+    byte_end: usize,
+    preview: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -94,6 +104,18 @@ struct SearchOutcome {
     stats: SearchStats,
     warnings: Vec<String>,
     fatal_error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct VerificationInput {
+    relative_path: String,
+    bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LineRange {
+    start: usize,
+    end: usize,
 }
 
 #[async_trait]
@@ -379,25 +401,29 @@ fn search_workspace(
     limits: SearchLimits,
 ) -> SearchOutcome {
     let start = Instant::now();
-    let mut files_searched = 0usize;
-    let mut files_matched = 0usize;
-    let mut total_matches = 0usize;
-    let mut matches = Vec::new();
     let mut warnings = Vec::new();
-    let mut truncated = false;
+    let plan = WorkspaceTrigramIndex::for_workspace(&security.workspace_dir)
+        .plan_candidates(
+            &security,
+            &CandidateRequest {
+                relative_root: params.path.clone(),
+                include: params.include.clone(),
+                exclude: params.exclude.clone(),
+                raw_pattern: params.pattern.clone(),
+                is_regex: params.is_regex,
+                case_sensitive: params.case_sensitive,
+                whole_word: params.whole_word,
+            },
+            limits.max_file_size_bytes,
+        )
+        .unwrap_or_else(|_| crate::search::CandidatePlan {
+            coverage: CandidateCoverage::Unavailable,
+            ordered_paths: Vec::new(),
+            reason: "index_planning_failed".to_string(),
+        });
 
-    let discovered = match discover_searchable_files_with_stats(
-        &security,
-        &params.path,
-        &params.include,
-        &params.exclude,
-        SearchDiscoveryRules {
-            max_file_size_bytes: limits.max_file_size_bytes,
-            max_files: Some(limits.max_files_scanned),
-            ..SearchDiscoveryRules::default()
-        },
-    ) {
-        Ok(discovered) => discovered,
+    let inputs = match build_verification_inputs(&security, &params, &plan, limits, &mut warnings) {
+        Ok(inputs) => inputs,
         Err(error) => {
             return SearchOutcome {
                 matches: Vec::new(),
@@ -414,10 +440,63 @@ fn search_workspace(
         }
     };
 
+    verify_inputs(inputs, &params, &regex, limits, start, warnings)
+}
+
+fn build_verification_inputs(
+    security: &SecurityPolicy,
+    params: &SearchParams,
+    plan: &crate::search::CandidatePlan,
+    limits: SearchLimits,
+    warnings: &mut Vec<String>,
+) -> anyhow::Result<Vec<VerificationInput>> {
+    match plan.coverage {
+        CandidateCoverage::Complete => {
+            match read_index_candidate_inputs(security, &plan.ordered_paths, limits) {
+                Ok(inputs) => {
+                    if inputs.len() >= limits.max_files_scanned
+                        && plan.ordered_paths.len() > inputs.len()
+                    {
+                        push_warning(
+                            warnings,
+                            format!(
+                                "Search stopped after {} files. Narrow your search with 'path' or 'include' filters.",
+                                limits.max_files_scanned
+                            ),
+                        );
+                    }
+                    Ok(inputs)
+                }
+                Err(_) => discover_fallback_inputs(security, params, limits, warnings),
+            }
+        }
+        CandidateCoverage::Partial | CandidateCoverage::Unavailable => {
+            discover_fallback_inputs(security, params, limits, warnings)
+        }
+    }
+}
+
+fn discover_fallback_inputs(
+    security: &SecurityPolicy,
+    params: &SearchParams,
+    limits: SearchLimits,
+    warnings: &mut Vec<String>,
+) -> anyhow::Result<Vec<VerificationInput>> {
+    let discovered = discover_searchable_files_with_stats(
+        security,
+        &params.path,
+        &params.include,
+        &params.exclude,
+        SearchDiscoveryRules {
+            max_file_size_bytes: limits.max_file_size_bytes,
+            max_files: Some(limits.max_files_scanned),
+            ..SearchDiscoveryRules::default()
+        },
+    )?;
+
     if discovered.hit_max_files {
-        truncated = true;
         push_warning(
-            &mut warnings,
+            warnings,
             format!(
                 "Search stopped after {} files. Narrow your search with 'path' or 'include' filters.",
                 limits.max_files_scanned
@@ -425,7 +504,101 @@ fn search_workspace(
         );
     }
 
-    'walk: for entry in discovered.files {
+    Ok(discovered
+        .files
+        .into_iter()
+        .map(|entry| VerificationInput {
+            relative_path: entry.file.relative_path,
+            bytes: entry.bytes,
+        })
+        .collect())
+}
+
+fn read_index_candidate_inputs(
+    security: &SecurityPolicy,
+    ordered_paths: &[String],
+    limits: SearchLimits,
+) -> anyhow::Result<Vec<VerificationInput>> {
+    let workspace_root = security
+        .workspace_dir
+        .canonicalize()
+        .unwrap_or_else(|_| security.workspace_dir.clone());
+    let mut inputs = Vec::new();
+
+    for relative_path in ordered_paths.iter().take(limits.max_files_scanned) {
+        let resolved_path = resolve_relative_file(security, &workspace_root, relative_path)?;
+        let mut file = OpenOptions::new()
+            .read(true)
+            .open(&resolved_path)
+            .with_context(|| format!("failed to open candidate file '{}'", relative_path))?;
+        let metadata = file
+            .metadata()
+            .with_context(|| format!("failed to read candidate metadata '{}'", relative_path))?;
+        if !metadata.is_file() || metadata.len() > limits.max_file_size_bytes {
+            continue;
+        }
+
+        let mut bytes = Vec::with_capacity(metadata.len().try_into().unwrap_or(0));
+        file.read_to_end(&mut bytes)
+            .with_context(|| format!("failed to read candidate file '{}'", relative_path))?;
+        if is_binary_file(&bytes) {
+            continue;
+        }
+
+        inputs.push(VerificationInput {
+            relative_path: relative_path.clone(),
+            bytes,
+        });
+    }
+
+    Ok(inputs)
+}
+
+fn resolve_relative_file(
+    security: &SecurityPolicy,
+    workspace_root: &Path,
+    relative_path: &str,
+) -> anyhow::Result<PathBuf> {
+    if !security.is_path_allowed(relative_path) {
+        anyhow::bail!("candidate path not allowed by security policy: {relative_path}");
+    }
+
+    let joined = security.workspace_dir.join(relative_path);
+    let resolved = joined
+        .canonicalize()
+        .with_context(|| format!("failed to resolve candidate path '{}'", relative_path))?;
+    anyhow::ensure!(
+        security.is_resolved_path_allowed(&resolved),
+        "candidate path escapes workspace: {}",
+        resolved.display()
+    );
+    let normalized = normalize_relative_path(workspace_root, &resolved)?;
+    anyhow::ensure!(
+        normalized == relative_path,
+        "candidate path changed during resolution: expected '{}' but got '{}'",
+        relative_path,
+        normalized
+    );
+    Ok(resolved)
+}
+
+fn verify_inputs(
+    inputs: Vec<VerificationInput>,
+    params: &SearchParams,
+    regex: &Regex,
+    limits: SearchLimits,
+    start: Instant,
+    mut warnings: Vec<String>,
+) -> SearchOutcome {
+    let mut files_searched = 0usize;
+    let mut files_matched = 0usize;
+    let mut total_matches = 0usize;
+    let mut matches = Vec::new();
+    let mut truncated = warnings
+        .iter()
+        .any(|warning| warning.starts_with("Search stopped after"));
+
+    'files: for input in inputs {
         if start.elapsed() >= limits.timeout {
             truncated = true;
             push_warning(
@@ -439,22 +612,20 @@ fn search_workspace(
         }
 
         files_searched += 1;
+        let file_matches = verify_file_matches(
+            &input.relative_path,
+            &input.bytes,
+            regex,
+            params.context_lines,
+            limits.max_line_content_chars,
+            limits.max_matches_per_file,
+        );
 
-        let contents = String::from_utf8_lossy(&entry.bytes);
-        let lines: Vec<&str> = contents.lines().collect();
-        let relative_file = entry.file.relative_path.clone();
-        let mut file_match_count = 0usize;
-        let mut matched_this_file = false;
+        if !file_matches.is_empty() {
+            files_matched += 1;
+        }
 
-        for (line_index, line) in lines.iter().enumerate() {
-            if file_match_count >= limits.max_matches_per_file {
-                break;
-            }
-
-            let Some(found) = regex.find(line) else {
-                continue;
-            };
-
+        for matched in file_matches {
             if matches.len() >= params.max_results {
                 truncated = true;
                 push_warning(
@@ -464,27 +635,11 @@ fn search_workspace(
                         params.max_results
                     ),
                 );
-                break 'walk;
+                break 'files;
             }
 
             total_matches += 1;
-            file_match_count += 1;
-
-            if !matched_this_file {
-                matched_this_file = true;
-                files_matched += 1;
-            }
-
-            let (context_before, context_after) =
-                collect_context(&lines, line_index, params.context_lines);
-            matches.push(SearchMatch {
-                file: relative_file.clone(),
-                line: line_index + 1,
-                column: found.start() + 1,
-                content: truncate_chars(line, limits.max_line_content_chars),
-                context_before,
-                context_after,
-            });
+            matches.push(matched);
         }
     }
 
@@ -502,8 +657,62 @@ fn search_workspace(
     }
 }
 
+fn verify_file_matches(
+    relative_path: &str,
+    bytes: &[u8],
+    regex: &Regex,
+    context_lines: usize,
+    max_line_content_chars: usize,
+    max_matches_per_file: usize,
+) -> Vec<SearchMatch> {
+    let contents = String::from_utf8_lossy(bytes);
+    let lines = line_ranges(&contents);
+    let mut matches = Vec::new();
+
+    for found in regex.find_iter(&contents) {
+        if matches.len() >= max_matches_per_file {
+            break;
+        }
+
+        let start_line_index = locate_line(&lines, found.start());
+        let end_anchor = found
+            .end()
+            .saturating_sub(1)
+            .min(contents.len().saturating_sub(1));
+        let end_line_index = locate_line(&lines, end_anchor);
+        let line = slice_line(&contents, lines[start_line_index]);
+        let (context_before, context_after) =
+            collect_context(&contents, &lines, start_line_index, context_lines);
+
+        matches.push(SearchMatch {
+            file: relative_path.to_string(),
+            line: start_line_index + 1,
+            column: found.start().saturating_sub(lines[start_line_index].start) + 1,
+            content: truncate_chars(line, max_line_content_chars),
+            context_before,
+            context_after,
+            line_end: end_line_index + 1,
+            column_end: found.end().saturating_sub(lines[end_line_index].start) + 1,
+            byte_start: found.start(),
+            byte_end: found.end(),
+            preview: truncate_chars(
+                &contents[found.start()..found.end()],
+                max_line_content_chars,
+            ),
+        });
+    }
+
+    matches.sort_by(|left, right| {
+        left.byte_start
+            .cmp(&right.byte_start)
+            .then(left.byte_end.cmp(&right.byte_end))
+    });
+    matches
+}
+
 fn collect_context(
-    lines: &[&str],
+    contents: &str,
+    lines: &[LineRange],
     line_index: usize,
     context_lines: usize,
 ) -> (Vec<String>, Vec<String>) {
@@ -514,15 +723,59 @@ fn collect_context(
     let before_start = line_index.saturating_sub(context_lines);
     let before = lines[before_start..line_index]
         .iter()
-        .map(|line| (*line).to_string())
+        .map(|line| slice_line(contents, *line).to_string())
         .collect();
     let after_end = (line_index + 1 + context_lines).min(lines.len());
     let after = lines[line_index + 1..after_end]
         .iter()
-        .map(|line| (*line).to_string())
+        .map(|line| slice_line(contents, *line).to_string())
         .collect();
 
     (before, after)
+}
+
+fn line_ranges(contents: &str) -> Vec<LineRange> {
+    if contents.is_empty() {
+        return vec![LineRange { start: 0, end: 0 }];
+    }
+
+    let bytes = contents.as_bytes();
+    let mut ranges = Vec::new();
+    let mut start = 0usize;
+
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'\n' {
+            let mut end = index;
+            if end > start && bytes[end - 1] == b'\r' {
+                end -= 1;
+            }
+            ranges.push(LineRange { start, end });
+            start = index + 1;
+        }
+    }
+
+    if start < bytes.len() {
+        ranges.push(LineRange {
+            start,
+            end: bytes.len(),
+        });
+    }
+
+    if ranges.is_empty() {
+        ranges.push(LineRange { start: 0, end: 0 });
+    }
+
+    ranges
+}
+
+fn locate_line(lines: &[LineRange], byte_offset: usize) -> usize {
+    lines
+        .partition_point(|line| line.start <= byte_offset)
+        .saturating_sub(1)
+}
+
+fn slice_line(contents: &str, line: LineRange) -> &str {
+    &contents[line.start..line.end]
 }
 
 fn truncate_chars(input: &str, max_chars: usize) -> String {
@@ -718,6 +971,7 @@ fn hard_cap_output(output: String, max_output_bytes: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::search::index::WorkspaceTrigramIndex;
     use crate::security::{AutonomyLevel, SecurityPolicy};
     use serde_json::json;
     use tempfile::TempDir;
@@ -1604,5 +1858,178 @@ mod tests {
             .warnings
             .iter()
             .any(|warning| warning.contains("Search timed out")));
+    }
+    #[tokio::test]
+    async fn code_search_eliminates_index_false_positives_with_live_verification() {
+        let dir = TempDir::new().unwrap();
+        tokio::fs::write(
+            dir.path().join("alpha.rs"),
+            "const VALUE: &str = \"needle\";\n",
+        )
+        .await
+        .unwrap();
+
+        let security = test_security(&dir);
+        WorkspaceTrigramIndex::for_workspace(dir.path())
+            .build(security.clone())
+            .unwrap();
+        tokio::fs::write(
+            dir.path().join("alpha.rs"),
+            "const VALUE: &str = \"other\";\n",
+        )
+        .await
+        .unwrap();
+
+        let tool = CodeSearchTool::new(security);
+        let result = tool.execute(json!({"pattern": "needle"})).await.unwrap();
+
+        assert!(result.success, "unexpected error: {:?}", result.error);
+        assert!(result.structured.unwrap()["matches"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn code_search_falls_back_when_index_is_unavailable() {
+        let dir = TempDir::new().unwrap();
+        tokio::fs::write(dir.path().join("main.rs"), "fn needle() {}\n")
+            .await
+            .unwrap();
+
+        let tool = CodeSearchTool::new(test_security(&dir));
+        let result = tool.execute(json!({"pattern": "needle"})).await.unwrap();
+
+        assert!(result.success, "unexpected error: {:?}", result.error);
+        let matches = result.structured.unwrap()["matches"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["file"], "main.rs");
+    }
+
+    #[tokio::test]
+    async fn code_search_falls_back_for_unsupported_regex_query_shape() {
+        let dir = TempDir::new().unwrap();
+        tokio::fs::write(dir.path().join("main.rs"), "let value = 123;\n")
+            .await
+            .unwrap();
+
+        let security = test_security(&dir);
+        WorkspaceTrigramIndex::for_workspace(dir.path())
+            .build(security.clone())
+            .unwrap();
+
+        let tool = CodeSearchTool::new(security);
+        let result = tool
+            .execute(json!({"pattern": "let \\w+ = \\d+", "is_regex": true}))
+            .await
+            .unwrap();
+
+        assert!(result.success, "unexpected error: {:?}", result.error);
+        let matches = result.structured.unwrap()["matches"]
+            .as_array()
+            .unwrap()
+            .clone();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["file"], "main.rs");
+        assert_eq!(matches[0]["byte_start"], json!(0));
+    }
+
+    #[tokio::test]
+    async fn code_search_applies_max_results_to_verified_matches_after_filtering_candidates() {
+        let dir = TempDir::new().unwrap();
+        tokio::fs::write(dir.path().join("a.rs"), "const VALUE: &str = \"needle\";\n")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("b.rs"), "const VALUE: &str = \"needle\";\n")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("c.rs"), "const VALUE: &str = \"needle\";\n")
+            .await
+            .unwrap();
+
+        let security = test_security(&dir);
+        WorkspaceTrigramIndex::for_workspace(dir.path())
+            .build(security.clone())
+            .unwrap();
+        tokio::fs::write(dir.path().join("a.rs"), "const VALUE: &str = \"other\";\n")
+            .await
+            .unwrap();
+
+        let tool = CodeSearchTool::new(security);
+        let result = tool
+            .execute(json!({"pattern": "needle", "max_results": 1}))
+            .await
+            .unwrap();
+
+        assert!(result.success, "unexpected error: {:?}", result.error);
+        let structured = result.structured.unwrap();
+        let matches = structured["matches"].as_array().unwrap();
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0]["file"], "b.rs");
+        assert_eq!(structured["stats"]["truncated"], json!(true));
+    }
+
+    #[tokio::test]
+    async fn code_search_returns_deterministic_verified_order_across_repeated_runs() {
+        let dir = TempDir::new().unwrap();
+        tokio::fs::write(dir.path().join("z.rs"), "needle second\n")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("a.rs"), "needle first\nneedle again\n")
+            .await
+            .unwrap();
+
+        let security = test_security(&dir);
+        WorkspaceTrigramIndex::for_workspace(dir.path())
+            .build(security.clone())
+            .unwrap();
+        let tool = CodeSearchTool::new(security);
+
+        let first = tool.execute(json!({"pattern": "needle"})).await.unwrap();
+        let second = tool.execute(json!({"pattern": "needle"})).await.unwrap();
+
+        let first_structured = first.structured.unwrap();
+        let second_structured = second.structured.unwrap();
+        assert_eq!(first_structured["matches"], second_structured["matches"]);
+        let files: Vec<_> = first_structured["matches"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["file"].as_str().unwrap())
+            .collect();
+        assert_eq!(files, vec!["a.rs", "a.rs", "z.rs"]);
+    }
+
+    #[tokio::test]
+    async fn code_search_structured_matches_include_verified_offsets_and_preview() {
+        let dir = TempDir::new().unwrap();
+        tokio::fs::write(dir.path().join("main.rs"), "alpha needle beta\n")
+            .await
+            .unwrap();
+
+        let security = test_security(&dir);
+        WorkspaceTrigramIndex::for_workspace(dir.path())
+            .build(security.clone())
+            .unwrap();
+
+        let tool = CodeSearchTool::new(security);
+        let result = tool.execute(json!({"pattern": "needle"})).await.unwrap();
+
+        let structured = result.structured.unwrap();
+        let first = &structured["matches"][0];
+        assert_eq!(first["file"], "main.rs");
+        assert_eq!(first["line"], json!(1));
+        assert_eq!(first["column"], json!(7));
+        assert_eq!(first["byte_start"], json!(6));
+        assert_eq!(first["byte_end"], json!(12));
+        assert_eq!(first["line_end"], json!(1));
+        assert_eq!(first["column_end"], json!(13));
+        assert_eq!(first["preview"], json!("needle"));
+        assert_eq!(first["content"], json!("alpha needle beta"));
+        assert!(first["context_before"].is_array());
+        assert!(first["context_after"].is_array());
     }
 }
