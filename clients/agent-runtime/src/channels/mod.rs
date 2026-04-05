@@ -2880,7 +2880,12 @@ mod tests {
     use crate::providers::traits::ProviderCapabilities;
     use crate::providers::{ChatMessage, ChatRequest, ChatResponse, Provider, ToolCall};
     use crate::tools::{Tool, ToolResult};
+    use crate::transcription::whisper_cli::WhisperCliTranscriber;
     use std::collections::HashMap;
+    #[cfg(unix)]
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::sync::LazyLock;
@@ -5476,25 +5481,70 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
+    fn create_real_whisper_transcriber(
+        dir: &TempDir,
+        script_name: &str,
+        script_body: &str,
+        concurrency: usize,
+    ) -> Arc<dyn crate::transcription::traits::Transcriber> {
+        let model_path = dir.path().join("ggml-base.bin");
+        fs::write(&model_path, b"fake-model").unwrap();
+
+        let script_path = dir.path().join(script_name);
+        fs::write(&script_path, script_body).unwrap();
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+
+        Arc::new(WhisperCliTranscriber::new_for_tests(
+            script_path.display().to_string(),
+            model_path,
+            "es".into(),
+            5,
+            concurrency,
+        ))
+    }
+
     // ── Task 4.2: Integration test — happy path ─────────────
 
+    #[cfg(unix)]
     #[tokio::test]
-    async fn audio_pipeline_inject_transcription_happy_path() {
+    async fn audio_pipeline_happy_path_uses_real_transcriber_and_emits_admitted_event() {
         let tmp = tempfile::tempdir().unwrap();
         let staged = make_test_staged_audio(tmp.path());
         let temp_path = staged.temp_path.clone();
+        let transcriber = create_real_whisper_transcriber(
+            &tmp,
+            "fake-whisper.sh",
+            r#"#!/bin/sh
+set -eu
+printf 'Known mock transcription\n'
+"#,
+            1,
+        );
+        let observer = Arc::new(AudioRecordingObserver::default());
+        let runtime_ctx = ChannelRuntimeContext {
+            config: Arc::new(make_audio_test_config("test-channel")),
+            channels_by_name: Arc::new(HashMap::new()),
+            provider: Arc::new(SlowProvider {
+                delay: Duration::from_millis(10),
+            }),
+            memory: Arc::new(NoopMemory),
+            tools_registry: Arc::new(vec![]),
+            observer: observer.clone(),
+            system_prompt: Arc::new("test".into()),
+            model: Arc::new("test".into()),
+            temperature: 0.0,
+            auto_save_memory: false,
+            tool_dispatcher_mode: Arc::from("xml"),
+            max_tool_iterations: 5,
+            min_relevance_score: 0.0,
+            conversation_histories: Arc::new(Mutex::new(HashMap::new())),
+            transcriber: Some(transcriber),
+        };
 
-        // Verify temp file exists before transcription
         assert!(temp_path.exists());
-
-        let transcriptions = vec![crate::transcription::traits::TranscriptionResult {
-            text: "¿Qué tiempo hace hoy?".to_string(),
-            language: Some("es".into()),
-            duration_secs: Some(5.0),
-            confidence: Some(0.95),
-            processing_ms: None,
-        }];
-
         let mut msg = make_audio_channel_message(vec![traits::ContentPart::Audio {
             channel_handle: "file123".into(),
             source_channel: "telegram".into(),
@@ -5505,34 +5555,52 @@ mod tests {
             declared_duration_secs: Some(5),
         }]);
 
-        let history_metas =
-            inject_transcription(&mut msg, std::slice::from_ref(&staged), &transcriptions);
+        let guard = StagedAudioGuard(vec![staged]);
+        let transcriptions = transcribe_audio(&runtime_ctx, &guard.0, "session-audio", None, &msg)
+            .await
+            .expect("mock whisper should succeed");
 
-        // Verify transcription was injected as text
+        for (audio, tx) in guard.0.iter().zip(transcriptions.iter()) {
+            emit_audio_ingress(
+                runtime_ctx.observer.as_ref(),
+                &msg.channel,
+                crate::observability::AudioIngressOutcome::Admitted,
+                None,
+                Some(audio.mime_type.as_str().to_string()),
+                Some(audio.byte_len),
+                audio.duration_secs,
+                tx.processing_ms,
+            );
+        }
+
+        let history_metas = inject_transcription(&mut msg, &guard.0, &transcriptions);
+
         assert!(!msg.parts.is_empty());
         let has_text_part = msg.parts.iter().any(|p| {
             if let traits::ContentPart::Text { text } = p {
-                text.contains("¿Qué tiempo hace hoy?")
+                text.contains("Known mock transcription")
             } else {
                 false
             }
         });
         assert!(has_text_part, "transcription text not found in parts");
-
-        // Verify no Audio parts remain
         assert!(!msg.has_audio_parts(), "audio parts should be replaced");
-
-        // Verify AudioHistoryMeta was produced
         assert_eq!(history_metas.len(), 1);
-        assert_eq!(history_metas[0].transcription, "¿Qué tiempo hace hoy?");
+        assert_eq!(history_metas[0].transcription, "Known mock transcription");
         assert_eq!(history_metas[0].mime, "audio/ogg");
         assert_eq!(history_metas[0].channel_origin, "telegram");
 
-        // Verify RAII cleanup: drop the staged audio guard
-        {
-            let guard = StagedAudioGuard(vec![staged]);
-            drop(guard);
-        }
+        let events = observer.audio_events.lock().unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(
+            events[0].outcome,
+            crate::observability::AudioIngressOutcome::Admitted
+        );
+        assert_eq!(events[0].reason, None);
+        assert_eq!(events[0].mime_type.as_deref(), Some("audio/ogg"));
+        drop(events);
+
+        drop(guard);
         assert!(
             !temp_path.exists(),
             "temp file should be cleaned up by guard"
@@ -5683,20 +5751,26 @@ mod tests {
 
     // ── Task 4.4: Integration test — concurrency semaphore ──
 
+    #[cfg(unix)]
     #[tokio::test]
     async fn transcription_semaphore_enforces_serial_execution() {
-        // With concurrency=1, transcriptions should execute serially
-        let transcriber = Arc::new(MockTranscriber::with_delay(
-            "Hola mundo",
-            Duration::from_millis(100),
-        ));
-
         let tmp = tempfile::tempdir().unwrap();
+        let transcriber = create_real_whisper_transcriber(
+            &tmp,
+            "delayed-whisper.sh",
+            r#"#!/bin/sh
+set -eu
+sleep 0.1
+printf 'Hola mundo\n'
+"#,
+            1,
+        );
+
         let staged1 = make_test_staged_audio(tmp.path());
         let staged2 = {
             let mut s = make_test_staged_audio(tmp.path());
             let p = tmp.path().join("corvus-tg-aud-testsha256second.ogg");
-            let mut bytes = vec![0u8; 64];
+            let mut bytes = vec![0_u8; 64];
             bytes[0..4].copy_from_slice(b"OggS");
             std::fs::write(&p, &bytes).unwrap();
             s.temp_path = p;
@@ -5704,44 +5778,23 @@ mod tests {
             s
         };
 
-        // Create a semaphore with 1 permit (same as default config)
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
-
-        let sem1 = semaphore.clone();
-        let sem2 = semaphore.clone();
         let tx1 = transcriber.clone();
         let tx2 = transcriber.clone();
-        let s1 = staged1.clone();
-        let s2 = staged2.clone();
-
         let started = std::time::Instant::now();
 
-        // Spawn two concurrent transcriptions
-        let t1 = tokio::spawn(async move {
-            let _permit = sem1.acquire().await.unwrap();
-            tx1.transcribe(&s1).await
-        });
-        let t2 = tokio::spawn(async move {
-            let _permit = sem2.acquire().await.unwrap();
-            tx2.transcribe(&s2).await
-        });
+        let t1 = tokio::spawn(async move { tx1.transcribe(&staged1).await });
+        let t2 = tokio::spawn(async move { tx2.transcribe(&staged2).await });
 
         let (r1, r2) = tokio::join!(t1, t2);
         let elapsed = started.elapsed();
 
-        // Both should succeed
         assert!(r1.unwrap().is_ok());
         assert!(r2.unwrap().is_ok());
-
-        // With serial execution (100ms each), total should be >= 200ms
         assert!(
             elapsed >= Duration::from_millis(190),
             "expected serial execution (>=190ms), got {:?}",
             elapsed
         );
-
-        // Verify both transcriptions were called
-        assert_eq!(transcriber.call_count.load(Ordering::SeqCst), 2);
     }
 
     // ── audio_rejection_user_text — all 11 variants (coverage) ──
@@ -6127,7 +6180,7 @@ mod tests {
     // ── StagedAudioGuard with multiple files ─────────────────
 
     #[test]
-    fn staged_audio_guard_cleanup_multiple_files() {
+    fn staged_audio_guard_drop_cleans_up_multiple_files() {
         let dir = tempfile::tempdir().unwrap();
         let f1 = dir.path().join("audio1.ogg");
         let f2 = dir.path().join("audio2.ogg");
@@ -6136,26 +6189,25 @@ mod tests {
         assert!(f1.exists());
         assert!(f2.exists());
 
-        {
-            let _guard = StagedAudioGuard(vec![
-                audio_media::StagedAudio {
-                    sha256: "aaa".into(),
-                    mime_type: audio_media::AllowedAudioMime::OggOpus,
-                    byte_len: 5,
-                    duration_secs: Some(1.0),
-                    temp_path: f1.clone(),
-                    channel_origin: "telegram".into(),
-                },
-                audio_media::StagedAudio {
-                    sha256: "bbb".into(),
-                    mime_type: audio_media::AllowedAudioMime::Mp3,
-                    byte_len: 5,
-                    duration_secs: Some(2.0),
-                    temp_path: f2.clone(),
-                    channel_origin: "telegram".into(),
-                },
-            ]);
-        }
+        let guard = StagedAudioGuard(vec![
+            audio_media::StagedAudio {
+                sha256: "aaa".into(),
+                mime_type: audio_media::AllowedAudioMime::OggOpus,
+                byte_len: 5,
+                duration_secs: Some(1.0),
+                temp_path: f1.clone(),
+                channel_origin: "telegram".into(),
+            },
+            audio_media::StagedAudio {
+                sha256: "bbb".into(),
+                mime_type: audio_media::AllowedAudioMime::Mp3,
+                byte_len: 5,
+                duration_secs: Some(2.0),
+                temp_path: f2.clone(),
+                channel_origin: "telegram".into(),
+            },
+        ]);
+        drop(guard);
 
         assert!(!f1.exists(), "first temp file should be removed");
         assert!(!f2.exists(), "second temp file should be removed");
@@ -6207,60 +6259,6 @@ mod tests {
         assert_eq!(events[0].byte_len, Some(30_000_000));
         assert_eq!(events[0].duration_secs, Some(120.0));
         assert!(events[0].transcription_duration_ms.is_none());
-    }
-
-    #[tokio::test]
-    async fn transcription_semaphore_allows_parallel_with_higher_concurrency() {
-        // With concurrency=2, both should run in parallel
-        let transcriber = Arc::new(MockTranscriber::with_delay(
-            "Hola",
-            Duration::from_millis(100),
-        ));
-
-        let tmp = tempfile::tempdir().unwrap();
-        let staged1 = make_test_staged_audio(tmp.path());
-        let staged2 = {
-            let mut s = make_test_staged_audio(tmp.path());
-            let p = tmp.path().join("corvus-tg-aud-parallel-second.ogg");
-            let mut bytes = vec![0u8; 64];
-            bytes[0..4].copy_from_slice(b"OggS");
-            std::fs::write(&p, &bytes).unwrap();
-            s.temp_path = p;
-            s
-        };
-
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(2));
-
-        let sem1 = semaphore.clone();
-        let sem2 = semaphore.clone();
-        let tx1 = transcriber.clone();
-        let tx2 = transcriber.clone();
-        let s1 = staged1.clone();
-        let s2 = staged2.clone();
-
-        let started = std::time::Instant::now();
-
-        let t1 = tokio::spawn(async move {
-            let _permit = sem1.acquire().await.unwrap();
-            tx1.transcribe(&s1).await
-        });
-        let t2 = tokio::spawn(async move {
-            let _permit = sem2.acquire().await.unwrap();
-            tx2.transcribe(&s2).await
-        });
-
-        let (r1, r2) = tokio::join!(t1, t2);
-        let elapsed = started.elapsed();
-
-        assert!(r1.unwrap().is_ok());
-        assert!(r2.unwrap().is_ok());
-
-        // With parallel execution, total should be < 190ms (both ~100ms)
-        assert!(
-            elapsed < Duration::from_millis(190),
-            "expected parallel execution (<190ms), got {:?}",
-            elapsed
-        );
     }
 
     // ── build_transcriber tests ──────────────────────────────

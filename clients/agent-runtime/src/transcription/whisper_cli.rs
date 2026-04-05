@@ -78,6 +78,23 @@ impl WhisperCliTranscriber {
             Some(text)
         }
     }
+
+    #[cfg(test)]
+    pub(crate) fn new_for_tests(
+        binary_path: String,
+        model_path: PathBuf,
+        language: String,
+        timeout_secs: u64,
+        concurrency: usize,
+    ) -> Self {
+        Self {
+            binary_path,
+            model_path,
+            language,
+            timeout: Duration::from_secs(timeout_secs),
+            semaphore: Arc::new(Semaphore::new(concurrency)),
+        }
+    }
 }
 
 /// Resolve the whisper model path following Corvus conventions.
@@ -240,6 +257,39 @@ impl Transcriber for WhisperCliTranscriber {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
+    use std::fs;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    #[cfg(unix)]
+    use tempfile::TempDir;
+
+    #[cfg(unix)]
+    fn make_test_staged_audio(dir: &std::path::Path) -> StagedAudio {
+        let audio_path = dir.join("input.ogg");
+        let mut bytes = vec![0_u8; 64];
+        bytes[0..4].copy_from_slice(b"OggS");
+        fs::write(&audio_path, bytes).unwrap();
+
+        StagedAudio {
+            sha256: "abc123".into(),
+            mime_type: crate::channels::audio_media::AllowedAudioMime::OggOpus,
+            byte_len: 64,
+            duration_secs: Some(5.0),
+            temp_path: audio_path,
+            channel_origin: "telegram".into(),
+        }
+    }
+
+    #[cfg(unix)]
+    fn write_fake_whisper_script(dir: &TempDir, script_name: &str, body: &str) -> PathBuf {
+        let script_path = dir.path().join(script_name);
+        fs::write(&script_path, body).unwrap();
+        let mut perms = fs::metadata(&script_path).unwrap().permissions();
+        perms.set_mode(0o755);
+        fs::set_permissions(&script_path, perms).unwrap();
+        script_path
+    }
 
     // ── parse_output ──────────────────────────────────────────
 
@@ -402,5 +452,37 @@ mod tests {
             result.unwrap_err().contains("not found"),
             "error should mention 'not found'"
         );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn transcribe_runs_mock_whisper_binary_and_returns_known_text() {
+        let dir = tempfile::tempdir().unwrap();
+        let model_path = dir.path().join("ggml-base.bin");
+        fs::write(&model_path, b"fake-model").unwrap();
+
+        let script_path = write_fake_whisper_script(
+            &dir,
+            "fake-whisper.sh",
+            r#"#!/bin/sh
+set -eu
+printf 'Known mock transcription\n'
+"#,
+        );
+
+        let transcriber = WhisperCliTranscriber::new_for_tests(
+            script_path.display().to_string(),
+            model_path,
+            "es".into(),
+            5,
+            1,
+        );
+        let staged = make_test_staged_audio(dir.path());
+
+        let result = transcriber.transcribe(&staged).await.unwrap();
+
+        assert_eq!(result.text, "Known mock transcription");
+        assert_eq!(result.language.as_deref(), Some("es"));
+        assert_eq!(result.duration_secs, Some(5.0));
     }
 }

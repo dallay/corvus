@@ -6789,6 +6789,10 @@ transcription_timeout_secs = 60
             err.to_string().contains("allowed_channels"),
             "expected 'allowed_channels' error, got: {err}"
         );
+        assert_eq!(
+            err.to_string(),
+            "audio.allowed_channels must be non-empty when audio is enabled"
+        );
     }
 
     #[test]
@@ -6797,6 +6801,21 @@ transcription_timeout_secs = 60
             audio: AudioConfig {
                 enabled: true,
                 allowed_channels: vec!["telegram".into()],
+                ..AudioConfig::default()
+            },
+            ..Config::default()
+        };
+        assert!(config.validate_audio_config().is_ok());
+    }
+
+    #[test]
+    fn audio_validation_accepts_minimum_concurrency_and_timeout_boundaries() {
+        let config = Config {
+            audio: AudioConfig {
+                enabled: true,
+                allowed_channels: vec!["telegram".into()],
+                max_concurrent_transcriptions: 1,
+                transcription_timeout_secs: 1,
                 ..AudioConfig::default()
             },
             ..Config::default()
