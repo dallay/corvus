@@ -10,6 +10,21 @@ docType: reference
 
 Core tools provide the foundation for agent autonomy, allowing interaction with the host operating system and the local workspace.
 
+## `code_search`
+
+Searches workspace files for literal or regex matches and returns both human-readable output and structured match data.
+
+- **Security Tier:** Read-Only (Safe).
+- **Execution:** Native runtime tool with optional literal-query index narrowing and mandatory live verification against current file contents.
+- **Current limitation:** Regex correctness is supported, but indexed candidate narrowing does **not** support regex in v1. Regex planning falls back with `query_regex_not_supported` to discovery plus live verification.
+- **Rollout evidence:** See the dedicated [`code_search` rollout page](code-search.md) for measured shell-vs-native results, fallback labels, and recommendation guidance.
+
+### Parameters
+
+See the dedicated [`code_search` page](code-search.md) for the full parameter contract, benchmark methodology, and rollout guidance.
+
+---
+
 ## `shell`
 
 Executes an arbitrary shell command within the workspace directory.

@@ -1,5 +1,5 @@
-@import "@corvus/shared/app-shell.css";
-@import "tailwindcss";
+@import url("@corvus/shared/app-shell.css");
+@import url("tailwindcss");
 
 body {
   background:
