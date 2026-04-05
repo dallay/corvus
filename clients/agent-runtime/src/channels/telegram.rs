@@ -3409,10 +3409,25 @@ mod tests {
     // ── Voice/audio content parts parsing ────────────────────
 
     #[test]
-    fn build_telegram_content_parts_voice_message() {
+    fn build_telegram_content_parts_voice_message_from_realistic_payload() {
         let message = serde_json::json!({
+            "message_id": 101,
+            "date": 1_712_345_678,
+            "from": {
+                "id": 55,
+                "is_bot": false,
+                "first_name": "Alice",
+                "username": "alice"
+            },
+            "chat": {
+                "id": 100,
+                "type": "private",
+                "username": "alice"
+            },
+            "caption": "translate this",
             "voice": {
                 "file_id": "voice-file-123",
+                "file_unique_id": "voice-unique-123",
                 "duration": 10,
                 "file_size": 16000,
                 "mime_type": "audio/ogg"
@@ -3420,14 +3435,20 @@ mod tests {
         });
 
         let parts = build_telegram_content_parts(&message);
-        assert_eq!(parts.len(), 1);
-        match &parts[0] {
+        assert_eq!(parts.len(), 2);
+        assert!(
+            matches!(&parts[0], ContentPart::Text { text } if text == "translate this"),
+            "caption should be preserved as text"
+        );
+
+        match &parts[1] {
             ContentPart::Audio {
                 channel_handle,
                 source_channel,
                 declared_mime,
                 declared_duration_secs,
                 declared_bytes,
+                caption_text,
                 file_name,
                 ..
             } => {
@@ -3436,6 +3457,7 @@ mod tests {
                 assert_eq!(declared_mime.as_deref(), Some("audio/ogg"));
                 assert_eq!(*declared_duration_secs, Some(10));
                 assert_eq!(*declared_bytes, Some(16000));
+                assert_eq!(caption_text.as_deref(), Some("translate this"));
                 assert!(file_name.is_none());
             }
             other => panic!("expected Audio part, got: {other:?}"),
@@ -3443,10 +3465,25 @@ mod tests {
     }
 
     #[test]
-    fn build_telegram_content_parts_audio_file() {
+    fn build_telegram_content_parts_audio_file_from_realistic_payload() {
         let message = serde_json::json!({
+            "message_id": 102,
+            "date": 1_712_345_679,
+            "from": {
+                "id": 77,
+                "is_bot": false,
+                "first_name": "Bob",
+                "username": "bob"
+            },
+            "chat": {
+                "id": -100_123_456,
+                "type": "supergroup",
+                "title": "Audio Tests"
+            },
+            "caption": "meeting recording",
             "audio": {
                 "file_id": "audio-file-456",
+                "file_unique_id": "audio-unique-456",
                 "duration": 180,
                 "file_size": 2_500_000,
                 "mime_type": "audio/mpeg",
@@ -3455,14 +3492,20 @@ mod tests {
         });
 
         let parts = build_telegram_content_parts(&message);
-        assert_eq!(parts.len(), 1);
-        match &parts[0] {
+        assert_eq!(parts.len(), 2);
+        assert!(
+            matches!(&parts[0], ContentPart::Text { text } if text == "meeting recording"),
+            "caption should be preserved as text"
+        );
+
+        match &parts[1] {
             ContentPart::Audio {
                 channel_handle,
                 source_channel,
                 declared_mime,
                 declared_duration_secs,
                 declared_bytes,
+                caption_text,
                 file_name,
                 ..
             } => {
@@ -3471,6 +3514,7 @@ mod tests {
                 assert_eq!(declared_mime.as_deref(), Some("audio/mpeg"));
                 assert_eq!(*declared_duration_secs, Some(180));
                 assert_eq!(*declared_bytes, Some(2_500_000));
+                assert_eq!(caption_text.as_deref(), Some("meeting recording"));
                 assert_eq!(file_name.as_deref(), Some("recording.mp3"));
             }
             other => panic!("expected Audio part, got: {other:?}"),

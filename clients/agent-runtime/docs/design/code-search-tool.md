@@ -478,6 +478,50 @@ capability like `file_read`.
 All unit tests use `#[cfg(test)]` in `code_search.rs`, following the `file_read.rs` pattern
 with temp directories and `test_security()` / `test_security_with()` helpers.
 
+## 7. Freshness Strategy
+
+v1 has no index, no cache, and no in-memory result store. Every `code_search` invocation walks
+the workspace directory from scratch and reads each file from disk at the moment of execution.
+
+### Guarantee: reads reflect the latest writes
+
+Because there is no intermediate data store that could become stale, the agent can rely on the
+following read-after-write ordering for files that a later `code_search` is still allowed to scan:
+
+1. `file_write` completes the write through the runtime's file tool path (without promising an
+   explicit `fsync`).
+2. The next `code_search` invocation opens that same file from the OS filesystem.
+3. The match result reflects the content written in step 1.
+
+This guarantee is scoped to files that the subsequent `code_search` is allowed to scan (i.e.,
+within the invoked `path` and `include` filters, and not excluded by `exclude` patterns,
+`.gitignore` rules, binary detection, or resource limits). Binary detection, ignore rules, and
+resource limits can prevent the search from seeing the fresh write even under v1's "always read
+from disk" model. No warm-up, index rebuild, or explicit invalidation step is needed between a
+write and a subsequent search for files within the search scope.
+
+### Implications for agent workflows
+
+- An agent that writes a file and immediately searches for a symbol it just added can expect
+  `code_search` to observe that content when the file remains inside the requested
+  `path`/`include` scope, is not ignored, is not detected as binary, and is not skipped by size or
+  other resource limits — there is no propagation delay for eligible files.
+- Concurrent writes from other processes may or may not be visible depending on OS buffering,
+  but this is outside the scope of the agent's execution model (agents are single-threaded in
+  their tool-call loop).
+- The 30-second execution timeout is a per-invocation bound, not a freshness window.
+
+### Why v2 requires an explicit freshness strategy
+
+If a future version adds a persistent trigram index (v2+), the index will become a second source
+of truth that can diverge from the filesystem. That version must define:
+
+- **Write-through**: every `file_write` call triggers an index update for the affected file.
+- **Invalidation horizon**: maximum age a cached index entry may have before re-reading the file.
+- **Rebuild trigger**: conditions under which the full index is discarded and rebuilt.
+
+Until then, v1's "always read from disk" model is the simplest possible freshness guarantee.
+
 ## Migration / Rollout
 
 No migration required. The tool is additive:

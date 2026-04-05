@@ -269,11 +269,7 @@ impl SecurityPolicy {
                 continue;
             };
 
-            let base = base_raw
-                .rsplit('/')
-                .next()
-                .unwrap_or("")
-                .to_ascii_lowercase();
+            let base = base_raw.to_ascii_lowercase();
 
             let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
             let joined_segment = cmd_part.to_ascii_lowercase();
@@ -371,10 +367,6 @@ impl SecurityPolicy {
         command: &str,
         approved: bool,
     ) -> Result<CommandRiskLevel, String> {
-        if !self.is_command_allowed(command) {
-            return Err(format!("Command not allowed by security policy: {command}"));
-        }
-
         let risk = self.command_risk_level(command);
 
         if risk == CommandRiskLevel::High {
@@ -387,6 +379,10 @@ impl SecurityPolicy {
                         .into(),
                 );
             }
+        }
+
+        if !self.is_command_allowed(command) {
+            return Err(format!("Command not allowed by security policy: {command}"));
         }
 
         if risk == CommandRiskLevel::Medium
@@ -431,6 +427,7 @@ impl SecurityPolicy {
             || command.contains(">(")
             || command.contains('<')
             || command.contains('>')
+            || command.contains('\\')
             || self.contains_dangerous_commands(command)
             || contains_single_ampersand(command)
     }
@@ -459,22 +456,75 @@ impl SecurityPolicy {
 
         let mut words = cmd_part.split_whitespace();
         let base_raw = words.next().unwrap_or("");
-        let base_cmd = base_raw.rsplit('/').next().unwrap_or("");
 
-        if base_cmd.is_empty() {
+        if base_raw.is_empty() {
             return true;
         }
 
+        // Enforce exact matches for allowed commands and disallow path components.
+        // This prevents executing malicious binaries in the workspace that happen
+        // to share a name with an allowed command (e.g. ./ls).
         if !self
             .allowed_commands
             .iter()
-            .any(|allowed| allowed == base_cmd)
+            .any(|allowed| allowed == base_raw)
         {
             return false;
         }
 
-        let args: Vec<String> = words.map(|w| w.to_ascii_lowercase()).collect();
-        self.is_args_safe(base_cmd, &args)
+        if base_raw != "find"
+            && ['*', '?', '[', ']', '{', '}']
+                .iter()
+                .any(|ch| segment.contains(*ch))
+        {
+            return false;
+        }
+
+        let raw_args: Vec<&str> = words.collect();
+        let normalized_args = match raw_args
+            .iter()
+            .map(|arg| normalize_arg_for_path_checks(arg))
+            .collect::<Option<Vec<_>>>()
+        {
+            Some(args) => args,
+            None => return false,
+        };
+        let args: Vec<String> = normalized_args
+            .iter()
+            .map(|arg| arg.to_ascii_lowercase())
+            .collect();
+
+        // Helper to identify tokens that likely represent paths
+        fn is_likely_path(arg: &str) -> bool {
+            (arg.contains('/') && !arg.contains(':'))
+                || arg.starts_with('~')
+                || arg.starts_with('.')
+                || arg.contains(std::path::MAIN_SEPARATOR)
+        }
+
+        // Ensure no argument is a forbidden path or a traversal attempt.
+        // We only check arguments that look like paths to avoid false positives
+        // on non-path tokens (e.g., git diff patterns, grep globs, brace literals).
+        for (_raw_arg, arg) in raw_args.iter().zip(normalized_args.iter()) {
+            if !is_likely_path(arg) {
+                continue;
+            }
+
+            if Path::new(arg)
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+                || (self.workspace_only && (arg.starts_with('/') || arg.starts_with('~')))
+            {
+                return false;
+            }
+
+            // Check against forbidden paths (e.g. /etc, ~/.ssh)
+            if matches_any_forbidden_path(arg, &self.forbidden_paths) {
+                return false;
+            }
+        }
+
+        self.is_args_safe(base_raw, &args)
     }
 
     fn has_any_command(&self, normalized: &str) -> bool {
@@ -525,20 +575,31 @@ impl SecurityPolicy {
             return false;
         }
 
-        // Decode percent-encoded paths to prevent bypasses like %2e%2e/%2f
-        let decoded = urlencoding::decode(path).unwrap_or_else(|_| path.into());
+        // Iterative URL decoding to prevent bypasses like %252e%252e (double-encoded "..")
+        let mut decoded = path.to_string();
+        for _ in 0..3 {
+            let next = urlencoding::decode(&decoded).unwrap_or_else(|_| decoded.clone().into());
+            if next == decoded {
+                break;
+            }
+            decoded = next.into_owned();
+        }
 
-        // Block path traversal: check for ".." as a path component
-        if Path::new(decoded.as_ref())
-            .components()
-            .any(|c| matches!(c, std::path::Component::ParentDir))
-        {
+        // Block backslashes (Windows-style separators or escaping)
+        if decoded.contains('\\') {
             return false;
         }
 
-        // Block URL-encoded traversal attempts (e.g. ..%2f)
-        let lower = decoded.to_lowercase();
-        if lower.contains("..%2f") || lower.contains("%2f..") || lower.contains("%2f") {
+        // Block residual percent signs after decoding (incomplete or malicious encoding)
+        if decoded.contains('%') {
+            return false;
+        }
+
+        // Block path traversal: check for ".." as a path component
+        if Path::new(&decoded)
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
             return false;
         }
 
@@ -642,6 +703,31 @@ fn expand_tilde(path: &str) -> String {
         }
     }
     path.to_string()
+}
+
+fn strip_matching_quotes(token: &str) -> &str {
+    if token.len() >= 2 {
+        let first = token.as_bytes()[0];
+        let last = token.as_bytes()[token.len() - 1];
+        if (first == b'"' && last == b'"') || (first == b'\'' && last == b'\'') {
+            return &token[1..token.len() - 1];
+        }
+    }
+    token
+}
+
+fn normalize_arg_for_path_checks(token: &str) -> Option<String> {
+    let dequoted = strip_matching_quotes(token);
+    if dequoted == "$HOME" || dequoted == "${HOME}" || dequoted == "$PATH" || dequoted == "${PATH}"
+    {
+        return Some(dequoted.to_string());
+    }
+    if dequoted.contains('$') || dequoted.starts_with('~') {
+        return shellexpand::full(dequoted)
+            .ok()
+            .map(|value| value.into_owned());
+    }
+    Some(dequoted.to_string())
 }
 
 /// Check whether `expanded` path starts with any of the forbidden paths.
@@ -779,10 +865,25 @@ mod tests {
     }
 
     #[test]
-    fn command_with_absolute_path_extracts_basename() {
+    fn command_with_path_blocked() {
         let p = default_policy();
-        assert!(p.is_command_allowed("/usr/bin/git status"));
-        assert!(p.is_command_allowed("/bin/ls -la"));
+        // Path-based execution is blocked to prevent workspace bypasses
+        assert!(!p.is_command_allowed("/usr/bin/git status"));
+        assert!(!p.is_command_allowed("/bin/ls -la"));
+        assert!(!p.is_command_allowed("./ls"));
+        assert!(!p.is_command_allowed("../bin/ls"));
+    }
+
+    #[test]
+    fn command_with_forbidden_arg_blocked() {
+        let p = default_policy();
+        // Arguments that are absolute paths or traversals are blocked
+        assert!(!p.is_command_allowed("cat /etc/passwd"));
+        assert!(!p.is_command_allowed("ls ../../../etc"));
+        assert!(!p.is_command_allowed("grep foo ~/.ssh/id_rsa"));
+        // Relative paths inside workspace are OK
+        assert!(p.is_command_allowed("cat file.txt"));
+        assert!(p.is_command_allowed("ls subdir/file"));
     }
 
     #[test]
@@ -1161,6 +1262,19 @@ mod tests {
         assert!(p.is_command_allowed("find . -name '*.txt'"));
         assert!(p.is_command_allowed("git status"));
         assert!(p.is_command_allowed("git add ."));
+    }
+
+    #[test]
+    fn command_argument_env_paths_still_respect_forbidden_and_workspace_rules() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("cat $HOME/foo"));
+        assert!(!p.is_command_allowed("cat ${HOME}/foo"));
+    }
+
+    #[test]
+    fn command_argument_path_checks_allow_double_dot_in_filename() {
+        let p = default_policy();
+        assert!(p.is_command_allowed("cat my..file.rs"));
     }
 
     #[test]
@@ -1650,6 +1764,27 @@ mod tests {
             !policy.is_path_allowed("%252e%252e%252f%252e%252e%252fetc%252fpasswd"),
             "Double URL-encoded traversal must be blocked"
         );
+        assert!(
+            !policy.is_path_allowed("%252e%252e"),
+            "Double URL-encoded '..' must be blocked"
+        );
+    }
+
+    #[test]
+    fn is_path_allowed_blocks_dangerous_chars() {
+        let p = default_policy();
+        assert!(!p.is_path_allowed("file\\.txt"));
+        assert!(!p.is_path_allowed("..%2fetc%2fpasswd")); // encoded traversal is blocked
+    }
+
+    #[test]
+    fn is_command_allowed_blocks_shell_meta_chars() {
+        let p = default_policy();
+        assert!(!p.is_command_allowed("ls *"));
+        assert!(!p.is_command_allowed("ls ?"));
+        assert!(!p.is_command_allowed("ls [a-z]"));
+        assert!(!p.is_command_allowed("ls {a,b}"));
+        assert!(!p.is_command_allowed("echo \\$HOME"));
     }
 
     #[test]
