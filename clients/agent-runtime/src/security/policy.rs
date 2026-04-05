@@ -480,8 +480,10 @@ impl SecurityPolicy {
             return false;
         }
 
-        let normalized_args = match words
-            .map(normalize_arg_for_path_checks)
+        let raw_args: Vec<&str> = words.collect();
+        let normalized_args = match raw_args
+            .iter()
+            .map(|arg| normalize_arg_for_path_checks(arg))
             .collect::<Option<Vec<_>>>()
         {
             Some(args) => args,
@@ -503,7 +505,11 @@ impl SecurityPolicy {
         // Ensure no argument is a forbidden path or a traversal attempt.
         // We only check arguments that look like paths to avoid false positives
         // on non-path tokens (e.g., git diff patterns, grep globs, brace literals).
-        for arg in &normalized_args {
+        for (raw_arg, arg) in raw_args.iter().zip(normalized_args.iter()) {
+            if raw_arg.starts_with('$') {
+                continue;
+            }
+
             if !is_likely_path(arg) {
                 continue;
             }

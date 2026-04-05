@@ -417,8 +417,8 @@ fn search_workspace(
         push_warning(
             &mut warnings,
             format!(
-                "Search stopped after visiting {} files. Narrow your search with 'path' or 'include' filters.",
-                discovered.visited_files
+                "Search stopped after {} files. Narrow your search with 'path' or 'include' filters.",
+                limits.max_files_scanned
             ),
         );
     }
