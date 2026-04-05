@@ -382,7 +382,7 @@ fn repo_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "literal_small_hit",
             query_kind: QueryKind::Literal,
-            result_shape: ResultShape::SmallHit,
+            result_shape: ResultShape::Small,
             pattern: "pub struct ToolResult",
             path: "clients/agent-runtime/src/tools",
             case_sensitive: true,
@@ -391,7 +391,7 @@ fn repo_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "literal_large_hit",
             query_kind: QueryKind::Literal,
-            result_shape: ResultShape::LargeHit,
+            result_shape: ResultShape::Large,
             pattern: "success:",
             path: "clients/agent-runtime/src/tools",
             case_sensitive: true,
@@ -400,7 +400,7 @@ fn repo_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "literal_no_hit",
             query_kind: QueryKind::Literal,
-            result_shape: ResultShape::NoHit,
+            result_shape: ResultShape::Miss,
             pattern: "code_search_rollout_literal_no_match_20260405",
             path: "clients/agent-runtime/src/tools",
             case_sensitive: true,
@@ -409,7 +409,7 @@ fn repo_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "regex_small_hit",
             query_kind: QueryKind::Regex,
-            result_shape: ResultShape::SmallHit,
+            result_shape: ResultShape::Small,
             pattern: "ToolResult",
             path: "clients/agent-runtime/src/tools",
             case_sensitive: true,
@@ -418,7 +418,7 @@ fn repo_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "regex_large_hit",
             query_kind: QueryKind::Regex,
-            result_shape: ResultShape::LargeHit,
+            result_shape: ResultShape::Large,
             pattern: "output:",
             path: "clients/agent-runtime/src/tools",
             case_sensitive: true,
@@ -427,7 +427,7 @@ fn repo_cases() -> Vec<BenchmarkCase> {
         BenchmarkCase {
             id: "regex_no_hit",
             query_kind: QueryKind::Regex,
-            result_shape: ResultShape::NoHit,
+            result_shape: ResultShape::Miss,
             pattern: "code_search_rollout_regex_no_match_20260405",
             path: "clients/agent-runtime/src/tools",
             case_sensitive: true,
@@ -1196,7 +1196,7 @@ mod tests {
         let case = BenchmarkCase {
             id: "literal_small_hit",
             query_kind: QueryKind::Literal,
-            result_shape: ResultShape::SmallHit,
+            result_shape: ResultShape::Small,
             pattern: "needle",
             path: "src",
             case_sensitive: true,
@@ -1214,7 +1214,7 @@ mod tests {
         let case = BenchmarkCase {
             id: "regex_small_hit",
             query_kind: QueryKind::Regex,
-            result_shape: ResultShape::SmallHit,
+            result_shape: ResultShape::Small,
             pattern: "output:",
             path: "src/lib",
             case_sensitive: false,
