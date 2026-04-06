@@ -790,6 +790,21 @@ impl Agent {
             .sum()
     }
 
+    /// Estimate the total character count for the request payload, including tool specs if applicable.
+    fn estimate_request_char_count(&self) -> usize {
+        let mut total = self.history_char_count();
+
+        // Include tool specs if they would be sent in the request
+        if self.tool_dispatcher.should_send_tool_specs() {
+            // Serialize tool_specs to estimate their size in the request
+            if let Ok(json) = serde_json::to_string(&self.tool_specs) {
+                total += json.len();
+            }
+        }
+
+        total
+    }
+
     /// Estimate the cost for an upcoming LLM call based on conversation size.
     fn estimate_request_cost(&self, model: &str) -> f64 {
         // Resolve hint: prefix to get the actual model for pricing lookup
@@ -798,8 +813,8 @@ impl Agent {
         if input_price == 0.0 && output_price == 0.0 {
             return 0.0;
         }
-        // Rough estimate: count chars in history, ~4 chars per token
-        let input_chars = self.history_char_count();
+        // Rough estimate: count chars in full request (history + tool specs if applicable), ~4 chars per token
+        let input_chars = self.estimate_request_char_count();
         let estimated_input_tokens = (input_chars / 4) as u64;
         let estimated_output_tokens = PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS;
         let input_cost = (estimated_input_tokens as f64 / 1_000_000.0) * input_price;
@@ -871,8 +886,8 @@ impl Agent {
         let resolved_model = self.resolve_model_for_pricing(model);
         let (input_price, output_price) = self.model_pricing(&resolved_model);
 
-        // Estimate input tokens from history size
-        let input_chars = self.history_char_count();
+        // Estimate input tokens from full request size (history + tool specs if applicable)
+        let input_chars = self.estimate_request_char_count();
         let estimated_input_tokens = (input_chars / 4) as u64;
 
         // Estimate output tokens from response length (text + tool_calls)
