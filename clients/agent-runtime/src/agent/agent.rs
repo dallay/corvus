@@ -13,10 +13,10 @@ use crate::agent::prompt::{
 };
 use crate::bootstrap;
 use crate::config::Config;
-use crate::cost::{BudgetCheck, CostTracker, TokenUsage};
+use crate::cost::{BudgetCheck, CostTracker, TokenUsage, UsagePeriod};
 use crate::memory::{Memory, MemoryCategory};
 use crate::observability::{redact_observer_payload, Observer, ObserverEvent};
-use crate::providers::{ChatMessage, ChatRequest, ConversationMessage, Provider};
+use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider};
 use crate::security::{
     AuditEvent, AuditEventType, AuditLogger, CodeSessionAuditLog, CommandExecutionLog,
     ExecutionOrigin,
@@ -105,6 +105,11 @@ pub struct Agent {
 #[derive(Debug)]
 pub enum AgentExecutionError {
     IterationBudgetExceeded { max_iterations: usize },
+    CostBudgetExceeded {
+        current_usd: f64,
+        limit_usd: f64,
+        period: UsagePeriod,
+    },
 }
 
 impl fmt::Display for AgentExecutionError {
@@ -113,6 +118,15 @@ impl fmt::Display for AgentExecutionError {
             AgentExecutionError::IterationBudgetExceeded { max_iterations } => write!(
                 f,
                 "Agent exceeded maximum tool iterations ({max_iterations})"
+            ),
+            AgentExecutionError::CostBudgetExceeded {
+                current_usd,
+                limit_usd,
+                period,
+            } => write!(
+                f,
+                "Budget exceeded: ${current_usd:.4} spent against ${limit_usd:.2} {period:?} limit. \
+                 Set cost.enabled=false or increase limits to proceed."
             ),
         }
     }
@@ -725,6 +739,21 @@ impl Agent {
         join_all(calls.iter().map(|call| self.execute_tool_call(call))).await
     }
 
+    /// Resolve a model identifier, stripping "hint:" prefix if present.
+    /// This ensures we get the concrete model ID for cost tracking purposes.
+    fn resolve_model_for_pricing(&self, model: &str) -> String {
+        // If model starts with "hint:", strip it to get the base hint name
+        // The provider routing logic will handle the actual resolution,
+        // but for pricing we just need a consistent identifier
+        if let Some(hint) = model.strip_prefix("hint:") {
+            // For now, return the hint portion without the prefix
+            // In a future enhancement, this could call into the provider's resolve logic
+            hint.to_string()
+        } else {
+            model.to_string()
+        }
+    }
+
     /// Look up model pricing from CostConfig, returning (input_per_million, output_per_million).
     fn model_pricing(&self, model: &str) -> (f64, f64) {
         if let Some(pricing) = self.cost_config.prices.get(model) {
@@ -745,8 +774,14 @@ impl Agent {
             .iter()
             .map(|msg| match msg {
                 ConversationMessage::Chat(chat) => chat.content.len(),
-                ConversationMessage::AssistantToolCalls { text, .. } => {
-                    text.as_ref().map_or(0, String::len)
+                ConversationMessage::AssistantToolCalls { text, tool_calls } => {
+                    let text_len = text.as_ref().map_or(0, String::len);
+                    // Include serialized tool_calls in the count (name + arguments)
+                    let tool_calls_len: usize = tool_calls
+                        .iter()
+                        .map(|call| call.name.len() + call.arguments.len())
+                        .sum();
+                    text_len + tool_calls_len
                 }
                 ConversationMessage::ToolResults(results) => {
                     results.iter().map(|r| r.content.len()).sum()
@@ -757,7 +792,9 @@ impl Agent {
 
     /// Estimate the cost for an upcoming LLM call based on conversation size.
     fn estimate_request_cost(&self, model: &str) -> f64 {
-        let (input_price, output_price) = self.model_pricing(model);
+        // Resolve hint: prefix to get the actual model for pricing lookup
+        let resolved_model = self.resolve_model_for_pricing(model);
+        let (input_price, output_price) = self.model_pricing(&resolved_model);
         if input_price == 0.0 && output_price == 0.0 {
             return 0.0;
         }
@@ -810,11 +847,12 @@ impl Agent {
                     ?period,
                     "Cost budget exceeded — blocking LLM call"
                 );
-                anyhow::bail!(
-                    "Budget exceeded: ${current_usd:.4} spent against \
-                     ${limit_usd:.2} {period:?} limit. \
-                     Set cost.enabled=false or increase limits to proceed."
-                )
+                Err(AgentExecutionError::CostBudgetExceeded {
+                    current_usd,
+                    limit_usd,
+                    period,
+                }
+                .into())
             }
         }
     }
@@ -823,20 +861,28 @@ impl Agent {
     fn record_estimated_usage(
         &self,
         model: &str,
-        response_text: Option<&str>,
+        response: &ChatResponse,
         turn_context: &TurnContext,
     ) {
         let Some(tracker) = &self.cost_tracker else {
             return;
         };
-        let (input_price, output_price) = self.model_pricing(model);
+        // Resolve hint: prefix to get the actual model for pricing lookup
+        let resolved_model = self.resolve_model_for_pricing(model);
+        let (input_price, output_price) = self.model_pricing(&resolved_model);
 
         // Estimate input tokens from history size
         let input_chars = self.history_char_count();
         let estimated_input_tokens = (input_chars / 4) as u64;
 
-        // Estimate output tokens from response length
-        let output_chars = response_text.map_or(0, str::len);
+        // Estimate output tokens from response length (text + tool_calls)
+        let text_chars = response.text.as_deref().map_or(0, str::len);
+        let tool_calls_chars: usize = response
+            .tool_calls
+            .iter()
+            .map(|call| call.name.len() + call.arguments.len())
+            .sum();
+        let output_chars = text_chars + tool_calls_chars;
         let actual_output_tokens = std::cmp::max((output_chars / 4) as u64, 1);
 
         if (actual_output_tokens as f64) > (PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS as f64 * 1.5) {
@@ -850,7 +896,7 @@ impl Agent {
         }
 
         let usage = TokenUsage::new(
-            model,
+            &resolved_model,
             estimated_input_tokens,
             actual_output_tokens,
             input_price,
@@ -1702,7 +1748,7 @@ impl Agent {
             .await?;
 
         // Record estimated usage after successful LLM call
-        self.record_estimated_usage(effective_model, response.text.as_deref(), turn_context);
+        self.record_estimated_usage(effective_model, &response, turn_context);
 
         let (text, calls) = self.tool_dispatcher.parse_response(&response);
         if calls.is_empty() {
