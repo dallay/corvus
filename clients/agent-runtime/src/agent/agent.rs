@@ -753,19 +753,16 @@ impl Agent {
                 ConversationMessage::AssistantToolCalls { text, .. } => {
                     text.as_ref().map_or(0, String::len)
                 }
-                ConversationMessage::ToolResults(results) => results
-                    .iter()
-                    .map(|r| r.content.len())
-                    .sum(),
+                ConversationMessage::ToolResults(results) => {
+                    results.iter().map(|r| r.content.len()).sum()
+                }
             })
             .sum();
         let estimated_input_tokens = (input_chars / 4) as u64;
         // Assume ~500 output tokens for a typical response
         let estimated_output_tokens: u64 = 500;
-        let input_cost =
-            (estimated_input_tokens as f64 / 1_000_000.0) * input_price;
-        let output_cost =
-            (estimated_output_tokens as f64 / 1_000_000.0) * output_price;
+        let input_cost = (estimated_input_tokens as f64 / 1_000_000.0) * input_price;
+        let output_cost = (estimated_output_tokens as f64 / 1_000_000.0) * output_price;
         input_cost + output_cost
     }
 
@@ -834,10 +831,9 @@ impl Agent {
                 ConversationMessage::AssistantToolCalls { text, .. } => {
                     text.as_ref().map_or(0, String::len)
                 }
-                ConversationMessage::ToolResults(results) => results
-                    .iter()
-                    .map(|r| r.content.len())
-                    .sum(),
+                ConversationMessage::ToolResults(results) => {
+                    results.iter().map(|r| r.content.len()).sum()
+                }
             })
             .sum();
         let estimated_input_tokens = (input_chars / 4) as u64;
@@ -1699,10 +1695,7 @@ impl Agent {
             .await?;
 
         // Record estimated usage after successful LLM call
-        self.record_estimated_usage(
-            effective_model,
-            response.text.as_deref(),
-        );
+        self.record_estimated_usage(effective_model, response.text.as_deref());
 
         let (text, calls) = self.tool_dispatcher.parse_response(&response);
         if calls.is_empty() {
@@ -2272,11 +2265,9 @@ mod tests {
             ..crate::config::MemoryConfig::default()
         };
         let mem: Arc<dyn Memory> = Arc::from(
-            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None)
-                .unwrap(),
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None).unwrap(),
         );
-        let observer: Arc<dyn Observer> =
-            Arc::from(crate::observability::NoopObserver {});
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
         let agent = Agent::builder()
             .provider(provider)
             .tools(vec![Box::new(MockTool)])
@@ -2299,8 +2290,7 @@ mod tests {
                 tool_calls: vec![],
             }]),
         });
-        let (mut agent, tracker, _tmp) =
-            build_agent_with_cost_tracker(provider, true, 100.0);
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, true, 100.0);
         let _ = agent.turn("hi").await.unwrap();
 
         let tracker = tracker.unwrap();
@@ -2320,8 +2310,7 @@ mod tests {
                 tool_calls: vec![],
             }]),
         });
-        let (mut agent, tracker, _tmp) =
-            build_agent_with_cost_tracker(provider, false, 100.0);
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, false, 100.0);
         assert!(tracker.is_none());
         // Should still work normally
         let response = agent.turn("hi").await.unwrap();
@@ -2343,8 +2332,7 @@ mod tests {
             ]),
         });
         // Generous limit so first call succeeds; we inject big usage after
-        let (mut agent, tracker, _tmp) =
-            build_agent_with_cost_tracker(provider, true, 1.0);
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, true, 1.0);
 
         // First call succeeds and records usage
         let _ = agent.turn("hi").await.unwrap();
