@@ -1,7 +1,7 @@
 {
   "name": "@corvus/docs",
   "type": "module",
-  "version": "0.4.0",
+  "version": "1.0.0",
   "scripts": {
     "dev": "portless run --name docs astro dev",
     "start": "portless run --name docs astro dev",
