@@ -31,6 +31,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
 
+const PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS: u64 = 500;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentTurnOutcome {
     Completed,
@@ -738,15 +740,8 @@ impl Agent {
         (0.0, 0.0)
     }
 
-    /// Estimate the cost for an upcoming LLM call based on conversation size.
-    fn estimate_request_cost(&self, model: &str) -> f64 {
-        let (input_price, output_price) = self.model_pricing(model);
-        if input_price == 0.0 && output_price == 0.0 {
-            return 0.0;
-        }
-        // Rough estimate: count chars in history, ~4 chars per token
-        let input_chars: usize = self
-            .history
+    fn history_char_count(&self) -> usize {
+        self.history
             .iter()
             .map(|msg| match msg {
                 ConversationMessage::Chat(chat) => chat.content.len(),
@@ -757,10 +752,19 @@ impl Agent {
                     results.iter().map(|r| r.content.len()).sum()
                 }
             })
-            .sum();
+            .sum()
+    }
+
+    /// Estimate the cost for an upcoming LLM call based on conversation size.
+    fn estimate_request_cost(&self, model: &str) -> f64 {
+        let (input_price, output_price) = self.model_pricing(model);
+        if input_price == 0.0 && output_price == 0.0 {
+            return 0.0;
+        }
+        // Rough estimate: count chars in history, ~4 chars per token
+        let input_chars = self.history_char_count();
         let estimated_input_tokens = (input_chars / 4) as u64;
-        // Assume ~500 output tokens for a typical response
-        let estimated_output_tokens: u64 = 500;
+        let estimated_output_tokens = PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS;
         let input_cost = (estimated_input_tokens as f64 / 1_000_000.0) * input_price;
         let output_cost = (estimated_output_tokens as f64 / 1_000_000.0) * output_price;
         input_cost + output_cost
@@ -787,7 +791,7 @@ impl Agent {
                     "Cost budget warning: approaching limit"
                 );
                 self.observer.record_event(&ObserverEvent::Error {
-                    component: "cost".to_string(),
+                    component: "cost_warning".to_string(),
                     message: format!(
                         "Budget warning: ${current_usd:.4} of \
                          ${limit_usd:.2} {period:?} limit used"
@@ -816,36 +820,39 @@ impl Agent {
     }
 
     /// Record token usage after a successful LLM call using estimated tokens.
-    fn record_estimated_usage(&self, model: &str, response_text: Option<&str>) {
+    fn record_estimated_usage(
+        &self,
+        model: &str,
+        response_text: Option<&str>,
+        turn_context: &TurnContext,
+    ) {
         let Some(tracker) = &self.cost_tracker else {
             return;
         };
         let (input_price, output_price) = self.model_pricing(model);
 
         // Estimate input tokens from history size
-        let input_chars: usize = self
-            .history
-            .iter()
-            .map(|msg| match msg {
-                ConversationMessage::Chat(chat) => chat.content.len(),
-                ConversationMessage::AssistantToolCalls { text, .. } => {
-                    text.as_ref().map_or(0, String::len)
-                }
-                ConversationMessage::ToolResults(results) => {
-                    results.iter().map(|r| r.content.len()).sum()
-                }
-            })
-            .sum();
+        let input_chars = self.history_char_count();
         let estimated_input_tokens = (input_chars / 4) as u64;
 
         // Estimate output tokens from response length
         let output_chars = response_text.map_or(0, str::len);
-        let estimated_output_tokens = std::cmp::max((output_chars / 4) as u64, 1);
+        let actual_output_tokens = std::cmp::max((output_chars / 4) as u64, 1);
+
+        if (actual_output_tokens as f64) > (PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS as f64 * 1.5) {
+            tracing::warn!(
+                model,
+                request_context = turn_context.session_id.as_deref().unwrap_or("agent-turn"),
+                estimated_output_tokens = PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS,
+                actual_output_tokens,
+                "LLM output tokens significantly exceeded the pre-flight estimate"
+            );
+        }
 
         let usage = TokenUsage::new(
             model,
             estimated_input_tokens,
-            estimated_output_tokens,
+            actual_output_tokens,
             input_price,
             output_price,
         );
@@ -1695,7 +1702,7 @@ impl Agent {
             .await?;
 
         // Record estimated usage after successful LLM call
-        self.record_estimated_usage(effective_model, response.text.as_deref());
+        self.record_estimated_usage(effective_model, response.text.as_deref(), turn_context);
 
         let (text, calls) = self.tool_dispatcher.parse_response(&response);
         if calls.is_empty() {
