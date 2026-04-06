@@ -1,4 +1,5 @@
 use crate::config::Config;
+use crate::cost::CostTracker;
 use crate::memory::{self, Memory};
 use crate::observability::{self, Observer};
 use crate::providers::{self, Provider, ProviderRuntimeOptions};
@@ -131,6 +132,7 @@ pub struct BootstrapContext {
     pub security: Arc<SecurityPolicy>,
     pub memory: Arc<dyn Memory>,
     pub tools: Vec<Box<dyn Tool>>,
+    pub cost_tracker: Option<Arc<CostTracker>>,
 }
 
 fn selected_provider_name(config: &Config) -> &str {
@@ -250,12 +252,25 @@ impl BootstrapContext {
             .filter(|tool| profile.allows_tool(tool.name()))
             .collect();
 
+        let cost_tracker = if config.cost.enabled {
+            match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
+                Ok(tracker) => Some(Arc::new(tracker)),
+                Err(error) => {
+                    tracing::warn!("Failed to initialize cost tracker: {error}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Ok(Self {
             observer,
             runtime,
             security,
             memory,
             tools,
+            cost_tracker,
         })
     }
 }

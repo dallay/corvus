@@ -13,9 +13,10 @@ use crate::agent::prompt::{
 };
 use crate::bootstrap;
 use crate::config::Config;
+use crate::cost::{BudgetCheck, CostTracker, TokenUsage, UsagePeriod};
 use crate::memory::{Memory, MemoryCategory};
 use crate::observability::{redact_observer_payload, Observer, ObserverEvent};
-use crate::providers::{ChatMessage, ChatRequest, ConversationMessage, Provider};
+use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider};
 use crate::security::{
     AuditEvent, AuditEventType, AuditLogger, CodeSessionAuditLog, CommandExecutionLog,
     ExecutionOrigin,
@@ -29,6 +30,8 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use uuid::Uuid;
+
+const PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS: u64 = 500;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentTurnOutcome {
@@ -92,6 +95,8 @@ pub struct Agent {
     history: Vec<ConversationMessage>,
     classification_config: crate::config::QueryClassificationConfig,
     available_hints: Vec<String>,
+    cost_tracker: Option<Arc<CostTracker>>,
+    cost_config: crate::config::CostConfig,
     mission_execution_context: bool,
     code_mode: bool,
     code_session_delegated: bool,
@@ -100,6 +105,11 @@ pub struct Agent {
 #[derive(Debug)]
 pub enum AgentExecutionError {
     IterationBudgetExceeded { max_iterations: usize },
+    CostBudgetExceeded {
+        current_usd: f64,
+        limit_usd: f64,
+        period: UsagePeriod,
+    },
 }
 
 impl fmt::Display for AgentExecutionError {
@@ -108,6 +118,15 @@ impl fmt::Display for AgentExecutionError {
             AgentExecutionError::IterationBudgetExceeded { max_iterations } => write!(
                 f,
                 "Agent exceeded maximum tool iterations ({max_iterations})"
+            ),
+            AgentExecutionError::CostBudgetExceeded {
+                current_usd,
+                limit_usd,
+                period,
+            } => write!(
+                f,
+                "Budget exceeded: ${current_usd:.4} spent against ${limit_usd:.2} {period:?} limit. \
+                 Set cost.enabled=false or increase limits to proceed."
             ),
         }
     }
@@ -135,6 +154,8 @@ pub struct AgentBuilder {
     auto_save: Option<bool>,
     classification_config: Option<crate::config::QueryClassificationConfig>,
     available_hints: Option<Vec<String>>,
+    cost_tracker: Option<Arc<CostTracker>>,
+    cost_config: Option<crate::config::CostConfig>,
     code_mode: bool,
     code_session_delegated: bool,
 }
@@ -161,6 +182,8 @@ impl AgentBuilder {
             auto_save: None,
             classification_config: None,
             available_hints: None,
+            cost_tracker: None,
+            cost_config: None,
             code_mode: false,
             code_session_delegated: false,
         }
@@ -274,6 +297,16 @@ impl AgentBuilder {
         self
     }
 
+    pub fn cost_tracker(mut self, cost_tracker: Option<Arc<CostTracker>>) -> Self {
+        self.cost_tracker = cost_tracker;
+        self
+    }
+
+    pub fn cost_config(mut self, cost_config: crate::config::CostConfig) -> Self {
+        self.cost_config = Some(cost_config);
+        self
+    }
+
     pub fn build(self) -> Result<Agent> {
         let tools = self
             .tools
@@ -318,6 +351,8 @@ impl AgentBuilder {
             history: Vec::new(),
             classification_config: self.classification_config.unwrap_or_default(),
             available_hints: self.available_hints.unwrap_or_default(),
+            cost_tracker: self.cost_tracker,
+            cost_config: self.cost_config.unwrap_or_default(),
             mission_execution_context: false,
             code_mode: self.code_mode,
             code_session_delegated: self.code_session_delegated,
@@ -433,6 +468,8 @@ impl Agent {
             .identity_config(config.identity.clone())
             .skills(crate::skills::load_skills(&config.workspace_dir))
             .auto_save(config.memory.auto_save)
+            .cost_tracker(bootstrap.cost_tracker)
+            .cost_config(config.cost.clone())
             .build()
     }
 
@@ -700,6 +737,190 @@ impl Agent {
         }
 
         join_all(calls.iter().map(|call| self.execute_tool_call(call))).await
+    }
+
+    /// Resolve a model identifier, stripping "hint:" prefix if present.
+    /// This ensures we get the concrete model ID for cost tracking purposes.
+    fn resolve_model_for_pricing(&self, model: &str) -> String {
+        // If model starts with "hint:", strip it to get the base hint name
+        // The provider routing logic will handle the actual resolution,
+        // but for pricing we just need a consistent identifier
+        if let Some(hint) = model.strip_prefix("hint:") {
+            // For now, return the hint portion without the prefix
+            // In a future enhancement, this could call into the provider's resolve logic
+            hint.to_string()
+        } else {
+            model.to_string()
+        }
+    }
+
+    /// Look up model pricing from CostConfig, returning (input_per_million, output_per_million).
+    fn model_pricing(&self, model: &str) -> (f64, f64) {
+        if let Some(pricing) = self.cost_config.prices.get(model) {
+            return (pricing.input, pricing.output);
+        }
+        // Try matching by suffix (e.g. "claude-sonnet-4-20250514" matches
+        // "anthropic/claude-sonnet-4-20250514")
+        for (key, pricing) in &self.cost_config.prices {
+            if key.ends_with(model) || model.ends_with(key.as_str()) {
+                return (pricing.input, pricing.output);
+            }
+        }
+        (0.0, 0.0)
+    }
+
+    fn history_char_count(&self) -> usize {
+        self.history
+            .iter()
+            .map(|msg| match msg {
+                ConversationMessage::Chat(chat) => chat.content.len(),
+                ConversationMessage::AssistantToolCalls { text, tool_calls } => {
+                    let text_len = text.as_ref().map_or(0, String::len);
+                    // Include serialized tool_calls in the count (name + arguments)
+                    let tool_calls_len: usize = tool_calls
+                        .iter()
+                        .map(|call| call.name.len() + call.arguments.len())
+                        .sum();
+                    text_len + tool_calls_len
+                }
+                ConversationMessage::ToolResults(results) => {
+                    results.iter().map(|r| r.content.len()).sum()
+                }
+            })
+            .sum()
+    }
+
+    /// Estimate the total character count for the request payload, including tool specs if applicable.
+    fn estimate_request_char_count(&self) -> usize {
+        let mut total = self.history_char_count();
+
+        // Include tool specs if they would be sent in the request
+        if self.tool_dispatcher.should_send_tool_specs() {
+            // Serialize tool_specs to estimate their size in the request
+            if let Ok(json) = serde_json::to_string(&self.tool_specs) {
+                total += json.len();
+            }
+        }
+
+        total
+    }
+
+    /// Estimate the cost for an upcoming LLM call based on conversation size.
+    fn estimate_request_cost(&self, model: &str) -> f64 {
+        // Resolve hint: prefix to get the actual model for pricing lookup
+        let resolved_model = self.resolve_model_for_pricing(model);
+        let (input_price, output_price) = self.model_pricing(&resolved_model);
+        if input_price == 0.0 && output_price == 0.0 {
+            return 0.0;
+        }
+        // Rough estimate: count chars in full request (history + tool specs if applicable), ~4 chars per token
+        let input_chars = self.estimate_request_char_count();
+        let estimated_input_tokens = (input_chars / 4) as u64;
+        let estimated_output_tokens = PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS;
+        let input_cost = (estimated_input_tokens as f64 / 1_000_000.0) * input_price;
+        let output_cost = (estimated_output_tokens as f64 / 1_000_000.0) * output_price;
+        input_cost + output_cost
+    }
+
+    /// Run pre-flight budget check. Returns Ok(()) if allowed or warning,
+    /// returns Err if budget exceeded.
+    fn enforce_budget_check(&self, model: &str) -> Result<()> {
+        let Some(tracker) = &self.cost_tracker else {
+            return Ok(());
+        };
+        let estimated_cost = self.estimate_request_cost(model);
+        match tracker.check_budget(estimated_cost)? {
+            BudgetCheck::Allowed => Ok(()),
+            BudgetCheck::Warning {
+                current_usd,
+                limit_usd,
+                period,
+            } => {
+                tracing::warn!(
+                    current_usd,
+                    limit_usd,
+                    ?period,
+                    "Cost budget warning: approaching limit"
+                );
+                self.observer.record_event(&ObserverEvent::Error {
+                    component: "cost_warning".to_string(),
+                    message: format!(
+                        "Budget warning: ${current_usd:.4} of \
+                         ${limit_usd:.2} {period:?} limit used"
+                    ),
+                });
+                Ok(())
+            }
+            BudgetCheck::Exceeded {
+                current_usd,
+                limit_usd,
+                period,
+            } => {
+                tracing::error!(
+                    current_usd,
+                    limit_usd,
+                    ?period,
+                    "Cost budget exceeded — blocking LLM call"
+                );
+                Err(AgentExecutionError::CostBudgetExceeded {
+                    current_usd,
+                    limit_usd,
+                    period,
+                }
+                .into())
+            }
+        }
+    }
+
+    /// Record token usage after a successful LLM call using estimated tokens.
+    fn record_estimated_usage(
+        &self,
+        model: &str,
+        response: &ChatResponse,
+        turn_context: &TurnContext,
+    ) {
+        let Some(tracker) = &self.cost_tracker else {
+            return;
+        };
+        // Resolve hint: prefix to get the actual model for pricing lookup
+        let resolved_model = self.resolve_model_for_pricing(model);
+        let (input_price, output_price) = self.model_pricing(&resolved_model);
+
+        // Estimate input tokens from full request size (history + tool specs if applicable)
+        let input_chars = self.estimate_request_char_count();
+        let estimated_input_tokens = (input_chars / 4) as u64;
+
+        // Estimate output tokens from response length (text + tool_calls)
+        let text_chars = response.text.as_deref().map_or(0, str::len);
+        let tool_calls_chars: usize = response
+            .tool_calls
+            .iter()
+            .map(|call| call.name.len() + call.arguments.len())
+            .sum();
+        let output_chars = text_chars + tool_calls_chars;
+        let actual_output_tokens = std::cmp::max((output_chars / 4) as u64, 1);
+
+        if (actual_output_tokens as f64) > (PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS as f64 * 1.5) {
+            tracing::warn!(
+                model,
+                request_context = turn_context.session_id.as_deref().unwrap_or("agent-turn"),
+                estimated_output_tokens = PRE_FLIGHT_ESTIMATED_OUTPUT_TOKENS,
+                actual_output_tokens,
+                "LLM output tokens significantly exceeded the pre-flight estimate"
+            );
+        }
+
+        let usage = TokenUsage::new(
+            &resolved_model,
+            estimated_input_tokens,
+            actual_output_tokens,
+            input_price,
+            output_price,
+        );
+
+        if let Err(error) = tracker.record_usage(usage) {
+            tracing::warn!("Failed to record cost usage: {error}");
+        }
     }
 
     fn classify_model(&self, user_message: &str) -> String {
@@ -1521,6 +1742,9 @@ impl Agent {
         user_message: &str,
         turn_context: &TurnContext,
     ) -> Result<StepOutcome> {
+        // Pre-flight budget check before LLM call
+        self.enforce_budget_check(effective_model)?;
+
         let response = self
             .provider
             .chat(
@@ -1537,6 +1761,9 @@ impl Agent {
                 self.temperature,
             )
             .await?;
+
+        // Record estimated usage after successful LLM call
+        self.record_estimated_usage(effective_model, &response, turn_context);
 
         let (text, calls) = self.tool_dispatcher.parse_response(&response);
         if calls.is_empty() {
@@ -1663,12 +1890,19 @@ pub async fn run(
         agent.run_interactive().await?;
     }
 
+    let (tokens_used, cost_usd) = agent
+        .cost_tracker
+        .as_ref()
+        .and_then(|tracker| tracker.get_summary().ok())
+        .map(|summary| (Some(summary.total_tokens), Some(summary.session_cost_usd)))
+        .unwrap_or((None, None));
+
     agent.observer.record_event(&ObserverEvent::AgentEnd {
         provider: provider_name,
         model: model_name,
         duration: start.elapsed(),
-        tokens_used: None,
-        cost_usd: None,
+        tokens_used,
+        cost_usd,
     });
 
     Ok(())
@@ -2069,6 +2303,159 @@ mod tests {
         assert_eq!(
             output,
             "I cannot provide a validated answer because ontology checks are unavailable."
+        );
+    }
+
+    // ── Cost wiring tests ─────────────────────────────────────────
+
+    fn build_agent_with_cost_tracker(
+        provider: Box<dyn Provider>,
+        cost_enabled: bool,
+        daily_limit: f64,
+    ) -> (Agent, Option<Arc<crate::cost::CostTracker>>, TempDir) {
+        let tmp = TempDir::new().unwrap();
+        let cost_config = crate::config::CostConfig {
+            enabled: cost_enabled,
+            daily_limit_usd: daily_limit,
+            monthly_limit_usd: 1000.0,
+            warn_at_percent: 80,
+            ..Default::default()
+        };
+        let tracker = if cost_enabled {
+            Some(Arc::new(
+                crate::cost::CostTracker::new(cost_config.clone(), tmp.path()).unwrap(),
+            ))
+        } else {
+            None
+        };
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None).unwrap(),
+        );
+        let observer: Arc<dyn Observer> = Arc::from(crate::observability::NoopObserver {});
+        let agent = Agent::builder()
+            .provider(provider)
+            .tools(vec![Box::new(MockTool)])
+            .memory(mem)
+            .observer(observer)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(tmp.path().to_path_buf())
+            .cost_tracker(tracker.clone())
+            .cost_config(cost_config)
+            .build()
+            .unwrap();
+        (agent, tracker, tmp)
+    }
+
+    #[tokio::test]
+    async fn cost_tracker_records_usage_after_llm_call() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("hello world response".into()),
+                tool_calls: vec![],
+            }]),
+        });
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, true, 100.0);
+        let _ = agent.turn("hi").await.unwrap();
+
+        let tracker = tracker.unwrap();
+        let summary = tracker.get_summary().unwrap();
+        assert_eq!(summary.request_count, 1, "should have recorded one usage");
+        assert!(
+            summary.session_cost_usd >= 0.0,
+            "cost should be non-negative"
+        );
+    }
+
+    #[tokio::test]
+    async fn cost_tracker_none_when_disabled() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("hello".into()),
+                tool_calls: vec![],
+            }]),
+        });
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, false, 100.0);
+        assert!(tracker.is_none());
+        // Should still work normally
+        let response = agent.turn("hi").await.unwrap();
+        assert_eq!(response, "hello");
+    }
+
+    #[tokio::test]
+    async fn budget_exceeded_blocks_llm_call() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![
+                crate::providers::ChatResponse {
+                    text: Some("first".into()),
+                    tool_calls: vec![],
+                },
+                crate::providers::ChatResponse {
+                    text: Some("should not reach".into()),
+                    tool_calls: vec![],
+                },
+            ]),
+        });
+        // Generous limit so first call succeeds; we inject big usage after
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, true, 1.0);
+
+        // First call succeeds and records usage
+        let _ = agent.turn("hi").await.unwrap();
+
+        let t = tracker.as_ref().unwrap();
+        let summary = t.get_summary().unwrap();
+        assert!(
+            summary.request_count > 0,
+            "first call should have recorded usage"
+        );
+
+        // Manually record a large usage to push over the limit
+        let big_usage = crate::cost::TokenUsage::new(
+            "anthropic/claude-sonnet-4-20250514",
+            100_000,
+            50_000,
+            3.0,
+            15.0,
+        );
+        t.record_usage(big_usage).unwrap();
+
+        // Second call should be blocked by budget check
+        let result = agent.turn("hi again").await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("Budget exceeded"),
+            "expected budget exceeded error, got: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn bootstrap_creates_cost_tracker_when_enabled() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.cost.enabled = true;
+        config.cost.daily_limit_usd = 50.0;
+
+        let ctx = crate::bootstrap::BootstrapContext::from_config(&config).unwrap();
+        assert!(
+            ctx.cost_tracker.is_some(),
+            "cost_tracker should be Some when cost.enabled=true"
+        );
+    }
+
+    #[tokio::test]
+    async fn bootstrap_no_cost_tracker_when_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let config = test_config(&tmp);
+        // cost.enabled defaults to false
+
+        let ctx = crate::bootstrap::BootstrapContext::from_config(&config).unwrap();
+        assert!(
+            ctx.cost_tracker.is_none(),
+            "cost_tracker should be None when cost.enabled=false"
         );
     }
 }

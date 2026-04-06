@@ -47,6 +47,7 @@ mod auth;
 mod bootstrap;
 mod channels;
 mod config;
+mod cost;
 mod cron;
 mod daemon;
 mod doctor;
