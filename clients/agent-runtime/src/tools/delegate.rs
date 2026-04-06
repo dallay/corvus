@@ -171,9 +171,10 @@ impl DelegateTool {
             ),
             Ok(Err(e)) => {
                 let status = match e.downcast_ref::<AgentExecutionError>() {
-                    Some(AgentExecutionError::IterationBudgetExceeded { .. }) => {
-                        CodeSessionStatus::BudgetExceeded
-                    }
+                    Some(
+                        AgentExecutionError::IterationBudgetExceeded { .. }
+                        | AgentExecutionError::CostBudgetExceeded { .. },
+                    ) => CodeSessionStatus::BudgetExceeded,
                     None => CodeSessionStatus::Error,
                 };
                 let error_text = e.to_string();

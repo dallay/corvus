@@ -1,5 +1,15 @@
 use std::sync::{Arc, Mutex};
 
+type SessionCostReader = Arc<dyn Fn() -> Result<u32, MissionTerminationReason> + Send + Sync>;
+
+enum MissionCostAccounting {
+    Local(Arc<Mutex<u32>>),
+    RuntimeDerived {
+        baseline_cost_cents: u32,
+        session_cost_reader: SessionCostReader,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MissionState {
     ObjectiveAccepted,
@@ -141,24 +151,62 @@ pub struct MissionOutcome {
 pub struct MissionCoordinator {
     pub state: Arc<Mutex<MissionState>>,
     pub governance: MissionGovernance,
-    pub accumulated_cost_cents: Arc<Mutex<u32>>,
     pub accumulated_steps: Arc<Mutex<u32>>,
     pub elapsed_ms: Arc<Mutex<u64>>,
     pub latest_successful_checkpoint: Arc<Mutex<Option<u32>>>,
     pub latest_failure: Arc<Mutex<Option<MissionFailureMetadata>>>,
+    cost_accounting: MissionCostAccounting,
 }
 
 impl MissionCoordinator {
     pub fn new(governance: MissionGovernance) -> Self {
+        Self::new_with_local_cost(governance)
+    }
+
+    fn new_with_local_cost(governance: MissionGovernance) -> Self {
         Self {
             state: Arc::new(Mutex::new(MissionState::ObjectiveAccepted)),
             governance,
-            accumulated_cost_cents: Arc::new(Mutex::new(0)),
             accumulated_steps: Arc::new(Mutex::new(0)),
             elapsed_ms: Arc::new(Mutex::new(0)),
             latest_successful_checkpoint: Arc::new(Mutex::new(None)),
             latest_failure: Arc::new(Mutex::new(None)),
+            cost_accounting: MissionCostAccounting::Local(Arc::new(Mutex::new(0))),
         }
+    }
+
+    pub fn new_with_runtime_session_cost(
+        governance: MissionGovernance,
+        session_cost_reader: SessionCostReader,
+    ) -> Result<Self, MissionTerminationReason> {
+        let baseline_cost_cents = session_cost_reader()?;
+
+        Ok(Self {
+            state: Arc::new(Mutex::new(MissionState::ObjectiveAccepted)),
+            governance,
+            accumulated_steps: Arc::new(Mutex::new(0)),
+            elapsed_ms: Arc::new(Mutex::new(0)),
+            latest_successful_checkpoint: Arc::new(Mutex::new(None)),
+            latest_failure: Arc::new(Mutex::new(None)),
+            cost_accounting: MissionCostAccounting::RuntimeDerived {
+                baseline_cost_cents,
+                session_cost_reader,
+            },
+        })
+    }
+
+    pub fn new_with_runtime_cost_tracker(
+        governance: MissionGovernance,
+        tracker: Arc<crate::cost::CostTracker>,
+    ) -> Result<Self, MissionTerminationReason> {
+        let session_cost_reader: SessionCostReader = Arc::new(move || {
+            let summary = tracker
+                .get_summary()
+                .map_err(|_| MissionTerminationReason::GovernanceConstraintViolated)?;
+            usd_to_cents(summary.session_cost_usd)
+        });
+
+        Self::new_with_runtime_session_cost(governance, session_cost_reader)
     }
 
     pub fn plan_for_objective(objective: &str) -> MissionPlan {
@@ -324,16 +372,33 @@ impl MissionCoordinator {
             .ok_or(MissionTerminationReason::GovernanceConstraintViolated)?;
         drop(elapsed_ms);
 
-        let mut accumulated_cost_cents = self
-            .accumulated_cost_cents
-            .lock()
-            .map_err(|_| MissionTerminationReason::GovernanceConstraintViolated)?;
-        *accumulated_cost_cents = accumulated_cost_cents
-            .checked_add(cost_cents_delta)
-            .ok_or(MissionTerminationReason::GovernanceConstraintViolated)?;
-        drop(accumulated_cost_cents);
+        if let MissionCostAccounting::Local(accumulated_cost_cents) = &self.cost_accounting {
+            let mut accumulated_cost_cents = accumulated_cost_cents
+                .lock()
+                .map_err(|_| MissionTerminationReason::GovernanceConstraintViolated)?;
+            *accumulated_cost_cents = accumulated_cost_cents
+                .checked_add(cost_cents_delta)
+                .ok_or(MissionTerminationReason::GovernanceConstraintViolated)?;
+            drop(accumulated_cost_cents);
+        }
 
         self.enforce_post_checkpoint()
+    }
+
+    pub fn current_accumulated_cost_cents(&self) -> Result<u32, MissionTerminationReason> {
+        match &self.cost_accounting {
+            MissionCostAccounting::Local(accumulated_cost_cents) => accumulated_cost_cents
+                .lock()
+                .map(|value| *value)
+                .map_err(|_| MissionTerminationReason::GovernanceConstraintViolated),
+            MissionCostAccounting::RuntimeDerived {
+                baseline_cost_cents,
+                session_cost_reader,
+            } => {
+                let current_cost_cents = session_cost_reader()?;
+                Ok(current_cost_cents.saturating_sub(*baseline_cost_cents))
+            }
+        }
     }
 
     pub fn enforce_post_checkpoint(&self) -> Result<(), MissionTerminationReason> {
@@ -360,10 +425,7 @@ impl MissionCoordinator {
             .accumulated_steps
             .lock()
             .map_err(|_| MissionTerminationReason::GovernanceConstraintViolated)?;
-        let accumulated_cost_cents = *self
-            .accumulated_cost_cents
-            .lock()
-            .map_err(|_| MissionTerminationReason::GovernanceConstraintViolated)?;
+        let accumulated_cost_cents = self.current_accumulated_cost_cents()?;
         Ok((elapsed_ms, completed_steps, accumulated_cost_cents))
     }
 }
@@ -427,6 +489,20 @@ fn parse_positive_u32(value: Option<&serde_json::Value>) -> Result<u32, MissionT
     u32::try_from(parsed_u64).map_err(|_| MissionTerminationReason::GovernanceConstraintViolated)
 }
 
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+fn usd_to_cents(cost_usd: f64) -> Result<u32, MissionTerminationReason> {
+    if !cost_usd.is_finite() || cost_usd < 0.0 {
+        return Err(MissionTerminationReason::GovernanceConstraintViolated);
+    }
+
+    let cents = (cost_usd * 100.0).round();
+    if cents > f64::from(u32::MAX) {
+        return Err(MissionTerminationReason::GovernanceConstraintViolated);
+    }
+
+    Ok(cents as u32)
+}
+
 fn governance_exceeded(
     elapsed_ms: u64,
     completed_steps: u32,
@@ -460,6 +536,7 @@ fn governance_exceeded(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use std::thread;
 
@@ -687,5 +764,46 @@ mod tests {
 
         assert!(coordinator.should_replan("Temporary timeout while executing checkpoint"));
         assert!(!coordinator.should_replan("permissions denied by policy"));
+    }
+
+    #[test]
+    fn runtime_derived_mission_cost_is_independent_from_prior_session_spend() {
+        let governance = MissionGovernance {
+            max_runtime_ms: 300_000,
+            max_steps: 10,
+            max_estimated_cost_cents: 100,
+            elapsed_ms: 0,
+            completed_steps: 0,
+            accumulated_cost_cents: 0,
+        };
+        let session_spend_cents = Arc::new(AtomicU32::new(0));
+        let session_spend_reader = {
+            let session_spend_cents = Arc::clone(&session_spend_cents);
+            Arc::new(move || Ok(session_spend_cents.load(Ordering::SeqCst)))
+        };
+
+        let first_mission = MissionCoordinator::new_with_runtime_session_cost(
+            governance.clone(),
+            session_spend_reader.clone(),
+        )
+        .unwrap();
+
+        session_spend_cents.store(120, Ordering::SeqCst);
+        assert_eq!(first_mission.current_accumulated_cost_cents().unwrap(), 120);
+        assert_eq!(
+            first_mission.enforce_post_checkpoint().unwrap_err(),
+            MissionTerminationReason::BudgetExhausted
+        );
+
+        let second_mission =
+            MissionCoordinator::new_with_runtime_session_cost(governance, session_spend_reader)
+                .unwrap();
+
+        assert_eq!(second_mission.current_accumulated_cost_cents().unwrap(), 0);
+        second_mission.enforce_pre_checkpoint().unwrap();
+
+        session_spend_cents.store(170, Ordering::SeqCst);
+        assert_eq!(second_mission.current_accumulated_cost_cents().unwrap(), 50);
+        second_mission.enforce_post_checkpoint().unwrap();
     }
 }

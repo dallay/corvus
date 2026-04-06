@@ -37,7 +37,8 @@ use anyhow::{anyhow, bail, Result};
 use clap::{Parser, Subcommand};
 use dialoguer::{Input, Password};
 use serde::{Deserialize, Serialize};
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tracing::{info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
@@ -140,6 +141,10 @@ enum Commands {
         /// Attach a peripheral (board:path, e.g. nucleo-f401re:/dev/ttyACM0)
         #[arg(long)]
         peripheral: Vec<String>,
+
+        /// Allow exactly one over-budget request for this CLI session
+        #[arg(long)]
+        override_budget: bool,
     },
 
     /// Run a code-specialist session (inspect, plan, edit, verify, report)
@@ -159,6 +164,10 @@ enum Commands {
         /// Temperature (0.0 - 2.0)
         #[arg(short, long, default_value = "0.7")]
         temperature: f64,
+
+        /// Allow exactly one over-budget request for this CLI session
+        #[arg(long)]
+        override_budget: bool,
     },
 
     /// Start the gateway server (webhooks, websockets)
@@ -257,6 +266,94 @@ enum Commands {
         #[command(subcommand)]
         update_command: UpdateCommands,
     },
+
+    /// Inspect and manage runtime cost state
+    Cost {
+        #[command(subcommand)]
+        cost_command: CostCommands,
+    },
+}
+
+#[derive(Subcommand, Debug)]
+enum CostCommands {
+    /// Show the current cost summary
+    Summary,
+    /// Show aggregated cost history
+    History {
+        /// Aggregation period
+        #[arg(long, value_enum, default_value_t = CostHistoryPeriod::Day)]
+        period: CostHistoryPeriod,
+
+        /// Number of buckets to include
+        #[arg(long, default_value_t = 30)]
+        window: usize,
+    },
+    /// Reset tracked costs for a specific scope
+    Reset {
+        /// Reset scope
+        #[arg(long, value_enum, default_value_t = CostResetScopeArg::Day)]
+        scope: CostResetScopeArg,
+
+        /// Optional reason recorded in cost audit history
+        #[arg(long)]
+        reason: Option<String>,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum CostHistoryPeriod {
+    Session,
+    Day,
+    Month,
+}
+
+impl From<CostHistoryPeriod> for cost::UsagePeriod {
+    fn from(value: CostHistoryPeriod) -> Self {
+        match value {
+            CostHistoryPeriod::Session => Self::Session,
+            CostHistoryPeriod::Day => Self::Day,
+            CostHistoryPeriod::Month => Self::Month,
+        }
+    }
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum CostResetScopeArg {
+    Session,
+    Day,
+    Month,
+}
+
+impl From<CostResetScopeArg> for cost::CostResetScope {
+    fn from(value: CostResetScopeArg) -> Self {
+        match value {
+            CostResetScopeArg::Session => Self::Session,
+            CostResetScopeArg::Day => Self::Day,
+            CostResetScopeArg::Month => Self::Month,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CliSessionSurface {
+    Agent,
+    Code,
+}
+
+impl CliSessionSurface {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::Code => "code",
+        }
+    }
+
+    fn override_actor(self) -> &'static str {
+        match self {
+            Self::Agent => "cli-agent",
+            Self::Code => "cli-code",
+        }
+    }
 }
 
 #[derive(Subcommand, Debug)]
@@ -728,6 +825,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             model,
             temperature,
             peripheral,
+            override_budget,
         } => {
             Box::pin(handle_agent_command(
                 config,
@@ -736,6 +834,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
                 model,
                 temperature,
                 peripheral,
+                override_budget,
             ))
             .await
         }
@@ -745,6 +844,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
             provider,
             model,
             temperature,
+            override_budget,
         } => {
             Box::pin(handle_code_command(
                 config,
@@ -752,6 +852,7 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
                 provider,
                 model,
                 temperature,
+                override_budget,
             ))
             .await
         }
@@ -808,6 +909,185 @@ async fn handle_cli_command(command: Commands, config: Config) -> Result<()> {
         }
 
         Commands::Update { update_command } => handle_update_command(config, update_command).await,
+
+        Commands::Cost { cost_command } => handle_cost_command(config, cost_command),
+    }
+}
+
+fn handle_cost_command(config: Config, command: CostCommands) -> Result<()> {
+    let service = cost_service_for_config(&config)?;
+
+    match command {
+        CostCommands::Summary => {
+            let summary = service.current_summary(chrono::Utc::now())?;
+            println!("{}", render_cost_summary(&summary, &config.cost));
+            Ok(())
+        }
+        CostCommands::History { period, window } => {
+            let history = service.history_window(period.into(), window, chrono::Utc::now())?;
+            println!("{}", render_cost_history(&history));
+            Ok(())
+        }
+        CostCommands::Reset { scope, reason } => {
+            let result = perform_cost_reset(&config, scope.into(), reason)?;
+            println!("{}", render_cost_reset(&result));
+            Ok(())
+        }
+    }
+}
+
+fn cost_service_for_config(config: &Config) -> Result<cost::CostService> {
+    let tracker = cost::CostTracker::new(config.cost.clone(), &config.workspace_dir)?;
+    Ok(cost::CostService::new(Arc::new(tracker)))
+}
+
+fn perform_cost_reset(
+    config: &Config,
+    scope: cost::CostResetScope,
+    reason: Option<String>,
+) -> Result<cost::CostResetResult> {
+    let service = cost_service_for_config(config)?;
+    service.reset(
+        cost::CostResetRequest {
+            scope,
+            actor: "cli".to_string(),
+            reason,
+        },
+        chrono::Utc::now(),
+    )
+}
+
+fn render_cost_summary(
+    summary: &cost::CostGovernanceSummary,
+    config: &crate::config::CostConfig,
+) -> String {
+    let session_percent = scope_percent(&summary.scope_statuses, cost::UsagePeriod::Session);
+    let daily_percent = scope_percent(&summary.scope_statuses, cost::UsagePeriod::Day);
+    let monthly_percent = scope_percent(&summary.scope_statuses, cost::UsagePeriod::Month);
+    let active_period = summary.active_period.map(period_label).unwrap_or("none");
+
+    [
+        format!("session_id={}", summary.session_id),
+        format!("budget_state={}", budget_state_label(summary.budget_state)),
+        format!("active_period={active_period}"),
+        format!("session_cost_usd={:.4}", summary.usage.session_cost_usd),
+        format!("daily_cost_usd={:.4}", summary.usage.daily_cost_usd),
+        format!("monthly_cost_usd={:.4}", summary.usage.monthly_cost_usd),
+        format!("request_count={}", summary.usage.request_count),
+        format!("total_tokens={}", summary.usage.total_tokens),
+        format!("percent_used_session={session_percent:.2}"),
+        format!("percent_used_daily={daily_percent:.2}"),
+        format!("percent_used_monthly={monthly_percent:.2}"),
+        format!("cost_enabled={}", config.enabled),
+        format!("session_limit_usd={:.4}", config.session_limit_usd),
+        format!("daily_limit_usd={:.4}", config.daily_limit_usd),
+        format!("monthly_limit_usd={:.4}", config.monthly_limit_usd),
+        format!("warn_at_percent={}", config.warn_at_percent),
+        format!("allow_override={}", config.allow_override),
+    ]
+    .join("\n")
+}
+
+fn render_cost_history(history: &cost::CostHistory) -> String {
+    let mut lines = vec![
+        format!("period={}", period_label(history.period)),
+        format!("points={}", history.points.len()),
+        format!("total_cost_usd={:.4}", history.totals.cost_usd),
+        format!("total_tokens={}", history.totals.tokens),
+        format!("total_requests={}", history.totals.requests),
+    ];
+
+    for point in &history.points {
+        lines.push(format!(
+            "bucket={} cost_usd={:.4} tokens={} requests={}",
+            point.bucket, point.cost_usd, point.tokens, point.requests
+        ));
+    }
+
+    lines.join("\n")
+}
+
+fn render_cost_reset(result: &cost::CostResetResult) -> String {
+    [
+        format!("scope={}", reset_scope_label(result.scope)),
+        format!("removed_cost_usd={:.4}", result.removed_cost_usd),
+        format!("removed_requests={}", result.removed_requests),
+        format!("effective_at={}", result.effective_at.to_rfc3339()),
+    ]
+    .join("\n")
+}
+
+fn apply_cli_budget_override(
+    agent: &crate::agent::Agent,
+    surface: CliSessionSurface,
+) -> Result<()> {
+    let override_record =
+        agent.apply_next_request_budget_override(surface.override_actor(), None)?;
+    println!(
+        "budget_override=applied\nsurface={}\nscope=next_request\noverride_id={}",
+        surface.label(),
+        override_record.id
+    );
+    Ok(())
+}
+
+fn print_cli_session_summary(
+    summary: Option<cost::CostGovernanceSummary>,
+    surface: CliSessionSurface,
+) {
+    if let Some(summary) = summary {
+        println!("{}", render_cli_session_summary(&summary, surface));
+    }
+}
+
+fn render_cli_session_summary(
+    summary: &cost::CostGovernanceSummary,
+    surface: CliSessionSurface,
+) -> String {
+    let active_period = summary.active_period.map(period_label).unwrap_or("none");
+
+    [
+        "session_summary=true".to_string(),
+        format!("surface={}", surface.label()),
+        format!("session_id={}", summary.session_id),
+        format!("budget_state={}", budget_state_label(summary.budget_state)),
+        format!("active_period={active_period}"),
+        format!("session_cost_usd={:.4}", summary.usage.session_cost_usd),
+        format!("request_count={}", summary.usage.request_count),
+        format!("total_tokens={}", summary.usage.total_tokens),
+    ]
+    .join("\n")
+}
+
+fn scope_percent(scope_statuses: &[cost::BudgetScopeStatus], period: cost::UsagePeriod) -> f64 {
+    scope_statuses
+        .iter()
+        .find(|status| status.period == period)
+        .map_or(0.0, |status| status.percent_used)
+}
+
+fn budget_state_label(state: cost::BudgetState) -> &'static str {
+    match state {
+        cost::BudgetState::Allowed => "allowed",
+        cost::BudgetState::Warning => "warning",
+        cost::BudgetState::Exceeded => "exceeded",
+    }
+}
+
+fn period_label(period: cost::UsagePeriod) -> &'static str {
+    match period {
+        cost::UsagePeriod::Session => "session",
+        cost::UsagePeriod::Day => "day",
+        cost::UsagePeriod::Month => "month",
+        cost::UsagePeriod::Mission => "mission",
+    }
+}
+
+fn reset_scope_label(scope: cost::CostResetScope) -> &'static str {
+    match scope {
+        cost::CostResetScope::Session => "session",
+        cost::CostResetScope::Day => "day",
+        cost::CostResetScope::Month => "month",
     }
 }
 
@@ -957,6 +1237,7 @@ async fn handle_agent_command(
     model: Option<String>,
     temperature: f64,
     peripheral: Vec<String>,
+    override_budget: bool,
 ) -> Result<()> {
     maybe_print_update_notice_bounded(&config).await;
 
@@ -1000,7 +1281,56 @@ async fn handle_agent_command(
         return Ok(());
     }
 
-    agent::run(config, message, provider, model, temperature, peripheral).await
+    let mut effective_config = config;
+    if let Some(p) = provider {
+        effective_config.default_provider = Some(p);
+    }
+    if let Some(m) = model {
+        effective_config.default_model = Some(m);
+    }
+    effective_config.default_temperature = temperature;
+
+    if !peripheral.is_empty() {
+        anyhow::bail!(
+            "peripheral overrides are not currently supported; found {} override(s): {:?}",
+            peripheral.len(),
+            peripheral
+        );
+    }
+
+    let provider_name = effective_config
+        .default_provider
+        .as_deref()
+        .unwrap_or("openrouter")
+        .to_string();
+    let model_name = effective_config
+        .default_model
+        .as_deref()
+        .unwrap_or("anthropic/claude-sonnet-4-20250514")
+        .to_string();
+    let mut agent = crate::agent::Agent::from_config(&effective_config)?;
+    let session_start = Instant::now();
+    agent.record_agent_start_event(&provider_name, &model_name);
+
+    if override_budget {
+        apply_cli_budget_override(&agent, CliSessionSurface::Agent)?;
+    }
+
+    let run_result = if let Some(msg) = message {
+        let response = agent.run_single(&msg).await;
+        if let Ok(response) = &response {
+            println!("{response}");
+        }
+        response.map(|_| ())
+    } else {
+        agent.run_interactive().await
+    };
+
+    let summary_result = agent.session_cost_summary(chrono::Utc::now());
+    agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
+    print_cli_session_summary(summary_result?, CliSessionSurface::Agent);
+
+    run_result
 }
 
 async fn handle_code_command(
@@ -1009,17 +1339,43 @@ async fn handle_code_command(
     provider: Option<String>,
     model: Option<String>,
     temperature: f64,
+    override_budget: bool,
 ) -> Result<()> {
     let config = apply_code_session_config(config, provider, model, temperature);
     info!("Starting code-specialist session (profile=code)");
+    let provider_name = config
+        .default_provider
+        .as_deref()
+        .unwrap_or("openrouter")
+        .to_string();
+    let model_name = config
+        .default_model
+        .as_deref()
+        .unwrap_or("anthropic/claude-sonnet-4-20250514")
+        .to_string();
     let mut agent = crate::agent::Agent::code_from_config(&config)?;
-    if let Some(msg) = message {
-        let response = agent.run_single(&msg).await?;
-        println!("{response}");
-    } else {
-        agent.run_interactive().await?;
+    let session_start = Instant::now();
+    agent.record_agent_start_event(&provider_name, &model_name);
+
+    if override_budget {
+        apply_cli_budget_override(&agent, CliSessionSurface::Code)?;
     }
-    Ok(())
+
+    let run_result = if let Some(msg) = message {
+        let response = agent.run_single(&msg).await;
+        if let Ok(response) = &response {
+            println!("{response}");
+        }
+        response.map(|_| ())
+    } else {
+        agent.run_interactive().await
+    };
+
+    let summary_result = agent.session_cost_summary(chrono::Utc::now());
+    agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
+    print_cli_session_summary(summary_result?, CliSessionSurface::Code);
+
+    run_result
 }
 
 fn apply_code_session_config(
@@ -1148,10 +1504,9 @@ async fn handle_status_command(config: Config) -> Result<()> {
         "  Max actions/hour:  {}",
         config.autonomy.max_actions_per_hour
     );
-    println!(
-        "  Max cost/day:      ${:.2}",
-        f64::from(config.autonomy.max_cost_per_day_cents) / 100.0
-    );
+    if let Some(message) = config.autonomy.action_rate_deprecation_warning() {
+        println!("  Deprecation:       {message}");
+    }
     println!();
     println!("Channels:");
     println!("  CLI:      ✅ always");
@@ -1715,9 +2070,93 @@ fn handle_status(auth_service: &auth::AuthService) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
     use clap::CommandFactory;
     use clap::Parser;
+    use std::sync::Arc;
     use tempfile::TempDir;
+
+    struct MainTestProvider;
+
+    #[async_trait]
+    impl crate::providers::Provider for MainTestProvider {
+        async fn chat_with_system(
+            &self,
+            _system_prompt: Option<&str>,
+            _message: &str,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<String> {
+            Ok("ok".to_string())
+        }
+
+        async fn chat(
+            &self,
+            _request: crate::providers::ChatRequest<'_>,
+            _model: &str,
+            _temperature: f64,
+        ) -> Result<crate::providers::ChatResponse> {
+            Ok(crate::providers::ChatResponse {
+                text: Some("ok".to_string()),
+                tool_calls: vec![],
+            })
+        }
+    }
+
+    struct MainTestTool;
+
+    #[async_trait]
+    impl crate::tools::Tool for MainTestTool {
+        fn name(&self) -> &str {
+            "noop"
+        }
+
+        fn description(&self) -> &str {
+            "noop"
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({
+                "type": "object",
+                "properties": {},
+            })
+        }
+
+        async fn execute(&self, _args: serde_json::Value) -> Result<crate::tools::ToolResult> {
+            Ok(crate::tools::ToolResult {
+                success: true,
+                output: "ok".to_string(),
+                error: None,
+                structured: None,
+            })
+        }
+    }
+
+    fn build_test_agent(
+        cost_config: crate::config::CostConfig,
+        tracker: Option<Arc<crate::cost::CostTracker>>,
+        workspace_dir: &std::path::Path,
+    ) -> crate::agent::Agent {
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let memory =
+            Arc::from(crate::memory::create_memory(&memory_cfg, workspace_dir, None).unwrap());
+        let observer = Arc::new(crate::observability::NoopObserver {});
+
+        crate::agent::Agent::builder()
+            .provider(Box::new(MainTestProvider))
+            .tools(vec![Box::new(MainTestTool)])
+            .memory(memory)
+            .observer(observer)
+            .tool_dispatcher(Box::new(crate::agent::dispatcher::XmlToolDispatcher))
+            .workspace_dir(workspace_dir.to_path_buf())
+            .cost_tracker(tracker)
+            .cost_config(cost_config)
+            .build()
+            .unwrap()
+    }
 
     #[test]
     fn cli_definition_has_no_flag_conflicts() {
@@ -2154,5 +2593,258 @@ mod tests {
         // Verify Agent variant is NOT Code
         let agent_cli = Cli::try_parse_from(["corvus", "agent", "--message", "hello"]).unwrap();
         assert!(matches!(agent_cli.command, Commands::Agent { .. }));
+    }
+
+    #[test]
+    fn agent_and_code_commands_parse_override_budget_flag() {
+        let code_cli =
+            Cli::try_parse_from(["corvus", "code", "--message", "hello", "--override-budget"])
+                .unwrap();
+        assert!(matches!(
+            code_cli.command,
+            Commands::Code {
+                override_budget: true,
+                ..
+            }
+        ));
+
+        let agent_cli =
+            Cli::try_parse_from(["corvus", "agent", "--message", "hello", "--override-budget"])
+                .unwrap();
+        assert!(matches!(
+            agent_cli.command,
+            Commands::Agent {
+                override_budget: true,
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn cost_command_contract_parses_summary_history_and_reset() {
+        let summary = Cli::try_parse_from(["corvus", "cost", "summary"]).unwrap();
+        assert!(matches!(
+            summary.command,
+            Commands::Cost {
+                cost_command: CostCommands::Summary
+            }
+        ));
+
+        let history = Cli::try_parse_from([
+            "corvus", "cost", "history", "--period", "month", "--window", "12",
+        ])
+        .unwrap();
+        assert!(matches!(
+            history.command,
+            Commands::Cost {
+                cost_command: CostCommands::History {
+                    period: CostHistoryPeriod::Month,
+                    window: 12,
+                }
+            }
+        ));
+
+        let reset = Cli::try_parse_from([
+            "corvus", "cost", "reset", "--scope", "day", "--reason", "cleanup",
+        ])
+        .unwrap();
+        assert!(matches!(
+            reset.command,
+            Commands::Cost {
+                cost_command: CostCommands::Reset {
+                    scope: CostResetScopeArg::Day,
+                    reason: Some(_),
+                }
+            }
+        ));
+    }
+
+    #[test]
+    fn render_cost_summary_reports_budget_state_and_usage() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = crate::test_support::test_config(&tmp);
+        config.cost.enabled = true;
+        config.cost.session_limit_usd = 4.0;
+
+        let tracker = Arc::new(
+            crate::cost::CostTracker::new(config.cost.clone(), &config.workspace_dir).unwrap(),
+        );
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 3.3;
+        tracker.record_usage(usage).unwrap();
+
+        let service = crate::cost::CostService::new(tracker);
+        let summary = service.current_summary(chrono::Utc::now()).unwrap();
+        let rendered = render_cost_summary(&summary, &config.cost);
+
+        assert!(rendered.contains("budget_state=warning"));
+        assert!(rendered.contains("active_period=session"));
+        assert!(rendered.contains("percent_used_session="));
+        assert!(rendered.contains("session_limit_usd="));
+        assert!(rendered.contains("daily_cost_usd="));
+        assert!(rendered.contains("monthly_limit_usd="));
+    }
+
+    #[test]
+    fn cli_override_application_registers_next_request_override() {
+        let tmp = TempDir::new().unwrap();
+        let cost_config = crate::config::CostConfig {
+            enabled: true,
+            allow_override: true,
+            ..crate::config::CostConfig::default()
+        };
+        let tracker =
+            Arc::new(crate::cost::CostTracker::new(cost_config.clone(), tmp.path()).unwrap());
+        let agent = build_test_agent(cost_config, Some(tracker.clone()), tmp.path());
+
+        apply_cli_budget_override(&agent, CliSessionSurface::Agent).unwrap();
+
+        let active_override = tracker
+            .active_override(chrono::Utc::now())
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            active_override.scope,
+            crate::cost::CostOverrideScope::NextRequest
+        );
+        assert_eq!(active_override.actor, "cli-agent");
+        assert_eq!(active_override.remaining_uses, 1);
+    }
+
+    #[test]
+    fn cli_override_application_writes_audit_and_allows_next_blocked_request_once() {
+        let tmp = TempDir::new().unwrap();
+        let cost_config = crate::config::CostConfig {
+            enabled: true,
+            allow_override: true,
+            daily_limit_usd: 1.0,
+            monthly_limit_usd: 10.0,
+            ..crate::config::CostConfig::default()
+        };
+        let tracker =
+            Arc::new(crate::cost::CostTracker::new(cost_config.clone(), tmp.path()).unwrap());
+        let agent = build_test_agent(cost_config, Some(tracker.clone()), tmp.path());
+        let service = crate::cost::CostService::new(tracker.clone());
+
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 1.1;
+        tracker.record_usage(usage).unwrap();
+
+        apply_cli_budget_override(&agent, CliSessionSurface::Agent).unwrap();
+
+        let first = service
+            .evaluate_request(0.1, None, chrono::Utc::now())
+            .unwrap();
+        assert!(matches!(
+            first,
+            crate::cost::BudgetEvaluation::Proceed {
+                override_applied: Some(_),
+                ..
+            }
+        ));
+
+        let second = service
+            .evaluate_request(0.1, None, chrono::Utc::now())
+            .unwrap();
+        assert!(matches!(
+            second,
+            crate::cost::BudgetEvaluation::Blocked { .. }
+        ));
+
+        let audit = service.audit_trail(10).unwrap();
+        assert!(audit.iter().any(|event| {
+            event.kind == crate::cost::CostAuditKind::OverrideGranted
+                && event.actor.as_deref() == Some("cli-agent")
+                && event.override_scope == Some(crate::cost::CostOverrideScope::NextRequest)
+        }));
+        assert!(audit.iter().any(|event| {
+            event.kind == crate::cost::CostAuditKind::OverrideConsumed
+                && event.actor.as_deref() == Some("cli-agent")
+        }));
+    }
+
+    #[test]
+    fn cli_override_application_fails_when_cost_tracking_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let cost_config = crate::config::CostConfig {
+            enabled: false,
+            allow_override: true,
+            ..crate::config::CostConfig::default()
+        };
+        let agent = build_test_agent(cost_config, None, tmp.path());
+
+        let error = apply_cli_budget_override(&agent, CliSessionSurface::Code).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Cost tracking is disabled for this session"
+        );
+    }
+
+    #[test]
+    fn cli_override_application_fails_when_override_policy_disabled() {
+        let tmp = TempDir::new().unwrap();
+        let cost_config = crate::config::CostConfig {
+            enabled: true,
+            allow_override: false,
+            ..crate::config::CostConfig::default()
+        };
+        let tracker =
+            Arc::new(crate::cost::CostTracker::new(cost_config.clone(), tmp.path()).unwrap());
+        let agent = build_test_agent(cost_config, Some(tracker), tmp.path());
+
+        let error = apply_cli_budget_override(&agent, CliSessionSurface::Code).unwrap_err();
+        assert_eq!(error.to_string(), "Cost overrides are disabled by policy");
+    }
+
+    #[test]
+    fn render_cli_session_summary_reports_exit_state() {
+        let summary = crate::cost::CostGovernanceSummary {
+            session_id: "session-123".to_string(),
+            usage: crate::cost::types::CostSummary {
+                session_cost_usd: 1.75,
+                daily_cost_usd: 1.75,
+                monthly_cost_usd: 1.75,
+                total_tokens: 2048,
+                request_count: 3,
+                by_model: std::collections::HashMap::new(),
+            },
+            budget_state: crate::cost::BudgetState::Warning,
+            active_period: Some(crate::cost::UsagePeriod::Day),
+            scope_statuses: vec![],
+            active_override: None,
+        };
+
+        let rendered = render_cli_session_summary(&summary, CliSessionSurface::Code);
+
+        assert!(rendered.contains("session_summary=true"));
+        assert!(rendered.contains("surface=code"));
+        assert!(rendered.contains("session_id=session-123"));
+        assert!(rendered.contains("budget_state=warning"));
+        assert!(rendered.contains("active_period=day"));
+        assert!(rendered.contains("session_cost_usd=1.7500"));
+        assert!(rendered.contains("request_count=3"));
+        assert!(rendered.contains("total_tokens=2048"));
+    }
+
+    #[test]
+    fn perform_cost_reset_clears_requested_scope() {
+        let tmp = TempDir::new().unwrap();
+        let mut config = crate::test_support::test_config(&tmp);
+        config.cost.enabled = true;
+
+        let tracker =
+            crate::cost::CostTracker::new(config.cost.clone(), &config.workspace_dir).unwrap();
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 1.25;
+        tracker.record_usage(usage).unwrap();
+
+        let result = perform_cost_reset(
+            &config,
+            crate::cost::CostResetScope::Day,
+            Some("test".to_string()),
+        )
+        .unwrap();
+        assert_eq!(result.scope, crate::cost::CostResetScope::Day);
+        assert_eq!(result.removed_requests, 1);
     }
 }

@@ -584,6 +584,10 @@ pub struct CostConfig {
     #[serde(default)]
     pub enabled: bool,
 
+    /// Session spending limit in USD (default: 0.00, disabled)
+    #[serde(default = "default_session_limit")]
+    pub session_limit_usd: f64,
+
     /// Daily spending limit in USD (default: 10.00)
     #[serde(default = "default_daily_limit")]
     pub daily_limit_usd: f64,
@@ -620,6 +624,10 @@ fn default_daily_limit() -> f64 {
     10.0
 }
 
+fn default_session_limit() -> f64 {
+    0.0
+}
+
 fn default_monthly_limit() -> f64 {
     100.0
 }
@@ -632,6 +640,7 @@ impl Default for CostConfig {
     fn default() -> Self {
         Self {
             enabled: false,
+            session_limit_usd: default_session_limit(),
             daily_limit_usd: default_daily_limit(),
             monthly_limit_usd: default_monthly_limit(),
             warn_at_percent: default_warn_percent(),
@@ -1398,14 +1407,13 @@ impl Default for ObservabilityConfig {
 
 // ── Autonomy / Security ──────────────────────────────────────────
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct AutonomyConfig {
     pub level: AutonomyLevel,
     pub workspace_only: bool,
     pub allowed_commands: Vec<String>,
     pub forbidden_paths: Vec<String>,
     pub max_actions_per_hour: u32,
-    pub max_cost_per_day_cents: u32,
 
     /// Require explicit approval for medium-risk shell commands.
     #[serde(default = "default_true")]
@@ -1422,6 +1430,34 @@ pub struct AutonomyConfig {
     /// Tools that always require interactive approval, even after "Always".
     #[serde(default = "default_always_ask")]
     pub always_ask: Vec<String>,
+
+    #[serde(skip, default)]
+    pub deprecated_fields: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawAutonomyConfig {
+    #[serde(default)]
+    level: Option<AutonomyLevel>,
+    #[serde(default)]
+    workspace_only: Option<bool>,
+    #[serde(default)]
+    allowed_commands: Option<Vec<String>>,
+    #[serde(default)]
+    forbidden_paths: Option<Vec<String>>,
+    #[serde(default)]
+    max_actions_per_hour: Option<u32>,
+    #[serde(default)]
+    max_cost_per_day_cents: Option<u32>,
+    #[serde(default)]
+    require_approval_for_medium_risk: Option<bool>,
+    #[serde(default)]
+    block_high_risk_commands: Option<bool>,
+    #[serde(default)]
+    auto_approve: Option<Vec<String>>,
+    #[serde(default)]
+    always_ask: Option<Vec<String>>,
 }
 
 fn default_auto_approve() -> Vec<String> {
@@ -1472,12 +1508,75 @@ impl Default for AutonomyConfig {
                 "~/.config".into(),
             ],
             max_actions_per_hour: 20,
-            max_cost_per_day_cents: 500,
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
             auto_approve: default_auto_approve(),
             always_ask: default_always_ask(),
+            deprecated_fields: Vec::new(),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for AutonomyConfig {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = RawAutonomyConfig::deserialize(deserializer)?;
+        let mut config = Self::default();
+
+        if let Some(level) = raw.level {
+            config.level = level;
+        }
+        if let Some(workspace_only) = raw.workspace_only {
+            config.workspace_only = workspace_only;
+        }
+        if let Some(allowed_commands) = raw.allowed_commands {
+            config.allowed_commands = allowed_commands;
+        }
+        if let Some(forbidden_paths) = raw.forbidden_paths {
+            config.forbidden_paths = forbidden_paths;
+        }
+        if let Some(max_actions_per_hour) = raw.max_actions_per_hour {
+            config.max_actions_per_hour = max_actions_per_hour;
+        }
+        if let Some(max_cost_per_day_cents) = raw.max_cost_per_day_cents {
+            config
+                .deprecated_fields
+                .push("autonomy.max_cost_per_day_cents".to_string());
+            if raw.max_actions_per_hour.is_none() {
+                config.max_actions_per_hour = max_cost_per_day_cents;
+            }
+        }
+        if let Some(require_approval_for_medium_risk) = raw.require_approval_for_medium_risk {
+            config.require_approval_for_medium_risk = require_approval_for_medium_risk;
+        }
+        if let Some(block_high_risk_commands) = raw.block_high_risk_commands {
+            config.block_high_risk_commands = block_high_risk_commands;
+        }
+        if let Some(auto_approve) = raw.auto_approve {
+            config.auto_approve = auto_approve;
+        }
+        if let Some(always_ask) = raw.always_ask {
+            config.always_ask = always_ask;
+        }
+
+        Ok(config)
+    }
+}
+
+impl AutonomyConfig {
+    pub fn deprecated_fields(&self) -> &[String] {
+        &self.deprecated_fields
+    }
+
+    pub fn action_rate_deprecation_warning(&self) -> Option<String> {
+        self.deprecated_fields
+            .iter()
+            .any(|field| field == "autonomy.max_cost_per_day_cents")
+            .then(|| {
+                "autonomy.max_cost_per_day_cents is deprecated and has been normalized to autonomy.max_actions_per_hour".to_string()
+            })
     }
 }
 
@@ -2899,6 +2998,7 @@ impl Config {
             }
 
             config.apply_env_overrides();
+            config.emit_deprecation_warnings();
             config.validate_for_runtime()?;
             Ok(config)
         } else {
@@ -3103,6 +3203,12 @@ impl Config {
                     );
                 }
             }
+        }
+    }
+
+    fn emit_deprecation_warnings(&self) {
+        if let Some(message) = self.autonomy.action_rate_deprecation_warning() {
+            tracing::warn!("{message}");
         }
     }
 
@@ -3771,9 +3877,43 @@ mod tests {
         assert!(a.allowed_commands.contains(&"cargo".to_string()));
         assert!(a.forbidden_paths.contains(&"/etc".to_string()));
         assert_eq!(a.max_actions_per_hour, 20);
-        assert_eq!(a.max_cost_per_day_cents, 500);
         assert!(a.require_approval_for_medium_risk);
         assert!(a.block_high_risk_commands);
+    }
+
+    #[test]
+    fn autonomy_config_normalizes_deprecated_action_rate_alias() {
+        let parsed: AutonomyConfig = toml::from_str(
+            r#"
+level = "supervised"
+workspace_only = true
+allowed_commands = ["git"]
+forbidden_paths = ["/etc"]
+max_cost_per_day_cents = 42
+require_approval_for_medium_risk = true
+block_high_risk_commands = true
+auto_approve = []
+always_ask = []
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(parsed.max_actions_per_hour, 42);
+        assert_eq!(
+            parsed.deprecated_fields(),
+            &["autonomy.max_cost_per_day_cents".to_string()]
+        );
+    }
+
+    #[test]
+    fn autonomy_config_serializes_canonical_action_rate_field_only() {
+        let mut config = AutonomyConfig::default();
+        config.max_actions_per_hour = 33;
+
+        let toml = toml::to_string(&config).unwrap();
+
+        assert!(toml.contains("max_actions_per_hour = 33"));
+        assert!(!toml.contains("max_cost_per_day_cents"));
     }
 
     #[test]
@@ -3920,11 +4060,11 @@ default_temperature = 0.7
                 allowed_commands: vec!["docker".into()],
                 forbidden_paths: vec!["/secret".into()],
                 max_actions_per_hour: 50,
-                max_cost_per_day_cents: 1000,
                 require_approval_for_medium_risk: false,
                 block_high_risk_commands: true,
                 auto_approve: vec!["file_read".into()],
                 always_ask: vec![],
+                deprecated_fields: vec![],
             },
             security: SecurityConfig::default(),
             runtime: RuntimeConfig {

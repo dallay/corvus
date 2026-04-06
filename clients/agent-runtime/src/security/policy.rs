@@ -123,7 +123,6 @@ pub struct SecurityPolicy {
     pub allowed_commands: Vec<String>,
     pub forbidden_paths: Vec<String>,
     pub max_actions_per_hour: u32,
-    pub max_cost_per_day_cents: u32,
     pub require_approval_for_medium_risk: bool,
     pub block_high_risk_commands: bool,
     pub tracker: ActionTracker,
@@ -172,7 +171,6 @@ impl Default for SecurityPolicy {
                 "~/.config".into(),
             ],
             max_actions_per_hour: 20,
-            max_cost_per_day_cents: 500,
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
             tracker: ActionTracker::new(),
@@ -687,7 +685,6 @@ impl SecurityPolicy {
             allowed_commands: autonomy_config.allowed_commands.clone(),
             forbidden_paths: autonomy_config.forbidden_paths.clone(),
             max_actions_per_hour: autonomy_config.max_actions_per_hour,
-            max_cost_per_day_cents: autonomy_config.max_cost_per_day_cents,
             require_approval_for_medium_risk: autonomy_config.require_approval_for_medium_risk,
             block_high_risk_commands: autonomy_config.block_high_risk_commands,
             tracker: ActionTracker::new(),
@@ -1071,7 +1068,6 @@ mod tests {
             allowed_commands: vec!["docker".into()],
             forbidden_paths: vec!["/secret".into()],
             max_actions_per_hour: 100,
-            max_cost_per_day_cents: 1000,
             require_approval_for_medium_risk: false,
             block_high_risk_commands: false,
             ..crate::config::AutonomyConfig::default()
@@ -1084,7 +1080,6 @@ mod tests {
         assert_eq!(policy.allowed_commands, vec!["docker"]);
         assert_eq!(policy.forbidden_paths, vec!["/secret"]);
         assert_eq!(policy.max_actions_per_hour, 100);
-        assert_eq!(policy.max_cost_per_day_cents, 1000);
         assert!(!policy.require_approval_for_medium_risk);
         assert!(!policy.block_high_risk_commands);
         assert_eq!(policy.workspace_dir, PathBuf::from("/tmp/test-workspace"));
@@ -1100,7 +1095,6 @@ mod tests {
         assert!(!p.allowed_commands.is_empty());
         assert!(!p.forbidden_paths.is_empty());
         assert!(p.max_actions_per_hour > 0);
-        assert!(p.max_cost_per_day_cents > 0);
         assert!(p.require_approval_for_medium_risk);
         assert!(p.block_high_risk_commands);
     }
@@ -1381,6 +1375,22 @@ mod tests {
     }
 
     #[test]
+    fn action_rate_denials_are_labeled_separately_from_token_spend() {
+        let policy = SecurityPolicy {
+            max_actions_per_hour: 0,
+            ..default_policy()
+        };
+
+        let err = policy
+            .enforce_tool_operation(ToolOperation::Act, "file_write")
+            .unwrap_err();
+
+        assert!(err.contains("action budget exhausted"));
+        assert!(!err.to_ascii_lowercase().contains("cost"));
+        assert!(!err.to_ascii_lowercase().contains("token"));
+    }
+
+    #[test]
     fn rate_limit_high_allows_many() {
         let p = SecurityPolicy {
             max_actions_per_hour: 10000,
@@ -1437,7 +1447,6 @@ mod tests {
             allowed_commands: vec![],
             forbidden_paths: vec![],
             max_actions_per_hour: 10,
-            max_cost_per_day_cents: 100,
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
             ..crate::config::AutonomyConfig::default()

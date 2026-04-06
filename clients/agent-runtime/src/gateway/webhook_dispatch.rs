@@ -3,6 +3,7 @@ use crate::agent::dispatcher::DispatchAction;
 use crate::agent::{Agent, AgentTurnEvent, AgentTurnOutcome, AgentTurnResult, TurnContext};
 use crate::bootstrap;
 use crate::config::Config;
+use crate::cost::UsagePeriod;
 use crate::memory::Memory;
 use crate::observability::Observer;
 use crate::pre_execution::BlockingOutcome;
@@ -27,16 +28,24 @@ pub struct WebhookTurnRequest {
     pub include_sse_frames: bool,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum WebhookTerminalOutcome {
     Completed,
-    ApprovalRequired { tool: String, reason: String },
+    BudgetExceeded {
+        current_usd: f64,
+        limit_usd: f64,
+        period: UsagePeriod,
+    },
+    ApprovalRequired {
+        tool: String,
+        reason: String,
+    },
     Timeout,
     Fallback,
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WebhookTurnResult {
     pub session_id: String,
     pub model: String,
@@ -48,7 +57,15 @@ pub struct WebhookTurnResult {
 pub(crate) enum CanonicalWebhookResult {
     Agent(AgentTurnResult),
     Blocking(BlockingOutcome),
-    ApprovalRequired { tool: String, reason: String },
+    BudgetExceeded {
+        current_usd: f64,
+        limit_usd: f64,
+        period: UsagePeriod,
+    },
+    ApprovalRequired {
+        tool: String,
+        reason: String,
+    },
     Error,
 }
 
@@ -182,6 +199,25 @@ pub(crate) fn map_canonical_result(
                 request,
                 "approval_required",
                 Some(reason.as_str()),
+            ),
+        },
+        CanonicalWebhookResult::BudgetExceeded {
+            current_usd,
+            limit_usd,
+            period,
+        } => WebhookTurnResult {
+            session_id: request.session_id.clone(),
+            model: model.to_string(),
+            outcome: WebhookTerminalOutcome::BudgetExceeded {
+                current_usd,
+                limit_usd,
+                period,
+            },
+            response_text: None,
+            event_frames: event_frames_for_blocking_result(
+                request,
+                "budget_exceeded",
+                Some("budget_exceeded"),
             ),
         },
         CanonicalWebhookResult::Blocking(BlockingOutcome::ApprovalRequired { tool }) => {
@@ -332,6 +368,7 @@ pub(crate) async fn execute(
     provider: Arc<dyn Provider>,
     memory: Arc<dyn Memory>,
     observer: Arc<dyn Observer>,
+    cost_tracker: Option<Arc<crate::cost::CostTracker>>,
     model: &str,
     request: WebhookTurnRequest,
 ) -> WebhookTurnResult {
@@ -356,10 +393,11 @@ pub(crate) async fn execute(
         }
     }
 
-    let bootstrap = match bootstrap::BootstrapContext::for_gateway(config, memory, observer) {
-        Ok(bootstrap) => bootstrap,
-        Err(_) => return map_canonical_result(&request, model, CanonicalWebhookResult::Error),
-    };
+    let bootstrap =
+        match bootstrap::BootstrapContext::for_gateway(config, memory, observer, cost_tracker) {
+            Ok(bootstrap) => bootstrap,
+            Err(_) => return map_canonical_result(&request, model, CanonicalWebhookResult::Error),
+        };
 
     let provider: Box<dyn Provider> = Box::new(SharedProvider { inner: provider });
     let mut agent = match Agent::from_bootstrap_with_provider(config, bootstrap, provider) {
@@ -385,7 +423,26 @@ pub(crate) async fn execute(
                 map_canonical_result(&request, model, CanonicalWebhookResult::Agent(result))
             }
         }
-        Err(_) => map_canonical_result(&request, model, CanonicalWebhookResult::Error),
+        Err(error) => {
+            if let Some(crate::agent::AgentExecutionError::CostBudgetExceeded {
+                current_usd,
+                limit_usd,
+                period,
+            }) = error.downcast_ref::<crate::agent::AgentExecutionError>()
+            {
+                map_canonical_result(
+                    &request,
+                    model,
+                    CanonicalWebhookResult::BudgetExceeded {
+                        current_usd: *current_usd,
+                        limit_usd: *limit_usd,
+                        period: *period,
+                    },
+                )
+            } else {
+                map_canonical_result(&request, model, CanonicalWebhookResult::Error)
+            }
+        }
     }
 }
 
@@ -527,6 +584,49 @@ mod tests {
 
         assert_eq!(result.outcome, WebhookTerminalOutcome::Error);
         assert_eq!(result.response_text, None);
+    }
+
+    #[tokio::test]
+    async fn execute_maps_cost_budget_exceeded_into_machine_readable_outcome() {
+        let (_temp, mut config) = test_config();
+        config.cost.enabled = true;
+        config.cost.daily_limit_usd = 1.0;
+        config.cost.monthly_limit_usd = 10.0;
+
+        let tracker = Arc::new(
+            crate::cost::CostTracker::new(config.cost.clone(), &config.workspace_dir).unwrap(),
+        );
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 1.1;
+        tracker.record_usage(usage).unwrap();
+
+        let provider_impl = Arc::new(ScriptedProvider::new(vec![ChatResponse {
+            text: Some("should not be called".into()),
+            tool_calls: Vec::new(),
+        }]));
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+
+        let result = execute(
+            &config,
+            provider,
+            Arc::new(TestMemory),
+            Arc::new(NoopObserver) as Arc<dyn Observer>,
+            Some(tracker),
+            "test-model",
+            WebhookTurnRequest {
+                session_id: "session-budget".into(),
+                session_source: WebhookSessionSource::Explicit,
+                message: "hello".into(),
+                include_sse_frames: false,
+            },
+        )
+        .await;
+
+        assert_eq!(provider_impl.calls.load(Ordering::SeqCst), 0);
+        assert!(matches!(
+            result.outcome,
+            WebhookTerminalOutcome::BudgetExceeded { .. }
+        ));
     }
 
     #[test]
@@ -747,6 +847,7 @@ mod tests {
             provider,
             Arc::new(TestMemory),
             Arc::new(NoopObserver) as Arc<dyn Observer>,
+            None,
             "test-model",
             WebhookTurnRequest {
                 session_id: "session-shell".into(),

@@ -1,8 +1,13 @@
-use super::types::{BudgetCheck, CostRecord, CostSummary, ModelStats, TokenUsage, UsagePeriod};
+use super::types::{
+    BudgetCheck, BudgetScopeStatus, CostAuditEvent, CostAuditKind, CostHistory, CostHistoryPoint,
+    CostHistoryTotals, CostOverrideRecord, CostOverrideRequest, CostOverrideScope, CostRecord,
+    CostResetRequest, CostResetResult, CostResetScope, CostSummary, MissionBudgetScope, ModelStats,
+    TokenUsage, UsagePeriod,
+};
 use crate::config::schema::CostConfig;
 use anyhow::{anyhow, Context, Result};
-use chrono::{Datelike, NaiveDate, Utc};
-use parking_lot::{Mutex, MutexGuard};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
+use parking_lot::{Mutex, MutexGuard, RwLock};
 use std::collections::HashMap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Write};
@@ -11,26 +16,37 @@ use std::sync::Arc;
 
 /// Cost tracker for API usage monitoring and budget enforcement.
 pub struct CostTracker {
-    config: CostConfig,
+    config: RwLock<CostConfig>,
     storage: Arc<Mutex<CostStorage>>,
+    audit_storage: Arc<Mutex<CostAuditStorage>>,
     session_id: String,
     session_costs: Arc<Mutex<Vec<CostRecord>>>,
+    active_override: Arc<Mutex<Option<CostOverrideRecord>>>,
 }
 
 impl CostTracker {
     /// Create a new cost tracker.
     pub fn new(config: CostConfig, workspace_dir: &Path) -> Result<Self> {
         let storage_path = resolve_storage_path(workspace_dir)?;
+        let audit_path = resolve_audit_path(workspace_dir);
 
         let storage = CostStorage::new(&storage_path).with_context(|| {
             format!("Failed to open cost storage at {}", storage_path.display())
         })?;
+        let audit_storage = CostAuditStorage::new(&audit_path).with_context(|| {
+            format!(
+                "Failed to open cost audit storage at {}",
+                audit_path.display()
+            )
+        })?;
 
         Ok(Self {
-            config,
+            config: RwLock::new(config),
             storage: Arc::new(Mutex::new(storage)),
+            audit_storage: Arc::new(Mutex::new(audit_storage)),
             session_id: uuid::Uuid::new_v4().to_string(),
             session_costs: Arc::new(Mutex::new(Vec::new())),
+            active_override: Arc::new(Mutex::new(None)),
         })
     }
 
@@ -47,9 +63,35 @@ impl CostTracker {
         self.session_costs.lock()
     }
 
+    fn lock_audit_storage(&self) -> MutexGuard<'_, CostAuditStorage> {
+        self.audit_storage.lock()
+    }
+
+    fn lock_active_override(&self) -> MutexGuard<'_, Option<CostOverrideRecord>> {
+        self.active_override.lock()
+    }
+
+    pub fn config(&self) -> CostConfig {
+        self.config.read().clone()
+    }
+
+    pub fn update_config(&self, next: CostConfig) {
+        *self.config.write() = next;
+    }
+
     /// Check if a request is within budget.
     pub fn check_budget(&self, estimated_cost_usd: f64) -> Result<BudgetCheck> {
-        if !self.config.enabled {
+        self.check_budget_with_mission_scope(estimated_cost_usd, None)
+    }
+
+    pub fn check_budget_with_mission_scope(
+        &self,
+        estimated_cost_usd: f64,
+        mission_scope: Option<&MissionBudgetScope>,
+    ) -> Result<BudgetCheck> {
+        let config = self.config();
+
+        if !config.enabled {
             return Ok(BudgetCheck::Allowed);
         }
 
@@ -61,54 +103,61 @@ impl CostTracker {
 
         let mut storage = self.lock_storage();
         let (daily_cost, monthly_cost) = storage.get_aggregated_costs()?;
+        drop(storage);
 
-        // Check daily limit
+        let session_cost = self.current_session_cost_usd();
         let projected_daily = daily_cost + estimated_cost_usd;
-        if projected_daily > self.config.daily_limit_usd {
-            return Ok(BudgetCheck::Exceeded {
-                current_usd: daily_cost,
-                limit_usd: self.config.daily_limit_usd,
-                period: UsagePeriod::Day,
-            });
-        }
-
-        // Check monthly limit
         let projected_monthly = monthly_cost + estimated_cost_usd;
-        if projected_monthly > self.config.monthly_limit_usd {
-            return Ok(BudgetCheck::Exceeded {
-                current_usd: monthly_cost,
-                limit_usd: self.config.monthly_limit_usd,
-                period: UsagePeriod::Month,
-            });
+        let projected_session = session_cost + estimated_cost_usd;
+
+        let mut checks = vec![
+            build_budget_check(
+                UsagePeriod::Session,
+                session_cost,
+                projected_session,
+                config.session_limit_usd,
+                config.warn_at_percent,
+            ),
+            build_budget_check(
+                UsagePeriod::Day,
+                daily_cost,
+                projected_daily,
+                config.daily_limit_usd,
+                config.warn_at_percent,
+            ),
+            build_budget_check(
+                UsagePeriod::Month,
+                monthly_cost,
+                projected_monthly,
+                config.monthly_limit_usd,
+                config.warn_at_percent,
+            ),
+        ];
+
+        if let Some(mission_scope) = mission_scope {
+            checks.push(build_budget_check(
+                UsagePeriod::Mission,
+                mission_scope.current_usd,
+                mission_scope.current_usd + estimated_cost_usd,
+                mission_scope.limit_usd,
+                config.warn_at_percent,
+            ));
         }
 
-        // Check warning thresholds
-        let warn_threshold = f64::from(self.config.warn_at_percent.min(100)) / 100.0;
-        let daily_warn_threshold = self.config.daily_limit_usd * warn_threshold;
-        let monthly_warn_threshold = self.config.monthly_limit_usd * warn_threshold;
-
-        if projected_daily >= daily_warn_threshold {
-            return Ok(BudgetCheck::Warning {
-                current_usd: daily_cost,
-                limit_usd: self.config.daily_limit_usd,
-                period: UsagePeriod::Day,
-            });
-        }
-
-        if projected_monthly >= monthly_warn_threshold {
-            return Ok(BudgetCheck::Warning {
-                current_usd: monthly_cost,
-                limit_usd: self.config.monthly_limit_usd,
-                period: UsagePeriod::Month,
-            });
-        }
-
-        Ok(BudgetCheck::Allowed)
+        Ok(select_budget_check(checks))
     }
 
     /// Record a usage event.
     pub fn record_usage(&self, usage: TokenUsage) -> Result<()> {
-        if !self.config.enabled {
+        self.record_usage_for_session(&self.session_id, usage)
+    }
+
+    pub fn record_usage_for_session(
+        &self,
+        session_id: impl Into<String>,
+        usage: TokenUsage,
+    ) -> Result<()> {
+        if !self.config().enabled {
             return Ok(());
         }
 
@@ -118,7 +167,8 @@ impl CostTracker {
             ));
         }
 
-        let record = CostRecord::new(&self.session_id, usage);
+        let session_id = session_id.into();
+        let record = CostRecord::new(&session_id, usage);
 
         // Persist first for durability guarantees.
         {
@@ -127,8 +177,10 @@ impl CostTracker {
         }
 
         // Then update in-memory session snapshot.
-        let mut session_costs = self.lock_session_costs();
-        session_costs.push(record);
+        if session_id == self.session_id {
+            let mut session_costs = self.lock_session_costs();
+            session_costs.push(record);
+        }
 
         Ok(())
     }
@@ -173,6 +225,263 @@ impl CostTracker {
         let storage = self.lock_storage();
         storage.get_cost_for_month(year, month)
     }
+
+    pub fn scope_statuses(&self) -> Result<Vec<BudgetScopeStatus>> {
+        let config = self.config();
+
+        if !config.enabled {
+            return Ok(Vec::new());
+        }
+
+        let mut storage = self.lock_storage();
+        let (daily_cost, monthly_cost) = storage.get_aggregated_costs()?;
+        drop(storage);
+        let session_cost = self.current_session_cost_usd();
+
+        Ok(vec![
+            build_scope_status(
+                UsagePeriod::Session,
+                session_cost,
+                config.session_limit_usd,
+                config.warn_at_percent,
+            ),
+            build_scope_status(
+                UsagePeriod::Day,
+                daily_cost,
+                config.daily_limit_usd,
+                config.warn_at_percent,
+            ),
+            build_scope_status(
+                UsagePeriod::Month,
+                monthly_cost,
+                config.monthly_limit_usd,
+                config.warn_at_percent,
+            ),
+        ])
+    }
+
+    fn current_session_cost_usd(&self) -> f64 {
+        self.lock_session_costs()
+            .iter()
+            .map(|record| record.usage.cost_usd)
+            .sum()
+    }
+
+    pub fn history_window(
+        &self,
+        period: UsagePeriod,
+        window: usize,
+        now: DateTime<Utc>,
+    ) -> Result<CostHistory> {
+        if window == 0 {
+            return Err(anyhow!("History window must be greater than zero"));
+        }
+
+        let records = self.lock_storage().read_records()?;
+        build_history_from_window(period, window, now, &records)
+    }
+
+    pub fn history_range(
+        &self,
+        period: UsagePeriod,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<CostHistory> {
+        if start > end {
+            return Err(anyhow!("History range start must be before end"));
+        }
+
+        let records = self.lock_storage().read_records()?;
+        build_history_from_range(period, start, end, &records)
+    }
+
+    pub fn apply_override(
+        &self,
+        request: CostOverrideRequest,
+        now: DateTime<Utc>,
+    ) -> Result<CostOverrideRecord> {
+        if !self.config().allow_override {
+            return Err(anyhow!("Cost overrides are disabled by policy"));
+        }
+
+        let override_record = CostOverrideRecord {
+            id: uuid::Uuid::new_v4().to_string(),
+            actor: request.actor.clone(),
+            scope: request.scope,
+            reason: request.reason.clone(),
+            requested_at: now,
+            expires_at: request.expires_at,
+            session_id: Some(self.session_id.clone()),
+            remaining_uses: match request.scope {
+                CostOverrideScope::NextRequest => 1,
+            },
+        };
+
+        *self.lock_active_override() = Some(override_record.clone());
+
+        self.append_audit_event(CostAuditEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: CostAuditKind::OverrideGranted,
+            recorded_at: now,
+            actor: Some(request.actor),
+            reason: request.reason,
+            period: None,
+            override_scope: Some(request.scope),
+            reset_scope: None,
+            override_id: Some(override_record.id.clone()),
+            session_id: Some(self.session_id.clone()),
+            expires_at: override_record.expires_at,
+            removed_cost_usd: None,
+            removed_requests: None,
+        })?;
+
+        Ok(override_record)
+    }
+
+    pub fn active_override(&self, now: DateTime<Utc>) -> Result<Option<CostOverrideRecord>> {
+        self.expire_override_if_needed(now)?;
+        Ok(self.lock_active_override().clone())
+    }
+
+    pub fn consume_override_if_active(
+        &self,
+        now: DateTime<Utc>,
+    ) -> Result<Option<CostOverrideRecord>> {
+        self.expire_override_if_needed(now)?;
+
+        let consumed = {
+            let mut active_override = self.lock_active_override();
+            match active_override.as_mut() {
+                Some(override_record) if override_record.remaining_uses > 0 => {
+                    override_record.remaining_uses -= 1;
+                    let consumed = override_record.clone();
+                    if override_record.remaining_uses == 0 {
+                        *active_override = None;
+                    }
+                    Some(consumed)
+                }
+                _ => None,
+            }
+        };
+
+        if let Some(override_record) = consumed.clone() {
+            self.append_audit_event(CostAuditEvent {
+                id: uuid::Uuid::new_v4().to_string(),
+                kind: CostAuditKind::OverrideConsumed,
+                recorded_at: now,
+                actor: Some(override_record.actor.clone()),
+                reason: override_record.reason.clone(),
+                period: None,
+                override_scope: Some(override_record.scope),
+                reset_scope: None,
+                override_id: Some(override_record.id.clone()),
+                session_id: override_record.session_id.clone(),
+                expires_at: override_record.expires_at,
+                removed_cost_usd: None,
+                removed_requests: None,
+            })?;
+        }
+
+        Ok(consumed)
+    }
+
+    pub fn reset(&self, request: CostResetRequest, now: DateTime<Utc>) -> Result<CostResetResult> {
+        let session_id = self.session_id.clone();
+        let mut storage = self.lock_storage();
+        let records = storage.read_records()?;
+        let mut kept = Vec::with_capacity(records.len());
+        let mut removed = Vec::new();
+
+        for record in records {
+            if matches_reset_scope(&record, request.scope, &session_id, now) {
+                removed.push(record);
+            } else {
+                kept.push(record);
+            }
+        }
+
+        storage.replace_records(&kept)?;
+        drop(storage);
+
+        {
+            let mut session_costs = self.lock_session_costs();
+            session_costs
+                .retain(|record| !matches_reset_scope(record, request.scope, &session_id, now));
+        }
+
+        let removed_cost_usd: f64 = removed.iter().map(|record| record.usage.cost_usd).sum();
+        let removed_requests = removed.len();
+
+        let audit_event = CostAuditEvent {
+            id: uuid::Uuid::new_v4().to_string(),
+            kind: CostAuditKind::ResetApplied,
+            recorded_at: now,
+            actor: Some(request.actor.clone()),
+            reason: request.reason.clone(),
+            period: None,
+            override_scope: None,
+            reset_scope: Some(request.scope),
+            override_id: None,
+            session_id: Some(session_id),
+            expires_at: None,
+            removed_cost_usd: Some(removed_cost_usd),
+            removed_requests: Some(removed_requests),
+        };
+
+        self.append_audit_event(audit_event.clone())?;
+
+        Ok(CostResetResult {
+            scope: request.scope,
+            removed_cost_usd,
+            removed_requests,
+            effective_at: now,
+            audit_event,
+        })
+    }
+
+    pub fn audit_trail(&self, limit: usize) -> Result<Vec<CostAuditEvent>> {
+        self.lock_audit_storage().read_events(limit)
+    }
+
+    fn append_audit_event(&self, event: CostAuditEvent) -> Result<()> {
+        self.lock_audit_storage().append(event)
+    }
+
+    fn expire_override_if_needed(&self, now: DateTime<Utc>) -> Result<()> {
+        let expired = {
+            let mut active_override = self.lock_active_override();
+            match active_override.as_ref() {
+                Some(override_record)
+                    if override_record
+                        .expires_at
+                        .is_some_and(|expires_at| expires_at <= now) =>
+                {
+                    active_override.take()
+                }
+                _ => None,
+            }
+        };
+
+        if let Some(override_record) = expired {
+            self.append_audit_event(CostAuditEvent {
+                id: uuid::Uuid::new_v4().to_string(),
+                kind: CostAuditKind::OverrideExpired,
+                recorded_at: now,
+                actor: Some(override_record.actor.clone()),
+                reason: override_record.reason.clone(),
+                period: None,
+                override_scope: Some(override_record.scope),
+                reset_scope: None,
+                override_id: Some(override_record.id.clone()),
+                session_id: override_record.session_id.clone(),
+                expires_at: override_record.expires_at,
+                removed_cost_usd: None,
+                removed_requests: None,
+            })?;
+        }
+
+        Ok(())
+    }
 }
 
 fn resolve_storage_path(workspace_dir: &Path) -> Result<PathBuf> {
@@ -202,6 +511,286 @@ fn resolve_storage_path(workspace_dir: &Path) -> Result<PathBuf> {
     }
 
     Ok(storage_path)
+}
+
+fn resolve_audit_path(workspace_dir: &Path) -> PathBuf {
+    workspace_dir.join("state").join("cost-audit.jsonl")
+}
+
+fn build_budget_check(
+    period: UsagePeriod,
+    current_usd: f64,
+    projected_usd: f64,
+    limit_usd: f64,
+    warn_at_percent: u8,
+) -> BudgetCheck {
+    if limit_usd <= 0.0 {
+        return BudgetCheck::Allowed;
+    }
+
+    let percent_used = (projected_usd / limit_usd) * 100.0;
+    if projected_usd > limit_usd {
+        return BudgetCheck::Exceeded {
+            current_usd,
+            projected_usd,
+            limit_usd,
+            percent_used,
+            period,
+        };
+    }
+
+    let warn_threshold = f64::from(warn_at_percent.min(100));
+    if percent_used >= warn_threshold {
+        return BudgetCheck::Warning {
+            current_usd,
+            projected_usd,
+            limit_usd,
+            percent_used,
+            period,
+        };
+    }
+
+    BudgetCheck::Allowed
+}
+
+fn build_scope_status(
+    period: UsagePeriod,
+    current_usd: f64,
+    limit_usd: f64,
+    warn_at_percent: u8,
+) -> BudgetScopeStatus {
+    let check = build_budget_check(period, current_usd, current_usd, limit_usd, warn_at_percent);
+    let percent_used = if limit_usd > 0.0 {
+        (current_usd / limit_usd) * 100.0
+    } else {
+        0.0
+    };
+
+    BudgetScopeStatus {
+        period,
+        state: check.state(),
+        current_usd,
+        limit_usd,
+        percent_used,
+    }
+}
+
+fn select_budget_check<I>(checks: I) -> BudgetCheck
+where
+    I: IntoIterator<Item = BudgetCheck>,
+{
+    checks
+        .into_iter()
+        .max_by(|left, right| {
+            budget_check_severity(left)
+                .cmp(&budget_check_severity(right))
+                .then_with(|| {
+                    budget_check_percent_used(left).total_cmp(&budget_check_percent_used(right))
+                })
+        })
+        .unwrap_or(BudgetCheck::Allowed)
+}
+
+fn budget_check_severity(check: &BudgetCheck) -> u8 {
+    match check {
+        BudgetCheck::Allowed => 0,
+        BudgetCheck::Warning { .. } => 1,
+        BudgetCheck::Exceeded { .. } => 2,
+    }
+}
+
+fn budget_check_percent_used(check: &BudgetCheck) -> f64 {
+    match check {
+        BudgetCheck::Allowed => 0.0,
+        BudgetCheck::Warning { percent_used, .. } | BudgetCheck::Exceeded { percent_used, .. } => {
+            *percent_used
+        }
+    }
+}
+
+fn build_history_from_window(
+    period: UsagePeriod,
+    window: usize,
+    now: DateTime<Utc>,
+    records: &[CostRecord],
+) -> Result<CostHistory> {
+    match period {
+        UsagePeriod::Day => {
+            let start = now - Duration::days((window.saturating_sub(1)) as i64);
+            build_history_from_range(period, start, now, records)
+        }
+        UsagePeriod::Month => {
+            let month_offset = i32::try_from(window.saturating_sub(1))
+                .map_err(|_| anyhow!("History window is too large"))?;
+            let (start_year, start_month) = shift_month(now.year(), now.month(), -month_offset);
+            let start = Utc
+                .with_ymd_and_hms(start_year, start_month, 1, 0, 0, 0)
+                .single()
+                .ok_or_else(|| anyhow!("Invalid monthly history window start"))?;
+            build_history_from_range(period, start, now, records)
+        }
+        UsagePeriod::Session => Err(anyhow!("Session history windows are not supported yet")),
+        UsagePeriod::Mission => Err(anyhow!("Mission history windows are not supported yet")),
+    }
+}
+
+fn build_history_from_range(
+    period: UsagePeriod,
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    records: &[CostRecord],
+) -> Result<CostHistory> {
+    match period {
+        UsagePeriod::Day => build_daily_history(start, end, records),
+        UsagePeriod::Month => build_monthly_history(start, end, records),
+        UsagePeriod::Session => Err(anyhow!("Session history ranges are not supported yet")),
+        UsagePeriod::Mission => Err(anyhow!("Mission history ranges are not supported yet")),
+    }
+}
+
+fn build_daily_history(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    records: &[CostRecord],
+) -> Result<CostHistory> {
+    let start_date = start.date_naive();
+    let end_date = end.date_naive();
+    let bucket_count = (end_date - start_date).num_days();
+    let mut points = Vec::new();
+    let mut by_bucket: HashMap<NaiveDate, CostHistoryPoint> = HashMap::new();
+
+    for index in 0..=bucket_count {
+        let bucket_date = start_date + Duration::days(index);
+        by_bucket.insert(
+            bucket_date,
+            CostHistoryPoint {
+                bucket: bucket_date.format("%Y-%m-%d").to_string(),
+                cost_usd: 0.0,
+                tokens: 0,
+                requests: 0,
+            },
+        );
+    }
+
+    for record in records {
+        let bucket_date = record.usage.timestamp.date_naive();
+        if bucket_date < start_date || bucket_date > end_date {
+            continue;
+        }
+
+        if let Some(point) = by_bucket.get_mut(&bucket_date) {
+            point.cost_usd += record.usage.cost_usd;
+            point.tokens += record.usage.total_tokens;
+            point.requests += 1;
+        }
+    }
+
+    let mut dates: Vec<_> = by_bucket.into_iter().collect();
+    dates.sort_by_key(|(date, _)| *date);
+    let mut totals = CostHistoryTotals {
+        cost_usd: 0.0,
+        tokens: 0,
+        requests: 0,
+    };
+
+    for (_, point) in dates {
+        totals.cost_usd += point.cost_usd;
+        totals.tokens += point.tokens;
+        totals.requests += point.requests;
+        points.push(point);
+    }
+
+    Ok(CostHistory {
+        period: UsagePeriod::Day,
+        points,
+        totals,
+    })
+}
+
+fn build_monthly_history(
+    start: DateTime<Utc>,
+    end: DateTime<Utc>,
+    records: &[CostRecord],
+) -> Result<CostHistory> {
+    let mut points = Vec::new();
+    let mut by_bucket: HashMap<(i32, u32), CostHistoryPoint> = HashMap::new();
+    let mut year = start.year();
+    let mut month = start.month();
+    let end_key = (end.year(), end.month());
+
+    loop {
+        by_bucket.insert(
+            (year, month),
+            CostHistoryPoint {
+                bucket: format!("{year:04}-{month:02}"),
+                cost_usd: 0.0,
+                tokens: 0,
+                requests: 0,
+            },
+        );
+
+        if (year, month) == end_key {
+            break;
+        }
+
+        (year, month) = shift_month(year, month, 1);
+    }
+
+    for record in records {
+        let bucket_key = (
+            record.usage.timestamp.year(),
+            record.usage.timestamp.month(),
+        );
+        if let Some(point) = by_bucket.get_mut(&bucket_key) {
+            point.cost_usd += record.usage.cost_usd;
+            point.tokens += record.usage.total_tokens;
+            point.requests += 1;
+        }
+    }
+
+    let mut buckets: Vec<_> = by_bucket.into_iter().collect();
+    buckets.sort_by_key(|((year, month), _)| (*year, *month));
+    let mut totals = CostHistoryTotals {
+        cost_usd: 0.0,
+        tokens: 0,
+        requests: 0,
+    };
+
+    for (_, point) in buckets {
+        totals.cost_usd += point.cost_usd;
+        totals.tokens += point.tokens;
+        totals.requests += point.requests;
+        points.push(point);
+    }
+
+    Ok(CostHistory {
+        period: UsagePeriod::Month,
+        points,
+        totals,
+    })
+}
+
+fn shift_month(year: i32, month: u32, delta: i32) -> (i32, u32) {
+    let absolute = year * 12 + month as i32 - 1 + delta;
+    let shifted_year = absolute.div_euclid(12);
+    let shifted_month = absolute.rem_euclid(12) as u32 + 1;
+    (shifted_year, shifted_month)
+}
+
+fn matches_reset_scope(
+    record: &CostRecord,
+    scope: CostResetScope,
+    session_id: &str,
+    now: DateTime<Utc>,
+) -> bool {
+    match scope {
+        CostResetScope::Session => record.session_id == session_id,
+        CostResetScope::Day => record.usage.timestamp.date_naive() == now.date_naive(),
+        CostResetScope::Month => {
+            record.usage.timestamp.year() == now.year()
+                && record.usage.timestamp.month() == now.month()
+        }
+    }
 }
 
 fn build_session_model_stats(session_costs: &[CostRecord]) -> HashMap<String, ModelStats> {
@@ -303,6 +892,12 @@ impl CostStorage {
         Ok(())
     }
 
+    fn read_records(&self) -> Result<Vec<CostRecord>> {
+        let mut records = Vec::new();
+        self.for_each_record(|record| records.push(record))?;
+        Ok(records)
+    }
+
     fn rebuild_aggregates(&mut self, day: NaiveDate, year: i32, month: u32) -> Result<()> {
         let mut daily_cost = 0.0;
         let mut monthly_cost = 0.0;
@@ -367,6 +962,36 @@ impl CostStorage {
         Ok(())
     }
 
+    fn replace_records(&mut self, records: &[CostRecord]) -> Result<()> {
+        if let Some(parent) = self.path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+        }
+
+        let temp_path = self.path.with_extension("jsonl.tmp");
+        let mut file = File::create(&temp_path)
+            .with_context(|| format!("Failed to create temp storage at {}", temp_path.display()))?;
+
+        for record in records {
+            writeln!(file, "{}", serde_json::to_string(record)?).with_context(|| {
+                format!("Failed to write cost record to {}", temp_path.display())
+            })?;
+        }
+
+        file.sync_all()
+            .with_context(|| format!("Failed to sync temp storage at {}", temp_path.display()))?;
+        fs::rename(&temp_path, &self.path).with_context(|| {
+            format!(
+                "Failed to replace cost storage from {} to {}",
+                temp_path.display(),
+                self.path.display()
+            )
+        })?;
+
+        let now = Utc::now();
+        self.rebuild_aggregates(now.date_naive(), now.year(), now.month())
+    }
+
     /// Get aggregated costs for current day and month.
     fn get_aggregated_costs(&mut self) -> Result<(f64, f64)> {
         self.ensure_period_cache_current()?;
@@ -401,9 +1026,88 @@ impl CostStorage {
     }
 }
 
+struct CostAuditStorage {
+    path: PathBuf,
+}
+
+impl CostAuditStorage {
+    fn new(path: &Path) -> Result<Self> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory {}", parent.display()))?;
+        }
+
+        Ok(Self {
+            path: path.to_path_buf(),
+        })
+    }
+
+    fn append(&mut self, event: CostAuditEvent) -> Result<()> {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .with_context(|| format!("Failed to open audit storage at {}", self.path.display()))?;
+
+        writeln!(file, "{}", serde_json::to_string(&event)?)
+            .with_context(|| format!("Failed to write audit event to {}", self.path.display()))?;
+        file.sync_all()
+            .with_context(|| format!("Failed to sync audit storage at {}", self.path.display()))?;
+        Ok(())
+    }
+
+    fn read_events(&self, limit: usize) -> Result<Vec<CostAuditEvent>> {
+        if limit == 0 || !self.path.exists() {
+            return Ok(Vec::new());
+        }
+
+        let file = File::open(&self.path).with_context(|| {
+            format!("Failed to read audit storage from {}", self.path.display())
+        })?;
+        let reader = BufReader::new(file);
+        let mut events = Vec::new();
+
+        for (line_number, line) in reader.lines().enumerate() {
+            let raw_line = line.with_context(|| {
+                format!(
+                    "Failed to read line {} from audit storage {}",
+                    line_number + 1,
+                    self.path.display()
+                )
+            })?;
+
+            let trimmed = raw_line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            match serde_json::from_str::<CostAuditEvent>(trimmed) {
+                Ok(event) => events.push(event),
+                Err(error) => tracing::warn!(
+                    "Skipping malformed cost audit record at {}:{}: {error}",
+                    self.path.display(),
+                    line_number + 1
+                ),
+            }
+        }
+
+        if events.len() > limit {
+            let split_at = events.len() - limit;
+            Ok(events.split_off(split_at))
+        } else {
+            Ok(events)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cost::{
+        CostAuditKind, CostOverrideRequest, CostOverrideScope, CostResetRequest, CostResetScope,
+        CostService,
+    };
+    use chrono::TimeZone;
     use tempfile::TempDir;
 
     fn enabled_config() -> CostConfig {
@@ -532,5 +1236,248 @@ mod tests {
         assert!(err
             .to_string()
             .contains("Estimated cost must be a finite, non-negative value"));
+    }
+
+    #[test]
+    fn warning_threshold_uses_projected_cost_math() {
+        let tmp = TempDir::new().unwrap();
+        let config = CostConfig {
+            enabled: true,
+            session_limit_usd: 10.0,
+            daily_limit_usd: 10.0,
+            monthly_limit_usd: 100.0,
+            warn_at_percent: 80,
+            ..Default::default()
+        };
+        let tracker = CostTracker::new(config, tmp.path()).unwrap();
+
+        let usage = TokenUsage::new("test/model", 1_000_000, 0, 7.5, 0.0);
+        tracker.record_usage(usage).unwrap();
+
+        let check = tracker.check_budget(0.5).unwrap();
+        match check {
+            BudgetCheck::Warning {
+                period,
+                current_usd,
+                limit_usd,
+                projected_usd,
+                percent_used,
+            } => {
+                assert_eq!(period, UsagePeriod::Day);
+                assert!((current_usd - 7.5).abs() < 0.0001);
+                assert!((projected_usd - 8.0).abs() < 0.0001);
+                assert!((limit_usd - 10.0).abs() < 0.0001);
+                assert!((percent_used - 80.0).abs() < 0.0001);
+            }
+            other => panic!("expected warning, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn session_scope_is_evaluated_with_day_and_month_limits() {
+        let tmp = TempDir::new().unwrap();
+        let config = CostConfig {
+            enabled: true,
+            session_limit_usd: 5.0,
+            daily_limit_usd: 10.0,
+            monthly_limit_usd: 100.0,
+            warn_at_percent: 80,
+            ..Default::default()
+        };
+        let tracker = CostTracker::new(config, tmp.path()).unwrap();
+
+        let mut usage = TokenUsage::new("test/model", 1_000, 0, 0.0, 0.0);
+        usage.cost_usd = 4.9;
+        tracker.record_usage(usage).unwrap();
+
+        match tracker.check_budget(0.2).unwrap() {
+            BudgetCheck::Exceeded {
+                period, limit_usd, ..
+            } => {
+                assert_eq!(period, UsagePeriod::Session);
+                assert!((limit_usd - 5.0).abs() < 0.0001);
+            }
+            other => panic!("expected session-scope exceedance, got {other:?}"),
+        }
+
+        let scopes = tracker.scope_statuses().unwrap();
+        assert!(scopes
+            .iter()
+            .any(|scope| scope.period == UsagePeriod::Session));
+        assert!(scopes.iter().any(|scope| scope.period == UsagePeriod::Day));
+        assert!(scopes
+            .iter()
+            .any(|scope| scope.period == UsagePeriod::Month));
+    }
+
+    #[test]
+    fn mission_scope_can_govern_request_when_more_restrictive() {
+        let tmp = TempDir::new().unwrap();
+        let config = CostConfig {
+            enabled: true,
+            session_limit_usd: 10.0,
+            daily_limit_usd: 100.0,
+            monthly_limit_usd: 1000.0,
+            warn_at_percent: 80,
+            ..Default::default()
+        };
+        let tracker = Arc::new(CostTracker::new(config, tmp.path()).unwrap());
+        let service = CostService::new(tracker);
+
+        let evaluation = service
+            .evaluate_request(
+                0.1,
+                Some(crate::cost::MissionBudgetScope {
+                    mission_id: "mission-a".to_string(),
+                    current_usd: 0.95,
+                    limit_usd: 1.0,
+                }),
+                chrono::Utc::now(),
+            )
+            .unwrap();
+
+        match evaluation {
+            crate::cost::BudgetEvaluation::Blocked {
+                check:
+                    BudgetCheck::Exceeded {
+                        period, limit_usd, ..
+                    },
+            } => {
+                assert_eq!(period, UsagePeriod::Mission);
+                assert!((limit_usd - 1.0).abs() < 0.0001);
+            }
+            other => panic!("expected mission-scope block, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn history_window_aggregates_daily_buckets() {
+        let tmp = TempDir::new().unwrap();
+        let tracker = Arc::new(CostTracker::new(enabled_config(), tmp.path()).unwrap());
+        let service = CostService::new(tracker.clone());
+        let now = chrono::Utc
+            .with_ymd_and_hms(2026, 4, 6, 12, 0, 0)
+            .single()
+            .unwrap();
+
+        let records = [
+            ("day-1", now - chrono::Duration::days(2), 1.25),
+            ("day-2", now - chrono::Duration::days(1), 2.0),
+            (
+                "day-2",
+                now - chrono::Duration::days(1) + chrono::Duration::hours(1),
+                0.5,
+            ),
+            ("day-3", now, 3.25),
+        ];
+
+        for (session_id, timestamp, cost_usd) in records {
+            let mut usage = TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+            usage.cost_usd = cost_usd;
+            usage.timestamp = timestamp;
+            tracker.record_usage_for_session(session_id, usage).unwrap();
+        }
+
+        let history = service.history_window(UsagePeriod::Day, 3, now).unwrap();
+        assert_eq!(history.points.len(), 3);
+        assert_eq!(history.points[0].bucket, "2026-04-04");
+        assert!((history.points[0].cost_usd - 1.25).abs() < 0.0001);
+        assert_eq!(history.points[1].bucket, "2026-04-05");
+        assert!((history.points[1].cost_usd - 2.5).abs() < 0.0001);
+        assert_eq!(history.points[2].bucket, "2026-04-06");
+        assert!((history.points[2].cost_usd - 3.25).abs() < 0.0001);
+        assert!((history.totals.cost_usd - 7.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn reset_session_removes_only_current_session_records() {
+        let tmp = TempDir::new().unwrap();
+        let tracker = Arc::new(CostTracker::new(enabled_config(), tmp.path()).unwrap());
+        let service = CostService::new(tracker.clone());
+        let now = chrono::Utc
+            .with_ymd_and_hms(2026, 4, 6, 12, 0, 0)
+            .single()
+            .unwrap();
+
+        let mut current_usage = TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        current_usage.cost_usd = 1.5;
+        current_usage.timestamp = now;
+        tracker.record_usage(current_usage).unwrap();
+
+        let mut other_usage = TokenUsage::new("test/model", 2_000, 500, 0.0, 0.0);
+        other_usage.cost_usd = 2.0;
+        other_usage.timestamp = now;
+        tracker
+            .record_usage_for_session("other-session", other_usage)
+            .unwrap();
+
+        let result = service
+            .reset(
+                CostResetRequest {
+                    scope: CostResetScope::Session,
+                    actor: "tester".to_string(),
+                    reason: Some("clear current session".to_string()),
+                },
+                now,
+            )
+            .unwrap();
+
+        assert_eq!(result.scope, CostResetScope::Session);
+        assert_eq!(result.removed_requests, 1);
+        assert!((result.removed_cost_usd - 1.5).abs() < 0.0001);
+
+        let summary = tracker.get_summary().unwrap();
+        assert_eq!(summary.request_count, 0);
+        let day_cost = tracker.get_daily_cost(now.date_naive()).unwrap();
+        assert!((day_cost - 2.0).abs() < 0.0001);
+    }
+
+    #[test]
+    fn next_request_override_expires_before_use() {
+        let tmp = TempDir::new().unwrap();
+        let config = CostConfig {
+            enabled: true,
+            daily_limit_usd: 1.0,
+            monthly_limit_usd: 100.0,
+            warn_at_percent: 80,
+            allow_override: true,
+            ..Default::default()
+        };
+        let tracker = Arc::new(CostTracker::new(config, tmp.path()).unwrap());
+        let service = CostService::new(tracker.clone());
+        let now = chrono::Utc
+            .with_ymd_and_hms(2026, 4, 6, 12, 0, 0)
+            .single()
+            .unwrap();
+
+        let mut usage = TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 1.1;
+        usage.timestamp = now;
+        tracker.record_usage(usage).unwrap();
+
+        service
+            .apply_override(
+                CostOverrideRequest {
+                    actor: "operator".to_string(),
+                    scope: CostOverrideScope::NextRequest,
+                    reason: Some("one retry".to_string()),
+                    expires_at: Some(now + chrono::Duration::minutes(5)),
+                },
+                now,
+            )
+            .unwrap();
+
+        let evaluation = service
+            .evaluate_request(0.1, None, now + chrono::Duration::minutes(6))
+            .unwrap();
+        assert!(matches!(
+            evaluation,
+            crate::cost::BudgetEvaluation::Blocked { .. }
+        ));
+
+        let audit = service.audit_trail(10).unwrap();
+        assert!(audit
+            .iter()
+            .any(|event| event.kind == CostAuditKind::OverrideExpired));
     }
 }

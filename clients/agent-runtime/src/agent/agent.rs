@@ -13,7 +13,10 @@ use crate::agent::prompt::{
 };
 use crate::bootstrap;
 use crate::config::Config;
-use crate::cost::{BudgetCheck, CostTracker, TokenUsage, UsagePeriod};
+use crate::cost::{
+    BudgetCheck, BudgetEvaluation, CostService, CostTracker, MissionBudgetScope, TokenUsage,
+    UsagePeriod,
+};
 use crate::memory::{Memory, MemoryCategory};
 use crate::observability::{redact_observer_payload, Observer, ObserverEvent};
 use crate::providers::{ChatMessage, ChatRequest, ChatResponse, ConversationMessage, Provider};
@@ -24,6 +27,7 @@ use crate::security::{
 use crate::tools::{Tool, ToolSpec};
 use crate::util::truncate_with_ellipsis;
 use anyhow::Result;
+use chrono::Utc;
 use futures_util::future::join_all;
 use std::collections::HashMap;
 use std::fmt;
@@ -72,6 +76,13 @@ pub struct AgentTurnResult {
     pub event_log: Vec<AgentTurnEvent>,
 }
 
+#[derive(Debug, Clone)]
+struct ActiveMissionBudget {
+    mission_id: String,
+    baseline_session_cost_usd: f64,
+    limit_usd: f64,
+}
+
 #[allow(clippy::struct_excessive_bools)]
 pub struct Agent {
     provider: Box<dyn Provider>,
@@ -98,13 +109,16 @@ pub struct Agent {
     cost_tracker: Option<Arc<CostTracker>>,
     cost_config: crate::config::CostConfig,
     mission_execution_context: bool,
+    active_mission_budget: Option<ActiveMissionBudget>,
     code_mode: bool,
     code_session_delegated: bool,
 }
 
 #[derive(Debug)]
 pub enum AgentExecutionError {
-    IterationBudgetExceeded { max_iterations: usize },
+    IterationBudgetExceeded {
+        max_iterations: usize,
+    },
     CostBudgetExceeded {
         current_usd: f64,
         limit_usd: f64,
@@ -354,6 +368,7 @@ impl AgentBuilder {
             cost_tracker: self.cost_tracker,
             cost_config: self.cost_config.unwrap_or_default(),
             mission_execution_context: false,
+            active_mission_budget: None,
             code_mode: self.code_mode,
             code_session_delegated: self.code_session_delegated,
         })
@@ -392,6 +407,158 @@ impl Agent {
 
     pub fn clear_history(&mut self) {
         self.history.clear();
+    }
+
+    pub(crate) fn apply_next_request_budget_override(
+        &self,
+        actor: impl Into<String>,
+        reason: Option<String>,
+    ) -> Result<crate::cost::CostOverrideRecord> {
+        if !self.cost_config.enabled {
+            anyhow::bail!("Cost tracking is disabled for this session")
+        }
+
+        let Some(tracker) = &self.cost_tracker else {
+            anyhow::bail!("Cost tracking is enabled, but the runtime cost tracker is unavailable")
+        };
+
+        let cost_service = CostService::new(Arc::clone(tracker));
+        let now = Utc::now();
+        let summary = cost_service.current_summary(now)?;
+        let override_record = cost_service.apply_override(
+            crate::cost::CostOverrideRequest {
+                actor: actor.into(),
+                scope: crate::cost::CostOverrideScope::NextRequest,
+                reason,
+                expires_at: None,
+            },
+            now,
+        )?;
+        self.emit_budget_override_event(
+            &override_record,
+            crate::observability::BudgetOverrideAction::Granted,
+            summary.budget_state,
+            summary.active_period,
+        );
+        Ok(override_record)
+    }
+
+    fn budget_surface(&self) -> &'static str {
+        if self.code_mode {
+            "code_session"
+        } else if self.mission_execution_context {
+            "mission"
+        } else {
+            "agent_loop"
+        }
+    }
+
+    fn emit_budget_warning_event(
+        &self,
+        current_usd: f64,
+        projected_usd: f64,
+        limit_usd: f64,
+        percent_used: f64,
+        period: UsagePeriod,
+    ) {
+        if let Some(tracker) = &self.cost_tracker {
+            self.observer.record_event(&ObserverEvent::BudgetWarning(
+                crate::observability::BudgetThresholdEvent {
+                    period,
+                    current_usd,
+                    projected_usd,
+                    limit_usd,
+                    percent_used,
+                    session_id: tracker.session_id().to_string(),
+                    surface: Some(self.budget_surface().to_string()),
+                },
+            ));
+        }
+    }
+
+    fn emit_budget_exceeded_event(
+        &self,
+        current_usd: f64,
+        projected_usd: f64,
+        limit_usd: f64,
+        percent_used: f64,
+        period: UsagePeriod,
+    ) {
+        if let Some(tracker) = &self.cost_tracker {
+            self.observer.record_event(&ObserverEvent::BudgetExceeded(
+                crate::observability::BudgetThresholdEvent {
+                    period,
+                    current_usd,
+                    projected_usd,
+                    limit_usd,
+                    percent_used,
+                    session_id: tracker.session_id().to_string(),
+                    surface: Some(self.budget_surface().to_string()),
+                },
+            ));
+        }
+    }
+
+    fn emit_budget_override_event(
+        &self,
+        override_record: &crate::cost::CostOverrideRecord,
+        action: crate::observability::BudgetOverrideAction,
+        previous_state: crate::cost::BudgetState,
+        period: Option<UsagePeriod>,
+    ) {
+        self.observer.record_event(&ObserverEvent::BudgetOverride(
+            crate::observability::BudgetOverrideEvent {
+                action,
+                actor: override_record.actor.clone(),
+                scope: override_record.scope,
+                reason: override_record.reason.clone(),
+                session_id: override_record.session_id.clone(),
+                previous_state,
+                period,
+                override_id: Some(override_record.id.clone()),
+                surface: Some(self.budget_surface().to_string()),
+            },
+        ));
+    }
+
+    pub(crate) fn session_cost_summary(
+        &self,
+        now: chrono::DateTime<Utc>,
+    ) -> Result<Option<crate::cost::CostGovernanceSummary>> {
+        if !self.cost_config.enabled {
+            return Ok(None);
+        }
+
+        let Some(tracker) = &self.cost_tracker else {
+            return Ok(None);
+        };
+
+        let cost_service = CostService::new(Arc::clone(tracker));
+        cost_service.current_summary(now).map(Some)
+    }
+
+    pub(crate) fn record_agent_start_event(&self, provider: &str, model: &str) {
+        self.observer.record_event(&ObserverEvent::AgentStart {
+            provider: provider.to_string(),
+            model: model.to_string(),
+        });
+    }
+
+    pub(crate) fn record_agent_end_event(&self, provider: &str, model: &str, duration: Duration) {
+        let (tokens_used, cost_usd) = self
+            .cost_tracker
+            .as_ref()
+            .and_then(|tracker| tracker.get_summary().ok())
+            .map(|summary| (Some(summary.total_tokens), Some(summary.session_cost_usd)))
+            .unwrap_or((None, None));
+
+        self.observer.record_event(&ObserverEvent::AgentEnd {
+            provider: provider.to_string(),
+            model: model.to_string(),
+            duration,
+            tokens_used,
+            cost_usd,
+        });
     }
 
     pub fn from_config(config: &Config) -> Result<Self> {
@@ -828,39 +995,96 @@ impl Agent {
         let Some(tracker) = &self.cost_tracker else {
             return Ok(());
         };
+
+        let cost_service = CostService::new(Arc::clone(tracker));
         let estimated_cost = self.estimate_request_cost(model);
-        match tracker.check_budget(estimated_cost)? {
-            BudgetCheck::Allowed => Ok(()),
-            BudgetCheck::Warning {
-                current_usd,
-                limit_usd,
-                period,
+        match cost_service.evaluate_request(
+            estimated_cost,
+            self.current_mission_budget_scope()?,
+            Utc::now(),
+        )? {
+            BudgetEvaluation::Proceed {
+                check: BudgetCheck::Allowed,
+                override_applied,
             } => {
-                tracing::warn!(
-                    current_usd,
-                    limit_usd,
-                    ?period,
-                    "Cost budget warning: approaching limit"
-                );
-                self.observer.record_event(&ObserverEvent::Error {
-                    component: "cost_warning".to_string(),
-                    message: format!(
-                        "Budget warning: ${current_usd:.4} of \
-                         ${limit_usd:.2} {period:?} limit used"
-                    ),
-                });
+                if let Some(override_applied) = override_applied {
+                    self.emit_budget_override_event(
+                        &override_applied,
+                        crate::observability::BudgetOverrideAction::Consumed,
+                        crate::cost::BudgetState::Allowed,
+                        None,
+                    );
+                }
                 Ok(())
             }
-            BudgetCheck::Exceeded {
-                current_usd,
-                limit_usd,
-                period,
+            BudgetEvaluation::Proceed {
+                check:
+                    BudgetCheck::Warning {
+                        current_usd,
+                        projected_usd,
+                        limit_usd,
+                        percent_used,
+                        period,
+                        ..
+                    },
+                override_applied,
             } => {
-                tracing::error!(
+                if let Some(override_applied) = override_applied {
+                    self.emit_budget_override_event(
+                        &override_applied,
+                        crate::observability::BudgetOverrideAction::Consumed,
+                        crate::cost::BudgetState::Warning,
+                        Some(period),
+                    );
+                }
+                self.emit_budget_warning_event(
                     current_usd,
+                    projected_usd,
                     limit_usd,
-                    ?period,
-                    "Cost budget exceeded — blocking LLM call"
+                    percent_used,
+                    period,
+                );
+                Ok(())
+            }
+            BudgetEvaluation::Proceed {
+                check:
+                    BudgetCheck::Exceeded {
+                        current_usd: _,
+                        projected_usd: _,
+                        limit_usd: _,
+                        percent_used: _,
+                        period,
+                        ..
+                    },
+                override_applied,
+            } => {
+                if let Some(override_applied) = override_applied {
+                    self.emit_budget_override_event(
+                        &override_applied,
+                        crate::observability::BudgetOverrideAction::Consumed,
+                        crate::cost::BudgetState::Exceeded,
+                        Some(period),
+                    );
+                }
+                Ok(())
+            }
+            BudgetEvaluation::Blocked {
+                check:
+                    BudgetCheck::Exceeded {
+                        current_usd,
+                        projected_usd,
+                        limit_usd,
+                        percent_used,
+                        period,
+                        ..
+                    },
+            } => {
+                self.emit_budget_exceeded_event(
+                    current_usd,
+                    projected_usd,
+                    limit_usd,
+                    percent_used,
+                    period,
                 );
                 Err(AgentExecutionError::CostBudgetExceeded {
                     current_usd,
@@ -869,7 +1093,46 @@ impl Agent {
                 }
                 .into())
             }
+            BudgetEvaluation::Blocked { .. } => Ok(()),
         }
+    }
+
+    fn current_mission_budget_scope(&self) -> Result<Option<MissionBudgetScope>> {
+        let Some(active_budget) = &self.active_mission_budget else {
+            return Ok(None);
+        };
+        let Some(tracker) = &self.cost_tracker else {
+            return Ok(None);
+        };
+
+        let summary = tracker.get_summary()?;
+        let current_usd =
+            (summary.session_cost_usd - active_budget.baseline_session_cost_usd).max(0.0);
+
+        Ok(Some(MissionBudgetScope {
+            mission_id: active_budget.mission_id.clone(),
+            current_usd,
+            limit_usd: active_budget.limit_usd,
+        }))
+    }
+
+    fn begin_active_mission_budget(&mut self, mission_id: &str) -> Result<()> {
+        let Some(tracker) = &self.cost_tracker else {
+            self.active_mission_budget = None;
+            return Ok(());
+        };
+
+        let summary = tracker.get_summary()?;
+        self.active_mission_budget = Some(ActiveMissionBudget {
+            mission_id: mission_id.to_string(),
+            baseline_session_cost_usd: summary.session_cost_usd,
+            limit_usd: f64::from(self.mission_config.max_estimated_cost_cents) / 100.0,
+        });
+        Ok(())
+    }
+
+    fn end_active_mission_budget(&mut self) {
+        self.active_mission_budget = None;
     }
 
     /// Record token usage after a successful LLM call using estimated tokens.
@@ -1331,8 +1594,25 @@ impl Agent {
         format!("mission-{nanos}")
     }
 
-    fn build_mission_coordinator(&self) -> MissionCoordinator {
-        MissionCoordinator::new(self.mission_config.clone().into())
+    fn build_mission_coordinator(&self) -> Result<MissionCoordinator> {
+        let governance: crate::agent::mission::MissionGovernance =
+            self.mission_config.clone().into();
+
+        if self.cost_config.enabled {
+            let tracker = self.cost_tracker.as_ref().ok_or_else(|| {
+                anyhow::anyhow!(
+                    "mission runtime cost tracker unavailable while cost tracking is enabled"
+                )
+            })?;
+
+            return MissionCoordinator::new_with_runtime_cost_tracker(
+                governance,
+                Arc::clone(tracker),
+            )
+            .map_err(Self::mission_error);
+        }
+
+        Ok(MissionCoordinator::new(governance))
     }
 
     fn build_mission_plan(&self, objective: &str, resume_from: Option<u32>) -> MissionPlan {
@@ -1730,10 +2010,14 @@ impl Agent {
             resume_from,
         });
 
-        let coordinator = self.build_mission_coordinator();
+        self.begin_active_mission_budget(&mission_id)?;
+        let coordinator = self.build_mission_coordinator()?;
         let plan = self.build_mission_plan(objective, resume_from);
-        self.run_mission_plan(&coordinator, &mission_id, Instant::now(), plan)
-            .await
+        let result = self
+            .run_mission_plan(&coordinator, &mission_id, Instant::now(), plan)
+            .await;
+        self.end_active_mission_budget();
+        result
     }
 
     async fn step_with_context(
@@ -1878,10 +2162,7 @@ pub async fn run(
         .unwrap_or("anthropic/claude-sonnet-4-20250514")
         .to_string();
 
-    agent.observer.record_event(&ObserverEvent::AgentStart {
-        provider: provider_name.clone(),
-        model: model_name.clone(),
-    });
+    agent.record_agent_start_event(&provider_name, &model_name);
 
     if let Some(msg) = message {
         let response = agent.run_single(&msg).await?;
@@ -1890,20 +2171,7 @@ pub async fn run(
         agent.run_interactive().await?;
     }
 
-    let (tokens_used, cost_usd) = agent
-        .cost_tracker
-        .as_ref()
-        .and_then(|tracker| tracker.get_summary().ok())
-        .map(|summary| (Some(summary.total_tokens), Some(summary.session_cost_usd)))
-        .unwrap_or((None, None));
-
-    agent.observer.record_event(&ObserverEvent::AgentEnd {
-        provider: provider_name,
-        model: model_name,
-        duration: start.elapsed(),
-        tokens_used,
-        cost_usd,
-    });
+    agent.record_agent_end_event(&provider_name, &model_name, start.elapsed());
 
     Ok(())
 }
@@ -1914,7 +2182,9 @@ mod tests {
     use crate::test_support::test_config;
     use async_trait::async_trait;
     use parking_lot::Mutex;
+    use parking_lot::RwLock;
     use std::collections::HashSet;
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     struct MockProvider {
@@ -1999,6 +2269,33 @@ mod tests {
 
     struct ValidationMemory {
         results: Mutex<Vec<anyhow::Result<crate::memory::MemoryValidationResult>>>,
+    }
+
+    #[derive(Default)]
+    struct RecordingObserver {
+        events: RwLock<Vec<ObserverEvent>>,
+    }
+
+    impl RecordingObserver {
+        fn snapshot(&self) -> Vec<ObserverEvent> {
+            self.events.read().clone()
+        }
+    }
+
+    impl Observer for RecordingObserver {
+        fn record_event(&self, event: &ObserverEvent) {
+            self.events.write().push(event.clone());
+        }
+
+        fn record_metric(&self, _metric: &crate::observability::ObserverMetric) {}
+
+        fn name(&self) -> &str {
+            "recording"
+        }
+
+        fn as_any(&self) -> &dyn std::any::Any {
+            self
+        }
     }
 
     #[async_trait]
@@ -2319,6 +2616,7 @@ mod tests {
             daily_limit_usd: daily_limit,
             monthly_limit_usd: 1000.0,
             warn_at_percent: 80,
+            allow_override: true,
             ..Default::default()
         };
         let tracker = if cost_enabled {
@@ -2348,6 +2646,48 @@ mod tests {
             .build()
             .unwrap();
         (agent, tracker, tmp)
+    }
+
+    fn build_agent_with_recording_observer(
+        provider: Box<dyn Provider>,
+        daily_limit: f64,
+    ) -> (
+        Agent,
+        Arc<crate::cost::CostTracker>,
+        Arc<RecordingObserver>,
+        TempDir,
+    ) {
+        let tmp = TempDir::new().unwrap();
+        let cost_config = crate::config::CostConfig {
+            enabled: true,
+            daily_limit_usd: daily_limit,
+            monthly_limit_usd: 1000.0,
+            warn_at_percent: 80,
+            allow_override: true,
+            ..Default::default()
+        };
+        let tracker =
+            Arc::new(crate::cost::CostTracker::new(cost_config.clone(), tmp.path()).unwrap());
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None).unwrap(),
+        );
+        let observer = Arc::new(RecordingObserver::default());
+        let agent = Agent::builder()
+            .provider(provider)
+            .tools(vec![Box::new(MockTool)])
+            .memory(mem)
+            .observer(observer.clone() as Arc<dyn Observer>)
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(tmp.path().to_path_buf())
+            .cost_tracker(Some(tracker.clone()))
+            .cost_config(cost_config)
+            .build()
+            .unwrap();
+        (agent, tracker, observer, tmp)
     }
 
     #[tokio::test]
@@ -2430,6 +2770,180 @@ mod tests {
             err_msg.contains("Budget exceeded"),
             "expected budget exceeded error, got: {err_msg}"
         );
+        assert!(
+            !err_msg.contains("action budget exhausted"),
+            "token-spend denial should not be labeled as action-rate exhaustion: {err_msg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn mission_scope_blocks_metered_call_independently_from_session_budget() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("should not reach".into()),
+                tool_calls: vec![],
+            }]),
+        });
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, true, 100.0);
+        let tracker = tracker.unwrap();
+        agent.mission_config.max_estimated_cost_cents = 100;
+        agent.begin_active_mission_budget("mission-a").unwrap();
+
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 1.05;
+        tracker.record_usage(usage).unwrap();
+
+        let result = agent.turn("mission checkpoint").await;
+        agent.end_active_mission_budget();
+
+        assert!(result.is_err());
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("Budget exceeded"));
+        assert!(error.contains("Mission limit"));
+    }
+
+    #[tokio::test]
+    async fn token_budget_denial_is_reported_separately_from_action_rate_governance() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("should not reach".into()),
+                tool_calls: vec![],
+            }]),
+        });
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, true, 1.0);
+        let tracker = tracker.unwrap();
+
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 1.1;
+        tracker.record_usage(usage).unwrap();
+
+        let result = agent.turn("hi").await;
+        assert!(result.is_err());
+
+        let error = result.unwrap_err().to_string();
+        assert!(error.contains("Budget exceeded"));
+        assert!(!error.contains("action budget exhausted"));
+    }
+
+    #[tokio::test]
+    async fn next_request_override_allows_one_blocked_turn() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![
+                crate::providers::ChatResponse {
+                    text: Some("override succeeded".into()),
+                    tool_calls: vec![],
+                },
+                crate::providers::ChatResponse {
+                    text: Some("should block again".into()),
+                    tool_calls: vec![],
+                },
+            ]),
+        });
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, true, 1.0);
+        let tracker = tracker.unwrap();
+        let service = crate::cost::CostService::new(tracker.clone());
+        let now = chrono::Utc::now();
+
+        let mut usage = crate::cost::TokenUsage::new(
+            "anthropic/claude-sonnet-4-20250514",
+            1_000,
+            500,
+            0.0,
+            0.0,
+        );
+        usage.cost_usd = 1.1;
+        usage.timestamp = now;
+        tracker.record_usage(usage).unwrap();
+
+        service
+            .apply_override(
+                crate::cost::CostOverrideRequest {
+                    actor: "operator".to_string(),
+                    scope: crate::cost::CostOverrideScope::NextRequest,
+                    reason: Some("allow one follow-up".to_string()),
+                    expires_at: Some(now + chrono::Duration::minutes(5)),
+                },
+                now,
+            )
+            .unwrap();
+
+        let response = agent.turn("hi with override").await.unwrap();
+        assert_eq!(response, "override succeeded");
+
+        let result = agent.turn("hi after override").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn warning_threshold_emits_budget_warning_event() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("warning".into()),
+                tool_calls: vec![],
+            }]),
+        });
+        let (mut agent, tracker, observer, _tmp) =
+            build_agent_with_recording_observer(provider, 1.0);
+
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 0.81;
+        tracker.record_usage(usage).unwrap();
+
+        let response = agent.turn("hi").await.unwrap();
+        assert_eq!(response, "warning");
+
+        assert!(observer
+            .snapshot()
+            .into_iter()
+            .any(|event| matches!(event, ObserverEvent::BudgetWarning(_))));
+    }
+
+    #[tokio::test]
+    async fn blocked_turn_emits_budget_exceeded_event() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("blocked".into()),
+                tool_calls: vec![],
+            }]),
+        });
+        let (mut agent, tracker, observer, _tmp) =
+            build_agent_with_recording_observer(provider, 1.0);
+
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 1.1;
+        tracker.record_usage(usage).unwrap();
+
+        let result = agent.turn("hi").await;
+        assert!(result.is_err());
+
+        assert!(observer
+            .snapshot()
+            .into_iter()
+            .any(|event| matches!(event, ObserverEvent::BudgetExceeded(_))));
+    }
+
+    #[test]
+    fn local_override_emits_budget_override_event() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(Vec::new()),
+        });
+        let (agent, tracker, observer, _tmp) = build_agent_with_recording_observer(provider, 1.0);
+
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 1.1;
+        tracker.record_usage(usage).unwrap();
+
+        agent
+            .apply_next_request_budget_override(
+                "paired-admin-token",
+                Some("token=super-secret".into()),
+            )
+            .unwrap();
+
+        assert!(observer
+            .snapshot()
+            .into_iter()
+            .any(|event| matches!(event, ObserverEvent::BudgetOverride(_))));
     }
 
     #[tokio::test]

@@ -1,3 +1,4 @@
+use crate::cost::{BudgetState, CostOverrideScope, UsagePeriod};
 use std::time::Duration;
 
 const SENSITIVE_PAYLOAD_MARKERS: [&str; 5] = ["password", "token", "secret", "api_key", "auth"];
@@ -140,6 +141,82 @@ pub fn redact_observer_payload(value: &str) -> String {
     trimmed.to_string()
 }
 
+pub fn redact_optional_observer_payload(value: Option<&str>) -> Option<String> {
+    value.map(redact_observer_payload)
+}
+
+pub fn usage_period_label(period: UsagePeriod) -> &'static str {
+    match period {
+        UsagePeriod::Session => "session",
+        UsagePeriod::Day => "day",
+        UsagePeriod::Month => "month",
+        UsagePeriod::Mission => "mission",
+    }
+}
+
+pub fn budget_state_label(state: BudgetState) -> &'static str {
+    match state {
+        BudgetState::Allowed => "allowed",
+        BudgetState::Warning => "warning",
+        BudgetState::Exceeded => "exceeded",
+    }
+}
+
+pub fn cost_override_scope_label(scope: CostOverrideScope) -> &'static str {
+    match scope {
+        CostOverrideScope::NextRequest => "next_request",
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BudgetThresholdEvent {
+    pub period: UsagePeriod,
+    pub current_usd: f64,
+    pub projected_usd: f64,
+    pub limit_usd: f64,
+    pub percent_used: f64,
+    pub session_id: String,
+    pub surface: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BudgetOverrideAction {
+    Granted,
+    Consumed,
+}
+
+impl BudgetOverrideAction {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Granted => "granted",
+            Self::Consumed => "consumed",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BudgetOverrideEvent {
+    pub action: BudgetOverrideAction,
+    pub actor: String,
+    pub scope: CostOverrideScope,
+    pub reason: Option<String>,
+    pub session_id: Option<String>,
+    pub previous_state: BudgetState,
+    pub period: Option<UsagePeriod>,
+    pub override_id: Option<String>,
+    pub surface: Option<String>,
+}
+
+impl BudgetOverrideEvent {
+    pub fn redacted_actor(&self) -> String {
+        redact_observer_payload(&self.actor)
+    }
+
+    pub fn redacted_reason(&self) -> Option<String> {
+        redact_optional_observer_payload(self.reason.as_deref())
+    }
+}
+
 /// Events the observer can record
 #[derive(Debug, Clone)]
 pub enum ObserverEvent {
@@ -203,6 +280,9 @@ pub enum ObserverEvent {
         component: String,
         message: String,
     },
+    BudgetWarning(BudgetThresholdEvent),
+    BudgetExceeded(BudgetThresholdEvent),
+    BudgetOverride(BudgetOverrideEvent),
     /// Image ingress lifecycle event (metadata only).
     ImageIngress(ImageIngressEvent),
     /// Audio ingress lifecycle event (metadata only).
@@ -286,6 +366,7 @@ pub trait Observer: Send + Sync + 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cost::{BudgetState, CostOverrideScope, UsagePeriod};
     use parking_lot::Mutex;
     use std::time::Duration;
 
@@ -404,6 +485,61 @@ mod tests {
             redact_observer_payload("checkpoint timeout"),
             "checkpoint timeout"
         );
+    }
+
+    #[test]
+    fn budget_override_event_redacts_sensitive_actor_and_reason() {
+        let event = BudgetOverrideEvent {
+            action: BudgetOverrideAction::Granted,
+            actor: "paired-admin-token".into(),
+            scope: CostOverrideScope::NextRequest,
+            reason: Some("token=super-secret".into()),
+            session_id: Some("sess-123".into()),
+            previous_state: BudgetState::Exceeded,
+            period: Some(UsagePeriod::Day),
+            override_id: Some("ovr-123".into()),
+            surface: Some("gateway_admin".into()),
+        };
+
+        assert_eq!(event.redacted_actor(), "***REDACTED***");
+        assert_eq!(event.redacted_reason().as_deref(), Some("***REDACTED***"));
+    }
+
+    #[test]
+    fn observer_event_budget_variants_exist() {
+        let warning = ObserverEvent::BudgetWarning(BudgetThresholdEvent {
+            period: UsagePeriod::Day,
+            current_usd: 8.2,
+            projected_usd: 8.2,
+            limit_usd: 10.0,
+            percent_used: 82.0,
+            session_id: "sess-123".into(),
+            surface: Some("agent_loop".into()),
+        });
+        let exceeded = ObserverEvent::BudgetExceeded(BudgetThresholdEvent {
+            period: UsagePeriod::Day,
+            current_usd: 10.2,
+            projected_usd: 10.3,
+            limit_usd: 10.0,
+            percent_used: 103.0,
+            session_id: "sess-123".into(),
+            surface: Some("agent_loop".into()),
+        });
+        let override_event = ObserverEvent::BudgetOverride(BudgetOverrideEvent {
+            action: BudgetOverrideAction::Consumed,
+            actor: "cli-agent".into(),
+            scope: CostOverrideScope::NextRequest,
+            reason: Some("incident mitigation".into()),
+            session_id: Some("sess-123".into()),
+            previous_state: BudgetState::Exceeded,
+            period: Some(UsagePeriod::Day),
+            override_id: Some("ovr-123".into()),
+            surface: Some("cli".into()),
+        });
+
+        assert!(matches!(warning, ObserverEvent::BudgetWarning(_)));
+        assert!(matches!(exceeded, ObserverEvent::BudgetExceeded(_)));
+        assert!(matches!(override_event, ObserverEvent::BudgetOverride(_)));
     }
 
     // ── Image ingress telemetry (Task 4.4) ───────────────────

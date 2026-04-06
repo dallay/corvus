@@ -80,15 +80,38 @@ mod tests {
             allowed_commands: vec!["git".to_string(), "cargo".to_string()],
             forbidden_paths: vec!["/etc".to_string(), "/var".to_string()],
             max_actions_per_hour: 10,
-            max_cost_per_day_cents: 100,
             require_approval_for_medium_risk: true,
             block_high_risk_commands: true,
             always_ask: vec![],
             auto_approve: vec![],
+            deprecated_fields: vec![],
         };
         assert_eq!(autonomy.max_actions_per_hour, 10);
-        assert_eq!(autonomy.max_cost_per_day_cents, 100);
         assert_eq!(autonomy.forbidden_paths.len(), 2);
+    }
+
+    #[test]
+    fn reexported_autonomy_config_tracks_deprecated_alias_metadata() {
+        let autonomy: AutonomyConfig = toml::from_str(
+            r#"
+level = "supervised"
+workspace_only = true
+allowed_commands = ["git"]
+forbidden_paths = ["/etc"]
+max_cost_per_day_cents = 12
+require_approval_for_medium_risk = true
+block_high_risk_commands = true
+auto_approve = []
+always_ask = []
+"#,
+        )
+        .unwrap();
+
+        assert_eq!(autonomy.max_actions_per_hour, 12);
+        assert_eq!(
+            autonomy.deprecated_fields(),
+            &["autonomy.max_cost_per_day_cents".to_string()]
+        );
     }
 
     #[test]

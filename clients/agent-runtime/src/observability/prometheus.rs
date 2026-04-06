@@ -1,6 +1,7 @@
 use super::traits::{Observer, ObserverEvent, ObserverMetric};
 use prometheus::{
-    Encoder, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounterVec, Registry, TextEncoder,
+    Encoder, Gauge, GaugeVec, Histogram, HistogramOpts, HistogramVec, IntCounterVec, Registry,
+    TextEncoder,
 };
 
 /// Prometheus-backed observer — exposes metrics for scraping via `/metrics`.
@@ -13,6 +14,9 @@ pub struct PrometheusObserver {
     channel_messages: IntCounterVec,
     heartbeat_ticks: prometheus::IntCounter,
     errors: IntCounterVec,
+    budget_warnings: IntCounterVec,
+    budget_exceeded: IntCounterVec,
+    budget_overrides: IntCounterVec,
 
     // Histograms
     agent_duration: HistogramVec,
@@ -21,6 +25,7 @@ pub struct PrometheusObserver {
 
     // Gauges
     tokens_used: prometheus::IntGauge,
+    cost_usd_last: Gauge,
     active_sessions: GaugeVec,
     queue_depth: GaugeVec,
 
@@ -63,6 +68,33 @@ impl PrometheusObserver {
         )
         .expect("valid metric");
 
+        let budget_warnings = IntCounterVec::new(
+            prometheus::Opts::new(
+                "corvus_budget_warnings_total",
+                "Budget warning lifecycle events",
+            ),
+            &["period", "surface"],
+        )
+        .expect("valid metric");
+
+        let budget_exceeded = IntCounterVec::new(
+            prometheus::Opts::new(
+                "corvus_budget_exceeded_total",
+                "Budget hard block lifecycle events",
+            ),
+            &["period", "surface"],
+        )
+        .expect("valid metric");
+
+        let budget_overrides = IntCounterVec::new(
+            prometheus::Opts::new(
+                "corvus_budget_overrides_total",
+                "Budget override lifecycle events",
+            ),
+            &["action", "scope", "surface"],
+        )
+        .expect("valid metric");
+
         let agent_duration = HistogramVec::new(
             HistogramOpts::new(
                 "corvus_agent_duration_seconds",
@@ -95,6 +127,12 @@ impl PrometheusObserver {
         let tokens_used =
             prometheus::IntGauge::new("corvus_tokens_used_last", "Tokens used in the last request")
                 .expect("valid metric");
+
+        let cost_usd_last = Gauge::new(
+            "corvus_cost_usd_last",
+            "Cost of the last completed request in USD",
+        )
+        .expect("valid metric");
 
         let active_sessions = GaugeVec::new(
             prometheus::Opts::new("corvus_active_sessions", "Number of active sessions"),
@@ -134,10 +172,14 @@ impl PrometheusObserver {
         registry.register(Box::new(channel_messages.clone())).ok();
         registry.register(Box::new(heartbeat_ticks.clone())).ok();
         registry.register(Box::new(errors.clone())).ok();
+        registry.register(Box::new(budget_warnings.clone())).ok();
+        registry.register(Box::new(budget_exceeded.clone())).ok();
+        registry.register(Box::new(budget_overrides.clone())).ok();
         registry.register(Box::new(agent_duration.clone())).ok();
         registry.register(Box::new(tool_duration.clone())).ok();
         registry.register(Box::new(request_latency.clone())).ok();
         registry.register(Box::new(tokens_used.clone())).ok();
+        registry.register(Box::new(cost_usd_last.clone())).ok();
         registry.register(Box::new(active_sessions.clone())).ok();
         registry.register(Box::new(queue_depth.clone())).ok();
 
@@ -148,10 +190,14 @@ impl PrometheusObserver {
             channel_messages,
             heartbeat_ticks,
             errors,
+            budget_warnings,
+            budget_exceeded,
+            budget_overrides,
             agent_duration,
             tool_duration,
             request_latency,
             tokens_used,
+            cost_usd_last,
             active_sessions,
             queue_depth,
             image_ingress,
@@ -182,7 +228,7 @@ impl Observer for PrometheusObserver {
                 model,
                 duration,
                 tokens_used,
-                cost_usd: _,
+                cost_usd,
             } => {
                 // Agent duration is recorded via the histogram with provider/model labels
                 self.agent_duration
@@ -190,6 +236,9 @@ impl Observer for PrometheusObserver {
                     .observe(duration.as_secs_f64());
                 if let Some(t) = tokens_used {
                     self.tokens_used.set(i64::try_from(*t).unwrap_or(i64::MAX));
+                }
+                if let Some(cost_usd) = cost_usd {
+                    self.cost_usd_last.set(*cost_usd);
                 }
             }
             ObserverEvent::ToolCallStart { tool: _ }
@@ -202,6 +251,31 @@ impl Observer for PrometheusObserver {
             | ObserverEvent::MissionGuardrailViolation { .. }
             | ObserverEvent::MissionCompleted { .. }
             | ObserverEvent::MissionTerminated { .. } => {}
+            ObserverEvent::BudgetWarning(event) => {
+                self.budget_warnings
+                    .with_label_values(&[
+                        super::traits::usage_period_label(event.period),
+                        event.surface.as_deref().unwrap_or("unknown"),
+                    ])
+                    .inc();
+            }
+            ObserverEvent::BudgetExceeded(event) => {
+                self.budget_exceeded
+                    .with_label_values(&[
+                        super::traits::usage_period_label(event.period),
+                        event.surface.as_deref().unwrap_or("unknown"),
+                    ])
+                    .inc();
+            }
+            ObserverEvent::BudgetOverride(event) => {
+                self.budget_overrides
+                    .with_label_values(&[
+                        event.action.as_str(),
+                        super::traits::cost_override_scope_label(event.scope),
+                        event.surface.as_deref().unwrap_or("unknown"),
+                    ])
+                    .inc();
+            }
             ObserverEvent::AudioIngress(evt) => {
                 let outcome = format!("{:?}", evt.outcome);
                 let reason = evt
@@ -287,6 +361,8 @@ impl Observer for PrometheusObserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::cost::{BudgetState, CostOverrideScope, UsagePeriod};
+    use crate::observability::{BudgetOverrideAction, BudgetOverrideEvent};
     use std::time::Duration;
 
     #[test]
@@ -445,5 +521,26 @@ mod tests {
 
         let output = obs.encode();
         assert!(output.contains("corvus_tokens_used_last 200"));
+    }
+
+    #[test]
+    fn budget_metrics_do_not_expose_sensitive_override_fields() {
+        let obs = PrometheusObserver::new();
+        obs.record_event(&ObserverEvent::BudgetOverride(BudgetOverrideEvent {
+            action: BudgetOverrideAction::Granted,
+            actor: "paired-admin-token".into(),
+            scope: CostOverrideScope::NextRequest,
+            reason: Some("token=super-secret".into()),
+            session_id: Some("sess-123".into()),
+            previous_state: BudgetState::Exceeded,
+            period: Some(UsagePeriod::Day),
+            override_id: Some("ovr-123".into()),
+            surface: Some("gateway_admin".into()),
+        }));
+
+        let output = obs.encode();
+        assert!(output.contains("corvus_budget_overrides_total"));
+        assert!(!output.contains("paired-admin-token"));
+        assert!(!output.contains("super-secret"));
     }
 }

@@ -1,0 +1,12 @@
+change: 2026-04-06-cost-governance-productization
+current_phase: verify
+completed: [explore, propose, spec, design, tasks, apply, verify]
+next: archive
+updated: 2026-04-06
+notes: |
+  DALLAY-255 (Wire CostTracker to agent loop) is already part of the main baseline via PR #448.
+  The reopened Phase 6 follow-up tasks were implemented and the change now verifies as PASS WITH WARNINGS.
+  Remaining warnings are non-blocking: audit-query surface, extra governance-domain regression coverage,
+  and unrelated broader dashboard package noise outside the changed slice.
+  Apply is complete again after adding session and mission token-budget scopes,
+  tightening multi-scope evaluation, and re-running runtime plus scoped dashboard validation.

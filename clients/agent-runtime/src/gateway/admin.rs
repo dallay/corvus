@@ -102,11 +102,12 @@ pub struct AdminAutonomyView {
     pub level: AutonomyLevel,
     pub workspace_only: bool,
     pub max_actions_per_hour: u32,
-    pub max_cost_per_day_cents: u32,
     pub require_approval_for_medium_risk: bool,
     pub block_high_risk_commands: bool,
     pub auto_approve: Vec<String>,
     pub always_ask: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub deprecated_fields: Vec<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -199,6 +200,7 @@ pub struct AdminChannelStatusView {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct AdminCostView {
     pub enabled: bool,
+    pub session_limit_usd: f64,
     pub daily_limit_usd: f64,
     pub monthly_limit_usd: f64,
     pub warn_at_percent: u8,
@@ -290,6 +292,8 @@ pub struct AdminConfigUpdateRequest {
     pub browser: Option<AdminBrowserPatch>,
     #[serde(default)]
     pub memory: Option<AdminMemoryPatch>,
+    #[serde(default)]
+    pub cost: Option<AdminCostPatch>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -369,6 +373,20 @@ pub struct AdminAutonomyPatch {
     pub auto_approve: Option<Vec<String>>,
     #[serde(default)]
     pub always_ask: Option<Vec<String>>,
+}
+
+impl AdminAutonomyPatch {
+    fn normalized_max_actions_per_hour(&self) -> Option<u32> {
+        self.max_actions_per_hour.or(self.max_cost_per_day_cents)
+    }
+
+    fn deprecated_fields(&self) -> Vec<String> {
+        if self.max_cost_per_day_cents.is_some() {
+            vec!["autonomy.max_cost_per_day_cents".to_string()]
+        } else {
+            Vec::new()
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -451,6 +469,23 @@ pub struct AdminMemoryPatch {
     pub backend: Option<String>,
     #[serde(default)]
     pub cerebro: Option<AdminCerebroMemoryPatch>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AdminCostPatch {
+    #[serde(default)]
+    pub enabled: Option<bool>,
+    #[serde(default)]
+    pub session_limit_usd: Option<f64>,
+    #[serde(default)]
+    pub daily_limit_usd: Option<f64>,
+    #[serde(default)]
+    pub monthly_limit_usd: Option<f64>,
+    #[serde(default)]
+    pub warn_at_percent: Option<u8>,
+    #[serde(default)]
+    pub allow_override: Option<bool>,
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]
@@ -653,11 +688,11 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
             level: cfg.autonomy.level,
             workspace_only: cfg.autonomy.workspace_only,
             max_actions_per_hour: cfg.autonomy.max_actions_per_hour,
-            max_cost_per_day_cents: cfg.autonomy.max_cost_per_day_cents,
             require_approval_for_medium_risk: cfg.autonomy.require_approval_for_medium_risk,
             block_high_risk_commands: cfg.autonomy.block_high_risk_commands,
             auto_approve: cfg.autonomy.auto_approve.clone(),
             always_ask: cfg.autonomy.always_ask.clone(),
+            deprecated_fields: cfg.autonomy.deprecated_fields().to_vec(),
         },
         identity: AdminIdentityView {
             format: cfg.identity.format.clone(),
@@ -748,6 +783,7 @@ pub fn admin_config_view(cfg: &Config) -> AdminConfigView {
         },
         cost: AdminCostView {
             enabled: cfg.cost.enabled,
+            session_limit_usd: cfg.cost.session_limit_usd,
             daily_limit_usd: cfg.cost.daily_limit_usd,
             monthly_limit_usd: cfg.cost.monthly_limit_usd,
             warn_at_percent: cfg.cost.warn_at_percent,
@@ -1143,6 +1179,7 @@ fn apply_patch(cfg: &mut Config, patch: &AdminConfigUpdateRequest) -> Result<(),
     apply_channels_patch(cfg, patch)?;
     apply_integrations_patch(cfg, patch)?;
     apply_memory_patch(cfg, patch)?;
+    apply_cost_patch(cfg, patch.cost.as_ref())?;
 
     Ok(())
 }
@@ -1264,11 +1301,13 @@ fn apply_autonomy_patch(cfg: &mut Config, autonomy: Option<&AdminAutonomyPatch>)
     if let Some(workspace_only) = autonomy.workspace_only {
         cfg.autonomy.workspace_only = workspace_only;
     }
-    if let Some(max_actions_per_hour) = autonomy.max_actions_per_hour {
+    if let Some(max_actions_per_hour) = autonomy.normalized_max_actions_per_hour() {
         cfg.autonomy.max_actions_per_hour = max_actions_per_hour;
     }
-    if let Some(max_cost_per_day_cents) = autonomy.max_cost_per_day_cents {
-        cfg.autonomy.max_cost_per_day_cents = max_cost_per_day_cents;
+    for deprecated_field in autonomy.deprecated_fields() {
+        if !cfg.autonomy.deprecated_fields.contains(&deprecated_field) {
+            cfg.autonomy.deprecated_fields.push(deprecated_field);
+        }
     }
     if let Some(require_approval_for_medium_risk) = autonomy.require_approval_for_medium_risk {
         cfg.autonomy.require_approval_for_medium_risk = require_approval_for_medium_risk;
@@ -1623,6 +1662,53 @@ fn apply_memory_patch(
 
     apply_memory_backend_patch(cfg, memory.backend.as_deref())?;
     apply_cerebro_memory_patch(cfg, memory.cerebro.as_ref())?;
+
+    Ok(())
+}
+
+fn apply_cost_patch(cfg: &mut Config, cost: Option<&AdminCostPatch>) -> Result<(), AdminResponse> {
+    let Some(cost) = cost else {
+        return Ok(());
+    };
+
+    if let Some(enabled) = cost.enabled {
+        cfg.cost.enabled = enabled;
+    }
+    if let Some(session_limit_usd) = cost.session_limit_usd {
+        if !session_limit_usd.is_finite() || session_limit_usd < 0.0 {
+            return Err(bad_request(
+                "cost.session_limit_usd must be a finite value greater than or equal to 0",
+            ));
+        }
+        cfg.cost.session_limit_usd = session_limit_usd;
+    }
+    if let Some(daily_limit_usd) = cost.daily_limit_usd {
+        if !daily_limit_usd.is_finite() || daily_limit_usd <= 0.0 {
+            return Err(bad_request(
+                "cost.daily_limit_usd must be a finite value greater than 0",
+            ));
+        }
+        cfg.cost.daily_limit_usd = daily_limit_usd;
+    }
+    if let Some(monthly_limit_usd) = cost.monthly_limit_usd {
+        if !monthly_limit_usd.is_finite() || monthly_limit_usd <= 0.0 {
+            return Err(bad_request(
+                "cost.monthly_limit_usd must be a finite value greater than 0",
+            ));
+        }
+        cfg.cost.monthly_limit_usd = monthly_limit_usd;
+    }
+    if let Some(warn_at_percent) = cost.warn_at_percent {
+        if warn_at_percent == 0 || warn_at_percent > 100 {
+            return Err(bad_request(
+                "cost.warn_at_percent must be in range [1, 100]",
+            ));
+        }
+        cfg.cost.warn_at_percent = warn_at_percent;
+    }
+    if let Some(allow_override) = cost.allow_override {
+        cfg.cost.allow_override = allow_override;
+    }
 
     Ok(())
 }
@@ -1997,6 +2083,9 @@ pub async fn handle_admin_update_config(
     match next_cfg.save() {
         Ok(()) => (
             {
+                if let Some(cost_tracker) = state.cost_tracker.as_ref() {
+                    cost_tracker.update_config(next_cfg.cost.clone());
+                }
                 let mut shared_cfg = state.config.lock();
                 *shared_cfg = next_cfg;
                 StatusCode::OK
@@ -2400,6 +2489,7 @@ mod tests {
             whatsapp_app_secret: None,
             channel_runtime_handle: None,
             observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
             transcriber: None,
             audio_config: crate::config::AudioConfig::default(),
         };
@@ -3020,6 +3110,7 @@ mod tests {
             web_search: None,
             browser: None,
             memory: None,
+            cost: None,
         }
     }
 
@@ -3160,6 +3251,7 @@ mod tests {
             web_search: None,
             browser: None,
             memory: None,
+            cost: None,
         };
 
         let fields = restart_required_updates(&cfg, &patch);

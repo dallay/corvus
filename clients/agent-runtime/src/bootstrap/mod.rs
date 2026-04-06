@@ -192,18 +192,25 @@ impl BootstrapContext {
         config: &Config,
         memory: Arc<dyn Memory>,
         observer: Arc<dyn Observer>,
+        cost_tracker_override: Option<Arc<CostTracker>>,
     ) -> anyhow::Result<Self> {
-        Self::from_effective_config_with_overrides(config, Some(memory), Some(observer))
+        Self::from_effective_config_with_overrides(
+            config,
+            Some(memory),
+            Some(observer),
+            cost_tracker_override,
+        )
     }
 
     fn from_effective_config(config: &Config) -> anyhow::Result<Self> {
-        Self::from_effective_config_with_overrides(config, None, None)
+        Self::from_effective_config_with_overrides(config, None, None, None)
     }
 
     fn from_effective_config_with_overrides(
         config: &Config,
         memory_override: Option<Arc<dyn Memory>>,
         observer_override: Option<Arc<dyn Observer>>,
+        cost_tracker_override: Option<Arc<CostTracker>>,
     ) -> anyhow::Result<Self> {
         let profile = AgentProfile::from_config(config)?;
 
@@ -252,7 +259,9 @@ impl BootstrapContext {
             .filter(|tool| profile.allows_tool(tool.name()))
             .collect();
 
-        let cost_tracker = if config.cost.enabled {
+        let cost_tracker = if let Some(cost_tracker) = cost_tracker_override {
+            Some(cost_tracker)
+        } else if config.cost.enabled {
             match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
                 Ok(tracker) => Some(Arc::new(tracker)),
                 Err(error) => {
@@ -602,7 +611,9 @@ mod tests {
         config.mcp.servers = vec![mock_mcp_server("docs", "search")];
 
         let (memory, observer) = create_memory_and_observer(&config).unwrap();
-        let ctx = BootstrapContext::for_gateway(&config, memory, observer).unwrap();
+        let tracker =
+            Arc::new(CostTracker::new(config.cost.clone(), &config.workspace_dir).unwrap());
+        let ctx = BootstrapContext::for_gateway(&config, memory, observer, Some(tracker)).unwrap();
         let names: HashSet<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
 
         if cfg!(feature = "mcp-runtime") {
