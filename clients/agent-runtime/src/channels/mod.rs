@@ -6678,4 +6678,69 @@ printf 'Hola mundo\n'
         );
         assert!(text.contains("one audio"), "got: {text}");
     }
+
+    // ── Task 4.5: StagedAudioGuard drop triggers cleanup (#411) ──
+
+    #[test]
+    fn staged_audio_guard_drop_cleans_up_all_temp_files() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let staged1 = make_test_staged_audio(tmp.path());
+        let staged2 = {
+            let p = tmp.path().join("corvus-tg-aud-second-hash12345.ogg");
+            let mut bytes = vec![0_u8; 64];
+            bytes[0..4].copy_from_slice(b"OggS");
+            std::fs::write(&p, &bytes).unwrap();
+            audio_media::StagedAudio {
+                sha256: "second-hash1234567890abcdef12345".into(),
+                mime_type: audio_media::AllowedAudioMime::OggOpus,
+                byte_len: 64,
+                duration_secs: Some(3.0),
+                temp_path: p,
+                channel_origin: "telegram".into(),
+            }
+        };
+
+        let path1 = staged1.temp_path.clone();
+        let path2 = staged2.temp_path.clone();
+
+        assert!(path1.exists(), "staged file 1 must exist before drop");
+        assert!(path2.exists(), "staged file 2 must exist before drop");
+
+        // Create the guard and immediately drop it
+        {
+            let _guard = StagedAudioGuard(vec![staged1, staged2]);
+        }
+
+        assert!(
+            !path1.exists(),
+            "staged file 1 must be cleaned up after guard drop"
+        );
+        assert!(
+            !path2.exists(),
+            "staged file 2 must be cleaned up after guard drop"
+        );
+    }
+
+    #[test]
+    fn staged_audio_guard_drop_handles_already_removed_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        let staged = make_test_staged_audio(tmp.path());
+        let path = staged.temp_path.clone();
+
+        // Remove the file before the guard drops — must not panic
+        std::fs::remove_file(&path).unwrap();
+        assert!(!path.exists());
+
+        {
+            let _guard = StagedAudioGuard(vec![staged]);
+        }
+        // Guard dropped without panic — cleanup is best-effort
+    }
+
+    #[test]
+    fn staged_audio_guard_drop_empty_guard_is_noop() {
+        // An empty guard must drop without error
+        let _guard = StagedAudioGuard(Vec::new());
+    }
 }
