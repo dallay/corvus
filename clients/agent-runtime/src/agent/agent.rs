@@ -3066,4 +3066,66 @@ mod tests {
             "cost_tracker should be None when cost.enabled=false"
         );
     }
+
+    fn build_classification_test_agent(
+        classification_config: crate::config::QueryClassificationConfig,
+        available_hints: Vec<String>,
+    ) -> Agent {
+        let memory_cfg = crate::config::MemoryConfig {
+            backend: "none".into(),
+            ..crate::config::MemoryConfig::default()
+        };
+        let mem: Arc<dyn Memory> = Arc::from(
+            crate::memory::create_memory(&memory_cfg, std::path::Path::new("/tmp"), None).unwrap(),
+        );
+
+        Agent::builder()
+            .provider(Box::new(MockProvider {
+                responses: Mutex::new(Vec::new()),
+            }))
+            .tools(vec![Box::new(MockTool)])
+            .memory(mem)
+            .observer(Arc::new(crate::observability::NoopObserver))
+            .tool_dispatcher(Box::new(XmlToolDispatcher))
+            .workspace_dir(std::path::PathBuf::from("/tmp"))
+            .model_name("gpt-4o-mini".to_string())
+            .classification_config(classification_config)
+            .available_hints(available_hints)
+            .build()
+            .unwrap()
+    }
+
+    #[test]
+    fn classify_model_uses_default_model_when_classification_disabled() {
+        let agent = build_classification_test_agent(
+            crate::config::QueryClassificationConfig {
+                enabled: false,
+                rules: vec![crate::config::ClassificationRule {
+                    hint: "reasoning".into(),
+                    keywords: vec!["debug".into()],
+                    ..Default::default()
+                }],
+            },
+            vec!["reasoning".into()],
+        );
+
+        assert_eq!(agent.classify_model("help me debug this"), "gpt-4o-mini");
+    }
+
+    #[test]
+    fn classify_model_uses_default_model_when_no_rule_matches() {
+        let agent = build_classification_test_agent(
+            crate::config::QueryClassificationConfig {
+                enabled: true,
+                rules: vec![crate::config::ClassificationRule {
+                    hint: "reasoning".into(),
+                    keywords: vec!["debug".into()],
+                    ..Default::default()
+                }],
+            },
+            vec!["reasoning".into()],
+        );
+
+        assert_eq!(agent.classify_model("what is the weather?"), "gpt-4o-mini");
+    }
 }

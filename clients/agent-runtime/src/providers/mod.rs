@@ -749,9 +749,15 @@ pub fn create_routed_provider(
                 if name == primary_name {
                     return Err(e);
                 }
+                let affected_hints: Vec<&str> = model_routes
+                    .iter()
+                    .filter(|route| route.provider == *name)
+                    .map(|route| route.hint.as_str())
+                    .collect();
                 tracing::warn!(
                     provider = name.as_str(),
-                    "Ignoring routed provider that failed to initialize"
+                    affected_routes = ?affected_hints,
+                    "Ignoring routed provider that failed to initialize — routes using this provider will fail at request time"
                 );
             }
         }
@@ -984,6 +990,7 @@ pub fn list_providers() -> Vec<ProviderInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::tracing_capture::capture_tracing_events;
 
     #[test]
     fn resolve_provider_credential_prefers_explicit_argument() {
@@ -1634,6 +1641,99 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn failed_routed_provider_warns_about_affected_routes() {
+        let model_routes = vec![
+            crate::config::ModelRouteConfig {
+                hint: "fast".into(),
+                provider: "totally-fake".into(),
+                model: "llama".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+            crate::config::ModelRouteConfig {
+                hint: "reasoning".into(),
+                provider: "totally-fake".into(),
+                model: "o1-preview".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+            crate::config::ModelRouteConfig {
+                hint: "code".into(),
+                provider: "openai".into(),
+                model: "gpt-4o-mini".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+        ];
+
+        let (result, events) = capture_tracing_events(|| {
+            create_routed_provider(
+                "openai",
+                None,
+                None,
+                &crate::config::ReliabilityConfig::default(),
+                &model_routes,
+                "gpt-4o-mini",
+                &ProviderRuntimeOptions::default(),
+            )
+        });
+
+        assert!(result.is_ok());
+        let warning = events.iter().find(|event| {
+            event.field("message").is_some_and(|message| {
+                message.contains("Ignoring routed provider that failed to initialize")
+            })
+        });
+        assert!(warning.is_some());
+        assert_eq!(warning.unwrap().field("provider"), Some("totally-fake"));
+        let affected_routes = warning
+            .unwrap()
+            .field("affected_routes")
+            .unwrap_or_default();
+        assert!(affected_routes.contains("fast"));
+        assert!(affected_routes.contains("reasoning"));
+    }
+
+    #[test]
+    fn routed_provider_init_stays_quiet_when_all_providers_succeed() {
+        let model_routes = vec![
+            crate::config::ModelRouteConfig {
+                hint: "fast".into(),
+                provider: "ollama".into(),
+                model: "llama3.2".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+            crate::config::ModelRouteConfig {
+                hint: "reasoning".into(),
+                provider: "openai".into(),
+                model: "gpt-4o-mini".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+        ];
+
+        let (result, events) = capture_tracing_events(|| {
+            create_routed_provider(
+                "openai",
+                Some("test-key"),
+                None,
+                &crate::config::ReliabilityConfig::default(),
+                &model_routes,
+                "gpt-4o-mini",
+                &ProviderRuntimeOptions::default(),
+            )
+        });
+
+        assert!(result.is_ok());
+        assert!(events.iter().all(|event| {
+            !event.field("message").is_some_and(|message| {
+                message.contains("Ignoring routed provider that failed to initialize")
+            })
+        }));
     }
 
     // ── API error sanitization ───────────────────────────────

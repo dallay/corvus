@@ -82,7 +82,8 @@ impl RouterProvider {
             }
             tracing::warn!(
                 hint = hint,
-                "Unknown route hint, falling back to default provider"
+                fallback_model = model,
+                "Unknown route hint, falling back to default provider with raw model string"
             );
         }
 
@@ -199,6 +200,7 @@ impl Provider for RouterProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::tracing_capture::capture_tracing_events;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
@@ -416,6 +418,57 @@ mod tests {
 
         // Route should not exist
         assert!(!router.routes.contains_key("broken"));
+    }
+
+    #[test]
+    fn unknown_hint_warning_includes_raw_fallback_model() {
+        let (router, _) = make_router(vec![("default", "ok")], vec![]);
+
+        let ((_idx, model), events) = capture_tracing_events(|| router.resolve("hint:nonexistent"));
+
+        assert_eq!(model, "hint:nonexistent");
+        let warning = events.iter().find(|event| {
+            event
+                .field("message")
+                .is_some_and(|message| message.contains("Unknown route hint"))
+        });
+        assert!(warning.is_some());
+        assert_eq!(warning.unwrap().field("hint"), Some("nonexistent"));
+        assert_eq!(
+            warning.unwrap().field("fallback_model"),
+            Some("hint:nonexistent")
+        );
+    }
+
+    #[test]
+    fn known_hint_does_not_trigger_warning() {
+        let (router, _) = make_router(
+            vec![("default", "ok"), ("smart", "ok")],
+            vec![("reasoning", "smart", "claude-opus")],
+        );
+
+        let ((_idx, model), events) = capture_tracing_events(|| router.resolve("hint:reasoning"));
+
+        assert_eq!(model, "claude-opus");
+        assert!(events.iter().all(|event| {
+            !event
+                .field("message")
+                .is_some_and(|message| message.contains("Unknown route hint"))
+        }));
+    }
+
+    #[test]
+    fn non_hint_selector_does_not_trigger_warning() {
+        let (router, _) = make_router(vec![("default", "ok")], vec![]);
+
+        let ((_idx, model), events) = capture_tracing_events(|| router.resolve("gpt-4o"));
+
+        assert_eq!(model, "gpt-4o");
+        assert!(events.iter().all(|event| {
+            !event
+                .field("message")
+                .is_some_and(|message| message.contains("Unknown route hint"))
+        }));
     }
 
     #[tokio::test]

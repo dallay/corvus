@@ -113,6 +113,7 @@ fn check_config_semantics(config: &Config, items: &mut Vec<DiagItem>) {
     check_gateway_port(config, cat, items);
     check_fallback_providers(config, cat, items);
     check_model_routes(config, cat, items);
+    check_classification_integrity(config, cat, items);
     check_channels_configured(config, cat, items);
     check_delegate_agents(config, cat, items);
 }
@@ -247,6 +248,68 @@ fn check_model_routes(config: &Config, cat: &'static str, items: &mut Vec<DiagIt
             items.push(DiagItem::warn(
                 cat,
                 format!("model route \"{}\" has empty model", route.hint),
+            ));
+        }
+    }
+}
+
+fn check_classification_integrity(config: &Config, cat: &'static str, items: &mut Vec<DiagItem>) {
+    let classification = &config.query_classification;
+    if !classification.enabled {
+        return;
+    }
+
+    if classification.rules.is_empty() {
+        items.push(DiagItem::warn(
+            cat,
+            "query_classification.enabled = true but no rules configured; add rules or disable classification",
+        ));
+    }
+
+    if config.model_routes.is_empty() {
+        items.push(DiagItem::warn(
+            cat,
+            "query_classification.enabled = true but no model_routes configured; classification hints cannot resolve",
+        ));
+    }
+
+    let mut route_hints: Vec<&str> = config
+        .model_routes
+        .iter()
+        .map(|route| route.hint.as_str())
+        .collect();
+    route_hints.sort_unstable();
+    let available_hints = if route_hints.is_empty() {
+        "none".to_string()
+    } else {
+        route_hints.join(", ")
+    };
+
+    for rule in &classification.rules {
+        if rule.hint.is_empty() {
+            items.push(DiagItem::warn(
+                cat,
+                format!(
+                    "classification rule has an empty hint — it will never route to a named model_routes entry (available: {available_hints})"
+                ),
+            ));
+        } else if !route_hints.contains(&rule.hint.as_str()) {
+            items.push(DiagItem::warn(
+                cat,
+                format!(
+                    "classification rule hint \"{}\" does not match any model_routes entry (available: {})",
+                    rule.hint, available_hints
+                ),
+            ));
+        }
+
+        if rule.keywords.is_empty() && rule.patterns.is_empty() {
+            items.push(DiagItem::warn(
+                cat,
+                format!(
+                    "classification rule for hint \"{}\" has no keywords or patterns and will never match",
+                    rule.hint
+                ),
             ));
         }
     }
@@ -852,6 +915,225 @@ mod tests {
         let route_item = items.iter().find(|i| i.message.contains("empty model"));
         assert!(route_item.is_some());
         assert_eq!(route_item.unwrap().severity, Severity::Warn);
+    }
+
+    #[test]
+    fn classification_integrity_warns_on_orphaned_hint() {
+        let mut config = Config::default();
+        config.model_routes = vec![
+            crate::config::ModelRouteConfig {
+                hint: "fast".into(),
+                provider: "groq".into(),
+                model: "llama-3.3-70b-versatile".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+            crate::config::ModelRouteConfig {
+                hint: "reasoning".into(),
+                provider: "openai".into(),
+                model: "o1-preview".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+        ];
+        config.query_classification.enabled = true;
+        config.query_classification.rules = vec![crate::config::ClassificationRule {
+            hint: "code".into(),
+            keywords: vec!["debug".into()],
+            patterns: vec![],
+            min_length: None,
+            max_length: None,
+            priority: 10,
+        }];
+
+        let mut items = Vec::new();
+        check_config_semantics(&config, &mut items);
+
+        let item = items
+            .iter()
+            .find(|i| i.message.contains("classification rule hint \"code\""));
+        assert!(item.is_some());
+        assert_eq!(item.unwrap().severity, Severity::Warn);
+    }
+
+    #[test]
+    fn classification_integrity_warns_when_enabled_without_rules() {
+        let mut config = Config::default();
+        config.query_classification.enabled = true;
+
+        let mut items = Vec::new();
+        check_config_semantics(&config, &mut items);
+
+        let item = items
+            .iter()
+            .find(|i| i.message.contains("no rules configured"));
+        assert!(item.is_some());
+        assert_eq!(item.unwrap().severity, Severity::Warn);
+    }
+
+    #[test]
+    fn classification_integrity_warns_when_enabled_without_routes() {
+        let mut config = Config::default();
+        config.query_classification.enabled = true;
+        config.query_classification.rules = vec![crate::config::ClassificationRule {
+            hint: "reasoning".into(),
+            keywords: vec!["compare".into()],
+            patterns: vec![],
+            min_length: None,
+            max_length: None,
+            priority: 20,
+        }];
+
+        let mut items = Vec::new();
+        check_config_semantics(&config, &mut items);
+
+        let item = items
+            .iter()
+            .find(|i| i.message.contains("no model_routes configured"));
+        assert!(item.is_some());
+        assert_eq!(item.unwrap().severity, Severity::Warn);
+    }
+
+    #[test]
+    fn classification_integrity_warns_on_never_matching_rule() {
+        let mut config = Config::default();
+        config.model_routes = vec![crate::config::ModelRouteConfig {
+            hint: "code".into(),
+            provider: "groq".into(),
+            model: "qwen-qwq-32b".into(),
+            api_key: None,
+            allow_image_input: false,
+        }];
+        config.query_classification.enabled = true;
+        config.query_classification.rules = vec![crate::config::ClassificationRule {
+            hint: "code".into(),
+            keywords: vec![],
+            patterns: vec![],
+            min_length: None,
+            max_length: None,
+            priority: 10,
+        }];
+
+        let mut items = Vec::new();
+        check_config_semantics(&config, &mut items);
+
+        let item = items
+            .iter()
+            .find(|i| i.message.contains("will never match"));
+        assert!(item.is_some());
+        assert_eq!(item.unwrap().severity, Severity::Warn);
+    }
+
+    #[test]
+    fn classification_integrity_stays_quiet_for_valid_config() {
+        let mut config = Config::default();
+        config.model_routes = vec![
+            crate::config::ModelRouteConfig {
+                hint: "fast".into(),
+                provider: "groq".into(),
+                model: "llama-3.3-70b-versatile".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+            crate::config::ModelRouteConfig {
+                hint: "reasoning".into(),
+                provider: "openai".into(),
+                model: "o1-preview".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+        ];
+        config.query_classification.enabled = true;
+        config.query_classification.rules = vec![
+            crate::config::ClassificationRule {
+                hint: "fast".into(),
+                keywords: vec!["quick".into()],
+                patterns: vec![],
+                min_length: None,
+                max_length: None,
+                priority: 10,
+            },
+            crate::config::ClassificationRule {
+                hint: "reasoning".into(),
+                keywords: vec!["compare".into()],
+                patterns: vec![],
+                min_length: Some(20),
+                max_length: None,
+                priority: 20,
+            },
+        ];
+
+        let mut items = Vec::new();
+        check_config_semantics(&config, &mut items);
+
+        let classification_warnings: Vec<&DiagItem> = items
+            .iter()
+            .filter(|item| {
+                item.severity == Severity::Warn
+                    && (item.message.contains("classification")
+                        || item.message.contains("will never match")
+                        || item.message.contains("model_routes configured"))
+            })
+            .collect();
+        assert!(classification_warnings.is_empty());
+    }
+
+    #[test]
+    fn classification_integrity_skips_hint_check_when_disabled() {
+        let mut config = Config::default();
+        config.model_routes = vec![crate::config::ModelRouteConfig {
+            hint: "fast".into(),
+            provider: "groq".into(),
+            model: "llama-3.3-70b-versatile".into(),
+            api_key: None,
+            allow_image_input: false,
+        }];
+        config.query_classification.enabled = false;
+        config.query_classification.rules = vec![crate::config::ClassificationRule {
+            hint: "missing".into(),
+            keywords: vec!["debug".into()],
+            patterns: vec![],
+            min_length: None,
+            max_length: None,
+            priority: 1,
+        }];
+
+        let mut items = Vec::new();
+        check_config_semantics(&config, &mut items);
+
+        assert!(items.iter().all(|item| {
+            !item
+                .message
+                .contains("classification rule hint \"missing\"")
+        }));
+    }
+
+    #[test]
+    fn classification_integrity_allows_patterns_without_keywords() {
+        let mut config = Config::default();
+        config.model_routes = vec![crate::config::ModelRouteConfig {
+            hint: "code".into(),
+            provider: "groq".into(),
+            model: "qwen-qwq-32b".into(),
+            api_key: None,
+            allow_image_input: false,
+        }];
+        config.query_classification.enabled = true;
+        config.query_classification.rules = vec![crate::config::ClassificationRule {
+            hint: "code".into(),
+            keywords: vec![],
+            patterns: vec!["fn ".into()],
+            min_length: None,
+            max_length: None,
+            priority: 5,
+        }];
+
+        let mut items = Vec::new();
+        check_config_semantics(&config, &mut items);
+
+        assert!(items
+            .iter()
+            .all(|item| !item.message.contains("will never match")));
     }
 
     #[test]
