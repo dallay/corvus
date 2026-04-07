@@ -84,6 +84,15 @@ fn bad_request(message: &str) -> CostResponse {
     )
 }
 
+fn is_history_query_error(error: &anyhow::Error) -> bool {
+    let message = error.to_string();
+    message.contains("History window must be greater than zero")
+        || message.contains("History window is too large")
+        || message.contains("History range start must be before end")
+        || message.contains("history windows are not supported yet")
+        || message.contains("history ranges are not supported yet")
+}
+
 fn cost_service_from_state(state: &AppState) -> Result<(Config, CostService), CostResponse> {
     let config = state.config.lock().clone();
     let service = match state.cost_tracker.clone() {
@@ -173,7 +182,10 @@ pub async fn handle_cost_history(
     let window = query.window.unwrap_or(30);
     let history = match service.history_window(period, window, Utc::now()) {
         Ok(history) => history,
-        Err(error) => return bad_request(&error.to_string()),
+        Err(error) if is_history_query_error(&error) => {
+            return bad_request("Invalid cost history query")
+        }
+        Err(error) => return internal_error("Failed to load cost history", &error),
     };
 
     match serde_json::to_value(history) {

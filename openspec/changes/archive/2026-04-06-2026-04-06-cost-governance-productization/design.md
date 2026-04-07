@@ -5,14 +5,16 @@
 This change productizes the cost wiring that already exists in the runtime baseline by making the
 runtime the single enforcement point for token-spend governance, then projecting that runtime state
 outward through CLI, gateway admin/API, dashboard, reporting, and observability surfaces.
-`CostTracker` is already instantiated in `clients/agent-runtime/src/bootstrap/mod.rs` and enforced
-in `clients/agent-runtime/src/agent/agent.rs`; this design treats that as completed baseline
+`CostService` is already instantiated at the runtime boundary in `clients/agent-runtime/src/bootstrap/mod.rs`
+and enforced in `clients/agent-runtime/src/agent/agent.rs`, delegating to an internal `CostTracker`;
+this design treats that as completed baseline
 (Issue A) and focuses on the remaining architecture needed to turn runtime-local accounting into a
 coherent platform feature.
 
 The core strategy is to separate two governance concerns that are currently conflated:
 
-1. **Token-spend governance** lives in the `cost` subsystem and is enforced by `CostTracker`.
+1. **Token-spend governance** lives in the `cost` subsystem and is enforced by `CostService`
+   over an internal `CostTracker`.
 2. **Action-rate governance** lives in `SecurityPolicy` and remains a tool-execution guardrail.
 
 All user-facing surfaces MUST consume this split model instead of re-implementing budget logic.
@@ -23,7 +25,8 @@ accounting becomes an adapter over runtime cost records rather than a competing 
 
 ### Decision: Split token-spend governance from action-rate governance
 
-**Choice**: `CostTracker` is the source of truth for token spend, budget thresholds, overrides, and
+**Choice**: `CostService` is the runtime contract for token-spend governance, backed by
+`CostTracker` as the internal source of truth for token spend, budget thresholds, overrides, and
 budget history. `SecurityPolicy` continues to own tool/action-rate limits only, with
 `max_cost_per_day_cents` renamed to `max_actions_per_hour`-family semantics.
 
@@ -82,7 +85,7 @@ accounting system.
 
 ### Decision: Deprecate the misleading config key with a compatibility alias
 
-**Choice**: Keep reading `autonomy.max_cost_per_day_cents` for one release cycle as a deprecated
+**Choice**: Keep reading `autonomy.max_cost_per_day_cents` through Release N+2 as a deprecated
 alias, emit warnings everywhere it is loaded or displayed, and write back only the renamed field.
 
 **Alternatives considered**: Hard break the old key immediately; keep both names indefinitely.
@@ -118,23 +121,23 @@ CLI / webhook / gateway / agent loop ──> Agent runtime
 sequenceDiagram
   participant Surface as CLI/Webhook/Gateway-triggered turn
   participant Agent as agent::Agent
-  participant Tracker as cost::CostTracker
+  participant Cost as cost::CostService
   participant Provider as LLM Provider
   participant Obs as Observer
 
   Surface->>Agent: request turn
-  Agent->>Tracker: check_budget(estimated_cost)
-  Tracker-->>Agent: Allowed | Warning | Exceeded
+  Agent->>Cost: evaluate_request(estimated_cost)
+  Cost-->>Agent: Allowed | Warning | Exceeded
   alt Allowed
     Agent->>Provider: invoke model
     Provider-->>Agent: response + token usage/estimations
-    Agent->>Tracker: record_usage(token_usage)
+    Agent->>Cost: record_usage(token_usage)
     Agent->>Obs: AgentEnd + cost_usd
   else Warning
     Agent->>Obs: BudgetWarning
     Agent->>Provider: invoke model
     Provider-->>Agent: response
-    Agent->>Tracker: record_usage(token_usage)
+    Agent->>Cost: record_usage(token_usage)
   else Exceeded
     Agent->>Obs: BudgetExceeded
     Agent-->>Surface: structured budget block
@@ -148,15 +151,15 @@ sequenceDiagram
   participant Operator as CLI operator / Admin UI
   participant API as Gateway admin endpoint
   participant Runtime as Runtime config/control plane
-  participant Tracker as CostTracker
+  participant Cost as CostService
   participant Obs as Observer
 
   Operator->>API: override or limit update request
   API->>Runtime: validate auth + role + config guardrails
   Runtime->>Obs: BudgetOverrideRequested / BudgetLimitChanged
   alt temporary override granted
-    Runtime->>Tracker: allow one execution window or scoped override token
-    Tracker-->>API: override scope registered
+    Runtime->>Cost: allow one execution window or scoped override token
+    Cost-->>API: override scope registered
     API-->>Operator: override accepted with expiry/scope
   else config change
     Runtime-->>API: persisted config snapshot
@@ -167,7 +170,7 @@ sequenceDiagram
 ### Budget evaluation flow across runtime surfaces
 
 1. **Agent loop baseline** (`clients/agent-runtime/src/agent/agent.rs`) already performs pre-flight
-   `check_budget()` and post-call `record_usage()`.
+   `CostService::evaluate_request()` and post-call recording through the runtime cost contract.
 2. **CLI** uses the same runtime-owned tracker. The CLI surface only adds operator affordances:
    session summary on exit, `corvus cost` reads/history/reset, and explicit `--override-budget`.
 3. **Gateway-triggered requests** reuse the same `Agent` path, so there is no separate gateway
@@ -225,12 +228,13 @@ interface CostGovernanceState {
     total_tokens: number;
     request_count: number;
     active_budget_state: "allowed" | "warning" | "exceeded";
-    active_period?: "session" | "day" | "month";
+    active_period?: "session" | "day" | "month" | "mission";
+    percent_used_session: number;
     percent_used_daily: number;
     percent_used_monthly: number;
   };
   warnings: Array<{
-    period: "session" | "day" | "month";
+    period: "session" | "day" | "month" | "mission";
     current_usd: number;
     limit_usd: number;
     observed_at: string;
@@ -249,6 +253,7 @@ GET /api/web/cost/summary
     "monthly_cost_usd": 31.48,
     "total_tokens": 128044,
     "request_count": 63,
+    "percent_used_session": 47.3,
     "percent_used_daily": 71.1,
     "percent_used_monthly": 31.48,
     "budget_state": "warning",
@@ -256,10 +261,29 @@ GET /api/web/cost/summary
   },
   "config": {
     "enabled": true,
+    "session_limit_usd": 3.0,
     "daily_limit_usd": 10.0,
     "monthly_limit_usd": 100.0,
     "warn_at_percent": 80,
     "allow_override": true
+  }
+}
+```
+
+```json
+GET /api/web/cost/summary
+{
+  "summary": {
+    "session_cost_usd": 0.92,
+    "daily_cost_usd": 7.11,
+    "monthly_cost_usd": 31.48,
+    "total_tokens": 128044,
+    "request_count": 63,
+    "percent_used_session": 92.0,
+    "percent_used_daily": 71.1,
+    "percent_used_monthly": 31.48,
+    "budget_state": "warning",
+    "period": "mission"
   }
 }
 ```
@@ -292,10 +316,12 @@ POST /api/web/admin/cost/reset
 POST /api/web/admin/cost/override
 {
   "scope": "next_request",
-  "reason": "incident mitigation",
-  "actor": "paired-admin-token"
+  "reason": "incident mitigation"
 }
 ```
+
+The acting principal is derived from the authenticated admin session on the server side. Requests
+that include a client-provided `actor` field are rejected.
 
 ```json
 PATCH /api/web/admin/config

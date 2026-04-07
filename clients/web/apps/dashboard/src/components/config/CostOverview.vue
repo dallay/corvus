@@ -200,10 +200,10 @@ watch(
           <div class="progress-card">
             <div class="progress-header">
               <span>{{ t("cost.sessionBudgetUsage") }}</span>
-              <strong>{{ formatPercent(summary.percent_used_session) }}</strong>
+              <strong>{{ formatPercent(summary?.percent_used_session ?? 0) }}</strong>
             </div>
             <div class="progress-bar" aria-hidden="true">
-              <span :style="{ width: `${Math.min(summary.percent_used_session, 100)}%` }" />
+              <span :style="{ width: `${Math.min(summary?.percent_used_session ?? 0, 100)}%` }" />
             </div>
           </div>
           <div class="progress-card">

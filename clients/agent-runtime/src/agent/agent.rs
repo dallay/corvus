@@ -1125,8 +1125,13 @@ impl Agent {
         };
 
         let summary = tracker.get_summary()?;
-        let current_usd =
-            (summary.session_cost_usd - active_budget.baseline_session_cost_usd).max(0.0);
+        if summary.session_cost_usd < active_budget.baseline_session_cost_usd {
+            anyhow::bail!(
+                "mission budget baseline exceeded current session total; runtime cost state regressed"
+            );
+        }
+
+        let current_usd = summary.session_cost_usd - active_budget.baseline_session_cost_usd;
 
         Ok(Some(MissionBudgetScope {
             mission_id: active_budget.mission_id.clone(),
@@ -1203,9 +1208,6 @@ impl Agent {
 
         if let Err(error) = tracker.record_usage(usage) {
             tracing::warn!("Failed to record cost usage: {error}");
-            if let Some(reservation) = reservation {
-                tracker.release_budget_reservation(&reservation.id);
-            }
             return;
         }
 

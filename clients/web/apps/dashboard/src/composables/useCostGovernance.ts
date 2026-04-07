@@ -119,8 +119,8 @@ export function useCostGovernance(
 
     try {
       const result: AdminCostOverrideRecordView = await admin.grantCostOverride();
-      actionMessage.value = `${t("cost.overrideGranted")}: ${result.scope}`;
       await reload();
+      actionMessage.value = `${t("cost.overrideGranted")}: ${result.scope}`;
     } catch (e: unknown) {
       actionError.value = e instanceof Error ? e.message : String(e);
     } finally {
@@ -135,8 +135,8 @@ export function useCostGovernance(
 
     try {
       const result: AdminCostResetResultView = await admin.resetCost("session");
-      actionMessage.value = `${t("cost.sessionReset")}: ${result.removed_requests}`;
       await reload();
+      actionMessage.value = `${t("cost.sessionReset")}: ${result.removed_requests}`;
     } catch (e: unknown) {
       actionError.value = e instanceof Error ? e.message : String(e);
     } finally {

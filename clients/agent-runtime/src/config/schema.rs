@@ -579,6 +579,7 @@ impl Default for IdentityConfig {
 // ── Cost tracking and budget enforcement ───────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CostConfig {
     /// Enable cost tracking (default: false)
     #[serde(default)]
@@ -610,6 +611,7 @@ pub struct CostConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ModelPricing {
     /// Input price per 1M tokens
     #[serde(default)]

@@ -298,13 +298,15 @@ fn compare_autonomy_fields(
             "autonomy.max_actions_per_hour",
             fields,
         );
-        if let Some(max_cost_per_day_cents) = aut.max_cost_per_day_cents {
-            compare_primitive(
-                Some(max_cost_per_day_cents),
-                cfg.autonomy.max_actions_per_hour,
-                "autonomy.max_cost_per_day_cents",
-                fields,
-            );
+        if aut.max_actions_per_hour.is_none() {
+            if let Some(max_cost_per_day_cents) = aut.max_cost_per_day_cents {
+                compare_primitive(
+                    Some(max_cost_per_day_cents),
+                    cfg.autonomy.max_actions_per_hour,
+                    "autonomy.max_cost_per_day_cents",
+                    fields,
+                );
+            }
         }
     }
 }
@@ -1164,14 +1166,10 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .unwrap_or_else(|| bootstrap::DEFAULT_MODEL.into());
     let temperature = config.default_temperature;
     let (mem, observer) = bootstrap::create_memory_and_observer(&config)?;
-    let cost_tracker = if config.cost.enabled {
-        Some(Arc::new(CostTracker::new(
-            config.cost.clone(),
-            &config.workspace_dir,
-        )?))
-    } else {
-        None
-    };
+    let cost_tracker = Some(Arc::new(CostTracker::new(
+        config.cost.clone(),
+        &config.workspace_dir,
+    )?));
     // Extract webhook secret for authentication
     let webhook_secret_hash: Option<Arc<str>> =
         config.channels_config.webhook.as_ref().and_then(|webhook| {

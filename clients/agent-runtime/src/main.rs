@@ -2760,12 +2760,12 @@ mod tests {
         let audit = service.audit_trail(10).unwrap();
         assert!(audit.iter().any(|event| {
             event.kind == crate::cost::CostAuditKind::OverrideGranted
-                && event.actor.as_deref() == Some("cli-agent")
+                && event.actor.as_deref() == Some("[REDACTED]")
                 && event.override_scope == Some(crate::cost::CostOverrideScope::NextRequest)
         }));
         assert!(audit.iter().any(|event| {
             event.kind == crate::cost::CostAuditKind::OverrideConsumed
-                && event.actor.as_deref() == Some("cli-agent")
+                && event.actor.as_deref() == Some("[REDACTED]")
         }));
     }
 

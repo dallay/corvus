@@ -27,6 +27,7 @@ pub struct CostTracker {
 
 const MAX_HISTORY_WINDOW_DAYS: usize = 366;
 const MAX_HISTORY_WINDOW_MONTHS: usize = 60;
+const REDACTED_AUDIT_VALUE: &str = "[REDACTED]";
 
 impl CostTracker {
     /// Create a new cost tracker.
@@ -78,6 +79,17 @@ impl CostTracker {
 
     fn lock_pending_reservations(&self) -> MutexGuard<'_, HashMap<String, CostBudgetReservation>> {
         self.pending_reservations.lock()
+    }
+
+    fn redacted_audit_actor(actor: &str) -> Option<String> {
+        (!actor.trim().is_empty()).then(|| REDACTED_AUDIT_VALUE.to_string())
+    }
+
+    fn redacted_audit_reason(reason: Option<&str>) -> Option<String> {
+        reason
+            .map(str::trim)
+            .filter(|reason| !reason.is_empty())
+            .map(|_| REDACTED_AUDIT_VALUE.to_string())
     }
 
     pub fn config(&self) -> CostConfig {
@@ -421,8 +433,8 @@ impl CostTracker {
             id: uuid::Uuid::new_v4().to_string(),
             kind: CostAuditKind::OverrideGranted,
             recorded_at: now,
-            actor: Some(request.actor),
-            reason: request.reason,
+            actor: Self::redacted_audit_actor(&request.actor),
+            reason: Self::redacted_audit_reason(request.reason.as_deref()),
             period: None,
             override_scope: Some(request.scope),
             reset_scope: None,
@@ -467,8 +479,8 @@ impl CostTracker {
                 id: uuid::Uuid::new_v4().to_string(),
                 kind: CostAuditKind::OverrideConsumed,
                 recorded_at: now,
-                actor: Some(override_record.actor.clone()),
-                reason: override_record.reason.clone(),
+                actor: Self::redacted_audit_actor(&override_record.actor),
+                reason: Self::redacted_audit_reason(override_record.reason.as_deref()),
                 period: None,
                 override_scope: Some(override_record.scope),
                 reset_scope: None,
@@ -514,8 +526,8 @@ impl CostTracker {
             id: uuid::Uuid::new_v4().to_string(),
             kind: CostAuditKind::ResetApplied,
             recorded_at: now,
-            actor: Some(request.actor.clone()),
-            reason: request.reason.clone(),
+            actor: Self::redacted_audit_actor(&request.actor),
+            reason: Self::redacted_audit_reason(request.reason.as_deref()),
             period: None,
             override_scope: None,
             reset_scope: Some(request.scope),
@@ -565,8 +577,8 @@ impl CostTracker {
                 id: uuid::Uuid::new_v4().to_string(),
                 kind: CostAuditKind::OverrideExpired,
                 recorded_at: now,
-                actor: Some(override_record.actor.clone()),
-                reason: override_record.reason.clone(),
+                actor: Self::redacted_audit_actor(&override_record.actor),
+                reason: Self::redacted_audit_reason(override_record.reason.as_deref()),
                 period: None,
                 override_scope: Some(override_record.scope),
                 reset_scope: None,

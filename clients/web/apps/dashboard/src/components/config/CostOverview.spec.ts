@@ -163,6 +163,7 @@ describe("CostOverview", () => {
       monthly_cost_usd: 1005,
       total_tokens: 190000,
       request_count: 90,
+      percent_used_session: 100,
       percent_used_daily: 110,
       percent_used_monthly: 100.5,
       budget_state: "exceeded",
