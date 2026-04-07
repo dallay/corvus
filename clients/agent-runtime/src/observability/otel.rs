@@ -42,6 +42,10 @@ pub struct OtelObserver {
 fn budget_threshold_trace_fields(event: &BudgetThresholdEvent) -> Vec<(String, String)> {
     let mut fields = vec![
         (
+            "budget_state".to_string(),
+            budget_state_label(event.budget_state).to_string(),
+        ),
+        (
             "period".to_string(),
             usage_period_label(event.period).to_string(),
         ),

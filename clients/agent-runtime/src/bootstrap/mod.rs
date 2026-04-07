@@ -259,9 +259,11 @@ impl BootstrapContext {
             .filter(|tool| profile.allows_tool(tool.name()))
             .collect();
 
-        let cost_tracker = if let Some(cost_tracker) = cost_tracker_override {
+        let cost_tracker = if !config.cost.enabled {
+            None
+        } else if let Some(cost_tracker) = cost_tracker_override {
             Some(cost_tracker)
-        } else if config.cost.enabled {
+        } else {
             match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
                 Ok(tracker) => Some(Arc::new(tracker)),
                 Err(error) => {
@@ -269,8 +271,6 @@ impl BootstrapContext {
                     None
                 }
             }
-        } else {
-            None
         };
 
         Ok(Self {
@@ -621,5 +621,20 @@ mod tests {
         } else {
             assert!(!names.iter().any(|name| name.starts_with("mcp.")));
         }
+    }
+
+    #[test]
+    fn gateway_bootstrap_does_not_reuse_shared_tracker_when_cost_disabled() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.cost.enabled = false;
+
+        let (memory, observer) = create_memory_and_observer(&config).unwrap();
+        let tracker = Arc::new(
+            CostTracker::new(crate::config::CostConfig::default(), &config.workspace_dir).unwrap(),
+        );
+        let ctx = BootstrapContext::for_gateway(&config, memory, observer, Some(tracker)).unwrap();
+
+        assert!(ctx.cost_tracker.is_none());
     }
 }

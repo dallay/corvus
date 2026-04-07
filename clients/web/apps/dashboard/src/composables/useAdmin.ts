@@ -297,12 +297,15 @@ export function useAdmin(
   async function resetCost(scope: "session" | "day" | "month"): Promise<AdminCostResetResultView> {
     loading.value = true;
     error.value = null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
     try {
       const url = buildUrl("/web/admin/cost/reset");
       const res = await fetch(url, {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ scope }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
@@ -312,6 +315,7 @@ export function useAdmin(
       error.value = e instanceof Error ? e.message : String(e);
       throw e;
     } finally {
+      clearTimeout(timeoutId);
       loading.value = false;
     }
   }
@@ -319,12 +323,15 @@ export function useAdmin(
   async function grantCostOverride(): Promise<AdminCostOverrideRecordView> {
     loading.value = true;
     error.value = null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30_000);
     try {
       const url = buildUrl("/web/admin/cost/override");
       const res = await fetch(url, {
         method: "POST",
         headers: authHeaders(),
         body: JSON.stringify({ scope: "next_request" }),
+        signal: controller.signal,
       });
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
@@ -334,6 +341,7 @@ export function useAdmin(
       error.value = e instanceof Error ? e.message : String(e);
       throw e;
     } finally {
+      clearTimeout(timeoutId);
       loading.value = false;
     }
   }

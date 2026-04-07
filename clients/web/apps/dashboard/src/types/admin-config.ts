@@ -170,6 +170,7 @@ export interface AdminCostView {
 }
 
 export type AdminUsagePeriod = "session" | "day" | "month";
+export type AdminSummaryPeriod = AdminUsagePeriod | "mission";
 export type AdminBudgetState = "allowed" | "warning" | "exceeded";
 export type AdminCostOverrideScope = "next_request";
 export type AdminCostResetScope = "session" | "day" | "month";
@@ -194,7 +195,7 @@ export interface AdminCostSummaryView {
   percent_used_daily: number;
   percent_used_monthly: number;
   budget_state: AdminBudgetState;
-  period?: AdminUsagePeriod | null;
+  period?: AdminSummaryPeriod | null;
 }
 
 export interface AdminCostSummaryResponse {

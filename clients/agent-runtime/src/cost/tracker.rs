@@ -1,8 +1,8 @@
 use super::types::{
-    BudgetCheck, BudgetScopeStatus, CostAuditEvent, CostAuditKind, CostHistory, CostHistoryPoint,
-    CostHistoryTotals, CostOverrideRecord, CostOverrideRequest, CostOverrideScope, CostRecord,
-    CostResetRequest, CostResetResult, CostResetScope, CostSummary, MissionBudgetScope, ModelStats,
-    TokenUsage, UsagePeriod,
+    BudgetCheck, BudgetScopeStatus, CostAuditEvent, CostAuditKind, CostBudgetReservation,
+    CostHistory, CostHistoryPoint, CostHistoryTotals, CostOverrideRecord, CostOverrideRequest,
+    CostOverrideScope, CostRecord, CostResetRequest, CostResetResult, CostResetScope, CostSummary,
+    CostTrackerSnapshot, MissionBudgetScope, ModelStats, TokenUsage, UsagePeriod,
 };
 use crate::config::schema::CostConfig;
 use anyhow::{anyhow, Context, Result};
@@ -22,7 +22,11 @@ pub struct CostTracker {
     session_id: String,
     session_costs: Arc<Mutex<Vec<CostRecord>>>,
     active_override: Arc<Mutex<Option<CostOverrideRecord>>>,
+    pending_reservations: Arc<Mutex<HashMap<String, CostBudgetReservation>>>,
 }
+
+const MAX_HISTORY_WINDOW_DAYS: usize = 366;
+const MAX_HISTORY_WINDOW_MONTHS: usize = 60;
 
 impl CostTracker {
     /// Create a new cost tracker.
@@ -47,6 +51,7 @@ impl CostTracker {
             session_id: uuid::Uuid::new_v4().to_string(),
             session_costs: Arc::new(Mutex::new(Vec::new())),
             active_override: Arc::new(Mutex::new(None)),
+            pending_reservations: Arc::new(Mutex::new(HashMap::new())),
         })
     }
 
@@ -71,6 +76,10 @@ impl CostTracker {
         self.active_override.lock()
     }
 
+    fn lock_pending_reservations(&self) -> MutexGuard<'_, HashMap<String, CostBudgetReservation>> {
+        self.pending_reservations.lock()
+    }
+
     pub fn config(&self) -> CostConfig {
         self.config.read().clone()
     }
@@ -89,6 +98,16 @@ impl CostTracker {
         estimated_cost_usd: f64,
         mission_scope: Option<&MissionBudgetScope>,
     ) -> Result<BudgetCheck> {
+        self.check_budget_with_pending_scope(estimated_cost_usd, mission_scope, 0.0, None)
+    }
+
+    fn check_budget_with_pending_scope(
+        &self,
+        estimated_cost_usd: f64,
+        mission_scope: Option<&MissionBudgetScope>,
+        pending_total_usd: f64,
+        pending_mission_usd: Option<f64>,
+    ) -> Result<BudgetCheck> {
         let config = self.config();
 
         if !config.enabled {
@@ -106,9 +125,9 @@ impl CostTracker {
         drop(storage);
 
         let session_cost = self.current_session_cost_usd();
-        let projected_daily = daily_cost + estimated_cost_usd;
-        let projected_monthly = monthly_cost + estimated_cost_usd;
-        let projected_session = session_cost + estimated_cost_usd;
+        let projected_daily = daily_cost + pending_total_usd + estimated_cost_usd;
+        let projected_monthly = monthly_cost + pending_total_usd + estimated_cost_usd;
+        let projected_session = session_cost + pending_total_usd + estimated_cost_usd;
 
         let mut checks = vec![
             build_budget_check(
@@ -135,16 +154,80 @@ impl CostTracker {
         ];
 
         if let Some(mission_scope) = mission_scope {
+            let pending_mission_usd = pending_mission_usd.unwrap_or(0.0);
             checks.push(build_budget_check(
                 UsagePeriod::Mission,
                 mission_scope.current_usd,
-                mission_scope.current_usd + estimated_cost_usd,
+                mission_scope.current_usd + pending_mission_usd + estimated_cost_usd,
                 mission_scope.limit_usd,
                 config.warn_at_percent,
             ));
         }
 
         Ok(select_budget_check(checks))
+    }
+
+    pub fn snapshot(&self, now: DateTime<Utc>) -> Result<CostTrackerSnapshot> {
+        self.expire_override_if_needed(now)?;
+        let config = self.config();
+
+        let mut storage = self.lock_storage();
+        let (daily_cost, monthly_cost) = storage.get_aggregated_costs()?;
+        let session_costs = self.lock_session_costs();
+        let active_override = self.lock_active_override().clone();
+
+        let session_cost: f64 = session_costs
+            .iter()
+            .map(|record| record.usage.cost_usd)
+            .sum();
+        let total_tokens: u64 = session_costs
+            .iter()
+            .map(|record| record.usage.total_tokens)
+            .sum();
+        let request_count = session_costs.len();
+        let by_model = build_session_model_stats(&session_costs);
+
+        let scope_statuses = if config.enabled {
+            vec![
+                build_scope_status(
+                    UsagePeriod::Session,
+                    session_cost,
+                    config.session_limit_usd,
+                    config.warn_at_percent,
+                ),
+                build_scope_status(
+                    UsagePeriod::Day,
+                    daily_cost,
+                    config.daily_limit_usd,
+                    config.warn_at_percent,
+                ),
+                build_scope_status(
+                    UsagePeriod::Month,
+                    monthly_cost,
+                    config.monthly_limit_usd,
+                    config.warn_at_percent,
+                ),
+            ]
+        } else {
+            Vec::new()
+        };
+
+        drop(session_costs);
+        drop(storage);
+
+        Ok(CostTrackerSnapshot {
+            session_id: self.session_id.clone(),
+            usage: CostSummary {
+                session_cost_usd: session_cost,
+                daily_cost_usd: daily_cost,
+                monthly_cost_usd: monthly_cost,
+                total_tokens,
+                request_count,
+                by_model,
+            },
+            scope_statuses,
+            active_override,
+        })
     }
 
     /// Record a usage event.
@@ -187,31 +270,7 @@ impl CostTracker {
 
     /// Get the current cost summary.
     pub fn get_summary(&self) -> Result<CostSummary> {
-        let (daily_cost, monthly_cost) = {
-            let mut storage = self.lock_storage();
-            storage.get_aggregated_costs()?
-        };
-
-        let session_costs = self.lock_session_costs();
-        let session_cost: f64 = session_costs
-            .iter()
-            .map(|record| record.usage.cost_usd)
-            .sum();
-        let total_tokens: u64 = session_costs
-            .iter()
-            .map(|record| record.usage.total_tokens)
-            .sum();
-        let request_count = session_costs.len();
-        let by_model = build_session_model_stats(&session_costs);
-
-        Ok(CostSummary {
-            session_cost_usd: session_cost,
-            daily_cost_usd: daily_cost,
-            monthly_cost_usd: monthly_cost,
-            total_tokens,
-            request_count,
-            by_model,
-        })
+        Ok(self.snapshot(Utc::now())?.usage)
     }
 
     /// Get the daily cost for a specific date.
@@ -227,37 +286,76 @@ impl CostTracker {
     }
 
     pub fn scope_statuses(&self) -> Result<Vec<BudgetScopeStatus>> {
-        let config = self.config();
+        Ok(self.snapshot(Utc::now())?.scope_statuses)
+    }
 
-        if !config.enabled {
-            return Ok(Vec::new());
+    pub fn reserve_budget_for_request(
+        &self,
+        estimated_cost_usd: f64,
+        mission_scope: Option<&MissionBudgetScope>,
+        now: DateTime<Utc>,
+    ) -> Result<(
+        BudgetCheck,
+        Option<CostOverrideRecord>,
+        Option<CostBudgetReservation>,
+    )> {
+        self.expire_override_if_needed(now)?;
+
+        let pending_total_usd;
+        let pending_mission_usd;
+        {
+            let pending = self.lock_pending_reservations();
+            pending_total_usd = pending
+                .values()
+                .map(|reservation| reservation.estimated_cost_usd)
+                .sum();
+            pending_mission_usd = mission_scope.map(|scope| {
+                pending
+                    .values()
+                    .filter(|reservation| {
+                        reservation.mission_id.as_deref() == Some(scope.mission_id.as_str())
+                    })
+                    .map(|reservation| reservation.estimated_cost_usd)
+                    .sum()
+            });
         }
 
-        let mut storage = self.lock_storage();
-        let (daily_cost, monthly_cost) = storage.get_aggregated_costs()?;
-        drop(storage);
-        let session_cost = self.current_session_cost_usd();
+        let check = self.check_budget_with_pending_scope(
+            estimated_cost_usd,
+            mission_scope,
+            pending_total_usd,
+            pending_mission_usd,
+        )?;
 
-        Ok(vec![
-            build_scope_status(
-                UsagePeriod::Session,
-                session_cost,
-                config.session_limit_usd,
-                config.warn_at_percent,
-            ),
-            build_scope_status(
-                UsagePeriod::Day,
-                daily_cost,
-                config.daily_limit_usd,
-                config.warn_at_percent,
-            ),
-            build_scope_status(
-                UsagePeriod::Month,
-                monthly_cost,
-                config.monthly_limit_usd,
-                config.warn_at_percent,
-            ),
-        ])
+        let mut override_applied = None;
+        if matches!(check, BudgetCheck::Exceeded { .. }) && self.config().allow_override {
+            override_applied = self.consume_override_if_active(now)?;
+        }
+
+        let proceed = !matches!(check, BudgetCheck::Exceeded { .. }) || override_applied.is_some();
+        let reservation = if proceed && estimated_cost_usd > 0.0 {
+            let reservation = CostBudgetReservation {
+                id: uuid::Uuid::new_v4().to_string(),
+                estimated_cost_usd,
+                mission_id: mission_scope.map(|scope| scope.mission_id.clone()),
+                created_at: now,
+            };
+            self.lock_pending_reservations()
+                .insert(reservation.id.clone(), reservation.clone());
+            Some(reservation)
+        } else {
+            None
+        };
+
+        Ok((check, override_applied, reservation))
+    }
+
+    pub fn release_budget_reservation(&self, reservation_id: &str) {
+        self.lock_pending_reservations().remove(reservation_id);
+    }
+
+    pub fn commit_budget_reservation(&self, reservation_id: &str) {
+        self.release_budget_reservation(reservation_id);
     }
 
     fn current_session_cost_usd(&self) -> f64 {
@@ -616,10 +714,16 @@ fn build_history_from_window(
 ) -> Result<CostHistory> {
     match period {
         UsagePeriod::Day => {
+            if window > MAX_HISTORY_WINDOW_DAYS {
+                return Err(anyhow!("History window is too large"));
+            }
             let start = now - Duration::days((window.saturating_sub(1)) as i64);
             build_history_from_range(period, start, now, records)
         }
         UsagePeriod::Month => {
+            if window > MAX_HISTORY_WINDOW_MONTHS {
+                return Err(anyhow!("History window is too large"));
+            }
             let month_offset = i32::try_from(window.saturating_sub(1))
                 .map_err(|_| anyhow!("History window is too large"))?;
             let (start_year, start_month) = shift_month(now.year(), now.month(), -month_offset);
@@ -1390,6 +1494,65 @@ mod tests {
     }
 
     #[test]
+    fn history_window_rejects_oversized_ranges() {
+        let tmp = TempDir::new().unwrap();
+        let tracker = Arc::new(CostTracker::new(enabled_config(), tmp.path()).unwrap());
+        let service = CostService::new(tracker);
+        let now = chrono::Utc::now();
+
+        let day_err = service
+            .history_window(UsagePeriod::Day, MAX_HISTORY_WINDOW_DAYS + 1, now)
+            .unwrap_err();
+        assert!(day_err.to_string().contains("History window is too large"));
+
+        let month_err = service
+            .history_window(UsagePeriod::Month, MAX_HISTORY_WINDOW_MONTHS + 1, now)
+            .unwrap_err();
+        assert!(month_err
+            .to_string()
+            .contains("History window is too large"));
+    }
+
+    #[test]
+    fn evaluate_request_reserves_budget_until_released() {
+        let tmp = TempDir::new().unwrap();
+        let config = CostConfig {
+            enabled: true,
+            session_limit_usd: 1.0,
+            daily_limit_usd: 10.0,
+            monthly_limit_usd: 100.0,
+            warn_at_percent: 80,
+            ..Default::default()
+        };
+        let tracker = Arc::new(CostTracker::new(config, tmp.path()).unwrap());
+        let service = CostService::new(tracker.clone());
+        let now = chrono::Utc::now();
+
+        let first = service.evaluate_request(0.75, None, now).unwrap();
+        let reservation = match first {
+            crate::cost::BudgetEvaluation::Proceed {
+                reservation: Some(reservation),
+                ..
+            } => reservation,
+            other => panic!("expected reservation, got {other:?}"),
+        };
+
+        let second = service.evaluate_request(0.3, None, now).unwrap();
+        assert!(matches!(
+            second,
+            crate::cost::BudgetEvaluation::Blocked { .. }
+        ));
+
+        tracker.release_budget_reservation(&reservation.id);
+
+        let third = service.evaluate_request(0.3, None, now).unwrap();
+        assert!(matches!(
+            third,
+            crate::cost::BudgetEvaluation::Proceed { .. }
+        ));
+    }
+
+    #[test]
     fn reset_session_removes_only_current_session_records() {
         let tmp = TempDir::new().unwrap();
         let tracker = Arc::new(CostTracker::new(enabled_config(), tmp.path()).unwrap());
@@ -1437,6 +1600,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let config = CostConfig {
             enabled: true,
+            session_limit_usd: 1.0,
             daily_limit_usd: 1.0,
             monthly_limit_usd: 100.0,
             warn_at_percent: 80,

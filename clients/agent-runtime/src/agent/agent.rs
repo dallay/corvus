@@ -460,16 +460,20 @@ impl Agent {
         limit_usd: f64,
         percent_used: f64,
         period: UsagePeriod,
+        turn_context: Option<&TurnContext>,
     ) {
         if let Some(tracker) = &self.cost_tracker {
             self.observer.record_event(&ObserverEvent::BudgetWarning(
                 crate::observability::BudgetThresholdEvent {
+                    budget_state: crate::cost::BudgetState::Warning,
                     period,
                     current_usd,
                     projected_usd,
                     limit_usd,
                     percent_used,
-                    session_id: tracker.session_id().to_string(),
+                    session_id: turn_context
+                        .and_then(|context| context.session_id.clone())
+                        .unwrap_or_else(|| tracker.session_id().to_string()),
                     surface: Some(self.budget_surface().to_string()),
                 },
             ));
@@ -483,16 +487,20 @@ impl Agent {
         limit_usd: f64,
         percent_used: f64,
         period: UsagePeriod,
+        turn_context: Option<&TurnContext>,
     ) {
         if let Some(tracker) = &self.cost_tracker {
             self.observer.record_event(&ObserverEvent::BudgetExceeded(
                 crate::observability::BudgetThresholdEvent {
+                    budget_state: crate::cost::BudgetState::Exceeded,
                     period,
                     current_usd,
                     projected_usd,
                     limit_usd,
                     percent_used,
-                    session_id: tracker.session_id().to_string(),
+                    session_id: turn_context
+                        .and_then(|context| context.session_id.clone())
+                        .unwrap_or_else(|| tracker.session_id().to_string()),
                     surface: Some(self.budget_surface().to_string()),
                 },
             ));
@@ -991,9 +999,13 @@ impl Agent {
 
     /// Run pre-flight budget check. Returns Ok(()) if allowed or warning,
     /// returns Err if budget exceeded.
-    fn enforce_budget_check(&self, model: &str) -> Result<()> {
+    fn enforce_budget_check(
+        &self,
+        model: &str,
+        turn_context: &TurnContext,
+    ) -> Result<Option<crate::cost::CostBudgetReservation>> {
         let Some(tracker) = &self.cost_tracker else {
-            return Ok(());
+            return Ok(None);
         };
 
         let cost_service = CostService::new(Arc::clone(tracker));
@@ -1006,6 +1018,7 @@ impl Agent {
             BudgetEvaluation::Proceed {
                 check: BudgetCheck::Allowed,
                 override_applied,
+                reservation,
             } => {
                 if let Some(override_applied) = override_applied {
                     self.emit_budget_override_event(
@@ -1015,7 +1028,7 @@ impl Agent {
                         None,
                     );
                 }
-                Ok(())
+                Ok(reservation)
             }
             BudgetEvaluation::Proceed {
                 check:
@@ -1028,6 +1041,7 @@ impl Agent {
                         ..
                     },
                 override_applied,
+                reservation,
             } => {
                 if let Some(override_applied) = override_applied {
                     self.emit_budget_override_event(
@@ -1043,8 +1057,9 @@ impl Agent {
                     limit_usd,
                     percent_used,
                     period,
+                    Some(turn_context),
                 );
-                Ok(())
+                Ok(reservation)
             }
             BudgetEvaluation::Proceed {
                 check:
@@ -1057,6 +1072,7 @@ impl Agent {
                         ..
                     },
                 override_applied,
+                reservation,
             } => {
                 if let Some(override_applied) = override_applied {
                     self.emit_budget_override_event(
@@ -1066,7 +1082,7 @@ impl Agent {
                         Some(period),
                     );
                 }
-                Ok(())
+                Ok(reservation)
             }
             BudgetEvaluation::Blocked {
                 check:
@@ -1085,6 +1101,7 @@ impl Agent {
                     limit_usd,
                     percent_used,
                     period,
+                    Some(turn_context),
                 );
                 Err(AgentExecutionError::CostBudgetExceeded {
                     current_usd,
@@ -1093,7 +1110,9 @@ impl Agent {
                 }
                 .into())
             }
-            BudgetEvaluation::Blocked { .. } => Ok(()),
+            BudgetEvaluation::Blocked { check } => Err(anyhow::anyhow!(
+                "Budget evaluation blocked request unexpectedly: {check:?}"
+            )),
         }
     }
 
@@ -1141,6 +1160,7 @@ impl Agent {
         model: &str,
         response: &ChatResponse,
         turn_context: &TurnContext,
+        reservation: Option<&crate::cost::CostBudgetReservation>,
     ) {
         let Some(tracker) = &self.cost_tracker else {
             return;
@@ -1183,6 +1203,14 @@ impl Agent {
 
         if let Err(error) = tracker.record_usage(usage) {
             tracing::warn!("Failed to record cost usage: {error}");
+            if let Some(reservation) = reservation {
+                tracker.release_budget_reservation(&reservation.id);
+            }
+            return;
+        }
+
+        if let Some(reservation) = reservation {
+            tracker.commit_budget_reservation(&reservation.id);
         }
     }
 
@@ -2011,7 +2039,13 @@ impl Agent {
         });
 
         self.begin_active_mission_budget(&mission_id)?;
-        let coordinator = self.build_mission_coordinator()?;
+        let coordinator = match self.build_mission_coordinator() {
+            Ok(coordinator) => coordinator,
+            Err(error) => {
+                self.end_active_mission_budget();
+                return Err(error);
+            }
+        };
         let plan = self.build_mission_plan(objective, resume_from);
         let result = self
             .run_mission_plan(&coordinator, &mission_id, Instant::now(), plan)
@@ -2027,9 +2061,9 @@ impl Agent {
         turn_context: &TurnContext,
     ) -> Result<StepOutcome> {
         // Pre-flight budget check before LLM call
-        self.enforce_budget_check(effective_model)?;
+        let reservation = self.enforce_budget_check(effective_model, turn_context)?;
 
-        let response = self
+        let response = match self
             .provider
             .chat(
                 ChatRequest {
@@ -2044,10 +2078,26 @@ impl Agent {
                 effective_model,
                 self.temperature,
             )
-            .await?;
+            .await
+        {
+            Ok(response) => response,
+            Err(error) => {
+                if let (Some(tracker), Some(reservation)) =
+                    (&self.cost_tracker, reservation.as_ref())
+                {
+                    tracker.release_budget_reservation(&reservation.id);
+                }
+                return Err(error);
+            }
+        };
 
         // Record estimated usage after successful LLM call
-        self.record_estimated_usage(effective_model, &response, turn_context);
+        self.record_estimated_usage(
+            effective_model,
+            &response,
+            turn_context,
+            reservation.as_ref(),
+        );
 
         let (text, calls) = self.tool_dispatcher.parse_response(&response);
         if calls.is_empty() {
@@ -2889,13 +2939,19 @@ mod tests {
         usage.cost_usd = 0.81;
         tracker.record_usage(usage).unwrap();
 
-        let response = agent.turn("hi").await.unwrap();
-        assert_eq!(response, "warning");
+        let response = agent
+            .turn_with_context("hi", TurnContext::with_session("webhook-123"))
+            .await
+            .unwrap();
+        assert_eq!(response.final_text.as_deref(), Some("warning"));
 
-        assert!(observer
-            .snapshot()
-            .into_iter()
+        let events = observer.snapshot();
+        assert!(events
+            .iter()
             .any(|event| matches!(event, ObserverEvent::BudgetWarning(_))));
+        assert!(events.iter().any(|event| matches!(event,
+            ObserverEvent::BudgetWarning(event) if event.session_id == "webhook-123"
+        )));
     }
 
     #[tokio::test]
@@ -2913,13 +2969,18 @@ mod tests {
         usage.cost_usd = 1.1;
         tracker.record_usage(usage).unwrap();
 
-        let result = agent.turn("hi").await;
+        let result = agent
+            .turn_with_context("hi", TurnContext::with_session("webhook-456"))
+            .await;
         assert!(result.is_err());
 
-        assert!(observer
-            .snapshot()
-            .into_iter()
+        let events = observer.snapshot();
+        assert!(events
+            .iter()
             .any(|event| matches!(event, ObserverEvent::BudgetExceeded(_))));
+        assert!(events.iter().any(|event| matches!(event,
+            ObserverEvent::BudgetExceeded(event) if event.session_id == "webhook-456"
+        )));
     }
 
     #[test]

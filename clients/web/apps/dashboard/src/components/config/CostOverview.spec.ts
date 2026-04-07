@@ -205,6 +205,29 @@ describe("CostOverview", () => {
     expect(hoisted.state.resetSession).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps reset visible when overrides are disabled", async () => {
+    setBaseConfig({ allow_override: false });
+    (hoisted.state.summary as ReturnType<typeof ref<AdminCostSummaryView | null>>).value = {
+      session_cost_usd: 4.2,
+      daily_cost_usd: 10,
+      monthly_cost_usd: 40,
+      total_tokens: 1200,
+      request_count: 4,
+      percent_used_session: 16.8,
+      percent_used_daily: 20,
+      percent_used_monthly: 4,
+      budget_state: "allowed",
+      period: "session",
+    };
+
+    const wrapper = mountComponent();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="cost-actions"]').exists()).toBe(true);
+    expect(wrapper.find('[data-testid="cost-action-override"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="cost-action-reset-session"]').exists()).toBe(true);
+  });
+
   it("shows error on fetch failure", async () => {
     (hoisted.state.config as ReturnType<typeof ref<AdminCostView | null>>).value = null;
     (hoisted.state.error as ReturnType<typeof ref<string | null>>).value = "Network error";

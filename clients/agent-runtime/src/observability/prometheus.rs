@@ -237,9 +237,7 @@ impl Observer for PrometheusObserver {
                 if let Some(t) = tokens_used {
                     self.tokens_used.set(i64::try_from(*t).unwrap_or(i64::MAX));
                 }
-                if let Some(cost_usd) = cost_usd {
-                    self.cost_usd_last.set(*cost_usd);
-                }
+                self.cost_usd_last.set(cost_usd.unwrap_or(0.0));
             }
             ObserverEvent::ToolCallStart { tool: _ }
             | ObserverEvent::TurnComplete

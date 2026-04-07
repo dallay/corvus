@@ -3216,12 +3216,34 @@ impl Config {
         self.validate_agent_profile()?;
         self.validate_mcp_servers()?;
         self.validate_memory_config()?;
+        self.validate_cost_config()?;
         self.validate_delegate_overrides()?;
         self.validate_code_session_config()?;
         self.validate_account_pools()?;
         self.validate_skills_config()?;
         self.validate_multimodal_config()?;
         self.validate_audio_config()
+    }
+
+    fn validate_cost_config(&self) -> Result<()> {
+        if !self.cost.session_limit_usd.is_finite() || self.cost.session_limit_usd < 0.0 {
+            anyhow::bail!("cost.session_limit_usd must be a finite, non-negative value");
+        }
+        if !self.cost.daily_limit_usd.is_finite() || self.cost.daily_limit_usd < 0.0 {
+            anyhow::bail!("cost.daily_limit_usd must be a finite, non-negative value");
+        }
+        if !self.cost.monthly_limit_usd.is_finite() || self.cost.monthly_limit_usd < 0.0 {
+            anyhow::bail!("cost.monthly_limit_usd must be a finite, non-negative value");
+        }
+        for (model, pricing) in &self.cost.prices {
+            if !pricing.input.is_finite() || pricing.input < 0.0 {
+                anyhow::bail!("cost.prices.{model}.input must be a finite, non-negative value");
+            }
+            if !pricing.output.is_finite() || pricing.output < 0.0 {
+                anyhow::bail!("cost.prices.{model}.output must be a finite, non-negative value");
+            }
+        }
+        Ok(())
     }
 
     fn validate_agent_profile(&self) -> Result<()> {
@@ -4400,6 +4422,34 @@ tool_dispatcher = "xml"
         );
 
         assert!(config.validate_for_runtime().is_ok());
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_negative_cost_limits() {
+        let mut config = Config::default();
+        config.cost.session_limit_usd = -1.0;
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("cost.session_limit_usd must be a finite, non-negative value"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_negative_model_pricing() {
+        let mut config = Config::default();
+        config.cost.prices.insert(
+            "bad-model".to_string(),
+            ModelPricing {
+                input: -0.1,
+                output: 1.0,
+            },
+        );
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("cost.prices.bad-model.input must be a finite, non-negative value"));
     }
 
     #[test]

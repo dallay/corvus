@@ -9,7 +9,7 @@ pub use tracker::CostTracker;
 #[allow(unused_imports)]
 pub use types::{
     BudgetCheck, BudgetEvaluation, BudgetScopeStatus, BudgetState, CostAuditEvent, CostAuditKind,
-    CostGovernanceSummary, CostHistory, CostHistoryPoint, CostHistoryTotals, CostOverrideRecord,
-    CostOverrideRequest, CostOverrideScope, CostResetRequest, CostResetResult, CostResetScope,
-    MissionBudgetScope, TokenUsage, UsagePeriod,
+    CostBudgetReservation, CostGovernanceSummary, CostHistory, CostHistoryPoint, CostHistoryTotals,
+    CostOverrideRecord, CostOverrideRequest, CostOverrideScope, CostResetRequest, CostResetResult,
+    CostResetScope, CostTrackerSnapshot, MissionBudgetScope, TokenUsage, UsagePeriod,
 };

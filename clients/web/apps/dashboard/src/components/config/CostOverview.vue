@@ -101,10 +101,14 @@ const maxHistoryCost = computed(() => {
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const historyPoints = computed(() => history.value?.points ?? []);
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
-const showActions = computed(
+const showOverrideAction = computed(
   () => hasOperationalData.value && config.value?.allow_override === true
 );
+
+const showResetAction = computed(() => hasOperationalData.value);
+
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
+const showActionPanel = computed(() => showOverrideAction.value || showResetAction.value);
 
 void governance.reload();
 
@@ -254,12 +258,13 @@ watch(
         </ul>
       </div>
 
-      <div v-if="showActions" class="actions-panel" data-testid="cost-actions">
+      <div v-if="showActionPanel" class="actions-panel" data-testid="cost-actions">
         <div class="panel-header">
           <h3>{{ t("cost.actions") }}</h3>
         </div>
         <div class="action-row">
           <Button
+            v-if="showOverrideAction"
             variant="outline"
             size="sm"
             :disabled="actionPending"
@@ -269,6 +274,7 @@ watch(
             {{ t("cost.grantOverride") }}
           </Button>
           <Button
+            v-if="showResetAction"
             variant="outline"
             size="sm"
             :disabled="actionPending"

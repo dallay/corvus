@@ -1164,12 +1164,13 @@ pub async fn run_gateway(host: &str, port: u16, config: Config) -> Result<()> {
         .unwrap_or_else(|| bootstrap::DEFAULT_MODEL.into());
     let temperature = config.default_temperature;
     let (mem, observer) = bootstrap::create_memory_and_observer(&config)?;
-    let cost_tracker = match CostTracker::new(config.cost.clone(), &config.workspace_dir) {
-        Ok(tracker) => Some(Arc::new(tracker)),
-        Err(error) => {
-            tracing::warn!("Failed to initialize shared gateway cost tracker: {error}");
-            None
-        }
+    let cost_tracker = if config.cost.enabled {
+        Some(Arc::new(CostTracker::new(
+            config.cost.clone(),
+            &config.workspace_dir,
+        )?))
+    } else {
+        None
     };
     // Extract webhook secret for authentication
     let webhook_secret_hash: Option<Arc<str>> =
@@ -1902,6 +1903,22 @@ async fn handle_webhook(
 
     log_webhook_runtime_path(&session_id, false, "dispatcher_flag_disabled");
 
+    if config.cost.enabled {
+        let response = (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": {
+                    "code": "cost_governance_requires_dispatcher",
+                    "message": "Cost governance requires the webhook dispatcher path when cost.enabled=true",
+                }
+            })),
+        );
+        release_idempotency_key(&state, reserved_idempotency_key, false);
+        update_session_activity_if_persisted(&state, &session_id, token_hash.as_deref(), false)
+            .await;
+        return response;
+    }
+
     if !is_preview {
         if let Some((response, persist_idempotency)) =
             canonical_outcome_early_response(&state, &session_id, &scrubbed_message).await
@@ -2067,28 +2084,36 @@ async fn handle_chat_stream(
         }
     } else {
         log_webhook_runtime_path(&session_id, false, "stream_legacy");
-        if state.auto_save {
-            let key = webhook_memory_key();
-            let _ = state
-                .mem
-                .store(&key, &scrubbed_message, MemoryCategory::Conversation, None)
-                .await;
-        }
-        match state
-            .provider
-            .simple_chat(message, &state.model, state.temperature)
-            .await
-        {
-            Ok(response) => {
-                StreamProcessingOutcome::Success(scrub_sensitive_boundary_text(&response))
+        if config.cost.enabled {
+            StreamProcessingOutcome::Error(serde_json::json!({
+                "code": "cost_governance_requires_dispatcher",
+                "message": "Cost governance requires the webhook dispatcher path when cost.enabled=true",
+            }))
+        } else {
+            if state.auto_save {
+                let key = webhook_memory_key();
+                let _ = state
+                    .mem
+                    .store(&key, &scrubbed_message, MemoryCategory::Conversation, None)
+                    .await;
             }
-            Err(e) => {
-                let sanitized = providers::sanitize_api_error(&e.to_string());
-                tracing::error!("Stream provider error: {sanitized}");
-                StreamProcessingOutcome::Error(serde_json::json!({
-                    "code": "processing_error",
-                    "message": "LLM request failed",
-                }))
+
+            match state
+                .provider
+                .simple_chat(message, &state.model, state.temperature)
+                .await
+            {
+                Ok(response) => {
+                    StreamProcessingOutcome::Success(scrub_sensitive_boundary_text(&response))
+                }
+                Err(e) => {
+                    let sanitized = providers::sanitize_api_error(&e.to_string());
+                    tracing::error!("Stream provider error: {sanitized}");
+                    StreamProcessingOutcome::Error(serde_json::json!({
+                        "code": "processing_error",
+                        "message": "LLM request failed",
+                    }))
+                }
             }
         }
     };
@@ -5580,6 +5605,52 @@ always_ask = []
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
         assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn webhook_rejects_legacy_path_when_cost_governance_is_enabled() {
+        let _dispatcher = GatewayWebhookDispatcherEnvGuard::set("0").await;
+
+        let provider_impl = Arc::new(DispatchAwareProvider::default());
+        let provider: Arc<dyn Provider> = provider_impl.clone();
+        let mut config = temp_config();
+        config.cost.enabled = true;
+
+        let state = AppState {
+            config: Arc::new(Mutex::new(config)),
+            provider,
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(MockMemory),
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(false, &[])),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            cost_tracker: None,
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        };
+
+        let response = handle_webhook(
+            State(state),
+            test_connect_info(),
+            HeaderMap::new(),
+            Ok(Json(WebhookBody {
+                message: "hello blocked legacy".into(),
+            })),
+        )
+        .await
+        .into_response();
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(provider_impl.chat_calls.load(Ordering::SeqCst), 0);
+        assert_eq!(provider_impl.simple_calls.load(Ordering::SeqCst), 0);
     }
 
     #[tokio::test]

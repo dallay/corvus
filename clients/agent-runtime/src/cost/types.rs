@@ -150,11 +150,28 @@ pub struct MissionBudgetScope {
     pub limit_usd: f64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CostBudgetReservation {
+    pub id: String,
+    pub estimated_cost_usd: f64,
+    pub mission_id: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CostTrackerSnapshot {
+    pub session_id: String,
+    pub usage: CostSummary,
+    pub scope_statuses: Vec<BudgetScopeStatus>,
+    pub active_override: Option<CostOverrideRecord>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum BudgetEvaluation {
     Proceed {
         check: BudgetCheck,
         override_applied: Option<CostOverrideRecord>,
+        reservation: Option<CostBudgetReservation>,
     },
     Blocked {
         check: BudgetCheck,
@@ -162,7 +179,7 @@ pub enum BudgetEvaluation {
 }
 
 /// Cost summary for reporting.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct CostSummary {
     /// Total cost for the session
     pub session_cost_usd: f64,
@@ -189,7 +206,7 @@ pub struct CostGovernanceSummary {
 }
 
 /// Statistics for a specific model.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ModelStats {
     /// Model name
     pub model: String,

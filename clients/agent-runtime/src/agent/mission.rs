@@ -396,7 +396,9 @@ impl MissionCoordinator {
                 session_cost_reader,
             } => {
                 let current_cost_cents = session_cost_reader()?;
-                Ok(current_cost_cents.saturating_sub(*baseline_cost_cents))
+                current_cost_cents
+                    .checked_sub(*baseline_cost_cents)
+                    .ok_or(MissionTerminationReason::GovernanceConstraintViolated)
             }
         }
     }
@@ -805,5 +807,37 @@ mod tests {
         session_spend_cents.store(170, Ordering::SeqCst);
         assert_eq!(second_mission.current_accumulated_cost_cents().unwrap(), 50);
         second_mission.enforce_post_checkpoint().unwrap();
+    }
+
+    #[test]
+    fn runtime_derived_cost_regression_does_not_reopen_mission_budget() {
+        let governance = MissionGovernance {
+            max_runtime_ms: 300_000,
+            max_steps: 10,
+            max_estimated_cost_cents: 100,
+            elapsed_ms: 0,
+            completed_steps: 0,
+            accumulated_cost_cents: 0,
+        };
+        let session_spend_cents = Arc::new(AtomicU32::new(150));
+        let session_spend_reader = {
+            let session_spend_cents = Arc::clone(&session_spend_cents);
+            Arc::new(move || Ok(session_spend_cents.load(Ordering::SeqCst)))
+        };
+
+        let mission =
+            MissionCoordinator::new_with_runtime_session_cost(governance, session_spend_reader)
+                .unwrap();
+
+        session_spend_cents.store(100, Ordering::SeqCst);
+
+        assert_eq!(
+            mission.current_accumulated_cost_cents().unwrap_err(),
+            MissionTerminationReason::GovernanceConstraintViolated
+        );
+        assert_eq!(
+            mission.enforce_post_checkpoint().unwrap_err(),
+            MissionTerminationReason::GovernanceConstraintViolated
+        );
     }
 }

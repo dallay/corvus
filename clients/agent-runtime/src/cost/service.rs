@@ -1,28 +1,53 @@
 use super::tracker::CostTracker;
 use super::types::{
     BudgetEvaluation, BudgetState, CostAuditEvent, CostGovernanceSummary, CostHistory,
-    CostOverrideRecord, CostOverrideRequest, CostResetRequest, CostResetResult, MissionBudgetScope,
-    UsagePeriod,
+    CostOverrideRecord, CostOverrideRequest, CostResetRequest, CostResetResult, CostSummary,
+    MissionBudgetScope, UsagePeriod,
 };
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 /// Thin runtime-facing orchestration layer over the tracker.
 #[derive(Clone)]
 pub struct CostService {
-    tracker: Arc<CostTracker>,
+    tracker: Option<Arc<CostTracker>>,
 }
 
 impl CostService {
     pub fn new(tracker: Arc<CostTracker>) -> Self {
-        Self { tracker }
+        Self {
+            tracker: Some(tracker),
+        }
+    }
+
+    pub fn disabled() -> Self {
+        Self { tracker: None }
     }
 
     pub fn current_summary(&self, now: DateTime<Utc>) -> Result<CostGovernanceSummary> {
-        let usage = self.tracker.get_summary()?;
-        let scope_statuses = self.tracker.scope_statuses()?;
-        let active_override = self.tracker.active_override(now)?;
+        let Some(tracker) = &self.tracker else {
+            return Ok(CostGovernanceSummary {
+                session_id: "disabled".to_string(),
+                usage: CostSummary {
+                    session_cost_usd: 0.0,
+                    daily_cost_usd: 0.0,
+                    monthly_cost_usd: 0.0,
+                    total_tokens: 0,
+                    request_count: 0,
+                    by_model: std::collections::HashMap::new(),
+                },
+                budget_state: BudgetState::Allowed,
+                active_period: None,
+                scope_statuses: Vec::new(),
+                active_override: None,
+            });
+        };
+
+        let snapshot = tracker.snapshot(now)?;
+        let usage = snapshot.usage;
+        let scope_statuses = snapshot.scope_statuses;
+        let active_override = snapshot.active_override;
 
         let active_scope = scope_statuses.iter().max_by(|left, right| {
             budget_state_rank(left.state)
@@ -31,7 +56,7 @@ impl CostService {
         });
 
         Ok(CostGovernanceSummary {
-            session_id: self.tracker.session_id().to_string(),
+            session_id: snapshot.session_id,
             usage,
             budget_state: active_scope.map_or(BudgetState::Allowed, |status| status.state),
             active_period: active_scope.map(|status| status.period),
@@ -46,7 +71,19 @@ impl CostService {
         window: usize,
         now: DateTime<Utc>,
     ) -> Result<CostHistory> {
-        self.tracker.history_window(period, window, now)
+        let Some(tracker) = &self.tracker else {
+            return Ok(CostHistory {
+                period,
+                points: Vec::new(),
+                totals: super::types::CostHistoryTotals {
+                    cost_usd: 0.0,
+                    tokens: 0,
+                    requests: 0,
+                },
+            });
+        };
+
+        tracker.history_window(period, window, now)
     }
 
     pub fn history_range(
@@ -55,11 +92,27 @@ impl CostService {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<CostHistory> {
-        self.tracker.history_range(period, start, end)
+        let Some(tracker) = &self.tracker else {
+            return Ok(CostHistory {
+                period,
+                points: Vec::new(),
+                totals: super::types::CostHistoryTotals {
+                    cost_usd: 0.0,
+                    tokens: 0,
+                    requests: 0,
+                },
+            });
+        };
+
+        tracker.history_range(period, start, end)
     }
 
     pub fn reset(&self, request: CostResetRequest, now: DateTime<Utc>) -> Result<CostResetResult> {
-        self.tracker.reset(request, now)
+        let tracker = self
+            .tracker
+            .as_ref()
+            .ok_or_else(|| anyhow!("Cost tracker is unavailable"))?;
+        tracker.reset(request, now)
     }
 
     pub fn apply_override(
@@ -67,11 +120,19 @@ impl CostService {
         request: CostOverrideRequest,
         now: DateTime<Utc>,
     ) -> Result<CostOverrideRecord> {
-        self.tracker.apply_override(request, now)
+        let tracker = self
+            .tracker
+            .as_ref()
+            .ok_or_else(|| anyhow!("Cost tracker is unavailable"))?;
+        tracker.apply_override(request, now)
     }
 
     pub fn audit_trail(&self, limit: usize) -> Result<Vec<CostAuditEvent>> {
-        self.tracker.audit_trail(limit)
+        let tracker = self
+            .tracker
+            .as_ref()
+            .ok_or_else(|| anyhow!("Cost tracker is unavailable"))?;
+        tracker.audit_trail(limit)
     }
 
     pub fn evaluate_request(
@@ -80,26 +141,26 @@ impl CostService {
         mission_scope: Option<MissionBudgetScope>,
         now: DateTime<Utc>,
     ) -> Result<BudgetEvaluation> {
-        let check = self
-            .tracker
-            .check_budget_with_mission_scope(estimated_cost_usd, mission_scope.as_ref())?;
+        let Some(tracker) = &self.tracker else {
+            return Ok(BudgetEvaluation::Proceed {
+                check: super::types::BudgetCheck::Allowed,
+                override_applied: None,
+                reservation: None,
+            });
+        };
 
-        if matches!(check, super::types::BudgetCheck::Exceeded { .. }) {
-            if self.tracker.config().allow_override {
-                if let Some(override_applied) = self.tracker.consume_override_if_active(now)? {
-                    return Ok(BudgetEvaluation::Proceed {
-                        check,
-                        override_applied: Some(override_applied),
-                    });
-                }
-            }
+        let (check, override_applied, reservation) =
+            tracker.reserve_budget_for_request(estimated_cost_usd, mission_scope.as_ref(), now)?;
 
+        if matches!(check, super::types::BudgetCheck::Exceeded { .. }) && override_applied.is_none()
+        {
             return Ok(BudgetEvaluation::Blocked { check });
         }
 
         Ok(BudgetEvaluation::Proceed {
             check,
-            override_applied: None,
+            override_applied,
+            reservation,
         })
     }
 }

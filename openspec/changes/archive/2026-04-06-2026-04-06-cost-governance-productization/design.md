@@ -340,6 +340,13 @@ BudgetOverride {
 }
 ```
 
+Observability outputs MUST redact sensitive governance fields before emission. In logs, metrics,
+and traces: `actor` and `reason` are fully redacted, `session_id` is masked or omitted unless the
+surface explicitly requires an internal correlation token, and any PII must be redacted before
+recording. The runtime redaction implementation lives in the observability helpers so operators
+should expect structured events without raw operator identity, free-form reasons, or directly
+reusable session identifiers.
+
 ### Dashboard/reporting surface shape
 
 The dashboard keeps the existing `CostOverview.vue` placement under config, but the component becomes
@@ -374,6 +381,29 @@ CSV export later, and external admin/reporting tools without requiring a second 
 | Unit | Budget threshold math, override scope expiry, deprecated config alias normalization, mission cost derivation | Extend `clients/agent-runtime/src/cost/*`, `config/*`, and `agent/mission.rs` tests with focused deterministic cases |
 | Integration | Agent loop warning/block behavior, gateway cost endpoints, admin config patch semantics, reset/override audit emission | Rust integration-style tests around gateway handlers and `Agent` execution paths using temp workspace cost storage |
 | E2E | Dashboard rendering of live usage/history/alerts, CLI operator flows, config migration behavior | Vitest component tests for dashboard plus targeted CLI/gateway end-to-end smoke paths in runtime tests |
+
+### Rollback & Feature-Flag Strategy
+
+- Budget-governance enforcement stays behind `cost.enabled` and the gateway dispatcher path, so the
+  first rollback step is to disable `cost.enabled` for affected workspaces or environments.
+- If a rollout causes false budget blocks, gateway instability, or noisy operator actions, revert to
+  dispatcher-disabled or cost-disabled configuration before shipping code rollback.
+- Roll out gradually by workspace/environment scope (or percentage of selected workspaces if an
+  operator automation layer exists), then watch budget warning/exceeded rates, gateway error rates,
+  and override frequency before widening exposure.
+- Monitoring/alert thresholds should trigger rollback when budget-exceeded errors spike without a
+  matching spend increase, gateway cost endpoints return elevated 5xx responses, or admin config
+  mutations fail to propagate consistently.
+
+### Threat / Risk Notes
+
+- **Security:** override and reset paths are privileged actions; unexpected actor/reason exposure or
+  auth bypasses require an emergency patch.
+- **Runtime:** reservation/accounting bugs can over-block or under-block requests; signals include
+  sudden drift between estimated and recorded spend or repeated blocked requests after resets.
+- **Gateway:** dispatcher bypass or handler startup failure can silently disable governance; signals
+  include legacy path usage while `cost.enabled=true`, elevated 5xx on cost endpoints, or missing
+  structured budget-exceeded responses.
 
 ## Migration / Rollout
 

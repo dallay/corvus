@@ -86,13 +86,11 @@ fn bad_request(message: &str) -> CostResponse {
 
 fn cost_service_from_state(state: &AppState) -> Result<(Config, CostService), CostResponse> {
     let config = state.config.lock().clone();
-    let Some(tracker) = state.cost_tracker.clone() else {
-        return Err(internal_error(
-            "Shared gateway cost tracker is unavailable",
-            &"shared tracker missing",
-        ));
+    let service = match state.cost_tracker.clone() {
+        Some(tracker) => CostService::new(tracker),
+        None => CostService::disabled(),
     };
-    Ok((config, CostService::new(tracker)))
+    Ok((config, service))
 }
 
 fn scope_percent(scope_statuses: &[BudgetScopeStatus], period: UsagePeriod) -> f64 {
@@ -359,6 +357,33 @@ mod tests {
         }
     }
 
+    fn test_state_without_tracker(config: Config, paired_token: Option<&str>) -> AppState {
+        let token = paired_token
+            .map(ToOwned::to_owned)
+            .into_iter()
+            .collect::<Vec<_>>();
+        AppState {
+            config: Arc::new(Mutex::new(config)),
+            cost_tracker: None,
+            provider: Arc::new(crate::gateway::tests::MockProvider::default()),
+            model: "test-model".into(),
+            temperature: 0.0,
+            mem: Arc::new(crate::gateway::tests::MockMemory) as Arc<dyn Memory>,
+            auto_save: false,
+            webhook_secret_hash: None,
+            pairing: Arc::new(PairingGuard::new(paired_token.is_some(), &token)),
+            trust_forwarded_headers: false,
+            rate_limiter: Arc::new(GatewayRateLimiter::new(100, 100, 100)),
+            idempotency_store: Arc::new(IdempotencyStore::new(Duration::from_secs(300), 1000)),
+            whatsapp: None,
+            whatsapp_app_secret: None,
+            channel_runtime_handle: None,
+            observer: Arc::new(crate::observability::NoopObserver),
+            transcriber: None,
+            audio_config: crate::config::AudioConfig::default(),
+        }
+    }
+
     fn admin_headers(token: &str) -> HeaderMap {
         let mut headers = HeaderMap::new();
         headers.insert(
@@ -470,6 +495,23 @@ mod tests {
         assert_eq!(json["points"][0]["requests"], 1);
         assert_eq!(json["points"][1]["tokens"], 1_500);
         assert_eq!(json["points"][1]["requests"], 1);
+    }
+
+    #[tokio::test]
+    async fn cost_summary_returns_disabled_payload_without_tracker() {
+        let mut config = temp_config();
+        config.cost.enabled = false;
+
+        let state = test_state_without_tracker(config, Some("zc_valid_token"));
+        let (status, json) =
+            response_json(handle_cost_summary(State(state), admin_headers("zc_valid_token")).await)
+                .await;
+
+        assert_eq!(status, StatusCode::OK);
+        assert_eq!(json["summary"]["session_cost_usd"], 0.0);
+        assert_eq!(json["summary"]["daily_cost_usd"], 0.0);
+        assert_eq!(json["summary"]["monthly_cost_usd"], 0.0);
+        assert_eq!(json["summary"]["budget_state"], "allowed");
     }
 
     #[tokio::test]

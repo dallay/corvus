@@ -170,6 +170,7 @@ pub fn cost_override_scope_label(scope: CostOverrideScope) -> &'static str {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct BudgetThresholdEvent {
+    pub budget_state: BudgetState,
     pub period: UsagePeriod,
     pub current_usd: f64,
     pub projected_usd: f64,
@@ -508,6 +509,7 @@ mod tests {
     #[test]
     fn observer_event_budget_variants_exist() {
         let warning = ObserverEvent::BudgetWarning(BudgetThresholdEvent {
+            budget_state: BudgetState::Warning,
             period: UsagePeriod::Day,
             current_usd: 8.2,
             projected_usd: 8.2,
@@ -517,6 +519,7 @@ mod tests {
             surface: Some("agent_loop".into()),
         });
         let exceeded = ObserverEvent::BudgetExceeded(BudgetThresholdEvent {
+            budget_state: BudgetState::Exceeded,
             period: UsagePeriod::Day,
             current_usd: 10.2,
             projected_usd: 10.3,

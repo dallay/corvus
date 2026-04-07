@@ -56,6 +56,8 @@ export function useCostGovernance(
   }
 
   function updateDeprecations(): void {
+    // Pending backend support: populate deprecations from admin config payloads
+    // once fetchCostConfig() exposes cost-specific deprecation metadata.
     deprecations.value = [];
   }
 

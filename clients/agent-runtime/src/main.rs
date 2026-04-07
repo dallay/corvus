@@ -1328,7 +1328,10 @@ async fn handle_agent_command(
 
     let summary_result = agent.session_cost_summary(chrono::Utc::now());
     agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-    print_cli_session_summary(summary_result?, CliSessionSurface::Agent);
+    match summary_result {
+        Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Agent),
+        Err(error) => tracing::warn!("Failed to load agent session cost summary: {error}"),
+    }
 
     run_result
 }
@@ -1373,7 +1376,10 @@ async fn handle_code_command(
 
     let summary_result = agent.session_cost_summary(chrono::Utc::now());
     agent.record_agent_end_event(&provider_name, &model_name, session_start.elapsed());
-    print_cli_session_summary(summary_result?, CliSessionSurface::Code);
+    match summary_result {
+        Ok(summary) => print_cli_session_summary(summary, CliSessionSurface::Code),
+        Err(error) => tracing::warn!("Failed to load code session cost summary: {error}"),
+    }
 
     run_result
 }
