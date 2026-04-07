@@ -71,6 +71,7 @@ test("release workflows document canonical ownership and diagnostics", () => {
   const publishWorkflow = readText(".github/workflows/_publish.yml");
 
   assert.match(releasePlease, /id: release-please/);
+  assert.match(releasePlease, /Checkout release metadata/);
   assert.match(releasePlease, /GITHUB_STEP_SUMMARY/);
   assert.match(releasePlease, /manifest-file: \.release-please-manifest\.json/);
   assert.match(releasePlease, /release-please action outputs/i);
@@ -126,6 +127,7 @@ test("release docs and changelog point to GitHub Releases as canonical notes", (
 
   assert.match(docsEn, /private web packages are excluded/i);
   assert.match(docsEn, /manual recovery/i);
+  assert.match(docsEn, /through a pull request/i);
   assert.match(docsEs, /paquetes web privados están excluidos/i);
   assert.match(docsEs, /recuperación manual/i);
   assert.match(changelog, /GitHub Releases/);

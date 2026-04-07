@@ -71,6 +71,12 @@ Stable publish automation validates and publishes only shipped artifacts:
 
 The GitHub Release is the canonical public release record. The root `CHANGELOG.md` is only a pointer.
 
+### Governance rule
+
+- Release automation changes must land through a pull request, not a direct push to `main`.
+- Treat direct pushes to `main` as emergency-only recovery and document the reason when they happen.
+- If release infrastructure is broken, repair it on a short-lived branch, open a PR, and let normal branch protection plus checks validate the fix.
+
 ## Snapshot Flow
 
 `publish-snapshot.yml` is manual or scheduled and covers the Gradle/Maven snapshot channel only.

@@ -248,8 +248,14 @@ release tag from `main`.
 
 - Runs release-please with `release-please-config.json`
 - Creates/updates a release PR with shipped-artifact version bumps
+- Checks out repository metadata before writing the workflow summary so diagnostics do not fail on missing manifest files
 - Writes diagnostics to the workflow summary, including manifest baseline and action outputs
 - On merge, creates the canonical `vX.Y.Z` tag that triggers `publish-release.yml`
+
+**Governance note**:
+
+- Changes to release automation should land through a pull request, not by bypassing `main` protections.
+- Reserve direct pushes to `main` for explicit emergency recovery only.
 
 **Secrets Required**:
 
