@@ -66,7 +66,8 @@ jobs:
         run: node ../../../../scripts/validate-docs-metadata.mjs
 
       - name: Validate model routing docs
-        run: node ../../../../scripts/model-routing-docs.test.mjs
+        working-directory: .
+        run: node scripts/model-routing-docs.test.mjs
 
       - name: Run docs checks
         run: pnpm run check
