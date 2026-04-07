@@ -170,6 +170,13 @@ export default defineConfig({
                 es: "Aislamiento del Sandbox del Runtime",
               },
             },
+            {
+              label: "Model Routing & Query Classification",
+              slug: "guides/model-routing",
+              translations: {
+                es: "Enrutamiento de Modelos y Clasificación de Consultas",
+              },
+            },
           ],
         },
         {
