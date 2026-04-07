@@ -1,4 +1,4 @@
-## Exploration: Productize Model Routing and Query Classification
+# Exploration: Productize Model Routing and Query Classification
 
 ### Current State
 

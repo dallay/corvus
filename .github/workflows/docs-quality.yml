@@ -12,6 +12,7 @@ on:
     paths:
       - "clients/web/apps/docs/**"
       - "scripts/validate-docs-metadata.mjs"
+      - "scripts/model-routing-docs.test.mjs"
       - ".github/workflows/docs-quality.yml"
   push:
     branches:
@@ -19,6 +20,7 @@ on:
     paths:
       - "clients/web/apps/docs/**"
       - "scripts/validate-docs-metadata.mjs"
+      - "scripts/model-routing-docs.test.mjs"
       - ".github/workflows/docs-quality.yml"
   workflow_dispatch:
 
@@ -62,6 +64,9 @@ jobs:
         env:
           GITHUB_EVENT_BEFORE: ${{ github.event.before }}
         run: node ../../../../scripts/validate-docs-metadata.mjs
+
+      - name: Validate model routing docs
+        run: node ../../../../scripts/model-routing-docs.test.mjs
 
       - name: Run docs checks
         run: pnpm run check

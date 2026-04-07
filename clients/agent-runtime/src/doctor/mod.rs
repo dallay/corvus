@@ -286,7 +286,14 @@ fn check_classification_integrity(config: &Config, cat: &'static str, items: &mu
     };
 
     for rule in &classification.rules {
-        if !rule.hint.is_empty() && !route_hints.contains(&rule.hint.as_str()) {
+        if rule.hint.is_empty() {
+            items.push(DiagItem::warn(
+                cat,
+                format!(
+                    "classification rule has an empty hint — it will never route to a named model_routes entry (available: {available_hints})"
+                ),
+            ));
+        } else if !route_hints.contains(&rule.hint.as_str()) {
             items.push(DiagItem::warn(
                 cat,
                 format!(

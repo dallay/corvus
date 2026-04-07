@@ -371,7 +371,8 @@ The formal spec MUST define fallback behavior:
 - GIVEN routes for `["fast", "reasoning"]`
 - WHEN classification returns hint `"code"` (no matching route)
 - THEN the system MUST use the default provider and model
-- AND a warning MUST be logged naming the unknown hint
+- AND the raw selector (e.g. `"hint:code"`) MUST be preserved and passed downstream as the model string
+- AND a warning MUST be logged naming the unknown hint and the fallback model
 
 #### Scenario: No classification match uses default model silently
 

@@ -1,4 +1,4 @@
-## Verification Report
+# Verification Report
 
 **Change**: productize-model-routing
 **Version**: N/A
@@ -20,16 +20,19 @@ All tasks in `openspec/changes/productize-model-routing/tasks.md` are complete.
 ### Build & Tests Execution
 
 **Format**: ✅ Passed
+
 ```text
 cargo fmt --manifest-path "clients/agent-runtime/Cargo.toml" --all -- --check
 ```
 
 **Type/Lint**: ✅ Passed
+
 ```text
 cargo clippy --manifest-path "clients/agent-runtime/Cargo.toml" --all-targets -- -D warnings
 ```
 
 **Tests**: ✅ Passed
+
 ```text
 cargo test --manifest-path "clients/agent-runtime/Cargo.toml"
 - agent-runtime suite passed
@@ -39,6 +42,7 @@ cargo test --manifest-path "clients/agent-runtime/Cargo.toml"
 ```
 
 **Targeted behavioral evidence**: ✅ Passed
+
 ```text
 cargo test --manifest-path "clients/agent-runtime/Cargo.toml" "classification_integrity_"
 cargo test --manifest-path "clients/agent-runtime/Cargo.toml" "known_hint_does_not_trigger_warning"

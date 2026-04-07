@@ -63,7 +63,7 @@ The approach maps directly to the proposal's four scope items. The spec provides
 
 No runtime data flow changes. The existing flow remains:
 
-```
+```text
 User Message
     │
     ▼
@@ -100,8 +100,8 @@ Changes are purely additive:
 | `clients/web/apps/docs/src/content/docs/guides/model-routing.md` | Create | Operator guide: model routing and query classification config, TOML examples, hint flow diagram, troubleshooting |
 | `clients/web/apps/docs/src/content/docs/es/guides/model-routing.md` | Create | Spanish translation of the operator guide (mirror of English) |
 | `clients/agent-runtime/src/doctor/mod.rs` | Modify | Add `check_classification_integrity` function with 4 new warning checks |
-| `clients/agent-runtime/src/providers/router.rs` | Modify | Enhance existing `tracing::warn!` on line 83 to include the fallback model name |
-| `clients/agent-runtime/src/providers/mod.rs` | Modify | Add route-impact warning when non-primary routed provider fails init (~line 752) |
+| `clients/agent-runtime/src/providers/router.rs` | Modify | Enhance `tracing::warn!` in `RouterProvider::resolve` to include the fallback model name |
+| `clients/agent-runtime/src/providers/mod.rs` | Modify | Add route-impact warning in `create_routed_provider` when a non-primary provider fails init |
 | `openspec/specs/model-routing/spec.md` | Create | Formal routing behavior specification with Given/When/Then scenarios |
 
 ## Interfaces / Contracts

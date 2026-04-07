@@ -211,7 +211,7 @@ model = "o1-preview"
 [[model_routes]]
 hint = "code"
 provider = "anthropic"
-model = "claude-sonnet-4-20250514"
+model = "claude-sonnet-4-6"
 
 [query_classification]
 enabled = true
