@@ -228,7 +228,7 @@ export function useAdmin(
     } catch (e: unknown) {
       error.value = e instanceof Error ? e.message : String(e);
       costConfig.value = null;
-      return null;
+      throw e;
     } finally {
       loading.value = false;
     }

@@ -79,7 +79,7 @@ pub struct AgentTurnResult {
 #[derive(Debug, Clone)]
 struct ActiveMissionBudget {
     mission_id: String,
-    baseline_session_cost_usd: f64,
+    baseline_total_cost_usd: f64,
     limit_usd: f64,
 }
 
@@ -1120,22 +1120,21 @@ impl Agent {
         let Some(active_budget) = &self.active_mission_budget else {
             return Ok(None);
         };
+
         let Some(tracker) = &self.cost_tracker else {
             return Ok(None);
         };
 
-        let summary = tracker.get_summary()?;
-        if summary.session_cost_usd < active_budget.baseline_session_cost_usd {
+        let current_total_cost_usd = tracker.cumulative_total_cost_usd();
+        if current_total_cost_usd < active_budget.baseline_total_cost_usd {
             anyhow::bail!(
-                "mission budget baseline exceeded current session total; runtime cost state regressed"
+                "mission budget baseline exceeded current cumulative total; runtime cost state regressed"
             );
         }
 
-        let current_usd = summary.session_cost_usd - active_budget.baseline_session_cost_usd;
-
         Ok(Some(MissionBudgetScope {
             mission_id: active_budget.mission_id.clone(),
-            current_usd,
+            current_usd: current_total_cost_usd - active_budget.baseline_total_cost_usd,
             limit_usd: active_budget.limit_usd,
         }))
     }
@@ -1146,10 +1145,9 @@ impl Agent {
             return Ok(());
         };
 
-        let summary = tracker.get_summary()?;
         self.active_mission_budget = Some(ActiveMissionBudget {
             mission_id: mission_id.to_string(),
-            baseline_session_cost_usd: summary.session_cost_usd,
+            baseline_total_cost_usd: tracker.cumulative_total_cost_usd(),
             limit_usd: f64::from(self.mission_config.max_estimated_cost_cents) / 100.0,
         });
         Ok(())
@@ -1161,7 +1159,7 @@ impl Agent {
 
     /// Record token usage after a successful LLM call using estimated tokens.
     fn record_estimated_usage(
-        &self,
+        &mut self,
         model: &str,
         response: &ChatResponse,
         turn_context: &TurnContext,
@@ -2852,6 +2850,39 @@ mod tests {
         let error = result.unwrap_err().to_string();
         assert!(error.contains("Budget exceeded"));
         assert!(error.contains("Mission limit"));
+    }
+
+    #[tokio::test]
+    async fn mission_budget_scope_survives_session_reset() {
+        let provider = Box::new(MockProvider {
+            responses: Mutex::new(vec![crate::providers::ChatResponse {
+                text: Some("mission still tracked".into()),
+                tool_calls: vec![],
+            }]),
+        });
+        let (mut agent, tracker, _tmp) = build_agent_with_cost_tracker(provider, true, 100.0);
+        let tracker = tracker.unwrap();
+        agent.mission_config.max_estimated_cost_cents = 100;
+        agent.begin_active_mission_budget("mission-a").unwrap();
+
+        let mut usage = crate::cost::TokenUsage::new("test/model", 1_000, 500, 0.0, 0.0);
+        usage.cost_usd = 0.75;
+        tracker.record_usage(usage).unwrap();
+
+        tracker
+            .reset(
+                crate::cost::CostResetRequest {
+                    scope: crate::cost::CostResetScope::Session,
+                    actor: "tester".into(),
+                    reason: Some("session reset".into()),
+                },
+                chrono::Utc::now(),
+            )
+            .unwrap();
+
+        let scope = agent.current_mission_budget_scope().unwrap().unwrap();
+        assert!((scope.current_usd - 0.75).abs() < 0.0001);
+        assert!((scope.limit_usd - 1.0).abs() < 0.0001);
     }
 
     #[tokio::test]

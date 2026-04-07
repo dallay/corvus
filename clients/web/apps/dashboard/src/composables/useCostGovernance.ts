@@ -29,6 +29,7 @@ export function useCostGovernance(
   const actionError = ref<string | null>(null);
   const actionPending = ref(false);
   const deprecations = ref<AdminDeprecatedFieldView[]>([]);
+  let reloadRequestId = 0;
 
   const admin = useAdmin(buildGatewayUrl, authHeaders);
 
@@ -62,6 +63,31 @@ export function useCostGovernance(
   }
 
   async function reload(): Promise<void> {
+    const requestId = ++reloadRequestId;
+    const capturedGatewayUrl = gatewayUrl();
+    const capturedBearerToken = bearerToken();
+    const capturedAdmin = useAdmin(
+      (path: string) => {
+        const base = validateGatewayUrl(capturedGatewayUrl);
+        if (!base) {
+          throw new Error(t("errors.invalidGatewayUrl"));
+        }
+
+        const baseStr = trimTrailingSlashes(base.toString());
+        return new URL(path.replace(/^\//, ""), `${baseStr}/`).toString();
+      },
+      () => {
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+        };
+        const token = capturedBearerToken.trim();
+        if (token) {
+          headers.Authorization = `Bearer ${token}`;
+        }
+        return headers;
+      }
+    );
+
     loading.value = true;
     error.value = null;
     actionMessage.value = null;
@@ -70,7 +96,10 @@ export function useCostGovernance(
     usageUnavailable.value = false;
 
     try {
-      const nextConfig = await admin.fetchCostConfig();
+      const nextConfig = await capturedAdmin.fetchCostConfig();
+      if (requestId !== reloadRequestId) {
+        return;
+      }
       if (!nextConfig) {
         config.value = null;
         error.value = t("errors.costNotAvailable");
@@ -81,9 +110,13 @@ export function useCostGovernance(
       updateDeprecations();
 
       const [summaryResult, historyResult] = await Promise.allSettled([
-        admin.fetchCostSummary(),
-        admin.fetchCostHistory({ period: "day", window: 7 }),
+        capturedAdmin.fetchCostSummary(),
+        capturedAdmin.fetchCostHistory({ period: "day", window: 7 }),
       ]);
+
+      if (requestId !== reloadRequestId) {
+        return;
+      }
 
       if (summaryResult.status === "fulfilled") {
         summary.value = summaryResult.value.summary;
@@ -103,12 +136,17 @@ export function useCostGovernance(
         usageError.value = t("cost.usageUnavailable");
       }
     } catch (e: unknown) {
+      if (requestId !== reloadRequestId) {
+        return;
+      }
       config.value = null;
       summary.value = null;
       history.value = null;
       error.value = e instanceof Error ? e.message : String(e);
     } finally {
-      loading.value = false;
+      if (requestId === reloadRequestId) {
+        loading.value = false;
+      }
     }
   }
 

@@ -23,6 +23,7 @@ pub struct CostTracker {
     session_costs: Arc<Mutex<Vec<CostRecord>>>,
     active_override: Arc<Mutex<Option<CostOverrideRecord>>>,
     pending_reservations: Arc<Mutex<HashMap<String, CostBudgetReservation>>>,
+    cumulative_total_cost_usd: Arc<Mutex<f64>>,
 }
 
 const MAX_HISTORY_WINDOW_DAYS: usize = 366;
@@ -38,6 +39,11 @@ impl CostTracker {
         let storage = CostStorage::new(&storage_path).with_context(|| {
             format!("Failed to open cost storage at {}", storage_path.display())
         })?;
+        let cumulative_total_cost_usd = storage
+            .read_records()?
+            .into_iter()
+            .map(|record| record.usage.cost_usd)
+            .sum();
         let audit_storage = CostAuditStorage::new(&audit_path).with_context(|| {
             format!(
                 "Failed to open cost audit storage at {}",
@@ -53,6 +59,7 @@ impl CostTracker {
             session_costs: Arc::new(Mutex::new(Vec::new())),
             active_override: Arc::new(Mutex::new(None)),
             pending_reservations: Arc::new(Mutex::new(HashMap::new())),
+            cumulative_total_cost_usd: Arc::new(Mutex::new(cumulative_total_cost_usd)),
         })
     }
 
@@ -81,6 +88,10 @@ impl CostTracker {
         self.pending_reservations.lock()
     }
 
+    fn lock_cumulative_total_cost_usd(&self) -> MutexGuard<'_, f64> {
+        self.cumulative_total_cost_usd.lock()
+    }
+
     fn redacted_audit_actor(actor: &str) -> Option<String> {
         (!actor.trim().is_empty()).then(|| REDACTED_AUDIT_VALUE.to_string())
     }
@@ -90,6 +101,18 @@ impl CostTracker {
             .map(str::trim)
             .filter(|reason| !reason.is_empty())
             .map(|_| REDACTED_AUDIT_VALUE.to_string())
+    }
+
+    fn append_audit_event_best_effort(&self, event: CostAuditEvent) {
+        if let Err(error) = self.append_audit_event(event.clone()) {
+            tracing::warn!(
+                kind = ?event.kind,
+                override_id = event.override_id.as_deref().unwrap_or("none"),
+                session_id = event.session_id.as_deref().unwrap_or("none"),
+                actor = event.actor.as_deref().unwrap_or("none"),
+                "Failed to persist cost audit event: {error}"
+            );
+        }
     }
 
     pub fn config(&self) -> CostConfig {
@@ -271,6 +294,8 @@ impl CostTracker {
             storage.add_record(record.clone())?;
         }
 
+        *self.lock_cumulative_total_cost_usd() += record.usage.cost_usd;
+
         // Then update in-memory session snapshot.
         if session_id == self.session_id {
             let mut session_costs = self.lock_session_costs();
@@ -278,6 +303,10 @@ impl CostTracker {
         }
 
         Ok(())
+    }
+
+    pub fn cumulative_total_cost_usd(&self) -> f64 {
+        *self.lock_cumulative_total_cost_usd()
     }
 
     /// Get the current cost summary.
@@ -414,6 +443,8 @@ impl CostTracker {
             return Err(anyhow!("Cost overrides are disabled by policy"));
         }
 
+        self.expire_override_if_needed(now)?;
+
         let override_record = CostOverrideRecord {
             id: uuid::Uuid::new_v4().to_string(),
             actor: request.actor.clone(),
@@ -429,7 +460,7 @@ impl CostTracker {
 
         *self.lock_active_override() = Some(override_record.clone());
 
-        self.append_audit_event(CostAuditEvent {
+        self.append_audit_event_best_effort(CostAuditEvent {
             id: uuid::Uuid::new_v4().to_string(),
             kind: CostAuditKind::OverrideGranted,
             recorded_at: now,
@@ -443,7 +474,7 @@ impl CostTracker {
             expires_at: override_record.expires_at,
             removed_cost_usd: None,
             removed_requests: None,
-        })?;
+        });
 
         Ok(override_record)
     }
@@ -475,7 +506,7 @@ impl CostTracker {
         };
 
         if let Some(override_record) = consumed.clone() {
-            self.append_audit_event(CostAuditEvent {
+            self.append_audit_event_best_effort(CostAuditEvent {
                 id: uuid::Uuid::new_v4().to_string(),
                 kind: CostAuditKind::OverrideConsumed,
                 recorded_at: now,
@@ -489,7 +520,7 @@ impl CostTracker {
                 expires_at: override_record.expires_at,
                 removed_cost_usd: None,
                 removed_requests: None,
-            })?;
+            });
         }
 
         Ok(consumed)
@@ -538,7 +569,7 @@ impl CostTracker {
             removed_requests: Some(removed_requests),
         };
 
-        self.append_audit_event(audit_event.clone())?;
+        self.append_audit_event_best_effort(audit_event.clone());
 
         Ok(CostResetResult {
             scope: request.scope,
@@ -573,7 +604,7 @@ impl CostTracker {
         };
 
         if let Some(override_record) = expired {
-            self.append_audit_event(CostAuditEvent {
+            self.append_audit_event_best_effort(CostAuditEvent {
                 id: uuid::Uuid::new_v4().to_string(),
                 kind: CostAuditKind::OverrideExpired,
                 recorded_at: now,
@@ -587,7 +618,7 @@ impl CostTracker {
                 expires_at: override_record.expires_at,
                 removed_cost_usd: None,
                 removed_requests: None,
-            })?;
+            });
         }
 
         Ok(())

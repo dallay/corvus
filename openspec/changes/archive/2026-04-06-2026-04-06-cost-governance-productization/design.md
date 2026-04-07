@@ -216,27 +216,32 @@ sequenceDiagram
 interface CostGovernanceState {
   config: {
     enabled: boolean;
+    session_limit_usd: number;
     daily_limit_usd: number;
     monthly_limit_usd: number;
     warn_at_percent: number;
     allow_override: boolean;
   };
-  current: {
+  summary: {
     session_cost_usd: number;
     daily_cost_usd: number;
     monthly_cost_usd: number;
     total_tokens: number;
     request_count: number;
-    active_budget_state: "allowed" | "warning" | "exceeded";
-    active_period?: "session" | "day" | "month" | "mission";
+    budget_state: "allowed" | "warning" | "exceeded";
+    period?: "session" | "day" | "month" | "mission";
     percent_used_session: number;
     percent_used_daily: number;
     percent_used_monthly: number;
   };
   warnings: Array<{
+    budget_state: "warning" | "exceeded";
     period: "session" | "day" | "month" | "mission";
     current_usd: number;
+    projected_usd: number;
     limit_usd: number;
+    percent_used: number;
+    surface?: string;
     observed_at: string;
   }>;
 }
@@ -343,26 +348,37 @@ PATCH /api/web/admin/config
 
 ```rust
 BudgetWarning {
+    budget_state: BudgetState,
     period: UsagePeriod,
     current_usd: f64,
+    projected_usd: f64,
     limit_usd: f64,
+    percent_used: f64,
     session_id: String,
+    surface: Option<String>,
 }
 
 BudgetExceeded {
+    budget_state: BudgetState,
     period: UsagePeriod,
     current_usd: f64,
+    projected_usd: f64,
     limit_usd: f64,
+    percent_used: f64,
     session_id: String,
-    surface: String,
+    surface: Option<String>,
 }
 
 BudgetOverride {
+    action: BudgetOverrideAction,
     actor: String,
     scope: String,
     reason: String,
     session_id: Option<String>,
     previous_state: String,
+    period: Option<UsagePeriod>,
+    override_id: Option<String>,
+    surface: Option<String>,
 }
 ```
 

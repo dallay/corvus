@@ -965,11 +965,22 @@ fn render_cost_summary(
     let daily_percent = scope_percent(&summary.scope_statuses, cost::UsagePeriod::Day);
     let monthly_percent = scope_percent(&summary.scope_statuses, cost::UsagePeriod::Month);
     let active_period = summary.active_period.map(period_label).unwrap_or("none");
+    let active_scope = summary
+        .scope_statuses
+        .iter()
+        .max_by(|left, right| {
+            budget_state_rank(left.state)
+                .cmp(&budget_state_rank(right.state))
+                .then_with(|| left.percent_used.total_cmp(&right.percent_used))
+        })
+        .map(|status| period_label(status.period))
+        .unwrap_or("none");
 
     [
         format!("session_id={}", summary.session_id),
         format!("budget_state={}", budget_state_label(summary.budget_state)),
         format!("active_period={active_period}"),
+        format!("active_scope={active_scope}"),
         format!("session_cost_usd={:.4}", summary.usage.session_cost_usd),
         format!("daily_cost_usd={:.4}", summary.usage.daily_cost_usd),
         format!("monthly_cost_usd={:.4}", summary.usage.monthly_cost_usd),
@@ -1071,6 +1082,14 @@ fn budget_state_label(state: cost::BudgetState) -> &'static str {
         cost::BudgetState::Allowed => "allowed",
         cost::BudgetState::Warning => "warning",
         cost::BudgetState::Exceeded => "exceeded",
+    }
+}
+
+fn budget_state_rank(state: cost::BudgetState) -> u8 {
+    match state {
+        cost::BudgetState::Allowed => 0,
+        cost::BudgetState::Warning => 1,
+        cost::BudgetState::Exceeded => 2,
     }
 }
 
@@ -1310,11 +1329,12 @@ async fn handle_agent_command(
         .to_string();
     let mut agent = crate::agent::Agent::from_config(&effective_config)?;
     let session_start = Instant::now();
-    agent.record_agent_start_event(&provider_name, &model_name);
 
     if override_budget {
         apply_cli_budget_override(&agent, CliSessionSurface::Agent)?;
     }
+
+    agent.record_agent_start_event(&provider_name, &model_name);
 
     let run_result = if let Some(msg) = message {
         let response = agent.run_single(&msg).await;
@@ -1358,11 +1378,12 @@ async fn handle_code_command(
         .to_string();
     let mut agent = crate::agent::Agent::code_from_config(&config)?;
     let session_start = Instant::now();
-    agent.record_agent_start_event(&provider_name, &model_name);
 
     if override_budget {
         apply_cli_budget_override(&agent, CliSessionSurface::Code)?;
     }
+
+    agent.record_agent_start_event(&provider_name, &model_name);
 
     let run_result = if let Some(msg) = message {
         let response = agent.run_single(&msg).await;

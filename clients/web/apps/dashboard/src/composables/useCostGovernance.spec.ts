@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { effectScope } from "vue";
+import { effectScope, ref } from "vue";
 
 import { useCostGovernance } from "@/composables/useCostGovernance";
 
@@ -12,12 +12,12 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function createComposable() {
+function createComposable(gateway = ref("http://localhost:3000"), token = ref("test-token")) {
   const scope = effectScope();
   const governance = scope.run(() =>
     useCostGovernance(
-      () => "http://localhost:3000",
-      () => "test-token",
+      () => gateway.value,
+      () => token.value,
       (key) => key
     )
   );
@@ -28,6 +28,8 @@ function createComposable() {
 
   return {
     governance,
+    gateway,
+    token,
     stop: () => scope.stop(),
   };
 }
@@ -271,6 +273,120 @@ describe("useCostGovernance", () => {
       body: JSON.stringify({ scope: "session" }),
     });
 
+    stop();
+  });
+
+  it("surfaces transport/auth errors instead of generic unavailable fallback", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 401 }));
+
+    const { governance, stop } = createComposable();
+    await governance.reload();
+
+    expect(governance.error.value).toBe("HTTP 401");
+    expect(governance.config.value).toBeNull();
+
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+    await governance.reload();
+
+    expect(governance.error.value).toBe("HTTP 500");
+    stop();
+  });
+
+  it("keeps only the latest overlapping reload results", async () => {
+    let resolveFirstConfig: ((value: Response) => void) | undefined;
+    let resolveSecondConfig: ((value: Response) => void) | undefined;
+
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveFirstConfig = resolve;
+        })
+    );
+
+    const { governance, gateway, token, stop } = createComposable();
+    const firstReload = governance.reload();
+
+    gateway.value = "http://localhost:4000";
+    token.value = "new-token";
+
+    fetchMock
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveSecondConfig = resolve;
+          })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          summary: {
+            session_cost_usd: 9,
+            daily_cost_usd: 9,
+            monthly_cost_usd: 9,
+            total_tokens: 900,
+            request_count: 9,
+            percent_used_session: 90,
+            percent_used_daily: 90,
+            percent_used_monthly: 9,
+            budget_state: "warning",
+            period: "session",
+          },
+          config: {
+            enabled: true,
+            session_limit_usd: 10,
+            daily_limit_usd: 10,
+            monthly_limit_usd: 100,
+            warn_at_percent: 80,
+            allow_override: true,
+          },
+        })
+      )
+      .mockResolvedValueOnce(
+        jsonResponse({
+          period: "day",
+          points: [{ bucket: "2026-04-06", cost_usd: 9, tokens: 900, requests: 9 }],
+          totals: { cost_usd: 9, tokens: 900, requests: 9 },
+        })
+      );
+
+    const secondReload = governance.reload();
+
+    resolveSecondConfig?.(
+      jsonResponse({
+        config: {
+          cost: {
+            enabled: true,
+            session_limit_usd: 10,
+            daily_limit_usd: 10,
+            monthly_limit_usd: 100,
+            warn_at_percent: 80,
+            allow_override: true,
+          },
+        },
+      })
+    );
+    await secondReload;
+
+    resolveFirstConfig?.(
+      jsonResponse({
+        config: {
+          cost: {
+            enabled: true,
+            session_limit_usd: 1,
+            daily_limit_usd: 1,
+            monthly_limit_usd: 1,
+            warn_at_percent: 50,
+            allow_override: false,
+          },
+        },
+      })
+    );
+    await firstReload;
+
+    expect(governance.config.value?.session_limit_usd).toBe(10);
+    expect(governance.summary.value?.session_cost_usd).toBe(9);
+    expect(governance.history.value?.totals.requests).toBe(9);
     stop();
   });
 });

@@ -614,11 +614,9 @@ pub struct CostConfig {
 #[serde(deny_unknown_fields)]
 pub struct ModelPricing {
     /// Input price per 1M tokens
-    #[serde(default)]
     pub input: f64,
 
     /// Output price per 1M tokens
-    #[serde(default)]
     pub output: f64,
 }
 
@@ -3237,6 +3235,9 @@ impl Config {
         if !self.cost.monthly_limit_usd.is_finite() || self.cost.monthly_limit_usd < 0.0 {
             anyhow::bail!("cost.monthly_limit_usd must be a finite, non-negative value");
         }
+        if self.cost.warn_at_percent > 100 {
+            anyhow::bail!("cost.warn_at_percent must be between 0 and 100 inclusive");
+        }
         for (model, pricing) in &self.cost.prices {
             if !pricing.input.is_finite() || pricing.input < 0.0 {
                 anyhow::bail!("cost.prices.{model}.input must be a finite, non-negative value");
@@ -4452,6 +4453,31 @@ tool_dispatcher = "xml"
         assert!(err
             .to_string()
             .contains("cost.prices.bad-model.input must be a finite, non-negative value"));
+    }
+
+    #[test]
+    fn validate_for_runtime_rejects_warn_percent_above_hundred() {
+        let mut config = Config::default();
+        config.cost.warn_at_percent = 255;
+
+        let err = config.validate_for_runtime().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("cost.warn_at_percent must be between 0 and 100 inclusive"));
+    }
+
+    #[test]
+    fn model_pricing_requires_both_input_and_output_fields() {
+        let raw = r#"
+[cost]
+enabled = true
+
+[cost.prices."test/model"]
+input = 1.0
+"#;
+
+        let err = toml::from_str::<Config>(raw).unwrap_err();
+        assert!(err.to_string().contains("missing field `output`"));
     }
 
     #[test]
