@@ -12,12 +12,14 @@ const emit = defineEmits<{
   (e: "update:search", value: string | undefined): void;
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 const category = ref<string>("all");
 const sessionId = ref(props.initialSessionId ?? "");
 const search = ref("");
 let searchTimeout: ReturnType<typeof setTimeout> | undefined;
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function onCategoryChange() {
   const value = category.value === "all" ? undefined : category.value;
   emit("update:category", value);
@@ -28,6 +30,7 @@ function onSessionIdChange() {
   emit("update:sessionId", value);
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function onSearchInput() {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(() => {

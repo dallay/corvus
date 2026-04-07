@@ -9,11 +9,13 @@ const props = defineProps<{
   sessionId: string;
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const emit = defineEmits<{
   (e: "view-memory", sessionId: string): void;
   (e: "close"): void;
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 

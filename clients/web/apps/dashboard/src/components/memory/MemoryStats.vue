@@ -8,6 +8,7 @@ const props = defineProps<{
   authHeaders: () => Record<string, string>;
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 

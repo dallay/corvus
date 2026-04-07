@@ -11,8 +11,10 @@ const props = defineProps<{
   sort?: "last_activity" | "started_at";
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const emit = defineEmits<(e: "select", session: AdminSessionView) => void>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 const page = ref(1);
@@ -35,12 +37,14 @@ function totalPages(): number {
   return Math.max(1, Math.ceil(admin.totalSessions.value / perPage.value));
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function goToPage(p: number) {
   if (p >= 1 && p <= totalPages()) {
     page.value = p;
   }
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function onPerPageChange(event: Event) {
   const value = Number((event.target as HTMLSelectElement | null)?.value);
   perPage.value = PER_PAGE_OPTIONS.includes(value as (typeof PER_PAGE_OPTIONS)[number])

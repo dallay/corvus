@@ -11,6 +11,7 @@ const props = defineProps<{
   searchFilter?: string;
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 const admin = useAdmin(props.gatewayUrl, props.authHeaders);
 const page = ref(1);
@@ -34,12 +35,14 @@ function totalPages(): number {
   return Math.max(1, Math.ceil(admin.totalMemoryEntries.value / perPage.value));
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function goToPage(p: number) {
   if (p >= 1 && p <= totalPages()) {
     page.value = p;
   }
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function requestDelete(key: string, event?: Event) {
   restoreFocusTarget.value =
     event?.currentTarget instanceof HTMLElement ? event.currentTarget : null;
@@ -52,10 +55,12 @@ function closeDeleteDialog() {
   nextTick(() => restoreFocusTarget.value?.focus());
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function cancelDelete() {
   closeDeleteDialog();
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 async function confirmDelete() {
   if (!confirmingDelete.value) return;
   const deleted = await admin.deleteMemoryEntry(confirmingDelete.value);
@@ -66,6 +71,7 @@ async function confirmDelete() {
   }
 }
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 function truncate(text: string, maxLen: number): string {
   return text.length > maxLen ? `${text.slice(0, maxLen)}…` : text;
 }

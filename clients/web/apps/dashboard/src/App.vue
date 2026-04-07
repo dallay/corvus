@@ -1,7 +1,6 @@
 <script setup lang="ts">
-// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
-
 import { trimTrailingSlashes } from "@corvus/shared";
+// biome-ignore lint/correctness/noUnusedImports: Used in Vue template.
 import { Button, Input } from "@corvus/ui";
 import { ref } from "vue";
 import { useI18n } from "vue-i18n";
@@ -60,11 +59,9 @@ import type { AdminSessionView } from "@/types/admin-sessions";
 
 const { t } = useI18n();
 
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const config = useConfig(t);
 
 type DashboardPage = "config" | "sessions" | "memory";
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const currentPage = ref<DashboardPage>("config");
 
 // Session view state
@@ -72,13 +69,11 @@ const currentPage = ref<DashboardPage>("config");
 const sessionStatusFilter = ref<"active" | "ended" | undefined>(undefined);
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const sessionSort = ref<"last_activity" | "started_at">("last_activity");
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const selectedSession = ref<AdminSessionView | null>(null);
 
 // Memory view state
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const memoryCategoryFilter = ref<string | undefined>(undefined);
-// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const memorySessionIdFilter = ref<string | undefined>(undefined);
 // biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const memorySearchFilter = ref<string | undefined>(undefined);
