@@ -130,6 +130,7 @@ test("release docs and changelog point to GitHub Releases as canonical notes", (
   assert.match(docsEn, /through a pull request/i);
   assert.match(docsEs, /paquetes web privados están excluidos/i);
   assert.match(docsEs, /recuperación manual/i);
+  assert.match(docsEs, /por pull request/i);
   assert.match(changelog, /GitHub Releases/);
   assert.doesNotMatch(changelog, /## \[Unreleased\]/);
 });
