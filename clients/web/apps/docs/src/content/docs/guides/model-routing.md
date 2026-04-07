@@ -160,7 +160,7 @@ default_model = "gpt-4o-mini"
 [[model_routes]]
 hint = "code"
 provider = "groq"
-model = "qwen-qwq-32b"
+model = "qwen/qwen3-32b"
 
 [query_classification]
 enabled = true
