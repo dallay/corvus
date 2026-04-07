@@ -71,6 +71,12 @@ La automatización estable valida y publica solo artefactos enviados:
 
 El GitHub Release es el registro público canónico del release. El `CHANGELOG.md` raíz es solo un apuntador.
 
+### Regla de gobernanza
+
+- Los cambios a la automatización de releases deben entrar por pull request, no por push directo a `main`.
+- Trata los pushes directos a `main` como recuperación de emergencia solamente y documenta la razón cuando ocurra.
+- Si la infraestructura de release se rompe, arréglala en una rama corta, abre un PR y deja que la protección de rama y los checks validen el fix.
+
 ## Flujo de Snapshot
 
 `publish-snapshot.yml` es manual o programado y cubre solo el canal snapshot de Gradle/Maven.
