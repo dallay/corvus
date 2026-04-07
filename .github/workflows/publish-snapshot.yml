@@ -12,9 +12,11 @@ concurrency:
 
 jobs:
   publish-snapshot:
+    # Snapshots stay outside stable GitHub Release ownership and release-note publication.
     if: github.repository == 'dallay/corvus'
     uses: ./.github/workflows/_publish.yml
     with:
+      # Snapshot runs only cover the Gradle/Maven channel.
       release: false
       changelog: false
     secrets: inherit

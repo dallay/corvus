@@ -185,10 +185,10 @@ export ORG_GRADLE_PROJECT_mavenCentralUsername="tu_usuario_sonatype"
 export ORG_GRADLE_PROJECT_mavenCentralPassword="tu_token_sonatype"
 
 # Prueba (modo dry-run si está disponible)
-./gradlew publishToMavenCentral --dry-run
+./gradlew -p gradle/build-logic publishToMavenCentral --dry-run
 
 # O publicación real
-./gradlew publishToMavenCentral
+./gradlew -p gradle/build-logic publishToMavenCentral
 ```
 
 ---

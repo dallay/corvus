@@ -1,6 +1,6 @@
 # GitHub Actions Workflows
 
-This directory contains all GitHub Actions workflows for the starter-gradle project. Workflows are organized by purpose: CI/CD, security scanning, publishing, repository automation, and maintenance.
+This directory contains all GitHub Actions workflows for the Corvus monorepo. Workflows are organized by purpose: CI/CD, security scanning, publishing, repository automation, and maintenance.
 
 ## 📋 Quick Reference
 
@@ -11,9 +11,9 @@ This directory contains all GitHub Actions workflows for the starter-gradle proj
 | **CI/CD**       | `deploy-docs.yml`                    | Deploy documentation to GitHub Pages        | Push docs to `main`, Release published  |
 | **Security**    | `codeql-analysis.yml`                | Security scanning with CodeQL               | Push to main/minor, daily schedule      |
 | **Security**    | `snyk-security.yml`                  | Snyk SAST/SCA/Container/IaC scans           | Push/PR to main/minor, manual           |
-| **Publishing**  | `publish-release.yml`                | Publish release (Maven, Cargo, npm, Docker) | Tag push `v*.*.*`                       |
-| **Publishing**  | `publish-snapshot.yml`               | Publish snapshot versions                   | Manual, daily schedule                  |
-| **Publishing**  | `release-please.yml`                 | Create release PRs and tags                 | Push to `main`, manual                  |
+| **Publishing**  | `publish-release.yml`                | Publish stable artifacts and GitHub Release | Canonical tag push `v*.*.*`             |
+| **Publishing**  | `publish-snapshot.yml`               | Publish Gradle/Maven snapshots only         | Manual, daily schedule                  |
+| **Publishing**  | `release-please.yml`                 | Create repo-wide release PRs and tags       | Push to `main`, manual                  |
 | **Publishing**  | `_publish.yml`                       | Reusable publish workflow                   | Called by other workflows               |
 | **Automation**  | `auto-fix-lockfile.yml`              | Auto-update lockfiles                       | Daily schedule, manual                  |
 | **Automation**  | `fix-renovate.yml`                   | Fix lockfiles for Renovate PRs              | Comment `/fix-lock` on PR               |
@@ -179,8 +179,8 @@ Code Scanning.
 
 ### `publish-release.yml` - Release Publishing
 
-**Purpose**: Publishes release artifacts to Maven Central, crates.io, npm, Docker Hub, GHCR, and
-dashboard Docker images, then creates a GitHub release.
+**Purpose**: Publishes stable artifacts after the canonical `vX.Y.Z` tag exists, then creates the
+canonical GitHub Release.
 
 **Triggers**:
 
@@ -192,6 +192,14 @@ Calls the reusable `_publish.yml` workflow with:
 - `release: true` - Creates GitHub release
 - `changelog: true` - Generates changelog
 
+**Stable contract**:
+
+- The tag must come from `release-please.yml`.
+- Stable version checks only cover shipped artifacts.
+- Private web packages are excluded from stable version churn.
+- `corvus-cli` is internal/private and is not a stable publish target.
+- Windows ARM64 is intentionally unsupported and is not part of the stable npm publish matrix.
+
 **Restrictions**:
 
 - Only runs on `dallay/corvus` repository
@@ -201,7 +209,7 @@ Calls the reusable `_publish.yml` workflow with:
 
 ### `publish-snapshot.yml` - Snapshot Publishing
 
-**Purpose**: Publishes snapshot versions to Maven Central.
+**Purpose**: Publishes snapshot versions to Maven Central only.
 
 **Triggers**:
 
@@ -214,6 +222,12 @@ Calls the reusable `_publish.yml` workflow with:
 - `release: false` - No GitHub release created
 - `changelog: false` - No changelog generated
 
+**Snapshot contract**:
+
+- Snapshot publishing does not create the canonical stable tag.
+- Snapshot publishing does not own GitHub Release creation.
+- Snapshot publishing does not own stable release notes.
+
 **Restrictions**:
 
 - Only runs on `dallay/corvus` repository
@@ -222,7 +236,8 @@ Calls the reusable `_publish.yml` workflow with:
 
 ### `release-please.yml` - Release PR Automation
 
-**Purpose**: Opens/updates release PRs and creates release tags from `main`.
+**Purpose**: Opens or updates the single repo-wide stable release PR and creates the canonical
+release tag from `main`.
 
 **Triggers**:
 
@@ -232,8 +247,9 @@ Calls the reusable `_publish.yml` workflow with:
 **What it does**:
 
 - Runs release-please with `release-please-config.json`
-- Creates/updates a release PR with version bumps
-- On merge, creates a `vX.Y.Z` tag that triggers `publish-release.yml`
+- Creates/updates a release PR with shipped-artifact version bumps
+- Writes diagnostics to the workflow summary, including manifest baseline and action outputs
+- On merge, creates the canonical `vX.Y.Z` tag that triggers `publish-release.yml`
 
 **Secrets Required**:
 
@@ -270,7 +286,7 @@ Calls the reusable `_publish.yml` workflow with:
 2. 🌿 Generates changelog (if enabled) using `release-changelog-builder-action`
 3. 👻 Publishes to Maven Central using Gradle
 4. 🦀 Publishes Rust crate to crates.io (release only)
-5. 📦 Publishes npm package `@dallay/corvus` to npm (release only)
+5. 📦 Publishes shipped runtime npm packages to npm (release only)
 6. 🐳 Builds and publishes multi-arch runtime Docker image to Docker Hub + GHCR (release only)
 7. 📊 Builds and publishes multi-arch dashboard Docker image to Docker Hub + GHCR (release only)
 8. 🚀 Creates GitHub release (if enabled)
@@ -280,6 +296,9 @@ Calls the reusable `_publish.yml` workflow with:
 - ⚠️ Warning: Do not use never-expiring User Token for Maven Central
 - Uses commit-based changelog generation
 - Changelog config: `.github/config/changelog.json`
+- The GitHub Release is the canonical public release record
+- Stable npm publishing excludes `corvus-cli` because it is internal/private
+- Windows ARM64 is intentionally unsupported for stable npm publication
 
 ---
 

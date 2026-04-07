@@ -1,6 +1,5 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "bootstrap-sha": "e27fe5d544594751b48c8813eec5f69444968a9d",
   "include-component-in-tag": false,
   "skip-github-release": true,
   "skip-changelog": true,
@@ -29,15 +28,38 @@
           "jsonpath": "$.package.version"
         },
         {
+          "type": "toml",
+          "path": "clients/agent-runtime/Cargo.toml",
+          "jsonpath": "$.dependencies.cerebro.version"
+        },
+        {
           "type": "json",
-          "path": "clients/agent-runtime/npm/**/package.json",
-          "glob": true,
+          "path": "clients/agent-runtime/npm/corvus/package.json",
           "jsonpath": "$.version"
         },
         {
           "type": "json",
-          "path": "clients/web/**/package.json",
-          "glob": true,
+          "path": "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus-linux-x64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "clients/agent-runtime/npm/corvus-windows-x64/package.json",
           "jsonpath": "$.version"
         },
         {
@@ -64,11 +86,6 @@
           "type": "json",
           "path": "clients/agent-runtime/npm/corvus/package.json",
           "jsonpath": "$.optionalDependencies['@dallay/corvus-windows-x64']"
-        },
-        {
-          "type": "json",
-          "path": "clients/agent-runtime/npm/corvus/package.json",
-          "jsonpath": "$.optionalDependencies['@dallay/corvus-windows-arm64']"
         }
       ]
     }

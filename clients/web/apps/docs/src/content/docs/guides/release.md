@@ -1,172 +1,146 @@
 ---
 title: Release Process
-description: Canonical release procedure for publishing Corvus artifacts through GitHub Actions, signing, and Maven Central workflows.
+description: Canonical Corvus stable and snapshot release runbook for release-please, publish workflows, and GitHub Releases.
 owner: team-platform
 status: canonical
-lastReviewed: 2026-03-26
+lastReviewed: 2026-04-07
 appliesTo: main
 docType: runbook
 ---
 
-This guide explains how to publish a full Corvus release (KMP + Rust + web artifacts) using
-GitHub Actions.
+This runbook defines the canonical Corvus release contract.
+
+- `release-please.yml` owns the repo-wide release PR and the canonical `vX.Y.Z` tag.
+- `publish-release.yml` and `_publish.yml` own artifact publication plus the final GitHub Release.
+- GitHub Releases are the canonical stable release notes surface.
+- `publish-snapshot.yml` is a snapshot-only Gradle/Maven path and does not own stable release notes.
 
 ## Prerequisites
 
-Before you can publish, ensure you have:
+Before you publish, confirm:
 
-1. **GPG Key configured**: Follow the [GPG Setup Guide](./gpg-setup/) to create and configure your
-   signing key
-2. **Maven Central access**: Repository secrets configured:
+1. **Repository access**
+   - You are a maintainer for `dallay/corvus`.
+   - `RELEASE_PLEASE_TOKEN` is configured so release-please can open PRs and create canonical tags.
+2. **Gradle/Maven release credentials**
+   - `SIGNING_IN_MEMORY_KEY`
+   - `SIGNING_IN_MEMORY_KEY_PASSWORD`
+   - `MAVEN_CENTRAL_USERNAME`
+   - `MAVEN_CENTRAL_PASSWORD`
+3. **Stable release channel credentials**
+   - `CARGO_REGISTRY_TOKEN`
+   - `NPM_TOKEN`
+   - `DOCKERHUB_USERNAME`
+   - `DOCKERHUB_TOKEN`
 
-- `SIGNING_IN_MEMORY_KEY`: Your GPG private key
-- `SIGNING_IN_MEMORY_KEY_PASSWORD`: GPG key passphrase
-- `MAVEN_CENTRAL_USERNAME`: Maven Central username
-- `MAVEN_CENTRAL_PASSWORD`: Maven Central password
+## Stable Release Contract
 
-3. **Release channel secrets** for non-Gradle artifacts:
+### What ships in a stable `vX.Y.Z` release
 
-- `CARGO_REGISTRY_TOKEN`: crates.io publishing token for `clients/agent-runtime`
-- `NPM_TOKEN`: npm token for `@dallay/corvus`
-- `DOCKERHUB_USERNAME`: Docker Hub account username
-- `DOCKERHUB_TOKEN`: Docker Hub access token
+Stable publish automation validates and publishes only shipped artifacts:
 
-4. **Release Please token**: `RELEASE_PLEASE_TOKEN` with repo write access so release-please can
-   open PRs and create tags that trigger publishing workflows
-5. **Write permissions**: You must be a maintainer of the repository
+- Gradle/KMP artifacts, including build-logic publication
+- `clients/agent-runtime` crate
+- `modules/cerebro` release assets
+- npm runtime packages:
+  - `@dallay/corvus`
+  - `@dallay/corvus-darwin-x64`
+  - `@dallay/corvus-darwin-arm64`
+  - `@dallay/corvus-linux-x64`
+  - `@dallay/corvus-linux-arm64`
+  - `@dallay/corvus-windows-x64`
+- Docker images
+- Native archives and checksums attached to the GitHub Release
 
-### What gets released
+### Intentional exclusions
 
-When `publish-release.yml` runs from a `vX.Y.Z` tag, it publishes:
+- Private web packages are excluded from stable repo-wide version churn.
+- `clients/web/**/package.json` is not part of stable release-please fan-out.
+- `clients/agent-runtime/npm/corvus-cli/package.json` is internal/private and is excluded from stable release fan-out and stable npm publishing.
+- Windows ARM64 is intentionally unsupported for stable npm publication right now. `@dallay/corvus-windows-arm64` is not published and is not referenced by `@dallay/corvus` optional dependencies.
 
-- **KMP/Gradle artifacts** to Maven Central (`publishToMavenCentral`)
-- **Build logic plugin artifacts** to Maven Central on stable release tags
-- **Rust crate** (`clients/agent-runtime`) to crates.io
-- **npm runtime packages** (`clients/agent-runtime/npm/*`) to npm, including
-  `@dallay/corvus` plus platform-specific packages
-- **Container images** to Docker Hub and GHCR
-- **Native binaries + checksums** attached to the GitHub Release
+## Stable Release Flow
 
-Web apps (`clients/web/apps/docs`, `clients/web/apps/marketing`,
-`clients/web/apps/dashboard`) are built in their own workflows and are not published to Maven,
-crates.io, or npm by `publish-release.yml`.
+1. Merge release-ready work into `main`.
+2. `release-please.yml` opens or updates one repo-wide release PR.
+3. Review the release PR diff. Only shipped stable artifacts should be version-bumped.
+4. Merge the release PR.
+5. release-please creates the canonical `vX.Y.Z` tag.
+6. `publish-release.yml` runs from that tag and calls `_publish.yml`.
+7. `_publish.yml` validates shipped artifact versions, publishes artifacts, and creates or updates the GitHub Release.
 
-## Understanding the Branch Model
+The GitHub Release is the canonical public release record. The root `CHANGELOG.md` is only a pointer.
 
-Releases are cut from `main`. All release-ready changes must be merged into `main` before the
-release-please PR is merged.
+## Snapshot Flow
 
-## Publishing a Release
+`publish-snapshot.yml` is manual or scheduled and covers the Gradle/Maven snapshot channel only.
 
-### Step 1: Merge changes to `main`
+- No canonical stable tag is created.
+- No GitHub Release is created.
+- No stable release notes are published.
 
-Make sure all changes you want to ship are merged into `main`.
+## Diagnostics to Check During a Release
 
-### Step 2: Release Please opens the release PR
+### `release-please.yml`
 
-On every push to `main`, the Release Please workflow opens or updates a release PR that:
+Check the workflow summary for:
 
-- Bumps versions across Gradle, Cargo, npm, and web packages
-- Updates optionalDependencies in `clients/agent-runtime/npm/corvus/package.json`
-- Generates release notes based on Conventional Commits
+- manifest baseline version from `.release-please-manifest.json`
+- candidate version output
+- whether a release PR was created in that run
+- whether tag/release outputs were emitted
+- raw release-please action outputs for drift diagnosis
 
-If you need to control the version bump, use Conventional Commits:
+### `_publish.yml`
 
-- `fix:` -> patch
-- `feat:` -> minor
-- `feat!:` or `BREAKING CHANGE:` -> major
+Check the workflow summary for:
 
-### Step 3: Review and merge the release PR
+- incoming tag
+- shipped-artifact version check table
+- optional credential warnings
+- publish outcome per release surface
+- npm policy notes confirming `corvus-cli` is internal/private and Windows ARM64 is unsupported
+- GitHub Release publication result
 
-Review the release PR for version alignment and merge it when ready.
+## Manual Baseline Recovery
 
-### Step 4: Tag and publish
+Baseline recovery is an operator action. The workflows in this change do **not** create or rewrite live tags or releases automatically. Treat this as manual recovery, not workflow-owned repair.
 
-When the release PR merges, Release Please creates a `vX.Y.Z` tag. That tag triggers
-`publish-release.yml`, which runs `_publish.yml` to publish all artifacts.
+Use this procedure when the manifest, tags, or GitHub Releases drift:
 
-### Step 5: Monitor the workflow
-
-1. Go to **Actions** tab in GitHub
-2. Click on the **Publish Release** workflow
-3. Wait for completion (usually 5-10 minutes)
-
-The workflow will:
-
-- Build and publish Gradle/KMP artifacts to Maven Central
-- Publish the Rust crate to crates.io
-- Publish the npm CLI package
-- Build and publish Docker images (Docker Hub + GHCR)
-- Build native binaries for Linux, macOS, and Windows, generate SHA256 checksums, and attach them to
-  GitHub Release
-- Generate a changelog and create/update the GitHub Release notes
-
-After the GitHub Release is published, `deploy-docs.yml` may also deploy docs to GitHub Pages.
-
-## Publishing a Snapshot
-
-Snapshots are published automatically daily, but this applies to the Gradle/Maven channel only.
-
-### Automatic (Daily)
-
-The `publish-snapshot.yml` workflow runs daily at 02:12 UTC.
-
-### Manual
-
-1. Go to **Actions** tab → **Publish Snapshot**
-2. Click **Run workflow**
-3. Select the branch (usually `main`)
-4. Click **Run workflow**
-
-Snapshots use the version defined in your Gradle build files with a `-SNAPSHOT` suffix.
-Rust crates, npm package, Docker images, and GitHub Release assets are only published on
-stable `vX.Y.Z` releases.
+1. Verify `.release-please-manifest.json`, `version.txt`, Gradle properties, Cargo manifests, and shipped npm package versions agree on the expected stable version.
+2. Verify the intended release commit SHA.
+3. Verify whether the canonical `vX.Y.Z` tag already exists.
+4. Verify whether the GitHub Release already exists.
+5. If the release commit and version files are correct but the tag or release is missing, backfill the missing tag and rerun the stable publish workflow as a manual operator action.
+6. If evidence conflicts, stop and choose a new forward release baseline instead of rewriting history.
 
 ## Troubleshooting
 
-### Release workflow failed
+### No release PR
 
-1. Check the workflow logs in GitHub Actions
-2. Common issues:
+- Confirm `RELEASE_PLEASE_TOKEN` is present.
+- Confirm commits follow Conventional Commits.
+- Review the `release-please.yml` summary before changing config.
 
-- **Signing failed**: Check GPG secrets are correctly configured
-- **Maven Central auth failed**: Verify credentials haven't expired
-- **Build failed**: Ensure all tests pass locally with `./gradlew check`
-- **Version mismatch**: Release Please should keep versions aligned. If it fails, check
-  `release-please-config.json` and the release PR diff
-- **Release PR not created**: Missing `RELEASE_PLEASE_TOKEN`, or commits are not Conventional
-- **Missing release secret**: `CARGO_REGISTRY_TOKEN`, `NPM_TOKEN`,
-  `DOCKERHUB_USERNAME`, or `DOCKERHUB_TOKEN`
+### Release PR merged but no stable publish run
 
-### Version already exists
+- Confirm the canonical `vX.Y.Z` tag exists.
+- Confirm the tag was created by release-please on the repository with the expected permissions.
 
-Maven Central doesn't allow overwriting releases. If you need to fix something:
+### Stable publish failed
 
-1. Use a new patch version (e.g., `v1.2.4` instead of `v1.2.3`)
-2. Never delete and recreate tags with the same version
+- Review the shipped-artifact version check table in `_publish.yml`.
+- Review credential warnings for Maven, Cargo, npm, and Docker.
+- Repair forward from the failed publish stage. Do not cut a competing tag for the same version.
 
-### Snapshot not updating
+### GitHub Release missing after artifacts published
 
-Snapshots can be cached by Maven/Gradle. Force an update:
+- Rerun or repair the GitHub Release portion of `_publish.yml`.
+- Do not treat `CHANGELOG.md` as the source of truth.
 
-```bash
-./gradlew build --refresh-dependencies
-```
+## Canonical References
 
-## Release Checklist
-
-Use this checklist before publishing:
-
-- [ ] All tests pass locally (`./gradlew check`)
-- [ ] Release PR is up to date and merged
-- [ ] Versions are aligned in the release PR diff
-- [ ] GPG key is valid and not expired
-- [ ] Maven Central credentials are current
-- [ ] crates.io, npm, and Docker Hub release secrets are set
-- [ ] Release tag `vX.Y.Z` was created by Release Please
-
-## See Also
-
-- [GPG Setup Guide](./gpg-setup/)
-- [GitHub Workflows](https://github.com/dallay/corvus/blob/main/.github/workflows/README.md)
-- [Contributing Guide](https://github.com/dallay/corvus/blob/main/.github/CONTRIBUTING.md)
+- [GitHub Releases for dallay/corvus](https://github.com/dallay/corvus/releases)
+- [GitHub Actions workflow guide](https://github.com/dallay/corvus/blob/main/.github/workflows/README.md)
+- [GPG setup guide](./gpg-setup/)

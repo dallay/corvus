@@ -13,12 +13,14 @@ permissions:
 
 jobs:
   publish-release:
+    # Canonical stable release handoff: only repo-wide vX.Y.Z tags created by release-please call _publish.
     if: >-
       github.event_name == 'push' &&
       startsWith(github.ref, 'refs/tags/v') &&
       github.repository == 'dallay/corvus'
     uses: ./.github/workflows/_publish.yml
     with:
+      # Stable tags own artifact publication, GitHub Release creation, and curated release notes.
       release: true
       changelog: true
     secrets: inherit

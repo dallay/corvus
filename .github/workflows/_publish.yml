@@ -114,6 +114,7 @@ jobs:
 
       - name: 🔎 Validate release version consistency
         if: ${{ inputs.release }}
+        id: stable-version-check
         env:
           TAG_VERSION: ${{ github.ref_name }}
         run: |
@@ -125,44 +126,89 @@ jobs:
           fi
 
           expected_version="${TAG_VERSION#v}"
-          gradle_version="$(awk -F= '/^VERSION=/{print $2}' gradle.properties)"
-          cargo_version="$(awk -F' = ' '/^version = /{gsub(/"/, "", $2); print $2; exit}' clients/agent-runtime/Cargo.toml)"
-          cerebro_version="$(awk -F' = ' '/^version = /{gsub(/"/, "", $2); print $2; exit}' modules/cerebro/Cargo.toml)"
-          npm_version="$(awk -F'"' '/"version"/{print $4; exit}' clients/agent-runtime/npm/corvus/package.json)"
+          EXPECTED_VERSION="$expected_version" python3 <<'PY'
+          import json
+          import os
+          import pathlib
+          import sys
+          import tomllib
 
-          for item in \
-            "gradle.properties:$gradle_version" \
-            "clients/agent-runtime/Cargo.toml:$cargo_version" \
-            "modules/cerebro/Cargo.toml:$cerebro_version" \
-            "clients/agent-runtime/npm/corvus/package.json:$npm_version"; do
-            file="${item%%:*}"
-            actual="${item#*:}"
-            if [[ "$actual" != "$expected_version" ]]; then
-              echo "Version mismatch in ${file}: expected ${expected_version}, got ${actual}"
-              exit 1
-            fi
-          done
+          expected = os.environ["EXPECTED_VERSION"]
 
-          shopt -s nullglob
-          web_version_files=(
-            clients/web/package.json
-            clients/web/apps/*/package.json
-            clients/web/packages/*/package.json
-          )
+          def read_properties(path: str, key: str) -> str:
+              for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines():
+                  if line.startswith(f"{key}="):
+                      return line.split("=", 1)[1].strip()
+              raise RuntimeError(f"Missing {key} in {path}")
 
-          for file in "${web_version_files[@]}"; do
-            [[ -f "$file" ]] || continue
-            web_version="$(awk -F'"' '/^[[:space:]]*"version"[[:space:]]*:/{print $4; exit}' "$file")"
-            [[ -z "$web_version" ]] && continue
-            if [[ "$web_version" != "$expected_version" ]]; then
-              echo "Version mismatch in ${file}: expected ${expected_version}, got ${web_version}"
-              exit 1
-            fi
-          done
-          shopt -u nullglob
+          def read_toml_version(path: str) -> str:
+              data = tomllib.loads(pathlib.Path(path).read_text(encoding="utf-8"))
+              return data["package"]["version"]
+
+          def read_json_version(path: str) -> str:
+              return json.loads(pathlib.Path(path).read_text(encoding="utf-8"))["version"]
+
+          checks = [
+              ("version.txt", pathlib.Path("version.txt").read_text(encoding="utf-8").strip()),
+              ("gradle.properties", read_properties("gradle.properties", "VERSION")),
+              (
+                  "gradle/build-logic/gradle.properties",
+                  read_properties("gradle/build-logic/gradle.properties", "VERSION"),
+              ),
+              ("clients/agent-runtime/Cargo.toml", read_toml_version("clients/agent-runtime/Cargo.toml")),
+              ("modules/cerebro/Cargo.toml", read_toml_version("modules/cerebro/Cargo.toml")),
+              (
+                  "clients/agent-runtime/npm/corvus/package.json",
+                  read_json_version("clients/agent-runtime/npm/corvus/package.json"),
+              ),
+              (
+                  "clients/agent-runtime/npm/corvus-darwin-x64/package.json",
+                  read_json_version("clients/agent-runtime/npm/corvus-darwin-x64/package.json"),
+              ),
+              (
+                  "clients/agent-runtime/npm/corvus-darwin-arm64/package.json",
+                  read_json_version("clients/agent-runtime/npm/corvus-darwin-arm64/package.json"),
+              ),
+              (
+                  "clients/agent-runtime/npm/corvus-linux-x64/package.json",
+                  read_json_version("clients/agent-runtime/npm/corvus-linux-x64/package.json"),
+              ),
+              (
+                  "clients/agent-runtime/npm/corvus-linux-arm64/package.json",
+                  read_json_version("clients/agent-runtime/npm/corvus-linux-arm64/package.json"),
+              ),
+              (
+                  "clients/agent-runtime/npm/corvus-windows-x64/package.json",
+                  read_json_version("clients/agent-runtime/npm/corvus-windows-x64/package.json"),
+              ),
+          ]
+
+          failures = [(surface, actual) for surface, actual in checks if actual != expected]
+
+          lines = [
+              "### Stable version checks",
+              "",
+              f"Expected version: `{expected}`",
+              "",
+              "| Surface | Actual | Status |",
+              "| --- | --- | --- |",
+          ]
+          for surface, actual in checks:
+              status = "✅ pass" if actual == expected else "❌ fail"
+              lines.append(f"| `{surface}` | `{actual}` | {status} |")
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+
+          if failures:
+              for surface, actual in failures:
+                  print(f"Version mismatch in {surface}: expected {expected}, got {actual}", file=sys.stderr)
+              raise SystemExit(1)
+          PY
 
       - name: 🔐 Check optional release credentials
         if: ${{ inputs.release }}
+        id: optional-release-credentials
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -178,8 +224,18 @@ jobs:
           [[ -n "$CARGO_REGISTRY_TOKEN" ]] && echo "✅ Cargo registry token configured" || echo "⚠️ Cargo registry token not configured"
           [[ -n "$NPM_TOKEN" ]] && echo "✅ NPM token configured" || echo "⚠️ NPM token not configured"
           [[ -n "$DOCKERHUB_USERNAME" ]] && echo "✅ DockerHub credentials configured" || echo "⚠️ DockerHub credentials not configured"
+          {
+            echo "### Optional credential status"
+            echo
+            echo "- Maven signing key: $([[ -n \"$SIGNING_KEY\" ]] && echo 'configured' || echo 'missing')"
+            echo "- Maven Central credentials: $([[ -n \"$MAVEN_USER\" ]] && echo 'configured' || echo 'missing')"
+            echo "- Cargo registry token: $([[ -n \"$CARGO_REGISTRY_TOKEN\" ]] && echo 'configured' || echo 'missing')"
+            echo "- npm token: $([[ -n \"$NPM_TOKEN\" ]] && echo 'configured' || echo 'missing')"
+            echo "- DockerHub credentials: $([[ -n \"$DOCKERHUB_USERNAME\" ]] && echo 'configured' || echo 'missing')"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: 👻 Publish Gradle/Maven artifacts
+        id: publish-maven
         continue-on-error: true
         env:
           SIGNING_KEY: ${{ secrets.SIGNING_IN_MEMORY_KEY }}
@@ -193,18 +249,14 @@ jobs:
             echo "⚠️ Skipping Maven Central publish - required secrets not configured"
             exit 0
           fi
-          if [ "${GITHUB_REPOSITORY}" = "dallay/corvus" ]; then
-            if [ "${{ inputs.release }}" = "true" ]; then
-              ./gradlew :build-logic:publishPluginMavenPublicationToMavenCentralRepository publishToMavenCentral
-            else
-              ./gradlew publishToMavenCentral
-            fi
-          else
-            ./gradlew publishToMavenCentral
-          fi
+          # This repository has no root build.gradle.kts. The Maven Central tasks live in the
+          # included build at gradle/build-logic, where the Vanniktech plugin creates
+          # publishAllPublicationsToMavenCentralRepository/publishToMavenCentral.
+          ./gradlew -p gradle/build-logic publishToMavenCentral
 
       - name: 📦 Publish Rust crate to crates.io
         if: ${{ inputs.release }}
+        id: publish-cargo
         continue-on-error: true
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
@@ -215,6 +267,27 @@ jobs:
           fi
           cd clients/agent-runtime
           cargo publish --locked
+
+      - name: 📄 Release publish summary
+        if: ${{ always() && inputs.release }}
+        env:
+          VERSION_CHECK_OUTCOME: ${{ steps.stable-version-check.outcome }}
+          CREDENTIALS_OUTCOME: ${{ steps.optional-release-credentials.outcome }}
+          MAVEN_OUTCOME: ${{ steps.publish-maven.outcome }}
+          CARGO_OUTCOME: ${{ steps.publish-cargo.outcome }}
+        run: |
+          {
+            echo "## Release publish summary"
+            echo
+            echo "- Incoming tag: `${{ github.ref_name }}`"
+            echo "- Stable version checks: ${VERSION_CHECK_OUTCOME}"
+            echo "- Optional credential check: ${CREDENTIALS_OUTCOME}"
+            echo "- Maven/Gradle publish step: ${MAVEN_OUTCOME}"
+            echo "- Rust publish step: ${CARGO_OUTCOME}"
+            echo "- npm stable contract: `@dallay/corvus`, `corvus-darwin-x64`, `corvus-darwin-arm64`, `corvus-linux-x64`, `corvus-linux-arm64`, `corvus-windows-x64`"
+            echo "- Excluded by policy: corvus-cli is internal/private; Windows ARM64 is intentionally unsupported for stable npm publication"
+            echo "- GitHub Release ownership: `_publish.yml` creates or updates the GitHub Release after artifact publication completes"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   build-native-binaries:
     if: ${{ inputs.release }}
@@ -437,6 +510,7 @@ jobs:
           find . -name "${{ matrix.source_binary }}" -type f -exec chmod +x {} \; -print
 
       - name: 🚀 Publish to npm
+        id: publish-platform-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -467,6 +541,20 @@ jobs:
 
           npm publish --access public
 
+      - name: 📄 Summarize npm platform publish
+        if: ${{ always() }}
+        env:
+          PLATFORM_PUBLISH_OUTCOME: ${{ steps.publish-platform-package.outcome }}
+        run: |
+          {
+            echo "## npm platform publish summary"
+            echo
+            echo "- Package: `@dallay/${{ matrix.pkg }}`"
+            echo "- Outcome: ${PLATFORM_PUBLISH_OUTCOME}"
+            echo "- Stable publish matrix excludes corvus-cli because it is internal/private."
+            echo "- Windows ARM64 is intentionally unsupported and not part of the stable npm publish matrix."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   publish-npm-base:
     if: ${{ inputs.release }}
     needs: publish-npm-platforms
@@ -483,6 +571,7 @@ jobs:
           registry-url: "https://registry.npmjs.org"
 
       - name: 🚀 Publish base package
+        id: publish-base-package
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -503,6 +592,20 @@ jobs:
           fi
 
           npm publish --access public
+
+      - name: 📄 Summarize npm base publish
+        if: ${{ always() }}
+        env:
+          BASE_PUBLISH_OUTCOME: ${{ steps.publish-base-package.outcome }}
+        run: |
+          {
+            echo "## npm base publish summary"
+            echo
+            echo "- Package: `@dallay/corvus`"
+            echo "- Outcome: ${BASE_PUBLISH_OUTCOME}"
+            echo "- Stable optionalDependencies only reference shipped platforms."
+            echo "- Windows ARM64 is intentionally unsupported and excluded from stable npm publication."
+          } >> "$GITHUB_STEP_SUMMARY"
 
   release-assets:
     if: ${{ inputs.release }}
@@ -543,6 +646,7 @@ jobs:
           done
 
       - name: 🚀 Create GitHub Release
+        id: create-github-release
         uses: softprops/action-gh-release@5be0e66d93ac7ed76da52eca8bb058f665c3a5fe # v2.4.2
         with:
           body: ${{ needs.publish.outputs.changelog }}
@@ -552,3 +656,16 @@ jobs:
             dist/cerebro/cerebro-*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📄 Summarize GitHub Release publication
+        if: ${{ always() }}
+        env:
+          RELEASE_ASSETS_OUTCOME: ${{ steps.create-github-release.outcome }}
+        run: |
+          {
+            echo "## GitHub Release publication"
+            echo
+            echo "- Outcome: ${RELEASE_ASSETS_OUTCOME}"
+            echo "- Canonical public release record: GitHub Release for `${{ github.ref_name }}`"
+            echo "- Notes source: changelog builder output plus generated GitHub release notes"
+          } >> "$GITHUB_STEP_SUMMARY"

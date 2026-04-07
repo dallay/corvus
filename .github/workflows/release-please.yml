@@ -22,8 +22,53 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: 🤖 Run release-please
+        id: release-please
         uses: googleapis/release-please-action@c3fc4de07084f75a2b61a5b933069bda6edf3d5c # v4.4.0
         with:
           token: ${{ secrets.RELEASE_PLEASE_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: 📄 Summarize release-please outcome
+        if: ${{ always() }}
+        env:
+          RELEASE_PLEASE_OUTPUTS: ${{ toJson(steps.release-please.outputs) }}
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          outputs = json.loads(os.environ.get("RELEASE_PLEASE_OUTPUTS") or "{}")
+          manifest = json.loads(Path(".release-please-manifest.json").read_text(encoding="utf-8"))
+          manifest_version = manifest.get(".", "unknown")
+
+          version = outputs.get("version") or "not emitted"
+          tag_name = outputs.get("tag_name") or "not emitted"
+          releases_created = outputs.get("releases_created") or outputs.get("release_created") or "false"
+          prs_created = outputs.get("prs_created") or "false"
+          pr_metadata = "present" if outputs.get("pr") or outputs.get("prs") else "absent"
+
+          lines = [
+              "## release-please action outputs",
+              "",
+              f"- Manifest baseline: `{manifest_version}`",
+              f"- Candidate version output: `{version}`",
+              f"- Tag output: `{tag_name}`",
+              f"- PR created in this run: `{prs_created}`",
+              f"- Release PR metadata available: `{pr_metadata}`",
+              f"- Tag/release created in this run: `{releases_created}`",
+              "",
+              "<details>",
+              "<summary>Raw release-please outputs</summary>",
+              "",
+              "```json",
+              json.dumps(outputs, indent=2, sort_keys=True),
+              "```",
+              "</details>",
+          ]
+
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as handle:
+              handle.write("\n".join(lines) + "\n")
+          PY
