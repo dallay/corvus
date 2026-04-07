@@ -749,9 +749,15 @@ pub fn create_routed_provider(
                 if name == primary_name {
                     return Err(e);
                 }
+                let affected_hints: Vec<&str> = model_routes
+                    .iter()
+                    .filter(|route| route.provider == *name)
+                    .map(|route| route.hint.as_str())
+                    .collect();
                 tracing::warn!(
                     provider = name.as_str(),
-                    "Ignoring routed provider that failed to initialize"
+                    affected_routes = ?affected_hints,
+                    "Ignoring routed provider that failed to initialize — routes using this provider will fail at request time"
                 );
             }
         }
@@ -984,6 +990,88 @@ pub fn list_providers() -> Vec<ProviderInfo> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
+    use std::sync::Arc;
+    use tracing::{field::Field, Event, Subscriber};
+    use tracing_subscriber::field::Visit;
+    use tracing_subscriber::{layer::Context, prelude::*, Layer};
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    struct CapturedTracingEvent {
+        fields: BTreeMap<String, String>,
+    }
+
+    impl CapturedTracingEvent {
+        fn field(&self, name: &str) -> Option<&str> {
+            self.fields.get(name).map(String::as_str)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct CaptureLayer {
+        events: Arc<parking_lot::Mutex<Vec<CapturedTracingEvent>>>,
+    }
+
+    impl CaptureLayer {
+        fn snapshot(&self) -> Vec<CapturedTracingEvent> {
+            self.events.lock().clone()
+        }
+    }
+
+    impl<S> Layer<S> for CaptureLayer
+    where
+        S: Subscriber,
+    {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut visitor = TracingFieldRecorder::default();
+            event.record(&mut visitor);
+            self.events.lock().push(CapturedTracingEvent {
+                fields: visitor.fields,
+            });
+        }
+    }
+
+    #[derive(Default)]
+    struct TracingFieldRecorder {
+        fields: BTreeMap<String, String>,
+    }
+
+    impl TracingFieldRecorder {
+        fn insert(&mut self, field: &Field, value: impl ToString) {
+            self.fields
+                .insert(field.name().to_string(), value.to_string());
+        }
+    }
+
+    impl Visit for TracingFieldRecorder {
+        fn record_bool(&mut self, field: &Field, value: bool) {
+            self.insert(field, value);
+        }
+
+        fn record_i64(&mut self, field: &Field, value: i64) {
+            self.insert(field, value);
+        }
+
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            self.insert(field, value);
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.insert(field, value);
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.insert(field, format!("{value:?}"));
+        }
+    }
+
+    fn capture_tracing_events<T>(run: impl FnOnce() -> T) -> (T, Vec<CapturedTracingEvent>) {
+        let layer = CaptureLayer::default();
+        let subscriber = tracing_subscriber::registry().with(layer.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let output = run();
+        (output, layer.snapshot())
+    }
 
     #[test]
     fn resolve_provider_credential_prefers_explicit_argument() {
@@ -1634,6 +1722,99 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn failed_routed_provider_warns_about_affected_routes() {
+        let model_routes = vec![
+            crate::config::ModelRouteConfig {
+                hint: "fast".into(),
+                provider: "totally-fake".into(),
+                model: "llama".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+            crate::config::ModelRouteConfig {
+                hint: "reasoning".into(),
+                provider: "totally-fake".into(),
+                model: "o1-preview".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+            crate::config::ModelRouteConfig {
+                hint: "code".into(),
+                provider: "openai".into(),
+                model: "gpt-4o-mini".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+        ];
+
+        let (result, events) = capture_tracing_events(|| {
+            create_routed_provider(
+                "openai",
+                None,
+                None,
+                &crate::config::ReliabilityConfig::default(),
+                &model_routes,
+                "gpt-4o-mini",
+                &ProviderRuntimeOptions::default(),
+            )
+        });
+
+        assert!(result.is_ok());
+        let warning = events.iter().find(|event| {
+            event.field("message").is_some_and(|message| {
+                message.contains("Ignoring routed provider that failed to initialize")
+            })
+        });
+        assert!(warning.is_some());
+        assert_eq!(warning.unwrap().field("provider"), Some("totally-fake"));
+        let affected_routes = warning
+            .unwrap()
+            .field("affected_routes")
+            .unwrap_or_default();
+        assert!(affected_routes.contains("fast"));
+        assert!(affected_routes.contains("reasoning"));
+    }
+
+    #[test]
+    fn routed_provider_init_stays_quiet_when_all_providers_succeed() {
+        let model_routes = vec![
+            crate::config::ModelRouteConfig {
+                hint: "fast".into(),
+                provider: "ollama".into(),
+                model: "llama3.2".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+            crate::config::ModelRouteConfig {
+                hint: "reasoning".into(),
+                provider: "openai".into(),
+                model: "gpt-4o-mini".into(),
+                api_key: None,
+                allow_image_input: false,
+            },
+        ];
+
+        let (result, events) = capture_tracing_events(|| {
+            create_routed_provider(
+                "openai",
+                Some("test-key"),
+                None,
+                &crate::config::ReliabilityConfig::default(),
+                &model_routes,
+                "gpt-4o-mini",
+                &ProviderRuntimeOptions::default(),
+            )
+        });
+
+        assert!(result.is_ok());
+        assert!(events.iter().all(|event| {
+            !event.field("message").is_some_and(|message| {
+                message.contains("Ignoring routed provider that failed to initialize")
+            })
+        }));
     }
 
     // ── API error sanitization ───────────────────────────────

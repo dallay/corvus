@@ -82,7 +82,8 @@ impl RouterProvider {
             }
             tracing::warn!(
                 hint = hint,
-                "Unknown route hint, falling back to default provider"
+                fallback_model = model,
+                "Unknown route hint, falling back to default provider with raw model string"
             );
         }
 
@@ -199,8 +200,89 @@ impl Provider for RouterProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    use tracing::{field::Field, Event, Subscriber};
+    use tracing_subscriber::field::Visit;
+    use tracing_subscriber::{layer::Context, prelude::*, Layer};
+
+    #[derive(Clone, Debug, Default, PartialEq, Eq)]
+    struct CapturedTracingEvent {
+        fields: BTreeMap<String, String>,
+    }
+
+    impl CapturedTracingEvent {
+        fn field(&self, name: &str) -> Option<&str> {
+            self.fields.get(name).map(String::as_str)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct CaptureLayer {
+        events: Arc<parking_lot::Mutex<Vec<CapturedTracingEvent>>>,
+    }
+
+    impl CaptureLayer {
+        fn snapshot(&self) -> Vec<CapturedTracingEvent> {
+            self.events.lock().clone()
+        }
+    }
+
+    impl<S> Layer<S> for CaptureLayer
+    where
+        S: Subscriber,
+    {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let mut visitor = TracingFieldRecorder::default();
+            event.record(&mut visitor);
+            self.events.lock().push(CapturedTracingEvent {
+                fields: visitor.fields,
+            });
+        }
+    }
+
+    #[derive(Default)]
+    struct TracingFieldRecorder {
+        fields: BTreeMap<String, String>,
+    }
+
+    impl TracingFieldRecorder {
+        fn insert(&mut self, field: &Field, value: impl ToString) {
+            self.fields
+                .insert(field.name().to_string(), value.to_string());
+        }
+    }
+
+    impl Visit for TracingFieldRecorder {
+        fn record_bool(&mut self, field: &Field, value: bool) {
+            self.insert(field, value);
+        }
+
+        fn record_i64(&mut self, field: &Field, value: i64) {
+            self.insert(field, value);
+        }
+
+        fn record_u64(&mut self, field: &Field, value: u64) {
+            self.insert(field, value);
+        }
+
+        fn record_str(&mut self, field: &Field, value: &str) {
+            self.insert(field, value);
+        }
+
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            self.insert(field, format!("{value:?}"));
+        }
+    }
+
+    fn capture_tracing_events<T>(run: impl FnOnce() -> T) -> (T, Vec<CapturedTracingEvent>) {
+        let layer = CaptureLayer::default();
+        let subscriber = tracing_subscriber::registry().with(layer.clone());
+        let _guard = tracing::subscriber::set_default(subscriber);
+        let output = run();
+        (output, layer.snapshot())
+    }
 
     struct MockProvider {
         calls: Arc<AtomicUsize>,
@@ -416,6 +498,57 @@ mod tests {
 
         // Route should not exist
         assert!(!router.routes.contains_key("broken"));
+    }
+
+    #[test]
+    fn unknown_hint_warning_includes_raw_fallback_model() {
+        let (router, _) = make_router(vec![("default", "ok")], vec![]);
+
+        let ((_idx, model), events) = capture_tracing_events(|| router.resolve("hint:nonexistent"));
+
+        assert_eq!(model, "hint:nonexistent");
+        let warning = events.iter().find(|event| {
+            event
+                .field("message")
+                .is_some_and(|message| message.contains("Unknown route hint"))
+        });
+        assert!(warning.is_some());
+        assert_eq!(warning.unwrap().field("hint"), Some("nonexistent"));
+        assert_eq!(
+            warning.unwrap().field("fallback_model"),
+            Some("hint:nonexistent")
+        );
+    }
+
+    #[test]
+    fn known_hint_does_not_trigger_warning() {
+        let (router, _) = make_router(
+            vec![("default", "ok"), ("smart", "ok")],
+            vec![("reasoning", "smart", "claude-opus")],
+        );
+
+        let ((_idx, model), events) = capture_tracing_events(|| router.resolve("hint:reasoning"));
+
+        assert_eq!(model, "claude-opus");
+        assert!(events.iter().all(|event| {
+            !event
+                .field("message")
+                .is_some_and(|message| message.contains("Unknown route hint"))
+        }));
+    }
+
+    #[test]
+    fn non_hint_selector_does_not_trigger_warning() {
+        let (router, _) = make_router(vec![("default", "ok")], vec![]);
+
+        let ((_idx, model), events) = capture_tracing_events(|| router.resolve("gpt-4o"));
+
+        assert_eq!(model, "gpt-4o");
+        assert!(events.iter().all(|event| {
+            !event
+                .field("message")
+                .is_some_and(|message| message.contains("Unknown route hint"))
+        }));
     }
 
     #[tokio::test]
