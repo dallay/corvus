@@ -1,3 +1,4 @@
+use crate::capabilities::{build_registry_from_tools, CapabilityRegistry};
 use crate::config::Config;
 use crate::cost::CostTracker;
 use crate::memory::{self, Memory};
@@ -132,6 +133,7 @@ pub struct BootstrapContext {
     pub security: Arc<SecurityPolicy>,
     pub memory: Arc<dyn Memory>,
     pub tools: Vec<Box<dyn Tool>>,
+    pub capability_registry: CapabilityRegistry,
     pub cost_tracker: Option<Arc<CostTracker>>,
 }
 
@@ -254,10 +256,11 @@ impl BootstrapContext {
             config.api_key.as_deref(),
             config,
         );
-        let tools = tools
+        let tools: Vec<Box<dyn Tool>> = tools
             .into_iter()
             .filter(|tool| profile.allows_tool(tool.name()))
             .collect();
+        let capability_registry = build_registry_from_tools(&tools)?;
 
         let cost_tracker = if !config.cost.enabled {
             None
@@ -279,6 +282,7 @@ impl BootstrapContext {
             security,
             memory,
             tools,
+            capability_registry,
             cost_tracker,
         })
     }
@@ -326,6 +330,7 @@ pub fn create_memory_and_observer(
 mod tests {
     use super::*;
     use crate::config::{DelegateAgentConfig, DelegateExecutionMode};
+    use crate::security::{source_kind_for_tool, ToolSourceKind};
     use crate::test_support::{mock_mcp_server, test_config};
     use std::collections::HashSet;
 
@@ -347,6 +352,7 @@ mod tests {
         let ctx = BootstrapContext::from_config(&config).unwrap();
 
         assert!(!ctx.tools.is_empty());
+        assert_eq!(ctx.capability_registry.len(), ctx.tools.len());
         assert!(!ctx.memory.name().is_empty());
         assert!(!ctx.runtime.name().is_empty());
     }
@@ -636,5 +642,65 @@ mod tests {
         let ctx = BootstrapContext::for_gateway(&config, memory, observer, Some(tracker)).unwrap();
 
         assert!(ctx.cost_tracker.is_none());
+    }
+
+    #[test]
+    fn bootstrap_registry_matches_final_active_tool_set_after_profile_filtering() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.agent.profile = "lite".into();
+        config.mcp.enabled = true;
+        config.mcp.servers = vec![mock_mcp_server("docs", "search")];
+
+        let ctx = BootstrapContext::from_config(&config).unwrap();
+        let tool_names: Vec<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
+        let registry_names: Vec<&str> = ctx
+            .capability_registry
+            .iter()
+            .map(|descriptor| descriptor.id.as_str())
+            .collect();
+
+        assert_eq!(tool_names, vec!["shell", "file_read", "file_write"]);
+        assert_eq!(registry_names, tool_names);
+    }
+
+    #[test]
+    fn gateway_bootstrap_registry_matches_final_active_tool_set() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.mcp.enabled = true;
+        config.mcp.servers = vec![mock_mcp_server("docs", "search")];
+
+        let (memory, observer) = create_memory_and_observer(&config).unwrap();
+        let ctx = BootstrapContext::for_gateway(&config, memory, observer, None).unwrap();
+        let tool_names: Vec<&str> = ctx.tools.iter().map(|tool| tool.name()).collect();
+        let registry_names: Vec<&str> = ctx
+            .capability_registry
+            .iter()
+            .map(|descriptor| descriptor.id.as_str())
+            .collect();
+
+        assert_eq!(registry_names, tool_names);
+    }
+
+    #[test]
+    fn registry_ids_preserve_existing_profile_and_mcp_prefix_classification() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let mut config = test_config(&tmp);
+        config.mcp.enabled = true;
+        config.mcp.servers = vec![mock_mcp_server("docs", "search")];
+
+        let ctx = BootstrapContext::from_config(&config).unwrap();
+
+        for descriptor in ctx.capability_registry.iter() {
+            let id = descriptor.id.as_str();
+            if id.starts_with("mcp.") {
+                assert_eq!(classify_tool_capability(id), Some(ToolCapability::Mcp));
+                assert_eq!(source_kind_for_tool(id), ToolSourceKind::Mcp);
+            } else {
+                assert_ne!(classify_tool_capability(id), Some(ToolCapability::Mcp));
+                assert_eq!(source_kind_for_tool(id), ToolSourceKind::Native);
+            }
+        }
     }
 }

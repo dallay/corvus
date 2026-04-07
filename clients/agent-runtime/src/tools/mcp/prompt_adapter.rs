@@ -1,7 +1,10 @@
 use super::client::{McpClient, McpPromptManifest, PromptArgument};
 use super::normalize;
 use crate::config::McpServerConfig;
-use crate::tools::traits::{Tool, ToolResult, ToolSpec};
+use crate::tools::traits::{
+    Tool, ToolDescriptorHint, ToolDescriptorMcpHint, ToolDescriptorMcpPromptArgumentHint,
+    ToolResult, ToolSpec,
+};
 use async_trait::async_trait;
 use serde_json::json;
 use std::sync::Arc;
@@ -313,6 +316,26 @@ impl Tool for McpPromptAdapter {
                 &self.server_name,
                 &self.original_name,
             )),
+        }
+    }
+
+    fn descriptor_hint(&self) -> ToolDescriptorHint {
+        ToolDescriptorHint {
+            mcp: Some(ToolDescriptorMcpHint {
+                server: Some(self.server_name.clone()),
+                upstream_name: Some(self.original_name.clone()),
+                resource_uri: None,
+                mime_type: None,
+                prompt_arguments: self
+                    .arguments
+                    .iter()
+                    .map(|argument| ToolDescriptorMcpPromptArgumentHint {
+                        name: argument.name.clone(),
+                        description: argument.description.clone(),
+                        required: argument.required,
+                    })
+                    .collect(),
+            }),
         }
     }
 }

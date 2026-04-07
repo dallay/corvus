@@ -1,13 +1,14 @@
 use super::client::{McpClient, McpResourceManifest};
 use super::normalize;
 use crate::config::McpServerConfig;
-use crate::tools::traits::{Tool, ToolResult, ToolSpec};
+use crate::tools::traits::{Tool, ToolDescriptorHint, ToolDescriptorMcpHint, ToolResult, ToolSpec};
 use async_trait::async_trait;
 
 #[derive(Clone)]
 pub struct McpResourceAdapter {
     name: String,
     description: String,
+    original_name: String,
     uri: String,
     mime_type: Option<String>,
     server_name: String,
@@ -29,6 +30,7 @@ impl McpResourceAdapter {
         Ok(Self {
             name: canonical_name,
             description: manifest.description,
+            original_name: manifest.name,
             uri: manifest.uri,
             mime_type: manifest.mime_type,
             server_name: server.name.clone(),
@@ -146,6 +148,18 @@ impl Tool for McpResourceAdapter {
             )),
         }
     }
+
+    fn descriptor_hint(&self) -> ToolDescriptorHint {
+        ToolDescriptorHint {
+            mcp: Some(ToolDescriptorMcpHint {
+                server: Some(self.server_name.clone()),
+                upstream_name: Some(self.original_name.clone()),
+                resource_uri: Some(self.uri.clone()),
+                mime_type: self.mime_type.clone(),
+                prompt_arguments: vec![],
+            }),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -241,6 +255,7 @@ mod tests {
         let adapter = McpResourceAdapter {
             name: "mcp.docs.resource.empty".into(),
             description: "empty".into(),
+            original_name: "empty".into(),
             uri: "docs://empty".into(),
             mime_type: None,
             server_name: "docs".into(),
@@ -262,6 +277,7 @@ mod tests {
         let adapter = McpResourceAdapter {
             name: "test".into(),
             description: "test".into(),
+            original_name: "test".into(),
             uri: "test://uri".into(),
             mime_type: None,
             server_name: "test".into(),
@@ -281,6 +297,7 @@ mod tests {
         let adapter = McpResourceAdapter {
             name: "test".into(),
             description: "test".into(),
+            original_name: "test".into(),
             uri: "test://uri".into(),
             mime_type: None,
             server_name: "test".into(),
@@ -321,6 +338,7 @@ mod tests {
         let adapter = McpResourceAdapter {
             name: "test".into(),
             description: "test".into(),
+            original_name: "test".into(),
             uri: "test://uri".into(),
             mime_type: None,
             server_name: "test".into(),
@@ -348,6 +366,7 @@ mod tests {
         let adapter = McpResourceAdapter {
             name: "mcp.failing.resource.broken".into(),
             description: "broken".into(),
+            original_name: "broken".into(),
             uri: "fail://broken".into(),
             mime_type: None,
             server_name: "failing".into(),

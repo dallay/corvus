@@ -46,6 +46,7 @@ mod agent;
 mod approval;
 mod auth;
 mod bootstrap;
+mod capabilities;
 mod channels;
 mod config;
 mod cost;

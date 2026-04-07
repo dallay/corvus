@@ -1,7 +1,7 @@
 use super::client::{McpClient, McpToolManifest};
 use super::normalize;
 use crate::config::McpServerConfig;
-use crate::tools::traits::{Tool, ToolResult, ToolSpec};
+use crate::tools::traits::{Tool, ToolDescriptorHint, ToolDescriptorMcpHint, ToolResult, ToolSpec};
 use async_trait::async_trait;
 use serde_json::Map;
 
@@ -146,6 +146,18 @@ impl Tool for McpToolAdapter {
                 &self.server_name,
                 &self.original_name,
             )),
+        }
+    }
+
+    fn descriptor_hint(&self) -> ToolDescriptorHint {
+        ToolDescriptorHint {
+            mcp: Some(ToolDescriptorMcpHint {
+                server: Some(self.server_name.clone()),
+                upstream_name: Some(self.original_name.clone()),
+                resource_uri: None,
+                mime_type: None,
+                prompt_arguments: vec![],
+            }),
         }
     }
 }

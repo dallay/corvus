@@ -23,7 +23,7 @@ pub struct ToolSpec {
     pub source: Option<ToolSourceMetadata>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ToolSourceMetadata {
     pub kind: String,
     #[serde(default)]
@@ -32,6 +32,27 @@ pub struct ToolSourceMetadata {
     pub server: Option<String>,
     #[serde(default)]
     pub original_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ToolDescriptorHint {
+    pub mcp: Option<ToolDescriptorMcpHint>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ToolDescriptorMcpHint {
+    pub server: Option<String>,
+    pub upstream_name: Option<String>,
+    pub resource_uri: Option<String>,
+    pub mime_type: Option<String>,
+    pub prompt_arguments: Vec<ToolDescriptorMcpPromptArgumentHint>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolDescriptorMcpPromptArgumentHint {
+    pub name: String,
+    pub description: String,
+    pub required: bool,
 }
 
 /// Core tool trait — implement for any capability
@@ -61,6 +82,11 @@ pub trait Tool: Send + Sync {
             parameters,
             source: None,
         }
+    }
+
+    /// Optional descriptive metadata used by M2 capability registration.
+    fn descriptor_hint(&self) -> ToolDescriptorHint {
+        ToolDescriptorHint::default()
     }
 }
 
