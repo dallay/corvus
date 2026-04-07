@@ -7,6 +7,7 @@ const emit = defineEmits<{
   (e: "update:sort", value: "last_activity" | "started_at"): void;
 }>();
 
+// biome-ignore lint/correctness/noUnusedVariables: Used in Vue template.
 const { t } = useI18n();
 const status = ref<string>("all");
 const sort = ref<"last_activity" | "started_at">("last_activity");
